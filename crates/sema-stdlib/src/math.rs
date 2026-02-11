@@ -135,19 +135,9 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Float(f.cos()))
     });
 
-    register_fn(env, "pi", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("pi", "0", args.len()));
-        }
-        Ok(Value::Float(std::f64::consts::PI))
-    });
-
-    register_fn(env, "e", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("e", "0", args.len()));
-        }
-        Ok(Value::Float(std::f64::consts::E))
-    });
+    // Bind pi and e as constants (bare symbol access)
+    env.set("pi".to_string(), Value::Float(std::f64::consts::PI));
+    env.set("e".to_string(), Value::Float(std::f64::consts::E));
 
     register_fn(env, "int", |args| {
         if args.len() != 1 {

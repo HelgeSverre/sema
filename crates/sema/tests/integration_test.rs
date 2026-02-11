@@ -1583,7 +1583,7 @@ fn test_pow() {
 fn test_log() {
     assert_eq!(eval("(log 1)"), Value::Float(0.0));
     // log(e) ≈ 1.0
-    let result = eval("(log (e))");
+    let result = eval("(log e)");
     if let Value::Float(f) = result {
         assert!((f - 1.0).abs() < 1e-10);
     } else {
@@ -1596,7 +1596,7 @@ fn test_trig() {
     assert_eq!(eval("(sin 0)"), Value::Float(0.0));
     assert_eq!(eval("(cos 0)"), Value::Float(1.0));
     // sin(pi/2) ≈ 1.0
-    let result = eval("(sin (/ (pi) 2))");
+    let result = eval("(sin (/ pi 2))");
     if let Value::Float(f) = result {
         assert!((f - 1.0).abs() < 1e-10);
     } else {
@@ -1606,12 +1606,12 @@ fn test_trig() {
 
 #[test]
 fn test_pi_and_e_constants() {
-    if let Value::Float(p) = eval("(pi)") {
+    if let Value::Float(p) = eval("pi") {
         assert!((p - std::f64::consts::PI).abs() < 1e-15);
     } else {
         panic!("expected float");
     }
-    if let Value::Float(e) = eval("(e)") {
+    if let Value::Float(e) = eval("e") {
         assert!((e - std::f64::consts::E).abs() < 1e-15);
     } else {
         panic!("expected float");
@@ -3626,7 +3626,7 @@ fn test_prompt_predicate() {
 #[test]
 fn test_prompt_messages() {
     assert_eq!(
-        eval(r#"(length (prompt-messages (prompt (user "hello") (assistant "hi"))))"#),
+        eval(r#"(length (prompt/messages (prompt (user "hello") (assistant "hi"))))"#),
         Value::Int(2)
     );
 }
@@ -3635,7 +3635,7 @@ fn test_prompt_messages() {
 fn test_prompt_append() {
     assert_eq!(
         eval(
-            r#"(length (prompt-messages (prompt-append (prompt (user "a")) (prompt (assistant "b")))))"#
+            r#"(length (prompt/messages (prompt/append (prompt (user "a")) (prompt (assistant "b")))))"#
         ),
         Value::Int(2)
     );
@@ -3643,13 +3643,13 @@ fn test_prompt_append() {
 
 #[test]
 fn test_prompt_set_system() {
-    // prompt-set-system replaces system message
+    // prompt/set-system replaces system message
     let result = eval(
         r#"
         (begin
           (define p (prompt (system "old") (user "hello")))
-          (define p2 (prompt-set-system p "new system"))
-          (length (prompt-messages p2)))
+          (define p2 (prompt/set-system p "new system"))
+          (length (prompt/messages p2)))
     "#,
     );
     assert_eq!(result, Value::Int(2));
@@ -3662,8 +3662,8 @@ fn test_prompt_set_system_adds_when_missing() {
         r#"
         (begin
           (define p (prompt (user "hello")))
-          (define p2 (prompt-set-system p "system msg"))
-          (length (prompt-messages p2)))
+          (define p2 (prompt/set-system p "system msg"))
+          (length (prompt/messages p2)))
     "#,
     );
     assert_eq!(result, Value::Int(2));
@@ -3690,15 +3690,15 @@ fn test_message_predicate() {
 #[test]
 fn test_message_role() {
     assert_eq!(
-        eval(r#"(message-role (message :user "hi"))"#),
+        eval(r#"(message/role (message :user "hi"))"#),
         Value::keyword("user")
     );
     assert_eq!(
-        eval(r#"(message-role (message :assistant "hello"))"#),
+        eval(r#"(message/role (message :assistant "hello"))"#),
         Value::keyword("assistant")
     );
     assert_eq!(
-        eval(r#"(message-role (message :system "you are helpful"))"#),
+        eval(r#"(message/role (message :system "you are helpful"))"#),
         Value::keyword("system")
     );
 }
@@ -3706,11 +3706,11 @@ fn test_message_role() {
 #[test]
 fn test_message_content() {
     assert_eq!(
-        eval(r#"(message-content (message :user "hello world"))"#),
+        eval(r#"(message/content (message :user "hello world"))"#),
         Value::string("hello world")
     );
     assert_eq!(
-        eval(r#"(message-content (message :assistant "response"))"#),
+        eval(r#"(message/content (message :assistant "response"))"#),
         Value::string("response")
     );
 }
@@ -3723,8 +3723,8 @@ fn test_message_from_prompt() {
             r#"
             (begin
               (define p (prompt (user "test input")))
-              (define msgs (prompt-messages p))
-              (message-content (car msgs)))
+              (define msgs (prompt/messages p))
+              (message/content (car msgs)))
         "#
         ),
         Value::string("test input")
@@ -3734,8 +3734,8 @@ fn test_message_from_prompt() {
             r#"
             (begin
               (define p (prompt (user "test input")))
-              (define msgs (prompt-messages p))
-              (message-role (car msgs)))
+              (define msgs (prompt/messages p))
+              (message/role (car msgs)))
         "#
         ),
         Value::keyword("user")
@@ -3870,7 +3870,7 @@ fn test_conversation_add_message_content_check() {
             (begin
               (define c (conversation/add-message (conversation/new) :user "hello"))
               (define msgs (conversation/messages c))
-              (message-content (car msgs)))
+              (message/content (car msgs)))
         "#
         ),
         Value::string("hello")
@@ -3885,7 +3885,7 @@ fn test_conversation_add_message_role_check() {
             (begin
               (define c (conversation/add-message (conversation/new) :assistant "response"))
               (define msgs (conversation/messages c))
-              (message-role (car msgs)))
+              (message/role (car msgs)))
         "#
         ),
         Value::keyword("assistant")
@@ -3910,7 +3910,7 @@ fn test_tool_predicate() {
 fn test_tool_name() {
     assert_eq!(
         eval(
-            r#"(begin (deftool my-test-tool-2 "desc" {:x {:type :string}} (lambda (args) "ok")) (tool-name my-test-tool-2))"#
+            r#"(begin (deftool my-test-tool-2 "desc" {:x {:type :string}} (lambda (args) "ok")) (tool/name my-test-tool-2))"#
         ),
         Value::string("my-test-tool-2")
     );
@@ -3920,7 +3920,7 @@ fn test_tool_name() {
 fn test_tool_description() {
     assert_eq!(
         eval(
-            r#"(begin (deftool my-test-tool-3 "my description" {:x {:type :string}} (lambda (args) "ok")) (tool-description my-test-tool-3))"#
+            r#"(begin (deftool my-test-tool-3 "my description" {:x {:type :string}} (lambda (args) "ok")) (tool/description my-test-tool-3))"#
         ),
         Value::string("my description")
     );
@@ -3930,7 +3930,7 @@ fn test_tool_description() {
 fn test_tool_parameters() {
     assert_eq!(
         eval(
-            r#"(begin (deftool my-test-tool-4 "desc" {:x {:type :string}} (lambda (args) "ok")) (map? (tool-parameters my-test-tool-4)))"#
+            r#"(begin (deftool my-test-tool-4 "desc" {:x {:type :string}} (lambda (args) "ok")) (map? (tool/parameters my-test-tool-4)))"#
         ),
         Value::Bool(true)
     );
@@ -3954,7 +3954,7 @@ fn test_agent_predicate() {
 fn test_agent_name() {
     assert_eq!(
         eval(
-            r#"(begin (defagent test-agent-2 {:system "sys" :tools []}) (agent-name test-agent-2))"#
+            r#"(begin (defagent test-agent-2 {:system "sys" :tools []}) (agent/name test-agent-2))"#
         ),
         Value::string("test-agent-2")
     );
@@ -3964,7 +3964,7 @@ fn test_agent_name() {
 fn test_agent_system() {
     assert_eq!(
         eval(
-            r#"(begin (defagent test-agent-3 {:system "you are helpful" :tools []}) (agent-system test-agent-3))"#
+            r#"(begin (defagent test-agent-3 {:system "you are helpful" :tools []}) (agent/system test-agent-3))"#
         ),
         Value::string("you are helpful")
     );
@@ -3974,7 +3974,7 @@ fn test_agent_system() {
 fn test_agent_tools_empty() {
     assert_eq!(
         eval(
-            r#"(begin (defagent test-agent-4 {:system "sys" :tools []}) (length (agent-tools test-agent-4)))"#
+            r#"(begin (defagent test-agent-4 {:system "sys" :tools []}) (length (agent/tools test-agent-4)))"#
         ),
         Value::Int(0)
     );
@@ -3984,7 +3984,7 @@ fn test_agent_tools_empty() {
 fn test_agent_model() {
     assert_eq!(
         eval(
-            r#"(begin (defagent test-agent-5 {:system "sys" :tools [] :model "claude-3"}) (agent-model test-agent-5))"#
+            r#"(begin (defagent test-agent-5 {:system "sys" :tools [] :model "claude-3"}) (agent/model test-agent-5))"#
         ),
         Value::string("claude-3")
     );
@@ -3994,7 +3994,7 @@ fn test_agent_model() {
 fn test_agent_max_turns_default() {
     assert_eq!(
         eval(
-            r#"(begin (defagent test-agent-6 {:system "sys" :tools []}) (agent-max-turns test-agent-6))"#
+            r#"(begin (defagent test-agent-6 {:system "sys" :tools []}) (agent/max-turns test-agent-6))"#
         ),
         Value::Int(10)
     );
@@ -4004,7 +4004,7 @@ fn test_agent_max_turns_default() {
 fn test_agent_max_turns_custom() {
     assert_eq!(
         eval(
-            r#"(begin (defagent test-agent-7 {:system "sys" :tools [] :max-turns 5}) (agent-max-turns test-agent-7))"#
+            r#"(begin (defagent test-agent-7 {:system "sys" :tools [] :max-turns 5}) (agent/max-turns test-agent-7))"#
         ),
         Value::Int(5)
     );
@@ -4018,7 +4018,7 @@ fn test_agent_with_tools() {
             (begin
               (deftool agent-tool-1 "tool1" {:x {:type :string}} (lambda (args) "ok"))
               (defagent test-agent-8 {:system "sys" :tools [agent-tool-1]})
-              (length (agent-tools test-agent-8)))
+              (length (agent/tools test-agent-8)))
         "#
         ),
         Value::Int(1)
@@ -4072,7 +4072,7 @@ fn test_prompt_system_user_assistant() {
             r#"
             (begin
               (define p (prompt (system "be helpful") (user "hello") (assistant "hi")))
-              (length (prompt-messages p)))
+              (length (prompt/messages p)))
         "#
         ),
         Value::Int(3)
@@ -4088,9 +4088,9 @@ fn test_prompt_append_preserves_order() {
             (begin
               (define p1 (prompt (user "first")))
               (define p2 (prompt (assistant "second")))
-              (define combined (prompt-append p1 p2))
-              (define msgs (prompt-messages combined))
-              (message-content (car msgs)))
+              (define combined (prompt/append p1 p2))
+              (define msgs (prompt/messages combined))
+              (message/content (car msgs)))
         "#
         ),
         Value::string("first")
@@ -4101,19 +4101,19 @@ fn test_prompt_append_preserves_order() {
 
 #[test]
 fn test_message_role_error_on_non_message() {
-    let err = eval_err(r#"(message-role 42)"#);
+    let err = eval_err(r#"(message/role 42)"#);
     assert!(err.to_string().contains("Type error"));
 }
 
 #[test]
 fn test_message_content_error_on_non_message() {
-    let err = eval_err(r#"(message-content "not a msg")"#);
+    let err = eval_err(r#"(message/content "not a msg")"#);
     assert!(err.to_string().contains("Type error"));
 }
 
 #[test]
 fn test_prompt_messages_error_on_non_prompt() {
-    let err = eval_err(r#"(prompt-messages 42)"#);
+    let err = eval_err(r#"(prompt/messages 42)"#);
     assert!(err.to_string().contains("Type error"));
 }
 
@@ -4125,13 +4125,13 @@ fn test_conversation_messages_error_on_non_conversation() {
 
 #[test]
 fn test_tool_name_error_on_non_tool() {
-    let err = eval_err(r#"(tool-name 42)"#);
+    let err = eval_err(r#"(tool/name 42)"#);
     assert!(err.to_string().contains("Type error"));
 }
 
 #[test]
 fn test_agent_name_error_on_non_agent() {
-    let err = eval_err(r#"(agent-name "not an agent")"#);
+    let err = eval_err(r#"(agent/name "not an agent")"#);
     assert!(err.to_string().contains("Type error"));
 }
 
@@ -4366,7 +4366,7 @@ fn test_message_slash_content() {
 #[test]
 fn test_legacy_tool_name_alias() {
     assert_eq!(
-        eval(r#"(begin (deftool t1l "desc" {:x {:type :string}} (lambda (x) "ok")) (tool-name t1l))"#),
+        eval(r#"(begin (deftool t1l "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1l))"#),
         Value::string("t1l")
     );
 }
@@ -4374,7 +4374,7 @@ fn test_legacy_tool_name_alias() {
 #[test]
 fn test_legacy_agent_name_alias() {
     assert_eq!(
-        eval(r#"(begin (defagent a1l {:system "sys" :tools []}) (agent-name a1l))"#),
+        eval(r#"(begin (defagent a1l {:system "sys" :tools []}) (agent/name a1l))"#),
         Value::string("a1l")
     );
 }
@@ -4382,7 +4382,7 @@ fn test_legacy_agent_name_alias() {
 #[test]
 fn test_legacy_prompt_messages_alias() {
     assert_eq!(
-        eval(r#"(length (prompt-messages (prompt (user "hello"))))"#),
+        eval(r#"(length (prompt/messages (prompt (user "hello"))))"#),
         Value::Int(1)
     );
 }
@@ -4390,7 +4390,7 @@ fn test_legacy_prompt_messages_alias() {
 #[test]
 fn test_legacy_message_role_alias() {
     assert_eq!(
-        eval(r#"(message-role (message :assistant "hi"))"#),
+        eval(r#"(message/role (message :assistant "hi"))"#),
         Value::keyword("assistant")
     );
 }

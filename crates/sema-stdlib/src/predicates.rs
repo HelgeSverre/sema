@@ -124,4 +124,38 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::keyword(args[0].type_name()))
     });
+
+    register_fn(env, "pair?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("pair?", "1", args.len()));
+        }
+        Ok(Value::Bool(match &args[0] {
+            Value::List(l) => !l.is_empty(),
+            _ => false,
+        }))
+    });
+
+    register_fn(env, "boolean?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("boolean?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(&args[0], Value::Bool(_))))
+    });
+
+    register_fn(env, "procedure?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("procedure?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(
+            &args[0],
+            Value::Lambda(_) | Value::NativeFn(_)
+        )))
+    });
+
+    register_fn(env, "equal?", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("equal?", "2", args.len()));
+        }
+        Ok(Value::Bool(args[0] == args[1]))
+    });
 }

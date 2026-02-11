@@ -372,12 +372,15 @@ Most list functions work on vectors too.
 ```scheme
 (null? '())        (nil? nil)         (empty? "")
 (list? '(1))       (vector? [1])      (map? {:a 1})
+(pair? '(1 2))     ; #t (non-empty list, Scheme compat)
 (number? 42)       (integer? 42)      (float? 3.14)
 (string? "hi")     (symbol? 'x)       (keyword? :k)
 (bool? #t)         (fn? car)
 (zero? 0)          (even? 4)          (odd? 3)
 (positive? 1)      (negative? -1)
 (eq? 'a 'a)        (= 1 1)
+
+;; Scheme aliases: boolean? = bool?, procedure? = fn?, equal? = eq?
 
 ;; LLM type predicates
 (prompt? p)        (message? m)       (conversation? c)
@@ -735,8 +738,6 @@ All providers are auto-configured from environment variables. Use `(llm/configur
 | **Voyage**        | Embedding-only | —    | —      | —     | ✅         |
 | **Cohere**        | Embedding-only | —    | —      | —     | ✅         |
 
-> **Note:** Legacy hyphenated accessor names (`tool-name`, `agent-system`, `prompt-messages`, `message-role`, etc.) still work as aliases for the slash-namespaced forms.
-
 ---
 
 ## CLI Reference
@@ -819,8 +820,8 @@ crates/
   sema-core/     Value types, errors, environment (Rc, BTreeMap, thiserror)
   sema-reader/   Hand-written lexer and s-expression parser
   sema-eval/     Trampoline-based evaluator, special forms, module system
-  sema-stdlib/   Standard library (~200 builtins across 15 modules)
-  sema-llm/      LLM provider trait + API clients (Anthropic, OpenAI, Gemini, Ollama)
+  sema-stdlib/   Standard library builtins
+  sema-llm/      LLM provider trait + multi-provider API clients
   sema/          Binary: REPL (rustyline) and file runner (clap)
 ```
 

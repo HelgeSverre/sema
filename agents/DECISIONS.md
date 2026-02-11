@@ -329,12 +329,12 @@ crates/sema/src/
 
 ## Phase 9 Decisions
 
-### 36. Slash-namespaced LLM accessors with legacy aliases
+### 36. Slash-namespaced LLM accessors (legacy aliases removed)
 
 - Renamed all LLM type accessors to use `/` namespace per Decision #24
 - `tool-name` → `tool/name`, `agent-system` → `agent/system`, `prompt-messages` → `prompt/messages`, `message-role` → `message/role`, etc.
-- Legacy hyphenated names kept as aliases for backward compatibility
-- Both names call the same implementation — no performance difference
+- Legacy hyphenated aliases were initially kept but later removed to avoid maintenance burden
+- Only the slash-namespaced forms exist now: `tool/name`, `agent/system`, `prompt/messages`, `message/role`, etc.
 
 ### 37. Auto-retry on rate limiting
 
@@ -363,3 +363,15 @@ crates/sema/src/
 - All providers now use 120s HTTP timeout (matching Ollama's existing timeout)
 - Prevents indefinite hangs on slow or unresponsive API endpoints
 - Applied to: Anthropic, OpenAI, Gemini, Jina, Voyage, Cohere embedding providers
+
+### 41. `pi` and `e` as constants, not functions
+
+- Changed from zero-arg `NativeFn` registrations to direct `env.set()` bindings
+- `pi` and `e` now evaluate as bare symbols to their float values (no parens needed)
+- Rationale: mathematical constants should be values, not function calls — `(* 2 pi)` not `(* 2 (pi))`
+
+### 42. Scheme-compat predicate aliases
+
+- Added `pair?` (non-empty list), `boolean?` (= `bool?`), `procedure?` (= `fn?`), `equal?` (= `eq?`)
+- Primary names remain `bool?`, `fn?`, `eq?` — aliases exist for Scheme compatibility
+- `pair?` is new functionality: returns `#t` for non-empty lists (Sema has no dotted pairs/improper lists, so `pair?` ≡ non-empty `list?`)
