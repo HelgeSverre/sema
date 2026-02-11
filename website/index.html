@@ -129,6 +129,8 @@
     border-bottom: 1px solid var(--border);
   }
 
+  .split.compact { min-height: auto; }
+
   .split.reverse { direction: rtl; }
   .split.reverse > * { direction: ltr; }
 
@@ -172,6 +174,28 @@
     margin-bottom: 1rem;
   }
 
+  .split-text ul {
+    list-style: none;
+    margin-bottom: 1rem;
+  }
+
+  .split-text ul li {
+    font-size: 1.1rem;
+    line-height: 1.7;
+    color: var(--text);
+    padding-left: 1.2em;
+    position: relative;
+    margin-bottom: 0.3em;
+  }
+
+  .split-text ul li::before {
+    content: "·";
+    position: absolute;
+    left: 0;
+    color: var(--gold-dim);
+    font-weight: 600;
+  }
+
   .split-code {
     background: var(--bg-code);
     display: flex;
@@ -208,6 +232,122 @@
   .kw { color: #c89050; }
   .b  { color: #88a8b8; }
   .p  { color: #444438; }
+  .v  { color: #b898c8; }
+
+  /* ——— Section divider with title ——— */
+  .section-divider {
+    padding: 5rem 4rem 2rem;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-divider h2 {
+    font-size: 2.8rem;
+    font-weight: 300;
+    color: var(--text-bright);
+    letter-spacing: 0.02em;
+    margin-bottom: 0.5rem;
+  }
+
+  .section-divider h2 .paren { color: var(--text-dim); }
+
+  .section-divider p {
+    font-size: 1.15rem;
+    color: var(--text-dim);
+    font-style: italic;
+    max-width: 36em;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ——— Reference tables ——— */
+  .ref-section {
+    padding: 4rem;
+    border-bottom: 1px solid var(--border);
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .ref-section h3 {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--gold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 1.5rem;
+  }
+
+  .type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: 0.8rem;
+    margin-bottom: 2rem;
+  }
+
+  .type-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem 1.2rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.8rem;
+  }
+
+  .type-card .type-name {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--gold);
+    white-space: nowrap;
+    min-width: 5rem;
+  }
+
+  .type-card .type-ex {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+
+  /* ——— Stdlib category grid ——— */
+  .stdlib-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+    gap: 1.2rem;
+  }
+
+  .stdlib-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+
+  .stdlib-card h4 {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--gold);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 0.8rem;
+  }
+
+  .stdlib-card .fn-list {
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    line-height: 1.9;
+    word-break: break-word;
+  }
+
+  .stdlib-card .fn-list span {
+    display: inline-block;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.1em 0.45em;
+    border-radius: 3px;
+    margin: 0.1em 0.15em;
+    white-space: nowrap;
+  }
 
   /* ——— Features grid (full-width section) ——— */
   .features-section {
@@ -493,6 +633,13 @@
   footer a { color: var(--text-dim); text-decoration: underline; }
   footer a:hover { color: var(--gold); }
 
+  /* ——— Inline code in prose ——— */
+  .ic {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--gold-dim);
+  }
+
   /* ——— Responsive ——— */
   @media (max-width: 900px) {
     .split {
@@ -512,6 +659,9 @@
     .crate-grid { grid-template-columns: 1fr; }
     .install-methods { grid-template-columns: 1fr; }
     .features-section, .arch-section, .install-section, .providers-strip { padding: 3rem 1.5rem; }
+    .ref-section { padding: 3rem 1.5rem; }
+    .section-divider { padding: 3rem 1.5rem 1.5rem; }
+    .stdlib-grid { grid-template-columns: 1fr; }
     nav { gap: 1.2rem; flex-wrap: wrap; }
   }
 </style>
@@ -531,22 +681,26 @@
 <!-- ——— Nav ——— -->
 <nav>
   <a href="#language">Language</a>
+  <a href="#data">Data</a>
+  <a href="#stdlib">Stdlib</a>
   <a href="#llm">LLM</a>
   <a href="#features">Features</a>
-  <a href="#architecture">Architecture</a>
   <a href="#install">Install</a>
   <a href="https://github.com/HelgeSverre/sema">GitHub</a>
 </nav>
 
-<!-- ——— Language: text left, code right ——— -->
+<!-- ═══════════════════════════════════════════════════════
+     LANGUAGE OVERVIEW
+     ═══════════════════════════════════════════════════════ -->
+
 <section id="language" class="split">
   <div class="split-text">
     <div class="label">The Language</div>
     <h2><span class="paren">(</span>Scheme meets Clojure<span class="paren">)</span></h2>
     <p>
-      A Scheme-like core with Clojure-style keywords (<code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">:foo</code>),
-      map literals (<code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">{:key val}</code>),
-      and vector literals (<code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">[1 2 3]</code>).
+      A Scheme-like core with Clojure-style keywords (<code class="ic">:foo</code>),
+      map literals (<code class="ic">{:key val}</code>),
+      and vector literals (<code class="ic">[1 2 3]</code>).
     </p>
     <p>
       Tail-call optimized via trampoline. Closures, macros, pattern matching,
@@ -585,7 +739,422 @@
   </div>
 </section>
 
-<!-- ——— LLM: code left, text right ——— -->
+<!-- ——— Bindings & Control Flow ——— -->
+<section class="split reverse compact">
+  <div class="split-text">
+    <div class="label">Control Flow</div>
+    <h2><span class="paren">(</span>Bindings &amp; branches<span class="paren">)</span></h2>
+    <p>
+      <code class="ic">let</code>, <code class="ic">let*</code>, and <code class="ic">letrec</code>
+      for local bindings. Named <code class="ic">let</code> for tail-recursive loops.
+      <code class="ic">cond</code> and <code class="ic">case</code> for multi-way branching.
+    </p>
+    <p>
+      <code class="ic">when</code> and <code class="ic">unless</code> for single-branch
+      conditionals. <code class="ic">and</code> / <code class="ic">or</code> short-circuit
+      and return their deciding value.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Let bindings</span>
+<span class="p">(</span><span class="k">let</span> <span class="p">((</span>x <span class="n">10</span><span class="p">)</span> <span class="p">(</span>y <span class="n">20</span><span class="p">))</span>
+  <span class="p">(</span><span class="b">+</span> x y<span class="p">))</span>  <span class="c">; =&gt; 30</span>
+
+<span class="c">;; Named let &mdash; tail-recursive loop</span>
+<span class="p">(</span><span class="k">let</span> loop <span class="p">((</span>i <span class="n">0</span><span class="p">)</span> <span class="p">(</span>sum <span class="n">0</span><span class="p">))</span>
+  <span class="p">(</span><span class="k">if</span> <span class="p">(</span><span class="b">=</span> i <span class="n">100</span><span class="p">)</span> sum
+    <span class="p">(</span>loop <span class="p">(</span><span class="b">+</span> i <span class="n">1</span><span class="p">)</span> <span class="p">(</span><span class="b">+</span> sum i<span class="p">))))</span>
+<span class="c">; =&gt; 4950</span>
+
+<span class="c">;; Cond and case</span>
+<span class="p">(</span><span class="k">cond</span>
+  <span class="p">((</span><span class="b">&lt;</span> x <span class="n">0</span><span class="p">)</span> <span class="s">"negative"</span><span class="p">)</span>
+  <span class="p">((</span><span class="b">=</span> x <span class="n">0</span><span class="p">)</span> <span class="s">"zero"</span><span class="p">)</span>
+  <span class="p">(</span>else    <span class="s">"positive"</span><span class="p">))</span>
+
+<span class="p">(</span><span class="k">case</span> <span class="p">(</span><span class="kw">:status</span> response<span class="p">)</span>
+  <span class="p">((</span><span class="kw">:ok</span><span class="p">)</span>             <span class="s">"success"</span><span class="p">)</span>
+  <span class="p">((</span><span class="kw">:error</span> <span class="kw">:timeout</span><span class="p">)</span> <span class="s">"failure"</span><span class="p">)</span>
+  <span class="p">(</span>else              <span class="s">"unknown"</span><span class="p">))</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Error Handling & Modules ——— -->
+<section class="split compact">
+  <div class="split-text">
+    <div class="label">Resilience</div>
+    <h2><span class="paren">(</span>try / catch / throw<span class="paren">)</span></h2>
+    <p>
+      Structured error handling with typed error maps.
+      <code class="ic">catch</code> binds an error map with
+      <code class="ic">:type</code>, <code class="ic">:message</code>, and
+      <code class="ic">:stack-trace</code> keys.
+    </p>
+    <p>
+      File-based module system with <code class="ic">import</code> and selective
+      <code class="ic">export</code>. Modules are cached by canonical path
+      and isolated from the caller&rsquo;s scope.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Error handling</span>
+<span class="p">(</span><span class="k">try</span>
+  <span class="p">(</span><span class="b">/</span> <span class="n">1</span> <span class="n">0</span><span class="p">)</span>
+  <span class="p">(</span><span class="k">catch</span> e
+    <span class="p">(</span><span class="b">println</span> <span class="p">(</span><span class="kw">:message</span> e<span class="p">))</span>
+    <span class="p">(</span><span class="kw">:type</span> e<span class="p">)))</span>  <span class="c">; =&gt; :eval</span>
+
+<span class="p">(</span><span class="k">throw</span> <span class="p">{</span><span class="kw">:code</span> <span class="n">404</span> <span class="kw">:reason</span> <span class="s">"not found"</span><span class="p">})</span>
+
+<span class="c">;; Modules</span>
+<span class="c">;; math-utils.sema</span>
+<span class="p">(</span><span class="k">module</span> math-utils
+  <span class="p">(</span><span class="k">export</span> square cube<span class="p">)</span>
+  <span class="p">(</span><span class="k">define</span> <span class="p">(</span>square x<span class="p">)</span> <span class="p">(</span><span class="b">*</span> x x<span class="p">))</span>
+  <span class="p">(</span><span class="k">define</span> <span class="p">(</span>cube x<span class="p">)</span>   <span class="p">(</span><span class="b">*</span> x x x<span class="p">)))</span>
+
+<span class="c">;; main.sema</span>
+<span class="p">(</span><span class="k">import</span> <span class="s">"math-utils.sema"</span><span class="p">)</span>
+<span class="p">(</span>square <span class="n">5</span><span class="p">)</span>  <span class="c">; =&gt; 25</span>
+<span class="p">(</span>cube <span class="n">3</span><span class="p">)</span>    <span class="c">; =&gt; 27</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Macros & Metaprogramming ——— -->
+<section class="split reverse compact">
+  <div class="split-text">
+    <div class="label">Metaprogramming</div>
+    <h2><span class="paren">(</span>Code is data<span class="paren">)</span></h2>
+    <p>
+      <code class="ic">defmacro</code> with quasiquote, unquote, and splicing.
+      <code class="ic">eval</code> and <code class="ic">read</code> for runtime
+      code generation. <code class="ic">gensym</code> for unique symbols.
+    </p>
+    <p>
+      Macros expand in the caller&rsquo;s environment, giving access to all
+      builtins. Inspect expansions with <code class="ic">macroexpand</code>.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Define a macro</span>
+<span class="p">(</span><span class="k">defmacro</span> unless <span class="p">(</span>test . body<span class="p">)</span>
+  <span class="p">`(</span><span class="k">if</span> ,test <span class="b">nil</span> <span class="p">(</span><span class="k">begin</span> ,@body<span class="p">)))</span>
+
+<span class="p">(</span>unless <span class="b">#f</span>
+  <span class="p">(</span><span class="b">println</span> <span class="s">"this runs!"</span><span class="p">))</span>
+
+<span class="c">;; Inspect the expansion</span>
+<span class="p">(</span><span class="k">macroexpand</span> '<span class="p">(</span>unless <span class="b">#f</span> <span class="p">(</span><span class="b">println</span> <span class="s">"x"</span><span class="p">)))</span>
+<span class="c">; =&gt; (if #f nil (begin (println "x")))</span>
+
+<span class="c">;; Runtime eval</span>
+<span class="p">(</span><span class="k">eval</span> <span class="p">(</span><span class="b">read</span> <span class="s">"(+ 1 2 3)"</span><span class="p">))</span>  <span class="c">; =&gt; 6</span>
+
+<span class="c">;; Unique symbols for macro hygiene</span>
+<span class="p">(</span><span class="b">gensym</span> <span class="s">"tmp"</span><span class="p">)</span>  <span class="c">; =&gt; tmp_42</span></code></pre>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════
+     DATA TYPES
+     ═══════════════════════════════════════════════════════ -->
+
+<div id="data" class="section-divider">
+  <h2><span class="paren">(</span>Data types<span class="paren">)</span></h2>
+  <p>Fifteen types, from integers to agents. Everything is a value.</p>
+</div>
+
+<div class="ref-section">
+  <h3>Core Types</h3>
+  <div class="type-grid">
+    <div class="type-card"><span class="type-name">Integer</span> <span class="type-ex">42 &nbsp;-7 &nbsp;0</span></div>
+    <div class="type-card"><span class="type-name">Float</span> <span class="type-ex">3.14 &nbsp;-0.5 &nbsp;1e10</span></div>
+    <div class="type-card"><span class="type-name">String</span> <span class="type-ex">"hello" &nbsp;"line\nbreak"</span></div>
+    <div class="type-card"><span class="type-name">Boolean</span> <span class="type-ex">#t &nbsp;#f</span></div>
+    <div class="type-card"><span class="type-name">Nil</span> <span class="type-ex">nil</span></div>
+    <div class="type-card"><span class="type-name">Symbol</span> <span class="type-ex">foo &nbsp;my-var &nbsp;+</span></div>
+    <div class="type-card"><span class="type-name">Keyword</span> <span class="type-ex">:name &nbsp;:type &nbsp;:ok</span></div>
+    <div class="type-card"><span class="type-name">List</span> <span class="type-ex">(1 2 3) &nbsp;(+ a b)</span></div>
+    <div class="type-card"><span class="type-name">Vector</span> <span class="type-ex">[1 2 3] &nbsp;["a" "b"]</span></div>
+    <div class="type-card"><span class="type-name">Map</span> <span class="type-ex">{:name "Ada" :age 36}</span></div>
+  </div>
+
+  <h3>LLM Types</h3>
+  <div class="type-grid">
+    <div class="type-card"><span class="type-name">Prompt</span> <span class="type-ex">(prompt (user "hi"))</span></div>
+    <div class="type-card"><span class="type-name">Message</span> <span class="type-ex">(message :user "hi")</span></div>
+    <div class="type-card"><span class="type-name">Conversation</span> <span class="type-ex">(conversation/new {})</span></div>
+    <div class="type-card"><span class="type-name">Tool</span> <span class="type-ex">(deftool name ...)</span></div>
+    <div class="type-card"><span class="type-name">Agent</span> <span class="type-ex">(defagent name ...)</span></div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════
+     STANDARD LIBRARY
+     ═══════════════════════════════════════════════════════ -->
+
+<div id="stdlib" class="section-divider">
+  <h2><span class="paren">(</span>Standard library<span class="paren">)</span></h2>
+  <p>Over 200 builtins across 17 modules. Slash-namespaced by convention.</p>
+</div>
+
+<!-- ——— Stdlib: Lists ——— -->
+<section class="split compact">
+  <div class="split-text">
+    <div class="label">Collections</div>
+    <h2><span class="paren">(</span>Lists &amp; Maps<span class="paren">)</span></h2>
+    <p>
+      Linked lists, vectors, and ordered maps with a full suite of
+      higher-order operations: <code class="ic">map</code>, <code class="ic">filter</code>,
+      <code class="ic">foldl</code>, <code class="ic">reduce</code>,
+      <code class="ic">sort</code>, <code class="ic">zip</code>,
+      <code class="ic">partition</code>, and more.
+    </p>
+    <p>
+      Multi-list <code class="ic">map</code> applies a function across
+      parallel lists. Keywords in function position act as map accessors.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Lists</span>
+<span class="p">(</span><span class="b">map</span> <span class="b">+</span> '<span class="p">(</span><span class="n">1</span> <span class="n">2</span> <span class="n">3</span><span class="p">)</span> '<span class="p">(</span><span class="n">10</span> <span class="n">20</span> <span class="n">30</span><span class="p">))</span>  <span class="c">; =&gt; (11 22 33)</span>
+<span class="p">(</span><span class="b">zip</span> '<span class="p">(</span><span class="n">1</span> <span class="n">2</span><span class="p">)</span> '<span class="p">(</span><span class="s">"a"</span> <span class="s">"b"</span><span class="p">))</span>    <span class="c">; =&gt; ((1 "a") (2 "b"))</span>
+<span class="p">(</span><span class="b">take</span> <span class="n">3</span> <span class="p">(</span><span class="b">range</span> <span class="n">10</span><span class="p">))</span>          <span class="c">; =&gt; (0 1 2)</span>
+<span class="p">(</span><span class="b">sort-by</span> <span class="b">length</span> '<span class="p">(</span><span class="s">"bb"</span> <span class="s">"a"</span> <span class="s">"ccc"</span><span class="p">))</span>
+<span class="c">; =&gt; ("a" "bb" "ccc")</span>
+<span class="p">(</span><span class="b">list/unique</span> '<span class="p">(</span><span class="n">1</span> <span class="n">2</span> <span class="n">2</span> <span class="n">3</span><span class="p">))</span>     <span class="c">; =&gt; (1 2 3)</span>
+<span class="p">(</span><span class="b">frequencies</span> '<span class="p">(</span>a b a c b a<span class="p">))</span>
+<span class="c">; =&gt; {a 3 b 2 c 1}</span>
+
+<span class="c">;; Maps</span>
+<span class="p">(</span><span class="k">define</span> m <span class="p">{</span><span class="kw">:a</span> <span class="n">1</span> <span class="kw">:b</span> <span class="n">2</span> <span class="kw">:c</span> <span class="n">3</span><span class="p">})</span>
+<span class="p">(</span><span class="b">assoc</span> m <span class="kw">:d</span> <span class="n">4</span><span class="p">)</span>               <span class="c">; =&gt; {:a 1 :b 2 :c 3 :d 4}</span>
+<span class="p">(</span><span class="b">map/filter</span> <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>k v<span class="p">)</span> <span class="p">(</span><span class="b">&gt;</span> v <span class="n">1</span><span class="p">))</span> m<span class="p">)</span>
+<span class="c">; =&gt; {:b 2 :c 3}</span>
+<span class="p">(</span><span class="b">map/select-keys</span> m '<span class="p">(</span><span class="kw">:a</span> <span class="kw">:c</span><span class="p">))</span> <span class="c">; =&gt; {:a 1 :c 3}</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Stdlib: Strings & Regex ——— -->
+<section class="split reverse compact">
+  <div class="split-text">
+    <div class="label">Text</div>
+    <h2><span class="paren">(</span>Strings &amp; Regex<span class="paren">)</span></h2>
+    <p>
+      Slash-namespaced string operations: split, join, trim, upper, lower,
+      pad, replace, contains, starts-with, ends-with, repeat, chars.
+    </p>
+    <p>
+      Full regex support via Rust&rsquo;s <code class="ic">regex</code> crate:
+      match, find-all, replace, split.
+      <code class="ic">format</code> with <code class="ic">~a</code> placeholders
+      for string interpolation.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; String operations</span>
+<span class="p">(</span><span class="b">string/split</span> <span class="s">"a,b,c"</span> <span class="s">","</span><span class="p">)</span>     <span class="c">; =&gt; ("a" "b" "c")</span>
+<span class="p">(</span><span class="b">string/join</span> '<span class="p">(</span><span class="s">"a"</span> <span class="s">"b"</span><span class="p">)</span> <span class="s">", "</span><span class="p">)</span> <span class="c">; =&gt; "a, b"</span>
+<span class="p">(</span><span class="b">string/upper</span> <span class="s">"hello"</span><span class="p">)</span>        <span class="c">; =&gt; "HELLO"</span>
+<span class="p">(</span><span class="b">string/pad-left</span> <span class="s">"42"</span> <span class="n">5</span> <span class="s">"0"</span><span class="p">)</span> <span class="c">; =&gt; "00042"</span>
+<span class="p">(</span><span class="b">format</span> <span class="s">"~a is ~a"</span> <span class="s">"Sema"</span> <span class="s">"great"</span><span class="p">)</span>
+
+<span class="c">;; Regular expressions</span>
+<span class="p">(</span><span class="b">regex/match?</span> <span class="s">"\\d+"</span> <span class="s">"abc123"</span><span class="p">)</span>
+<span class="c">; =&gt; #t</span>
+<span class="p">(</span><span class="b">regex/find-all</span> <span class="s">"\\d+"</span> <span class="s">"a1b2c3"</span><span class="p">)</span>
+<span class="c">; =&gt; ("1" "2" "3")</span>
+<span class="p">(</span><span class="b">regex/replace-all</span> <span class="s">"\\d"</span> <span class="s">"a1b2"</span> <span class="s">"X"</span><span class="p">)</span>
+<span class="c">; =&gt; "aXbX"</span>
+<span class="p">(</span><span class="b">regex/split</span> <span class="s">","</span> <span class="s">"a,b,c"</span><span class="p">)</span>
+<span class="c">; =&gt; ("a" "b" "c")</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Stdlib: IO, HTTP, System ——— -->
+<section class="split compact">
+  <div class="split-text">
+    <div class="label">Real-World I/O</div>
+    <h2><span class="paren">(</span>Files, HTTP &amp; system<span class="paren">)</span></h2>
+    <p>
+      File operations: read, write, append, copy, delete, rename, list,
+      mkdir, info. Paths: join, dirname, basename, extension, absolute.
+    </p>
+    <p>
+      HTTP client with <code class="ic">http/get</code>,
+      <code class="ic">http/post</code>, <code class="ic">http/put</code>,
+      <code class="ic">http/delete</code>. Map bodies auto-serialize as JSON.
+      Shell access, environment variables, and system introspection.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; File I/O</span>
+<span class="p">(</span><span class="b">file/write</span> <span class="s">"out.txt"</span> <span class="s">"hello"</span><span class="p">)</span>
+<span class="p">(</span><span class="b">file/read</span> <span class="s">"out.txt"</span><span class="p">)</span>  <span class="c">; =&gt; "hello"</span>
+<span class="p">(</span><span class="b">file/exists?</span> <span class="s">"out.txt"</span><span class="p">)</span>  <span class="c">; =&gt; #t</span>
+
+<span class="c">;; HTTP</span>
+<span class="p">(</span><span class="k">define</span> resp <span class="p">(</span><span class="b">http/get</span> <span class="s">"https://api.example.com/data"</span><span class="p">))</span>
+<span class="p">(</span><span class="kw">:status</span> resp<span class="p">)</span>  <span class="c">; =&gt; 200</span>
+<span class="p">(</span><span class="kw">:body</span> resp<span class="p">)</span>    <span class="c">; =&gt; "..."</span>
+
+<span class="p">(</span><span class="b">http/post</span> <span class="s">"https://api.example.com/items"</span>
+  <span class="p">{</span><span class="kw">:body</span> <span class="p">{</span><span class="kw">:name</span> <span class="s">"widget"</span><span class="p">}})</span>
+
+<span class="c">;; JSON</span>
+<span class="p">(</span><span class="b">json/decode</span> <span class="p">(</span><span class="kw">:body</span> resp<span class="p">))</span>  <span class="c">; =&gt; {:key "val"}</span>
+<span class="p">(</span><span class="b">json/encode</span> <span class="p">{</span><span class="kw">:a</span> <span class="n">1</span><span class="p">})</span>       <span class="c">; =&gt; "{\"a\":1}"</span>
+
+<span class="c">;; System</span>
+<span class="p">(</span><span class="b">shell</span> <span class="s">"ls -la"</span><span class="p">)</span>  <span class="c">; =&gt; stdout output</span>
+<span class="p">(</span><span class="b">env</span> <span class="s">"HOME"</span><span class="p">)</span>       <span class="c">; =&gt; "/Users/ada"</span>
+<span class="p">(</span><span class="b">sys/platform</span><span class="p">)</span>    <span class="c">; =&gt; "macos"</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Stdlib reference grid ——— -->
+<div class="ref-section">
+  <h3>Function Reference</h3>
+  <div class="stdlib-grid">
+    <div class="stdlib-card">
+      <h4>Arithmetic &amp; Math</h4>
+      <div class="fn-list">
+        <span>+</span> <span>-</span> <span>*</span> <span>/</span> <span>mod</span>
+        <span>abs</span> <span>min</span> <span>max</span> <span>pow</span> <span>sqrt</span> <span>log</span>
+        <span>floor</span> <span>ceil</span> <span>round</span>
+        <span>sin</span> <span>cos</span> <span>math/tan</span>
+        <span>math/asin</span> <span>math/acos</span> <span>math/atan</span> <span>math/atan2</span>
+        <span>math/exp</span> <span>math/log10</span> <span>math/log2</span>
+        <span>math/gcd</span> <span>math/lcm</span>
+        <span>math/random</span> <span>math/random-int</span>
+        <span>math/clamp</span> <span>math/sign</span>
+        <span>pi</span> <span>e</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Bitwise</h4>
+      <div class="fn-list">
+        <span>bit/and</span> <span>bit/or</span> <span>bit/xor</span>
+        <span>bit/not</span> <span>bit/shift-left</span> <span>bit/shift-right</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Strings</h4>
+      <div class="fn-list">
+        <span>string-append</span> <span>string-length</span> <span>string-ref</span> <span>substring</span>
+        <span>str</span> <span>format</span>
+        <span>string/split</span> <span>string/join</span> <span>string/trim</span>
+        <span>string/upper</span> <span>string/lower</span>
+        <span>string/contains?</span> <span>string/starts-with?</span> <span>string/ends-with?</span>
+        <span>string/replace</span> <span>string/index-of</span> <span>string/chars</span>
+        <span>string/repeat</span> <span>string/pad-left</span> <span>string/pad-right</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Lists</h4>
+      <div class="fn-list">
+        <span>list</span> <span>cons</span> <span>car</span> <span>cdr</span>
+        <span>first</span> <span>rest</span> <span>last</span> <span>nth</span> <span>length</span>
+        <span>append</span> <span>reverse</span> <span>range</span>
+        <span>map</span> <span>filter</span> <span>foldl</span> <span>foldr</span>
+        <span>reduce</span> <span>for-each</span> <span>apply</span>
+        <span>sort</span> <span>sort-by</span>
+        <span>take</span> <span>drop</span> <span>flatten</span> <span>zip</span>
+        <span>partition</span> <span>member</span> <span>any</span> <span>every</span>
+        <span>list/unique</span> <span>list/index-of</span>
+        <span>list/group-by</span> <span>list/interleave</span> <span>list/chunk</span>
+        <span>frequencies</span> <span>interpose</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Maps</h4>
+      <div class="fn-list">
+        <span>hash-map</span> <span>get</span> <span>assoc</span> <span>dissoc</span>
+        <span>merge</span> <span>keys</span> <span>vals</span> <span>contains?</span> <span>count</span>
+        <span>map/entries</span> <span>map/from-entries</span>
+        <span>map/map-vals</span> <span>map/map-keys</span>
+        <span>map/filter</span> <span>map/select-keys</span> <span>map/update</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Predicates</h4>
+      <div class="fn-list">
+        <span>null?</span> <span>nil?</span> <span>empty?</span>
+        <span>list?</span> <span>vector?</span> <span>map?</span>
+        <span>number?</span> <span>integer?</span> <span>float?</span>
+        <span>string?</span> <span>symbol?</span> <span>keyword?</span>
+        <span>bool?</span> <span>fn?</span>
+        <span>zero?</span> <span>even?</span> <span>odd?</span>
+        <span>positive?</span> <span>negative?</span>
+        <span>eq?</span> <span>not</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>File I/O &amp; Paths</h4>
+      <div class="fn-list">
+        <span>file/read</span> <span>file/write</span> <span>file/append</span>
+        <span>file/read-lines</span> <span>file/write-lines</span>
+        <span>file/delete</span> <span>file/rename</span> <span>file/copy</span>
+        <span>file/exists?</span> <span>file/is-file?</span> <span>file/is-directory?</span>
+        <span>file/list</span> <span>file/mkdir</span> <span>file/info</span>
+        <span>path/join</span> <span>path/dirname</span> <span>path/basename</span>
+        <span>path/extension</span> <span>path/absolute</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>HTTP &amp; JSON</h4>
+      <div class="fn-list">
+        <span>http/get</span> <span>http/post</span> <span>http/put</span>
+        <span>http/delete</span> <span>http/request</span>
+        <span>json/encode</span> <span>json/decode</span> <span>json/encode-pretty</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Regex</h4>
+      <div class="fn-list">
+        <span>regex/match?</span> <span>regex/match</span>
+        <span>regex/find-all</span>
+        <span>regex/replace</span> <span>regex/replace-all</span>
+        <span>regex/split</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Date, Time &amp; System</h4>
+      <div class="fn-list">
+        <span>time/now</span> <span>time-ms</span>
+        <span>time/format</span> <span>time/parse</span> <span>time/date-parts</span>
+        <span>time/add</span> <span>time/diff</span> <span>sleep</span>
+        <span>env</span> <span>shell</span> <span>exit</span>
+        <span>sys/args</span> <span>sys/cwd</span> <span>sys/platform</span> <span>sys/env-all</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Crypto, CSV &amp; Encoding</h4>
+      <div class="fn-list">
+        <span>uuid/v4</span> <span>hash/sha256</span>
+        <span>base64/encode</span> <span>base64/decode</span>
+        <span>csv/parse</span> <span>csv/parse-maps</span> <span>csv/encode</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Type Conversions</h4>
+      <div class="fn-list">
+        <span>type</span> <span>int</span> <span>float</span>
+        <span>string-&gt;number</span> <span>number-&gt;string</span>
+        <span>string-&gt;symbol</span> <span>symbol-&gt;string</span>
+        <span>string-&gt;keyword</span> <span>keyword-&gt;string</span>
+        <span>list-&gt;vector</span> <span>vector-&gt;list</span>
+        <span>read</span> <span>read-many</span> <span>gensym</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ═══════════════════════════════════════════════════════
+     LLM PRIMITIVES
+     ═══════════════════════════════════════════════════════ -->
+
 <section id="llm" class="split reverse">
   <div class="split-text">
     <div class="label">LLM Primitives</div>
@@ -596,14 +1165,8 @@
       tool use, and agentic loops&mdash;all as native forms.
     </p>
     <p>
-      Define tools with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">deftool</code>,
-      wire them into agents with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">defagent</code>,
-      then let the model call your Lisp functions in a multi-turn loop.
-    </p>
-    <p>
-      Batch with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">llm/pmap</code>,
-      stream with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">llm/stream</code>,
-      track costs with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">llm/cost</code>.
+      11 providers auto-configured from environment variables.
+      Cost tracking, budgets, and batch processing built in.
     </p>
   </div>
   <div class="split-code">
@@ -624,21 +1187,195 @@
   <span class="s">"Coffee $4.50 at Blue Bottle"</span><span class="p">)</span>
 <span class="c">; =&gt; {:amount 4.5 :vendor "Blue Bottle"}</span>
 
-<span class="c">;; Tool use</span>
-<span class="p">(</span><span class="k">deftool</span> get-weather
-  <span class="s">"Get weather for a city"</span>
-  <span class="p">{</span><span class="kw">:city</span> <span class="p">{</span><span class="kw">:type</span> <span class="kw">:string</span><span class="p">}}</span>
-  <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span>args<span class="p">)</span>
-    <span class="p">(</span><span class="b">string-append</span> <span class="s">"Sunny, 22°C in "</span> <span class="p">(</span><span class="kw">:city</span> args<span class="p">))))</span>
-
-<span class="c">;; Agents</span>
-<span class="p">(</span><span class="k">defagent</span> weather-bot
-  <span class="p">{</span><span class="kw">:system</span> <span class="s">"Weather assistant."</span>
-   <span class="kw">:tools</span>  <span class="p">[</span>get-weather<span class="p">]</span>
-   <span class="kw">:max-turns</span> <span class="n">3</span><span class="p">})</span>
-<span class="p">(</span><span class="b">agent/run</span> weather-bot <span class="s">"Tokyo?"</span><span class="p">)</span></code></pre>
+<span class="c">;; Classification</span>
+<span class="p">(</span><span class="b">llm/classify</span> <span class="p">[</span><span class="kw">:positive</span> <span class="kw">:negative</span> <span class="kw">:neutral</span><span class="p">]</span>
+  <span class="s">"This product is amazing!"</span><span class="p">)</span>
+<span class="c">; =&gt; :positive</span></code></pre>
   </div>
 </section>
+
+<!-- ——— Tools & Agents ——— -->
+<section class="split compact">
+  <div class="split-text">
+    <div class="label">Function Calling</div>
+    <h2><span class="paren">(</span>Tools &amp; Agents<span class="paren">)</span></h2>
+    <p>
+      Define tools with <code class="ic">deftool</code>&mdash;the LLM sees the
+      schema, calls your Lisp function, and uses the result. Parameters are
+      converted from JSON to Sema values automatically.
+    </p>
+    <p>
+      <code class="ic">defagent</code> combines a system prompt, tools, and a
+      multi-turn loop. The agent calls tools and reasons until it has an
+      answer or hits <code class="ic">:max-turns</code>.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Define a tool</span>
+<span class="p">(</span><span class="k">deftool</span> lookup-capital
+  <span class="s">"Look up the capital of a country"</span>
+  <span class="p">{</span><span class="kw">:country</span> <span class="p">{</span><span class="kw">:type</span> <span class="kw">:string</span>
+             <span class="kw">:description</span> <span class="s">"Country name"</span><span class="p">}}</span>
+  <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span>country<span class="p">)</span>
+    <span class="p">(</span><span class="k">cond</span>
+      <span class="p">((</span><span class="b">=</span> country <span class="s">"Norway"</span><span class="p">)</span> <span class="s">"Oslo"</span><span class="p">)</span>
+      <span class="p">((</span><span class="b">=</span> country <span class="s">"France"</span><span class="p">)</span> <span class="s">"Paris"</span><span class="p">)</span>
+      <span class="p">(</span>else <span class="s">"Unknown"</span><span class="p">))))</span>
+
+<span class="c">;; Use tools in chat</span>
+<span class="p">(</span><span class="b">llm/chat</span>
+  <span class="p">[</span><span class="p">(</span><span class="b">message</span> <span class="kw">:user</span> <span class="s">"Capital of Norway?"</span><span class="p">)]</span>
+  <span class="p">{</span><span class="kw">:tools</span> <span class="p">[</span>lookup-capital<span class="p">]})</span>
+
+<span class="c">;; Agent with multi-turn loop</span>
+<span class="p">(</span><span class="k">defagent</span> geography-bot
+  <span class="p">{</span><span class="kw">:system</span> <span class="s">"You answer geography questions."</span>
+   <span class="kw">:tools</span>  <span class="p">[</span>lookup-capital<span class="p">]</span>
+   <span class="kw">:max-turns</span> <span class="n">3</span><span class="p">})</span>
+<span class="p">(</span><span class="b">agent/run</span> geography-bot <span class="s">"Capital of France?"</span><span class="p">)</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Conversations & Streaming ——— -->
+<section class="split reverse compact">
+  <div class="split-text">
+    <div class="label">Stateful Dialogue</div>
+    <h2><span class="paren">(</span>Conversations<span class="paren">)</span></h2>
+    <p>
+      Immutable conversation values that accumulate message history.
+      <code class="ic">conversation/say</code> sends a message, gets a reply,
+      and returns a new conversation with both appended.
+    </p>
+    <p>
+      Stream tokens in real-time with <code class="ic">llm/stream</code>.
+      Process collections in parallel with <code class="ic">llm/pmap</code>
+      and <code class="ic">llm/batch</code>.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Persistent conversations</span>
+<span class="p">(</span><span class="k">define</span> c <span class="p">(</span><span class="b">conversation/new</span> <span class="p">{}))</span>
+<span class="p">(</span><span class="k">define</span> c <span class="p">(</span><span class="b">conversation/say</span> c
+  <span class="s">"Remember: the secret is 7"</span><span class="p">))</span>
+<span class="p">(</span><span class="k">define</span> c <span class="p">(</span><span class="b">conversation/say</span> c
+  <span class="s">"What is the secret?"</span><span class="p">))</span>
+<span class="p">(</span><span class="b">conversation/last-reply</span> c<span class="p">)</span>
+<span class="c">; =&gt; "The secret is 7."</span>
+
+<span class="c">;; Streaming</span>
+<span class="p">(</span><span class="b">llm/stream</span> <span class="s">"Tell me a story"</span>
+  <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">200</span><span class="p">})</span>
+
+<span class="c">;; Parallel batch processing</span>
+<span class="p">(</span><span class="b">llm/pmap</span>
+  <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>word<span class="p">)</span> <span class="p">(</span><span class="b">format</span> <span class="s">"Define: ~a"</span> word<span class="p">))</span>
+  '<span class="p">(</span><span class="s">"serendipity"</span> <span class="s">"ephemeral"</span><span class="p">)</span>
+  <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">50</span><span class="p">})</span>
+
+<span class="c">;; Provider management</span>
+<span class="p">(</span><span class="b">llm/list-providers</span><span class="p">)</span>     <span class="c">; =&gt; (:anthropic :openai ...)</span>
+<span class="p">(</span><span class="b">llm/set-default</span> <span class="kw">:openai</span><span class="p">)</span>
+<span class="p">(</span><span class="b">llm/set-budget</span> <span class="n">1.00</span><span class="p">)</span>    <span class="c">; $1 spending limit</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Embeddings ——— -->
+<section class="split compact">
+  <div class="split-text">
+    <div class="label">Semantic Search</div>
+    <h2><span class="paren">(</span>Embeddings<span class="paren">)</span></h2>
+    <p>
+      Generate embeddings with <code class="ic">llm/embed</code> and compute
+      cosine similarity with <code class="ic">llm/similarity</code>.
+      Supports Jina, Voyage, Cohere, and OpenAI embedding models.
+    </p>
+    <p>
+      Batch embed multiple texts in a single call. Use with
+      <code class="ic">sort-by</code> to build simple semantic search.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Generate embeddings</span>
+<span class="p">(</span><span class="k">define</span> v1 <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"hello world"</span><span class="p">))</span>
+<span class="p">(</span><span class="k">define</span> v2 <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"hi there"</span><span class="p">))</span>
+<span class="p">(</span><span class="b">llm/similarity</span> v1 v2<span class="p">)</span>  <span class="c">; =&gt; 0.87</span>
+
+<span class="c">;; Batch embeddings</span>
+<span class="p">(</span><span class="b">llm/embed</span> <span class="p">[</span><span class="s">"cat"</span> <span class="s">"dog"</span> <span class="s">"fish"</span><span class="p">])</span>
+<span class="c">; =&gt; ((...) (...) (...))</span>
+
+<span class="c">;; Simple semantic search</span>
+<span class="p">(</span><span class="k">define</span> query <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"programming"</span><span class="p">))</span>
+<span class="p">(</span><span class="k">define</span> docs
+  <span class="p">(</span><span class="b">map</span> <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>d<span class="p">)</span> <span class="p">{</span><span class="kw">:text</span> d
+              <span class="kw">:vec</span>  <span class="p">(</span><span class="b">llm/embed</span> d<span class="p">)})</span>
+    '<span class="p">(</span><span class="s">"Lisp is great"</span>
+      <span class="s">"cooking recipes"</span>
+      <span class="s">"Rust programming"</span><span class="p">)))</span>
+<span class="p">(</span><span class="b">sort-by</span>
+  <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>d<span class="p">)</span> <span class="p">(</span><span class="b">-</span> <span class="p">(</span><span class="b">llm/similarity</span> query <span class="p">(</span><span class="kw">:vec</span> d<span class="p">))))</span>
+  docs<span class="p">)</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— LLM function reference ——— -->
+<div class="ref-section">
+  <h3>LLM Function Reference</h3>
+  <div class="stdlib-grid">
+    <div class="stdlib-card">
+      <h4>Completion &amp; Chat</h4>
+      <div class="fn-list">
+        <span>llm/complete</span> <span>llm/chat</span> <span>llm/send</span>
+        <span>llm/stream</span> <span>llm/extract</span> <span>llm/classify</span>
+        <span>llm/batch</span> <span>llm/pmap</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Provider Management</h4>
+      <div class="fn-list">
+        <span>llm/configure</span> <span>llm/auto-configure</span>
+        <span>llm/set-default</span> <span>llm/list-providers</span>
+        <span>llm/current-provider</span>
+        <span>llm/configure-embeddings</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Embeddings</h4>
+      <div class="fn-list">
+        <span>llm/embed</span> <span>llm/similarity</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Cost &amp; Usage</h4>
+      <div class="fn-list">
+        <span>llm/last-usage</span> <span>llm/session-usage</span> <span>llm/reset-usage</span>
+        <span>llm/set-budget</span> <span>llm/clear-budget</span> <span>llm/budget-remaining</span>
+        <span>llm/set-pricing</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Conversations</h4>
+      <div class="fn-list">
+        <span>conversation/new</span> <span>conversation/say</span>
+        <span>conversation/messages</span> <span>conversation/last-reply</span>
+        <span>conversation/add-message</span> <span>conversation/model</span>
+        <span>conversation/fork</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Accessors &amp; Predicates</h4>
+      <div class="fn-list">
+        <span>tool/name</span> <span>tool/description</span> <span>tool/parameters</span>
+        <span>agent/name</span> <span>agent/system</span> <span>agent/tools</span>
+        <span>agent/model</span> <span>agent/max-turns</span> <span>agent/run</span>
+        <span>prompt/messages</span> <span>prompt/append</span> <span>prompt/set-system</span>
+        <span>message/role</span> <span>message/content</span>
+        <span>prompt?</span> <span>message?</span> <span>conversation?</span>
+        <span>tool?</span> <span>agent?</span>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ——— Providers ——— -->
 <div class="providers-strip">
@@ -658,7 +1395,10 @@
   </div>
 </div>
 
-<!-- ——— Features ——— -->
+<!-- ═══════════════════════════════════════════════════════
+     FEATURES / ARCHITECTURE / INSTALL
+     ═══════════════════════════════════════════════════════ -->
+
 <section id="features" class="features-section">
   <h2><span class="paren">(</span>Features<span class="paren">)</span></h2>
   <div class="features-grid">
@@ -667,8 +1407,8 @@
       <p>Trampoline-based evaluator. Deep recursion without stack overflow.</p>
     </div>
     <div class="feat">
-      <h3>255 Builtins</h3>
-      <p>IO, HTTP, regex, JSON, crypto, CSV, datetime, math, and more across 17 modules.</p>
+      <h3>200+ Builtins</h3>
+      <p>I/O, HTTP, regex, JSON, crypto, CSV, datetime, math, and more across 17 modules.</p>
     </div>
     <div class="feat">
       <h3>Tool Use &amp; Agents</h3>
@@ -691,12 +1431,24 @@
       <p>File-based modules with <code>import</code> and <code>export</code>. Paths resolve relative to current file.</p>
     </div>
     <div class="feat">
-      <h3>Clojure-Style Data</h3>
-      <p>Keywords (<code>:foo</code>), maps (<code>{:k v}</code>), vectors (<code>[1 2]</code>). Keywords as functions.</p>
+      <h3>Error Handling</h3>
+      <p><code>try</code> / <code>catch</code> / <code>throw</code> with typed error maps and full stack traces.</p>
     </div>
     <div class="feat">
       <h3>Cost Tracking</h3>
-      <p>Built-in token counting and cost estimation with <code>llm/cost</code>. Know what you spend.</p>
+      <p>Per-call and session usage tracking. Budget limits with <code>llm/set-budget</code>.</p>
+    </div>
+    <div class="feat">
+      <h3>11 LLM Providers</h3>
+      <p>Anthropic, OpenAI, Gemini, Ollama, Groq, xAI, Mistral, Moonshot, Jina, Voyage, Cohere.</p>
+    </div>
+    <div class="feat">
+      <h3>Macros</h3>
+      <p><code>defmacro</code> with quasiquote/unquote/splicing. <code>macroexpand</code> for inspection.</p>
+    </div>
+    <div class="feat">
+      <h3>Clojure-Style Data</h3>
+      <p>Keywords (<code>:foo</code>), maps (<code>{:k v}</code>), vectors (<code>[1 2]</code>). Keywords as functions.</p>
     </div>
   </div>
 </section>
@@ -706,8 +1458,8 @@
   <h2><span class="paren">(</span>Architecture<span class="paren">)</span></h2>
   <p>
     Six Rust crates, one directed dependency graph. No circular dependencies.
-    Single-threaded with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">Rc</code>,
-    deterministic ordering with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">BTreeMap</code>.
+    Single-threaded with <code class="ic">Rc</code>,
+    deterministic ordering with <code class="ic">BTreeMap</code>.
   </p>
 
   <div class="crate-grid">
@@ -725,11 +1477,11 @@
     </div>
     <div class="crate-card">
       <h4>sema-stdlib</h4>
-      <p>226 builtins across 17 modules</p>
+      <p>200+ builtins across 17 modules</p>
     </div>
     <div class="crate-card">
       <h4>sema-llm</h4>
-      <p>LLM provider trait, API clients, streaming</p>
+      <p>LLM provider trait, 11 API clients, streaming</p>
     </div>
     <div class="crate-card">
       <h4>sema</h4>
@@ -739,12 +1491,12 @@
 
   <div class="arch-diagram">
 <pre><code>         sema-core
-        /    |    \
- sema-reader | sema-stdlib
-        \    |    /
-       sema-eval   sema-llm
-            \       /
-             sema</code></pre>
+         /    |    \
+  sema-reader | sema-stdlib
+         \    |    /
+        sema-eval   sema-llm
+             \       /
+              sema</code></pre>
   </div>
 </section>
 
