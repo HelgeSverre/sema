@@ -8,25 +8,79 @@
 
 Sema is a Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. It combines a Scheme core with Clojure-style keywords (`:foo`), map literals (`{:key val}`), and vector literals (`[1 2 3]`).
 
-## Building
+## Installation
 
+```bash
+cargo install --git https://github.com/HelgeSverre/sema
 ```
+
+Or build from source:
+
+```bash
+git clone https://github.com/HelgeSverre/sema
+cd sema
 cargo build --release
+# Binary is at target/release/sema
 ```
 
 ## Usage
 
-Run a file:
+```
+sema                          # Start the REPL
+sema script.sema              # Run a file
+sema -e '(+ 1 2)'             # Evaluate an expression
+sema -p '(map sqr (range 5))' # Evaluate and always print result
+```
 
-```
-cargo run -- examples/hello.sema
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| `-e, --eval <EXPR>` | Evaluate an expression, print result if non-nil |
+| `-p, --print <EXPR>` | Evaluate an expression, always print result |
+| `-l, --load <FILE>` | Load file(s) before executing (repeatable) |
+| `-q, --quiet` | Suppress REPL banner |
+| `-i, --interactive` | Enter REPL after running file or eval |
+| `--no-init` | Skip LLM auto-configuration |
+| `--no-llm` | Disable LLM features (same as `--no-init`) |
+| `--model <NAME>` | Set default LLM model (via `SEMA_DEFAULT_MODEL` env var) |
+| `--provider <NAME>` | Set LLM provider: `anthropic` or `openai` |
+| `-V, --version` | Print version |
+| `-h, --help` | Print help |
+
+### Examples
+
+```bash
+# Load a prelude before starting the REPL
+sema -l prelude.sema
+
+# Load helpers, then run a script
+sema -l helpers.sema script.sema
+
+# Run a script and drop into REPL to inspect state
+sema -i script.sema
+
+# Quick one-liner for shell pipelines
+sema -p '(string/join (map str (range 10)) ",")'
+
+# Run without LLM features (faster startup, no API key needed)
+sema --no-llm script.sema
+
+# Use a specific model
+sema --model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
+
+# Shebang support
+#!/usr/bin/env sema
 ```
 
-Start the REPL:
+### Environment Variables
 
-```
-cargo run
-```
+| Variable | Description |
+|----------|-------------|
+| `ANTHROPIC_API_KEY` | Anthropic API key (auto-detected by `llm/auto-configure`) |
+| `OPENAI_API_KEY` | OpenAI API key (auto-detected by `llm/auto-configure`) |
+| `SEMA_DEFAULT_MODEL` | Default model name (set via `--model` flag or manually) |
+| `SEMA_LLM_PROVIDER` | Preferred provider (set via `--provider` flag or manually) |
 
 ## Language Overview
 
@@ -157,12 +211,6 @@ export OPENAI_API_KEY=sk-...
 | `sema-stdlib` | Standard library builtins |
 | `sema` | Binary: REPL and file runner |
 
-## Tests
-
-```
-cargo test
-```
-
 ## License
 
-TBD
+MIT — see [LICENSE](LICENSE).
