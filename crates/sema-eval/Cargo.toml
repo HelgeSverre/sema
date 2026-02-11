@@ -1,0 +1,10 @@
+[package]
+name = "sema-eval"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sema-core.workspace = true
+sema-reader.workspace = true
+sema-llm.workspace = true
+sema-stdlib.workspace = true

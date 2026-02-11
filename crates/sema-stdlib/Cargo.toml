@@ -1,0 +1,9 @@
+[package]
+name = "sema-stdlib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+sema-core.workspace = true
+sema-reader.workspace = true
+serde_json.workspace = true

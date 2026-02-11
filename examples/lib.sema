@@ -1,0 +1,5 @@
+;; lib.sema — A small library to test load
+
+(define (square x) (* x x))
+(define (cube x) (* x x x))
+(define (sum-of-squares lst) (foldl + 0 (map square lst)))
