@@ -1,4 +1,7 @@
+use std::collections::HashMap;
 use std::fmt;
+
+use crate::value::Value;
 
 #[derive(Debug, Clone)]
 pub struct Span {
@@ -11,6 +14,36 @@ impl fmt::Display for Span {
         write!(f, "{}:{}", self.line, self.col)
     }
 }
+
+/// A single frame in a call stack trace.
+#[derive(Debug, Clone)]
+pub struct CallFrame {
+    pub name: String,
+    pub file: Option<String>,
+    pub span: Option<Span>,
+}
+
+/// A captured stack trace (list of call frames, innermost first).
+#[derive(Debug, Clone)]
+pub struct StackTrace(pub Vec<CallFrame>);
+
+impl fmt::Display for StackTrace {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for frame in &self.0 {
+            write!(f, "  at {}", frame.name)?;
+            match (&frame.file, &frame.span) {
+                (Some(file), Some(span)) => writeln!(f, " ({file}:{span})")?,
+                (Some(file), None) => writeln!(f, " ({file})")?,
+                (None, Some(span)) => writeln!(f, " (<input>:{span})")?,
+                (None, None) => writeln!(f)?,
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Maps Rc pointer addresses to source spans for expression tracking.
+pub type SpanMap = HashMap<usize, Span>;
 
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum SemaError {
@@ -38,6 +71,15 @@ pub enum SemaError {
 
     #[error("IO error: {0}")]
     Io(String),
+
+    #[error("User exception: {0}")]
+    UserException(Value),
+
+    #[error("{inner}")]
+    WithTrace {
+        inner: Box<SemaError>,
+        trace: StackTrace,
+    },
 }
 
 impl SemaError {
@@ -57,6 +99,36 @@ impl SemaError {
             name: name.into(),
             expected: expected.into(),
             got,
+        }
+    }
+
+    /// Wrap this error with a stack trace (no-op if already wrapped).
+    pub fn with_stack_trace(self, trace: StackTrace) -> Self {
+        if trace.0.is_empty() {
+            return self;
+        }
+        match self {
+            SemaError::WithTrace { .. } => self,
+            other => SemaError::WithTrace {
+                inner: Box::new(other),
+                trace,
+            },
+        }
+    }
+
+    /// Get the stack trace, if any.
+    pub fn stack_trace(&self) -> Option<&StackTrace> {
+        match self {
+            SemaError::WithTrace { trace, .. } => Some(trace),
+            _ => None,
+        }
+    }
+
+    /// Get the inner error (unwrapping WithTrace if present).
+    pub fn inner(&self) -> &SemaError {
+        match self {
+            SemaError::WithTrace { inner, .. } => inner,
+            other => other,
         }
     }
 }
