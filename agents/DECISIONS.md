@@ -66,23 +66,33 @@ crates/sema-reader/src/
   reader.rs         # Parser: tokens → Value (+ tests)
 
 crates/sema-eval/src/
-  lib.rs            # pub fn eval, eval_string, Interpreter
-  eval.rs           # core eval loop with trampoline
-  special_forms.rs  # define, if, let, lambda, begin, defmacro, quasiquote, prompt, message,
-                    # deftool, defagent, load
+  lib.rs            # pub fn eval, eval_string, Interpreter + module system re-exports
+  eval.rs           # core eval loop with trampoline + module system thread-local state
+  special_forms.rs  # define, if, let, let*, letrec, lambda, begin, defmacro, quasiquote,
+                    # prompt, message, deftool, defagent, load, try, catch, throw,
+                    # module, import, case, eval, macroexpand
 
 crates/sema-stdlib/src/
   lib.rs            # register_stdlib
   arithmetic.rs     # +, -, *, /, mod
   comparison.rs     # <, >, <=, >=, =, eq?, not, zero?, even?, odd?
-  list.rs           # car, cdr, cons, map, filter, foldl, range, sort, apply
-  string.rs         # string-append, string/split, format, str, etc.
+  list.rs           # car, cdr, cons, map (multi-list), filter, foldl, foldr, reduce,
+                    # range, sort, apply, take, drop, last, zip, flatten, member,
+                    # any, every, partition
+  string.rs         # string-append, string/split, format, str, type conversions
   predicates.rs     # null?, list?, number?, string?, etc.
   map.rs            # get, assoc, dissoc, keys, vals, merge, contains?
-  io.rs             # display, println, read-file, write-file, error, load
-  math.rs           # abs, min, max, floor, ceil, sqrt, pow, pi
-  system.rs         # env, shell, exit, time-ms, sleep
-  json.rs           # json/encode, json/decode
+  io.rs             # display, println, file/*, path/*, read, read-many, error
+  math.rs           # abs, min, max, floor, ceil, sqrt, pow, pi, trig, log, random, clamp, sign, gcd, lcm
+  bitwise.rs        # bit/and, bit/or, bit/xor, bit/not, bit/shift-left, bit/shift-right
+  crypto.rs         # uuid/v4, base64/encode, base64/decode, hash/sha256
+  datetime.rs       # time/now, time/format, time/parse, time/date-parts
+  csv_ops.rs        # csv/parse, csv/parse-maps, csv/encode
+  system.rs         # env, shell, exit, time-ms, sleep, sys/args, sys/cwd, sys/platform, sys/env-all
+  json.rs           # json/encode, json/decode, json/encode-pretty
+  meta.rs           # gensym
+  regex_ops.rs      # regex/match?, regex/match, regex/find-all, regex/replace, regex/split
+  http.rs           # http/get, http/post, http/put, http/delete, http/request
 
 crates/sema-llm/src/
   lib.rs            # module declarations
@@ -129,3 +139,141 @@ crates/sema/src/
 - `(load "file.sema")` reads and evaluates a file in the CURRENT environment
 - This means loaded definitions are available in the caller's scope
 - Different from the stdlib `load` function (which just parsed and returned forms)
+
+## Phase 6 Decisions
+
+### 16. `try`/`catch`/`throw` over R7RS `guard`
+- R7RS defines `(guard (exn (clause ...)) body)` with `cond`-style clauses
+- We chose `(try body... (catch e handler...))` for several reasons:
+  - Familiar to users of Java, Python, JavaScript, Clojure
+  - Simpler to implement — single catch variable bound to error map
+  - Error maps with `:type` keyword enable pattern matching via `cond` in the handler
+  - `throw` takes any value (not just strings), stored in `:value` key
+- All `SemaError` variants are catchable and converted to Sema maps:
+  - `:type` — keyword like `:eval`, `:type-error`, `:unbound`, `:user`, `:llm`, `:io`, `:arity`, `:reader`
+  - `:message` — human-readable string
+  - Variant-specific keys: `:value` (UserException), `:expected`/`:got` (Type), `:name` (Unbound)
+- `try` body is fully evaluated (loses TCO — standard behavior for exception-protected code)
+- `catch` handler gets TCO on last expression
+
+### 17. Named `let` with TCO
+- Detected by checking if `args[0]` is a symbol (vs. a list of bindings)
+- Creates a lambda with the loop name and binds it in the new environment
+- Recursive calls resolve to the lambda, `apply_lambda` returns `Trampoline::Eval` → full TCO
+- No new AST node or special dispatch — reuses existing `eval_let` function
+
+### 18. `letrec` two-pass binding
+- Pass 1: bind all names to `Nil` in new env (placeholders)
+- Pass 2: evaluate init exprs in the new env, update bindings
+- This allows init exprs to close over each other (mutual recursion via lambdas)
+- Simpler than R7RS "locations" semantics — `Nil` placeholder is observable if read before assignment
+
+### 19. Module system: file-path-based, not name-based
+- Modules are identified by canonical file path, not by module name
+- `(module name (export sym1 ...) body...)` — name is documentation only
+- `(import "path.sema")` — always uses file paths
+- Design rationale:
+  - No module registry or search path configuration needed
+  - Relative paths resolve from the importing file's directory
+  - Absolute paths work too
+  - Simple to understand and debug
+
+### 20. Module isolation
+- `create_module_env` walks the env parent chain to the root (global/stdlib) env
+- Module env is a child of root — gets builtins but not caller's bindings
+- This prevents accidental coupling between modules and callers
+- Module cache stores exports by canonical path — each module loaded only once
+
+### 21. Thread-local module state
+- `MODULE_CACHE`, `CURRENT_FILE`, `MODULE_EXPORTS` are `thread_local!`
+- Consistent with existing pattern (LLM provider registry uses thread_local)
+- `CURRENT_FILE` is a stack — supports nested `load`/`import`
+- `MODULE_EXPORTS` is `Option<Vec<String>>` — `None` means "no module form, export everything"
+
+### 22. `load` updated for relative path resolution
+- `load` now resolves relative to `current_file_dir()` (from `CURRENT_FILE` stack)
+- Falls back to current working directory if no file context
+- `load` also pushes/pops file path for nested resolution
+- Breaking change: previously always resolved from cwd
+
+### 23. Extended list operations in stdlib mini-eval
+- All new list ops (`take`, `drop`, `zip`, etc.) are NativeFn — no evaluator needed
+- Multi-list `map` reuses existing `call_function` from stdlib
+- HOF-based ops (`any`, `every`, `partition`, `reduce`, `foldr`) also use `call_function`
+- No changes to the mini-eval were needed
+
+## Phase 7 Decisions
+
+### 24. Slash-namespaced naming convention
+- All new function groups use `namespace/function` naming: `file/`, `path/`, `regex/`, `http/`, `json/`, `string/`
+- Legacy Scheme names (`read-file`, `write-file`, etc.) renamed to `file/read`, `file/write`, etc. for consistency
+- Rationale: the slash acts as a logical namespace (like Clojure) — groups related functions into discoverable families
+- Traditional Scheme names kept only for: `string-append`, `string-length`, `string-ref`, `substring` (too deeply entrenched in Scheme)
+- Predicates like `null?`, `list?`, `map?` remain un-namespaced — they're universal
+- Arrow conversions remain: `string->symbol`, `keyword->string`, etc. — standard Scheme convention
+
+### 25. `case` uses PartialEq on unevaluated datums
+- Datum lists are NOT evaluated — `(case x ((1 2) "match"))` compares x against literal `1` and `2`
+- This matches R5RS semantics and works naturally with keywords: `(case :b ((:a :b) "match"))`
+- TCO on last body expression of matching clause
+
+### 26. `eval` as a special form (not builtin)
+- `eval` evaluates its argument, then returns `Trampoline::Eval(result, env)` for TCO
+- Must be a special form (not NativeFn) because it needs access to the current environment
+- The evaluated expression runs in the caller's environment (not a fresh one)
+
+### 27. HTTP client: thread-local runtime + client
+- `http.rs` uses `thread_local!` for both `tokio::Runtime` and `reqwest::Client`
+- Client reuse enables connection pooling across multiple requests
+- Map bodies auto-serialized as JSON via `crate::json::value_to_json`
+- Response is always a map: `{:status N :headers {...} :body "string"}`
+- Tests marked `#[ignore]` since they require network access
+
+### 28. `macroexpand` expands once
+- `macroexpand` does a single expansion step (not recursive)
+- Evaluates its argument (so you pass `'(macro-call args...)`)
+- If the form starts with a macro name, expands it; otherwise returns as-is
+- Uses the existing `apply_macro` function (made `pub` for this purpose)
+
+## Phase 8 Decisions
+
+### 29. Duplicated `call_function` in map.rs
+- Map HOFs (`map/map-vals`, `map/filter`, `map/update`) need `call_function` like list.rs
+- Duplicated ~60 lines of `call_function` + `sema_eval_value` rather than refactoring to shared module
+- Same pattern as list.rs: handles NativeFn and Lambda, mini-eval for lambda bodies
+- Rationale: avoids refactoring existing working code; both copies are stable
+
+### 30. Bitwise ops renamed from `bit-*` to `bit/*`
+- Follows the slash-namespaced convention (Decision #24)
+- Old `bit-and`, `bit-or` etc. renamed to `bit/and`, `bit/or` etc.
+
+### 31. `time/now` returns f64 seconds (not milliseconds)
+- Unix timestamp as float seconds (e.g., `1707955200.123`)
+- Subsecond precision via fractional part
+- Different from `time-ms` which returns integer milliseconds
+- Rationale: float seconds is the standard unix timestamp format, works naturally with chrono
+
+### 32. CSV values are always strings
+- `csv/parse` and `csv/parse-maps` return all fields as strings
+- No automatic type coercion (CSV has no type information)
+- Users can convert with `string->number`, `int`, `float` as needed
+
+### 33. `map/filter` takes `(fn (k v) ...)` — two-argument predicate
+- Unlike list `filter` which takes `(fn (item) ...)`
+- Map filter needs both key and value for meaningful filtering
+- Consistent with Clojure's `(filter (fn [[k v]] ...) map)` pattern
+
+## CLI Design Decisions
+
+### 34. CLI flag design follows Chez Scheme / Chicken Scheme conventions
+- Surveyed Racket, Chez Scheme, Chicken Scheme, Clojure, Janet, Fennel, and Hy
+- Core flags follow widespread Lisp conventions: `-e` (eval), `-l` (load), `-q` (quiet), `-i` (interactive), `-p` (print)
+- `-p` always prints (even Nil) — useful for shell pipelines; `-e` skips Nil (standard REPL behavior)
+- `-l` is repeatable: `sema -l a.sema -l b.sema` loads both before main execution
+- `-i` keeps interpreter state after file/eval, then enters REPL — essential for debugging scripts
+- `--no-init` / `--no-llm` skip `(llm/auto-configure)` — faster startup for scripts that don't need LLM
+- `--model` and `--provider` set env vars (`SEMA_DEFAULT_MODEL`, `SEMA_LLM_PROVIDER`) rather than reconfiguring the provider registry
+  - Rationale: provider may not be configured yet; scripts can check `(env "SEMA_DEFAULT_MODEL")` explicitly
+  - This avoids coupling CLI args to provider internals
+- `sys/args` returns raw `std::env::args()` — standard behavior, user filters as needed
+- `--version` uses `env!("CARGO_PKG_VERSION")` from Cargo.toml — single source of truth for version string

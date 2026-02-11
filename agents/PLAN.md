@@ -66,7 +66,49 @@ crates/
 - OpenAI-compatible endpoint for flexibility
 - All LLM types (Prompt, Message, Conversation, ToolDef) are first-class Values
 
+## Phase 6: Fix Critical Gaps
+
+| Step | What | Status |
+|------|------|--------|
+| 1 | Extended list ops (multi-map, take, drop, zip, etc.) | Done |
+| 2 | Named `let` + `letrec` | Done |
+| 3 | Error handling (`try`/`catch`/`throw`) | Done |
+| 4 | Module system (`module`/`import`) | Done |
+
+76 tests total (16 reader + 60 integration), all passing.
+
+## Phase 7: Real-World Capabilities
+
+| Step | What | Status |
+|------|------|--------|
+| 1 | Metaprogramming: `case`, `eval`, `read`, `gensym`, `macroexpand`, type conversions | Done |
+| 2 | File I/O + path operations (`file/` and `path/` namespaces) | Done |
+| 3 | Regex (`regex/` namespace, `regex` crate) | Done |
+| 4 | HTTP client (`http/` namespace, `reqwest`+`tokio`) | Done |
+
+92 tests total (16 reader + 76 integration), all passing.
+
+## Phase 8: Standard Library Expansion
+
+| Step | What | Status |
+|------|------|--------|
+| 1 | Math: trig (tan, asin, acos, atan, atan2), logarithmic (exp, log10, log2), utility (random, random-int, clamp, sign, gcd, lcm, quotient, remainder) | Done |
+| 2 | Bitwise: `bit/and`, `bit/or`, `bit/xor`, `bit/not`, `bit/shift-left`, `bit/shift-right` | Done |
+| 3 | String: `string/starts-with?`, `string/ends-with?`, `string/upper`, `string/lower`, `string/pad-left`, `string/pad-right`, `string/chars`, `string/join`, `string/repeat` | Done |
+| 4 | Map: `map/map-vals`, `map/filter`, `map/update`, `map/select-keys`, `map/count` | Done |
+| 5 | List: `list/index-of`, `list/unique`, `list/group-by`, `list/interleave`, `list/chunk` | Done |
+| 6 | System: `sys/args`, `sys/cwd`, `sys/platform`, `sys/env-all` | Done |
+| 7 | Crypto/encoding: `uuid/v4`, `base64/encode`, `base64/decode`, `hash/sha256` | Done |
+| 8 | Date/time: `time/now`, `time/format`, `time/parse`, `time/date-parts` | Done |
+| 9 | CSV: `csv/parse`, `csv/parse-maps`, `csv/encode` | Done |
+| 10 | Examples: 7 comprehensive example programs covering all features | Done |
+
+282 tests total (16 reader + 266 integration), all passing.
+
 ## Verification Checkpoints
 - **Phase 1:** `cargo build` succeeds
 - **Phase 2:** REPL evaluates `(factorial 10)` → `3628800`
 - **Phase 3:** `(llm/complete "Say hello")` returns LLM response
+- **Phase 6:** 76 tests pass, modules import/export correctly
+- **Phase 7:** 92 tests pass, `(http/get "https://httpbin.org/get")` returns `{:status 200 ...}`
+- **Phase 8:** 282 tests pass, all 7 example programs run successfully
