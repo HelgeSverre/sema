@@ -1,4 +1,4 @@
-.PHONY: all build release install uninstall test check clippy fmt fmt-check clean run lint examples test-providers
+.PHONY: all build release install uninstall test check clippy fmt fmt-check clean run lint examples test-providers fuzz setup
 
 build:
 	cargo build
@@ -48,5 +48,12 @@ test-providers: build
 
 test-provider-%: build
 	cargo run --quiet -- examples/providers/test-$*.sema
+
+setup:
+	rustup toolchain install nightly
+	cargo install cargo-fuzz
+
+fuzz:
+	cd crates/sema-reader && rustup run nightly cargo fuzz run fuzz_read -- -max_total_time=60
 
 all: lint test build
