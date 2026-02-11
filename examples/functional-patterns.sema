@@ -1,0 +1,201 @@
+;; functional-patterns.sema — Functional programming patterns and idioms
+;; Demonstrates: closures, HOFs, macros, error handling, modules, TCO
+
+;; === 1. Currying and Partial Application ===
+
+(define (curry2 f)
+  (fn (a) (fn (b) (f a b))))
+
+(define (curry3 f)
+  (fn (a) (fn (b) (fn (c) (f a b c)))))
+
+(define add (curry2 +))
+(define add5 (add 5))
+(println (format "Curried add5(3) = ~a" (add5 3)))
+
+(define multiply (curry2 *))
+(define double (multiply 2))
+(define triple (multiply 3))
+(println (format "double(7) = ~a, triple(7) = ~a" (double 7) (triple 7)))
+
+;; === 2. Function Composition Pipeline ===
+
+(define (compose . fns)
+  (foldl (fn (acc f) (fn (x) (acc (f x)))) (fn (x) x) fns))
+
+(define (pipe . fns)
+  (foldl (fn (acc f) (fn (x) (f (acc x)))) (fn (x) x) fns))
+
+(define process
+  (pipe
+    (fn (x) (* x 2))        ;; double
+    (fn (x) (+ x 10))       ;; add 10
+    (fn (x) (* x x))))      ;; square
+
+(println (format "pipe(double, +10, square)(5) = ~a" (process 5)))
+;; 5 → 10 → 20 → 400
+
+;; === 3. Memoization ===
+
+;; Simple memoization using a map in a closure
+(define (memoize f)
+  (define cache {})
+  (fn (. args)
+    (let ((key (str args)))
+      (let ((cached (get cache (string->keyword key))))
+        (if (nil? cached)
+          (let ((result (apply f args)))
+            (set! cache (assoc cache (string->keyword key) result))
+            result)
+          cached)))))
+
+(define fib-slow
+  (fn (n) (if (<= n 1) n (+ (fib-slow (- n 1)) (fib-slow (- n 2))))))
+
+;; Non-memoized timing
+(define start (time-ms))
+(define fib-result (fib-slow 25))
+(define slow-time (- (time-ms) start))
+
+;; TCO fibonacci for comparison
+(define (fib-fast n)
+  (let loop ((i n) (a 0) (b 1))
+    (if (= i 0) a (loop (- i 1) b (+ a b)))))
+
+(define start2 (time-ms))
+(define fib-result2 (fib-fast 25))
+(define fast-time (- (time-ms) start2))
+
+(println (format "\nfib(25) = ~a" fib-result))
+(println (format "  Naive recursive: ~ams" slow-time))
+(println (format "  TCO iterative:   ~ams" fast-time))
+
+;; === 4. Option/Maybe Pattern ===
+
+(define (maybe-map f val)
+  (if (nil? val) nil (f val)))
+
+(define (maybe-chain f val)
+  (if (nil? val) nil (f val)))
+
+(define (maybe-or val default)
+  (if (nil? val) default val))
+
+;; Example: safe nested map access
+(define config {:db {:host "localhost" :port 5432} :cache nil})
+
+(println (format "\nConfig db host: ~a"
+  (maybe-or (maybe-map (fn (db) (get db :host)) (get config :db)) "unknown")))
+(println (format "Config cache host: ~a"
+  (maybe-or (maybe-map (fn (c) (get c :host)) (get config :cache)) "not configured")))
+
+;; === 5. Error Handling Patterns ===
+
+(define (safe-divide a b)
+  (try
+    (/ a b)
+    (catch e nil)))
+
+(define (parse-int s)
+  (try
+    (int s)
+    (catch e nil)))
+
+(println (format "\nSafe divide 10/3 = ~a" (safe-divide 10 3)))
+(println (format "Safe divide 10/0 = ~a" (safe-divide 10 0)))
+(println (format "Parse \"42\" = ~a" (parse-int "42")))
+(println (format "Parse \"abc\" = ~a" (parse-int "abc")))
+
+;; Result type pattern
+(define (try-parse s)
+  (try
+    {:ok (int s)}
+    (catch e {:error (:message e)})))
+
+(println (format "try-parse \"99\": ~a" (try-parse "99")))
+(println (format "try-parse \"nope\": ~a" (try-parse "nope")))
+
+;; === 6. Iterator/Transducer-like Pattern ===
+
+(define (frequencies lst)
+  (foldl
+    (fn (acc item)
+      (map/update acc item (fn (v) (if (nil? v) 1 (+ v 1)))))
+    {}
+    lst))
+
+(define words (list "the" "cat" "sat" "on" "the" "mat" "the" "cat"))
+(define word-freq (frequencies words))
+(println (format "\nWord frequencies: ~a" word-freq))
+
+;; === 7. Recursive Data Structures ===
+
+;; Tree as nested lists: (value left right)
+(define (make-tree val left right) (list val left right))
+(define (tree-val t) (first t))
+(define (tree-left t) (nth t 1))
+(define (tree-right t) (nth t 2))
+
+(define (tree-insert tree val)
+  (if (nil? tree)
+    (make-tree val nil nil)
+    (cond
+      ((< val (tree-val tree))
+       (make-tree (tree-val tree) (tree-insert (tree-left tree) val) (tree-right tree)))
+      ((> val (tree-val tree))
+       (make-tree (tree-val tree) (tree-left tree) (tree-insert (tree-right tree) val)))
+      (else tree))))
+
+(define (tree-inorder tree)
+  (if (nil? tree)
+    '()
+    (append (tree-inorder (tree-left tree))
+            (list (tree-val tree))
+            (tree-inorder (tree-right tree)))))
+
+(define bst
+  (foldl tree-insert nil (list 5 3 7 1 4 6 8 2)))
+
+(println (format "\nBST inorder traversal: ~a" (tree-inorder bst)))
+
+;; === 8. Macro-based DSL ===
+
+(defmacro assert (expr msg)
+  `(when (not ,expr)
+     (error (format "Assertion failed: ~a — ~a" ',expr ,msg))))
+
+(defmacro test-case (name . body)
+  `(begin
+     (display (format "  ~a... " ,name))
+     (try
+       (begin ,@body (println "OK"))
+       (catch e (println (format "FAIL: ~a" (:message e)))))))
+
+(println "\nRunning test suite:")
+(test-case "addition"
+  (assert (= (+ 1 2) 3) "1+2 should be 3"))
+(test-case "string ops"
+  (assert (= (string-length "hello") 5) "length should be 5"))
+(test-case "list ops"
+  (assert (= (length (list/unique '(1 1 2 2 3))) 3) "unique should have 3 elements"))
+(test-case "map ops"
+  (assert (= (get (map/update {:n 0} :n (fn (v) (+ v 1))) :n) 1) "update should increment"))
+
+;; === 9. Accumulator Pattern with Named Let ===
+
+(define (collatz n)
+  (let loop ((x n) (steps 0))
+    (cond
+      ((= x 1) steps)
+      ((even? x) (loop (/ x 2) (+ steps 1)))
+      (else (loop (+ (* 3 x) 1) (+ steps 1))))))
+
+(println (format "\nCollatz sequence lengths:"))
+(for-each
+  (fn (n)
+    (println (format "  ~a → ~a steps"
+      (string/pad-left (str n) 4)
+      (collatz n))))
+  (list 1 7 27 97 871 6171))
+
+(println "\nDone!")

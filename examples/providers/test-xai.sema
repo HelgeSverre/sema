@@ -1,0 +1,11 @@
+;; Test xAI/Grok provider (OpenAI-compatible)
+(llm/configure :xai {:api-key (env "XAI_API_KEY")})
+
+(define result (llm/complete "Say 'hello from xAI' and nothing else." {:max-tokens 20}))
+(println "xAI complete:" result)
+
+(print "xAI stream: ")
+(llm/stream "Count from 1 to 5, one number per word, nothing else." {:max-tokens 30})
+(newline)
+
+(println "xAI: OK")
