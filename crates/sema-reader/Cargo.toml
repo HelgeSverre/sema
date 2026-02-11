@@ -5,3 +5,6 @@ edition = "2021"
 
 [dependencies]
 sema-core.workspace = true
+
+[dev-dependencies]
+proptest = "1.10.0"

@@ -59,54 +59,84 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
 
             // Delimiters
             '(' => {
-                tokens.push(SpannedToken { token: Token::LParen, span });
+                tokens.push(SpannedToken {
+                    token: Token::LParen,
+                    span,
+                });
                 col += 1;
                 i += 1;
             }
             ')' => {
-                tokens.push(SpannedToken { token: Token::RParen, span });
+                tokens.push(SpannedToken {
+                    token: Token::RParen,
+                    span,
+                });
                 col += 1;
                 i += 1;
             }
             '[' => {
-                tokens.push(SpannedToken { token: Token::LBracket, span });
+                tokens.push(SpannedToken {
+                    token: Token::LBracket,
+                    span,
+                });
                 col += 1;
                 i += 1;
             }
             ']' => {
-                tokens.push(SpannedToken { token: Token::RBracket, span });
+                tokens.push(SpannedToken {
+                    token: Token::RBracket,
+                    span,
+                });
                 col += 1;
                 i += 1;
             }
             '{' => {
-                tokens.push(SpannedToken { token: Token::LBrace, span });
+                tokens.push(SpannedToken {
+                    token: Token::LBrace,
+                    span,
+                });
                 col += 1;
                 i += 1;
             }
             '}' => {
-                tokens.push(SpannedToken { token: Token::RBrace, span });
+                tokens.push(SpannedToken {
+                    token: Token::RBrace,
+                    span,
+                });
                 col += 1;
                 i += 1;
             }
 
             // Quote forms
             '\'' => {
-                tokens.push(SpannedToken { token: Token::Quote, span });
+                tokens.push(SpannedToken {
+                    token: Token::Quote,
+                    span,
+                });
                 col += 1;
                 i += 1;
             }
             '`' => {
-                tokens.push(SpannedToken { token: Token::Quasiquote, span });
+                tokens.push(SpannedToken {
+                    token: Token::Quasiquote,
+                    span,
+                });
                 col += 1;
                 i += 1;
             }
             ',' => {
                 if i + 1 < chars.len() && chars[i + 1] == '@' {
-                    tokens.push(SpannedToken { token: Token::UnquoteSplice, span });
+                    tokens.push(SpannedToken {
+                        token: Token::UnquoteSplice,
+                        span,
+                    });
                     col += 2;
                     i += 2;
                 } else {
-                    tokens.push(SpannedToken { token: Token::Unquote, span });
+                    tokens.push(SpannedToken {
+                        token: Token::Unquote,
+                        span,
+                    });
                     col += 1;
                     i += 1;
                 }
@@ -150,7 +180,10 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 }
                 i += 1; // closing quote
                 col += 1;
-                tokens.push(SpannedToken { token: Token::String(s), span });
+                tokens.push(SpannedToken {
+                    token: Token::String(s),
+                    span,
+                });
             }
 
             // #t, #f booleans
@@ -158,18 +191,27 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 if i + 1 < chars.len() {
                     match chars[i + 1] {
                         't' => {
-                            tokens.push(SpannedToken { token: Token::Bool(true), span });
+                            tokens.push(SpannedToken {
+                                token: Token::Bool(true),
+                                span,
+                            });
                             i += 2;
                             col += 2;
                         }
                         'f' => {
-                            tokens.push(SpannedToken { token: Token::Bool(false), span });
+                            tokens.push(SpannedToken {
+                                token: Token::Bool(false),
+                                span,
+                            });
                             i += 2;
                             col += 2;
                         }
                         _ => {
                             return Err(SemaError::Reader {
-                                message: format!("unexpected character after #: '{}'", chars[i + 1]),
+                                message: format!(
+                                    "unexpected character after #: '{}'",
+                                    chars[i + 1]
+                                ),
                                 span,
                             });
                         }
@@ -198,7 +240,10 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                     });
                 }
                 let name: String = chars[start..i].iter().collect();
-                tokens.push(SpannedToken { token: Token::Keyword(name), span });
+                tokens.push(SpannedToken {
+                    token: Token::Keyword(name),
+                    span,
+                });
             }
 
             // Numbers and symbols
@@ -223,11 +268,26 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                     let name: String = chars[start..i].iter().collect();
                     // Check for special symbol names
                     match name.as_str() {
-                        "true" => tokens.push(SpannedToken { token: Token::Bool(true), span }),
-                        "false" => tokens.push(SpannedToken { token: Token::Bool(false), span }),
-                        "nil" => tokens.push(SpannedToken { token: Token::Symbol("nil".to_string()), span }),
-                        "." => tokens.push(SpannedToken { token: Token::Dot, span }),
-                        _ => tokens.push(SpannedToken { token: Token::Symbol(name), span }),
+                        "true" => tokens.push(SpannedToken {
+                            token: Token::Bool(true),
+                            span,
+                        }),
+                        "false" => tokens.push(SpannedToken {
+                            token: Token::Bool(false),
+                            span,
+                        }),
+                        "nil" => tokens.push(SpannedToken {
+                            token: Token::Symbol("nil".to_string()),
+                            span,
+                        }),
+                        "." => tokens.push(SpannedToken {
+                            token: Token::Dot,
+                            span,
+                        }),
+                        _ => tokens.push(SpannedToken {
+                            token: Token::Symbol(name),
+                            span,
+                        }),
                     }
                 } else {
                     return Err(SemaError::Reader {
