@@ -6,8 +6,9 @@ use sema_core::{Conversation, Env, Message, NativeFn, Prompt, Role, SemaError, V
 
 use crate::anthropic::AnthropicProvider;
 use crate::openai::OpenAiProvider;
+use crate::pricing;
 use crate::provider::{LlmProvider, ProviderRegistry};
-use crate::types::{ChatMessage, ChatRequest, ChatResponse, ToolSchema, Usage};
+use crate::types::{ChatMessage, ChatRequest, ChatResponse, EmbedRequest, ToolSchema, Usage};
 
 /// Type for a full evaluator callback: (expr, env) -> Result<Value, SemaError>
 pub type EvalCallback = Box<dyn Fn(&Value, &Env) -> Result<Value, SemaError>>;
@@ -17,6 +18,9 @@ thread_local! {
     static SESSION_USAGE: RefCell<Usage> = RefCell::new(Usage::default());
     static LAST_USAGE: RefCell<Option<Usage>> = RefCell::new(None);
     static EVAL_FN: RefCell<Option<EvalCallback>> = RefCell::new(None);
+    static SESSION_COST: RefCell<f64> = RefCell::new(0.0);
+    static BUDGET_LIMIT: RefCell<Option<f64>> = RefCell::new(None);
+    static BUDGET_SPENT: RefCell<f64> = RefCell::new(0.0);
 }
 
 /// Register a full evaluator for use by tool handlers and other LLM builtins.
@@ -64,13 +68,66 @@ where
     })
 }
 
-fn track_usage(usage: &Usage) {
+fn with_embedding_provider<F, R>(f: F) -> Result<R, SemaError>
+where
+    F: FnOnce(&dyn LlmProvider) -> Result<R, SemaError>,
+{
+    PROVIDER_REGISTRY.with(|reg| {
+        let reg = reg.borrow();
+        let provider = reg
+            .embedding_provider()
+            .or_else(|| reg.default_provider())
+            .ok_or_else(|| SemaError::Llm("no embedding provider configured. Use (llm/configure-embeddings ...) first".to_string()))?;
+        f(provider)
+    })
+}
+
+fn track_usage(usage: &Usage) -> Result<(), SemaError> {
+    let cost = pricing::calculate_cost(usage);
+
     LAST_USAGE.with(|u| *u.borrow_mut() = Some(usage.clone()));
     SESSION_USAGE.with(|u| {
         let mut session = u.borrow_mut();
         session.prompt_tokens += usage.prompt_tokens;
         session.completion_tokens += usage.completion_tokens;
     });
+
+    if let Some(c) = cost {
+        SESSION_COST.with(|sc| *sc.borrow_mut() += c);
+
+        // Check budget
+        BUDGET_LIMIT.with(|limit| {
+            let limit = limit.borrow();
+            if let Some(max_cost) = *limit {
+                BUDGET_SPENT.with(|spent| {
+                    let mut spent = spent.borrow_mut();
+                    *spent += c;
+                    if *spent > max_cost {
+                        return Err(SemaError::Llm(format!(
+                            "budget exceeded: spent ${:.4} of ${:.4} limit",
+                            *spent, max_cost
+                        )));
+                    }
+                    Ok(())
+                })
+            } else {
+                Ok(())
+            }
+        })?;
+    }
+
+    Ok(())
+}
+
+/// Set a budget limit for LLM calls.
+pub fn set_budget(max_cost_usd: f64) {
+    BUDGET_LIMIT.with(|l| *l.borrow_mut() = Some(max_cost_usd));
+    BUDGET_SPENT.with(|s| *s.borrow_mut() = 0.0);
+}
+
+/// Clear the budget limit.
+pub fn clear_budget() {
+    BUDGET_LIMIT.with(|l| *l.borrow_mut() = None);
 }
 
 fn get_opt_string(opts: &BTreeMap<Value, Value>, key: &str) -> Option<String> {
@@ -196,18 +253,8 @@ pub fn register_llm_builtins(env: &Env) {
         request.temperature = temperature;
         request.system = system;
 
-        let response = with_provider(|p| {
-            if request.model.is_empty() {
-                let mut req = request.clone();
-                req.model = p.default_model().to_string();
-                p.complete(req).map_err(|e| SemaError::Llm(e.to_string()))
-            } else {
-                p.complete(request.clone())
-                    .map_err(|e| SemaError::Llm(e.to_string()))
-            }
-        })?;
-
-        track_usage(&response.usage);
+        let response = do_complete(request)?;
+        track_usage(&response.usage)?;
         Ok(Value::String(Rc::new(response.content)))
     });
 
@@ -258,7 +305,7 @@ pub fn register_llm_builtins(env: &Env) {
             request.temperature = temperature;
             request.system = system;
             let response = do_complete(request)?;
-            track_usage(&response.usage);
+            track_usage(&response.usage)?;
             Ok(Value::String(Rc::new(response.content)))
         } else {
             // Chat with tool execution loop
@@ -281,6 +328,103 @@ pub fn register_llm_builtins(env: &Env) {
             _ => return Err(SemaError::type_error("prompt", args[0].type_name())),
         };
         complete_with_prompt(&prompt, args.get(1))
+    });
+
+    // (llm/stream "prompt" callback {:max-tokens 200})
+    // (llm/stream "prompt" {:max-tokens 200})  — prints to stdout
+    register_fn(env, "llm/stream", |args| {
+        if args.is_empty() || args.len() > 3 {
+            return Err(SemaError::arity("llm/stream", "1-3", args.len()));
+        }
+
+        // Parse the prompt/messages
+        let messages = match &args[0] {
+            Value::String(s) => vec![ChatMessage {
+                role: "user".to_string(),
+                content: s.to_string(),
+            }],
+            Value::Prompt(p) => p
+                .messages
+                .iter()
+                .map(|m| ChatMessage {
+                    role: m.role.to_string(),
+                    content: m.content.clone(),
+                })
+                .collect(),
+            Value::List(_) | Value::Vector(_) => extract_messages(&args[0])?,
+            _ => return Err(SemaError::type_error("string, prompt, or messages", args[0].type_name())),
+        };
+
+        // Parse optional callback and opts
+        let mut callback: Option<Value> = None;
+        let mut opts_map: Option<&BTreeMap<Value, Value>> = None;
+
+        for arg in &args[1..] {
+            match arg {
+                Value::Lambda(_) | Value::NativeFn(_) => callback = Some(arg.clone()),
+                Value::Map(m) => opts_map = Some(m.as_ref()),
+                _ => {}
+            }
+        }
+
+        let mut model = String::new();
+        let mut max_tokens = None;
+        let mut temperature = None;
+        let mut system = None;
+
+        if let Some(opts) = opts_map {
+            model = get_opt_string(opts, "model").unwrap_or_default();
+            max_tokens = get_opt_u32(opts, "max-tokens");
+            temperature = get_opt_f64(opts, "temperature");
+            system = get_opt_string(opts, "system");
+        }
+
+        let mut request = ChatRequest::new(model, messages);
+        request.max_tokens = max_tokens.or(Some(4096));
+        request.temperature = temperature;
+        request.system = system;
+
+        let response = with_provider(|p| {
+            if request.model.is_empty() {
+                let mut req = request.clone();
+                req.model = p.default_model().to_string();
+                let mut chunk_cb = |chunk: &str| -> Result<(), crate::types::LlmError> {
+                    if let Some(ref cb) = callback {
+                        call_value_fn(cb, &[Value::String(Rc::new(chunk.to_string()))])
+                            .map_err(|e| crate::types::LlmError::Config(e.to_string()))?;
+                    } else {
+                        print!("{}", chunk);
+                        use std::io::Write;
+                        std::io::stdout().flush().ok();
+                    }
+                    Ok(())
+                };
+                p.stream_complete(req, &mut chunk_cb)
+                    .map_err(|e| SemaError::Llm(e.to_string()))
+            } else {
+                let mut chunk_cb = |chunk: &str| -> Result<(), crate::types::LlmError> {
+                    if let Some(ref cb) = callback {
+                        call_value_fn(cb, &[Value::String(Rc::new(chunk.to_string()))])
+                            .map_err(|e| crate::types::LlmError::Config(e.to_string()))?;
+                    } else {
+                        print!("{}", chunk);
+                        use std::io::Write;
+                        std::io::stdout().flush().ok();
+                    }
+                    Ok(())
+                };
+                p.stream_complete(request.clone(), &mut chunk_cb)
+                    .map_err(|e| SemaError::Llm(e.to_string()))
+            }
+        })?;
+
+        // Print newline after streaming if using default display
+        if callback.is_none() {
+            println!();
+        }
+
+        track_usage(&response.usage)?;
+        Ok(Value::String(Rc::new(response.content)))
     });
 
     // (llm/extract schema text {:model "..."})
@@ -313,18 +457,8 @@ pub fn register_llm_builtins(env: &Env) {
         let mut request = ChatRequest::new(model, messages);
         request.system = Some(system);
 
-        let response = with_provider(|p| {
-            if request.model.is_empty() {
-                let mut req = request.clone();
-                req.model = p.default_model().to_string();
-                p.complete(req).map_err(|e| SemaError::Llm(e.to_string()))
-            } else {
-                p.complete(request.clone())
-                    .map_err(|e| SemaError::Llm(e.to_string()))
-            }
-        })?;
-
-        track_usage(&response.usage);
+        let response = do_complete(request)?;
+        track_usage(&response.usage)?;
 
         // Parse JSON response back to Sema value
         let content = response.content.trim();
@@ -386,18 +520,8 @@ pub fn register_llm_builtins(env: &Env) {
         let mut request = ChatRequest::new(model, messages);
         request.system = Some(system);
 
-        let response = with_provider(|p| {
-            if request.model.is_empty() {
-                let mut req = request.clone();
-                req.model = p.default_model().to_string();
-                p.complete(req).map_err(|e| SemaError::Llm(e.to_string()))
-            } else {
-                p.complete(request.clone())
-                    .map_err(|e| SemaError::Llm(e.to_string()))
-            }
-        })?;
-
-        track_usage(&response.usage);
+        let response = do_complete(request)?;
+        track_usage(&response.usage)?;
 
         let category = response.content.trim().to_string();
         // Return as keyword if it was in the original list as keyword
@@ -469,18 +593,8 @@ pub fn register_llm_builtins(env: &Env) {
 
         let request = ChatRequest::new(conv.model.clone(), chat_messages);
 
-        let response = with_provider(|p| {
-            if request.model.is_empty() {
-                let mut req = request.clone();
-                req.model = p.default_model().to_string();
-                p.complete(req).map_err(|e| SemaError::Llm(e.to_string()))
-            } else {
-                p.complete(request.clone())
-                    .map_err(|e| SemaError::Llm(e.to_string()))
-            }
-        })?;
-
-        track_usage(&response.usage);
+        let response = do_complete(request)?;
+        track_usage(&response.usage)?;
 
         // Build new conversation with user message + assistant reply
         let mut new_messages = conv.messages.clone();
@@ -653,6 +767,13 @@ pub fn register_llm_builtins(env: &Env) {
                         Value::keyword("total-tokens"),
                         Value::Int(usage.total_tokens() as i64),
                     );
+                    map.insert(
+                        Value::keyword("model"),
+                        Value::String(Rc::new(usage.model.clone())),
+                    );
+                    if let Some(cost) = pricing::calculate_cost(usage) {
+                        map.insert(Value::keyword("cost-usd"), Value::Float(cost));
+                    }
                     Ok(Value::Map(Rc::new(map)))
                 }
                 None => Ok(Value::Nil),
@@ -677,6 +798,8 @@ pub fn register_llm_builtins(env: &Env) {
                 Value::keyword("total-tokens"),
                 Value::Int(usage.total_tokens() as i64),
             );
+            let session_cost = SESSION_COST.with(|sc| *sc.borrow());
+            map.insert(Value::keyword("cost-usd"), Value::Float(session_cost));
             Ok(Value::Map(Rc::new(map)))
         })
     });
@@ -721,7 +844,6 @@ pub fn register_llm_builtins(env: &Env) {
     });
 
     // (llm/parallel [expr1 expr2 expr3])
-    // Each expression should be a thunk (zero-arg lambda) or will be treated as a value
     register_fn(env, "llm/parallel", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("llm/parallel", "1", args.len()));
@@ -731,15 +853,11 @@ pub fn register_llm_builtins(env: &Env) {
             Value::Vector(v) => v.as_ref().clone(),
             _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
         };
-
-        // Run each item. These are already-evaluated values (strings from llm/complete calls).
-        // For true parallelism, we'd need to accept thunks and run them on threads.
-        // Since our values are Rc (not Send), we run them sequentially here.
-        // The parallel semantics are that callers use this as a batch wrapper.
         Ok(Value::list(items))
     });
 
-    // (llm/pmap fn collection {:concurrency N})
+    // (llm/pmap fn collection {:max-tokens N ...})
+    // Maps fn over collection to produce prompts, then sends all prompts in parallel via batch_complete
     register_fn(env, "llm/pmap", |args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("llm/pmap", "2-3", args.len()));
@@ -751,17 +869,275 @@ pub fn register_llm_builtins(env: &Env) {
             _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
         };
 
-        // Execute sequentially (Rc values can't cross thread boundaries).
-        // This still provides the right API shape for future async implementation.
-        let mut results = Vec::with_capacity(items.len());
+        let mut model = String::new();
+        let mut max_tokens = None;
+        let mut temperature = None;
+        let mut system = None;
+
+        if let Some(opts_val) = args.get(2) {
+            if let Value::Map(opts) = opts_val {
+                model = get_opt_string(opts, "model").unwrap_or_default();
+                max_tokens = get_opt_u32(opts, "max-tokens");
+                temperature = get_opt_f64(opts, "temperature");
+                system = get_opt_string(opts, "system");
+            }
+        }
+
+        // Step 1: Map fn over items to produce prompt strings (sequentially, since Rc)
+        let mut prompts = Vec::with_capacity(items.len());
         for item in &items {
-            results.push(call_value_fn(func, &[item.clone()])?);
+            let result = call_value_fn(func, &[item.clone()])?;
+            let prompt_str = match &result {
+                Value::String(s) => s.to_string(),
+                other => other.to_string(),
+            };
+            prompts.push(prompt_str);
+        }
+
+        // Step 2: Build ChatRequests
+        let requests: Vec<ChatRequest> = prompts
+            .into_iter()
+            .map(|prompt_text| {
+                let messages = vec![ChatMessage {
+                    role: "user".to_string(),
+                    content: prompt_text,
+                }];
+                let mut req = ChatRequest::new(model.clone(), messages);
+                req.max_tokens = max_tokens.or(Some(4096));
+                req.temperature = temperature;
+                req.system = system.clone();
+                req
+            })
+            .collect();
+
+        // Step 3: batch_complete (runs concurrently at provider level)
+        let responses = with_provider(|p| {
+            let reqs: Vec<ChatRequest> = requests
+                .into_iter()
+                .map(|mut r| {
+                    if r.model.is_empty() {
+                        r.model = p.default_model().to_string();
+                    }
+                    r
+                })
+                .collect();
+            Ok(p.batch_complete(reqs))
+        })?;
+
+        // Step 4: Collect results
+        let mut results = Vec::with_capacity(responses.len());
+        for resp_result in responses {
+            let resp = resp_result.map_err(|e| SemaError::Llm(e.to_string()))?;
+            track_usage(&resp.usage)?;
+            results.push(Value::String(Rc::new(resp.content)));
         }
         Ok(Value::list(results))
     });
 
-    // (with-budget {:max-cost-usd N} body...) — currently a passthrough, tracks and errors on overspend
-    // Registered as a native fn that just returns the last arg (budget tracking is TODO)
+    // (llm/batch ["prompt1" "prompt2" "prompt3"] {:max-tokens 100})
+    register_fn(env, "llm/batch", |args| {
+        if args.is_empty() || args.len() > 2 {
+            return Err(SemaError::arity("llm/batch", "1-2", args.len()));
+        }
+        let prompts = match &args[0] {
+            Value::List(l) => l.as_ref().clone(),
+            Value::Vector(v) => v.as_ref().clone(),
+            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
+        };
+
+        let mut model = String::new();
+        let mut max_tokens = None;
+        let mut temperature = None;
+        let mut system = None;
+
+        if let Some(opts_val) = args.get(1) {
+            if let Value::Map(opts) = opts_val {
+                model = get_opt_string(opts, "model").unwrap_or_default();
+                max_tokens = get_opt_u32(opts, "max-tokens");
+                temperature = get_opt_f64(opts, "temperature");
+                system = get_opt_string(opts, "system");
+            }
+        }
+
+        let requests: Vec<ChatRequest> = prompts
+            .iter()
+            .map(|prompt_val| {
+                let prompt_text = match prompt_val {
+                    Value::String(s) => s.to_string(),
+                    other => other.to_string(),
+                };
+                let messages = vec![ChatMessage {
+                    role: "user".to_string(),
+                    content: prompt_text,
+                }];
+                let mut req = ChatRequest::new(model.clone(), messages);
+                req.max_tokens = max_tokens.or(Some(4096));
+                req.temperature = temperature;
+                req.system = system.clone();
+                req
+            })
+            .collect();
+
+        let responses = with_provider(|p| {
+            let reqs: Vec<ChatRequest> = requests
+                .into_iter()
+                .map(|mut r| {
+                    if r.model.is_empty() {
+                        r.model = p.default_model().to_string();
+                    }
+                    r
+                })
+                .collect();
+            Ok(p.batch_complete(reqs))
+        })?;
+
+        let mut results = Vec::with_capacity(responses.len());
+        for resp_result in responses {
+            let resp = resp_result.map_err(|e| SemaError::Llm(e.to_string()))?;
+            track_usage(&resp.usage)?;
+            results.push(Value::String(Rc::new(resp.content)));
+        }
+        Ok(Value::list(results))
+    });
+
+    // (llm/set-pricing "model-pattern" input-per-million output-per-million)
+    register_fn(env, "llm/set-pricing", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity("llm/set-pricing", "3", args.len()));
+        }
+        let model_pattern = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let input_cost = args[1]
+            .as_float()
+            .ok_or_else(|| SemaError::type_error("number", args[1].type_name()))?;
+        let output_cost = args[2]
+            .as_float()
+            .ok_or_else(|| SemaError::type_error("number", args[2].type_name()))?;
+        pricing::set_custom_pricing(model_pattern, input_cost, output_cost);
+        Ok(Value::Nil)
+    });
+
+    // (llm/configure-embeddings :openai {:api-key "..." :base-url "..." :model "..."})
+    register_fn(env, "llm/configure-embeddings", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("llm/configure-embeddings", "2", args.len()));
+        }
+        let _provider_name = args[0]
+            .as_keyword()
+            .ok_or_else(|| SemaError::type_error("keyword", args[0].type_name()))?;
+        let opts = match &args[1] {
+            Value::Map(m) => m.as_ref().clone(),
+            _ => return Err(SemaError::type_error("map", args[1].type_name())),
+        };
+
+        let api_key = get_opt_string(&opts, "api-key").unwrap_or_default();
+        let base_url = get_opt_string(&opts, "base-url");
+        let model = get_opt_string(&opts, "default-model")
+            .or_else(|| get_opt_string(&opts, "model"));
+
+        PROVIDER_REGISTRY.with(|reg| {
+            let mut reg = reg.borrow_mut();
+            let provider = OpenAiProvider::new(api_key, base_url, model)
+                .map_err(|e| SemaError::Llm(e.to_string()))?;
+            let name = provider.name().to_string();
+            reg.register(Box::new(provider));
+            reg.set_embedding_provider(&name);
+            Ok(Value::Nil)
+        })
+    });
+
+    // (llm/embed "text" {:model "..."})
+    // (llm/embed ["text1" "text2"] {:model "..."})
+    register_fn(env, "llm/embed", |args| {
+        if args.is_empty() || args.len() > 2 {
+            return Err(SemaError::arity("llm/embed", "1-2", args.len()));
+        }
+
+        let (texts, single) = match &args[0] {
+            Value::String(s) => (vec![s.to_string()], true),
+            Value::List(l) | Value::Vector(l) => {
+                let texts: Vec<String> = l
+                    .iter()
+                    .map(|v| match v {
+                        Value::String(s) => Ok(s.to_string()),
+                        other => Ok(other.to_string()),
+                    })
+                    .collect::<Result<_, SemaError>>()?;
+                (texts, false)
+            }
+            _ => return Err(SemaError::type_error("string or list", args[0].type_name())),
+        };
+
+        let model = if let Some(opts_val) = args.get(1) {
+            if let Value::Map(opts) = opts_val {
+                get_opt_string(opts, "model")
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let request = EmbedRequest { texts, model };
+        let response = with_embedding_provider(|p| {
+            p.embed(request).map_err(|e| SemaError::Llm(e.to_string()))
+        })?;
+
+        track_usage(&response.usage)?;
+
+        if single {
+            // Return flat list of floats
+            let embedding = response
+                .embeddings
+                .into_iter()
+                .next()
+                .unwrap_or_default();
+            Ok(Value::list(
+                embedding.into_iter().map(Value::Float).collect(),
+            ))
+        } else {
+            // Return list of lists
+            Ok(Value::list(
+                response
+                    .embeddings
+                    .into_iter()
+                    .map(|emb| Value::list(emb.into_iter().map(Value::Float).collect()))
+                    .collect(),
+            ))
+        }
+    });
+
+    // (llm/similarity vec1 vec2) — cosine similarity
+    register_fn(env, "llm/similarity", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("llm/similarity", "2", args.len()));
+        }
+        let vec1 = extract_float_vec(&args[0])?;
+        let vec2 = extract_float_vec(&args[1])?;
+
+        if vec1.len() != vec2.len() {
+            return Err(SemaError::eval(format!(
+                "llm/similarity: vectors must have same length ({} vs {})",
+                vec1.len(),
+                vec2.len()
+            )));
+        }
+        if vec1.is_empty() {
+            return Err(SemaError::eval("llm/similarity: empty vectors"));
+        }
+
+        let dot: f64 = vec1.iter().zip(vec2.iter()).map(|(a, b)| a * b).sum();
+        let mag1: f64 = vec1.iter().map(|x| x * x).sum::<f64>().sqrt();
+        let mag2: f64 = vec2.iter().map(|x| x * x).sum::<f64>().sqrt();
+
+        if mag1 == 0.0 || mag2 == 0.0 {
+            Ok(Value::Float(0.0))
+        } else {
+            Ok(Value::Float(dot / (mag1 * mag2)))
+        }
+    });
+
     register_fn(env, "llm/reset-usage", |_args| {
         SESSION_USAGE.with(|u| {
             let mut usage = u.borrow_mut();
@@ -769,8 +1145,22 @@ pub fn register_llm_builtins(env: &Env) {
             usage.completion_tokens = 0;
         });
         LAST_USAGE.with(|u| *u.borrow_mut() = None);
+        SESSION_COST.with(|sc| *sc.borrow_mut() = 0.0);
         Ok(Value::Nil)
     });
+}
+
+fn extract_float_vec(val: &Value) -> Result<Vec<f64>, SemaError> {
+    match val {
+        Value::List(l) | Value::Vector(l) => l
+            .iter()
+            .map(|v| {
+                v.as_float()
+                    .ok_or_else(|| SemaError::type_error("number", v.type_name()))
+            })
+            .collect(),
+        _ => Err(SemaError::type_error("list of numbers", val.type_name())),
+    }
 }
 
 fn complete_with_prompt(prompt: &Prompt, opts: Option<&Value>) -> Result<Value, SemaError> {
@@ -797,18 +1187,8 @@ fn complete_with_prompt(prompt: &Prompt, opts: Option<&Value>) -> Result<Value, 
     request.max_tokens = max_tokens.or(Some(4096));
     request.temperature = temperature;
 
-    let response = with_provider(|p| {
-        if request.model.is_empty() {
-            let mut req = request.clone();
-            req.model = p.default_model().to_string();
-            p.complete(req).map_err(|e| SemaError::Llm(e.to_string()))
-        } else {
-            p.complete(request.clone())
-                .map_err(|e| SemaError::Llm(e.to_string()))
-        }
-    })?;
-
-    track_usage(&response.usage);
+    let response = do_complete(request)?;
+    track_usage(&response.usage)?;
     Ok(Value::String(Rc::new(response.content)))
 }
 
@@ -989,7 +1369,7 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
     }
 }
 
-/// The tool execution loop: send → check for tool_calls → execute → send results → repeat.
+/// The tool execution loop: send -> check for tool_calls -> execute -> send results -> repeat.
 fn run_tool_loop(
     initial_messages: Vec<ChatMessage>,
     model: String,
@@ -1011,7 +1391,7 @@ fn run_tool_loop(
         request.tools = tool_schemas.to_vec();
 
         let response = do_complete(request)?;
-        track_usage(&response.usage);
+        track_usage(&response.usage)?;
         last_content = response.content.clone();
 
         if response.tool_calls.is_empty() {
@@ -1030,8 +1410,6 @@ fn run_tool_loop(
         for tc in &response.tool_calls {
             let result = execute_tool_call(tools, &tc.name, &tc.arguments)?;
 
-            // For Anthropic: tool results go as user messages with tool_use_id reference
-            // For simplicity, we add as a user message with the result
             messages.push(ChatMessage {
                 role: "user".to_string(),
                 content: format!(

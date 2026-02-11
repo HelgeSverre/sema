@@ -22,6 +22,225 @@ impl AnthropicProvider {
             runtime,
         })
     }
+
+    fn resolve_model(&self, model: &str) -> String {
+        if model.is_empty() {
+            self.default_model.clone()
+        } else {
+            model.to_string()
+        }
+    }
+
+    fn build_request_body(&self, request: &ChatRequest) -> AnthropicRequest {
+        let model = self.resolve_model(&request.model);
+        let messages: Vec<AnthropicMessage> = request
+            .messages
+            .iter()
+            .filter(|m| m.role != "system")
+            .map(|m| AnthropicMessage {
+                role: m.role.clone(),
+                content: serde_json::Value::String(m.content.clone()),
+            })
+            .collect();
+
+        let system = request.system.clone().or_else(|| {
+            request
+                .messages
+                .iter()
+                .find(|m| m.role == "system")
+                .map(|m| m.content.clone())
+        });
+
+        let tools: Vec<AnthropicTool> = request
+            .tools
+            .iter()
+            .map(|t| AnthropicTool {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema: t.parameters.clone(),
+            })
+            .collect();
+
+        AnthropicRequest {
+            model,
+            messages,
+            max_tokens: request.max_tokens.unwrap_or(4096),
+            temperature: request.temperature,
+            system,
+            tools,
+            stop_sequences: request.stop_sequences.clone(),
+            stream: false,
+        }
+    }
+
+    async fn complete_async(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        let body = self.build_request_body(&request);
+
+        let resp = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+
+        let status = resp.status().as_u16();
+        if status == 429 {
+            return Err(LlmError::RateLimited {
+                retry_after_ms: 5000,
+            });
+        }
+        if status != 200 {
+            let text = resp.text().await.unwrap_or_default();
+            if let Ok(err) = serde_json::from_str::<AnthropicError>(&text) {
+                return Err(LlmError::Api {
+                    status,
+                    message: err.error.message,
+                });
+            }
+            return Err(LlmError::Api {
+                status,
+                message: text,
+            });
+        }
+
+        let api_resp: AnthropicResponse = resp
+            .json()
+            .await
+            .map_err(|e| LlmError::Parse(e.to_string()))?;
+
+        let mut content = String::new();
+        let mut tool_calls = Vec::new();
+        for block in &api_resp.content {
+            match block {
+                ContentBlock::Text { text } => {
+                    if !content.is_empty() {
+                        content.push('\n');
+                    }
+                    content.push_str(text);
+                }
+                ContentBlock::ToolUse { id, name, input } => {
+                    tool_calls.push(ToolCall {
+                        id: id.clone(),
+                        name: name.clone(),
+                        arguments: input.clone(),
+                    });
+                }
+            }
+        }
+
+        Ok(ChatResponse {
+            content,
+            role: api_resp.role,
+            model: api_resp.model.clone(),
+            tool_calls,
+            usage: Usage {
+                prompt_tokens: api_resp.usage.input_tokens,
+                completion_tokens: api_resp.usage.output_tokens,
+                model: api_resp.model,
+            },
+            stop_reason: api_resp.stop_reason,
+        })
+    }
+
+    async fn stream_complete_async(
+        &self,
+        request: ChatRequest,
+        on_chunk: &mut dyn FnMut(&str) -> Result<(), LlmError>,
+    ) -> Result<ChatResponse, LlmError> {
+        let mut body = self.build_request_body(&request);
+        body.stream = true;
+        let model_name = body.model.clone();
+
+        let resp = self
+            .client
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| LlmError::Http(e.to_string()))?;
+
+        let status = resp.status().as_u16();
+        if status == 429 {
+            return Err(LlmError::RateLimited {
+                retry_after_ms: 5000,
+            });
+        }
+        if status != 200 {
+            let text = resp.text().await.unwrap_or_default();
+            if let Ok(err) = serde_json::from_str::<AnthropicError>(&text) {
+                return Err(LlmError::Api {
+                    status,
+                    message: err.error.message,
+                });
+            }
+            return Err(LlmError::Api {
+                status,
+                message: text,
+            });
+        }
+
+        let mut full_content = String::new();
+        let mut input_tokens = 0u32;
+        let mut output_tokens = 0u32;
+        let mut stop_reason = None;
+
+        crate::sse::parse_sse_stream(resp, |data| {
+            if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
+                match event.get("type").and_then(|t| t.as_str()) {
+                    Some("message_start") => {
+                        if let Some(usage) = event.pointer("/message/usage") {
+                            input_tokens = usage
+                                .get("input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32;
+                        }
+                    }
+                    Some("content_block_delta") => {
+                        if let Some(text) = event.pointer("/delta/text") {
+                            if let Some(s) = text.as_str() {
+                                full_content.push_str(s);
+                                on_chunk(s)?;
+                            }
+                        }
+                    }
+                    Some("message_delta") => {
+                        if let Some(usage) = event.get("usage") {
+                            output_tokens = usage
+                                .get("output_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0) as u32;
+                        }
+                        if let Some(sr) = event.pointer("/delta/stop_reason") {
+                            stop_reason = sr.as_str().map(|s| s.to_string());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        })
+        .await?;
+
+        Ok(ChatResponse {
+            content: full_content,
+            role: "assistant".to_string(),
+            model: model_name.clone(),
+            tool_calls: Vec::new(),
+            usage: Usage {
+                prompt_tokens: input_tokens,
+                completion_tokens: output_tokens,
+                model: model_name,
+            },
+            stop_reason,
+        })
+    }
 }
 
 #[derive(Serialize)]
@@ -37,6 +256,8 @@ struct AnthropicRequest {
     tools: Vec<AnthropicTool>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     stop_sequences: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    stream: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -102,119 +323,28 @@ impl LlmProvider for AnthropicProvider {
     }
 
     fn complete(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        self.runtime.block_on(self.complete_async(request))
+    }
+
+    fn stream_complete(
+        &self,
+        request: ChatRequest,
+        on_chunk: &mut dyn FnMut(&str) -> Result<(), LlmError>,
+    ) -> Result<ChatResponse, LlmError> {
+        self.runtime
+            .block_on(self.stream_complete_async(request, on_chunk))
+    }
+
+    fn batch_complete(
+        &self,
+        requests: Vec<ChatRequest>,
+    ) -> Vec<Result<ChatResponse, LlmError>> {
         self.runtime.block_on(async {
-            let model = if request.model.is_empty() {
-                self.default_model.clone()
-            } else {
-                request.model.clone()
-            };
-
-            let messages: Vec<AnthropicMessage> = request
-                .messages
-                .iter()
-                .filter(|m| m.role != "system")
-                .map(|m| AnthropicMessage {
-                    role: m.role.clone(),
-                    content: serde_json::Value::String(m.content.clone()),
-                })
+            let futures: Vec<_> = requests
+                .into_iter()
+                .map(|req| self.complete_async(req))
                 .collect();
-
-            // Extract system message
-            let system = request.system.or_else(|| {
-                request
-                    .messages
-                    .iter()
-                    .find(|m| m.role == "system")
-                    .map(|m| m.content.clone())
-            });
-
-            let tools: Vec<AnthropicTool> = request
-                .tools
-                .iter()
-                .map(|t| AnthropicTool {
-                    name: t.name.clone(),
-                    description: t.description.clone(),
-                    input_schema: t.parameters.clone(),
-                })
-                .collect();
-
-            let body = AnthropicRequest {
-                model,
-                messages,
-                max_tokens: request.max_tokens.unwrap_or(4096),
-                temperature: request.temperature,
-                system,
-                tools,
-                stop_sequences: request.stop_sequences.clone(),
-            };
-
-            let resp = self
-                .client
-                .post("https://api.anthropic.com/v1/messages")
-                .header("x-api-key", &self.api_key)
-                .header("anthropic-version", "2023-06-01")
-                .header("content-type", "application/json")
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| LlmError::Http(e.to_string()))?;
-
-            let status = resp.status().as_u16();
-            if status == 429 {
-                return Err(LlmError::RateLimited {
-                    retry_after_ms: 5000,
-                });
-            }
-            if status != 200 {
-                let text = resp.text().await.unwrap_or_default();
-                if let Ok(err) = serde_json::from_str::<AnthropicError>(&text) {
-                    return Err(LlmError::Api {
-                        status,
-                        message: err.error.message,
-                    });
-                }
-                return Err(LlmError::Api {
-                    status,
-                    message: text,
-                });
-            }
-
-            let api_resp: AnthropicResponse = resp
-                .json()
-                .await
-                .map_err(|e| LlmError::Parse(e.to_string()))?;
-
-            let mut content = String::new();
-            let mut tool_calls = Vec::new();
-            for block in &api_resp.content {
-                match block {
-                    ContentBlock::Text { text } => {
-                        if !content.is_empty() {
-                            content.push('\n');
-                        }
-                        content.push_str(text);
-                    }
-                    ContentBlock::ToolUse { id, name, input } => {
-                        tool_calls.push(ToolCall {
-                            id: id.clone(),
-                            name: name.clone(),
-                            arguments: input.clone(),
-                        });
-                    }
-                }
-            }
-
-            Ok(ChatResponse {
-                content,
-                role: api_resp.role,
-                model: api_resp.model,
-                tool_calls,
-                usage: Usage {
-                    prompt_tokens: api_resp.usage.input_tokens,
-                    completion_tokens: api_resp.usage.output_tokens,
-                },
-                stop_reason: api_resp.stop_reason,
-            })
+            futures::future::join_all(futures).await
         })
     }
 }

@@ -52,12 +52,26 @@ pub struct ChatResponse {
 pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
+    pub model: String,
 }
 
 impl Usage {
     pub fn total_tokens(&self) -> u32 {
         self.prompt_tokens + self.completion_tokens
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct EmbedRequest {
+    pub texts: Vec<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EmbedResponse {
+    pub embeddings: Vec<Vec<f64>>,
+    pub model: String,
+    pub usage: Usage,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -367,10 +367,31 @@ fn test_defmacro() {
 }
 
 #[test]
-fn test_llm_pmap_sequential() {
-    // llm/pmap should work like map for non-LLM functions
+fn test_llm_similarity() {
+    // llm/similarity should compute cosine similarity
     assert_eq!(
-        eval_to_string("(llm/pmap (lambda (x) (* x x)) (list 1 2 3 4))"),
-        "(1 4 9 16)"
+        eval_to_string("(llm/similarity '(1.0 0.0 0.0) '(1.0 0.0 0.0))"),
+        "1.0"
+    );
+    assert_eq!(
+        eval_to_string("(llm/similarity '(1.0 0.0) '(0.0 1.0))"),
+        "0.0"
+    );
+}
+
+#[test]
+fn test_pricing() {
+    // llm/set-pricing should not error
+    assert_eq!(
+        eval_to_string("(llm/set-pricing \"my-model\" 1.0 2.0)"),
+        "nil"
+    );
+}
+
+#[test]
+fn test_llm_reset_usage() {
+    assert_eq!(
+        eval_to_string("(llm/reset-usage)"),
+        "nil"
     );
 }

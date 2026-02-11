@@ -31,6 +31,7 @@ pub fn try_eval_special(
         "deftool" => Some(eval_deftool(args, env)),
         "defagent" => Some(eval_defagent(args, env)),
         "load" => Some(eval_load(args, env)),
+        "with-budget" => Some(eval_with_budget(args, env)),
         _ => None,
     }
 }
@@ -605,6 +606,36 @@ fn eval_load(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     for expr in &exprs {
         result = eval::eval_value(expr, env)?;
     }
+    Ok(Trampoline::Value(result))
+}
+
+/// (with-budget {:max-cost-usd 0.50} body...)
+fn eval_with_budget(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() < 2 {
+        return Err(SemaError::arity("with-budget", "2+", args.len()));
+    }
+    let opts = eval::eval_value(&args[0], env)?;
+    let max_cost = match &opts {
+        Value::Map(m) => m
+            .get(&Value::keyword("max-cost-usd"))
+            .and_then(|v| v.as_float())
+            .ok_or_else(|| SemaError::eval("with-budget: missing :max-cost-usd"))?,
+        _ => return Err(SemaError::type_error("map", opts.type_name())),
+    };
+
+    sema_llm::builtins::set_budget(max_cost);
+
+    let mut result = Value::Nil;
+    let body_result = (|| {
+        for expr in &args[1..] {
+            result = eval::eval_value(expr, env)?;
+        }
+        Ok(result.clone())
+    })();
+
+    sema_llm::builtins::clear_budget();
+
+    body_result?;
     Ok(Trampoline::Value(result))
 }
 
