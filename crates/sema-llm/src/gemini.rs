@@ -17,7 +17,10 @@ impl GeminiProvider {
             api_key,
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
             default_model: default_model.unwrap_or_else(|| "gemini-2.0-flash".to_string()),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
             runtime,
         })
     }
@@ -109,10 +112,12 @@ impl GeminiProvider {
         let mut full_content = String::new();
         let mut prompt_tokens = 0u32;
         let mut completion_tokens = 0u32;
+        let mut tool_calls: Vec<ToolCall> = Vec::new();
+        let mut tool_call_idx = 0usize;
 
         crate::sse::parse_sse_stream(resp, |data| {
             if let Ok(chunk) = serde_json::from_str::<serde_json::Value>(data) {
-                // Extract text from candidates
+                // Extract text and functionCall from candidates
                 if let Some(candidates) = chunk.get("candidates").and_then(|c| c.as_array()) {
                     for candidate in candidates {
                         if let Some(parts) = candidate
@@ -123,6 +128,25 @@ impl GeminiProvider {
                                 if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
                                     full_content.push_str(text);
                                     on_chunk(text)?;
+                                }
+                                if let Some(fc) = part.get("functionCall") {
+                                    let name = fc
+                                        .get("name")
+                                        .and_then(|n| n.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let arguments = fc
+                                        .get("args")
+                                        .cloned()
+                                        .unwrap_or(serde_json::Value::Object(
+                                            serde_json::Map::new(),
+                                        ));
+                                    tool_calls.push(ToolCall {
+                                        id: format!("gemini-call-{}", tool_call_idx),
+                                        name,
+                                        arguments,
+                                    });
+                                    tool_call_idx += 1;
                                 }
                             }
                         }
@@ -142,17 +166,23 @@ impl GeminiProvider {
         })
         .await?;
 
+        let stop_reason = if tool_calls.is_empty() {
+            Some("stop".to_string())
+        } else {
+            Some("tool_use".to_string())
+        };
+
         Ok(ChatResponse {
             content: full_content,
             role: "assistant".to_string(),
             model: model.clone(),
-            tool_calls: Vec::new(),
+            tool_calls,
             usage: Usage {
                 prompt_tokens,
                 completion_tokens,
                 model,
             },
-            stop_reason: Some("stop".to_string()),
+            stop_reason,
         })
     }
 
@@ -209,6 +239,24 @@ impl GeminiProvider {
             body["generationConfig"] = serde_json::Value::Object(gen_config);
         }
 
+        // Tools (function declarations)
+        if !request.tools.is_empty() {
+            let function_declarations: Vec<serde_json::Value> = request
+                .tools
+                .iter()
+                .map(|tool| {
+                    serde_json::json!({
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters,
+                    })
+                })
+                .collect();
+            body["tools"] = serde_json::json!([{
+                "function_declarations": function_declarations,
+            }]);
+        }
+
         body
     }
 
@@ -218,6 +266,8 @@ impl GeminiProvider {
         model: &str,
     ) -> Result<ChatResponse, LlmError> {
         let mut content = String::new();
+        let mut tool_calls = Vec::new();
+        let mut tool_call_idx = 0usize;
 
         if let Some(candidates) = resp.get("candidates").and_then(|c| c.as_array()) {
             if let Some(candidate) = candidates.first() {
@@ -231,6 +281,23 @@ impl GeminiProvider {
                                 content.push('\n');
                             }
                             content.push_str(text);
+                        }
+                        if let Some(fc) = part.get("functionCall") {
+                            let name = fc
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let arguments = fc
+                                .get("args")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                            tool_calls.push(ToolCall {
+                                id: format!("gemini-call-{}", tool_call_idx),
+                                name,
+                                arguments,
+                            });
+                            tool_call_idx += 1;
                         }
                     }
                 }
@@ -250,17 +317,23 @@ impl GeminiProvider {
                 .unwrap_or(0) as u32;
         }
 
+        let stop_reason = if tool_calls.is_empty() {
+            Some("stop".to_string())
+        } else {
+            Some("tool_use".to_string())
+        };
+
         Ok(ChatResponse {
             content,
             role: "assistant".to_string(),
             model: model.to_string(),
-            tool_calls: Vec::new(),
+            tool_calls,
             usage: Usage {
                 prompt_tokens,
                 completion_tokens,
                 model: model.to_string(),
             },
-            stop_reason: Some("stop".to_string()),
+            stop_reason,
         })
     }
 }

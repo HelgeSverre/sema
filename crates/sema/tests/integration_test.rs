@@ -4251,3 +4251,210 @@ fn test_stack_trace_loaded_file() {
     assert_eq!(names[0], "+");
     assert_eq!(names[1], "bad-fn");
 }
+
+// === Slash-namespaced accessors (new primary names) ===
+
+#[test]
+fn test_tool_slash_name() {
+    assert_eq!(
+        eval(r#"(begin (deftool t1 "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1))"#),
+        Value::string("t1")
+    );
+}
+
+#[test]
+fn test_tool_slash_description() {
+    assert_eq!(
+        eval(r#"(begin (deftool t2 "my desc" {:x {:type :string}} (lambda (x) "ok")) (tool/description t2))"#),
+        Value::string("my desc")
+    );
+}
+
+#[test]
+fn test_tool_slash_parameters() {
+    assert_eq!(
+        eval(r#"(begin (deftool t3 "desc" {:x {:type :string}} (lambda (x) "ok")) (map? (tool/parameters t3)))"#),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn test_agent_slash_name() {
+    assert_eq!(
+        eval(r#"(begin (defagent a1 {:system "sys" :tools []}) (agent/name a1))"#),
+        Value::string("a1")
+    );
+}
+
+#[test]
+fn test_agent_slash_system() {
+    assert_eq!(
+        eval(r#"(begin (defagent a2 {:system "you are helpful" :tools []}) (agent/system a2))"#),
+        Value::string("you are helpful")
+    );
+}
+
+#[test]
+fn test_agent_slash_tools() {
+    assert_eq!(
+        eval(r#"(begin (defagent a3 {:system "sys" :tools []}) (length (agent/tools a3)))"#),
+        Value::Int(0)
+    );
+}
+
+#[test]
+fn test_agent_slash_model() {
+    assert_eq!(
+        eval(r#"(begin (defagent a4 {:system "sys" :tools [] :model "claude-3"}) (agent/model a4))"#),
+        Value::string("claude-3")
+    );
+}
+
+#[test]
+fn test_agent_slash_max_turns() {
+    assert_eq!(
+        eval(r#"(begin (defagent a5 {:system "sys" :tools [] :max-turns 5}) (agent/max-turns a5))"#),
+        Value::Int(5)
+    );
+}
+
+#[test]
+fn test_prompt_slash_messages() {
+    assert_eq!(
+        eval(r#"(length (prompt/messages (prompt (user "hello") (assistant "hi"))))"#),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_prompt_slash_append() {
+    assert_eq!(
+        eval(r#"(length (prompt/messages (prompt/append (prompt (user "a")) (prompt (assistant "b")))))"#),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_prompt_slash_set_system() {
+    assert_eq!(
+        eval(r#"(begin
+          (define p (prompt (user "hello")))
+          (define p2 (prompt/set-system p "system msg"))
+          (length (prompt/messages p2)))"#),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_message_slash_role() {
+    assert_eq!(
+        eval(r#"(message/role (message :user "hi"))"#),
+        Value::keyword("user")
+    );
+}
+
+#[test]
+fn test_message_slash_content() {
+    assert_eq!(
+        eval(r#"(message/content (message :user "hello world"))"#),
+        Value::string("hello world")
+    );
+}
+
+// === Legacy aliases still work ===
+
+#[test]
+fn test_legacy_tool_name_alias() {
+    assert_eq!(
+        eval(r#"(begin (deftool t1l "desc" {:x {:type :string}} (lambda (x) "ok")) (tool-name t1l))"#),
+        Value::string("t1l")
+    );
+}
+
+#[test]
+fn test_legacy_agent_name_alias() {
+    assert_eq!(
+        eval(r#"(begin (defagent a1l {:system "sys" :tools []}) (agent-name a1l))"#),
+        Value::string("a1l")
+    );
+}
+
+#[test]
+fn test_legacy_prompt_messages_alias() {
+    assert_eq!(
+        eval(r#"(length (prompt-messages (prompt (user "hello"))))"#),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn test_legacy_message_role_alias() {
+    assert_eq!(
+        eval(r#"(message-role (message :assistant "hi"))"#),
+        Value::keyword("assistant")
+    );
+}
+
+// === New builtins ===
+
+#[test]
+fn test_llm_list_providers_empty() {
+    // No providers configured, should return empty list
+    assert_eq!(
+        eval(r#"(length (llm/list-providers))"#),
+        Value::Int(0)
+    );
+}
+
+#[test]
+fn test_llm_current_provider_none() {
+    // No provider configured
+    assert_eq!(
+        eval(r#"(llm/current-provider)"#),
+        Value::Nil
+    );
+}
+
+#[test]
+fn test_llm_set_budget() {
+    // Setting budget should not error
+    assert_eq!(
+        eval(r#"(begin (llm/set-budget 1.0) (map? (llm/budget-remaining)))"#),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn test_llm_budget_remaining_values() {
+    assert_eq!(
+        eval(r#"(begin
+          (llm/set-budget 5.0)
+          (define b (llm/budget-remaining))
+          (:limit b))"#),
+        Value::Float(5.0)
+    );
+}
+
+#[test]
+fn test_llm_budget_remaining_no_budget() {
+    assert_eq!(
+        eval(r#"(begin (llm/clear-budget) (llm/budget-remaining))"#),
+        Value::Nil
+    );
+}
+
+#[test]
+fn test_llm_clear_budget() {
+    assert_eq!(
+        eval(r#"(begin (llm/set-budget 1.0) (llm/clear-budget) (llm/budget-remaining))"#),
+        Value::Nil
+    );
+}
+
+#[test]
+fn test_llm_set_default_no_provider() {
+    // Should error when provider not configured
+    let err = eval_err(r#"(llm/set-default :anthropic)"#);
+    let msg = format!("{}", err.inner());
+    assert!(msg.contains("not configured"), "got: {msg}");
+}

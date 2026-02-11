@@ -59,5 +59,13 @@
     (catch e
       (println "  Voyage:    FAIL -" (get e :message)))))
 
+(when (env "COHERE_API_KEY")
+  (try
+    (llm/configure :cohere {:api-key (env "COHERE_API_KEY")})
+    (define vecs (llm/embed "test"))
+    (println "  Cohere:    OK (" (length vecs) "dims)")
+    (catch e
+      (println "  Cohere:    FAIL -" (get e :message)))))
+
 (println "")
 (println "=== Done ===")

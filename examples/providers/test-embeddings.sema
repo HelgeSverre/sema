@@ -15,4 +15,11 @@
   (println "Voyage embedding dimensions:" (length vecs))
   (println "Voyage: OK"))
 
+;; Test with Cohere
+(when (env "COHERE_API_KEY")
+  (llm/configure :cohere {:api-key (env "COHERE_API_KEY")})
+  (define vecs (llm/embed "Hello world"))
+  (println "Cohere embedding dimensions:" (length vecs))
+  (println "Cohere: OK"))
+
 (println "Embeddings: OK")

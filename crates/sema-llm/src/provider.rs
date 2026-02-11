@@ -82,6 +82,12 @@ impl ProviderRegistry {
             .and_then(|name| self.providers.get(name))
             .map(|p| p.as_ref())
     }
+
+    pub fn provider_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.providers.keys().cloned().collect();
+        names.sort();
+        names
+    }
 }
 
 impl Default for ProviderRegistry {

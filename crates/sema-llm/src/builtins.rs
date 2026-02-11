@@ -874,10 +874,10 @@ pub fn register_llm_builtins(env: &Env) {
         })))
     });
 
-    // (conversation/say conv "message")
+    // (conversation/say conv "message" {:temperature 0.5 :max-tokens 2048 :system "..."})
     register_fn(env, "conversation/say", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("conversation/say", "2", args.len()));
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("conversation/say", "2-3", args.len()));
         }
         let conv = match &args[0] {
             Value::Conversation(c) => c.clone(),
@@ -887,6 +887,18 @@ pub fn register_llm_builtins(env: &Env) {
             Value::String(s) => s.to_string(),
             other => other.to_string(),
         };
+
+        // Parse optional opts
+        let mut temperature = None;
+        let mut max_tokens = None;
+        let mut system = None;
+        if let Some(opts_val) = args.get(2) {
+            if let Value::Map(opts) = opts_val {
+                temperature = get_opt_f64(opts, "temperature");
+                max_tokens = get_opt_u32(opts, "max-tokens");
+                system = get_opt_string(opts, "system");
+            }
+        }
 
         // Build messages for API call
         let mut chat_messages: Vec<ChatMessage> = conv
@@ -902,7 +914,10 @@ pub fn register_llm_builtins(env: &Env) {
             content: user_msg.clone(),
         });
 
-        let request = ChatRequest::new(conv.model.clone(), chat_messages);
+        let mut request = ChatRequest::new(conv.model.clone(), chat_messages);
+        request.temperature = temperature;
+        request.max_tokens = max_tokens.or(Some(4096));
+        request.system = system;
 
         let response = do_complete(request)?;
         track_usage(&response.usage)?;
@@ -967,12 +982,28 @@ pub fn register_llm_builtins(env: &Env) {
         Ok(args[0].clone())
     });
 
-    // Prompt functions
+    // Prompt functions (slash-namespaced primary, legacy aliases)
 
-    // (prompt-append p1 p2)
+    // (prompt/append p1 p2)
+    register_fn(env, "prompt/append", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("prompt/append", "2", args.len()));
+        }
+        let p1 = match &args[0] {
+            Value::Prompt(p) => p.clone(),
+            _ => return Err(SemaError::type_error("prompt", args[0].type_name())),
+        };
+        let p2 = match &args[1] {
+            Value::Prompt(p) => p.clone(),
+            _ => return Err(SemaError::type_error("prompt", args[1].type_name())),
+        };
+        let mut messages = p1.messages.clone();
+        messages.extend(p2.messages.iter().cloned());
+        Ok(Value::Prompt(Rc::new(Prompt { messages })))
+    });
     register_fn(env, "prompt-append", |args| {
         if args.len() != 2 {
-            return Err(SemaError::arity("prompt-append", "2", args.len()));
+            return Err(SemaError::arity("prompt/append", "2", args.len()));
         }
         let p1 = match &args[0] {
             Value::Prompt(p) => p.clone(),
@@ -987,10 +1018,25 @@ pub fn register_llm_builtins(env: &Env) {
         Ok(Value::Prompt(Rc::new(Prompt { messages })))
     });
 
-    // (prompt-messages prompt)
+    // (prompt/messages prompt)
+    register_fn(env, "prompt/messages", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("prompt/messages", "1", args.len()));
+        }
+        let p = match &args[0] {
+            Value::Prompt(p) => p.clone(),
+            _ => return Err(SemaError::type_error("prompt", args[0].type_name())),
+        };
+        let msgs: Vec<Value> = p
+            .messages
+            .iter()
+            .map(|m| Value::Message(Rc::new(m.clone())))
+            .collect();
+        Ok(Value::list(msgs))
+    });
     register_fn(env, "prompt-messages", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("prompt-messages", "1", args.len()));
+            return Err(SemaError::arity("prompt/messages", "1", args.len()));
         }
         let p = match &args[0] {
             Value::Prompt(p) => p.clone(),
@@ -1004,10 +1050,37 @@ pub fn register_llm_builtins(env: &Env) {
         Ok(Value::list(msgs))
     });
 
-    // (prompt-set-system prompt "new system message")
+    // (prompt/set-system prompt "new system message")
+    register_fn(env, "prompt/set-system", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("prompt/set-system", "2", args.len()));
+        }
+        let p = match &args[0] {
+            Value::Prompt(p) => p.clone(),
+            _ => return Err(SemaError::type_error("prompt", args[0].type_name())),
+        };
+        let new_system = match &args[1] {
+            Value::String(s) => s.to_string(),
+            other => other.to_string(),
+        };
+        let mut messages: Vec<Message> = p
+            .messages
+            .iter()
+            .filter(|m| m.role != Role::System)
+            .cloned()
+            .collect();
+        messages.insert(
+            0,
+            Message {
+                role: Role::System,
+                content: new_system,
+            },
+        );
+        Ok(Value::Prompt(Rc::new(Prompt { messages })))
+    });
     register_fn(env, "prompt-set-system", |args| {
         if args.len() != 2 {
-            return Err(SemaError::arity("prompt-set-system", "2", args.len()));
+            return Err(SemaError::arity("prompt/set-system", "2", args.len()));
         }
         let p = match &args[0] {
             Value::Prompt(p) => p.clone(),
@@ -1033,10 +1106,20 @@ pub fn register_llm_builtins(env: &Env) {
         Ok(Value::Prompt(Rc::new(Prompt { messages })))
     });
 
-    // (message-role msg)
+    // (message/role msg)
+    register_fn(env, "message/role", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("message/role", "1", args.len()));
+        }
+        let msg = match &args[0] {
+            Value::Message(m) => m.clone(),
+            _ => return Err(SemaError::type_error("message", args[0].type_name())),
+        };
+        Ok(Value::keyword(&msg.role.to_string()))
+    });
     register_fn(env, "message-role", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("message-role", "1", args.len()));
+            return Err(SemaError::arity("message/role", "1", args.len()));
         }
         let msg = match &args[0] {
             Value::Message(m) => m.clone(),
@@ -1045,10 +1128,20 @@ pub fn register_llm_builtins(env: &Env) {
         Ok(Value::keyword(&msg.role.to_string()))
     });
 
-    // (message-content msg)
+    // (message/content msg)
+    register_fn(env, "message/content", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("message/content", "1", args.len()));
+        }
+        let msg = match &args[0] {
+            Value::Message(m) => m.clone(),
+            _ => return Err(SemaError::type_error("message", args[0].type_name())),
+        };
+        Ok(Value::String(Rc::new(msg.content.clone())))
+    });
     register_fn(env, "message-content", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("message-content", "1", args.len()));
+            return Err(SemaError::arity("message/content", "1", args.len()));
         }
         let msg = match &args[0] {
             Value::Message(m) => m.clone(),
@@ -1534,10 +1627,19 @@ pub fn register_llm_builtins(env: &Env) {
         Ok(Value::Bool(matches!(args[0], Value::Agent(_))))
     });
 
-    // Tool accessor functions
+    // Tool accessor functions (slash-namespaced primary, legacy aliases)
+    register_fn(env, "tool/name", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("tool/name", "1", args.len()));
+        }
+        match &args[0] {
+            Value::ToolDef(t) => Ok(Value::string(&t.name)),
+            _ => Err(SemaError::type_error("tool", args[0].type_name())),
+        }
+    });
     register_fn(env, "tool-name", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("tool-name", "1", args.len()));
+            return Err(SemaError::arity("tool/name", "1", args.len()));
         }
         match &args[0] {
             Value::ToolDef(t) => Ok(Value::string(&t.name)),
@@ -1545,9 +1647,18 @@ pub fn register_llm_builtins(env: &Env) {
         }
     });
 
+    register_fn(env, "tool/description", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("tool/description", "1", args.len()));
+        }
+        match &args[0] {
+            Value::ToolDef(t) => Ok(Value::string(&t.description)),
+            _ => Err(SemaError::type_error("tool", args[0].type_name())),
+        }
+    });
     register_fn(env, "tool-description", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("tool-description", "1", args.len()));
+            return Err(SemaError::arity("tool/description", "1", args.len()));
         }
         match &args[0] {
             Value::ToolDef(t) => Ok(Value::string(&t.description)),
@@ -1555,9 +1666,18 @@ pub fn register_llm_builtins(env: &Env) {
         }
     });
 
+    register_fn(env, "tool/parameters", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("tool/parameters", "1", args.len()));
+        }
+        match &args[0] {
+            Value::ToolDef(t) => Ok(t.parameters.clone()),
+            _ => Err(SemaError::type_error("tool", args[0].type_name())),
+        }
+    });
     register_fn(env, "tool-parameters", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("tool-parameters", "1", args.len()));
+            return Err(SemaError::arity("tool/parameters", "1", args.len()));
         }
         match &args[0] {
             Value::ToolDef(t) => Ok(t.parameters.clone()),
@@ -1565,10 +1685,19 @@ pub fn register_llm_builtins(env: &Env) {
         }
     });
 
-    // Agent accessor functions
+    // Agent accessor functions (slash-namespaced primary, legacy aliases)
+    register_fn(env, "agent/name", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent/name", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::string(&a.name)),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
     register_fn(env, "agent-name", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("agent-name", "1", args.len()));
+            return Err(SemaError::arity("agent/name", "1", args.len()));
         }
         match &args[0] {
             Value::Agent(a) => Ok(Value::string(&a.name)),
@@ -1576,9 +1705,18 @@ pub fn register_llm_builtins(env: &Env) {
         }
     });
 
+    register_fn(env, "agent/system", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent/system", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::string(&a.system)),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
     register_fn(env, "agent-system", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("agent-system", "1", args.len()));
+            return Err(SemaError::arity("agent/system", "1", args.len()));
         }
         match &args[0] {
             Value::Agent(a) => Ok(Value::string(&a.system)),
@@ -1586,9 +1724,18 @@ pub fn register_llm_builtins(env: &Env) {
         }
     });
 
+    register_fn(env, "agent/tools", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent/tools", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::list(a.tools.clone())),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
     register_fn(env, "agent-tools", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("agent-tools", "1", args.len()));
+            return Err(SemaError::arity("agent/tools", "1", args.len()));
         }
         match &args[0] {
             Value::Agent(a) => Ok(Value::list(a.tools.clone())),
@@ -1596,9 +1743,18 @@ pub fn register_llm_builtins(env: &Env) {
         }
     });
 
+    register_fn(env, "agent/model", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent/model", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::string(&a.model)),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
     register_fn(env, "agent-model", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("agent-model", "1", args.len()));
+            return Err(SemaError::arity("agent/model", "1", args.len()));
         }
         match &args[0] {
             Value::Agent(a) => Ok(Value::string(&a.model)),
@@ -1606,9 +1762,18 @@ pub fn register_llm_builtins(env: &Env) {
         }
     });
 
+    register_fn(env, "agent/max-turns", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent/max-turns", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::Int(a.max_turns as i64)),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
     register_fn(env, "agent-max-turns", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("agent-max-turns", "1", args.len()));
+            return Err(SemaError::arity("agent/max-turns", "1", args.len()));
         }
         match &args[0] {
             Value::Agent(a) => Ok(Value::Int(a.max_turns as i64)),
@@ -1665,6 +1830,94 @@ pub fn register_llm_builtins(env: &Env) {
             Value::Conversation(c) => Ok(Value::string(&c.model)),
             _ => Err(SemaError::type_error("conversation", args[0].type_name())),
         }
+    });
+
+    // (llm/set-default :provider-name) — switch the active provider
+    register_fn(env, "llm/set-default", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("llm/set-default", "1", args.len()));
+        }
+        let name = args[0]
+            .as_keyword()
+            .or_else(|| args[0].as_str())
+            .ok_or_else(|| SemaError::type_error("keyword or string", args[0].type_name()))?;
+        PROVIDER_REGISTRY.with(|reg| {
+            let mut reg = reg.borrow_mut();
+            if reg.get(name).is_some() {
+                reg.set_default(name);
+                Ok(Value::keyword(name))
+            } else {
+                Err(SemaError::Llm(format!("provider not configured: {name}")))
+            }
+        })
+    });
+
+    // (llm/list-providers) — list configured providers
+    register_fn(env, "llm/list-providers", |_args| {
+        PROVIDER_REGISTRY.with(|reg| {
+            let reg = reg.borrow();
+            let names: Vec<Value> = reg
+                .provider_names()
+                .into_iter()
+                .map(|n| Value::keyword(&n))
+                .collect();
+            Ok(Value::list(names))
+        })
+    });
+
+    // (llm/current-provider) — query active provider/model
+    register_fn(env, "llm/current-provider", |_args| {
+        PROVIDER_REGISTRY.with(|reg| {
+            let reg = reg.borrow();
+            match reg.default_provider() {
+                Some(p) => {
+                    let mut map = BTreeMap::new();
+                    map.insert(Value::keyword("name"), Value::keyword(p.name()));
+                    map.insert(Value::keyword("model"), Value::string(p.default_model()));
+                    Ok(Value::Map(Rc::new(map)))
+                }
+                None => Ok(Value::Nil),
+            }
+        })
+    });
+
+    // (llm/set-budget max-cost-usd) — set a budget limit
+    register_fn(env, "llm/set-budget", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("llm/set-budget", "1", args.len()));
+        }
+        let max_cost = args[0]
+            .as_float()
+            .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
+        crate::builtins::set_budget(max_cost);
+        Ok(Value::Nil)
+    });
+
+    // (llm/clear-budget) — clear the budget limit
+    register_fn(env, "llm/clear-budget", |_args| {
+        crate::builtins::clear_budget();
+        Ok(Value::Nil)
+    });
+
+    // (llm/budget-remaining) — query budget status
+    register_fn(env, "llm/budget-remaining", |_args| {
+        BUDGET_LIMIT.with(|limit| {
+            let limit = limit.borrow();
+            match *limit {
+                Some(max_cost) => {
+                    let spent = BUDGET_SPENT.with(|s| *s.borrow());
+                    let mut map = BTreeMap::new();
+                    map.insert(Value::keyword("limit"), Value::Float(max_cost));
+                    map.insert(Value::keyword("spent"), Value::Float(spent));
+                    map.insert(
+                        Value::keyword("remaining"),
+                        Value::Float(max_cost - spent),
+                    );
+                    Ok(Value::Map(Rc::new(map)))
+                }
+                None => Ok(Value::Nil),
+            }
+        })
     });
 }
 
@@ -1774,14 +2027,30 @@ fn format_schema(val: &Value) -> String {
     }
 }
 
-/// Send a ChatRequest via the default provider with model fallback.
+/// Send a ChatRequest via the default provider with model fallback and rate-limit retry.
 fn do_complete(mut request: ChatRequest) -> Result<ChatResponse, SemaError> {
     with_provider(|p| {
         if request.model.is_empty() {
             request.model = p.default_model().to_string();
         }
-        p.complete(request.clone())
-            .map_err(|e| SemaError::Llm(e.to_string()))
+        let mut retries = 0;
+        let max_retries = 3;
+        loop {
+            match p.complete(request.clone()) {
+                Ok(resp) => return Ok(resp),
+                Err(crate::types::LlmError::RateLimited { retry_after_ms }) => {
+                    retries += 1;
+                    if retries > max_retries {
+                        return Err(SemaError::Llm(
+                            "rate limited after 3 retries".to_string(),
+                        ));
+                    }
+                    let wait = std::cmp::min(retry_after_ms, 30000);
+                    std::thread::sleep(std::time::Duration::from_millis(wait));
+                }
+                Err(e) => return Err(SemaError::Llm(e.to_string())),
+            }
+        }
     })
 }
 

@@ -1,6 +1,46 @@
 use crate::provider::LlmProvider;
 use crate::types::*;
 
+/// Convert our `ToolSchema` list into Ollama's (OpenAI-compatible) tools JSON.
+fn build_tools_json(tools: &[ToolSchema]) -> serde_json::Value {
+    let arr: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": t.name,
+                    "description": t.description,
+                    "parameters": t.parameters,
+                }
+            })
+        })
+        .collect();
+    serde_json::Value::Array(arr)
+}
+
+/// Parse tool calls from an Ollama response JSON value.
+/// Ollama returns `message.tool_calls` as an array of `{ function: { name, arguments } }`.
+/// We generate synthetic IDs since Ollama doesn't provide them.
+fn parse_tool_calls(message: &serde_json::Value) -> Vec<ToolCall> {
+    let Some(arr) = message.get("tool_calls").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    arr.iter()
+        .enumerate()
+        .filter_map(|(i, tc)| {
+            let func = tc.get("function")?;
+            let name = func.get("name")?.as_str()?.to_string();
+            let arguments = func.get("arguments").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+            Some(ToolCall {
+                id: format!("ollama-call-{i}"),
+                name,
+                arguments,
+            })
+        })
+        .collect()
+}
+
 pub struct OllamaProvider {
     host: String,
     default_model: String,
@@ -60,6 +100,11 @@ impl OllamaProvider {
             "stream": false,
         });
 
+        // Add tools if provided
+        if !request.tools.is_empty() {
+            body["tools"] = build_tools_json(&request.tools);
+        }
+
         // Options
         let mut options = serde_json::Map::new();
         if let Some(max_tokens) = request.max_tokens {
@@ -101,6 +146,17 @@ impl OllamaProvider {
             .unwrap_or_default()
             .to_string();
 
+        let tool_calls = api_resp
+            .get("message")
+            .map(parse_tool_calls)
+            .unwrap_or_default();
+
+        let stop_reason = if tool_calls.is_empty() {
+            "stop"
+        } else {
+            "tool_use"
+        };
+
         let prompt_tokens = api_resp
             .get("prompt_eval_count")
             .and_then(|v| v.as_u64())
@@ -114,13 +170,13 @@ impl OllamaProvider {
             content,
             role: "assistant".to_string(),
             model: model.clone(),
-            tool_calls: Vec::new(),
+            tool_calls,
             usage: Usage {
                 prompt_tokens,
                 completion_tokens,
                 model,
             },
-            stop_reason: Some("stop".to_string()),
+            stop_reason: Some(stop_reason.to_string()),
         })
     }
 
@@ -151,6 +207,11 @@ impl OllamaProvider {
             "messages": messages,
             "stream": true,
         });
+
+        // Add tools if provided
+        if !request.tools.is_empty() {
+            body["tools"] = build_tools_json(&request.tools);
+        }
 
         let mut options = serde_json::Map::new();
         if let Some(max_tokens) = request.max_tokens {
@@ -184,6 +245,7 @@ impl OllamaProvider {
         let mut full_content = String::new();
         let mut prompt_tokens = 0u32;
         let mut completion_tokens = 0u32;
+        let mut tool_calls: Vec<ToolCall> = Vec::new();
 
         crate::ndjson::parse_ndjson_stream(resp, |json| {
             // Extract content delta
@@ -194,7 +256,7 @@ impl OllamaProvider {
                 }
             }
 
-            // Check if done — final chunk has usage info
+            // Check if done — final chunk has usage info and tool calls
             if let Some(true) = json.get("done").and_then(|v| v.as_bool()) {
                 prompt_tokens = json
                     .get("prompt_eval_count")
@@ -202,22 +264,33 @@ impl OllamaProvider {
                     .unwrap_or(0) as u32;
                 completion_tokens =
                     json.get("eval_count").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+
+                // Tool calls appear in the final message
+                if let Some(msg) = json.get("message") {
+                    tool_calls = parse_tool_calls(msg);
+                }
             }
             Ok(())
         })
         .await?;
 
+        let stop_reason = if tool_calls.is_empty() {
+            "stop"
+        } else {
+            "tool_use"
+        };
+
         Ok(ChatResponse {
             content: full_content,
             role: "assistant".to_string(),
             model: model.clone(),
-            tool_calls: Vec::new(),
+            tool_calls,
             usage: Usage {
                 prompt_tokens,
                 completion_tokens,
                 model,
             },
-            stop_reason: Some("stop".to_string()),
+            stop_reason: Some(stop_reason.to_string()),
         })
     }
 }

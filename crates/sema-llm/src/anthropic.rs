@@ -18,7 +18,10 @@ impl AnthropicProvider {
             api_key,
             default_model: default_model
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
             runtime,
         })
     }

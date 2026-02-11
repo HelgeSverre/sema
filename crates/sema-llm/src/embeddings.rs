@@ -26,7 +26,10 @@ impl OpenAiCompatEmbeddingProvider {
             api_key,
             base_url,
             default_model,
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
             runtime,
         })
     }
@@ -137,7 +140,10 @@ impl CohereEmbeddingProvider {
         Ok(Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "embed-english-v3.0".to_string()),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
             runtime,
         })
     }
