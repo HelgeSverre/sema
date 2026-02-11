@@ -35,7 +35,8 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let idx = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as usize;
         s.chars()
             .nth(idx)
             .map(|c| Value::String(Rc::new(c.to_string())))
@@ -51,7 +52,8 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let start = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as usize;
         let end = if args.len() == 3 {
             args[2]
                 .as_int()
@@ -76,7 +78,7 @@ pub fn register(env: &sema_core::Env) {
         let sep = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        let parts: Vec<Value> = s.split(sep).map(|p| Value::string(p)).collect();
+        let parts: Vec<Value> = s.split(sep).map(Value::string).collect();
         Ok(Value::list(parts))
     });
 
@@ -175,12 +177,7 @@ pub fn register(env: &sema_core::Env) {
         let items = match &args[0] {
             Value::List(l) => l.as_ref(),
             Value::Vector(v) => v.as_ref(),
-            _ => {
-                return Err(SemaError::type_error(
-                    "list or vector",
-                    args[0].type_name(),
-                ))
-            }
+            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
         };
         let strs: Vec<String> = items
             .iter()
@@ -237,6 +234,46 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::String(Rc::new(result)))
     });
 
+    register_fn(env, "string->symbol", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string->symbol", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::symbol(s))
+    });
+
+    register_fn(env, "symbol->string", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("symbol->string", "1", args.len()));
+        }
+        let s = args[0]
+            .as_symbol()
+            .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+        Ok(Value::String(Rc::new(s.to_string())))
+    });
+
+    register_fn(env, "string->keyword", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string->keyword", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::keyword(s))
+    });
+
+    register_fn(env, "keyword->string", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("keyword->string", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Keyword(s) => Ok(Value::String(Rc::new(s.to_string()))),
+            other => Err(SemaError::type_error("keyword", other.type_name())),
+        }
+    });
+
     register_fn(env, "str", |args| {
         let mut result = String::new();
         for arg in args {
@@ -272,6 +309,135 @@ pub fn register(env: &sema_core::Env) {
             Ok(Value::Float(f))
         } else {
             Err(SemaError::eval(format!("cannot parse '{s}' as number")))
+        }
+    });
+
+    register_fn(env, "string/index-of", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/index-of", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let sub = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        match s.find(sub) {
+            Some(idx) => Ok(Value::Int(idx as i64)),
+            None => Ok(Value::Nil),
+        }
+    });
+
+    register_fn(env, "string/chars", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/chars", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let chars: Vec<Value> = s
+            .chars()
+            .map(|c| Value::String(Rc::new(c.to_string())))
+            .collect();
+        Ok(Value::list(chars))
+    });
+
+    register_fn(env, "string/repeat", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/repeat", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let n = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as usize;
+        Ok(Value::String(Rc::new(s.repeat(n))))
+    });
+
+    register_fn(env, "string/trim-left", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/trim-left", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::String(Rc::new(s.trim_start().to_string())))
+    });
+
+    register_fn(env, "string/trim-right", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/trim-right", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::String(Rc::new(s.trim_end().to_string())))
+    });
+
+    register_fn(env, "string/number?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/number?", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let is_num = s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok();
+        Ok(Value::Bool(is_num))
+    });
+
+    register_fn(env, "string/pad-left", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("string/pad-left", "2-3", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let width = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as usize;
+        let pad_char = if args.len() == 3 {
+            let p = args[2]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?;
+            p.chars().next().unwrap_or(' ')
+        } else {
+            ' '
+        };
+        if s.len() >= width {
+            Ok(Value::String(Rc::new(s.to_string())))
+        } else {
+            let padding: String = std::iter::repeat_n(pad_char, width - s.len()).collect();
+            Ok(Value::String(Rc::new(format!("{}{}", padding, s))))
+        }
+    });
+
+    register_fn(env, "string/pad-right", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("string/pad-right", "2-3", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let width = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as usize;
+        let pad_char = if args.len() == 3 {
+            let p = args[2]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?;
+            p.chars().next().unwrap_or(' ')
+        } else {
+            ' '
+        };
+        if s.len() >= width {
+            Ok(Value::String(Rc::new(s.to_string())))
+        } else {
+            let padding: String = std::iter::repeat_n(pad_char, width - s.len()).collect();
+            Ok(Value::String(Rc::new(format!("{}{}", s, padding))))
         }
     });
 }

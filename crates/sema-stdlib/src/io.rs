@@ -50,21 +50,21 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "read-file", |args| {
+    register_fn(env, "file/read", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("read-file", "1", args.len()));
+            return Err(SemaError::arity("file/read", "1", args.len()));
         }
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let content = std::fs::read_to_string(path)
-            .map_err(|e| SemaError::Io(format!("read-file {path}: {e}")))?;
+            .map_err(|e| SemaError::Io(format!("file/read {path}: {e}")))?;
         Ok(Value::String(Rc::new(content)))
     });
 
-    register_fn(env, "write-file", |args| {
+    register_fn(env, "file/write", |args| {
         if args.len() != 2 {
-            return Err(SemaError::arity("write-file", "2", args.len()));
+            return Err(SemaError::arity("file/write", "2", args.len()));
         }
         let path = args[0]
             .as_str()
@@ -73,13 +73,13 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         std::fs::write(path, content)
-            .map_err(|e| SemaError::Io(format!("write-file {path}: {e}")))?;
+            .map_err(|e| SemaError::Io(format!("file/write {path}: {e}")))?;
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file-exists?", |args| {
+    register_fn(env, "file/exists?", |args| {
         if args.len() != 1 {
-            return Err(SemaError::arity("file-exists?", "1", args.len()));
+            return Err(SemaError::arity("file/exists?", "1", args.len()));
         }
         let path = args[0]
             .as_str()
@@ -105,6 +105,27 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::String(Rc::new(input)))
     });
 
+    register_fn(env, "read", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("read", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        sema_reader::read(s)
+    });
+
+    register_fn(env, "read-many", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("read-many", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let exprs = sema_reader::read_many(s)?;
+        Ok(Value::list(exprs))
+    });
+
     register_fn(env, "error", |args| {
         if args.is_empty() {
             return Err(SemaError::eval("error called with no message"));
@@ -114,6 +135,260 @@ pub fn register(env: &sema_core::Env) {
             other => other.to_string(),
         };
         Err(SemaError::eval(msg))
+    });
+
+    // --- File operations ---
+
+    register_fn(env, "file/append", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("file/append", "2", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let content = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .map_err(|e| SemaError::Io(format!("file/append {path}: {e}")))?;
+        file.write_all(content.as_bytes())
+            .map_err(|e| SemaError::Io(format!("file/append {path}: {e}")))?;
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "file/delete", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/delete", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        std::fs::remove_file(path)
+            .map_err(|e| SemaError::Io(format!("file/delete {path}: {e}")))?;
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "file/rename", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("file/rename", "2", args.len()));
+        }
+        let from = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let to = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        std::fs::rename(from, to)
+            .map_err(|e| SemaError::Io(format!("file/rename {from} -> {to}: {e}")))?;
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "file/list", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/list", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let entries: Vec<Value> = std::fs::read_dir(path)
+            .map_err(|e| SemaError::Io(format!("file/list {path}: {e}")))?
+            .filter_map(|entry| {
+                entry
+                    .ok()
+                    .map(|e| Value::string(&e.file_name().to_string_lossy()))
+            })
+            .collect();
+        Ok(Value::list(entries))
+    });
+
+    register_fn(env, "file/mkdir", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/mkdir", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        std::fs::create_dir_all(path)
+            .map_err(|e| SemaError::Io(format!("file/mkdir {path}: {e}")))?;
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "file/is-directory?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/is-directory?", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::Bool(std::path::Path::new(path).is_dir()))
+    });
+
+    register_fn(env, "file/is-file?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/is-file?", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::Bool(std::path::Path::new(path).is_file()))
+    });
+
+    register_fn(env, "file/is-symlink?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/is-symlink?", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::Bool(std::path::Path::new(path).is_symlink()))
+    });
+
+    register_fn(env, "file/info", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/info", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let meta =
+            std::fs::metadata(path).map_err(|e| SemaError::Io(format!("file/info {path}: {e}")))?;
+        let mut map = std::collections::BTreeMap::new();
+        map.insert(Value::keyword("size"), Value::Int(meta.len() as i64));
+        map.insert(Value::keyword("is-dir"), Value::Bool(meta.is_dir()));
+        map.insert(Value::keyword("is-file"), Value::Bool(meta.is_file()));
+        if let Ok(modified) = meta.modified() {
+            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
+                map.insert(
+                    Value::keyword("modified"),
+                    Value::Int(duration.as_millis() as i64),
+                );
+            }
+        }
+        Ok(Value::Map(Rc::new(map)))
+    });
+
+    // --- Path operations ---
+
+    register_fn(env, "path/join", |args| {
+        if args.is_empty() {
+            return Err(SemaError::arity("path/join", "1+", 0));
+        }
+        let mut path = std::path::PathBuf::new();
+        for arg in args {
+            let s = arg
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", arg.type_name()))?;
+            path.push(s);
+        }
+        Ok(Value::string(&path.to_string_lossy()))
+    });
+
+    register_fn(env, "path/dirname", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/dirname", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        match std::path::Path::new(s).parent() {
+            Some(p) => Ok(Value::string(&p.to_string_lossy())),
+            None => Ok(Value::Nil),
+        }
+    });
+
+    register_fn(env, "path/basename", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/basename", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        match std::path::Path::new(s).file_name() {
+            Some(name) => Ok(Value::string(&name.to_string_lossy())),
+            None => Ok(Value::Nil),
+        }
+    });
+
+    register_fn(env, "path/extension", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/extension", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        match std::path::Path::new(s).extension() {
+            Some(ext) => Ok(Value::string(&ext.to_string_lossy())),
+            None => Ok(Value::Nil),
+        }
+    });
+
+    register_fn(env, "path/absolute", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/absolute", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let abs = std::fs::canonicalize(s)
+            .map_err(|e| SemaError::Io(format!("path/absolute {s}: {e}")))?;
+        Ok(Value::string(&abs.to_string_lossy()))
+    });
+
+    register_fn(env, "file/read-lines", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/read-lines", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| SemaError::Io(format!("file/read-lines {path}: {e}")))?;
+        let lines: Vec<Value> = content.split('\n').map(Value::string).collect();
+        Ok(Value::list(lines))
+    });
+
+    register_fn(env, "file/write-lines", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("file/write-lines", "2", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let lines = match &args[1] {
+            Value::List(l) => l.as_ref(),
+            Value::Vector(v) => v.as_ref(),
+            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+        };
+        let strs: Vec<String> = lines
+            .iter()
+            .map(|v| match v {
+                Value::String(s) => s.to_string(),
+                other => other.to_string(),
+            })
+            .collect();
+        let content = strs.join("\n");
+        std::fs::write(path, content)
+            .map_err(|e| SemaError::Io(format!("file/write-lines {path}: {e}")))?;
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "file/copy", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("file/copy", "2", args.len()));
+        }
+        let src = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let dest = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        std::fs::copy(src, dest)
+            .map_err(|e| SemaError::Io(format!("file/copy {src} -> {dest}: {e}")))?;
+        Ok(Value::Nil)
     });
 
     register_fn(env, "load", |args| {

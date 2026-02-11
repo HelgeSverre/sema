@@ -81,4 +81,65 @@ pub fn register(env: &sema_core::Env) {
         std::thread::sleep(std::time::Duration::from_millis(ms as u64));
         Ok(Value::Nil)
     });
+
+    register_fn(env, "sys/args", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/args", "0", args.len()));
+        }
+        let args_list: Vec<Value> = std::env::args()
+            .map(|a| Value::String(Rc::new(a)))
+            .collect();
+        Ok(Value::list(args_list))
+    });
+
+    register_fn(env, "sys/cwd", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/cwd", "0", args.len()));
+        }
+        let cwd = std::env::current_dir().map_err(|e| SemaError::Io(format!("sys/cwd: {e}")))?;
+        Ok(Value::String(Rc::new(cwd.to_string_lossy().to_string())))
+    });
+
+    register_fn(env, "sys/platform", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/platform", "0", args.len()));
+        }
+        let platform = if cfg!(target_os = "macos") {
+            "macos"
+        } else if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_os = "windows") {
+            "windows"
+        } else {
+            "unknown"
+        };
+        Ok(Value::String(Rc::new(platform.to_string())))
+    });
+
+    register_fn(env, "sys/set-env", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("sys/set-env", "2", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let value = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        unsafe {
+            std::env::set_var(name, value);
+        }
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "sys/env-all", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/env-all", "0", args.len()));
+        }
+        let mut map = std::collections::BTreeMap::new();
+        for (key, val) in std::env::vars() {
+            map.insert(Value::keyword(&key), Value::String(Rc::new(val)));
+        }
+        Ok(Value::Map(Rc::new(map)))
+    });
 }

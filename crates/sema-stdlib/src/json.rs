@@ -88,9 +88,7 @@ pub fn json_to_value(json: &serde_json::Value) -> Value {
             }
         }
         serde_json::Value::String(s) => Value::String(Rc::new(s.clone())),
-        serde_json::Value::Array(arr) => {
-            Value::list(arr.iter().map(json_to_value).collect())
-        }
+        serde_json::Value::Array(arr) => Value::list(arr.iter().map(json_to_value).collect()),
         serde_json::Value::Object(obj) => {
             let mut map = BTreeMap::new();
             for (k, v) in obj {
