@@ -1,6 +1,10 @@
-# Sema
+<p align="center">
+  <img src="assets/logo.png" alt="Sema" width="640">
+</p>
 
-A Lisp with first-class LLM primitives, implemented in Rust.
+<p align="center">
+  A Lisp with first-class LLM primitives, implemented in Rust.
+</p>
 
 Sema is a Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. It combines a Scheme core with Clojure-style keywords (`:foo`), map literals (`{:key val}`), and vector literals (`[1 2 3]`).
 
