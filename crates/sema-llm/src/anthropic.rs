@@ -335,10 +335,7 @@ impl LlmProvider for AnthropicProvider {
             .block_on(self.stream_complete_async(request, on_chunk))
     }
 
-    fn batch_complete(
-        &self,
-        requests: Vec<ChatRequest>,
-    ) -> Vec<Result<ChatResponse, LlmError>> {
+    fn batch_complete(&self, requests: Vec<ChatRequest>) -> Vec<Result<ChatResponse, LlmError>> {
         self.runtime.block_on(async {
             let futures: Vec<_> = requests
                 .into_iter()

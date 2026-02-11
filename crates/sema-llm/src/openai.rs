@@ -4,9 +4,11 @@ use crate::provider::LlmProvider;
 use crate::types::*;
 
 pub struct OpenAiProvider {
+    name: String,
     api_key: String,
     base_url: String,
     default_model: String,
+    send_stream_options: bool,
     client: reqwest::Client,
     runtime: tokio::runtime::Runtime,
 }
@@ -17,12 +19,30 @@ impl OpenAiProvider {
         base_url: Option<String>,
         default_model: Option<String>,
     ) -> Result<Self, LlmError> {
+        Self::named(
+            "openai".to_string(),
+            api_key,
+            base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
+            default_model.unwrap_or_else(|| "gpt-4o".to_string()),
+            true,
+        )
+    }
+
+    pub fn named(
+        name: String,
+        api_key: String,
+        base_url: String,
+        default_model: String,
+        send_stream_options: bool,
+    ) -> Result<Self, LlmError> {
         let runtime = tokio::runtime::Runtime::new()
             .map_err(|e| LlmError::Config(format!("failed to create tokio runtime: {e}")))?;
         Ok(OpenAiProvider {
+            name,
             api_key,
-            base_url: base_url.unwrap_or_else(|| "https://api.openai.com/v1".to_string()),
-            default_model: default_model.unwrap_or_else(|| "gpt-4o".to_string()),
+            base_url,
+            default_model,
+            send_stream_options,
             client: reqwest::Client::new(),
             runtime,
         })
@@ -153,9 +173,11 @@ impl OpenAiProvider {
     ) -> Result<ChatResponse, LlmError> {
         let mut body = self.build_request_body(&request);
         body.stream = Some(true);
-        body.stream_options = Some(StreamOptions {
-            include_usage: true,
-        });
+        if self.send_stream_options {
+            body.stream_options = Some(StreamOptions {
+                include_usage: true,
+            });
+        }
         let model_name = body.model.clone();
 
         let resp = self
@@ -285,21 +307,14 @@ impl OpenAiProvider {
             .filter_map(|item| {
                 item.get("embedding")
                     .and_then(|e| e.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_f64())
-                            .collect::<Vec<f64>>()
-                    })
+                    .map(|arr| arr.iter().filter_map(|v| v.as_f64()).collect::<Vec<f64>>())
             })
             .collect::<Vec<Vec<f64>>>();
 
         let usage = api_resp
             .get("usage")
             .map(|u| Usage {
-                prompt_tokens: u
-                    .get("prompt_tokens")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32,
+                prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 completion_tokens: 0,
                 model: resp_model.clone(),
             })
@@ -393,7 +408,7 @@ struct OpenAiUsage {
 
 impl LlmProvider for OpenAiProvider {
     fn name(&self) -> &str {
-        "openai"
+        &self.name
     }
 
     fn default_model(&self) -> &str {
@@ -413,10 +428,7 @@ impl LlmProvider for OpenAiProvider {
             .block_on(self.stream_complete_async(request, on_chunk))
     }
 
-    fn batch_complete(
-        &self,
-        requests: Vec<ChatRequest>,
-    ) -> Vec<Result<ChatResponse, LlmError>> {
+    fn batch_complete(&self, requests: Vec<ChatRequest>) -> Vec<Result<ChatResponse, LlmError>> {
         self.runtime.block_on(async {
             let futures: Vec<_> = requests
                 .into_iter()

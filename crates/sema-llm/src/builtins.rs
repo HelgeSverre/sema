@@ -5,6 +5,9 @@ use std::rc::Rc;
 use sema_core::{Conversation, Env, Message, NativeFn, Prompt, Role, SemaError, Value};
 
 use crate::anthropic::AnthropicProvider;
+use crate::embeddings::{CohereEmbeddingProvider, OpenAiCompatEmbeddingProvider};
+use crate::gemini::GeminiProvider;
+use crate::ollama::OllamaProvider;
 use crate::openai::OpenAiProvider;
 use crate::pricing;
 use crate::provider::{LlmProvider, ProviderRegistry};
@@ -16,11 +19,11 @@ pub type EvalCallback = Box<dyn Fn(&Value, &Env) -> Result<Value, SemaError>>;
 thread_local! {
     static PROVIDER_REGISTRY: RefCell<ProviderRegistry> = RefCell::new(ProviderRegistry::new());
     static SESSION_USAGE: RefCell<Usage> = RefCell::new(Usage::default());
-    static LAST_USAGE: RefCell<Option<Usage>> = RefCell::new(None);
+    static LAST_USAGE: RefCell<Option<Usage>> = const { RefCell::new(None) };
     static EVAL_FN: RefCell<Option<EvalCallback>> = RefCell::new(None);
-    static SESSION_COST: RefCell<f64> = RefCell::new(0.0);
-    static BUDGET_LIMIT: RefCell<Option<f64>> = RefCell::new(None);
-    static BUDGET_SPENT: RefCell<f64> = RefCell::new(0.0);
+    static SESSION_COST: RefCell<f64> = const { RefCell::new(0.0) };
+    static BUDGET_LIMIT: RefCell<Option<f64>> = const { RefCell::new(None) };
+    static BUDGET_SPENT: RefCell<f64> = const { RefCell::new(0.0) };
 }
 
 /// Register a full evaluator for use by tool handlers and other LLM builtins.
@@ -41,11 +44,7 @@ fn full_eval(expr: &Value, env: &Env) -> Result<Value, SemaError> {
     })
 }
 
-fn register_fn(
-    env: &Env,
-    name: &str,
-    f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static,
-) {
+fn register_fn(env: &Env, name: &str, f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static) {
     env.set(
         name.to_string(),
         Value::NativeFn(Rc::new(NativeFn {
@@ -61,9 +60,12 @@ where
 {
     PROVIDER_REGISTRY.with(|reg| {
         let reg = reg.borrow();
-        let provider = reg
-            .default_provider()
-            .ok_or_else(|| SemaError::Llm("no LLM provider configured. Use (llm/configure :anthropic {:api-key ...}) first".to_string()))?;
+        let provider = reg.default_provider().ok_or_else(|| {
+            SemaError::Llm(
+                "no LLM provider configured. Use (llm/configure :anthropic {:api-key ...}) first"
+                    .to_string(),
+            )
+        })?;
         f(provider)
     })
 }
@@ -77,7 +79,12 @@ where
         let provider = reg
             .embedding_provider()
             .or_else(|| reg.default_provider())
-            .ok_or_else(|| SemaError::Llm("no embedding provider configured. Use (llm/configure-embeddings ...) first".to_string()))?;
+            .ok_or_else(|| {
+                SemaError::Llm(
+                    "no embedding provider configured. Use (llm/configure-embeddings ...) first"
+                        .to_string(),
+                )
+            })?;
         f(provider)
     })
 }
@@ -162,13 +169,15 @@ pub fn register_llm_builtins(env: &Env) {
             _ => return Err(SemaError::type_error("map", args[1].type_name())),
         };
 
-        let api_key = get_opt_string(&opts, "api-key")
-            .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+        let api_key = get_opt_string(&opts, "api-key");
 
         PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
             match provider_name {
                 "anthropic" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
                     let model = get_opt_string(&opts, "default-model");
                     let provider = AnthropicProvider::new(api_key, model)
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
@@ -176,12 +185,143 @@ pub fn register_llm_builtins(env: &Env) {
                     reg.set_default("anthropic");
                 }
                 "openai" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
                     let base_url = get_opt_string(&opts, "base-url");
                     let model = get_opt_string(&opts, "default-model");
                     let provider = OpenAiProvider::new(api_key, base_url, model)
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     reg.set_default("openai");
+                }
+                "gemini" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model");
+                    let provider = GeminiProvider::new(api_key, model)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_default("gemini");
+                }
+                "groq" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "llama-3.3-70b-versatile".to_string());
+                    let base_url = get_opt_string(&opts, "base-url")
+                        .unwrap_or_else(|| "https://api.groq.com/openai/v1".to_string());
+                    let provider =
+                        OpenAiProvider::named("groq".to_string(), api_key, base_url, model, true)
+                            .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_default("groq");
+                }
+                "xai" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "grok-3-mini-fast".to_string());
+                    let base_url = get_opt_string(&opts, "base-url")
+                        .unwrap_or_else(|| "https://api.x.ai/v1".to_string());
+                    let provider =
+                        OpenAiProvider::named("xai".to_string(), api_key, base_url, model, true)
+                            .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_default("xai");
+                }
+                "mistral" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "mistral-small-latest".to_string());
+                    let base_url = get_opt_string(&opts, "base-url")
+                        .unwrap_or_else(|| "https://api.mistral.ai/v1".to_string());
+                    let provider = OpenAiProvider::named(
+                        "mistral".to_string(),
+                        api_key,
+                        base_url,
+                        model,
+                        false,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_default("mistral");
+                }
+                "moonshot" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "moonshot-v1-8k".to_string());
+                    let base_url = get_opt_string(&opts, "base-url")
+                        .unwrap_or_else(|| "https://api.moonshot.ai/v1".to_string());
+                    let provider = OpenAiProvider::named(
+                        "moonshot".to_string(),
+                        api_key,
+                        base_url,
+                        model,
+                        false,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_default("moonshot");
+                }
+                "ollama" => {
+                    let host =
+                        get_opt_string(&opts, "host").or_else(|| get_opt_string(&opts, "base-url"));
+                    let model = get_opt_string(&opts, "default-model");
+                    // Ollama doesn't use api-key
+                    let provider = OllamaProvider::new(host, model)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_default("ollama");
+                }
+                "jina" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "jina-embeddings-v3".to_string());
+                    let provider = OpenAiCompatEmbeddingProvider::new(
+                        "jina".to_string(),
+                        api_key,
+                        "https://api.jina.ai/v1".to_string(),
+                        model,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_embedding_provider("jina");
+                }
+                "voyage" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "voyage-3-lite".to_string());
+                    let provider = OpenAiCompatEmbeddingProvider::new(
+                        "voyage".to_string(),
+                        api_key,
+                        "https://api.voyageai.com/v1".to_string(),
+                        model,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_embedding_provider("voyage");
+                }
+                "cohere" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model");
+                    let provider = CohereEmbeddingProvider::new(api_key, model)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_embedding_provider("cohere");
                 }
                 other => {
                     return Err(SemaError::Llm(format!("unknown provider: {other}")));
@@ -195,23 +335,172 @@ pub fn register_llm_builtins(env: &Env) {
     register_fn(env, "llm/auto-configure", |_args| {
         PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
-            // Try Anthropic first
+            let mut first_configured: Option<&str> = None;
+
+            // Try Anthropic first (preferred)
             if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
-                let provider = AnthropicProvider::new(key, None)
-                    .map_err(|e| SemaError::Llm(e.to_string()))?;
-                reg.register(Box::new(provider));
-                reg.set_default("anthropic");
-                return Ok(Value::keyword("anthropic"));
+                if !key.is_empty() {
+                    let provider = AnthropicProvider::new(key, None)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    if first_configured.is_none() {
+                        reg.set_default("anthropic");
+                        first_configured = Some("anthropic");
+                    }
+                }
             }
             // Try OpenAI
             if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-                let provider = OpenAiProvider::new(key, None, None)
-                    .map_err(|e| SemaError::Llm(e.to_string()))?;
-                reg.register(Box::new(provider));
-                reg.set_default("openai");
-                return Ok(Value::keyword("openai"));
+                if !key.is_empty() {
+                    let provider = OpenAiProvider::new(key, None, None)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    if first_configured.is_none() {
+                        reg.set_default("openai");
+                        first_configured = Some("openai");
+                    }
+                }
             }
-            Ok(Value::Nil)
+            // Try Groq
+            if let Ok(key) = std::env::var("GROQ_API_KEY") {
+                if !key.is_empty() {
+                    let provider = OpenAiProvider::named(
+                        "groq".to_string(),
+                        key,
+                        "https://api.groq.com/openai/v1".to_string(),
+                        "llama-3.3-70b-versatile".to_string(),
+                        true,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    if first_configured.is_none() {
+                        reg.set_default("groq");
+                        first_configured = Some("groq");
+                    }
+                }
+            }
+            // Try xAI
+            if let Ok(key) = std::env::var("XAI_API_KEY") {
+                if !key.is_empty() {
+                    let provider = OpenAiProvider::named(
+                        "xai".to_string(),
+                        key,
+                        "https://api.x.ai/v1".to_string(),
+                        "grok-3-mini-fast".to_string(),
+                        true,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    if first_configured.is_none() {
+                        reg.set_default("xai");
+                        first_configured = Some("xai");
+                    }
+                }
+            }
+            // Try Mistral
+            if let Ok(key) = std::env::var("MISTRAL_API_KEY") {
+                if !key.is_empty() {
+                    let provider = OpenAiProvider::named(
+                        "mistral".to_string(),
+                        key,
+                        "https://api.mistral.ai/v1".to_string(),
+                        "mistral-small-latest".to_string(),
+                        false,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    if first_configured.is_none() {
+                        reg.set_default("mistral");
+                        first_configured = Some("mistral");
+                    }
+                }
+            }
+            // Try Moonshot
+            if let Ok(key) = std::env::var("MOONSHOT_API_KEY") {
+                if !key.is_empty() {
+                    let provider = OpenAiProvider::named(
+                        "moonshot".to_string(),
+                        key,
+                        "https://api.moonshot.ai/v1".to_string(),
+                        "moonshot-v1-8k".to_string(),
+                        false,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    if first_configured.is_none() {
+                        reg.set_default("moonshot");
+                        first_configured = Some("moonshot");
+                    }
+                }
+            }
+            // Try Google Gemini
+            if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
+                if !key.is_empty() {
+                    let provider = GeminiProvider::new(key, None)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    if first_configured.is_none() {
+                        reg.set_default("gemini");
+                        first_configured = Some("gemini");
+                    }
+                }
+            }
+            // Try Ollama (local, no auth)
+            if std::env::var("OLLAMA_HOST").is_ok() {
+                let provider =
+                    OllamaProvider::new(None, None).map_err(|e| SemaError::Llm(e.to_string()))?;
+                reg.register(Box::new(provider));
+                if first_configured.is_none() {
+                    reg.set_default("ollama");
+                    first_configured = Some("ollama");
+                }
+            }
+
+            // Auto-configure embedding providers
+            if let Ok(key) = std::env::var("JINA_API_KEY") {
+                if !key.is_empty() {
+                    let provider = OpenAiCompatEmbeddingProvider::new(
+                        "jina".to_string(),
+                        key,
+                        "https://api.jina.ai/v1".to_string(),
+                        "jina-embeddings-v3".to_string(),
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_embedding_provider("jina");
+                }
+            }
+            if let Ok(key) = std::env::var("VOYAGE_API_KEY") {
+                if !key.is_empty() {
+                    let provider = OpenAiCompatEmbeddingProvider::new(
+                        "voyage".to_string(),
+                        key,
+                        "https://api.voyageai.com/v1".to_string(),
+                        "voyage-3".to_string(),
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    // Only set as embedding provider if jina wasn't already set
+                    if reg.embedding_provider().is_none() {
+                        reg.set_embedding_provider("voyage");
+                    }
+                }
+            }
+            if let Ok(key) = std::env::var("COHERE_API_KEY") {
+                if !key.is_empty() {
+                    let provider = CohereEmbeddingProvider::new(key, None)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    if reg.embedding_provider().is_none() {
+                        reg.set_embedding_provider("cohere");
+                    }
+                }
+            }
+
+            match first_configured {
+                Some(name) => Ok(Value::keyword(name)),
+                None => Ok(Value::Nil),
+            }
         })
     });
 
@@ -226,7 +515,12 @@ pub fn register_llm_builtins(env: &Env) {
                 // Use the prompt's messages
                 return complete_with_prompt(p, args.get(1));
             }
-            _ => return Err(SemaError::type_error("string or prompt", args[0].type_name())),
+            _ => {
+                return Err(SemaError::type_error(
+                    "string or prompt",
+                    args[0].type_name(),
+                ))
+            }
         };
 
         let mut model = String::new();
@@ -311,8 +605,14 @@ pub fn register_llm_builtins(env: &Env) {
             // Chat with tool execution loop
             let tool_schemas = build_tool_schemas(&tools)?;
             let result = run_tool_loop(
-                messages, model, max_tokens, temperature, system,
-                &tools, &tool_schemas, max_tool_rounds,
+                messages,
+                model,
+                max_tokens,
+                temperature,
+                system,
+                &tools,
+                &tool_schemas,
+                max_tool_rounds,
             )?;
             Ok(Value::String(Rc::new(result)))
         }
@@ -352,7 +652,12 @@ pub fn register_llm_builtins(env: &Env) {
                 })
                 .collect(),
             Value::List(_) | Value::Vector(_) => extract_messages(&args[0])?,
-            _ => return Err(SemaError::type_error("string, prompt, or messages", args[0].type_name())),
+            _ => {
+                return Err(SemaError::type_error(
+                    "string, prompt, or messages",
+                    args[0].type_name(),
+                ))
+            }
         };
 
         // Parse optional callback and opts
@@ -473,8 +778,11 @@ pub fn register_llm_builtins(env: &Env) {
         } else {
             content
         };
-        let json: serde_json::Value = serde_json::from_str(json_str)
-            .map_err(|e| SemaError::Llm(format!("failed to parse LLM JSON response: {e}\nResponse was: {content}")))?;
+        let json: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
+            SemaError::Llm(format!(
+                "failed to parse LLM JSON response: {e}\nResponse was: {content}"
+            ))
+        })?;
         Ok(json_to_sema_value(&json))
     });
 
@@ -525,7 +833,10 @@ pub fn register_llm_builtins(env: &Env) {
 
         let category = response.content.trim().to_string();
         // Return as keyword if it was in the original list as keyword
-        if categories.iter().any(|c| matches!(c, Value::Keyword(s) if s.as_ref() == &category)) {
+        if categories
+            .iter()
+            .any(|c| matches!(c, Value::Keyword(s) if s.as_ref() == &category))
+        {
             Ok(Value::keyword(&category))
         } else {
             Ok(Value::String(Rc::new(category)))
@@ -843,19 +1154,6 @@ pub fn register_llm_builtins(env: &Env) {
         Ok(Value::String(Rc::new(result)))
     });
 
-    // (llm/parallel [expr1 expr2 expr3])
-    register_fn(env, "llm/parallel", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("llm/parallel", "1", args.len()));
-        }
-        let items = match &args[0] {
-            Value::List(l) => l.as_ref().clone(),
-            Value::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
-        };
-        Ok(Value::list(items))
-    });
-
     // (llm/pmap fn collection {:max-tokens N ...})
     // Maps fn over collection to produce prompts, then sends all prompts in parallel via batch_complete
     register_fn(env, "llm/pmap", |args| {
@@ -1019,11 +1317,18 @@ pub fn register_llm_builtins(env: &Env) {
     });
 
     // (llm/configure-embeddings :openai {:api-key "..." :base-url "..." :model "..."})
+    // (llm/configure-embeddings :jina {:api-key "..."})
+    // (llm/configure-embeddings :voyage {:api-key "..."})
+    // (llm/configure-embeddings :cohere {:api-key "..."})
     register_fn(env, "llm/configure-embeddings", |args| {
         if args.len() != 2 {
-            return Err(SemaError::arity("llm/configure-embeddings", "2", args.len()));
+            return Err(SemaError::arity(
+                "llm/configure-embeddings",
+                "2",
+                args.len(),
+            ));
         }
-        let _provider_name = args[0]
+        let provider_name = args[0]
             .as_keyword()
             .ok_or_else(|| SemaError::type_error("keyword", args[0].type_name()))?;
         let opts = match &args[1] {
@@ -1031,18 +1336,66 @@ pub fn register_llm_builtins(env: &Env) {
             _ => return Err(SemaError::type_error("map", args[1].type_name())),
         };
 
-        let api_key = get_opt_string(&opts, "api-key").unwrap_or_default();
-        let base_url = get_opt_string(&opts, "base-url");
-        let model = get_opt_string(&opts, "default-model")
-            .or_else(|| get_opt_string(&opts, "model"));
+        let api_key = get_opt_string(&opts, "api-key");
 
         PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
-            let provider = OpenAiProvider::new(api_key, base_url, model)
-                .map_err(|e| SemaError::Llm(e.to_string()))?;
-            let name = provider.name().to_string();
-            reg.register(Box::new(provider));
-            reg.set_embedding_provider(&name);
+            match provider_name {
+                "jina" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "jina-embeddings-v3".to_string());
+                    let provider = OpenAiCompatEmbeddingProvider::new(
+                        "jina".to_string(),
+                        api_key,
+                        "https://api.jina.ai/v1".to_string(),
+                        model,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_embedding_provider("jina");
+                }
+                "voyage" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "voyage-3".to_string());
+                    let provider = OpenAiCompatEmbeddingProvider::new(
+                        "voyage".to_string(),
+                        api_key,
+                        "https://api.voyageai.com/v1".to_string(),
+                        model,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_embedding_provider("voyage");
+                }
+                "cohere" => {
+                    let api_key = api_key
+                        .clone()
+                        .ok_or_else(|| SemaError::Llm("missing :api-key".to_string()))?;
+                    let model = get_opt_string(&opts, "default-model");
+                    let provider = CohereEmbeddingProvider::new(api_key, model)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_embedding_provider("cohere");
+                }
+                _ => {
+                    // Default: OpenAI-compatible
+                    let api_key = api_key.unwrap_or_default();
+                    let base_url = get_opt_string(&opts, "base-url");
+                    let model = get_opt_string(&opts, "default-model")
+                        .or_else(|| get_opt_string(&opts, "model"));
+                    let provider = OpenAiProvider::new(api_key, base_url, model)
+                        .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    let name = provider.name().to_string();
+                    reg.register(Box::new(provider));
+                    reg.set_embedding_provider(&name);
+                }
+            }
             Ok(Value::Nil)
         })
     });
@@ -1088,11 +1441,7 @@ pub fn register_llm_builtins(env: &Env) {
 
         if single {
             // Return flat list of floats
-            let embedding = response
-                .embeddings
-                .into_iter()
-                .next()
-                .unwrap_or_default();
+            let embedding = response.embeddings.into_iter().next().unwrap_or_default();
             Ok(Value::list(
                 embedding.into_iter().map(Value::Float).collect(),
             ))
@@ -1147,6 +1496,175 @@ pub fn register_llm_builtins(env: &Env) {
         LAST_USAGE.with(|u| *u.borrow_mut() = None);
         SESSION_COST.with(|sc| *sc.borrow_mut() = 0.0);
         Ok(Value::Nil)
+    });
+
+    // Type predicates for LLM types
+    register_fn(env, "prompt?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("prompt?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(args[0], Value::Prompt(_))))
+    });
+
+    register_fn(env, "message?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("message?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(args[0], Value::Message(_))))
+    });
+
+    register_fn(env, "conversation?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("conversation?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(args[0], Value::Conversation(_))))
+    });
+
+    register_fn(env, "tool?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("tool?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(args[0], Value::ToolDef(_))))
+    });
+
+    register_fn(env, "agent?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(args[0], Value::Agent(_))))
+    });
+
+    // Tool accessor functions
+    register_fn(env, "tool-name", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("tool-name", "1", args.len()));
+        }
+        match &args[0] {
+            Value::ToolDef(t) => Ok(Value::string(&t.name)),
+            _ => Err(SemaError::type_error("tool", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "tool-description", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("tool-description", "1", args.len()));
+        }
+        match &args[0] {
+            Value::ToolDef(t) => Ok(Value::string(&t.description)),
+            _ => Err(SemaError::type_error("tool", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "tool-parameters", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("tool-parameters", "1", args.len()));
+        }
+        match &args[0] {
+            Value::ToolDef(t) => Ok(t.parameters.clone()),
+            _ => Err(SemaError::type_error("tool", args[0].type_name())),
+        }
+    });
+
+    // Agent accessor functions
+    register_fn(env, "agent-name", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent-name", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::string(&a.name)),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "agent-system", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent-system", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::string(&a.system)),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "agent-tools", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent-tools", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::list(a.tools.clone())),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "agent-model", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent-model", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::string(&a.model)),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "agent-max-turns", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("agent-max-turns", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Agent(a) => Ok(Value::Int(a.max_turns as i64)),
+            _ => Err(SemaError::type_error("agent", args[0].type_name())),
+        }
+    });
+
+    // (conversation/add-message conv :role "content")
+    register_fn(env, "conversation/add-message", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity(
+                "conversation/add-message",
+                "3",
+                args.len(),
+            ));
+        }
+        let conv = match &args[0] {
+            Value::Conversation(c) => c.clone(),
+            _ => return Err(SemaError::type_error("conversation", args[0].type_name())),
+        };
+        let role = match &args[1] {
+            Value::Keyword(s) => match s.as_ref() as &str {
+                "system" => Role::System,
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                "tool" => Role::Tool,
+                other => {
+                    return Err(SemaError::eval(format!(
+                        "conversation/add-message: unknown role '{other}'"
+                    )))
+                }
+            },
+            _ => return Err(SemaError::type_error("keyword", args[1].type_name())),
+        };
+        let content = match &args[2] {
+            Value::String(s) => s.to_string(),
+            other => other.to_string(),
+        };
+        let mut new_messages = conv.messages.clone();
+        new_messages.push(Message { role, content });
+        Ok(Value::Conversation(Rc::new(Conversation {
+            messages: new_messages,
+            model: conv.model.clone(),
+            metadata: conv.metadata.clone(),
+        })))
+    });
+
+    // (conversation/model conv) — get the model name
+    register_fn(env, "conversation/model", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("conversation/model", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Conversation(c) => Ok(Value::string(&c.model)),
+            _ => Err(SemaError::type_error("conversation", args[0].type_name())),
+        }
     });
 }
 
@@ -1307,20 +1825,16 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
                                 Value::String(s) => s.to_string(),
                                 _ => "string".to_string(),
                             };
-                            prop_obj.insert(
-                                "type".to_string(),
-                                serde_json::Value::String(type_str),
-                            );
+                            prop_obj
+                                .insert("type".to_string(), serde_json::Value::String(type_str));
                         }
                         if let Some(d) = inner.get(&Value::keyword("description")) {
                             let desc = match d {
                                 Value::String(s) => s.to_string(),
                                 other => other.to_string(),
                             };
-                            prop_obj.insert(
-                                "description".to_string(),
-                                serde_json::Value::String(desc),
-                            );
+                            prop_obj
+                                .insert("description".to_string(), serde_json::Value::String(desc));
                         }
                         if let Some(e) = inner.get(&Value::keyword("enum")) {
                             if let Value::List(items) | Value::Vector(items) = e {
@@ -1336,10 +1850,7 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
                                         _ => serde_json::Value::String(v.to_string()),
                                     })
                                     .collect();
-                                prop_obj.insert(
-                                    "enum".to_string(),
-                                    serde_json::Value::Array(vals),
-                                );
+                                prop_obj.insert("enum".to_string(), serde_json::Value::Array(vals));
                             }
                         }
                         // Mark as required unless :optional #t
@@ -1412,10 +1923,7 @@ fn run_tool_loop(
 
             messages.push(ChatMessage {
                 role: "user".to_string(),
-                content: format!(
-                    "[Tool result for {}]: {}",
-                    tc.name, result
-                ),
+                content: format!("[Tool result for {}]: {}", tc.name, result),
             });
         }
     }
@@ -1447,8 +1955,8 @@ fn execute_tool_call(
         Value::String(s) => Ok(s.to_string()),
         Value::Map(_) | Value::List(_) | Value::Vector(_) => {
             // JSON-encode complex results
-            let json = crate::builtins::sema_value_to_json(&result)
-                .unwrap_or(serde_json::Value::Null);
+            let json =
+                crate::builtins::sema_value_to_json(&result).unwrap_or(serde_json::Value::Null);
             Ok(serde_json::to_string(&json).unwrap_or_else(|_| result.to_string()))
         }
         other => Ok(other.to_string()),
@@ -1493,7 +2001,7 @@ fn call_value_fn(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
                 if args.len() < lambda.params.len() {
                     return Err(SemaError::arity(
                         lambda.name.as_deref().unwrap_or("lambda"),
-                        &format!("{}+", lambda.params.len()),
+                        format!("{}+", lambda.params.len()),
                         args.len(),
                     ));
                 }
@@ -1506,7 +2014,7 @@ fn call_value_fn(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
                 if args.len() != lambda.params.len() {
                     return Err(SemaError::arity(
                         lambda.name.as_deref().unwrap_or("lambda"),
-                        &lambda.params.len().to_string(),
+                        lambda.params.len().to_string(),
                         args.len(),
                     ));
                 }
@@ -1610,9 +2118,7 @@ pub fn json_to_sema_value(json: &serde_json::Value) -> Value {
             }
         }
         serde_json::Value::String(s) => Value::String(Rc::new(s.clone())),
-        serde_json::Value::Array(arr) => {
-            Value::list(arr.iter().map(json_to_sema_value).collect())
-        }
+        serde_json::Value::Array(arr) => Value::list(arr.iter().map(json_to_sema_value).collect()),
         serde_json::Value::Object(obj) => {
             let mut map = BTreeMap::new();
             for (k, v) in obj {

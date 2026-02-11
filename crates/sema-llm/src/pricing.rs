@@ -37,6 +37,25 @@ pub fn model_pricing(model: &str) -> Option<(f64, f64)> {
         m if m.contains("gpt-4-turbo") => Some((10.0, 30.0)),
         m if m.contains("o1-mini") => Some((3.0, 12.0)),
         m if m.contains("o1") && !m.contains("o1-mini") => Some((15.0, 60.0)),
+        // Google Gemini
+        m if m.contains("gemini-2.0-flash") => Some((0.10, 0.40)),
+        m if m.contains("gemini-1.5-flash") => Some((0.075, 0.30)),
+        m if m.contains("gemini-1.5-pro") => Some((1.25, 5.00)),
+        m if m.contains("gemini") => Some((0.10, 0.40)), // fallback for other gemini models
+        // Groq (free tier, but track tokens)
+        m if m.contains("llama") || m.contains("mixtral") || m.contains("gemma") => {
+            Some((0.0, 0.0))
+        }
+        // xAI
+        m if m.contains("grok-3-mini") => Some((0.30, 0.50)),
+        m if m.contains("grok-3") => Some((3.00, 15.00)),
+        m if m.contains("grok-2") => Some((2.00, 10.00)),
+        // Mistral
+        m if m.contains("mistral-small") => Some((0.10, 0.30)),
+        m if m.contains("mistral-medium") => Some((2.70, 8.10)),
+        m if m.contains("mistral-large") => Some((2.00, 6.00)),
+        // Moonshot
+        m if m.contains("moonshot") => Some((0.0, 0.0)),
         _ => None,
     }
 }
@@ -52,7 +71,9 @@ pub fn calculate_cost(usage: &Usage) -> Option<f64> {
 /// Set custom pricing for a model pattern.
 pub fn set_custom_pricing(model_pattern: &str, input_per_million: f64, output_per_million: f64) {
     CUSTOM_PRICING.with(|p| {
-        p.borrow_mut()
-            .insert(model_pattern.to_string(), (input_per_million, output_per_million));
+        p.borrow_mut().insert(
+            model_pattern.to_string(),
+            (input_per_million, output_per_million),
+        );
     });
 }

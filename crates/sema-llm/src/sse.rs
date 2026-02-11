@@ -29,7 +29,10 @@ pub async fn parse_sse_stream(
                 continue;
             }
 
-            if let Some(data) = line.strip_prefix("data: ").or_else(|| line.strip_prefix("data:")) {
+            if let Some(data) = line
+                .strip_prefix("data: ")
+                .or_else(|| line.strip_prefix("data:"))
+            {
                 let data = data.trim();
                 if data == "[DONE]" {
                     return Ok(());

@@ -18,10 +18,7 @@ pub trait LlmProvider: Send + Sync {
     }
 
     /// Batch — run multiple requests concurrently.
-    fn batch_complete(
-        &self,
-        requests: Vec<ChatRequest>,
-    ) -> Vec<Result<ChatResponse, LlmError>> {
+    fn batch_complete(&self, requests: Vec<ChatRequest>) -> Vec<Result<ChatResponse, LlmError>> {
         requests.into_iter().map(|r| self.complete(r)).collect()
     }
 
