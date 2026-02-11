@@ -1,9 +1,11 @@
+use sema_core::{SemaError, Value};
 use sema_eval::Interpreter;
-use sema_core::Value;
 
 fn eval(input: &str) -> Value {
     let interp = Interpreter::new();
-    interp.eval_str(input).expect(&format!("failed to eval: {input}"))
+    interp
+        .eval_str(input)
+        .expect(&format!("failed to eval: {input}"))
 }
 
 fn eval_to_string(input: &str) -> String {
@@ -31,10 +33,7 @@ fn test_comparison() {
 
 #[test]
 fn test_define_and_call() {
-    assert_eq!(
-        eval("(begin (define x 42) x)"),
-        Value::Int(42)
-    );
+    assert_eq!(eval("(begin (define x 42) x)"), Value::Int(42));
     assert_eq!(
         eval("(begin (define (square x) (* x x)) (square 5))"),
         Value::Int(25)
@@ -51,26 +50,17 @@ fn test_factorial() {
 
 #[test]
 fn test_lambda() {
-    assert_eq!(
-        eval("((lambda (x y) (+ x y)) 3 4)"),
-        Value::Int(7)
-    );
+    assert_eq!(eval("((lambda (x y) (+ x y)) 3 4)"), Value::Int(7));
 }
 
 #[test]
 fn test_let() {
-    assert_eq!(
-        eval("(let ((x 10) (y 20)) (+ x y))"),
-        Value::Int(30)
-    );
+    assert_eq!(eval("(let ((x 10) (y 20)) (+ x y))"), Value::Int(30));
 }
 
 #[test]
 fn test_let_star() {
-    assert_eq!(
-        eval("(let* ((x 10) (y (* x 2))) (+ x y))"),
-        Value::Int(30)
-    );
+    assert_eq!(eval("(let* ((x 10) (y (* x 2))) (+ x y))"), Value::Int(30));
 }
 
 #[test]
@@ -96,7 +86,10 @@ fn test_list_operations() {
     assert_eq!(eval_to_string("(cons 0 (list 1 2))"), "(0 1 2)");
     assert_eq!(eval("(length (list 1 2 3))"), Value::Int(3));
     assert_eq!(eval_to_string("(reverse (list 1 2 3))"), "(3 2 1)");
-    assert_eq!(eval_to_string("(append (list 1 2) (list 3 4))"), "(1 2 3 4)");
+    assert_eq!(
+        eval_to_string("(append (list 1 2) (list 3 4))"),
+        "(1 2 3 4)"
+    );
 }
 
 #[test]
@@ -109,18 +102,12 @@ fn test_map_filter_fold() {
         eval_to_string("(filter (lambda (x) (> x 2)) (list 1 2 3 4))"),
         "(3 4)"
     );
-    assert_eq!(
-        eval("(foldl + 0 (list 1 2 3 4 5))"),
-        Value::Int(15)
-    );
+    assert_eq!(eval("(foldl + 0 (list 1 2 3 4 5))"), Value::Int(15));
 }
 
 #[test]
 fn test_string_operations() {
-    assert_eq!(
-        eval("(string-length \"hello\")"),
-        Value::Int(5)
-    );
+    assert_eq!(eval("(string-length \"hello\")"), Value::Int(5));
     assert_eq!(
         eval("(string/contains? \"hello world\" \"world\")"),
         Value::Bool(true)
@@ -133,22 +120,10 @@ fn test_string_operations() {
 
 #[test]
 fn test_map_data_structure() {
-    assert_eq!(
-        eval("(get {:a 1 :b 2} :a)"),
-        Value::Int(1)
-    );
-    assert_eq!(
-        eval("(:b {:a 1 :b 2})"),
-        Value::Int(2)
-    );
-    assert_eq!(
-        eval("(get (assoc {:a 1} :b 2) :b)"),
-        Value::Int(2)
-    );
-    assert_eq!(
-        eval_to_string("(keys {:a 1 :b 2})"),
-        "(:a :b)"
-    );
+    assert_eq!(eval("(get {:a 1 :b 2} :a)"), Value::Int(1));
+    assert_eq!(eval("(:b {:a 1 :b 2})"), Value::Int(2));
+    assert_eq!(eval("(get (assoc {:a 1} :b 2) :b)"), Value::Int(2));
+    assert_eq!(eval_to_string("(keys {:a 1 :b 2})"), "(:a :b)");
 }
 
 #[test]
@@ -165,14 +140,8 @@ fn test_json() {
 
 #[test]
 fn test_quote() {
-    assert_eq!(
-        eval_to_string("(quote (a b c))"),
-        "(a b c)"
-    );
-    assert_eq!(
-        eval_to_string("'(a b c)"),
-        "(a b c)"
-    );
+    assert_eq!(eval_to_string("(quote (a b c))"), "(a b c)");
+    assert_eq!(eval_to_string("'(a b c)"), "(a b c)");
 }
 
 #[test]
@@ -204,18 +173,12 @@ fn test_predicates() {
 
 #[test]
 fn test_set_bang() {
-    assert_eq!(
-        eval("(begin (define x 1) (set! x 2) x)"),
-        Value::Int(2)
-    );
+    assert_eq!(eval("(begin (define x 1) (set! x 2) x)"), Value::Int(2));
 }
 
 #[test]
 fn test_begin() {
-    assert_eq!(
-        eval("(begin 1 2 3)"),
-        Value::Int(3)
-    );
+    assert_eq!(eval("(begin 1 2 3)"), Value::Int(3));
 }
 
 #[test]
@@ -228,14 +191,8 @@ fn test_closures() {
 
 #[test]
 fn test_range() {
-    assert_eq!(
-        eval_to_string("(range 5)"),
-        "(0 1 2 3 4)"
-    );
-    assert_eq!(
-        eval_to_string("(range 2 5)"),
-        "(2 3 4)"
-    );
+    assert_eq!(eval_to_string("(range 5)"), "(0 1 2 3 4)");
+    assert_eq!(eval_to_string("(range 2 5)"), "(2 3 4)");
 }
 
 #[test]
@@ -248,10 +205,7 @@ fn test_rest_params() {
 
 #[test]
 fn test_apply() {
-    assert_eq!(
-        eval("(apply + (list 1 2 3))"),
-        Value::Int(6)
-    );
+    assert_eq!(eval("(apply + (list 1 2 3))"), Value::Int(6));
 }
 
 #[test]
@@ -313,7 +267,8 @@ fn test_string_conversions() {
 
 #[test]
 fn test_deftool() {
-    let result = eval(r#"
+    let result = eval(
+        r#"
         (begin
           (deftool add-numbers
             "Add two numbers"
@@ -321,13 +276,15 @@ fn test_deftool() {
              :b {:type :number :description "Second number"}}
             (lambda (a b) (+ a b)))
           add-numbers)
-    "#);
+    "#,
+    );
     assert!(matches!(result, Value::ToolDef(_)));
 }
 
 #[test]
 fn test_defagent() {
-    let result = eval(r#"
+    let result = eval(
+        r#"
         (begin
           (deftool greet
             "Greet someone"
@@ -337,31 +294,36 @@ fn test_defagent() {
                              :tools [greet]
                              :max-turns 5})
           greeter)
-    "#);
+    "#,
+    );
     assert!(matches!(result, Value::Agent(_)));
 }
 
 #[test]
 fn test_load_special_form() {
     // Write a temp file and load it
-    eval(r#"(write-file "/tmp/sema-test-load.sema" "(define loaded-value 42)")"#);
-    let result = eval(r#"
+    eval(r#"(file/write "/tmp/sema-test-load.sema" "(define loaded-value 42)")"#);
+    let result = eval(
+        r#"
         (begin
           (load "/tmp/sema-test-load.sema")
           loaded-value)
-    "#);
+    "#,
+    );
     assert_eq!(result, Value::Int(42));
 }
 
 #[test]
 fn test_defmacro() {
     assert_eq!(
-        eval(r#"
+        eval(
+            r#"
             (begin
               (defmacro my-if (cond then else)
                 (list 'if cond then else))
               (my-if #t 1 2))
-        "#),
+        "#
+        ),
         Value::Int(1)
     );
 }
@@ -390,8 +352,3895 @@ fn test_pricing() {
 
 #[test]
 fn test_llm_reset_usage() {
+    assert_eq!(eval_to_string("(llm/reset-usage)"), "nil");
+}
+
+// === Phase 6: Extended list ops ===
+
+#[test]
+fn test_multi_list_map() {
+    assert_eq!(eval_to_string("(map + '(1 2 3) '(10 20 30))"), "(11 22 33)");
+    // Shortest wins
+    assert_eq!(eval_to_string("(map + '(1 2 3) '(10 20))"), "(11 22)");
+}
+
+#[test]
+fn test_take_drop() {
+    assert_eq!(eval_to_string("(take 2 '(1 2 3 4))"), "(1 2)");
+    assert_eq!(eval_to_string("(drop 2 '(1 2 3 4))"), "(3 4)");
+    assert_eq!(eval_to_string("(take 10 '(1 2))"), "(1 2)");
+    assert_eq!(eval_to_string("(drop 10 '(1 2))"), "()");
+}
+
+#[test]
+fn test_last() {
+    assert_eq!(eval("(last '(1 2 3))"), Value::Int(3));
+    assert_eq!(eval("(last '())"), Value::Nil);
+}
+
+#[test]
+fn test_zip() {
+    assert_eq!(eval_to_string("(zip '(1 2) '(a b))"), "((1 a) (2 b))");
     assert_eq!(
-        eval_to_string("(llm/reset-usage)"),
-        "nil"
+        eval_to_string("(zip '(1 2 3) '(a b) '(x y))"),
+        "((1 a x) (2 b y))"
     );
+}
+
+#[test]
+fn test_flatten() {
+    assert_eq!(
+        eval_to_string("(flatten '((1 2) (3 4) (5)))"),
+        "(1 2 3 4 5)"
+    );
+    assert_eq!(eval_to_string("(flatten '(1 (2 3) 4))"), "(1 2 3 4)");
+}
+
+#[test]
+fn test_member() {
+    assert_eq!(eval_to_string("(member 3 '(1 2 3 4 5))"), "(3 4 5)");
+    assert_eq!(eval("(member 9 '(1 2 3))"), Value::Bool(false));
+}
+
+#[test]
+fn test_any_every() {
+    assert_eq!(
+        eval("(any (lambda (x) (> x 3)) '(1 2 3 4 5))"),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval("(any (lambda (x) (> x 10)) '(1 2 3))"),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        eval("(every (lambda (x) (> x 0)) '(1 2 3))"),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval("(every (lambda (x) (> x 2)) '(1 2 3))"),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn test_reduce() {
+    assert_eq!(eval("(reduce + '(1 2 3 4 5))"), Value::Int(15));
+    assert_eq!(eval("(reduce * '(1 2 3 4))"), Value::Int(24));
+}
+
+#[test]
+fn test_partition() {
+    assert_eq!(
+        eval_to_string("(partition (lambda (x) (> x 2)) '(1 2 3 4 5))"),
+        "((3 4 5) (1 2))"
+    );
+}
+
+#[test]
+fn test_foldr() {
+    assert_eq!(eval_to_string("(foldr cons '() '(1 2 3))"), "(1 2 3)");
+    assert_eq!(eval("(foldr + 0 '(1 2 3 4 5))"), Value::Int(15));
+}
+
+// === Phase 6: Named let and letrec ===
+
+#[test]
+fn test_named_let_sum() {
+    assert_eq!(
+        eval("(let loop ((i 1) (acc 0)) (if (> i 10) acc (loop (+ i 1) (+ acc i))))"),
+        Value::Int(55)
+    );
+}
+
+#[test]
+fn test_named_let_fib() {
+    assert_eq!(
+        eval("(let fib ((n 10) (a 0) (b 1)) (if (= n 0) a (fib (- n 1) b (+ a b))))"),
+        Value::Int(55)
+    );
+}
+
+#[test]
+fn test_letrec() {
+    assert_eq!(
+        eval(
+            r#"
+            (letrec ((even? (lambda (n) (if (= n 0) #t (odd? (- n 1)))))
+                     (odd?  (lambda (n) (if (= n 0) #f (even? (- n 1))))))
+              (even? 10))
+        "#
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(
+            r#"
+            (letrec ((even? (lambda (n) (if (= n 0) #t (odd? (- n 1)))))
+                     (odd?  (lambda (n) (if (= n 0) #f (even? (- n 1))))))
+              (odd? 7))
+        "#
+        ),
+        Value::Bool(true)
+    );
+}
+
+// === Phase 6: Error handling ===
+
+#[test]
+fn test_try_catch_error() {
+    assert_eq!(
+        eval(r#"(try (error "boom") (catch e (:message e)))"#),
+        Value::string("boom")
+    );
+}
+
+#[test]
+fn test_try_no_error() {
+    assert_eq!(eval("(try 42 (catch e 0))"), Value::Int(42));
+}
+
+#[test]
+fn test_throw_catch() {
+    assert_eq!(
+        eval("(try (throw 99) (catch e (:value e)))"),
+        Value::Int(99)
+    );
+}
+
+#[test]
+fn test_catch_type_error() {
+    assert_eq!(
+        eval(r#"(try (+ 1 "nope") (catch e (:type e)))"#),
+        Value::keyword("type-error")
+    );
+}
+
+#[test]
+fn test_catch_unbound() {
+    assert_eq!(
+        eval(r#"(try no-such-var (catch e (:type e)))"#),
+        Value::keyword("unbound")
+    );
+}
+
+#[test]
+fn test_nested_try() {
+    assert_eq!(
+        eval(
+            r#"
+            (try
+              (try (throw 1) (catch e (throw (+ (:value e) 1))))
+              (catch e (:value e)))
+        "#
+        ),
+        Value::Int(2)
+    );
+}
+
+// === Phase 6: Module system ===
+
+fn eval_err(input: &str) -> SemaError {
+    let interp = Interpreter::new();
+    interp.eval_str(input).unwrap_err()
+}
+
+#[test]
+fn test_module_import() {
+    // Write a module file
+    eval(
+        r#"(file/write "/tmp/sema-test-module.sema" "(module math (export add square) (define (add a b) (+ a b)) (define (square x) (* x x)) (define internal 42))")"#,
+    );
+    // Import and use
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (import "/tmp/sema-test-module.sema")
+              (add 3 4))
+        "#
+        ),
+        Value::Int(7)
+    );
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (import "/tmp/sema-test-module.sema")
+              (square 5))
+        "#
+        ),
+        Value::Int(25)
+    );
+    // internal should NOT be exported
+    let err = eval_err(
+        r#"
+        (begin
+          (import "/tmp/sema-test-module.sema")
+          internal)
+    "#,
+    );
+    assert!(matches!(err, SemaError::Unbound(_)));
+}
+
+#[test]
+fn test_selective_import() {
+    eval(
+        r#"(file/write "/tmp/sema-test-sel.sema" "(module m (export foo bar) (define (foo) 1) (define (bar) 2))")"#,
+    );
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (import "/tmp/sema-test-sel.sema" foo)
+              (foo))
+        "#
+        ),
+        Value::Int(1)
+    );
+    // bar should not be imported
+    let err = eval_err(
+        r#"
+        (begin
+          (import "/tmp/sema-test-sel.sema" foo)
+          (bar))
+    "#,
+    );
+    assert!(matches!(err, SemaError::Unbound(_)));
+}
+
+#[test]
+fn test_module_cache() {
+    eval(r#"(file/write "/tmp/sema-test-cache.sema" "(module c (export val) (define val 99))")"#);
+    // Import twice — should work fine (cached)
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (import "/tmp/sema-test-cache.sema")
+              (import "/tmp/sema-test-cache.sema")
+              val)
+        "#
+        ),
+        Value::Int(99)
+    );
+}
+
+// ====== Phase 7: Real-World Capabilities ======
+
+// --- Metaprogramming ---
+
+#[test]
+fn test_case() {
+    assert_eq!(
+        eval(r#"(case (+ 1 1) ((1) "one") ((2 3) "two-or-three") (else "other"))"#),
+        Value::string("two-or-three")
+    );
+    assert_eq!(
+        eval(r#"(case :b ((:a) 1) ((:b :c) 2) (else 3))"#),
+        Value::Int(2)
+    );
+    assert_eq!(
+        eval(r#"(case 99 ((1) "one") (else "other"))"#),
+        Value::string("other")
+    );
+    // No match, no else
+    assert_eq!(eval(r#"(case 99 ((1) "one") ((2) "two"))"#), Value::Nil);
+}
+
+#[test]
+fn test_eval_special_form() {
+    assert_eq!(eval("(eval '(+ 1 2))"), Value::Int(3));
+    assert_eq!(eval(r#"(eval (read "(* 6 7)"))"#), Value::Int(42));
+}
+
+#[test]
+fn test_read_builtin() {
+    assert_eq!(eval(r#"(read "42")"#), Value::Int(42));
+    assert_eq!(eval_to_string(r#"(read "(+ 1 2)")"#), "(+ 1 2)");
+    assert_eq!(eval_to_string(r#"(read-many "1 2 3")"#), "(1 2 3)");
+}
+
+#[test]
+fn test_type_conversions() {
+    assert_eq!(eval_to_string(r#"(string->symbol "foo")"#), "foo");
+    assert_eq!(eval(r#"(symbol->string 'foo)"#), Value::string("foo"));
+    assert_eq!(eval_to_string(r#"(string->keyword "bar")"#), ":bar");
+    assert_eq!(eval(r#"(keyword->string :bar)"#), Value::string("bar"));
+}
+
+#[test]
+fn test_gensym() {
+    // gensym returns a symbol
+    let result = eval("(gensym)");
+    assert!(matches!(result, Value::Symbol(_)));
+    // gensym with prefix
+    let result = eval(r#"(gensym "tmp")"#);
+    if let Value::Symbol(s) = &result {
+        assert!(s.starts_with("tmp__"));
+    } else {
+        panic!("expected symbol");
+    }
+    // Two gensyms are different
+    assert_eq!(
+        eval("(begin (define a (gensym)) (define b (gensym)) (= a b))"),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn test_macroexpand() {
+    assert_eq!(
+        eval_to_string(
+            r#"
+            (begin
+              (defmacro my-if (c t e) (list 'if c t e))
+              (macroexpand '(my-if #t 1 2)))
+        "#
+        ),
+        "(if #t 1 2)"
+    );
+    // Non-macro form returned as-is
+    assert_eq!(eval("(macroexpand '(+ 1 2))"), eval("'(+ 1 2)"));
+}
+
+// --- File I/O ---
+
+#[test]
+fn test_file_operations() {
+    let dir = "/tmp/sema-test-fileops";
+    // Clean up from previous runs
+    let _ = std::fs::remove_dir_all(dir);
+
+    eval(&format!(r#"(file/mkdir "{dir}/sub")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/is-directory? "{dir}")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/is-directory? "{dir}/sub")"#)),
+        Value::Bool(true)
+    );
+
+    eval(&format!(r#"(file/write "{dir}/a.txt" "hello")"#));
+    eval(&format!(r#"(file/append "{dir}/a.txt" " world")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/read "{dir}/a.txt")"#)),
+        Value::string("hello world")
+    );
+
+    eval(&format!(r#"(file/rename "{dir}/a.txt" "{dir}/b.txt")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/b.txt")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/a.txt")"#)),
+        Value::Bool(false)
+    );
+
+    let info = eval(&format!(r#"(file/info "{dir}/b.txt")"#));
+    assert!(matches!(info, Value::Map(_)));
+
+    eval(&format!(r#"(file/delete "{dir}/b.txt")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/b.txt")"#)),
+        Value::Bool(false)
+    );
+
+    // file/list
+    eval(&format!(r#"(file/write "{dir}/x.txt" "x")"#));
+    eval(&format!(r#"(file/write "{dir}/y.txt" "y")"#));
+    let listing = eval(&format!(r#"(file/list "{dir}")"#));
+    if let Value::List(items) = &listing {
+        assert!(items.len() >= 2); // sub, x.txt, y.txt
+    } else {
+        panic!("expected list");
+    }
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// --- Path operations ---
+
+#[test]
+fn test_path_operations() {
+    assert_eq!(
+        eval(r#"(path/join "usr" "local" "bin")"#),
+        Value::string("usr/local/bin")
+    );
+    assert_eq!(eval(r#"(path/dirname "/a/b/c")"#), Value::string("/a/b"));
+    assert_eq!(
+        eval(r#"(path/basename "/a/b/c.txt")"#),
+        Value::string("c.txt")
+    );
+    assert_eq!(eval(r#"(path/extension "foo.txt")"#), Value::string("txt"));
+    assert_eq!(eval(r#"(path/extension "no-ext")"#), Value::Nil);
+    // path/absolute returns a real path — just check it doesn't error
+    let result = eval(r#"(path/absolute ".")"#);
+    assert!(matches!(result, Value::String(_)));
+}
+
+// --- Regex ---
+
+#[test]
+fn test_regex_match() {
+    assert_eq!(eval(r#"(regex/match? "\\d+" "abc123")"#), Value::Bool(true));
+    assert_eq!(
+        eval(r#"(regex/match? "^\\d+$" "abc123")"#),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn test_regex_capture() {
+    let result = eval(r#"(regex/match "(\\d+)-(\\w+)" "item-42-foo")"#);
+    if let Value::Map(m) = &result {
+        assert_eq!(
+            m.get(&Value::keyword("match")),
+            Some(&Value::string("42-foo"))
+        );
+    } else {
+        panic!("expected map, got {result}");
+    }
+}
+
+#[test]
+fn test_regex_find_all() {
+    assert_eq!(
+        eval_to_string(r#"(regex/find-all "\\d+" "a1b2c3")"#),
+        r#"("1" "2" "3")"#
+    );
+}
+
+#[test]
+fn test_regex_replace() {
+    assert_eq!(
+        eval(r#"(regex/replace "\\d+" "X" "a1b2c3")"#),
+        Value::string("aXb2c3")
+    );
+    assert_eq!(
+        eval(r#"(regex/replace-all "\\d+" "X" "a1b2c3")"#),
+        Value::string("aXbXcX")
+    );
+}
+
+#[test]
+fn test_regex_split() {
+    assert_eq!(
+        eval_to_string(r#"(regex/split "[,;]" "a,b;c,d")"#),
+        r#"("a" "b" "c" "d")"#
+    );
+}
+
+// --- HTTP (requires network) ---
+
+#[test]
+fn test_http_get() {
+    let result = eval(r#"(http/get "https://httpbin.org/get")"#);
+    if let Value::Map(m) = &result {
+        assert_eq!(m.get(&Value::keyword("status")), Some(&Value::Int(200)));
+    } else {
+        panic!("expected map");
+    }
+}
+
+#[test]
+fn test_http_post() {
+    let result = eval(r#"(http/post "https://httpbin.org/post" {:name "sema"})"#);
+    if let Value::Map(m) = &result {
+        assert_eq!(m.get(&Value::keyword("status")), Some(&Value::Int(200)));
+    } else {
+        panic!("expected map");
+    }
+}
+
+#[test]
+fn test_http_request_generic() {
+    let result = eval(r#"(http/request "PATCH" "https://httpbin.org/patch" {} "data")"#);
+    if let Value::Map(m) = &result {
+        assert_eq!(m.get(&Value::keyword("status")), Some(&Value::Int(200)));
+    } else {
+        panic!("expected map");
+    }
+}
+
+// --- HTTP: Response Structure Validation ---
+
+#[test]
+fn test_http_response_has_body() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/get")))
+          (string? (:body resp)))
+    "#,
+    );
+    assert_eq!(result, Value::Bool(true));
+    // Also verify body is non-empty
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/get")))
+          (> (string-length (:body resp)) 0))
+    "#,
+    );
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_http_response_has_headers() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/get")))
+          (map? (:headers resp)))
+    "#,
+    );
+    assert_eq!(result, Value::Bool(true));
+    // Verify content-type header exists
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/get")))
+          (string? (get (:headers resp) :content-type)))
+    "#,
+    );
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_http_response_body_json_decode() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/get")))
+          (let ((data (json/decode (:body resp))))
+            (get data :url)))
+    "#,
+    );
+    assert_eq!(result, Value::string("https://httpbin.org/get"));
+}
+
+// --- HTTP: All Methods ---
+
+#[test]
+fn test_http_put() {
+    let result = eval(
+        r#"
+        (let ((resp (http/put "https://httpbin.org/put" {:name "sema"})))
+          (let ((data (json/decode (:body resp))))
+            (list (:status resp) (get (get data :json) :name))))
+    "#,
+    );
+    assert_eq!(
+        result,
+        Value::list(vec![Value::Int(200), Value::string("sema")])
+    );
+}
+
+#[test]
+fn test_http_delete() {
+    let result = eval(
+        r#"
+        (let ((resp (http/delete "https://httpbin.org/delete")))
+          (:status resp))
+    "#,
+    );
+    assert_eq!(result, Value::Int(200));
+}
+
+#[test]
+fn test_http_head() {
+    let result = eval(
+        r#"
+        (let ((resp (http/request "HEAD" "https://httpbin.org/get")))
+          (list (:status resp) (:body resp)))
+    "#,
+    );
+    // HEAD returns 200 with empty body
+    assert_eq!(
+        result,
+        Value::list(vec![Value::Int(200), Value::string("")])
+    );
+}
+
+#[test]
+fn test_http_patch_with_json_body() {
+    let result = eval(
+        r#"
+        (let ((resp (http/request "PATCH" "https://httpbin.org/patch" {} "{\"key\":\"val\"}")))
+          (let ((data (json/decode (:body resp))))
+            (list (:status resp) (get data :data))))
+    "#,
+    );
+    assert_eq!(
+        result,
+        Value::list(vec![Value::Int(200), Value::string("{\"key\":\"val\"}")])
+    );
+}
+
+// --- HTTP: Request Headers ---
+
+#[test]
+fn test_http_custom_headers() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/headers"
+                              {:headers {:x-custom-header "sema-test"}})))
+          (let ((data (json/decode (:body resp))))
+            (get (get data :headers) :X-Custom-Header)))
+    "#,
+    );
+    assert_eq!(result, Value::string("sema-test"));
+}
+
+#[test]
+fn test_http_multiple_headers() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/headers"
+                              {:headers {:x-first "one" :x-second "two"}})))
+          (let ((hdrs (get (json/decode (:body resp)) :headers)))
+            (list (get hdrs :X-First) (get hdrs :X-Second))))
+    "#,
+    );
+    assert_eq!(
+        result,
+        Value::list(vec![Value::string("one"), Value::string("two")])
+    );
+}
+
+// --- HTTP: Body Handling ---
+
+#[test]
+fn test_http_post_map_body_echoed() {
+    let result = eval(
+        r#"
+        (let ((resp (http/post "https://httpbin.org/post" {:name "sema" :version 1})))
+          (let ((data (json/decode (:body resp))))
+            (get (get data :json) :name)))
+    "#,
+    );
+    assert_eq!(result, Value::string("sema"));
+}
+
+#[test]
+fn test_http_post_string_body() {
+    let result = eval(
+        r#"
+        (let ((resp (http/post "https://httpbin.org/post" "raw-body-data"
+                               {:headers {:content-type "text/plain"}})))
+          (let ((data (json/decode (:body resp))))
+            (get data :data)))
+    "#,
+    );
+    assert_eq!(result, Value::string("raw-body-data"));
+}
+
+#[test]
+fn test_http_post_nested_map() {
+    let result = eval(
+        r#"
+        (let ((resp (http/post "https://httpbin.org/post" {:user {:name "test"}})))
+          (let ((data (json/decode (:body resp))))
+            (get (get (get data :json) :user) :name)))
+    "#,
+    );
+    assert_eq!(result, Value::string("test"));
+}
+
+#[test]
+fn test_http_post_empty_string_body() {
+    let result = eval(
+        r#"
+        (let ((resp (http/post "https://httpbin.org/post" "")))
+          (:status resp))
+    "#,
+    );
+    assert_eq!(result, Value::Int(200));
+}
+
+// --- HTTP: Status Codes ---
+
+#[test]
+fn test_http_status_404() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/status/404")))
+          (:status resp))
+    "#,
+    );
+    assert_eq!(result, Value::Int(404));
+}
+
+#[test]
+fn test_http_status_500() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/status/500")))
+          (:status resp))
+    "#,
+    );
+    assert_eq!(result, Value::Int(500));
+}
+
+// --- HTTP: Query Parameters ---
+
+#[test]
+fn test_http_get_with_query_params() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/get?foo=bar&baz=42")))
+          (let ((data (json/decode (:body resp))))
+            (get (get data :args) :foo)))
+    "#,
+    );
+    assert_eq!(result, Value::string("bar"));
+}
+
+// --- HTTP: Timeout ---
+
+#[test]
+fn test_http_timeout() {
+    let _err = eval_err(r#"(http/get "https://httpbin.org/delay/10" {:timeout 1000})"#);
+    // Just verifying it errors (timeout after 1s, but server delays 10s)
+}
+
+// --- HTTP: Error Handling ---
+
+#[test]
+fn test_http_invalid_url() {
+    let _err = eval_err(r#"(http/get "http://invalid.invalid.invalid")"#);
+}
+
+#[test]
+fn test_http_get_wrong_arity() {
+    let _err = eval_err(r#"(http/get)"#);
+}
+
+#[test]
+fn test_http_post_wrong_arity() {
+    let _err = eval_err(r#"(http/post "https://httpbin.org/post")"#);
+}
+
+// --- HTTP: Unicode ---
+
+#[test]
+fn test_http_unicode_body() {
+    let result = eval(
+        r#"
+        (let ((resp (http/post "https://httpbin.org/post" {:text "Hello 世界"})))
+          (let ((data (json/decode (:body resp))))
+            (get (get data :json) :text)))
+    "#,
+    );
+    assert_eq!(result, Value::string("Hello 世界"));
+}
+
+// --- HTTP: Redirect ---
+
+#[test]
+fn test_http_redirect() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/redirect/1")))
+          (:status resp))
+    "#,
+    );
+    assert_eq!(result, Value::Int(200));
+}
+
+// --- HTTP: Untested Code Paths ---
+
+// Unknown method → error (http.rs line 31)
+#[test]
+fn test_http_request_unknown_method() {
+    let _err = eval_err(r#"(http/request "BOGUS" "https://httpbin.org/get")"#);
+}
+
+// Non-string URL → type error (http.rs line 111, 122, etc.)
+#[test]
+fn test_http_get_non_string_url() {
+    let _err = eval_err(r#"(http/get 42)"#);
+}
+
+#[test]
+fn test_http_post_non_string_url() {
+    let _err = eval_err(r#"(http/post 42 "body")"#);
+}
+
+#[test]
+fn test_http_request_non_string_method() {
+    let _err = eval_err(r#"(http/request 42 "https://httpbin.org/get")"#);
+}
+
+// Too many args (upper arity bounds)
+#[test]
+fn test_http_get_too_many_args() {
+    let _err = eval_err(r#"(http/get "url" {} "extra")"#);
+}
+
+#[test]
+fn test_http_post_too_many_args() {
+    let _err = eval_err(r#"(http/post "url" "body" {} "extra")"#);
+}
+
+#[test]
+fn test_http_put_wrong_arity() {
+    let _err = eval_err(r#"(http/put "url")"#);
+}
+
+#[test]
+fn test_http_delete_wrong_arity() {
+    let _err = eval_err(r#"(http/delete)"#);
+}
+
+#[test]
+fn test_http_request_too_few_args() {
+    let _err = eval_err(r#"(http/request "GET")"#);
+}
+
+#[test]
+fn test_http_request_too_many_args() {
+    let _err = eval_err(r#"(http/request "GET" "url" {} "body" "extra")"#);
+}
+
+// http/request minimal 2-arg path (opts and body both None)
+#[test]
+fn test_http_request_minimal_args() {
+    let result = eval(
+        r#"
+        (let ((resp (http/request "GET" "https://httpbin.org/get")))
+          (:status resp))
+    "#,
+    );
+    assert_eq!(result, Value::Int(200));
+}
+
+// Non-string/non-map body → to_string() fallback (http.rs line 71-73)
+#[test]
+fn test_http_post_integer_body() {
+    let result = eval(
+        r#"
+        (let ((resp (http/post "https://httpbin.org/post" 42)))
+          (let ((data (json/decode (:body resp))))
+            (get data :data)))
+    "#,
+    );
+    assert_eq!(result, Value::string("42"));
+}
+
+// Map body auto-sets Content-Type: application/json (http.rs line 67-69)
+#[test]
+fn test_http_post_map_sets_content_type_json() {
+    let result = eval(
+        r#"
+        (let ((resp (http/post "https://httpbin.org/post" {:a 1})))
+          (let ((data (json/decode (:body resp))))
+            (string/starts-with? (get (get data :headers) :Content-Type) "application/json")))
+    "#,
+    );
+    assert_eq!(result, Value::Bool(true));
+}
+
+// String header keys (http.rs line 39 - Value::String branch)
+#[test]
+fn test_http_headers_with_string_keys() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/headers"
+                              {:headers {"X-String-Key" "string-val"}})))
+          (let ((data (json/decode (:body resp))))
+            (get (get data :headers) :X-String-Key)))
+    "#,
+    );
+    assert_eq!(result, Value::string("string-val"));
+}
+
+// Opts as non-map → silently ignored (http.rs line 35)
+#[test]
+fn test_http_get_opts_non_map_ignored() {
+    let result = eval(
+        r#"
+        (let ((resp (http/get "https://httpbin.org/get" "not-a-map")))
+          (:status resp))
+    "#,
+    );
+    assert_eq!(result, Value::Int(200));
+}
+
+// http/delete with opts (exercises the opts path for delete)
+#[test]
+fn test_http_delete_with_opts() {
+    let result = eval(
+        r#"
+        (let ((resp (http/delete "https://httpbin.org/delete"
+                                 {:headers {:x-delete-test "yes"}})))
+          (:status resp))
+    "#,
+    );
+    assert_eq!(result, Value::Int(200));
+}
+
+// ====================================================================
+// Expanded test suite — covering implemented but previously untested
+// features, edge cases, and patterns from mal/Chibi/R7RS test suites.
+// ====================================================================
+
+// ====== 1. Untested Predicates ======
+
+#[test]
+fn test_bool_predicate() {
+    assert_eq!(eval("(bool? #t)"), Value::Bool(true));
+    assert_eq!(eval("(bool? #f)"), Value::Bool(true));
+    assert_eq!(eval("(bool? 0)"), Value::Bool(false));
+    assert_eq!(eval("(bool? nil)"), Value::Bool(false));
+    assert_eq!(eval("(bool? \"true\")"), Value::Bool(false));
+}
+
+#[test]
+fn test_nil_predicate() {
+    assert_eq!(eval("(nil? nil)"), Value::Bool(true));
+    assert_eq!(eval("(nil? #f)"), Value::Bool(false));
+    assert_eq!(eval("(nil? 0)"), Value::Bool(false));
+    assert_eq!(eval("(nil? (list))"), Value::Bool(false)); // empty list is NOT nil
+    assert_eq!(eval("(nil? \"\")"), Value::Bool(false));
+}
+
+#[test]
+fn test_fn_predicate() {
+    assert_eq!(eval("(fn? +)"), Value::Bool(true));
+    assert_eq!(eval("(fn? car)"), Value::Bool(true));
+    assert_eq!(eval("(fn? (lambda (x) x))"), Value::Bool(true));
+    assert_eq!(eval("(fn? 42)"), Value::Bool(false));
+    assert_eq!(eval("(fn? :foo)"), Value::Bool(false));
+}
+
+#[test]
+fn test_type_function() {
+    assert_eq!(eval("(type 42)"), Value::keyword("int"));
+    assert_eq!(eval("(type 3.14)"), Value::keyword("float"));
+    assert_eq!(eval("(type \"hi\")"), Value::keyword("string"));
+    assert_eq!(eval("(type :foo)"), Value::keyword("keyword"));
+    assert_eq!(eval("(type 'sym)"), Value::keyword("symbol"));
+    assert_eq!(eval("(type (list 1 2))"), Value::keyword("list"));
+    assert_eq!(eval("(type [1 2])"), Value::keyword("vector"));
+    assert_eq!(eval("(type {:a 1})"), Value::keyword("map"));
+    assert_eq!(eval("(type #t)"), Value::keyword("bool"));
+    assert_eq!(eval("(type nil)"), Value::keyword("nil"));
+    assert_eq!(eval("(type +)"), Value::keyword("native-fn"));
+    assert_eq!(eval("(type (lambda (x) x))"), Value::keyword("lambda"));
+}
+
+#[test]
+fn test_integer_float_predicates() {
+    assert_eq!(eval("(integer? 42)"), Value::Bool(true));
+    assert_eq!(eval("(integer? 3.14)"), Value::Bool(false));
+    assert_eq!(eval("(float? 3.14)"), Value::Bool(true));
+    assert_eq!(eval("(float? 42)"), Value::Bool(false));
+}
+
+#[test]
+fn test_vector_predicate() {
+    assert_eq!(eval("(vector? [1 2 3])"), Value::Bool(true));
+    assert_eq!(eval("(vector? (list 1 2 3))"), Value::Bool(false));
+    assert_eq!(eval("(vector? 42)"), Value::Bool(false));
+}
+
+// ====== 2. Numeric Predicates ======
+
+#[test]
+fn test_even_odd() {
+    assert_eq!(eval("(even? 0)"), Value::Bool(true));
+    assert_eq!(eval("(even? 2)"), Value::Bool(true));
+    assert_eq!(eval("(even? 3)"), Value::Bool(false));
+    assert_eq!(eval("(even? -4)"), Value::Bool(true));
+    assert_eq!(eval("(odd? 1)"), Value::Bool(true));
+    assert_eq!(eval("(odd? 2)"), Value::Bool(false));
+    assert_eq!(eval("(odd? -3)"), Value::Bool(true));
+}
+
+#[test]
+fn test_zero_positive_negative() {
+    assert_eq!(eval("(zero? 0)"), Value::Bool(true));
+    assert_eq!(eval("(zero? 0.0)"), Value::Bool(true));
+    assert_eq!(eval("(zero? 1)"), Value::Bool(false));
+    assert_eq!(eval("(positive? 1)"), Value::Bool(true));
+    assert_eq!(eval("(positive? 0)"), Value::Bool(false));
+    assert_eq!(eval("(positive? -1)"), Value::Bool(false));
+    assert_eq!(eval("(negative? -1)"), Value::Bool(true));
+    assert_eq!(eval("(negative? 0)"), Value::Bool(false));
+    assert_eq!(eval("(negative? 1)"), Value::Bool(false));
+}
+
+// ====== 3. Equality (eq?) ======
+
+#[test]
+fn test_eq_identity() {
+    // eq? uses structural equality in Sema (PartialEq)
+    assert_eq!(eval("(eq? 1 1)"), Value::Bool(true));
+    assert_eq!(eval("(eq? :a :a)"), Value::Bool(true));
+    assert_eq!(eval("(eq? \"hello\" \"hello\")"), Value::Bool(true));
+    assert_eq!(eval("(eq? #t #t)"), Value::Bool(true));
+    assert_eq!(eval("(eq? nil nil)"), Value::Bool(true));
+    assert_eq!(eval("(eq? 1 2)"), Value::Bool(false));
+    assert_eq!(eval("(eq? 1 1.0)"), Value::Bool(false)); // different types
+                                                         // Lists: structural equality
+    assert_eq!(eval("(eq? (list 1 2) (list 1 2))"), Value::Bool(true));
+}
+
+// ====== 4. String Operations ======
+
+#[test]
+fn test_string_ref() {
+    assert_eq!(eval(r#"(string-ref "hello" 0)"#), Value::string("h"));
+    assert_eq!(eval(r#"(string-ref "hello" 4)"#), Value::string("o"));
+}
+
+#[test]
+fn test_substring() {
+    assert_eq!(eval(r#"(substring "hello" 1 3)"#), Value::string("el"));
+    assert_eq!(eval(r#"(substring "hello" 0 5)"#), Value::string("hello"));
+    assert_eq!(eval(r#"(substring "hello" 3)"#), Value::string("lo"));
+}
+
+#[test]
+fn test_string_trim() {
+    assert_eq!(eval(r#"(string/trim "  hello  ")"#), Value::string("hello"));
+    assert_eq!(eval(r#"(string/trim "\thello\n")"#), Value::string("hello"));
+    assert_eq!(eval(r#"(string/trim "hello")"#), Value::string("hello"));
+}
+
+#[test]
+fn test_string_starts_ends_with() {
+    assert_eq!(
+        eval(r#"(string/starts-with? "hello" "hel")"#),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(r#"(string/starts-with? "hello" "ell")"#),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        eval(r#"(string/ends-with? "hello" "llo")"#),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(r#"(string/ends-with? "hello" "hel")"#),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn test_string_upper_lower() {
+    assert_eq!(eval(r#"(string/upper "hello")"#), Value::string("HELLO"));
+    assert_eq!(eval(r#"(string/lower "HELLO")"#), Value::string("hello"));
+    assert_eq!(eval(r#"(string/upper "")"#), Value::string(""));
+}
+
+#[test]
+fn test_string_replace() {
+    assert_eq!(
+        eval(r#"(string/replace "hello world" "world" "sema")"#),
+        Value::string("hello sema")
+    );
+    assert_eq!(
+        eval(r#"(string/replace "aaa" "a" "bb")"#),
+        Value::string("bbbbbb")
+    );
+}
+
+#[test]
+fn test_string_join() {
+    assert_eq!(
+        eval(r#"(string/join (list "a" "b" "c") ", ")"#),
+        Value::string("a, b, c")
+    );
+    assert_eq!(
+        eval(r#"(string/join (list "one") "-")"#),
+        Value::string("one")
+    );
+    assert_eq!(eval(r#"(string/join (list) ", ")"#), Value::string(""));
+}
+
+#[test]
+fn test_str_concat() {
+    assert_eq!(eval(r#"(str "a" 1 :b)"#), Value::string("a1:b"));
+    assert_eq!(eval(r#"(str)"#), Value::string(""));
+    assert_eq!(eval(r#"(str "hello")"#), Value::string("hello"));
+}
+
+#[test]
+fn test_string_append_coercion() {
+    // string-append coerces non-strings
+    assert_eq!(
+        eval(r#"(string-append "val=" 42)"#),
+        Value::string("val=42")
+    );
+}
+
+// ====== 5. Map Operations ======
+
+#[test]
+fn test_hash_map() {
+    assert_eq!(eval("(get (hash-map :x 1 :y 2) :x)"), Value::Int(1));
+    assert_eq!(eval("(get (hash-map :x 1 :y 2) :y)"), Value::Int(2));
+}
+
+#[test]
+fn test_dissoc() {
+    assert_eq!(eval("(get (dissoc {:a 1 :b 2 :c 3} :b) :b)"), Value::Nil);
+    assert_eq!(eval("(count (dissoc {:a 1 :b 2 :c 3} :b))"), Value::Int(2));
+    // Dissoc multiple keys
+    assert_eq!(
+        eval("(count (dissoc {:a 1 :b 2 :c 3} :a :c))"),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn test_vals() {
+    // vals returns values; BTreeMap is sorted by key
+    let result = eval_to_string("(sort (vals {:a 1 :b 2 :c 3}))");
+    assert_eq!(result, "(1 2 3)");
+}
+
+#[test]
+fn test_merge() {
+    assert_eq!(eval("(get (merge {:a 1} {:b 2} {:c 3}) :b)"), Value::Int(2));
+    // Later maps override earlier
+    assert_eq!(eval("(get (merge {:a 1} {:a 99}) :a)"), Value::Int(99));
+    // Empty merge
+    assert_eq!(eval_to_string("(merge)"), "{}");
+}
+
+#[test]
+fn test_contains() {
+    assert_eq!(eval("(contains? {:a 1 :b 2} :a)"), Value::Bool(true));
+    assert_eq!(eval("(contains? {:a 1 :b 2} :c)"), Value::Bool(false));
+}
+
+#[test]
+fn test_count() {
+    assert_eq!(eval("(count {:a 1 :b 2})"), Value::Int(2));
+    assert_eq!(eval("(count (list 1 2 3))"), Value::Int(3));
+    assert_eq!(eval("(count [1 2 3 4])"), Value::Int(4));
+    assert_eq!(eval(r#"(count "hello")"#), Value::Int(5));
+    assert_eq!(eval("(count nil)"), Value::Int(0));
+}
+
+#[test]
+fn test_empty() {
+    assert_eq!(eval("(empty? (list))"), Value::Bool(true));
+    assert_eq!(eval("(empty? (list 1))"), Value::Bool(false));
+    assert_eq!(eval("(empty? {})"), Value::Bool(true));
+    assert_eq!(eval("(empty? {:a 1})"), Value::Bool(false));
+    assert_eq!(eval("(empty? [])"), Value::Bool(true));
+    assert_eq!(eval(r#"(empty? "")"#), Value::Bool(true));
+    assert_eq!(eval("(empty? nil)"), Value::Bool(true));
+}
+
+#[test]
+fn test_get_with_default() {
+    assert_eq!(eval("(get {:a 1} :b 42)"), Value::Int(42));
+    assert_eq!(eval("(get {:a 1} :a 42)"), Value::Int(1));
+    assert_eq!(eval("(get {:a 1} :missing)"), Value::Nil);
+}
+
+#[test]
+fn test_keyword_as_fn_missing_key() {
+    // Keyword lookup on map returns nil for missing key
+    assert_eq!(eval("(:missing {:a 1})"), Value::Nil);
+}
+
+// ====== 6. Math Operations ======
+
+#[test]
+fn test_round() {
+    assert_eq!(eval("(round 3.4)"), Value::Int(3));
+    assert_eq!(eval("(round 3.5)"), Value::Int(4));
+    assert_eq!(eval("(round -1.5)"), Value::Int(-2));
+    assert_eq!(eval("(round 5)"), Value::Int(5)); // int passthrough
+}
+
+#[test]
+fn test_sqrt() {
+    assert_eq!(eval("(sqrt 16)"), Value::Float(4.0));
+    assert_eq!(eval("(sqrt 2.0)"), Value::Float(2.0_f64.sqrt()));
+}
+
+#[test]
+fn test_pow() {
+    assert_eq!(eval("(pow 2 10)"), Value::Int(1024));
+    assert_eq!(eval("(pow 3 0)"), Value::Int(1));
+    assert_eq!(eval("(pow 2.0 0.5)"), Value::Float(2.0_f64.powf(0.5)));
+}
+
+#[test]
+fn test_log() {
+    assert_eq!(eval("(log 1)"), Value::Float(0.0));
+    // log(e) ≈ 1.0
+    let result = eval("(log (e))");
+    if let Value::Float(f) = result {
+        assert!((f - 1.0).abs() < 1e-10);
+    } else {
+        panic!("expected float");
+    }
+}
+
+#[test]
+fn test_trig() {
+    assert_eq!(eval("(sin 0)"), Value::Float(0.0));
+    assert_eq!(eval("(cos 0)"), Value::Float(1.0));
+    // sin(pi/2) ≈ 1.0
+    let result = eval("(sin (/ (pi) 2))");
+    if let Value::Float(f) = result {
+        assert!((f - 1.0).abs() < 1e-10);
+    } else {
+        panic!("expected float");
+    }
+}
+
+#[test]
+fn test_pi_and_e_constants() {
+    if let Value::Float(p) = eval("(pi)") {
+        assert!((p - std::f64::consts::PI).abs() < 1e-15);
+    } else {
+        panic!("expected float");
+    }
+    if let Value::Float(e) = eval("(e)") {
+        assert!((e - std::f64::consts::E).abs() < 1e-15);
+    } else {
+        panic!("expected float");
+    }
+}
+
+#[test]
+fn test_int_float_conversion() {
+    assert_eq!(eval("(int 3.7)"), Value::Int(3));
+    assert_eq!(eval("(int 42)"), Value::Int(42));
+    assert_eq!(eval(r#"(int "99")"#), Value::Int(99));
+    assert_eq!(eval("(float 42)"), Value::Float(42.0));
+    assert_eq!(eval("(float 3.14)"), Value::Float(3.14));
+    assert_eq!(eval(r#"(float "2.5")"#), Value::Float(2.5));
+}
+
+// ====== 7. Arithmetic Edge Cases ======
+
+#[test]
+fn test_division_by_zero() {
+    let err = eval_err("(/ 1 0)");
+    assert!(matches!(err.inner(), SemaError::Eval(_)));
+    let err = eval_err("(mod 5 0)");
+    assert!(matches!(err.inner(), SemaError::Eval(_)));
+}
+
+#[test]
+fn test_arithmetic_identity() {
+    // (+) => 0, (*) => 1 (identity elements)
+    assert_eq!(eval("(+)"), Value::Int(0));
+    assert_eq!(eval("(*)"), Value::Int(1));
+}
+
+#[test]
+fn test_unary_minus() {
+    assert_eq!(eval("(- 5)"), Value::Int(-5));
+    assert_eq!(eval("(- -3)"), Value::Int(3));
+    assert_eq!(eval("(- 2.5)"), Value::Float(-2.5));
+}
+
+#[test]
+fn test_mixed_int_float_arithmetic() {
+    assert_eq!(eval("(+ 1 2.0)"), Value::Float(3.0));
+    assert_eq!(eval("(* 3 1.5)"), Value::Float(4.5));
+    assert_eq!(eval("(- 10 2.5)"), Value::Float(7.5));
+    assert_eq!(eval("(/ 10 2)"), Value::Int(5)); // integer division when exact
+    assert_eq!(eval("(/ 7 2)"), Value::Float(3.5)); // non-exact → float
+    assert_eq!(eval("(/ 7.0 2)"), Value::Float(3.5));
+}
+
+#[test]
+fn test_chained_comparison() {
+    assert_eq!(eval("(< 1 2 3 4)"), Value::Bool(true));
+    assert_eq!(eval("(< 1 2 2 4)"), Value::Bool(false));
+    assert_eq!(eval("(>= 4 3 2 1)"), Value::Bool(true));
+    assert_eq!(eval("(>= 4 3 3 1)"), Value::Bool(true));
+    assert_eq!(eval("(= 5 5 5 5)"), Value::Bool(true));
+    assert_eq!(eval("(= 5 5 4 5)"), Value::Bool(false));
+}
+
+// ====== 8. Arity & Type Error Handling ======
+
+#[test]
+fn test_arity_errors() {
+    assert!(eval_err("(car)").to_string().contains("expects"));
+    assert!(eval_err("(car 1 2)").to_string().contains("expects"));
+    assert!(eval_err("(not)").to_string().contains("expects"));
+    assert!(eval_err("(string-length)").to_string().contains("expects"));
+}
+
+#[test]
+fn test_type_errors() {
+    let err = eval_err(r#"(+ 1 "hello")"#);
+    assert!(matches!(err.inner(), SemaError::Type { .. }));
+    let err = eval_err("(car 42)");
+    assert!(matches!(err.inner(), SemaError::Type { .. }));
+    let err = eval_err(r#"(< "a" "b")"#);
+    assert!(matches!(err.inner(), SemaError::Type { .. }));
+}
+
+#[test]
+fn test_unbound_variable() {
+    let err = eval_err("no-such-var");
+    assert!(matches!(err.inner(), SemaError::Unbound(_)));
+}
+
+// ====== 9. Truthiness Edge Cases ======
+
+#[test]
+fn test_truthiness() {
+    // Only nil and #f are falsy
+    assert_eq!(eval("(if nil 1 2)"), Value::Int(2));
+    assert_eq!(eval("(if #f 1 2)"), Value::Int(2));
+    // Everything else is truthy, including 0, empty string, empty list
+    assert_eq!(eval("(if 0 1 2)"), Value::Int(1));
+    assert_eq!(eval(r#"(if "" 1 2)"#), Value::Int(1));
+    assert_eq!(eval("(if (list) 1 2)"), Value::Int(1));
+    assert_eq!(eval("(if :foo 1 2)"), Value::Int(1));
+}
+
+// ====== 10. Special Form Edge Cases ======
+
+#[test]
+fn test_and_or_empty() {
+    assert_eq!(eval("(and)"), Value::Bool(true));
+    assert_eq!(eval("(or)"), Value::Bool(false));
+}
+
+#[test]
+fn test_begin_empty() {
+    assert_eq!(eval("(begin)"), Value::Nil);
+}
+
+#[test]
+fn test_if_two_branch() {
+    // if with no else returns nil
+    assert_eq!(eval("(if #f 42)"), Value::Nil);
+    assert_eq!(eval("(if #t 42)"), Value::Int(42));
+}
+
+#[test]
+fn test_let_empty_bindings() {
+    assert_eq!(eval("(let () 42)"), Value::Int(42));
+    assert_eq!(eval("(let* () 42)"), Value::Int(42));
+}
+
+#[test]
+fn test_fn_alias() {
+    // fn is an alias for lambda
+    assert_eq!(eval("((fn (x) (* x x)) 5)"), Value::Int(25));
+    assert_eq!(
+        eval("(begin (define square (fn (x) (* x x))) (square 7))"),
+        Value::Int(49)
+    );
+}
+
+#[test]
+fn test_do_alias() {
+    // do is an alias for begin
+    assert_eq!(eval("(do 1 2 3)"), Value::Int(3));
+    assert_eq!(
+        eval("(do (define x 10) (define y 20) (+ x y))"),
+        Value::Int(30)
+    );
+}
+
+// ====== 11. Quasiquote with Unquote-Splicing ======
+
+#[test]
+fn test_unquote_splicing() {
+    assert_eq!(
+        eval_to_string("(begin (define xs (list 1 2 3)) `(a ,@xs b))"),
+        "(a 1 2 3 b)"
+    );
+    assert_eq!(eval_to_string("`(,@(list 1 2) ,@(list 3 4))"), "(1 2 3 4)");
+    // Splicing empty list
+    assert_eq!(eval_to_string("`(a ,@(list) b)"), "(a b)");
+}
+
+// ====== 12. Closure & Scoping ======
+
+#[test]
+fn test_nested_closures() {
+    // Closure over multiple layers of scope
+    assert_eq!(
+        eval("(begin (define (make-counter) (define n 0) (lambda () (set! n (+ n 1)) n)) (define c (make-counter)) (c) (c) (c))"),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn test_closure_independence() {
+    // Two closures over the same factory don't share state
+    assert_eq!(
+        eval("(begin (define (make-counter) (define n 0) (lambda () (set! n (+ n 1)) n)) (define a (make-counter)) (define b (make-counter)) (a) (a) (a) (b) (b) (list (a) (b)))"),
+        eval("(list 4 3)")
+    );
+}
+
+#[test]
+fn test_internal_define() {
+    assert_eq!(
+        eval("(begin (define (f x) (define y (* x 2)) (+ y 1)) (f 5))"),
+        Value::Int(11)
+    );
+}
+
+#[test]
+fn test_closure_captures_environment() {
+    // Closure captures variables, not values
+    assert_eq!(
+        eval("(begin (define x 1) (define f (lambda () x)) (set! x 2) (f))"),
+        Value::Int(2)
+    );
+}
+
+// ====== 13. Tail Call Optimization ======
+
+#[test]
+fn test_tco_deep_recursion() {
+    // If TCO is broken, this will stack overflow
+    assert_eq!(
+        eval(
+            "(begin (define (sum n acc) (if (= n 0) acc (sum (- n 1) (+ n acc)))) (sum 100000 0))"
+        ),
+        Value::Int(5000050000)
+    );
+}
+
+#[test]
+fn test_tco_mutual_recursion() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define (is-even? n) (if (= n 0) #t (is-odd? (- n 1))))
+              (define (is-odd? n) (if (= n 0) #f (is-even? (- n 1))))
+              (is-even? 10000))
+        "#
+        ),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn test_tco_named_let() {
+    // Deep named-let loop
+    assert_eq!(
+        eval("(let loop ((i 100000) (acc 0)) (if (= i 0) acc (loop (- i 1) (+ acc i))))"),
+        Value::Int(5000050000)
+    );
+}
+
+// ====== 14. for-each ======
+
+#[test]
+fn test_for_each() {
+    // for-each returns nil
+    assert_eq!(eval("(for-each (lambda (x) x) (list 1 2 3))"), Value::Nil);
+    // for-each on empty list
+    assert_eq!(eval("(for-each (lambda (x) x) (list))"), Value::Nil);
+}
+
+// ====== 15. List Edge Cases ======
+
+#[test]
+fn test_map_empty_list() {
+    assert_eq!(eval_to_string("(map + (list))"), "()");
+    assert_eq!(eval_to_string("(filter even? (list))"), "()");
+    assert_eq!(eval("(foldl + 0 (list))"), Value::Int(0));
+}
+
+#[test]
+fn test_cons_behavior() {
+    // cons onto a list
+    assert_eq!(eval_to_string("(cons 1 (list 2 3))"), "(1 2 3)");
+    // cons onto empty list
+    assert_eq!(eval_to_string("(cons 1 (list))"), "(1)");
+    // cons of two atoms creates a two-element list in Sema
+    assert_eq!(eval_to_string("(cons 1 2)"), "(1 2)");
+}
+
+#[test]
+fn test_apply_with_prefix_args() {
+    assert_eq!(eval("(apply + 1 2 (list 3 4))"), Value::Int(10));
+    assert_eq!(eval("(apply + (list))"), Value::Int(0));
+    assert_eq!(eval("(apply list 1 2 (list 3))"), eval("(list 1 2 3)"));
+}
+
+#[test]
+fn test_nested_list_ops() {
+    // map over map results
+    assert_eq!(
+        eval_to_string("(map (lambda (x) (+ x 1)) (map (lambda (x) (* x 2)) (list 1 2 3)))"),
+        "(3 5 7)"
+    );
+}
+
+// ====== 16. Format Edge Cases ======
+
+#[test]
+fn test_format_directives() {
+    // ~a: display without quotes
+    assert_eq!(eval(r#"(format "~a" "hello")"#), Value::string("hello"));
+    // ~s: write with quotes
+    assert_eq!(eval(r#"(format "~s" "hello")"#), Value::string("\"hello\""));
+    // ~%: newline
+    assert_eq!(eval(r#"(format "a~%b")"#), Value::string("a\nb"));
+    // ~~: literal tilde
+    assert_eq!(eval(r#"(format "~~")"#), Value::string("~"));
+}
+
+// ====== 17. Vector Operations ======
+
+#[test]
+fn test_vector_basics() {
+    assert_eq!(eval("(vector? [1 2 3])"), Value::Bool(true));
+    assert_eq!(eval("(length [1 2 3])"), Value::Int(3));
+    assert_eq!(eval("(count [])"), Value::Int(0));
+    assert_eq!(eval("(empty? [])"), Value::Bool(true));
+    assert_eq!(eval("(empty? [1])"), Value::Bool(false));
+}
+
+// ====== 18. Cond Edge Cases ======
+
+#[test]
+fn test_cond_no_match_no_else() {
+    assert_eq!(eval("(cond (#f 1) (#f 2))"), Value::Nil);
+}
+
+#[test]
+fn test_cond_first_match_wins() {
+    assert_eq!(eval("(cond (#t 1) (#t 2) (else 3))"), Value::Int(1));
+}
+
+// ====== 19. Error Handling Edge Cases ======
+
+#[test]
+fn test_error_builtin() {
+    let err = eval_err(r#"(error "custom error message")"#);
+    assert!(err.to_string().contains("custom error message"));
+}
+
+#[test]
+fn test_try_catch_returns_value_on_success() {
+    assert_eq!(eval("(try (+ 1 2) (catch e 0))"), Value::Int(3));
+}
+
+#[test]
+fn test_try_catch_error_info_map() {
+    // Caught error is a map with :type and :message
+    assert_eq!(
+        eval(r#"(try (error "boom") (catch e (:type e)))"#),
+        Value::keyword("eval")
+    );
+    assert_eq!(
+        eval(r#"(try (error "boom") (catch e (:message e)))"#),
+        Value::string("boom")
+    );
+}
+
+#[test]
+fn test_try_catch_division_by_zero() {
+    assert_eq!(
+        eval(r#"(try (/ 1 0) (catch e (:type e)))"#),
+        Value::keyword("eval")
+    );
+}
+
+// ====== 20. Reader Edge Cases ======
+
+#[test]
+fn test_negative_numbers() {
+    assert_eq!(eval("-42"), Value::Int(-42));
+    assert_eq!(eval("-3.14"), Value::Float(-3.14));
+}
+
+#[test]
+fn test_string_escapes() {
+    assert_eq!(eval(r#"(string-length "\n")"#), Value::Int(1));
+    assert_eq!(eval(r#"(string-length "\t")"#), Value::Int(1));
+    assert_eq!(eval(r#"(string-length "\\")"#), Value::Int(1));
+    assert_eq!(eval(r#"(string-length "\"")"#), Value::Int(1));
+}
+
+// ====== 21. Multi-expression Begin / Sequencing ======
+
+#[test]
+fn test_begin_returns_last() {
+    assert_eq!(eval("(begin (+ 1 2) (+ 3 4) (+ 5 6))"), Value::Int(11));
+}
+
+#[test]
+fn test_lambda_multi_body() {
+    assert_eq!(
+        eval("((lambda (x) (+ x 1) (+ x 2) (+ x 3)) 10)"),
+        Value::Int(13)
+    );
+}
+
+// ====== 22. Higher-Order Function Patterns ======
+
+#[test]
+fn test_compose_higher_order() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define (compose f g) (lambda (x) (f (g x))))
+              (define (add1 x) (+ x 1))
+              (define (double x) (* x 2))
+              (define add1-then-double (compose double add1))
+              (define double-then-add1 (compose add1 double))
+              (list (add1-then-double 3) (double-then-add1 3)))
+        "#
+        ),
+        eval("(list 8 7)")
+    );
+}
+
+#[test]
+fn test_partial_application_pattern() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define (partial f . args)
+                (lambda (. rest) (apply f (append args rest))))
+              (define add5 (partial + 5))
+              (add5 3))
+        "#
+        ),
+        Value::Int(8)
+    );
+}
+
+// ====== 23. Recursive Data Patterns ======
+
+#[test]
+fn test_ackermann() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define (ack m n)
+                (cond
+                  ((= m 0) (+ n 1))
+                  ((= n 0) (ack (- m 1) 1))
+                  (else (ack (- m 1) (ack m (- n 1))))))
+              (ack 3 4))
+        "#
+        ),
+        Value::Int(125)
+    );
+}
+
+#[test]
+fn test_flatten_deep() {
+    // flatten is one-level deep in Sema
+    assert_eq!(
+        eval_to_string("(flatten (list (list 1 (list 2 3)) (list 4) 5))"),
+        "(1 (2 3) 4 5)"
+    );
+    // Full flat for already-flat nested lists
+    assert_eq!(
+        eval_to_string("(flatten (list (list 1 2) (list 3 4) (list 5)))"),
+        "(1 2 3 4 5)"
+    );
+}
+
+// ====== 24. Macro Edge Cases ======
+
+#[test]
+fn test_defmacro_with_quasiquote() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (defmacro swap! (a b)
+                `(let ((tmp ,a)) (set! ,a ,b) (set! ,b tmp)))
+              (define x 1)
+              (define y 2)
+              (swap! x y)
+              (list x y))
+        "#
+        ),
+        eval("(list 2 1)")
+    );
+}
+
+#[test]
+fn test_defmacro_unless_custom() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (defmacro my-unless (test body)
+                (list 'if test nil body))
+              (my-unless #f 42))
+        "#
+        ),
+        Value::Int(42)
+    );
+}
+
+// ====================================================================
+// New stdlib functions — tests for features added in current dev branch
+// ====================================================================
+
+// ====== List: index-of, unique, group-by, interleave, chunk ======
+
+#[test]
+fn test_list_index_of() {
+    assert_eq!(eval("(list/index-of (list 10 20 30) 20)"), Value::Int(1));
+    assert_eq!(eval("(list/index-of (list 10 20 30) 10)"), Value::Int(0));
+    assert_eq!(eval("(list/index-of (list 10 20 30) 99)"), Value::Nil);
+    assert_eq!(eval("(list/index-of (list) 1)"), Value::Nil);
+}
+
+#[test]
+fn test_list_unique() {
+    assert_eq!(
+        eval_to_string("(list/unique (list 1 2 3 2 1 4))"),
+        "(1 2 3 4)"
+    );
+    assert_eq!(eval_to_string("(list/unique (list))"), "()");
+    assert_eq!(
+        eval_to_string("(list/unique (list :a :b :a :c :b))"),
+        "(:a :b :c)"
+    );
+}
+
+#[test]
+fn test_list_group_by() {
+    let result = eval(r#"(list/group-by even? (list 1 2 3 4 5 6))"#);
+    if let Value::Map(m) = &result {
+        assert_eq!(
+            m.get(&Value::Bool(true)).cloned(),
+            Some(eval("(list 2 4 6)"))
+        );
+        assert_eq!(
+            m.get(&Value::Bool(false)).cloned(),
+            Some(eval("(list 1 3 5)"))
+        );
+    } else {
+        panic!("expected map, got {result}");
+    }
+}
+
+#[test]
+fn test_list_interleave() {
+    assert_eq!(
+        eval_to_string("(list/interleave (list 1 2 3) (list :a :b :c))"),
+        "(1 :a 2 :b 3 :c)"
+    );
+    // Shortest wins
+    assert_eq!(
+        eval_to_string("(list/interleave (list 1 2) (list :a :b :c))"),
+        "(1 :a 2 :b)"
+    );
+}
+
+#[test]
+fn test_list_chunk() {
+    assert_eq!(
+        eval_to_string("(list/chunk 2 (list 1 2 3 4 5))"),
+        "((1 2) (3 4) (5))"
+    );
+    assert_eq!(
+        eval_to_string("(list/chunk 3 (list 1 2 3 4 5 6))"),
+        "((1 2 3) (4 5 6))"
+    );
+    assert_eq!(eval_to_string("(list/chunk 2 (list))"), "()");
+}
+
+// ====== Map: entries, map-vals, filter, select-keys, update ======
+
+#[test]
+fn test_map_entries() {
+    // BTreeMap is sorted by key, so entries are in key order
+    assert_eq!(
+        eval_to_string("(map/entries {:a 1 :b 2})"),
+        "((:a 1) (:b 2))"
+    );
+    assert_eq!(eval_to_string("(map/entries {})"), "()");
+}
+
+#[test]
+fn test_map_map_vals() {
+    assert_eq!(
+        eval("(get (map/map-vals (lambda (v) (* v 2)) {:a 1 :b 2 :c 3}) :b)"),
+        Value::Int(4)
+    );
+    assert_eq!(
+        eval("(get (map/map-vals (lambda (v) (+ v 10)) {:x 5}) :x)"),
+        Value::Int(15)
+    );
+}
+
+#[test]
+fn test_map_filter() {
+    assert_eq!(
+        eval("(count (map/filter (lambda (k v) (> v 1)) {:a 1 :b 2 :c 3}))"),
+        Value::Int(2)
+    );
+    assert_eq!(
+        eval("(get (map/filter (lambda (k v) (> v 1)) {:a 1 :b 2 :c 3}) :a)"),
+        Value::Nil
+    );
+}
+
+#[test]
+fn test_map_select_keys() {
+    assert_eq!(
+        eval("(count (map/select-keys {:a 1 :b 2 :c 3} (list :a :c)))"),
+        Value::Int(2)
+    );
+    assert_eq!(
+        eval("(get (map/select-keys {:a 1 :b 2 :c 3} (list :a :c)) :b)"),
+        Value::Nil
+    );
+    assert_eq!(
+        eval("(get (map/select-keys {:a 1 :b 2 :c 3} (list :a :c)) :a)"),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn test_map_update() {
+    assert_eq!(
+        eval("(get (map/update {:a 1 :b 2} :a (lambda (v) (+ v 10))) :a)"),
+        Value::Int(11)
+    );
+    // Missing key → fn gets nil
+    assert_eq!(
+        eval(r#"(get (map/update {:a 1} :b (lambda (v) "default")) :b)"#),
+        Value::string("default")
+    );
+}
+
+// ====== String: index-of, chars, repeat, pad-left, pad-right ======
+
+#[test]
+fn test_string_index_of() {
+    assert_eq!(
+        eval(r#"(string/index-of "hello world" "world")"#),
+        Value::Int(6)
+    );
+    assert_eq!(eval(r#"(string/index-of "hello" "xyz")"#), Value::Nil);
+    assert_eq!(eval(r#"(string/index-of "abcabc" "bc")"#), Value::Int(1));
+}
+
+#[test]
+fn test_string_chars() {
+    assert_eq!(
+        eval_to_string(r#"(string/chars "abc")"#),
+        r#"("a" "b" "c")"#
+    );
+    assert_eq!(eval_to_string(r#"(string/chars "")"#), "()");
+}
+
+#[test]
+fn test_string_repeat() {
+    assert_eq!(eval(r#"(string/repeat "ab" 3)"#), Value::string("ababab"));
+    assert_eq!(eval(r#"(string/repeat "x" 0)"#), Value::string(""));
+    assert_eq!(eval(r#"(string/repeat "" 5)"#), Value::string(""));
+}
+
+#[test]
+fn test_string_pad_left() {
+    assert_eq!(eval(r#"(string/pad-left "42" 5)"#), Value::string("   42"));
+    assert_eq!(
+        eval(r#"(string/pad-left "42" 5 "0")"#),
+        Value::string("00042")
+    );
+    assert_eq!(
+        eval(r#"(string/pad-left "hello" 3)"#),
+        Value::string("hello")
+    ); // longer than width
+}
+
+#[test]
+fn test_string_pad_right() {
+    assert_eq!(eval(r#"(string/pad-right "42" 5)"#), Value::string("42   "));
+    assert_eq!(
+        eval(r#"(string/pad-right "42" 5 ".")"#),
+        Value::string("42...")
+    );
+    assert_eq!(
+        eval(r#"(string/pad-right "hello" 3)"#),
+        Value::string("hello")
+    );
+}
+
+// ====== Math: quotient, remainder, gcd, lcm, trig, exp, log, random, clamp, sign ======
+
+#[test]
+fn test_math_quotient_remainder() {
+    assert_eq!(eval("(math/quotient 13 4)"), Value::Int(3));
+    assert_eq!(eval("(math/quotient -13 4)"), Value::Int(-3));
+    assert_eq!(eval("(math/remainder 13 4)"), Value::Int(1));
+    assert_eq!(eval("(math/remainder -13 4)"), Value::Int(-1));
+    // Division by zero
+    assert!(eval_err("(math/quotient 5 0)")
+        .to_string()
+        .contains("division by zero"));
+    assert!(eval_err("(math/remainder 5 0)")
+        .to_string()
+        .contains("division by zero"));
+}
+
+#[test]
+fn test_math_gcd_lcm() {
+    assert_eq!(eval("(math/gcd 12 8)"), Value::Int(4));
+    assert_eq!(eval("(math/gcd 7 13)"), Value::Int(1));
+    assert_eq!(eval("(math/gcd -12 8)"), Value::Int(4));
+    assert_eq!(eval("(math/gcd 0 5)"), Value::Int(5));
+    assert_eq!(eval("(math/lcm 4 6)"), Value::Int(12));
+    assert_eq!(eval("(math/lcm 3 5)"), Value::Int(15));
+    assert_eq!(eval("(math/lcm 0 0)"), Value::Int(0));
+}
+
+#[test]
+fn test_math_trig_extended() {
+    // tan(0) = 0
+    assert_eq!(eval("(math/tan 0)"), Value::Float(0.0));
+    // asin(0) = 0, acos(1) = 0, atan(0) = 0
+    assert_eq!(eval("(math/asin 0)"), Value::Float(0.0));
+    assert_eq!(eval("(math/acos 1)"), Value::Float(0.0));
+    assert_eq!(eval("(math/atan 0)"), Value::Float(0.0));
+    // atan2(0, 1) = 0, atan2(1, 0) = pi/2
+    assert_eq!(eval("(math/atan2 0 1)"), Value::Float(0.0));
+    if let Value::Float(f) = eval("(math/atan2 1 0)") {
+        assert!((f - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
+    } else {
+        panic!("expected float");
+    }
+}
+
+#[test]
+fn test_math_exp_log() {
+    // exp(0) = 1
+    assert_eq!(eval("(math/exp 0)"), Value::Float(1.0));
+    // exp(1) ≈ e
+    if let Value::Float(f) = eval("(math/exp 1)") {
+        assert!((f - std::f64::consts::E).abs() < 1e-10);
+    } else {
+        panic!("expected float");
+    }
+    // log10(100) = 2
+    assert_eq!(eval("(math/log10 100)"), Value::Float(2.0));
+    // log2(8) = 3
+    assert_eq!(eval("(math/log2 8)"), Value::Float(3.0));
+}
+
+#[test]
+fn test_math_random() {
+    // math/random returns a float in [0, 1)
+    if let Value::Float(f) = eval("(math/random)") {
+        assert!(f >= 0.0 && f < 1.0);
+    } else {
+        panic!("expected float");
+    }
+    // math/random-int returns int in range
+    if let Value::Int(n) = eval("(math/random-int 1 10)") {
+        assert!(n >= 1 && n <= 10);
+    } else {
+        panic!("expected int");
+    }
+}
+
+#[test]
+fn test_math_clamp() {
+    assert_eq!(eval("(math/clamp 5 1 10)"), Value::Int(5));
+    assert_eq!(eval("(math/clamp -5 1 10)"), Value::Int(1));
+    assert_eq!(eval("(math/clamp 15 1 10)"), Value::Int(10));
+    assert_eq!(eval("(math/clamp 0.5 0.0 1.0)"), Value::Float(0.5));
+    assert_eq!(eval("(math/clamp -1.0 0.0 1.0)"), Value::Float(0.0));
+}
+
+#[test]
+fn test_math_sign() {
+    assert_eq!(eval("(math/sign 42)"), Value::Int(1));
+    assert_eq!(eval("(math/sign -5)"), Value::Int(-1));
+    assert_eq!(eval("(math/sign 0)"), Value::Int(0));
+    assert_eq!(eval("(math/sign 3.14)"), Value::Int(1));
+    assert_eq!(eval("(math/sign -0.5)"), Value::Int(-1));
+}
+
+// ====== Bitwise operations ======
+
+#[test]
+fn test_bitwise_ops() {
+    assert_eq!(eval("(bit/and 12 10)"), Value::Int(8)); // 1100 & 1010 = 1000
+    assert_eq!(eval("(bit/or 12 10)"), Value::Int(14)); // 1100 | 1010 = 1110
+    assert_eq!(eval("(bit/xor 12 10)"), Value::Int(6)); // 1100 ^ 1010 = 0110
+    assert_eq!(eval("(bit/not 0)"), Value::Int(-1));
+    assert_eq!(eval("(bit/shift-left 1 4)"), Value::Int(16));
+    assert_eq!(eval("(bit/shift-right 16 4)"), Value::Int(1));
+}
+
+#[test]
+fn test_bitwise_edge_cases() {
+    assert_eq!(eval("(bit/and 0 255)"), Value::Int(0));
+    assert_eq!(eval("(bit/or 0 0)"), Value::Int(0));
+    assert_eq!(eval("(bit/xor 42 42)"), Value::Int(0)); // x ^ x = 0
+    assert_eq!(eval("(bit/xor 42 0)"), Value::Int(42)); // x ^ 0 = x
+    assert_eq!(eval("(bit/shift-left 1 0)"), Value::Int(1)); // no shift
+}
+
+// ====== System operations ======
+
+#[test]
+fn test_sys_cwd() {
+    let result = eval("(sys/cwd)");
+    assert!(matches!(result, Value::String(_)));
+    // Should be a non-empty string
+    if let Value::String(s) = &result {
+        assert!(!s.is_empty());
+    }
+}
+
+#[test]
+fn test_sys_platform() {
+    let result = eval("(sys/platform)");
+    if let Value::String(s) = &result {
+        assert!(["macos", "linux", "windows", "unknown"].contains(&s.as_str()));
+    } else {
+        panic!("expected string");
+    }
+}
+
+#[test]
+fn test_sys_args() {
+    // sys/args should return a list
+    let result = eval("(sys/args)");
+    assert!(matches!(result, Value::List(_)));
+}
+
+#[test]
+fn test_sys_env_all() {
+    // sys/env-all should return a map
+    let result = eval("(sys/env-all)");
+    assert!(matches!(result, Value::Map(_)));
+    // Should have at least PATH or HOME
+    if let Value::Map(m) = &result {
+        assert!(!m.is_empty());
+    }
+}
+
+// ====== File predicates (is-file?, is-symlink?) ======
+
+#[test]
+fn test_file_is_file() {
+    let dir = "/tmp/sema-test-isfile";
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(format!("{dir}/a.txt"), "hello").unwrap();
+
+    assert_eq!(
+        eval(&format!(r#"(file/is-file? "{dir}/a.txt")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/is-file? "{dir}")"#)),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        eval(r#"(file/is-file? "/tmp/nonexistent-sema-xyz")"#),
+        Value::Bool(false)
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_is_symlink() {
+    // Non-symlink file should return false
+    let dir = "/tmp/sema-test-symlink";
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).unwrap();
+    std::fs::write(format!("{dir}/a.txt"), "hello").unwrap();
+
+    assert_eq!(
+        eval(&format!(r#"(file/is-symlink? "{dir}/a.txt")"#)),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        eval(r#"(file/is-symlink? "/tmp/nonexistent-sema-xyz")"#),
+        Value::Bool(false)
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// ====== Phase 8: UUID, Base64, Hashing, Date/Time, CSV ======
+
+#[test]
+fn test_uuid_v4() {
+    let result = eval("(uuid/v4)");
+    if let Value::String(s) = &result {
+        assert_eq!(s.len(), 36);
+        assert_eq!(s.chars().filter(|c| *c == '-').count(), 4);
+    } else {
+        panic!("expected string");
+    }
+    // Two UUIDs should be different
+    assert_ne!(eval("(uuid/v4)"), eval("(uuid/v4)"));
+}
+
+#[test]
+fn test_base64_encode_decode() {
+    assert_eq!(
+        eval(r#"(base64/encode "hello")"#),
+        Value::string("aGVsbG8=")
+    );
+    assert_eq!(
+        eval(r#"(base64/decode "aGVsbG8=")"#),
+        Value::string("hello")
+    );
+    assert_eq!(eval(r#"(base64/encode "")"#), Value::string(""));
+    assert_eq!(eval(r#"(base64/decode "")"#), Value::string(""));
+    // Roundtrip
+    assert_eq!(
+        eval(r#"(base64/decode (base64/encode "Sema Lisp 🎉"))"#),
+        Value::string("Sema Lisp 🎉")
+    );
+}
+
+#[test]
+fn test_hash_sha256() {
+    // Known SHA-256 of "hello"
+    assert_eq!(
+        eval(r#"(hash/sha256 "hello")"#),
+        Value::string("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824")
+    );
+    // Empty string
+    assert_eq!(
+        eval(r#"(hash/sha256 "")"#),
+        Value::string("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    );
+}
+
+#[test]
+fn test_time_now() {
+    let result = eval("(time/now)");
+    if let Value::Float(f) = result {
+        assert!(f > 1_700_000_000.0); // After 2023
+    } else {
+        panic!("expected float");
+    }
+}
+
+#[test]
+fn test_time_format() {
+    assert_eq!(
+        eval(r#"(time/format 0.0 "%Y-%m-%d")"#),
+        Value::string("1970-01-01")
+    );
+    assert_eq!(
+        eval(r#"(time/format 0.0 "%H:%M:%S")"#),
+        Value::string("00:00:00")
+    );
+}
+
+#[test]
+fn test_time_parse() {
+    let result = eval(r#"(time/parse "2024-01-15 12:30:00" "%Y-%m-%d %H:%M:%S")"#);
+    if let Value::Float(f) = result {
+        assert!(f > 1_705_000_000.0 && f < 1_706_000_000.0);
+    } else {
+        panic!("expected float, got {result}");
+    }
+}
+
+#[test]
+fn test_time_date_parts() {
+    let result = eval("(time/date-parts 0.0)");
+    if let Value::Map(m) = &result {
+        assert_eq!(m.get(&Value::keyword("year")), Some(&Value::Int(1970)));
+        assert_eq!(m.get(&Value::keyword("month")), Some(&Value::Int(1)));
+        assert_eq!(m.get(&Value::keyword("day")), Some(&Value::Int(1)));
+        assert_eq!(m.get(&Value::keyword("hour")), Some(&Value::Int(0)));
+        assert_eq!(m.get(&Value::keyword("minute")), Some(&Value::Int(0)));
+        assert_eq!(m.get(&Value::keyword("second")), Some(&Value::Int(0)));
+        assert!(m.get(&Value::keyword("weekday")).is_some());
+    } else {
+        panic!("expected map");
+    }
+}
+
+#[test]
+fn test_time_roundtrip() {
+    // Format and parse should roundtrip
+    assert_eq!(
+        eval(
+            r#"(time/format (time/parse "2024-06-15 08:30:00" "%Y-%m-%d %H:%M:%S") "%Y-%m-%d %H:%M:%S")"#
+        ),
+        Value::string("2024-06-15 08:30:00")
+    );
+}
+
+#[test]
+fn test_csv_parse() {
+    assert_eq!(
+        eval_to_string(r#"(csv/parse "a,b\n1,2")"#),
+        r#"(("a" "b") ("1" "2"))"#
+    );
+    // Single row
+    assert_eq!(
+        eval_to_string(r#"(csv/parse "x,y,z")"#),
+        r#"(("x" "y" "z"))"#
+    );
+}
+
+#[test]
+fn test_csv_parse_maps() {
+    let result = eval(r#"(csv/parse-maps "name,age\nAlice,30\nBob,25")"#);
+    if let Value::List(rows) = &result {
+        assert_eq!(rows.len(), 2);
+        if let Value::Map(m) = &rows[0] {
+            assert_eq!(
+                m.get(&Value::keyword("name")),
+                Some(&Value::string("Alice"))
+            );
+            assert_eq!(m.get(&Value::keyword("age")), Some(&Value::string("30")));
+        } else {
+            panic!("expected map");
+        }
+    } else {
+        panic!("expected list");
+    }
+}
+
+#[test]
+fn test_csv_encode() {
+    let result = eval(r#"(csv/encode '(("a" "b") ("1" "2")))"#);
+    if let Value::String(s) = &result {
+        assert!(s.contains("a,b"));
+        assert!(s.contains("1,2"));
+    } else {
+        panic!("expected string");
+    }
+}
+
+// ====================================================================
+// Regex operations — extended coverage
+// ====================================================================
+
+#[test]
+fn test_regex_match_no_match() {
+    assert_eq!(
+        eval(r#"(regex/match? "\\d+" "abcdef")"#),
+        Value::Bool(false)
+    );
+    assert_eq!(eval(r#"(regex/match "\\d+" "abc")"#), Value::Nil);
+}
+
+#[test]
+fn test_regex_match_groups_detail() {
+    let result = eval(r#"(regex/match "(\\d+)-(\\w+)" "42-hello")"#);
+    if let Value::Map(m) = &result {
+        assert_eq!(m.get(&Value::keyword("start")), Some(&Value::Int(0)));
+        assert_eq!(m.get(&Value::keyword("end")), Some(&Value::Int(8)));
+        if let Some(Value::List(groups)) = m.get(&Value::keyword("groups")) {
+            assert_eq!(groups.len(), 2);
+            assert_eq!(groups[0], Value::string("42"));
+            assert_eq!(groups[1], Value::string("hello"));
+        } else {
+            panic!("expected groups list");
+        }
+    } else {
+        panic!("expected map");
+    }
+}
+
+#[test]
+fn test_regex_find_all_empty() {
+    assert_eq!(
+        eval_to_string(r#"(regex/find-all "\\d+" "no digits")"#),
+        "()"
+    );
+}
+
+#[test]
+fn test_regex_replace_all_whitespace() {
+    assert_eq!(
+        eval(r#"(regex/replace-all "\\s+" " " "hello   world   foo")"#),
+        Value::string("hello world foo")
+    );
+}
+
+#[test]
+fn test_regex_split_whitespace() {
+    assert_eq!(
+        eval_to_string(r#"(regex/split "\\s+" "hello  world  foo")"#),
+        r#"("hello" "world" "foo")"#
+    );
+}
+
+// ====================================================================
+// String conversion functions
+// ====================================================================
+
+#[test]
+fn test_string_to_symbol() {
+    assert_eq!(eval(r#"(string->symbol "hello")"#), Value::symbol("hello"));
+    assert_eq!(eval(r#"(symbol? (string->symbol "x"))"#), Value::Bool(true));
+}
+
+#[test]
+fn test_symbol_to_string() {
+    assert_eq!(eval("(symbol->string 'hello)"), Value::string("hello"));
+    assert_eq!(eval(r#"(string? (symbol->string 'x))"#), Value::Bool(true));
+}
+
+#[test]
+fn test_string_to_keyword() {
+    assert_eq!(eval(r#"(string->keyword "foo")"#), Value::keyword("foo"));
+    assert_eq!(
+        eval(r#"(keyword? (string->keyword "bar"))"#),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn test_keyword_to_string() {
+    assert_eq!(eval("(keyword->string :foo)"), Value::string("foo"));
+    assert_eq!(
+        eval(r#"(string? (keyword->string :bar))"#),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn test_number_to_string() {
+    assert_eq!(eval("(number->string 42)"), Value::string("42"));
+    assert_eq!(eval("(number->string -7)"), Value::string("-7"));
+    assert_eq!(eval("(number->string 3.14)"), Value::string("3.14"));
+}
+
+#[test]
+fn test_string_to_number() {
+    assert_eq!(eval(r#"(string->number "42")"#), Value::Int(42));
+    assert_eq!(eval(r#"(string->number "-7")"#), Value::Int(-7));
+    assert_eq!(eval(r#"(string->number "3.14")"#), Value::Float(3.14));
+    // Invalid string should error
+    assert!(eval_err(r#"(string->number "abc")"#)
+        .to_string()
+        .contains("cannot parse"));
+}
+
+// ====================================================================
+// JSON encode-pretty
+// ====================================================================
+
+#[test]
+fn test_json_encode_pretty() {
+    let result = eval(r#"(json/encode-pretty {:a 1 :b 2})"#);
+    if let Value::String(s) = &result {
+        assert!(s.contains("\"a\": 1"));
+        assert!(s.contains("\"b\": 2"));
+        assert!(s.contains('\n')); // pretty-printed has newlines
+    } else {
+        panic!("expected string");
+    }
+}
+
+// ====================================================================
+// Meta: gensym — additional coverage
+// ====================================================================
+
+#[test]
+fn test_gensym_is_symbol_type() {
+    // Verify gensym result is usable as a symbol
+    assert_eq!(eval(r#"(symbol? (gensym))"#), Value::Bool(true));
+    assert_eq!(eval(r#"(symbol? (gensym "pfx"))"#), Value::Bool(true));
+}
+
+// ====================================================================
+// System: env, shell, time-ms, sleep
+// ====================================================================
+
+#[test]
+fn test_env_var() {
+    // PATH should exist on all platforms
+    let result = eval(r#"(env "PATH")"#);
+    assert!(matches!(result, Value::String(_)));
+    // Non-existent var returns nil
+    assert_eq!(eval(r#"(env "SEMA_NONEXISTENT_VAR_XYZ_123")"#), Value::Nil);
+}
+
+#[test]
+fn test_shell_command() {
+    let result = eval(r#"(shell "echo" "hello")"#);
+    if let Value::Map(m) = &result {
+        if let Some(Value::String(stdout)) = m.get(&Value::keyword("stdout")) {
+            assert!(stdout.trim() == "hello");
+        } else {
+            panic!("expected stdout");
+        }
+        assert_eq!(m.get(&Value::keyword("exit-code")), Some(&Value::Int(0)));
+    } else {
+        panic!("expected map");
+    }
+}
+
+#[test]
+fn test_time_ms() {
+    let result = eval("(time-ms)");
+    if let Value::Int(ms) = result {
+        assert!(ms > 1_700_000_000_000); // After 2023 in millis
+    } else {
+        panic!("expected int");
+    }
+}
+
+// ====================================================================
+// List functions: nth, take, drop, last, zip, sort, flatten
+// ====================================================================
+
+#[test]
+fn test_nth() {
+    assert_eq!(eval("(nth (list 10 20 30) 0)"), Value::Int(10));
+    assert_eq!(eval("(nth (list 10 20 30) 2)"), Value::Int(30));
+    assert_eq!(eval("(nth [10 20 30] 1)"), Value::Int(20));
+    // Out of bounds should error
+    assert!(eval_err("(nth (list 1 2) 5)")
+        .to_string()
+        .contains("out of bounds"));
+}
+
+#[test]
+fn test_take_and_drop() {
+    assert_eq!(eval_to_string("(take 3 (list 1 2 3 4 5))"), "(1 2 3)");
+    assert_eq!(eval_to_string("(take 0 (list 1 2 3))"), "()");
+    assert_eq!(eval_to_string("(take 10 (list 1 2))"), "(1 2)"); // take more than available
+    assert_eq!(eval_to_string("(drop 2 (list 1 2 3 4 5))"), "(3 4 5)");
+    assert_eq!(eval_to_string("(drop 0 (list 1 2 3))"), "(1 2 3)");
+    assert_eq!(eval_to_string("(drop 10 (list 1 2))"), "()"); // drop more than available
+}
+
+#[test]
+fn test_last_extended() {
+    assert_eq!(eval("(last (list 1 2 3))"), Value::Int(3));
+    assert_eq!(eval("(last (list 42))"), Value::Int(42));
+    assert_eq!(eval("(last (list))"), Value::Nil);
+    assert_eq!(eval("(last [10 20 30])"), Value::Int(30));
+}
+
+#[test]
+fn test_sort_with_comparator() {
+    // Sort descending using a comparator
+    assert_eq!(
+        eval_to_string("(sort (list 3 1 4 1 5) (lambda (a b) (- b a)))"),
+        "(5 4 3 1 1)"
+    );
+}
+
+#[test]
+fn test_range_with_step() {
+    assert_eq!(eval_to_string("(range 0 10 2)"), "(0 2 4 6 8)");
+    assert_eq!(eval_to_string("(range 10 0 -2)"), "(10 8 6 4 2)");
+    // Step of zero should error
+    assert!(eval_err("(range 0 10 0)").to_string().contains("step"));
+}
+
+// ====================================================================
+// IO: read, read-many (parsing s-expressions from strings)
+// ====================================================================
+
+#[test]
+fn test_read_sexp() {
+    assert_eq!(eval(r#"(read "(+ 1 2)")"#), eval("'(+ 1 2)"));
+    assert_eq!(eval(r#"(read "42")"#), Value::Int(42));
+    assert_eq!(eval(r#"(read ":foo")"#), Value::keyword("foo"));
+}
+
+#[test]
+fn test_read_many() {
+    assert_eq!(
+        eval_to_string(r#"(read-many "(+ 1 2) (* 3 4)")"#),
+        "((+ 1 2) (* 3 4))"
+    );
+}
+
+// ====================================================================
+// File operations (extended): append, delete, rename, list, mkdir,
+// is-directory?, info, read-lines, write-lines, copy
+// ====================================================================
+
+#[test]
+fn test_file_append_standalone() {
+    let dir = "/tmp/sema-test-append";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+
+    eval(&format!(r#"(file/write "{dir}/a.txt" "hello")"#));
+    eval(&format!(r#"(file/append "{dir}/a.txt" " world")"#));
+    eval(&format!(r#"(file/append "{dir}/a.txt" "!")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/read "{dir}/a.txt")"#)),
+        Value::string("hello world!")
+    );
+
+    // Append to non-existent file creates it
+    eval(&format!(r#"(file/append "{dir}/new.txt" "created")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/read "{dir}/new.txt")"#)),
+        Value::string("created")
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_delete_standalone() {
+    let dir = "/tmp/sema-test-delete";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+
+    eval(&format!(r#"(file/write "{dir}/del.txt" "bye")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/del.txt")"#)),
+        Value::Bool(true)
+    );
+    eval(&format!(r#"(file/delete "{dir}/del.txt")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/del.txt")"#)),
+        Value::Bool(false)
+    );
+
+    // Deleting non-existent file should error
+    let err = eval_err(&format!(r#"(file/delete "{dir}/nonexistent.txt")"#));
+    assert!(err.to_string().contains("file/delete"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_rename_standalone() {
+    let dir = "/tmp/sema-test-rename";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+
+    eval(&format!(r#"(file/write "{dir}/old.txt" "content")"#));
+    eval(&format!(r#"(file/rename "{dir}/old.txt" "{dir}/new.txt")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/old.txt")"#)),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/new.txt")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/read "{dir}/new.txt")"#)),
+        Value::string("content")
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_list_standalone() {
+    let dir = "/tmp/sema-test-list";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+
+    eval(&format!(r#"(file/write "{dir}/a.txt" "a")"#));
+    eval(&format!(r#"(file/write "{dir}/b.txt" "b")"#));
+    eval(&format!(r#"(file/mkdir "{dir}/sub")"#));
+
+    let listing = eval(&format!(r#"(file/list "{dir}")"#));
+    if let Value::List(items) = &listing {
+        let names: Vec<String> = items.iter().map(|v| v.to_string()).collect();
+        assert!(names.iter().any(|n| n.contains("a.txt")));
+        assert!(names.iter().any(|n| n.contains("b.txt")));
+        assert!(names.iter().any(|n| n.contains("sub")));
+    } else {
+        panic!("file/list should return a list");
+    }
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_mkdir_standalone() {
+    let dir = "/tmp/sema-test-mkdir";
+    let _ = std::fs::remove_dir_all(dir);
+
+    // Recursive mkdir
+    eval(&format!(r#"(file/mkdir "{dir}/a/b/c")"#));
+    assert_eq!(
+        eval(&format!(r#"(file/is-directory? "{dir}/a/b/c")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/is-directory? "{dir}/a/b")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/is-directory? "{dir}/a")"#)),
+        Value::Bool(true)
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_is_directory_standalone() {
+    let dir = "/tmp/sema-test-isdir";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    eval(&format!(r#"(file/write "{dir}/f.txt" "file")"#));
+
+    assert_eq!(
+        eval(&format!(r#"(file/is-directory? "{dir}")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/is-directory? "{dir}/f.txt")"#)),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/is-directory? "{dir}/nonexistent")"#)),
+        Value::Bool(false)
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_info_standalone() {
+    let dir = "/tmp/sema-test-info";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    eval(&format!(r#"(file/write "{dir}/test.txt" "hello")"#));
+
+    // File info
+    let info = eval(&format!(
+        r#"(begin
+            (define info (file/info "{dir}/test.txt"))
+            (list (get info :size) (get info :is-file) (get info :is-dir)))"#
+    ));
+    if let Value::List(items) = &info {
+        assert_eq!(items[0], Value::Int(5)); // "hello" is 5 bytes
+        assert_eq!(items[1], Value::Bool(true));
+        assert_eq!(items[2], Value::Bool(false));
+    } else {
+        panic!("expected list from file/info test");
+    }
+
+    // Directory info
+    let dir_info = eval(&format!(r#"(get (file/info "{dir}") :is-dir)"#));
+    assert_eq!(dir_info, Value::Bool(true));
+
+    // :modified should be an integer
+    let modified = eval(&format!(r#"(get (file/info "{dir}/test.txt") :modified)"#));
+    assert!(matches!(modified, Value::Int(_)));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_read_lines() {
+    let dir = "/tmp/sema-test-readlines";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+
+    eval(&format!(
+        r#"(file/write "{dir}/lines.txt" "alpha\nbeta\ngamma")"#
+    ));
+    let result = eval(&format!(r#"(file/read-lines "{dir}/lines.txt")"#));
+    if let Value::List(items) = &result {
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::string("alpha"));
+        assert_eq!(items[1], Value::string("beta"));
+        assert_eq!(items[2], Value::string("gamma"));
+    } else {
+        panic!("file/read-lines should return a list");
+    }
+
+    // Empty file
+    eval(&format!(r#"(file/write "{dir}/empty.txt" "")"#));
+    let empty = eval(&format!(r#"(file/read-lines "{dir}/empty.txt")"#));
+    if let Value::List(items) = &empty {
+        assert_eq!(items.len(), 1); // split("") gives [""]
+        assert_eq!(items[0], Value::string(""));
+    } else {
+        panic!("expected list");
+    }
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_write_lines() {
+    let dir = "/tmp/sema-test-writelines";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+
+    eval(&format!(
+        r#"(file/write-lines "{dir}/out.txt" (list "line1" "line2" "line3"))"#
+    ));
+    assert_eq!(
+        eval(&format!(r#"(file/read "{dir}/out.txt")"#)),
+        Value::string("line1\nline2\nline3")
+    );
+
+    // Roundtrip: write-lines then read-lines
+    eval(&format!(
+        r#"(file/write-lines "{dir}/round.txt" (list "a" "b" "c"))"#
+    ));
+    let result = eval(&format!(r#"(file/read-lines "{dir}/round.txt")"#));
+    if let Value::List(items) = &result {
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::string("a"));
+        assert_eq!(items[1], Value::string("b"));
+        assert_eq!(items[2], Value::string("c"));
+    } else {
+        panic!("expected list");
+    }
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_copy() {
+    let dir = "/tmp/sema-test-copy";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+
+    eval(&format!(r#"(file/write "{dir}/src.txt" "original")"#));
+    eval(&format!(r#"(file/copy "{dir}/src.txt" "{dir}/dest.txt")"#));
+
+    // Both files exist with same content
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/src.txt")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/exists? "{dir}/dest.txt")"#)),
+        Value::Bool(true)
+    );
+    assert_eq!(
+        eval(&format!(r#"(file/read "{dir}/dest.txt")"#)),
+        Value::string("original")
+    );
+
+    // Source is unchanged
+    assert_eq!(
+        eval(&format!(r#"(file/read "{dir}/src.txt")"#)),
+        Value::string("original")
+    );
+
+    // Copy non-existent file should error
+    let err = eval_err(&format!(
+        r#"(file/copy "{dir}/nope.txt" "{dir}/dest2.txt")"#
+    ));
+    assert!(err.to_string().contains("file/copy"));
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+// ====================================================================
+// Path operations (extended): join, dirname, basename, extension, absolute
+// ====================================================================
+
+#[test]
+fn test_path_join_extended() {
+    assert_eq!(eval(r#"(path/join "a" "b" "c")"#), Value::string("a/b/c"));
+    assert_eq!(
+        eval(r#"(path/join "/usr" "local" "bin")"#),
+        Value::string("/usr/local/bin")
+    );
+    // Single arg
+    assert_eq!(eval(r#"(path/join "only")"#), Value::string("only"));
+}
+
+#[test]
+fn test_path_dirname_extended() {
+    assert_eq!(
+        eval(r#"(path/dirname "/a/b/c.txt")"#),
+        Value::string("/a/b")
+    );
+    assert_eq!(eval(r#"(path/dirname "file.txt")"#), Value::string(""));
+    assert_eq!(eval(r#"(path/dirname "/root")"#), Value::string("/"));
+}
+
+#[test]
+fn test_path_basename_extended() {
+    assert_eq!(
+        eval(r#"(path/basename "/a/b/c.txt")"#),
+        Value::string("c.txt")
+    );
+    assert_eq!(
+        eval(r#"(path/basename "plain.rs")"#),
+        Value::string("plain.rs")
+    );
+    assert_eq!(eval(r#"(path/basename "/a/b/")"#), Value::string("b"));
+}
+
+#[test]
+fn test_path_extension_extended() {
+    assert_eq!(
+        eval(r#"(path/extension "file.tar.gz")"#),
+        Value::string("gz")
+    );
+    assert_eq!(eval(r#"(path/extension "Makefile")"#), Value::Nil);
+    // ".hidden" has no extension in Rust's Path semantics
+    assert_eq!(eval(r#"(path/extension ".hidden")"#), Value::Nil);
+}
+
+#[test]
+fn test_path_absolute_extended() {
+    // path/absolute on an existing path returns a string
+    let result = eval(r#"(path/absolute ".")"#);
+    if let Value::String(s) = &result {
+        assert!(s.starts_with('/'));
+    } else {
+        panic!("path/absolute should return a string");
+    }
+    // Non-existent path should error
+    let err = eval_err(r#"(path/absolute "/nonexistent_sema_test_path_xyz")"#);
+    assert!(err.to_string().contains("path/absolute"));
+}
+
+// ====================================================================
+// String: trim-left, trim-right, number?
+// ====================================================================
+
+#[test]
+fn test_string_trim_left() {
+    assert_eq!(
+        eval(r#"(string/trim-left "  hello  ")"#),
+        Value::string("hello  ")
+    );
+    assert_eq!(eval(r#"(string/trim-left "\t\n hi")"#), Value::string("hi"));
+    assert_eq!(
+        eval(r#"(string/trim-left "no-space")"#),
+        Value::string("no-space")
+    );
+}
+
+#[test]
+fn test_string_trim_right() {
+    assert_eq!(
+        eval(r#"(string/trim-right "  hello  ")"#),
+        Value::string("  hello")
+    );
+    assert_eq!(
+        eval(r#"(string/trim-right "hi\t\n ")"#),
+        Value::string("hi")
+    );
+    assert_eq!(
+        eval(r#"(string/trim-right "no-space")"#),
+        Value::string("no-space")
+    );
+}
+
+#[test]
+fn test_string_number_predicate() {
+    assert_eq!(eval(r#"(string/number? "42")"#), Value::Bool(true));
+    assert_eq!(eval(r#"(string/number? "-7")"#), Value::Bool(true));
+    assert_eq!(eval(r#"(string/number? "3.14")"#), Value::Bool(true));
+    assert_eq!(eval(r#"(string/number? "-0.5")"#), Value::Bool(true));
+    assert_eq!(eval(r#"(string/number? "hello")"#), Value::Bool(false));
+    assert_eq!(eval(r#"(string/number? "")"#), Value::Bool(false));
+    assert_eq!(eval(r#"(string/number? "12abc")"#), Value::Bool(false));
+}
+
+// ====================================================================
+// Map: map-keys, from-entries
+// ====================================================================
+
+#[test]
+fn test_map_map_keys() {
+    // Transform keyword keys using keyword->string
+    assert_eq!(
+        eval_to_string(r#"(map/map-keys keyword->string {:a 1 :b 2})"#),
+        r#"{"a" 1 "b" 2}"#
+    );
+}
+
+#[test]
+fn test_map_from_entries() {
+    assert_eq!(
+        eval_to_string(r#"(map/from-entries (list (list :a 1) (list :b 2)))"#),
+        "{:a 1 :b 2}"
+    );
+    // Empty list -> empty map
+    assert_eq!(eval_to_string(r#"(map/from-entries (list))"#), "{}");
+    // Roundtrip: entries -> from-entries
+    assert_eq!(
+        eval_to_string(r#"(map/from-entries (map/entries {:x 10 :y 20}))"#),
+        "{:x 10 :y 20}"
+    );
+}
+
+#[test]
+fn test_map_from_entries_error() {
+    // Entry with wrong size should error
+    let err = eval_err(r#"(map/from-entries (list (list :a 1 :extra)))"#);
+    assert!(err.to_string().contains("pair"));
+}
+
+// ====================================================================
+// Extended tests for existing list functions: any, every, reduce,
+// partition, foldr, member
+// ====================================================================
+
+#[test]
+fn test_any_with_even_predicate() {
+    assert_eq!(eval("(any even? (list 1 3 4))"), Value::Bool(true));
+    assert_eq!(eval("(any even? (list 1 3 5))"), Value::Bool(false));
+    // empty list → false
+    assert_eq!(eval("(any even? (list))"), Value::Bool(false));
+    // works on vectors
+    assert_eq!(eval("(any even? [1 2 3])"), Value::Bool(true));
+    // short-circuits: only first truthy hit matters
+    assert_eq!(
+        eval("(any (lambda (x) (> x 0)) '(1 2 3))"),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn test_every_with_even_predicate() {
+    assert_eq!(eval("(every even? (list 2 4 6))"), Value::Bool(true));
+    assert_eq!(eval("(every even? (list 2 3 6))"), Value::Bool(false));
+    // empty list → true (vacuous truth)
+    assert_eq!(eval("(every even? (list))"), Value::Bool(true));
+    // works on vectors
+    assert_eq!(eval("(every even? [2 4 6])"), Value::Bool(true));
+}
+
+#[test]
+fn test_reduce_edge_cases() {
+    // single element list → returns that element
+    assert_eq!(eval("(reduce + '(42))"), Value::Int(42));
+    // string concatenation
+    assert_eq!(
+        eval(r#"(reduce string-append '("a" "b" "c"))"#),
+        Value::String(std::rc::Rc::new("abc".to_string()))
+    );
+    // empty list → error
+    let err = eval_err("(reduce + '())");
+    assert!(err.to_string().contains("empty"));
+}
+
+#[test]
+fn test_partition_extended() {
+    // all match
+    assert_eq!(eval_to_string("(partition even? '(2 4 6))"), "((2 4 6) ())");
+    // none match
+    assert_eq!(eval_to_string("(partition even? '(1 3 5))"), "(() (1 3 5))");
+    // empty list
+    assert_eq!(eval_to_string("(partition even? '())"), "(() ())");
+    // works on vectors
+    assert_eq!(
+        eval_to_string("(partition even? [1 2 3 4])"),
+        "((2 4) (1 3))"
+    );
+}
+
+#[test]
+fn test_foldr_extended() {
+    // right fold builds list in original order with cons
+    assert_eq!(eval_to_string("(foldr cons '() '(1 2 3))"), "(1 2 3)");
+    // subtraction shows right-associativity: 1 - (2 - (3 - 0)) = 1 - (2 - 3) = 1 - (-1) = 2
+    assert_eq!(eval("(foldr - 0 '(1 2 3))"), Value::Int(2));
+    // empty list → returns init
+    assert_eq!(eval("(foldr + 99 '())"), Value::Int(99));
+}
+
+#[test]
+fn test_member_extended() {
+    // found at beginning
+    assert_eq!(eval_to_string("(member 1 '(1 2 3))"), "(1 2 3)");
+    // found at end
+    assert_eq!(eval_to_string("(member 3 '(1 2 3))"), "(3)");
+    // not found → #f
+    assert_eq!(eval("(member 99 '(1 2 3))"), Value::Bool(false));
+    // empty list → #f
+    assert_eq!(eval("(member 1 '())"), Value::Bool(false));
+    // works with keywords
+    assert_eq!(eval_to_string("(member :b '(:a :b :c))"), "(:b :c)");
+}
+
+// ====================================================================
+// New list functions: sort-by, flatten-deep, interpose, frequencies,
+// list->vector, vector->list
+// ====================================================================
+
+#[test]
+fn test_sort_by() {
+    // sort by absolute value
+    assert_eq!(
+        eval_to_string("(sort-by (lambda (x) (if (< x 0) (- 0 x) x)) '(3 -1 2 -5 4))"),
+        "(-1 2 3 4 -5)"
+    );
+    // sort strings by length
+    assert_eq!(
+        eval_to_string(r#"(sort-by string-length '("bb" "a" "ccc"))"#),
+        r#"("a" "bb" "ccc")"#
+    );
+    // empty list
+    assert_eq!(eval_to_string("(sort-by (lambda (x) x) '())"), "()");
+    // single element
+    assert_eq!(eval_to_string("(sort-by (lambda (x) x) '(42))"), "(42)");
+    // works on vectors
+    assert_eq!(
+        eval_to_string("(sort-by (lambda (x) x) [3 1 2])"),
+        "(1 2 3)"
+    );
+}
+
+#[test]
+fn test_flatten_deep_fn() {
+    // deeply nested lists
+    assert_eq!(
+        eval_to_string("(flatten-deep '(1 (2 (3 (4 5))) 6))"),
+        "(1 2 3 4 5 6)"
+    );
+    // already flat
+    assert_eq!(eval_to_string("(flatten-deep '(1 2 3))"), "(1 2 3)");
+    // empty
+    assert_eq!(eval_to_string("(flatten-deep '())"), "()");
+    // mixed lists and vectors
+    assert_eq!(
+        eval_to_string("(flatten-deep '(1 [2 [3]] (4)))"),
+        "(1 2 3 4)"
+    );
+    // single nested element
+    assert_eq!(eval_to_string("(flatten-deep '(((42))))"), "(42)");
+}
+
+#[test]
+fn test_interpose() {
+    // basic usage
+    assert_eq!(eval_to_string("(interpose :x '(1 2 3))"), "(1 :x 2 :x 3)");
+    // single element → no separator
+    assert_eq!(eval_to_string("(interpose :x '(1))"), "(1)");
+    // empty list
+    assert_eq!(eval_to_string("(interpose :x '())"), "()");
+    // string separator
+    assert_eq!(
+        eval_to_string(r#"(interpose ", " '(1 2 3))"#),
+        r#"(1 ", " 2 ", " 3)"#
+    );
+    // works on vectors
+    assert_eq!(eval_to_string("(interpose 0 [1 2 3])"), "(1 0 2 0 3)");
+}
+
+#[test]
+fn test_frequencies() {
+    // basic counting with keywords (BTreeMap = deterministic order)
+    assert_eq!(eval_to_string("(frequencies '(:a :b :a))"), "{:a 2 :b 1}");
+    // all unique
+    assert_eq!(eval_to_string("(frequencies '(1 2 3))"), "{1 1 2 1 3 1}");
+    // all same
+    assert_eq!(eval_to_string("(frequencies '(1 1 1))"), "{1 3}");
+    // empty list
+    assert_eq!(eval_to_string("(frequencies '())"), "{}");
+    // works on vectors
+    assert_eq!(eval_to_string("(frequencies [1 2 1])"), "{1 2 2 1}");
+}
+
+#[test]
+fn test_list_to_vector() {
+    // basic conversion
+    assert_eq!(eval_to_string("(list->vector '(1 2 3))"), "[1 2 3]");
+    // empty list
+    assert_eq!(eval_to_string("(list->vector '())"), "[]");
+    // type error on non-list
+    let err = eval_err("(list->vector [1 2 3])");
+    assert!(err.to_string().contains("list"));
+}
+
+#[test]
+fn test_vector_to_list() {
+    // basic conversion
+    assert_eq!(eval_to_string("(vector->list [1 2 3])"), "(1 2 3)");
+    // empty vector
+    assert_eq!(eval_to_string("(vector->list [])"), "()");
+    // type error on non-vector
+    let err = eval_err("(vector->list '(1 2 3))");
+    assert!(err.to_string().contains("vector"));
+}
+
+#[test]
+fn test_sort_by_arity_error() {
+    let err = eval_err("(sort-by '(1 2))");
+    assert!(err.to_string().contains("2"));
+}
+
+#[test]
+fn test_interpose_arity_error() {
+    let err = eval_err("(interpose :x)");
+    assert!(err.to_string().contains("2"));
+}
+
+#[test]
+fn test_frequencies_arity_error() {
+    let err = eval_err("(frequencies '(1) '(2))");
+    assert!(err.to_string().contains("1"));
+}
+
+// ====================================================================
+// Crypto: hash/md5, hash/hmac-sha256
+// ====================================================================
+
+#[test]
+fn test_hash_md5() {
+    // MD5 of empty string
+    assert_eq!(
+        eval(r#"(hash/md5 "")"#),
+        Value::string("d41d8cd98f00b204e9800998ecf8427e")
+    );
+    // MD5 of "hello"
+    assert_eq!(
+        eval(r#"(hash/md5 "hello")"#),
+        Value::string("5d41402abc4b2a76b9719d911017c592")
+    );
+}
+
+#[test]
+fn test_hash_md5_errors() {
+    let err = eval_err(r#"(hash/md5)"#);
+    assert!(err.to_string().contains("hash/md5"));
+    let err = eval_err(r#"(hash/md5 1)"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_hash_hmac_sha256() {
+    // Known HMAC-SHA256 test vector
+    let result = eval(r#"(hash/hmac-sha256 "key" "message")"#);
+    assert!(matches!(result, Value::String(_)));
+    if let Value::String(s) = &result {
+        assert_eq!(s.len(), 64); // 32 bytes = 64 hex chars
+    }
+}
+
+#[test]
+fn test_hash_hmac_sha256_errors() {
+    let err = eval_err(r#"(hash/hmac-sha256 "key")"#);
+    assert!(err.to_string().contains("hash/hmac-sha256"));
+    let err = eval_err(r#"(hash/hmac-sha256 1 "msg")"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+// ====================================================================
+// Datetime: time/add, time/diff
+// ====================================================================
+
+#[test]
+fn test_time_add() {
+    assert_eq!(eval("(time/add 1000.0 500.0)"), Value::Float(1500.0));
+    assert_eq!(eval("(time/add 1000 60)"), Value::Float(1060.0));
+}
+
+#[test]
+fn test_time_add_errors() {
+    let err = eval_err(r#"(time/add 1000)"#);
+    assert!(err.to_string().contains("time/add"));
+    let err = eval_err(r#"(time/add "x" 1)"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_time_diff() {
+    assert_eq!(eval("(time/diff 1500.0 1000.0)"), Value::Float(500.0));
+    assert_eq!(eval("(time/diff 1000 1500)"), Value::Float(-500.0));
+}
+
+#[test]
+fn test_time_diff_errors() {
+    let err = eval_err(r#"(time/diff 1000)"#);
+    assert!(err.to_string().contains("time/diff"));
+}
+
+// ====================================================================
+// System: sys/set-env
+// ====================================================================
+
+#[test]
+fn test_sys_set_env() {
+    assert_eq!(
+        eval(r#"(sys/set-env "SEMA_TEST_VAR_12345" "hello")"#),
+        Value::Nil
+    );
+    assert_eq!(
+        eval(r#"(env "SEMA_TEST_VAR_12345")"#),
+        Value::string("hello")
+    );
+}
+
+#[test]
+fn test_sys_set_env_errors() {
+    let err = eval_err(r#"(sys/set-env "X")"#);
+    assert!(err.to_string().contains("sys/set-env"));
+    let err = eval_err(r#"(sys/set-env 1 "val")"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+// ====================================================================
+// LLM Data Types: Prompts, Messages, Conversations, Tools, Agents
+// ====================================================================
+
+// ====== 1. Prompt Construction & Manipulation ======
+
+#[test]
+fn test_prompt_creation() {
+    // Prompt is created via special form
+    let result = eval_to_string(r#"(prompt (user "hello"))"#);
+    assert!(result.contains("prompt"));
+}
+
+#[test]
+fn test_prompt_predicate() {
+    assert_eq!(
+        eval(r#"(prompt? (prompt (user "hello")))"#),
+        Value::Bool(true)
+    );
+    assert_eq!(eval(r#"(prompt? 42)"#), Value::Bool(false));
+    assert_eq!(eval(r#"(prompt? "not a prompt")"#), Value::Bool(false));
+    assert_eq!(eval(r#"(prompt? nil)"#), Value::Bool(false));
+}
+
+#[test]
+fn test_prompt_messages() {
+    assert_eq!(
+        eval(r#"(length (prompt-messages (prompt (user "hello") (assistant "hi"))))"#),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_prompt_append() {
+    assert_eq!(
+        eval(
+            r#"(length (prompt-messages (prompt-append (prompt (user "a")) (prompt (assistant "b")))))"#
+        ),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_prompt_set_system() {
+    // prompt-set-system replaces system message
+    let result = eval(
+        r#"
+        (begin
+          (define p (prompt (system "old") (user "hello")))
+          (define p2 (prompt-set-system p "new system"))
+          (length (prompt-messages p2)))
+    "#,
+    );
+    assert_eq!(result, Value::Int(2));
+}
+
+#[test]
+fn test_prompt_set_system_adds_when_missing() {
+    // If no system message, it adds one at front
+    let result = eval(
+        r#"
+        (begin
+          (define p (prompt (user "hello")))
+          (define p2 (prompt-set-system p "system msg"))
+          (length (prompt-messages p2)))
+    "#,
+    );
+    assert_eq!(result, Value::Int(2));
+}
+
+// ====== 2. Message Construction & Accessors ======
+
+#[test]
+fn test_message_creation() {
+    let result = eval_to_string(r#"(message :user "hello world")"#);
+    assert!(result.contains("message"));
+}
+
+#[test]
+fn test_message_predicate() {
+    assert_eq!(
+        eval(r#"(message? (message :user "hi"))"#),
+        Value::Bool(true)
+    );
+    assert_eq!(eval(r#"(message? 42)"#), Value::Bool(false));
+    assert_eq!(eval(r#"(message? "not a message")"#), Value::Bool(false));
+}
+
+#[test]
+fn test_message_role() {
+    assert_eq!(
+        eval(r#"(message-role (message :user "hi"))"#),
+        Value::keyword("user")
+    );
+    assert_eq!(
+        eval(r#"(message-role (message :assistant "hello"))"#),
+        Value::keyword("assistant")
+    );
+    assert_eq!(
+        eval(r#"(message-role (message :system "you are helpful"))"#),
+        Value::keyword("system")
+    );
+}
+
+#[test]
+fn test_message_content() {
+    assert_eq!(
+        eval(r#"(message-content (message :user "hello world"))"#),
+        Value::string("hello world")
+    );
+    assert_eq!(
+        eval(r#"(message-content (message :assistant "response"))"#),
+        Value::string("response")
+    );
+}
+
+#[test]
+fn test_message_from_prompt() {
+    // Extract messages from prompt, check role and content
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define p (prompt (user "test input")))
+              (define msgs (prompt-messages p))
+              (message-content (car msgs)))
+        "#
+        ),
+        Value::string("test input")
+    );
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define p (prompt (user "test input")))
+              (define msgs (prompt-messages p))
+              (message-role (car msgs)))
+        "#
+        ),
+        Value::keyword("user")
+    );
+}
+
+// ====== 3. Conversation Construction & Manipulation ======
+
+#[test]
+fn test_conversation_new() {
+    let result = eval_to_string(r#"(conversation/new {:model "test-model"})"#);
+    assert!(result.contains("conversation"));
+}
+
+#[test]
+fn test_conversation_new_empty() {
+    let result = eval_to_string(r#"(conversation/new)"#);
+    assert!(result.contains("conversation"));
+}
+
+#[test]
+fn test_conversation_predicate() {
+    assert_eq!(
+        eval(r#"(conversation? (conversation/new))"#),
+        Value::Bool(true)
+    );
+    assert_eq!(eval(r#"(conversation? 42)"#), Value::Bool(false));
+    assert_eq!(eval(r#"(conversation? "not a conv")"#), Value::Bool(false));
+}
+
+#[test]
+fn test_conversation_messages_empty() {
+    assert_eq!(
+        eval(r#"(length (conversation/messages (conversation/new)))"#),
+        Value::Int(0)
+    );
+}
+
+#[test]
+fn test_conversation_fork() {
+    // fork returns a copy
+    assert_eq!(
+        eval(r#"(conversation? (conversation/fork (conversation/new)))"#),
+        Value::Bool(true)
+    );
+}
+
+#[test]
+fn test_conversation_model() {
+    assert_eq!(
+        eval(r#"(conversation/model (conversation/new {:model "gpt-4"}))"#),
+        Value::string("gpt-4")
+    );
+}
+
+#[test]
+fn test_conversation_model_empty() {
+    assert_eq!(
+        eval(r#"(conversation/model (conversation/new))"#),
+        Value::string("")
+    );
+}
+
+#[test]
+fn test_conversation_add_message() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define c (conversation/new))
+              (define c2 (conversation/add-message c :user "hello"))
+              (length (conversation/messages c2)))
+        "#
+        ),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn test_conversation_add_message_multiple() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define c (conversation/new {:model "test"}))
+              (define c1 (conversation/add-message c :user "hello"))
+              (define c2 (conversation/add-message c1 :assistant "hi there"))
+              (define c3 (conversation/add-message c2 :user "how are you?"))
+              (length (conversation/messages c3)))
+        "#
+        ),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn test_conversation_add_message_preserves_model() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define c (conversation/new {:model "gpt-4"}))
+              (define c2 (conversation/add-message c :user "hello"))
+              (conversation/model c2))
+        "#
+        ),
+        Value::string("gpt-4")
+    );
+}
+
+#[test]
+fn test_conversation_add_message_immutable() {
+    // Original conversation should not be modified
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define c (conversation/new))
+              (define c2 (conversation/add-message c :user "hello"))
+              (length (conversation/messages c)))
+        "#
+        ),
+        Value::Int(0)
+    );
+}
+
+#[test]
+fn test_conversation_add_message_content_check() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define c (conversation/add-message (conversation/new) :user "hello"))
+              (define msgs (conversation/messages c))
+              (message-content (car msgs)))
+        "#
+        ),
+        Value::string("hello")
+    );
+}
+
+#[test]
+fn test_conversation_add_message_role_check() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define c (conversation/add-message (conversation/new) :assistant "response"))
+              (define msgs (conversation/messages c))
+              (message-role (car msgs)))
+        "#
+        ),
+        Value::keyword("assistant")
+    );
+}
+
+// ====== 4. Tool Definition & Accessors ======
+
+#[test]
+fn test_tool_predicate() {
+    assert_eq!(
+        eval(
+            r#"(begin (deftool my-test-tool-1 "a tool" {:x {:type :string}} (lambda (args) "ok")) (tool? my-test-tool-1))"#
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(eval(r#"(tool? 42)"#), Value::Bool(false));
+    assert_eq!(eval(r#"(tool? "not a tool")"#), Value::Bool(false));
+}
+
+#[test]
+fn test_tool_name() {
+    assert_eq!(
+        eval(
+            r#"(begin (deftool my-test-tool-2 "desc" {:x {:type :string}} (lambda (args) "ok")) (tool-name my-test-tool-2))"#
+        ),
+        Value::string("my-test-tool-2")
+    );
+}
+
+#[test]
+fn test_tool_description() {
+    assert_eq!(
+        eval(
+            r#"(begin (deftool my-test-tool-3 "my description" {:x {:type :string}} (lambda (args) "ok")) (tool-description my-test-tool-3))"#
+        ),
+        Value::string("my description")
+    );
+}
+
+#[test]
+fn test_tool_parameters() {
+    assert_eq!(
+        eval(
+            r#"(begin (deftool my-test-tool-4 "desc" {:x {:type :string}} (lambda (args) "ok")) (map? (tool-parameters my-test-tool-4)))"#
+        ),
+        Value::Bool(true)
+    );
+}
+
+// ====== 5. Agent Definition & Accessors ======
+
+#[test]
+fn test_agent_predicate() {
+    assert_eq!(
+        eval(
+            r#"(begin (defagent test-agent-1 {:system "helpful" :tools [] :model "gpt-4"}) (agent? test-agent-1))"#
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(eval(r#"(agent? 42)"#), Value::Bool(false));
+    assert_eq!(eval(r#"(agent? "not an agent")"#), Value::Bool(false));
+}
+
+#[test]
+fn test_agent_name() {
+    assert_eq!(
+        eval(
+            r#"(begin (defagent test-agent-2 {:system "sys" :tools []}) (agent-name test-agent-2))"#
+        ),
+        Value::string("test-agent-2")
+    );
+}
+
+#[test]
+fn test_agent_system() {
+    assert_eq!(
+        eval(
+            r#"(begin (defagent test-agent-3 {:system "you are helpful" :tools []}) (agent-system test-agent-3))"#
+        ),
+        Value::string("you are helpful")
+    );
+}
+
+#[test]
+fn test_agent_tools_empty() {
+    assert_eq!(
+        eval(
+            r#"(begin (defagent test-agent-4 {:system "sys" :tools []}) (length (agent-tools test-agent-4)))"#
+        ),
+        Value::Int(0)
+    );
+}
+
+#[test]
+fn test_agent_model() {
+    assert_eq!(
+        eval(
+            r#"(begin (defagent test-agent-5 {:system "sys" :tools [] :model "claude-3"}) (agent-model test-agent-5))"#
+        ),
+        Value::string("claude-3")
+    );
+}
+
+#[test]
+fn test_agent_max_turns_default() {
+    assert_eq!(
+        eval(
+            r#"(begin (defagent test-agent-6 {:system "sys" :tools []}) (agent-max-turns test-agent-6))"#
+        ),
+        Value::Int(10)
+    );
+}
+
+#[test]
+fn test_agent_max_turns_custom() {
+    assert_eq!(
+        eval(
+            r#"(begin (defagent test-agent-7 {:system "sys" :tools [] :max-turns 5}) (agent-max-turns test-agent-7))"#
+        ),
+        Value::Int(5)
+    );
+}
+
+#[test]
+fn test_agent_with_tools() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (deftool agent-tool-1 "tool1" {:x {:type :string}} (lambda (args) "ok"))
+              (defagent test-agent-8 {:system "sys" :tools [agent-tool-1]})
+              (length (agent-tools test-agent-8)))
+        "#
+        ),
+        Value::Int(1)
+    );
+}
+
+// ====== 6. llm/similarity (pure math, no LLM needed) ======
+
+#[test]
+fn test_llm_similarity_identical() {
+    assert_eq!(
+        eval("(llm/similarity (list 1.0 0.0 0.0) (list 1.0 0.0 0.0))"),
+        Value::Float(1.0)
+    );
+}
+
+#[test]
+fn test_llm_similarity_orthogonal() {
+    assert_eq!(
+        eval("(llm/similarity (list 1.0 0.0) (list 0.0 1.0))"),
+        Value::Float(0.0)
+    );
+}
+
+#[test]
+fn test_llm_similarity_opposite() {
+    assert_eq!(
+        eval("(llm/similarity (list 1.0 0.0) (list -1.0 0.0))"),
+        Value::Float(-1.0)
+    );
+}
+
+#[test]
+fn test_llm_similarity_error_different_lengths() {
+    let err = eval_err("(llm/similarity (list 1.0 0.0) (list 1.0 0.0 0.0))");
+    assert!(err.to_string().contains("same length"));
+}
+
+#[test]
+fn test_llm_similarity_error_empty() {
+    let err = eval_err("(llm/similarity (list) (list))");
+    assert!(err.to_string().contains("empty"));
+}
+
+// ====== 7. Prompt multi-message workflows ======
+
+#[test]
+fn test_prompt_system_user_assistant() {
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define p (prompt (system "be helpful") (user "hello") (assistant "hi")))
+              (length (prompt-messages p)))
+        "#
+        ),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn test_prompt_append_preserves_order() {
+    // Append two prompts, verify message order
+    assert_eq!(
+        eval(
+            r#"
+            (begin
+              (define p1 (prompt (user "first")))
+              (define p2 (prompt (assistant "second")))
+              (define combined (prompt-append p1 p2))
+              (define msgs (prompt-messages combined))
+              (message-content (car msgs)))
+        "#
+        ),
+        Value::string("first")
+    );
+}
+
+// ====== 8. Error handling for LLM type functions ======
+
+#[test]
+fn test_message_role_error_on_non_message() {
+    let err = eval_err(r#"(message-role 42)"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_message_content_error_on_non_message() {
+    let err = eval_err(r#"(message-content "not a msg")"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_prompt_messages_error_on_non_prompt() {
+    let err = eval_err(r#"(prompt-messages 42)"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_conversation_messages_error_on_non_conversation() {
+    let err = eval_err(r#"(conversation/messages 42)"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_tool_name_error_on_non_tool() {
+    let err = eval_err(r#"(tool-name 42)"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_agent_name_error_on_non_agent() {
+    let err = eval_err(r#"(agent-name "not an agent")"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_conversation_add_message_error_on_non_conversation() {
+    let err = eval_err(r#"(conversation/add-message 42 :user "hi")"#);
+    assert!(err.to_string().contains("Type error"));
+}
+
+#[test]
+fn test_conversation_add_message_error_on_bad_role() {
+    let err = eval_err(r#"(conversation/add-message (conversation/new) :invalid "hi")"#);
+    assert!(err.to_string().contains("unknown role"));
+}
+
+// ====== Stack Trace Tests ======
+
+#[test]
+fn test_stack_trace_nested_functions() {
+    let err = eval_err(
+        r#"(define (baz z) (+ z "bad"))
+           (define (bar y) (begin (baz y) 1))
+           (define (foo x) (begin (bar x) 2))
+           (foo 1)"#,
+    );
+    let trace = err.stack_trace().expect("should have stack trace");
+    let names: Vec<&str> = trace.0.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names[0], "+");
+    assert_eq!(names[1], "baz");
+    assert_eq!(names[2], "bar");
+    assert_eq!(names[3], "foo");
+}
+
+#[test]
+fn test_stack_trace_native_fn() {
+    let err = eval_err(r#"(define (foo x) (+ x "bad")) (foo 1)"#);
+    let trace = err.stack_trace().expect("should have stack trace");
+    let names: Vec<&str> = trace.0.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names[0], "+");
+    assert_eq!(names[1], "foo");
+}
+
+#[test]
+fn test_stack_trace_lambda_anonymous() {
+    let err = eval_err(r#"((lambda (x) (+ x "bad")) 1)"#);
+    let trace = err.stack_trace().expect("should have stack trace");
+    let names: Vec<&str> = trace.0.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names[0], "+");
+    assert_eq!(names[1], "<lambda>");
+}
+
+#[test]
+fn test_stack_trace_tco_bounded() {
+    let err = eval_err(
+        r#"(define (loop n) (if (= n 0) (+ 1 "bad") (loop (- n 1))))
+           (loop 100)"#,
+    );
+    let trace = err.stack_trace().expect("should have stack trace");
+    // Should have bounded frames, not 100+ loop frames
+    assert!(
+        trace.0.len() <= 5,
+        "TCO trace should be bounded, got {} frames",
+        trace.0.len()
+    );
+    let names: Vec<&str> = trace.0.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names[0], "+");
+    assert_eq!(names[1], "loop");
+}
+
+#[test]
+fn test_stack_trace_has_spans() {
+    let err = eval_err(r#"(define (foo x) (+ x "bad")) (foo 1)"#);
+    let trace = err.stack_trace().expect("should have stack trace");
+    // All frames should have spans (from the reader SpanMap)
+    for frame in &trace.0 {
+        assert!(
+            frame.span.is_some(),
+            "frame '{}' should have a span",
+            frame.name
+        );
+    }
+}
+
+#[test]
+fn test_stack_trace_in_try_catch() {
+    let result = eval(
+        r#"(try
+             (define (foo x) (+ x "bad"))
+             (foo 1)
+             (catch e
+               (:stack-trace e)))"#,
+    );
+    // Should be a list of frame maps
+    let frames = result.as_list().expect("stack trace should be a list");
+    assert!(frames.len() >= 2, "should have at least 2 frames");
+    // First frame should be +
+    if let Value::Map(first) = &frames[0] {
+        assert_eq!(
+            first.get(&Value::keyword("name")),
+            Some(&Value::string("+"))
+        );
+    } else {
+        panic!("frame should be a map");
+    }
+}
+
+#[test]
+fn test_stack_trace_loaded_file() {
+    // Write a file with a function that errors
+    eval(
+        r#"(file/write "/tmp/sema-test-trace.sema"
+             "(define (bad-fn x) (+ x \"oops\"))")"#,
+    );
+    let err = eval_err(r#"(load "/tmp/sema-test-trace.sema") (bad-fn 1)"#);
+    let trace = err.stack_trace().expect("should have stack trace");
+    let names: Vec<&str> = trace.0.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names[0], "+");
+    assert_eq!(names[1], "bad-fn");
 }

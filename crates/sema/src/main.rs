@@ -2,17 +2,54 @@ use clap::Parser;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
+use sema_core::SemaError;
 use sema_eval::Interpreter;
 
 #[derive(Parser)]
-#[command(name = "sema", about = "Sema: A Lisp with LLM primitives")]
+#[command(name = "sema", about = "Sema: A Lisp with LLM primitives", version)]
 struct Cli {
     /// File to execute
     file: Option<String>,
 
-    /// Evaluate an expression
-    #[arg(short, long)]
+    /// Evaluate an expression and print result (if non-nil)
+    #[arg(short, long, conflicts_with = "print")]
     eval: Option<String>,
+
+    /// Evaluate an expression and always print result
+    #[arg(short, long, conflicts_with = "eval")]
+    print: Option<String>,
+
+    /// Load file(s) before executing
+    #[arg(short, long = "load", action = clap::ArgAction::Append)]
+    load: Vec<String>,
+
+    /// Suppress REPL banner
+    #[arg(short, long)]
+    quiet: bool,
+
+    /// Enter REPL after running file or eval
+    #[arg(short, long)]
+    interactive: bool,
+
+    /// Skip LLM auto-configuration
+    #[arg(long)]
+    no_init: bool,
+
+    /// Disable LLM features (same as --no-init)
+    #[arg(long, conflicts_with = "no_init")]
+    no_llm: bool,
+
+    /// Set default LLM model
+    #[arg(long)]
+    model: Option<String>,
+
+    /// Set LLM provider (anthropic, openai)
+    #[arg(long)]
+    provider: Option<String>,
+
+    /// Arguments passed to the script (after --)
+    #[arg(last = true)]
+    script_args: Vec<String>,
 }
 
 fn main() {
@@ -20,9 +57,45 @@ fn main() {
 
     let interpreter = Interpreter::new();
 
-    // Try auto-configure LLM from env vars
-    let _ = interpreter.eval_str("(llm/auto-configure)");
+    // Set LLM env vars before auto-configure
+    if let Some(model) = &cli.model {
+        std::env::set_var("SEMA_DEFAULT_MODEL", model);
+    }
+    if let Some(provider) = &cli.provider {
+        std::env::set_var("SEMA_LLM_PROVIDER", provider);
+    }
 
+    // Auto-configure LLM unless --no-init or --no-llm
+    if !cli.no_init && !cli.no_llm {
+        let _ = interpreter.eval_str("(llm/auto-configure)");
+    }
+
+    // Load files first (in order)
+    for load_file in &cli.load {
+        let path = std::path::Path::new(load_file);
+        if let Ok(canonical) = path.canonicalize() {
+            sema_eval::push_file_path(canonical);
+        }
+        match std::fs::read_to_string(load_file) {
+            Ok(content) => match interpreter.eval_str(&content) {
+                Ok(_) => {
+                    sema_eval::pop_file_path();
+                }
+                Err(e) => {
+                    sema_eval::pop_file_path();
+                    eprint!("Error loading {load_file}: ");
+                    print_error(&e);
+                    std::process::exit(1);
+                }
+            },
+            Err(e) => {
+                eprintln!("Error reading {load_file}: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // Handle --eval
     if let Some(expr) = &cli.eval {
         match interpreter.eval_str(expr) {
             Ok(val) => {
@@ -31,19 +104,45 @@ fn main() {
                 }
             }
             Err(e) => {
-                eprintln!("Error: {e}");
+                print_error(&e);
                 std::process::exit(1);
             }
+        }
+        if cli.interactive {
+            repl(interpreter, cli.quiet);
         }
         return;
     }
 
+    // Handle --print
+    if let Some(expr) = &cli.print {
+        match interpreter.eval_str(expr) {
+            Ok(val) => println!("{val}"),
+            Err(e) => {
+                print_error(&e);
+                std::process::exit(1);
+            }
+        }
+        if cli.interactive {
+            repl(interpreter, cli.quiet);
+        }
+        return;
+    }
+
+    // Handle FILE
     if let Some(file) = &cli.file {
+        let path = std::path::Path::new(file);
+        if let Ok(canonical) = path.canonicalize() {
+            sema_eval::push_file_path(canonical);
+        }
         match std::fs::read_to_string(file) {
             Ok(content) => match interpreter.eval_str(&content) {
-                Ok(_) => {}
+                Ok(_) => {
+                    sema_eval::pop_file_path();
+                }
                 Err(e) => {
-                    eprintln!("Error in {file}: {e}");
+                    sema_eval::pop_file_path();
+                    print_error(&e);
                     std::process::exit(1);
                 }
             },
@@ -52,20 +151,35 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        if cli.interactive {
+            repl(interpreter, cli.quiet);
+        }
         return;
     }
 
     // REPL mode
-    repl(interpreter);
+    repl(interpreter, cli.quiet);
 }
 
-fn repl(interpreter: Interpreter) {
+fn print_error(e: &SemaError) {
+    eprintln!("Error: {}", e.inner());
+    if let Some(trace) = e.stack_trace() {
+        eprint!("{trace}");
+    }
+}
+
+fn repl(interpreter: Interpreter, quiet: bool) {
     let mut rl = DefaultEditor::new().expect("failed to create editor");
     let history_path = dirs_path().join("history.txt");
     let _ = rl.load_history(&history_path);
 
-    println!("Sema v0.1.0 — A Lisp with LLM primitives");
-    println!("Type ,help for help, ,quit to exit\n");
+    if !quiet {
+        println!(
+            "Sema v{} — A Lisp with LLM primitives",
+            env!("CARGO_PKG_VERSION")
+        );
+        println!("Type ,help for help, ,quit to exit\n");
+    }
 
     let mut buffer = String::new();
     let mut in_multiline = false;
@@ -122,7 +236,7 @@ fn repl(interpreter: Interpreter) {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Error: {e}");
+                        print_error(&e);
                     }
                 }
             }
