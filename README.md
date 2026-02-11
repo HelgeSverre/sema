@@ -11,7 +11,7 @@ Sema is a Scheme-like Lisp where prompts are s-expressions, conversations are pe
 ## Installation
 
 ```bash
-cargo install --git https://github.com/HelgeSverre/sema
+cargo install --git https://github.com/HelgeSverre/sema sema
 ```
 
 Or build from source:
