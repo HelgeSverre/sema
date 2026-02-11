@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sema — A Lisp with LLM Primitives</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0c0c0c;
+    --bg-raised: #141414;
+    --bg-code: #0a0a0a;
+    --border: #222;
+    --border-accent: #2a2520;
+    --text: #d8d0c0;
+    --text-dim: #7a7468;
+    --text-bright: #f0ebe0;
+    --gold: #c8a855;
+    --gold-dim: #a08838;
+    --green: #8aaa6a;
+    --orange: #d08a60;
+    --blue: #88a8c8;
+    --purple: #b898c8;
+    --serif: 'Cormorant', 'Georgia', serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    font-family: var(--serif);
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ——— Hero: full viewport ——— */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 4rem 2rem;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .hero h1 {
+    font-size: clamp(4rem, 10vw, 8rem);
+    font-weight: 300;
+    letter-spacing: 0.06em;
+    color: var(--text-bright);
+    line-height: 1;
+    margin-bottom: 0.4em;
+  }
+
+  .hero .tagline {
+    font-size: clamp(1.1rem, 2.5vw, 1.6rem);
+    font-style: italic;
+    color: var(--text-dim);
+    max-width: 28em;
+    line-height: 1.6;
+    margin-bottom: 2.5rem;
+  }
+
+  .hero-install {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.8rem 1.8rem;
+    color: var(--text-bright);
+    display: inline-block;
+  }
+
+  .hero-install .prompt { color: var(--gold); }
+
+  .hero-scroll {
+    position: absolute;
+    bottom: 2.5rem;
+    color: var(--text-dim);
+    font-size: 1.1rem;
+    font-style: italic;
+    animation: drift 2s ease-in-out infinite;
+  }
+
+  @keyframes drift {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(6px); }
+  }
+
+  /* ——— Sticky nav ——— */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(12,12,12,0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: center;
+    gap: 2.5rem;
+  }
+
+  nav a {
+    font-family: var(--serif);
+    font-size: 1.05rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    letter-spacing: 0.03em;
+    transition: color 0.2s;
+  }
+
+  nav a:hover { color: var(--gold); }
+
+  /* ——— Split sections: text | code side-by-side ——— */
+  .split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    min-height: 80vh;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .split.reverse { direction: rtl; }
+  .split.reverse > * { direction: ltr; }
+
+  .split-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 4rem 4rem 4rem 6rem;
+  }
+
+  .split.reverse .split-text {
+    padding: 4rem 6rem 4rem 4rem;
+  }
+
+  .split-text h2 {
+    font-size: 2.8rem;
+    font-weight: 300;
+    color: var(--text-bright);
+    margin-bottom: 0.8rem;
+    letter-spacing: 0.02em;
+  }
+
+  .split-text h2 .paren {
+    color: var(--text-dim);
+    font-weight: 300;
+  }
+
+  .split-text p {
+    font-size: 1.2rem;
+    line-height: 1.75;
+    color: var(--text);
+    margin-bottom: 1rem;
+  }
+
+  .split-text .label {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--gold);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+
+  .split-code {
+    background: var(--bg-code);
+    display: flex;
+    align-items: center;
+    padding: 3rem;
+    border-left: 1px solid var(--border);
+    overflow-x: auto;
+  }
+
+  .split.reverse .split-code {
+    border-left: none;
+    border-right: 1px solid var(--border);
+  }
+
+  .split-code pre {
+    width: 100%;
+    line-height: 1.6;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .split-code code {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+  }
+
+  /* ——— Syntax colors ——— */
+  .c  { color: #5a5a4a; font-style: italic; }
+  .k  { color: #d4a052; }
+  .s  { color: #8aaa6a; }
+  .n  { color: #d08a60; }
+  .kw { color: #c89050; }
+  .b  { color: #88a8b8; }
+  .p  { color: #444438; }
+
+  /* ——— Features grid (full-width section) ——— */
+  .features-section {
+    padding: 6rem 4rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .features-section h2 {
+    font-size: 2.8rem;
+    font-weight: 300;
+    color: var(--text-bright);
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+
+  .features-section h2 .paren { color: var(--text-dim); }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .feat {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    transition: border-color 0.2s;
+  }
+
+  .feat:hover { border-color: var(--border-accent); }
+
+  .feat h3 {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--gold);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 0.6rem;
+  }
+
+  .feat p {
+    font-family: var(--serif);
+    font-size: 1.15rem;
+    line-height: 1.6;
+    color: var(--text);
+  }
+
+  .feat code {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--gold-dim);
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    padding: 0.1em 0.4em;
+    border-radius: 3px;
+  }
+
+  /* ——— Providers strip ——— */
+  .providers-strip {
+    padding: 3rem 4rem;
+    border-bottom: 1px solid var(--border);
+    text-align: center;
+  }
+
+  .providers-strip h3 {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 1.2rem;
+  }
+
+  .provider-list {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.8rem;
+    max-width: 52rem;
+    margin: 0 auto;
+  }
+
+  .provider-list span {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.4em 1em;
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    color: var(--text);
+    background: var(--bg-raised);
+  }
+
+  /* ——— Architecture section ——— */
+  .arch-section {
+    padding: 6rem 4rem;
+    border-bottom: 1px solid var(--border);
+    max-width: 64rem;
+    margin: 0 auto;
+  }
+
+  .arch-section h2 {
+    font-size: 2.8rem;
+    font-weight: 300;
+    color: var(--text-bright);
+    text-align: center;
+    margin-bottom: 1rem;
+  }
+
+  .arch-section h2 .paren { color: var(--text-dim); }
+
+  .arch-section > p {
+    font-size: 1.15rem;
+    line-height: 1.7;
+    color: var(--text);
+    text-align: center;
+    max-width: 40em;
+    margin: 0 auto 2.5rem;
+  }
+
+  .crate-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+
+  .crate-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.4rem;
+  }
+
+  .crate-card h4 {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    color: var(--gold);
+    margin-bottom: 0.3rem;
+  }
+
+  .crate-card p {
+    font-size: 1rem;
+    line-height: 1.5;
+    color: var(--text-dim);
+    margin: 0;
+  }
+
+  .arch-diagram {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: center;
+  }
+
+  .arch-diagram pre {
+    display: inline-block;
+    text-align: left;
+    line-height: 1.5;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  .arch-diagram code {
+    font-family: var(--mono);
+    font-size: 0.82rem;
+    color: var(--text-dim);
+  }
+
+  /* ——— Install section ——— */
+  .install-section {
+    padding: 6rem 4rem;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .install-section h2 {
+    font-size: 2.8rem;
+    font-weight: 300;
+    color: var(--text-bright);
+    margin-bottom: 0.5rem;
+  }
+
+  .install-section h2 .paren { color: var(--text-dim); }
+
+  .install-section > p {
+    font-size: 1.15rem;
+    color: var(--text-dim);
+    font-style: italic;
+    margin-bottom: 2rem;
+  }
+
+  .install-methods {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    max-width: 52rem;
+    margin: 0 auto 2.5rem;
+  }
+
+  .install-card {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 2rem;
+    text-align: left;
+  }
+
+  .install-card h3 {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--gold);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+
+  .install-card pre {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    line-height: 1.7;
+  }
+
+  .install-card code {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-bright);
+  }
+
+  .install-card .prompt { color: var(--gold); }
+  .install-card .comment { color: #5a5a4a; }
+
+  .usage-block {
+    max-width: 52rem;
+    margin: 0 auto;
+  }
+
+  .usage-block h3 {
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--gold);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+  }
+
+  .usage-block pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.6rem 2rem;
+    text-align: left;
+    line-height: 1.7;
+  }
+
+  .usage-block code {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--text-bright);
+  }
+
+  .usage-block .prompt { color: var(--gold); }
+  .usage-block .comment { color: #5a5a4a; }
+  .usage-block .output { color: var(--text-dim); }
+
+  /* ——— Footer ——— */
+  footer {
+    text-align: center;
+    padding: 3rem 2rem;
+    color: var(--text-dim);
+    font-size: 1rem;
+    font-style: italic;
+  }
+
+  footer a { color: var(--text-dim); text-decoration: underline; }
+  footer a:hover { color: var(--gold); }
+
+  /* ——— Responsive ——— */
+  @media (max-width: 900px) {
+    .split {
+      grid-template-columns: 1fr;
+      min-height: auto;
+    }
+    .split.reverse { direction: ltr; }
+    .split-text { padding: 3rem 2rem; }
+    .split.reverse .split-text { padding: 3rem 2rem; }
+    .split-code {
+      border-left: none;
+      border-top: 1px solid var(--border);
+      padding: 2rem;
+    }
+    .split.reverse .split-code { border-right: none; border-top: 1px solid var(--border); }
+    .features-grid { grid-template-columns: 1fr; }
+    .crate-grid { grid-template-columns: 1fr; }
+    .install-methods { grid-template-columns: 1fr; }
+    .features-section, .arch-section, .install-section, .providers-strip { padding: 3rem 1.5rem; }
+    nav { gap: 1.2rem; flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ——— Hero ——— -->
+<div class="hero">
+  <h1>Sema</h1>
+  <p class="tagline">A Lisp with first-class LLM primitives, implemented in Rust.</p>
+  <div class="hero-install">
+    <span class="prompt">$</span> cargo install --git https://github.com/HelgeSverre/sema
+  </div>
+  <div class="hero-scroll">scroll</div>
+</div>
+
+<!-- ——— Nav ——— -->
+<nav>
+  <a href="#language">Language</a>
+  <a href="#llm">LLM</a>
+  <a href="#features">Features</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#install">Install</a>
+  <a href="https://github.com/HelgeSverre/sema">GitHub</a>
+</nav>
+
+<!-- ——— Language: text left, code right ——— -->
+<section id="language" class="split">
+  <div class="split-text">
+    <div class="label">The Language</div>
+    <h2><span class="paren">(</span>Scheme meets Clojure<span class="paren">)</span></h2>
+    <p>
+      A Scheme-like core with Clojure-style keywords (<code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">:foo</code>),
+      map literals (<code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">{:key val}</code>),
+      and vector literals (<code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">[1 2 3]</code>).
+    </p>
+    <p>
+      Tail-call optimized via trampoline. Closures, macros, pattern matching,
+      higher-order functions, and a module system&mdash;all in a single-threaded
+      evaluator small enough to read in an afternoon.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Recursion with TCO</span>
+<span class="p">(</span><span class="k">define</span> <span class="p">(</span>factorial n<span class="p">)</span>
+  <span class="p">(</span><span class="k">if</span> <span class="p">(</span><span class="b">&lt;=</span> n <span class="n">1</span><span class="p">)</span> <span class="n">1</span> <span class="p">(</span><span class="b">*</span> n <span class="p">(</span>factorial <span class="p">(</span><span class="b">-</span> n <span class="n">1</span><span class="p">)))))</span>
+<span class="p">(</span>factorial <span class="n">10</span><span class="p">)</span> <span class="c">; =&gt; 3628800</span>
+
+<span class="c">;; Higher-order functions</span>
+<span class="p">(</span><span class="b">map</span> <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span>x<span class="p">)</span> <span class="p">(</span><span class="b">*</span> x x<span class="p">))</span> <span class="p">(</span><span class="b">range</span> <span class="n">1</span> <span class="n">6</span><span class="p">))</span>
+<span class="c">; =&gt; (1 4 9 16 25)</span>
+
+<span class="p">(</span><span class="b">filter</span> <span class="b">even?</span> <span class="p">(</span><span class="b">range</span> <span class="n">1</span> <span class="n">11</span><span class="p">))</span>
+<span class="c">; =&gt; (2 4 6 8 10)</span>
+
+<span class="p">(</span><span class="b">foldl</span> <span class="b">+</span> <span class="n">0</span> <span class="p">(</span><span class="b">range</span> <span class="n">1</span> <span class="n">11</span><span class="p">))</span>
+<span class="c">; =&gt; 55</span>
+
+<span class="c">;; Maps &mdash; keywords are functions</span>
+<span class="p">(</span><span class="k">define</span> person <span class="p">{</span><span class="kw">:name</span> <span class="s">"Ada"</span> <span class="kw">:age</span> <span class="n">36</span><span class="p">})</span>
+<span class="p">(</span><span class="kw">:name</span> person<span class="p">)</span>  <span class="c">; =&gt; "Ada"</span>
+
+<span class="c">;; Closures and composition</span>
+<span class="p">(</span><span class="k">define</span> <span class="p">(</span>compose f g<span class="p">)</span>
+  <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span>x<span class="p">)</span> <span class="p">(</span>f <span class="p">(</span>g x<span class="p">))))</span>
+
+<span class="p">(</span><span class="k">define</span> inc-then-double
+  <span class="p">(</span>compose <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span>x<span class="p">)</span> <span class="p">(</span><span class="b">*</span> x <span class="n">2</span><span class="p">))</span>
+           <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span>x<span class="p">)</span> <span class="p">(</span><span class="b">+</span> x <span class="n">1</span><span class="p">))))</span>
+<span class="p">(</span>inc-then-double <span class="n">5</span><span class="p">)</span> <span class="c">; =&gt; 12</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— LLM: code left, text right ——— -->
+<section id="llm" class="split reverse">
+  <div class="split-text">
+    <div class="label">LLM Primitives</div>
+    <h2><span class="paren">(</span>Prompts are data<span class="paren">)</span></h2>
+    <p>
+      Conversations are persistent values. Prompts compose like any other
+      s-expression. Completions, chat, structured extraction, classification,
+      tool use, and agentic loops&mdash;all as native forms.
+    </p>
+    <p>
+      Define tools with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">deftool</code>,
+      wire them into agents with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">defagent</code>,
+      then let the model call your Lisp functions in a multi-turn loop.
+    </p>
+    <p>
+      Batch with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">llm/pmap</code>,
+      stream with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">llm/stream</code>,
+      track costs with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">llm/cost</code>.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Simple completion</span>
+<span class="p">(</span><span class="b">llm/complete</span> <span class="s">"Say hello in 5 words"</span>
+  <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">50</span><span class="p">})</span>
+
+<span class="c">;; Chat with roles</span>
+<span class="p">(</span><span class="b">llm/chat</span>
+  <span class="p">[</span><span class="p">(</span><span class="b">message</span> <span class="kw">:system</span> <span class="s">"You are helpful."</span><span class="p">)</span>
+   <span class="p">(</span><span class="b">message</span> <span class="kw">:user</span> <span class="s">"What is Lisp?"</span><span class="p">)]</span>
+  <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">100</span><span class="p">})</span>
+
+<span class="c">;; Structured extraction</span>
+<span class="p">(</span><span class="b">llm/extract</span>
+  <span class="p">{</span><span class="kw">:vendor</span> <span class="p">{</span><span class="kw">:type</span> <span class="kw">:string</span><span class="p">}</span>
+   <span class="kw">:amount</span> <span class="p">{</span><span class="kw">:type</span> <span class="kw">:number</span><span class="p">}}</span>
+  <span class="s">"Coffee $4.50 at Blue Bottle"</span><span class="p">)</span>
+<span class="c">; =&gt; {:amount 4.5 :vendor "Blue Bottle"}</span>
+
+<span class="c">;; Tool use</span>
+<span class="p">(</span><span class="k">deftool</span> get-weather
+  <span class="s">"Get weather for a city"</span>
+  <span class="p">{</span><span class="kw">:city</span> <span class="p">{</span><span class="kw">:type</span> <span class="kw">:string</span><span class="p">}}</span>
+  <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span>args<span class="p">)</span>
+    <span class="p">(</span><span class="b">string-append</span> <span class="s">"Sunny, 22°C in "</span> <span class="p">(</span><span class="kw">:city</span> args<span class="p">))))</span>
+
+<span class="c">;; Agents</span>
+<span class="p">(</span><span class="k">defagent</span> weather-bot
+  <span class="p">{</span><span class="kw">:system</span> <span class="s">"Weather assistant."</span>
+   <span class="kw">:tools</span>  <span class="p">[</span>get-weather<span class="p">]</span>
+   <span class="kw">:max-turns</span> <span class="n">3</span><span class="p">})</span>
+<span class="p">(</span><span class="b">agent/run</span> weather-bot <span class="s">"Tokyo?"</span><span class="p">)</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Providers ——— -->
+<div class="providers-strip">
+  <h3>Supported Providers</h3>
+  <div class="provider-list">
+    <span>Anthropic</span>
+    <span>OpenAI</span>
+    <span>Google Gemini</span>
+    <span>Ollama</span>
+    <span>Groq</span>
+    <span>xAI</span>
+    <span>Mistral</span>
+    <span>Moonshot</span>
+    <span>Jina</span>
+    <span>Voyage</span>
+    <span>Cohere</span>
+  </div>
+</div>
+
+<!-- ——— Features ——— -->
+<section id="features" class="features-section">
+  <h2><span class="paren">(</span>Features<span class="paren">)</span></h2>
+  <div class="features-grid">
+    <div class="feat">
+      <h3>Tail-Call Optimized</h3>
+      <p>Trampoline-based evaluator. Deep recursion without stack overflow.</p>
+    </div>
+    <div class="feat">
+      <h3>255 Builtins</h3>
+      <p>IO, HTTP, regex, JSON, crypto, CSV, datetime, math, and more across 17 modules.</p>
+    </div>
+    <div class="feat">
+      <h3>Tool Use &amp; Agents</h3>
+      <p><code>deftool</code> and <code>defagent</code> as native special forms with multi-turn loops.</p>
+    </div>
+    <div class="feat">
+      <h3>Structured Extraction</h3>
+      <p>Define a schema as a map, get typed data back. <code>llm/extract</code> + <code>llm/classify</code>.</p>
+    </div>
+    <div class="feat">
+      <h3>Streaming &amp; Batching</h3>
+      <p>Real-time token streaming with <code>llm/stream</code>. Parallel batch with <code>llm/pmap</code>.</p>
+    </div>
+    <div class="feat">
+      <h3>Persistent Conversations</h3>
+      <p>Conversations are immutable values. Fork, extend, inspect message history as data.</p>
+    </div>
+    <div class="feat">
+      <h3>Module System</h3>
+      <p>File-based modules with <code>import</code> and <code>export</code>. Paths resolve relative to current file.</p>
+    </div>
+    <div class="feat">
+      <h3>Clojure-Style Data</h3>
+      <p>Keywords (<code>:foo</code>), maps (<code>{:k v}</code>), vectors (<code>[1 2]</code>). Keywords as functions.</p>
+    </div>
+    <div class="feat">
+      <h3>Cost Tracking</h3>
+      <p>Built-in token counting and cost estimation with <code>llm/cost</code>. Know what you spend.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ——— Architecture ——— -->
+<section id="architecture" class="arch-section">
+  <h2><span class="paren">(</span>Architecture<span class="paren">)</span></h2>
+  <p>
+    Six Rust crates, one directed dependency graph. No circular dependencies.
+    Single-threaded with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">Rc</code>,
+    deterministic ordering with <code style="font-family:var(--mono);font-size:0.85rem;color:var(--gold-dim);">BTreeMap</code>.
+  </p>
+
+  <div class="crate-grid">
+    <div class="crate-card">
+      <h4>sema-core</h4>
+      <p>Value types (18 variants), environment, errors</p>
+    </div>
+    <div class="crate-card">
+      <h4>sema-reader</h4>
+      <p>Lexer and s-expression parser</p>
+    </div>
+    <div class="crate-card">
+      <h4>sema-eval</h4>
+      <p>Trampoline evaluator, 29 special forms, modules</p>
+    </div>
+    <div class="crate-card">
+      <h4>sema-stdlib</h4>
+      <p>226 builtins across 17 modules</p>
+    </div>
+    <div class="crate-card">
+      <h4>sema-llm</h4>
+      <p>LLM provider trait, API clients, streaming</p>
+    </div>
+    <div class="crate-card">
+      <h4>sema</h4>
+      <p>REPL, CLI, file runner</p>
+    </div>
+  </div>
+
+  <div class="arch-diagram">
+<pre><code>         sema-core
+        /    |    \
+ sema-reader | sema-stdlib
+        \    |    /
+       sema-eval   sema-llm
+            \       /
+             sema</code></pre>
+  </div>
+</section>
+
+<!-- ——— Install ——— -->
+<section id="install" class="install-section">
+  <h2><span class="paren">(</span>Install<span class="paren">)</span></h2>
+  <p>Get running in one command, or build from source.</p>
+
+  <div class="install-methods">
+    <div class="install-card">
+      <h3>One-liner</h3>
+<pre><code><span class="prompt">$</span> cargo install \
+    --git https://github.com/HelgeSverre/sema</code></pre>
+    </div>
+    <div class="install-card">
+      <h3>From source</h3>
+<pre><code><span class="prompt">$</span> git clone https://github.com/HelgeSverre/sema
+<span class="prompt">$</span> cd sema
+<span class="prompt">$</span> cargo build --release</code></pre>
+    </div>
+  </div>
+
+  <div class="usage-block">
+    <h3>Usage</h3>
+<pre><code><span class="prompt">$</span> sema                              <span class="comment"># Start the REPL</span>
+<span class="prompt">$</span> sema script.sema                  <span class="comment"># Run a file</span>
+<span class="prompt">$</span> sema -e <span class="s">'(+ 1 2)'</span>                 <span class="comment"># Eval expression</span>
+<span class="prompt">$</span> sema -p <span class="s">'(filter even? (range 10))'</span> <span class="comment"># Eval &amp; print</span>
+<span class="prompt">$</span> sema -l prelude.sema script.sema  <span class="comment"># Load then run</span>
+<span class="prompt">$</span> sema --no-llm script.sema         <span class="comment"># No LLM features</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Footer ——— -->
+<footer>
+  <p>MIT &mdash; <a href="https://github.com/HelgeSverre/sema">source</a></p>
+</footer>
+
+</body>
+</html>
