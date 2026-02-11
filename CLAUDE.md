@@ -46,26 +46,32 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 ## Key Design Patterns
 
 ### Trampoline TCO
+
 `eval_step` returns `Trampoline::Value(v)` (done) or `Trampoline::Eval(expr, env)` (tail call). Special forms must return `Trampoline::Eval` for tail positions to enable proper tail-call optimization.
 
 ### Circular Dependency Solutions
+
 - **stdlib HOFs** (map, filter, foldl): `list.rs` has its own mini-eval/`call_function` that handles symbol lookup + function application without depending on sema-eval
 - **LLM tool execution**: Thread-local `EvalCallback` set by `Interpreter::new()` gives sema-llm access to the full evaluator
 
 ### Module System (Thread-Local State)
+
 `MODULE_CACHE`, `CURRENT_FILE` (stack), `MODULE_EXPORTS` are thread-local. Modules identified by canonical file path. Module env is child of root env (gets builtins, not caller bindings). Paths resolve relative to current file.
 
 ### Keywords as Functions
+
 `(:name person)` works like `(get person :name)` — handled in `eval_step` when a `Value::Keyword` appears in head position.
 
 ## Code Conventions
 
 ### Rust
+
 - Errors: use `SemaError::eval()`, `::type_error()`, `::arity()` constructors — never raw enum variants
 - Native fns: `NativeFn` takes `&[Value]`, returns `Result<Value, SemaError>`
 - Single-threaded: `Rc` everywhere, not `Arc`. `BTreeMap` for deterministic ordering.
 
 ### Sema Language Naming (Decision #24)
+
 - **Slash-namespaced** for all new functions: `file/read`, `path/join`, `regex/match?`, `http/get`, `json/encode`, `string/split`
 - **Legacy Scheme** kept: `string-append`, `string-length`, `string-ref`, `substring`
 - **Arrow conversions**: `string->symbol`, `keyword->string`
@@ -78,6 +84,7 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 **New special form**: Add match arm in `try_eval_special()` in `special_forms.rs`, implement handler returning `Trampoline`, add integration test.
 
 ## Design Docs
+
 - `agents/DECISIONS.md` — 33 numbered design decisions with rationale
 - `agents/PLAN.md` — implementation plan
 - `agents/LIMITATIONS.md` — known gaps and limitations
