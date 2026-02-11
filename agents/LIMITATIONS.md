@@ -1,16 +1,18 @@
 # Sema Lisp — Known Limitations & Gaps
 
 Assessed against standard Scheme (R7RS) and practical Lisp expectations.
-Status: as of Phase 8 completion (stdlib expansion: math, bitwise, crypto, datetime, csv).
+Status: as of Phase 9 completion (multi-provider LLM, tool calling for all providers, SDK completeness).
 
 ---
 
 ## ~~Critical — Blocks Practical Programming~~ (RESOLVED in Phase 6)
 
 ### ~~1. No Error Handling~~ → RESOLVED
+
 Implemented `try`/`catch`/`throw` in Phase 6.
 
 ### ~~2. No Module System~~ → RESOLVED
+
 Implemented `module`/`import` in Phase 6.
 
 ---
@@ -18,14 +20,19 @@ Implemented `module`/`import` in Phase 6.
 ## ~~High — Significantly Limits Usability~~ (RESOLVED in Phase 6+7)
 
 ### ~~3. No Named `let`~~ → RESOLVED (Phase 6)
+
 ### ~~4. No `letrec`~~ → RESOLVED (Phase 6)
+
 ### ~~5. No `eval` / `read` / `string->symbol`~~ → RESOLVED (Phase 7)
+
 `eval` special form, `read`/`read-many` builtins, `string->symbol`, `symbol->string`, `string->keyword`, `keyword->string`.
 
 ### ~~6. No `gensym` or `macroexpand`~~ → RESOLVED (Phase 7)
+
 `gensym` with optional prefix, `macroexpand` for single-step expansion.
 
 ### ~~7. No Regular Expressions~~ → RESOLVED (Phase 7)
+
 Full regex suite: `regex/match?`, `regex/match`, `regex/find-all`, `regex/replace`, `regex/replace-all`, `regex/split`.
 
 ### ~~8. Limited List Operations~~ → RESOLVED (Phase 6)
@@ -37,15 +44,18 @@ Full regex suite: `regex/match?`, `regex/match`, `regex/find-all`, `regex/replac
 ### 9. `do` Aliased to `begin`
 
 `do` is an alias for `begin` (sequence), which shadows the standard Scheme `do` loop:
+
 ```scheme
 ;; Scheme do loop — not supported:
 (do ((i 0 (+ i 1))) ((= i 10)) (display i))
 ```
 
 ### ~~10. No `case` / Pattern Matching~~ → RESOLVED (Phase 7)
+
 `case` special form with R5RS semantics. Pattern matching still absent.
 
 ### ~~11. No Port-Based I/O~~ → PARTIALLY RESOLVED (Phase 7)
+
 Full file namespace: `file/read`, `file/write`, `file/append`, `file/delete`, `file/rename`, `file/list`, `file/mkdir`, `file/info`, `file/exists?`, `file/is-directory?`, `file/is-file?`, `file/is-symlink?`.
 Path ops: `path/join`, `path/dirname`, `path/basename`, `path/extension`, `path/absolute`.
 HTTP: `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`.
@@ -55,11 +65,12 @@ Still no streaming/port-based I/O.
 
 Maps-with-keywords serve as de facto structs but with no type checking, constructors, or accessor generation. No `define-record-type`.
 
-### 13. No Stack Traces
+### ~~13. No Stack Traces~~ → RESOLVED
 
-Errors show only the message, no call stack or source location.
+Full stack traces with call frames, file locations, and source spans. Traces are bounded for TCO'd recursion. Accessible via `:stack-trace` key in `catch` error maps.
 
 ### ~~14. Missing Math Functions~~ → RESOLVED (Phase 8)
+
 Full math suite: `math/quotient`, `math/remainder`, `math/gcd`, `math/lcm`, `math/tan`, `math/asin`, `math/acos`, `math/atan`, `math/atan2`, `math/exp`, `math/log10`, `math/log2`, `math/random`, `math/random-int`, `math/clamp`, `math/sign`.
 Bitwise: `bit/and`, `bit/or`, `bit/xor`, `bit/not`, `bit/shift-left`, `bit/shift-right`.
 
