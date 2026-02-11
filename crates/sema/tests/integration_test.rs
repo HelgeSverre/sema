@@ -41,6 +41,13 @@ fn test_define_and_call() {
 }
 
 #[test]
+fn test_defun_alias() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("(defun square (x) (* x x)) (square 5)").unwrap();
+    assert_eq!(result.to_string(), "25");
+}
+
+#[test]
 fn test_factorial() {
     assert_eq!(
         eval("(begin (define (factorial n) (if (<= n 1) 1 (* n (factorial (- n 1))))) (factorial 10))"),

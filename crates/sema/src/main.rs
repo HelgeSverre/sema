@@ -303,7 +303,7 @@ fn print_help() {
     println!("  (llm/chat [(message :user \"Hi\")] {{:model \"claude-haiku-4-5-20251001\"}})");
     println!();
     println!("Core Forms:");
-    println!("  define, lambda/fn, if, cond, let, let*, begin/do");
+    println!("  define/defun, lambda/fn, if, cond, let, let*, begin/do");
     println!("  quote, quasiquote, defmacro, and, or, when, unless");
 }
 

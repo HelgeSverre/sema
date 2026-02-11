@@ -15,6 +15,7 @@ pub fn try_eval_special(
         "if" => Some(eval_if(args, env)),
         "cond" => Some(eval_cond(args, env)),
         "define" => Some(eval_define(args, env)),
+        "defun" => Some(eval_defun(args, env)),
         "set!" => Some(eval_set(args, env)),
         "lambda" | "fn" => Some(eval_lambda(args, env, None)),
         "let" => Some(eval_let(args, env)),
@@ -137,6 +138,28 @@ fn eval_define(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         }
         other => Err(SemaError::type_error("symbol or list", other.type_name())),
     }
+}
+
+/// (defun name (params...) body...) => (define (name params...) body...)
+fn eval_defun(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() < 3 {
+        return Err(SemaError::arity("defun", "3+", args.len()));
+    }
+    let name = match &args[0] {
+        Value::Symbol(_) => args[0].clone(),
+        other => return Err(SemaError::type_error("symbol", other.type_name())),
+    };
+    let params = match &args[1] {
+        Value::List(p) => p.clone(),
+        other => return Err(SemaError::type_error("list", other.type_name())),
+    };
+    // Build (name params...) signature list
+    let mut sig = vec![name];
+    sig.extend(params.iter().cloned());
+    // Build transformed args: [(name params...), body...]
+    let mut define_args = vec![Value::List(sig.into())];
+    define_args.extend_from_slice(&args[2..]);
+    eval_define(&define_args, env)
 }
 
 fn eval_set(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
