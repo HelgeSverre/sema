@@ -135,12 +135,9 @@ impl GeminiProvider {
                                         .and_then(|n| n.as_str())
                                         .unwrap_or("")
                                         .to_string();
-                                    let arguments = fc
-                                        .get("args")
-                                        .cloned()
-                                        .unwrap_or(serde_json::Value::Object(
-                                            serde_json::Map::new(),
-                                        ));
+                                    let arguments = fc.get("args").cloned().unwrap_or(
+                                        serde_json::Value::Object(serde_json::Map::new()),
+                                    );
                                     tool_calls.push(ToolCall {
                                         id: format!("gemini-call-{}", tool_call_idx),
                                         name,
