@@ -760,9 +760,26 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 | `-V, --version`      | Print version                                |
 | `-h, --help`         | Print help                                   |
 
+### Subcommands
+
+```
+sema ast [OPTIONS] [FILE]
+```
+
+| Flag              | Description                     |
+| ----------------- | ------------------------------- |
+| `-e, --eval <EXPR>` | Parse expression instead of file |
+| `--json`          | Output AST as JSON              |
+
 ### Examples
 
 ```bash
+# Parse a file into an AST tree
+sema ast script.sema
+
+# Parse an expression into JSON AST
+sema ast -e '(+ 1 2)' --json
+
 # Load a prelude before starting the REPL
 sema -l prelude.sema
 
