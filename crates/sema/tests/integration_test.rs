@@ -43,7 +43,9 @@ fn test_define_and_call() {
 #[test]
 fn test_defun_alias() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("(defun square (x) (* x x)) (square 5)").unwrap();
+    let result = interp
+        .eval_str("(defun square (x) (* x x)) (square 5)")
+        .unwrap();
     assert_eq!(result.to_string(), "25");
 }
 
@@ -4257,7 +4259,9 @@ fn test_stack_trace_loaded_file() {
 #[test]
 fn test_tool_slash_name() {
     assert_eq!(
-        eval(r#"(begin (deftool t1 "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1))"#),
+        eval(
+            r#"(begin (deftool t1 "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1))"#
+        ),
         Value::string("t1")
     );
 }
@@ -4265,7 +4269,9 @@ fn test_tool_slash_name() {
 #[test]
 fn test_tool_slash_description() {
     assert_eq!(
-        eval(r#"(begin (deftool t2 "my desc" {:x {:type :string}} (lambda (x) "ok")) (tool/description t2))"#),
+        eval(
+            r#"(begin (deftool t2 "my desc" {:x {:type :string}} (lambda (x) "ok")) (tool/description t2))"#
+        ),
         Value::string("my desc")
     );
 }
@@ -4273,7 +4279,9 @@ fn test_tool_slash_description() {
 #[test]
 fn test_tool_slash_parameters() {
     assert_eq!(
-        eval(r#"(begin (deftool t3 "desc" {:x {:type :string}} (lambda (x) "ok")) (map? (tool/parameters t3)))"#),
+        eval(
+            r#"(begin (deftool t3 "desc" {:x {:type :string}} (lambda (x) "ok")) (map? (tool/parameters t3)))"#
+        ),
         Value::Bool(true)
     );
 }
@@ -4305,7 +4313,9 @@ fn test_agent_slash_tools() {
 #[test]
 fn test_agent_slash_model() {
     assert_eq!(
-        eval(r#"(begin (defagent a4 {:system "sys" :tools [] :model "claude-3"}) (agent/model a4))"#),
+        eval(
+            r#"(begin (defagent a4 {:system "sys" :tools [] :model "claude-3"}) (agent/model a4))"#
+        ),
         Value::string("claude-3")
     );
 }
@@ -4313,7 +4323,9 @@ fn test_agent_slash_model() {
 #[test]
 fn test_agent_slash_max_turns() {
     assert_eq!(
-        eval(r#"(begin (defagent a5 {:system "sys" :tools [] :max-turns 5}) (agent/max-turns a5))"#),
+        eval(
+            r#"(begin (defagent a5 {:system "sys" :tools [] :max-turns 5}) (agent/max-turns a5))"#
+        ),
         Value::Int(5)
     );
 }
@@ -4329,7 +4341,9 @@ fn test_prompt_slash_messages() {
 #[test]
 fn test_prompt_slash_append() {
     assert_eq!(
-        eval(r#"(length (prompt/messages (prompt/append (prompt (user "a")) (prompt (assistant "b")))))"#),
+        eval(
+            r#"(length (prompt/messages (prompt/append (prompt (user "a")) (prompt (assistant "b")))))"#
+        ),
         Value::Int(2)
     );
 }
@@ -4337,10 +4351,12 @@ fn test_prompt_slash_append() {
 #[test]
 fn test_prompt_slash_set_system() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
           (define p (prompt (user "hello")))
           (define p2 (prompt/set-system p "system msg"))
-          (length (prompt/messages p2)))"#),
+          (length (prompt/messages p2)))"#
+        ),
         Value::Int(2)
     );
 }
@@ -4366,7 +4382,9 @@ fn test_message_slash_content() {
 #[test]
 fn test_legacy_tool_name_alias() {
     assert_eq!(
-        eval(r#"(begin (deftool t1l "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1l))"#),
+        eval(
+            r#"(begin (deftool t1l "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1l))"#
+        ),
         Value::string("t1l")
     );
 }
@@ -4400,19 +4418,13 @@ fn test_legacy_message_role_alias() {
 #[test]
 fn test_llm_list_providers_empty() {
     // No providers configured, should return empty list
-    assert_eq!(
-        eval(r#"(length (llm/list-providers))"#),
-        Value::Int(0)
-    );
+    assert_eq!(eval(r#"(length (llm/list-providers))"#), Value::Int(0));
 }
 
 #[test]
 fn test_llm_current_provider_none() {
     // No provider configured
-    assert_eq!(
-        eval(r#"(llm/current-provider)"#),
-        Value::Nil
-    );
+    assert_eq!(eval(r#"(llm/current-provider)"#), Value::Nil);
 }
 
 #[test]
@@ -4427,10 +4439,12 @@ fn test_llm_set_budget() {
 #[test]
 fn test_llm_budget_remaining_values() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
           (llm/set-budget 5.0)
           (define b (llm/budget-remaining))
-          (:limit b))"#),
+          (:limit b))"#
+        ),
         Value::Float(5.0)
     );
 }
@@ -4457,4 +4471,106 @@ fn test_llm_set_default_no_provider() {
     let err = eval_err(r#"(llm/set-default :anthropic)"#);
     let msg = format!("{}", err.inner());
     assert!(msg.contains("not configured"), "got: {msg}");
+}
+
+// ── ast subcommand (CLI-level tests) ──────────────────────────────
+
+fn sema_cmd() -> std::process::Command {
+    std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+}
+
+#[test]
+fn test_ast_eval_readable() {
+    let output = sema_cmd()
+        .args(["ast", "-e", "(+ 1 2)"])
+        .output()
+        .expect("failed to run sema");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("List"), "expected List node: {stdout}");
+    assert!(stdout.contains("Symbol +"), "expected Symbol +: {stdout}");
+    assert!(stdout.contains("Int 1"), "expected Int 1: {stdout}");
+    assert!(stdout.contains("Int 2"), "expected Int 2: {stdout}");
+}
+
+#[test]
+fn test_ast_eval_json() {
+    let output = sema_cmd()
+        .args(["ast", "--json", "-e", "(+ 1 2)"])
+        .output()
+        .expect("failed to run sema");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["type"], "list");
+    assert_eq!(json["children"][0]["type"], "symbol");
+    assert_eq!(json["children"][0]["value"], "+");
+    assert_eq!(json["children"][1]["type"], "int");
+    assert_eq!(json["children"][1]["value"], 1);
+}
+
+#[test]
+fn test_ast_multiple_exprs_json() {
+    let output = sema_cmd()
+        .args(["ast", "--json", "-e", "(+ 1 2) (- 3 4)"])
+        .output()
+        .expect("failed to run sema");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert!(json.is_array(), "multiple exprs should produce array");
+    assert_eq!(json.as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn test_ast_vector_and_map() {
+    let output = sema_cmd()
+        .args(["ast", "-e", "[1 :foo]"])
+        .output()
+        .expect("failed to run sema");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Vector"), "expected Vector: {stdout}");
+    assert!(
+        stdout.contains("Keyword :foo"),
+        "expected Keyword: {stdout}"
+    );
+
+    let output = sema_cmd()
+        .args(["ast", "--json", "-e", "{:a 1}"])
+        .output()
+        .expect("failed to run sema");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value = serde_json::from_str(&stdout).expect("invalid JSON");
+    assert_eq!(json["type"], "map");
+    assert!(json["entries"].is_array());
+}
+
+#[test]
+fn test_ast_no_input_error() {
+    let output = sema_cmd()
+        .args(["ast"])
+        .output()
+        .expect("failed to run sema");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("provide a file or --eval"),
+        "expected error message: {stderr}"
+    );
+}
+
+#[test]
+fn test_ast_parse_error() {
+    let output = sema_cmd()
+        .args(["ast", "-e", "(+ 1"])
+        .output()
+        .expect("failed to run sema");
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Parse error"),
+        "expected parse error: {stderr}"
+    );
 }

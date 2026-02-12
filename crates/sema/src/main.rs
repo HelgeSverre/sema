@@ -1,13 +1,17 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
-use sema_core::SemaError;
+use sema_core::{SemaError, Value};
 use sema_eval::Interpreter;
 
 #[derive(Parser)]
 #[command(name = "sema", about = "Sema: A Lisp with LLM primitives", version)]
+#[command(args_conflicts_with_subcommands = true)]
 struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     /// File to execute
     file: Option<String>,
 
@@ -52,8 +56,35 @@ struct Cli {
     script_args: Vec<String>,
 }
 
+#[derive(Subcommand)]
+enum Commands {
+    /// Parse source and display the AST
+    Ast {
+        /// File to parse
+        file: Option<String>,
+
+        /// Expression to parse
+        #[arg(short, long)]
+        eval: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 fn main() {
     let cli = Cli::parse();
+
+    // Handle subcommands
+    if let Some(command) = cli.command {
+        match command {
+            Commands::Ast { file, eval, json } => {
+                run_ast(file, eval, json);
+            }
+        }
+        return;
+    }
 
     let interpreter = Interpreter::new();
 
@@ -159,6 +190,227 @@ fn main() {
 
     // REPL mode
     repl(interpreter, cli.quiet);
+}
+
+fn run_ast(file: Option<String>, eval: Option<String>, json: bool) {
+    let source = match (&file, &eval) {
+        (Some(path), None) => match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(e) => {
+                eprintln!("Error reading {path}: {e}");
+                std::process::exit(1);
+            }
+        },
+        (None, Some(expr)) => expr.clone(),
+        (Some(_), Some(_)) => {
+            eprintln!("Error: cannot specify both a file and --eval");
+            std::process::exit(1);
+        }
+        (None, None) => {
+            eprintln!("Error: provide a file or --eval expression");
+            std::process::exit(1);
+        }
+    };
+
+    let exprs = match sema_reader::read_many(&source) {
+        Ok(exprs) => exprs,
+        Err(e) => {
+            eprintln!("Parse error: {}", e.inner());
+            std::process::exit(1);
+        }
+    };
+
+    if json {
+        let json_ast: Vec<serde_json::Value> = exprs.iter().map(value_to_ast_json).collect();
+        let output = if json_ast.len() == 1 {
+            serde_json::to_string_pretty(&json_ast[0]).unwrap()
+        } else {
+            serde_json::to_string_pretty(&json_ast).unwrap()
+        };
+        println!("{output}");
+    } else {
+        for (i, expr) in exprs.iter().enumerate() {
+            if i > 0 {
+                println!();
+            }
+            print_ast(expr, 0);
+        }
+    }
+}
+
+fn value_to_ast_json(val: &Value) -> serde_json::Value {
+    match val {
+        Value::Nil => serde_json::Value::Object(
+            [("type".to_string(), serde_json::Value::String("nil".into()))]
+                .into_iter()
+                .collect(),
+        ),
+        Value::Bool(b) => serde_json::Value::Object(
+            [
+                ("type".to_string(), serde_json::Value::String("bool".into())),
+                ("value".to_string(), serde_json::Value::Bool(*b)),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::Int(n) => serde_json::Value::Object(
+            [
+                ("type".to_string(), serde_json::Value::String("int".into())),
+                ("value".to_string(), serde_json::Value::Number((*n).into())),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::Float(f) => serde_json::Value::Object(
+            [
+                (
+                    "type".to_string(),
+                    serde_json::Value::String("float".into()),
+                ),
+                (
+                    "value".to_string(),
+                    serde_json::Number::from_f64(*f)
+                        .map(serde_json::Value::Number)
+                        .unwrap_or(serde_json::Value::Null),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::String(s) => serde_json::Value::Object(
+            [
+                (
+                    "type".to_string(),
+                    serde_json::Value::String("string".into()),
+                ),
+                (
+                    "value".to_string(),
+                    serde_json::Value::String(s.to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::Symbol(s) => serde_json::Value::Object(
+            [
+                (
+                    "type".to_string(),
+                    serde_json::Value::String("symbol".into()),
+                ),
+                (
+                    "value".to_string(),
+                    serde_json::Value::String(s.to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::Keyword(s) => serde_json::Value::Object(
+            [
+                (
+                    "type".to_string(),
+                    serde_json::Value::String("keyword".into()),
+                ),
+                (
+                    "value".to_string(),
+                    serde_json::Value::String(s.to_string()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::List(items) => serde_json::Value::Object(
+            [
+                ("type".to_string(), serde_json::Value::String("list".into())),
+                (
+                    "children".to_string(),
+                    serde_json::Value::Array(items.iter().map(value_to_ast_json).collect()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::Vector(items) => serde_json::Value::Object(
+            [
+                (
+                    "type".to_string(),
+                    serde_json::Value::String("vector".into()),
+                ),
+                (
+                    "children".to_string(),
+                    serde_json::Value::Array(items.iter().map(value_to_ast_json).collect()),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::Map(map) => serde_json::Value::Object(
+            [
+                ("type".to_string(), serde_json::Value::String("map".into())),
+                (
+                    "entries".to_string(),
+                    serde_json::Value::Array(
+                        map.iter()
+                            .map(|(k, v)| {
+                                serde_json::Value::Object(
+                                    [
+                                        ("key".to_string(), value_to_ast_json(k)),
+                                        ("value".to_string(), value_to_ast_json(v)),
+                                    ]
+                                    .into_iter()
+                                    .collect(),
+                                )
+                            })
+                            .collect(),
+                    ),
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        other => serde_json::Value::Object(
+            [(
+                "type".to_string(),
+                serde_json::Value::String(other.type_name().into()),
+            )]
+            .into_iter()
+            .collect(),
+        ),
+    }
+}
+
+fn print_ast(val: &Value, indent: usize) {
+    let pad = "  ".repeat(indent);
+    match val {
+        Value::Nil => println!("{pad}Nil"),
+        Value::Bool(b) => println!("{pad}Bool {b}"),
+        Value::Int(n) => println!("{pad}Int {n}"),
+        Value::Float(f) => println!("{pad}Float {f}"),
+        Value::String(s) => println!("{pad}String {s:?}"),
+        Value::Symbol(s) => println!("{pad}Symbol {s}"),
+        Value::Keyword(s) => println!("{pad}Keyword :{s}"),
+        Value::List(items) => {
+            println!("{pad}List");
+            for item in items.iter() {
+                print_ast(item, indent + 1);
+            }
+        }
+        Value::Vector(items) => {
+            println!("{pad}Vector");
+            for item in items.iter() {
+                print_ast(item, indent + 1);
+            }
+        }
+        Value::Map(map) => {
+            println!("{pad}Map");
+            for (k, v) in map.iter() {
+                println!("{pad}  Entry");
+                print_ast(k, indent + 2);
+                print_ast(v, indent + 2);
+            }
+        }
+        other => println!("{pad}{}", other.type_name()),
+    }
 }
 
 fn print_error(e: &SemaError) {
