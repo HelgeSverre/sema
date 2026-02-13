@@ -5081,3 +5081,31 @@ fn test_promise_forced_predicate() {
         Value::Bool(true)
     );
 }
+
+#[test]
+fn test_char_comparison_predicates() {
+    assert_eq!(eval("(char=? #\\a #\\a)"), Value::Bool(true));
+    assert_eq!(eval("(char=? #\\a #\\b)"), Value::Bool(false));
+    assert_eq!(eval("(char<? #\\a #\\b)"), Value::Bool(true));
+    assert_eq!(eval("(char<? #\\b #\\a)"), Value::Bool(false));
+    assert_eq!(eval("(char>? #\\b #\\a)"), Value::Bool(true));
+    assert_eq!(eval("(char>? #\\a #\\b)"), Value::Bool(false));
+    assert_eq!(eval("(char<=? #\\a #\\a)"), Value::Bool(true));
+    assert_eq!(eval("(char<=? #\\a #\\b)"), Value::Bool(true));
+    assert_eq!(eval("(char<=? #\\b #\\a)"), Value::Bool(false));
+    assert_eq!(eval("(char>=? #\\b #\\a)"), Value::Bool(true));
+    assert_eq!(eval("(char>=? #\\a #\\a)"), Value::Bool(true));
+    assert_eq!(eval("(char>=? #\\a #\\b)"), Value::Bool(false));
+}
+
+#[test]
+fn test_char_ci_comparison_predicates() {
+    assert_eq!(eval("(char-ci=? #\\A #\\a)"), Value::Bool(true));
+    assert_eq!(eval("(char-ci=? #\\a #\\A)"), Value::Bool(true));
+    assert_eq!(eval("(char-ci=? #\\a #\\b)"), Value::Bool(false));
+    assert_eq!(eval("(char-ci<? #\\A #\\b)"), Value::Bool(true));
+    assert_eq!(eval("(char-ci<? #\\a #\\B)"), Value::Bool(true));
+    assert_eq!(eval("(char-ci>? #\\b #\\A)"), Value::Bool(true));
+    assert_eq!(eval("(char-ci<=? #\\A #\\a)"), Value::Bool(true));
+    assert_eq!(eval("(char-ci>=? #\\a #\\A)"), Value::Bool(true));
+}

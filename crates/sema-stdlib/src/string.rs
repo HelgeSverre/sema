@@ -572,6 +572,68 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::list(chars))
     });
 
+    fn two_chars(op: &str, args: &[Value]) -> Result<(char, char), SemaError> {
+        if args.len() != 2 {
+            return Err(SemaError::arity(op, "2", args.len()));
+        }
+        let a = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        let b = args[1]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[1].type_name()))?;
+        Ok((a, b))
+    }
+
+    register_fn(env, "char=?", |args| {
+        let (a, b) = two_chars("char=?", args)?;
+        Ok(Value::Bool(a == b))
+    });
+    register_fn(env, "char<?", |args| {
+        let (a, b) = two_chars("char<?", args)?;
+        Ok(Value::Bool(a < b))
+    });
+    register_fn(env, "char>?", |args| {
+        let (a, b) = two_chars("char>?", args)?;
+        Ok(Value::Bool(a > b))
+    });
+    register_fn(env, "char<=?", |args| {
+        let (a, b) = two_chars("char<=?", args)?;
+        Ok(Value::Bool(a <= b))
+    });
+    register_fn(env, "char>=?", |args| {
+        let (a, b) = two_chars("char>=?", args)?;
+        Ok(Value::Bool(a >= b))
+    });
+
+    fn two_chars_ci(op: &str, args: &[Value]) -> Result<(char, char), SemaError> {
+        let (a, b) = two_chars(op, args)?;
+        let a = a.to_lowercase().next().unwrap_or(a);
+        let b = b.to_lowercase().next().unwrap_or(b);
+        Ok((a, b))
+    }
+
+    register_fn(env, "char-ci=?", |args| {
+        let (a, b) = two_chars_ci("char-ci=?", args)?;
+        Ok(Value::Bool(a == b))
+    });
+    register_fn(env, "char-ci<?", |args| {
+        let (a, b) = two_chars_ci("char-ci<?", args)?;
+        Ok(Value::Bool(a < b))
+    });
+    register_fn(env, "char-ci>?", |args| {
+        let (a, b) = two_chars_ci("char-ci>?", args)?;
+        Ok(Value::Bool(a > b))
+    });
+    register_fn(env, "char-ci<=?", |args| {
+        let (a, b) = two_chars_ci("char-ci<=?", args)?;
+        Ok(Value::Bool(a <= b))
+    });
+    register_fn(env, "char-ci>=?", |args| {
+        let (a, b) = two_chars_ci("char-ci>=?", args)?;
+        Ok(Value::Bool(a >= b))
+    });
+
     register_fn(env, "list->string", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("list->string", "1", args.len()));
