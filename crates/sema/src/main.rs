@@ -300,18 +300,18 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
                 (
                     "value".to_string(),
                     serde_json::Value::String(sema_core::resolve(*s)),
-                    ),
-                    ]
-                    .into_iter()
-                    .collect(),
-                    ),
-                    Value::Keyword(s) => serde_json::Value::Object(
-                    [
-                    (
+                ),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        Value::Keyword(s) => serde_json::Value::Object(
+            [
+                (
                     "type".to_string(),
                     serde_json::Value::String("keyword".into()),
-                    ),
-                    (
+                ),
+                (
                     "value".to_string(),
                     serde_json::Value::String(sema_core::resolve(*s)),
                 ),

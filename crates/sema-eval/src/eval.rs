@@ -345,16 +345,12 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
                     let map_val = eval_value(&args[0], env)?;
                     let key = Value::Keyword(*spur);
                     match &map_val {
-                        Value::Map(map) => {
-                            Ok(Trampoline::Value(
-                                map.get(&key).cloned().unwrap_or(Value::Nil),
-                            ))
-                        }
-                        Value::HashMap(map) => {
-                            Ok(Trampoline::Value(
-                                map.get(&key).cloned().unwrap_or(Value::Nil),
-                            ))
-                        }
+                        Value::Map(map) => Ok(Trampoline::Value(
+                            map.get(&key).cloned().unwrap_or(Value::Nil),
+                        )),
+                        Value::HashMap(map) => Ok(Trampoline::Value(
+                            map.get(&key).cloned().unwrap_or(Value::Nil),
+                        )),
                         _ => Err(SemaError::type_error("map", map_val.type_name())),
                     }
                 }

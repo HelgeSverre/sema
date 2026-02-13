@@ -363,7 +363,8 @@ pub fn register(env: &sema_core::Env) {
         }
         match &args[0] {
             Value::HashMap(hm) => {
-                let map: BTreeMap<Value, Value> = hm.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                let map: BTreeMap<Value, Value> =
+                    hm.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 Ok(Value::Map(Rc::new(map)))
             }
             _ => Err(SemaError::type_error("hashmap", args[0].type_name())),

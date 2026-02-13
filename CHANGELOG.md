@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+- **Character type** — First-class `#\a` syntax with named characters (`#\space`, `#\newline`, `#\tab`, `#\return`, `#\nul`). `char?`, `char-alphabetic?`, `char-numeric?`, `char-whitespace?`, `char-upper-case?`, `char-lower-case?` predicates. `char-upcase`, `char-downcase` case conversion. `char->integer`, `integer->char`, `char->string`, `string->char`, `string->list`, `list->string` conversions.
+- **Lazy evaluation** — `delay`/`force` with memoized promises. `promise?` and `promise-forced?` predicates. `force` on non-promise passes through (R7RS compatible).
+- **Proper `do` loop** — R7RS `(do ((var init step) ...) (test result ...) body ...)` with parallel variable assignment. Replaces previous `do` alias for `begin`.
+- **Car/cdr compositions** — 12 shortcut functions: `caar`, `cadr`, `cdar`, `cddr`, `caaar`, `caadr`, `cadar`, `caddr`, `cdaar`, `cdadr`, `cddar`, `cdddr`.
+- **Association lists** — `assoc` now dual-purpose: `(assoc key alist)` for alist lookup, `(assoc map key val ...)` for map assoc. New `assq` and `assv` functions.
+
+### Changed
+- `string-ref` now returns `Value::Char` instead of a single-character string
+- `string/chars` now returns a list of `Char` values instead of single-character strings
+- `do` is no longer an alias for `begin` — it is now a proper Scheme iteration form
+
 ## 0.3.0
 
 ### Performance

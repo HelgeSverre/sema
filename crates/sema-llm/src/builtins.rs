@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use sema_core::{Conversation, Env, Message, NativeFn, Prompt, Role, SemaError, Value, resolve};
+use sema_core::{resolve, Conversation, Env, Message, NativeFn, Prompt, Role, SemaError, Value};
 
 use crate::anthropic::AnthropicProvider;
 use crate::embeddings::{CohereEmbeddingProvider, OpenAiCompatEmbeddingProvider};
@@ -1959,9 +1959,7 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
                                         Value::String(s) => {
                                             serde_json::Value::String(s.to_string())
                                         }
-                                        Value::Keyword(s) => {
-                                            serde_json::Value::String(resolve(*s))
-                                        }
+                                        Value::Keyword(s) => serde_json::Value::String(resolve(*s)),
                                         _ => serde_json::Value::String(v.to_string()),
                                     })
                                     .collect();
