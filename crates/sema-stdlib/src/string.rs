@@ -39,7 +39,7 @@ pub fn register(env: &sema_core::Env) {
             as usize;
         s.chars()
             .nth(idx)
-            .map(|c| Value::String(Rc::new(c.to_string())))
+            .map(Value::Char)
             .ok_or_else(|| SemaError::eval(format!("string-ref: index {idx} out of bounds")))
     });
 
@@ -335,10 +335,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let chars: Vec<Value> = s
-            .chars()
-            .map(|c| Value::String(Rc::new(c.to_string())))
-            .collect();
+        let chars: Vec<Value> = s.chars().map(Value::Char).collect();
         Ok(Value::list(chars))
     });
 
@@ -439,5 +436,157 @@ pub fn register(env: &sema_core::Env) {
             let padding: String = std::iter::repeat_n(pad_char, width - s.len()).collect();
             Ok(Value::String(Rc::new(format!("{}{}", s, padding))))
         }
+    });
+
+    // Character functions
+
+    register_fn(env, "char->integer", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char->integer", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::Int(c as i64))
+    });
+
+    register_fn(env, "integer->char", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("integer->char", "1", args.len()));
+        }
+        let n = args[0]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+        let c = char::from_u32(n as u32)
+            .ok_or_else(|| SemaError::eval(format!("integer->char: invalid codepoint {n}")))?;
+        Ok(Value::Char(c))
+    });
+
+    register_fn(env, "char-alphabetic?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char-alphabetic?", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::Bool(c.is_alphabetic()))
+    });
+
+    register_fn(env, "char-numeric?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char-numeric?", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::Bool(c.is_numeric()))
+    });
+
+    register_fn(env, "char-whitespace?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char-whitespace?", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::Bool(c.is_whitespace()))
+    });
+
+    register_fn(env, "char-upper-case?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char-upper-case?", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::Bool(c.is_uppercase()))
+    });
+
+    register_fn(env, "char-lower-case?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char-lower-case?", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::Bool(c.is_lowercase()))
+    });
+
+    register_fn(env, "char-upcase", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char-upcase", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::Char(c.to_uppercase().next().unwrap_or(c)))
+    });
+
+    register_fn(env, "char-downcase", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char-downcase", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::Char(c.to_lowercase().next().unwrap_or(c)))
+    });
+
+    register_fn(env, "char->string", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char->string", "1", args.len()));
+        }
+        let c = args[0]
+            .as_char()
+            .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
+        Ok(Value::String(Rc::new(c.to_string())))
+    });
+
+    register_fn(env, "string->char", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string->char", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let mut chars = s.chars();
+        let c = chars
+            .next()
+            .ok_or_else(|| SemaError::eval("string->char: empty string"))?;
+        if chars.next().is_some() {
+            return Err(SemaError::eval(
+                "string->char: string must have exactly one character",
+            ));
+        }
+        Ok(Value::Char(c))
+    });
+
+    register_fn(env, "string->list", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string->list", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let chars: Vec<Value> = s.chars().map(Value::Char).collect();
+        Ok(Value::list(chars))
+    });
+
+    register_fn(env, "list->string", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list->string", "1", args.len()));
+        }
+        let items = match &args[0] {
+            Value::List(l) => l.as_ref(),
+            _ => return Err(SemaError::type_error("list", args[0].type_name())),
+        };
+        let mut s = String::with_capacity(items.len());
+        for item in items {
+            let c = item
+                .as_char()
+                .ok_or_else(|| SemaError::type_error("char", item.type_name()))?;
+            s.push(c);
+        }
+        Ok(Value::String(Rc::new(s)))
     });
 }

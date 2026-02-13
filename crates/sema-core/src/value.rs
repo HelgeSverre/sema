@@ -77,6 +77,31 @@ pub struct Macro {
     pub name: String,
 }
 
+/// A lazy promise: delay/force with memoization.
+pub struct Thunk {
+    pub body: Value,
+    pub forced: RefCell<Option<Value>>,
+}
+
+impl fmt::Debug for Thunk {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.forced.borrow().is_some() {
+            write!(f, "<promise (forced)>")
+        } else {
+            write!(f, "<promise>")
+        }
+    }
+}
+
+impl Clone for Thunk {
+    fn clone(&self) -> Self {
+        Thunk {
+            body: self.body.clone(),
+            forced: RefCell::new(self.forced.borrow().clone()),
+        }
+    }
+}
+
 /// A message role in a conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Role {
@@ -147,6 +172,7 @@ pub enum Value {
     String(Rc<String>),
     Symbol(Spur),
     Keyword(Spur),
+    Char(char),
     List(Rc<Vec<Value>>),
     Vector(Rc<Vec<Value>>),
     Map(Rc<BTreeMap<Value, Value>>),
@@ -159,6 +185,7 @@ pub enum Value {
     Conversation(Rc<Conversation>),
     ToolDef(Rc<ToolDefinition>),
     Agent(Rc<Agent>),
+    Thunk(Rc<Thunk>),
 }
 
 impl Value {
@@ -171,6 +198,7 @@ impl Value {
             Value::String(_) => "string",
             Value::Symbol(_) => "symbol",
             Value::Keyword(_) => "keyword",
+            Value::Char(_) => "char",
             Value::List(_) => "list",
             Value::Vector(_) => "vector",
             Value::Map(_) => "map",
@@ -183,6 +211,7 @@ impl Value {
             Value::Conversation(_) => "conversation",
             Value::ToolDef(_) => "tool",
             Value::Agent(_) => "agent",
+            Value::Thunk(_) => "promise",
         }
     }
 
@@ -240,6 +269,13 @@ impl Value {
         }
     }
 
+    pub fn as_char(&self) -> Option<char> {
+        match self {
+            Value::Char(c) => Some(*c),
+            _ => None,
+        }
+    }
+
     pub fn as_list(&self) -> Option<&[Value]> {
         match self {
             Value::List(v) => Some(v),
@@ -253,6 +289,10 @@ impl Value {
 
     pub fn keyword(s: &str) -> Value {
         Value::Keyword(intern(s))
+    }
+
+    pub fn char(c: char) -> Value {
+        Value::Char(c)
     }
 
     pub fn string(s: &str) -> Value {
@@ -284,6 +324,7 @@ impl Hash for Value {
             Value::String(s) => s.hash(state),
             Value::Symbol(s) => s.hash(state),
             Value::Keyword(s) => s.hash(state),
+            Value::Char(c) => c.hash(state),
             Value::List(l) => l.hash(state),
             Value::Vector(v) => v.hash(state),
             _ => {}
@@ -302,6 +343,7 @@ impl PartialEq for Value {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Symbol(a), Value::Symbol(b)) => a == b,
             (Value::Keyword(a), Value::Keyword(b)) => a == b,
+            (Value::Char(a), Value::Char(b)) => a == b,
             (Value::List(a), Value::List(b)) => a == b,
             (Value::Vector(a), Value::Vector(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
@@ -328,14 +370,15 @@ impl Ord for Value {
                 Value::Bool(_) => 1,
                 Value::Int(_) => 2,
                 Value::Float(_) => 3,
-                Value::String(_) => 4,
-                Value::Symbol(_) => 5,
-                Value::Keyword(_) => 6,
-                Value::List(_) => 7,
-                Value::Vector(_) => 8,
-                Value::Map(_) => 9,
-                Value::HashMap(_) => 10,
-                _ => 11,
+                Value::Char(_) => 4,
+                Value::String(_) => 5,
+                Value::Symbol(_) => 6,
+                Value::Keyword(_) => 7,
+                Value::List(_) => 8,
+                Value::Vector(_) => 9,
+                Value::Map(_) => 10,
+                Value::HashMap(_) => 11,
+                _ => 12,
             }
         }
         match (self, other) {
@@ -346,6 +389,7 @@ impl Ord for Value {
             (Value::String(a), Value::String(b)) => a.cmp(b),
             (Value::Symbol(a), Value::Symbol(b)) => compare_spurs(*a, *b),
             (Value::Keyword(a), Value::Keyword(b)) => compare_spurs(*a, *b),
+            (Value::Char(a), Value::Char(b)) => a.cmp(b),
             (Value::List(a), Value::List(b)) => a.cmp(b),
             (Value::Vector(a), Value::Vector(b)) => a.cmp(b),
             _ => type_order(self).cmp(&type_order(other)),
@@ -376,6 +420,14 @@ impl fmt::Display for Value {
                 let name = resolve(*s);
                 write!(f, ":{name}")
             }
+            Value::Char(c) => match c {
+                ' ' => write!(f, "#\\space"),
+                '\n' => write!(f, "#\\newline"),
+                '\t' => write!(f, "#\\tab"),
+                '\r' => write!(f, "#\\return"),
+                '\0' => write!(f, "#\\nul"),
+                _ => write!(f, "#\\{c}"),
+            },
             Value::List(items) => {
                 write!(f, "(")?;
                 for (i, item) in items.iter().enumerate() {
@@ -434,6 +486,13 @@ impl fmt::Display for Value {
             }
             Value::ToolDef(t) => write!(f, "<tool {}>", t.name),
             Value::Agent(a) => write!(f, "<agent {}>", a.name),
+            Value::Thunk(t) => {
+                if t.forced.borrow().is_some() {
+                    write!(f, "<promise (forced)>")
+                } else {
+                    write!(f, "<promise>")
+                }
+            }
         }
     }
 }

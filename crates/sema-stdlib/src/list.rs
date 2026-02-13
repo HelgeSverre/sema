@@ -11,7 +11,6 @@ struct SpecialFormSpurs {
     quote: Spur,
     if_: Spur,
     begin: Spur,
-    do_: Spur,
     let_: Spur,
     let_star: Spur,
     cond: Spur,
@@ -45,7 +44,6 @@ impl SpecialFormSpurs {
             quote: sema_core::intern("quote"),
             if_: sema_core::intern("if"),
             begin: sema_core::intern("begin"),
-            do_: sema_core::intern("do"),
             let_: sema_core::intern("let"),
             let_star: sema_core::intern("let*"),
             cond: sema_core::intern("cond"),
@@ -670,6 +668,55 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::list(result))
     });
+
+    // Car/cdr compositions (2-deep)
+    register_fn(env, "caar", |args| first(&[first(args)?]));
+    register_fn(env, "cadr", |args| first(&[rest(args)?]));
+    register_fn(env, "cdar", |args| rest(&[first(args)?]));
+    register_fn(env, "cddr", |args| rest(&[rest(args)?]));
+
+    // Car/cdr compositions (3-deep)
+    register_fn(env, "caaar", |args| first(&[first(&[first(args)?])?]));
+    register_fn(env, "caadr", |args| first(&[first(&[rest(args)?])?]));
+    register_fn(env, "cadar", |args| first(&[rest(&[first(args)?])?]));
+    register_fn(env, "caddr", |args| first(&[rest(&[rest(args)?])?]));
+    register_fn(env, "cdaar", |args| rest(&[first(&[first(args)?])?]));
+    register_fn(env, "cdadr", |args| rest(&[first(&[rest(args)?])?]));
+    register_fn(env, "cddar", |args| rest(&[rest(&[first(args)?])?]));
+    register_fn(env, "cdddr", |args| rest(&[rest(&[rest(args)?])?]));
+
+    // Association list functions (assoc is dual-purpose in map.rs)
+    register_fn(env, "assq", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("assq", "2", args.len()));
+        }
+        let key = &args[0];
+        let alist = get_sequence(&args[1], "assq")?;
+        for pair in &alist {
+            if let Value::List(p) = pair {
+                if !p.is_empty() && &p[0] == key {
+                    return Ok(pair.clone());
+                }
+            }
+        }
+        Ok(Value::Bool(false))
+    });
+
+    register_fn(env, "assv", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("assv", "2", args.len()));
+        }
+        let key = &args[0];
+        let alist = get_sequence(&args[1], "assv")?;
+        for pair in &alist {
+            if let Value::List(p) = pair {
+                if !p.is_empty() && &p[0] == key {
+                    return Ok(pair.clone());
+                }
+            }
+        }
+        Ok(Value::Bool(false))
+    });
 }
 
 fn first(args: &[Value]) -> Result<Value, SemaError> {
@@ -772,7 +819,11 @@ fn fast_parse_number(s: &str) -> Option<Value> {
     }
     if i == bytes.len() {
         // Pure integer
-        return Some(Value::Int(if negative { -integer_part } else { integer_part }));
+        return Some(Value::Int(if negative {
+            -integer_part
+        } else {
+            integer_part
+        }));
     }
     // Has decimal point
     if bytes[i] != b'.' {
@@ -914,81 +965,38 @@ pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                     } else {
                         return Ok(Value::Nil);
                     }
-                } else if head_spur == sf.begin || head_spur == sf.do_ {
+                } else if head_spur == sf.begin {
                     let mut result = Value::Nil;
                     for item in &items[1..] {
                         result = sema_eval_value(item, env)?;
                     }
                     return Ok(result);
                 } else if head_spur == sf.let_ {
-                        if items.len() < 3 {
-                            return Err(SemaError::eval("let: expected bindings and body"));
+                    if items.len() < 3 {
+                        return Err(SemaError::eval("let: expected bindings and body"));
+                    }
+                    // Named let: (let name ((var init) ...) body...)
+                    if let Value::Symbol(loop_name_spur) = items[1] {
+                        let loop_name = sema_core::resolve(loop_name_spur);
+                        if items.len() < 4 {
+                            return Err(SemaError::eval("named let: expected bindings and body"));
                         }
-                        // Named let: (let name ((var init) ...) body...)
-                        if let Value::Symbol(loop_name_spur) = items[1] {
-                            let loop_name = sema_core::resolve(loop_name_spur);
-                            if items.len() < 4 {
-                                return Err(SemaError::eval(
-                                    "named let: expected bindings and body",
-                                ));
-                            }
-                            let bindings = match &items[2] {
-                                Value::List(l) => l.as_ref(),
-                                _ => {
-                                    return Err(SemaError::eval("named let: expected binding list"))
-                                }
-                            };
-                            let mut params = Vec::new();
-                            let mut init_vals = Vec::new();
-                            for binding in bindings {
-                                match binding {
-                                    Value::List(pair) if pair.len() == 2 => {
-                                        if let Value::Symbol(p_spur) = pair[0] {
-                                            params.push(sema_core::resolve(p_spur));
-                                            init_vals.push(sema_eval_value(&pair[1], env)?);
-                                        } else {
-                                            return Err(SemaError::eval(
-                                                "let: binding name must be symbol",
-                                            ));
-                                        }
-                                    }
-                                    _ => {
-                                        return Err(SemaError::eval(
-                                            "let: each binding must be (name value)",
-                                        ))
-                                    }
-                                }
-                            }
-                            let body: Vec<Value> = items[3..].to_vec();
-                            let lambda = Value::Lambda(Rc::new(Lambda {
-                                params: params.clone(),
-                                rest_param: None,
-                                body,
-                                env: env.clone(),
-                                name: Some(loop_name.clone()),
-                            }));
-                            let child = Env::with_parent(Rc::new(env.clone()));
-                            child.set(sema_core::intern(&loop_name), lambda.clone());
-                            for (p, v) in params.iter().zip(init_vals.iter()) {
-                                child.set(sema_core::intern(p), v.clone());
-                            }
-                            let mut result = Value::Nil;
-                            for item in &items[3..] {
-                                result = sema_eval_value(item, &child)?;
-                            }
-                            return Ok(result);
-                        }
-                        let bindings = match &items[1] {
+                        let bindings = match &items[2] {
                             Value::List(l) => l.as_ref(),
-                            _ => return Err(SemaError::eval("let: expected binding list")),
+                            _ => return Err(SemaError::eval("named let: expected binding list")),
                         };
-                        let child = Env::with_parent(Rc::new(env.clone()));
+                        let mut params = Vec::new();
+                        let mut init_vals = Vec::new();
                         for binding in bindings {
                             match binding {
                                 Value::List(pair) if pair.len() == 2 => {
-                                    if let Value::Symbol(name_spur) = pair[0] {
-                                        let val = sema_eval_value(&pair[1], env)?;
-                                        child.set(name_spur, val);
+                                    if let Value::Symbol(p_spur) = pair[0] {
+                                        params.push(sema_core::resolve(p_spur));
+                                        init_vals.push(sema_eval_value(&pair[1], env)?);
+                                    } else {
+                                        return Err(SemaError::eval(
+                                            "let: binding name must be symbol",
+                                        ));
                                     }
                                 }
                                 _ => {
@@ -998,55 +1006,85 @@ pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                                 }
                             }
                         }
+                        let body: Vec<Value> = items[3..].to_vec();
+                        let lambda = Value::Lambda(Rc::new(Lambda {
+                            params: params.clone(),
+                            rest_param: None,
+                            body,
+                            env: env.clone(),
+                            name: Some(loop_name.clone()),
+                        }));
+                        let child = Env::with_parent(Rc::new(env.clone()));
+                        child.set(sema_core::intern(&loop_name), lambda.clone());
+                        for (p, v) in params.iter().zip(init_vals.iter()) {
+                            child.set(sema_core::intern(p), v.clone());
+                        }
                         let mut result = Value::Nil;
-                        for item in &items[2..] {
+                        for item in &items[3..] {
                             result = sema_eval_value(item, &child)?;
                         }
                         return Ok(result);
-                } else if head_spur == sf.let_star {
-                        if items.len() < 3 {
-                            return Err(SemaError::eval("let*: expected bindings and body"));
-                        }
-                        let bindings = match &items[1] {
-                            Value::List(l) => l.as_ref(),
-                            _ => return Err(SemaError::eval("let*: expected binding list")),
-                        };
-                        let child = Env::with_parent(Rc::new(env.clone()));
-                        for binding in bindings {
-                            match binding {
-                                Value::List(pair) if pair.len() == 2 => {
-                                    if let Value::Symbol(name_spur) = pair[0] {
-                                        let val = sema_eval_value(&pair[1], &child)?;
-                                        child.set(name_spur, val);
-                                    }
-                                }
-                                _ => {
-                                    return Err(SemaError::eval(
-                                        "let*: each binding must be (name value)",
-                                    ))
+                    }
+                    let bindings = match &items[1] {
+                        Value::List(l) => l.as_ref(),
+                        _ => return Err(SemaError::eval("let: expected binding list")),
+                    };
+                    let child = Env::with_parent(Rc::new(env.clone()));
+                    for binding in bindings {
+                        match binding {
+                            Value::List(pair) if pair.len() == 2 => {
+                                if let Value::Symbol(name_spur) = pair[0] {
+                                    let val = sema_eval_value(&pair[1], env)?;
+                                    child.set(name_spur, val);
                                 }
                             }
+                            _ => {
+                                return Err(SemaError::eval(
+                                    "let: each binding must be (name value)",
+                                ))
+                            }
                         }
-                        let mut result = Value::Nil;
-                        for item in &items[2..] {
-                            result = sema_eval_value(item, &child)?;
+                    }
+                    let mut result = Value::Nil;
+                    for item in &items[2..] {
+                        result = sema_eval_value(item, &child)?;
+                    }
+                    return Ok(result);
+                } else if head_spur == sf.let_star {
+                    if items.len() < 3 {
+                        return Err(SemaError::eval("let*: expected bindings and body"));
+                    }
+                    let bindings = match &items[1] {
+                        Value::List(l) => l.as_ref(),
+                        _ => return Err(SemaError::eval("let*: expected binding list")),
+                    };
+                    let child = Env::with_parent(Rc::new(env.clone()));
+                    for binding in bindings {
+                        match binding {
+                            Value::List(pair) if pair.len() == 2 => {
+                                if let Value::Symbol(name_spur) = pair[0] {
+                                    let val = sema_eval_value(&pair[1], &child)?;
+                                    child.set(name_spur, val);
+                                }
+                            }
+                            _ => {
+                                return Err(SemaError::eval(
+                                    "let*: each binding must be (name value)",
+                                ))
+                            }
                         }
-                        return Ok(result);
+                    }
+                    let mut result = Value::Nil;
+                    for item in &items[2..] {
+                        result = sema_eval_value(item, &child)?;
+                    }
+                    return Ok(result);
                 } else if head_spur == sf.cond {
                     for clause in &items[1..] {
                         match clause {
                             Value::List(pair) if !pair.is_empty() => {
                                 if let Value::Symbol(s_spur) = pair[0] {
                                     if s_spur == sf.else_ {
-                                            let mut result = Value::Nil;
-                                            for expr in &pair[1..] {
-                                                result = sema_eval_value(expr, env)?;
-                                            }
-                                            return Ok(result);
-                                        }
-                                    }
-                                    let test = sema_eval_value(&pair[0], env)?;
-                                    if test.is_truthy() {
                                         let mut result = Value::Nil;
                                         for expr in &pair[1..] {
                                             result = sema_eval_value(expr, env)?;
@@ -1054,209 +1092,190 @@ pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                                         return Ok(result);
                                     }
                                 }
-                                _ => return Err(SemaError::eval("cond: expected clause list")),
+                                let test = sema_eval_value(&pair[0], env)?;
+                                if test.is_truthy() {
+                                    let mut result = Value::Nil;
+                                    for expr in &pair[1..] {
+                                        result = sema_eval_value(expr, env)?;
+                                    }
+                                    return Ok(result);
+                                }
                             }
+                            _ => return Err(SemaError::eval("cond: expected clause list")),
                         }
+                    }
                     return Ok(Value::Nil);
                 } else if head_spur == sf.when {
-                        if items.len() < 3 {
-                            return Err(SemaError::eval("when: expected test and body"));
+                    if items.len() < 3 {
+                        return Err(SemaError::eval("when: expected test and body"));
+                    }
+                    let test = sema_eval_value(&items[1], env)?;
+                    if test.is_truthy() {
+                        let mut result = Value::Nil;
+                        for item in &items[2..] {
+                            result = sema_eval_value(item, env)?;
                         }
-                        let test = sema_eval_value(&items[1], env)?;
-                        if test.is_truthy() {
-                            let mut result = Value::Nil;
-                            for item in &items[2..] {
-                                result = sema_eval_value(item, env)?;
-                            }
-                            return Ok(result);
-                        }
-                        return Ok(Value::Nil);
+                        return Ok(result);
+                    }
+                    return Ok(Value::Nil);
                 } else if head_spur == sf.unless {
-                        if items.len() < 3 {
-                            return Err(SemaError::eval("unless: expected test and body"));
+                    if items.len() < 3 {
+                        return Err(SemaError::eval("unless: expected test and body"));
+                    }
+                    let test = sema_eval_value(&items[1], env)?;
+                    if !test.is_truthy() {
+                        let mut result = Value::Nil;
+                        for item in &items[2..] {
+                            result = sema_eval_value(item, env)?;
                         }
-                        let test = sema_eval_value(&items[1], env)?;
-                        if !test.is_truthy() {
-                            let mut result = Value::Nil;
-                            for item in &items[2..] {
-                                result = sema_eval_value(item, env)?;
-                            }
+                        return Ok(result);
+                    }
+                    return Ok(Value::Nil);
+                } else if head_spur == sf.and {
+                    let mut result = Value::Bool(true);
+                    for item in &items[1..] {
+                        result = sema_eval_value(item, env)?;
+                        if !result.is_truthy() {
                             return Ok(result);
                         }
-                        return Ok(Value::Nil);
-                } else if head_spur == sf.and {
-                        let mut result = Value::Bool(true);
-                        for item in &items[1..] {
-                            result = sema_eval_value(item, env)?;
-                            if !result.is_truthy() {
-                                return Ok(result);
-                            }
-                        }
-                        return Ok(result);
+                    }
+                    return Ok(result);
                 } else if head_spur == sf.or {
-                        let mut result = Value::Bool(false);
-                        for item in &items[1..] {
-                            result = sema_eval_value(item, env)?;
-                            if result.is_truthy() {
-                                return Ok(result);
-                            }
+                    let mut result = Value::Bool(false);
+                    for item in &items[1..] {
+                        result = sema_eval_value(item, env)?;
+                        if result.is_truthy() {
+                            return Ok(result);
                         }
-                        return Ok(result);
+                    }
+                    return Ok(result);
                 } else if head_spur == sf.define {
-                        if items.len() < 3 {
-                            return Err(SemaError::eval("define: expected name and value"));
-                        }
-                        match &items[1] {
-                            Value::Symbol(name_spur) => {
-                                let val = sema_eval_value(&items[2], env)?;
-                                env.set(*name_spur, val);
-                                return Ok(Value::Nil);
-                            }
-                            Value::List(sig) if !sig.is_empty() => {
-                                if let Value::Symbol(name_spur) = sig[0] {
-                                    let name = sema_core::resolve(name_spur);
-                                    let params: Vec<String> = sig[1..]
-                                        .iter()
-                                        .filter_map(|v| {
-                                            if let Value::Symbol(s) = v {
-                                                Some(sema_core::resolve(*s))
-                                            } else {
-                                                None
-                                            }
-                                        })
-                                        .collect();
-                                    let body = items[2..].to_vec();
-                                    let lambda = Value::Lambda(Rc::new(Lambda {
-                                        params,
-                                        rest_param: None,
-                                        body,
-                                        env: env.clone(),
-                                        name: Some(name.clone()),
-                                    }));
-                                    env.set(name_spur, lambda);
-                                    return Ok(Value::Nil);
-                                }
-                                return Err(SemaError::eval("define: invalid function signature"));
-                            }
-                            _ => {
-                                return Err(SemaError::eval(
-                                    "define: expected symbol or function signature",
-                                ))
-                            }
-                        }
-                } else if head_spur == sf.set_bang {
-                        if items.len() != 3 {
-                            return Err(SemaError::eval("set!: expected name and value"));
-                        }
-                        if let Value::Symbol(name_spur) = items[1] {
+                    if items.len() < 3 {
+                        return Err(SemaError::eval("define: expected name and value"));
+                    }
+                    match &items[1] {
+                        Value::Symbol(name_spur) => {
                             let val = sema_eval_value(&items[2], env)?;
-                            if !env.set_existing(name_spur, val.clone()) {
-                                env.set(name_spur, val);
-                            }
+                            env.set(*name_spur, val);
                             return Ok(Value::Nil);
                         }
-                        return Err(SemaError::eval("set!: expected symbol"));
-                } else if head_spur == sf.lambda || head_spur == sf.fn_ {
-                        if items.len() < 3 {
-                            return Err(SemaError::eval("lambda: expected params and body"));
-                        }
-                        let (params, rest_param) = match &items[1] {
-                            Value::List(l) => {
-                                let mut params = Vec::new();
-                                let mut rest = None;
-                                let mut saw_dot = false;
-                                for p in l.iter() {
-                                    if let Value::Symbol(s) = p {
-                                        if *s == sf.dot {
-                                            saw_dot = true;
-                                        } else if saw_dot {
-                                            rest = Some(sema_core::resolve(*s));
+                        Value::List(sig) if !sig.is_empty() => {
+                            if let Value::Symbol(name_spur) = sig[0] {
+                                let name = sema_core::resolve(name_spur);
+                                let params: Vec<String> = sig[1..]
+                                    .iter()
+                                    .filter_map(|v| {
+                                        if let Value::Symbol(s) = v {
+                                            Some(sema_core::resolve(*s))
                                         } else {
-                                            params.push(sema_core::resolve(*s));
+                                            None
                                         }
+                                    })
+                                    .collect();
+                                let body = items[2..].to_vec();
+                                let lambda = Value::Lambda(Rc::new(Lambda {
+                                    params,
+                                    rest_param: None,
+                                    body,
+                                    env: env.clone(),
+                                    name: Some(name.clone()),
+                                }));
+                                env.set(name_spur, lambda);
+                                return Ok(Value::Nil);
+                            }
+                            return Err(SemaError::eval("define: invalid function signature"));
+                        }
+                        _ => {
+                            return Err(SemaError::eval(
+                                "define: expected symbol or function signature",
+                            ))
+                        }
+                    }
+                } else if head_spur == sf.set_bang {
+                    if items.len() != 3 {
+                        return Err(SemaError::eval("set!: expected name and value"));
+                    }
+                    if let Value::Symbol(name_spur) = items[1] {
+                        let val = sema_eval_value(&items[2], env)?;
+                        if !env.set_existing(name_spur, val.clone()) {
+                            env.set(name_spur, val);
+                        }
+                        return Ok(Value::Nil);
+                    }
+                    return Err(SemaError::eval("set!: expected symbol"));
+                } else if head_spur == sf.lambda || head_spur == sf.fn_ {
+                    if items.len() < 3 {
+                        return Err(SemaError::eval("lambda: expected params and body"));
+                    }
+                    let (params, rest_param) = match &items[1] {
+                        Value::List(l) => {
+                            let mut params = Vec::new();
+                            let mut rest = None;
+                            let mut saw_dot = false;
+                            for p in l.iter() {
+                                if let Value::Symbol(s) = p {
+                                    if *s == sf.dot {
+                                        saw_dot = true;
+                                    } else if saw_dot {
+                                        rest = Some(sema_core::resolve(*s));
+                                    } else {
+                                        params.push(sema_core::resolve(*s));
                                     }
                                 }
-                                (params, rest)
                             }
-                            _ => return Err(SemaError::eval("lambda: expected parameter list")),
-                        };
-                        let body = items[2..].to_vec();
-                        return Ok(Value::Lambda(Rc::new(Lambda {
-                            params,
-                            rest_param,
-                            body,
-                            env: env.clone(),
-                            name: None,
-                        })));
+                            (params, rest)
+                        }
+                        _ => return Err(SemaError::eval("lambda: expected parameter list")),
+                    };
+                    let body = items[2..].to_vec();
+                    return Ok(Value::Lambda(Rc::new(Lambda {
+                        params,
+                        rest_param,
+                        body,
+                        env: env.clone(),
+                        name: None,
+                    })));
                 } else if head_spur == sf.assoc {
-                        if items.len() >= 4 && items.len() % 2 == 0 {
-                            // Try to TAKE the map from env if it's a symbol not used in key/val exprs
-                            if let Value::Symbol(sym_spur) = items[1] {
-                                let sym = sema_core::resolve(sym_spur);
-                                if !symbol_appears_in(&sym, &items[2..]) {
-                                    match env.take_anywhere(sym_spur) {
-                                        Some(Value::Map(mut map_rc)) => {
-                                            let map = Rc::make_mut(&mut map_rc);
-                                            for pair in items[2..].chunks(2) {
-                                                let key = sema_eval_value(&pair[0], env)?;
-                                                let val = sema_eval_value(&pair[1], env)?;
-                                                map.insert(key, val);
-                                            }
-                                            return Ok(Value::Map(map_rc));
+                    if items.len() >= 4 && items.len() % 2 == 0 {
+                        // Try to TAKE the map from env if it's a symbol not used in key/val exprs
+                        if let Value::Symbol(sym_spur) = items[1] {
+                            let sym = sema_core::resolve(sym_spur);
+                            if !symbol_appears_in(&sym, &items[2..]) {
+                                match env.take_anywhere(sym_spur) {
+                                    Some(Value::Map(mut map_rc)) => {
+                                        let map = Rc::make_mut(&mut map_rc);
+                                        for pair in items[2..].chunks(2) {
+                                            let key = sema_eval_value(&pair[0], env)?;
+                                            let val = sema_eval_value(&pair[1], env)?;
+                                            map.insert(key, val);
                                         }
-                                        Some(Value::HashMap(mut map_rc)) => {
-                                            let map = Rc::make_mut(&mut map_rc);
-                                            for pair in items[2..].chunks(2) {
-                                                let key = sema_eval_value(&pair[0], env)?;
-                                                let val = sema_eval_value(&pair[1], env)?;
-                                                map.insert(key, val);
-                                            }
-                                            return Ok(Value::HashMap(map_rc));
-                                        }
-                                        Some(other) => {
-                                            env.set(sym_spur, other);
-                                            let func_val = sema_eval_value(&items[0], env)?;
-                                            let mut args = Vec::with_capacity(items.len() - 1);
-                                            for arg in &items[1..] {
-                                                args.push(sema_eval_value(arg, env)?);
-                                            }
-                                            return call_function(&func_val, &args);
-                                        }
-                                        None => {
-                                            let func_val = sema_eval_value(&items[0], env)?;
-                                            let mut args = Vec::with_capacity(items.len() - 1);
-                                            for arg in &items[1..] {
-                                                args.push(sema_eval_value(arg, env)?);
-                                            }
-                                            return call_function(&func_val, &args);
-                                        }
+                                        return Ok(Value::Map(map_rc));
                                     }
-                                } else {
-                                    match sema_eval_value(&items[1], env)? {
-                                        Value::Map(mut map_rc) => {
-                                            let map = Rc::make_mut(&mut map_rc);
-                                            for pair in items[2..].chunks(2) {
-                                                let key = sema_eval_value(&pair[0], env)?;
-                                                let val = sema_eval_value(&pair[1], env)?;
-                                                map.insert(key, val);
-                                            }
-                                            return Ok(Value::Map(map_rc));
+                                    Some(Value::HashMap(mut map_rc)) => {
+                                        let map = Rc::make_mut(&mut map_rc);
+                                        for pair in items[2..].chunks(2) {
+                                            let key = sema_eval_value(&pair[0], env)?;
+                                            let val = sema_eval_value(&pair[1], env)?;
+                                            map.insert(key, val);
                                         }
-                                        Value::HashMap(mut map_rc) => {
-                                            let map = Rc::make_mut(&mut map_rc);
-                                            for pair in items[2..].chunks(2) {
-                                                let key = sema_eval_value(&pair[0], env)?;
-                                                let val = sema_eval_value(&pair[1], env)?;
-                                                map.insert(key, val);
-                                            }
-                                            return Ok(Value::HashMap(map_rc));
+                                        return Ok(Value::HashMap(map_rc));
+                                    }
+                                    Some(other) => {
+                                        env.set(sym_spur, other);
+                                        let func_val = sema_eval_value(&items[0], env)?;
+                                        let mut args = Vec::with_capacity(items.len() - 1);
+                                        for arg in &items[1..] {
+                                            args.push(sema_eval_value(arg, env)?);
                                         }
-                                        other => {
-                                            return Err(SemaError::type_error(
-                                                "map or hashmap",
-                                                other.type_name(),
-                                            ))
+                                        return call_function(&func_val, &args);
+                                    }
+                                    None => {
+                                        let func_val = sema_eval_value(&items[0], env)?;
+                                        let mut args = Vec::with_capacity(items.len() - 1);
+                                        for arg in &items[1..] {
+                                            args.push(sema_eval_value(arg, env)?);
                                         }
+                                        return call_function(&func_val, &args);
                                     }
                                 }
                             } else {
@@ -1280,193 +1299,220 @@ pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                                         return Ok(Value::HashMap(map_rc));
                                     }
                                     other => {
-                                        return Err(SemaError::type_error("map or hashmap", other.type_name()))
+                                        return Err(SemaError::type_error(
+                                            "map or hashmap",
+                                            other.type_name(),
+                                        ))
                                     }
                                 }
-                            };
-                        }
+                            }
+                        } else {
+                            match sema_eval_value(&items[1], env)? {
+                                Value::Map(mut map_rc) => {
+                                    let map = Rc::make_mut(&mut map_rc);
+                                    for pair in items[2..].chunks(2) {
+                                        let key = sema_eval_value(&pair[0], env)?;
+                                        let val = sema_eval_value(&pair[1], env)?;
+                                        map.insert(key, val);
+                                    }
+                                    return Ok(Value::Map(map_rc));
+                                }
+                                Value::HashMap(mut map_rc) => {
+                                    let map = Rc::make_mut(&mut map_rc);
+                                    for pair in items[2..].chunks(2) {
+                                        let key = sema_eval_value(&pair[0], env)?;
+                                        let val = sema_eval_value(&pair[1], env)?;
+                                        map.insert(key, val);
+                                    }
+                                    return Ok(Value::HashMap(map_rc));
+                                }
+                                other => {
+                                    return Err(SemaError::type_error(
+                                        "map or hashmap",
+                                        other.type_name(),
+                                    ))
+                                }
+                            }
+                        };
+                    }
                 } else if head_spur == sf.get {
-                        if items.len() == 3 || items.len() == 4 {
-                            let map_val = sema_eval_value(&items[1], env)?;
-                            let key = sema_eval_value(&items[2], env)?;
-                            let default = if items.len() == 4 {
-                                sema_eval_value(&items[3], env)?
-                            } else {
-                                Value::Nil
-                            };
-                            match &map_val {
-                                Value::Map(m) => {
-                                    return Ok(m.get(&key).cloned().unwrap_or(default));
-                                }
-                                Value::HashMap(m) => {
-                                    return Ok(m.get(&key).cloned().unwrap_or(default));
-                                }
-                                _ => {
-                                    return Err(SemaError::type_error("map or hashmap", map_val.type_name()));
-                                }
+                    if items.len() == 3 || items.len() == 4 {
+                        let map_val = sema_eval_value(&items[1], env)?;
+                        let key = sema_eval_value(&items[2], env)?;
+                        let default = if items.len() == 4 {
+                            sema_eval_value(&items[3], env)?
+                        } else {
+                            Value::Nil
+                        };
+                        match &map_val {
+                            Value::Map(m) => {
+                                return Ok(m.get(&key).cloned().unwrap_or(default));
+                            }
+                            Value::HashMap(m) => {
+                                return Ok(m.get(&key).cloned().unwrap_or(default));
+                            }
+                            _ => {
+                                return Err(SemaError::type_error(
+                                    "map or hashmap",
+                                    map_val.type_name(),
+                                ));
                             }
                         }
+                    }
                 } else if head_spur == sf.nil_q {
-                        if items.len() == 2 {
-                            let val = sema_eval_value(&items[1], env)?;
-                            return Ok(Value::Bool(matches!(val, Value::Nil)));
-                        }
+                    if items.len() == 2 {
+                        let val = sema_eval_value(&items[1], env)?;
+                        return Ok(Value::Bool(matches!(val, Value::Nil)));
+                    }
                 } else if head_spur == sf.plus {
-                        if items.len() == 3 {
-                            let a = sema_eval_value(&items[1], env)?;
-                            let b = sema_eval_value(&items[2], env)?;
-                            return match (&a, &b) {
-                                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x + y)),
-                                (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
-                                (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 + y)),
-                                (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x + *y as f64)),
-                                _ => Err(SemaError::type_error("number", a.type_name())),
-                            };
-                        }
+                    if items.len() == 3 {
+                        let a = sema_eval_value(&items[1], env)?;
+                        let b = sema_eval_value(&items[2], env)?;
+                        return match (&a, &b) {
+                            (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x + y)),
+                            (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
+                            (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 + y)),
+                            (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x + *y as f64)),
+                            _ => Err(SemaError::type_error("number", a.type_name())),
+                        };
+                    }
                 } else if head_spur == sf.eq {
-                        if items.len() == 3 {
-                            let a = sema_eval_value(&items[1], env)?;
-                            let b = sema_eval_value(&items[2], env)?;
-                            return Ok(Value::Bool(match (&a, &b) {
-                                (Value::Int(x), Value::Int(y)) => x == y,
-                                (Value::Int(x), Value::Float(y)) => (*x as f64) == *y,
-                                (Value::Float(x), Value::Int(y)) => *x == (*y as f64),
-                                (Value::Float(x), Value::Float(y)) => x == y,
-                                _ => a == b,
-                            }));
-                        }
+                    if items.len() == 3 {
+                        let a = sema_eval_value(&items[1], env)?;
+                        let b = sema_eval_value(&items[2], env)?;
+                        return Ok(Value::Bool(match (&a, &b) {
+                            (Value::Int(x), Value::Int(y)) => x == y,
+                            (Value::Int(x), Value::Float(y)) => (*x as f64) == *y,
+                            (Value::Float(x), Value::Int(y)) => *x == (*y as f64),
+                            (Value::Float(x), Value::Float(y)) => x == y,
+                            _ => a == b,
+                        }));
+                    }
                 } else if head_spur == sf.min {
-                        if items.len() == 3 {
-                            let a = sema_eval_value(&items[1], env)?;
-                            let b = sema_eval_value(&items[2], env)?;
-                            let a_lt_b = match (&a, &b) {
-                                (Value::Int(x), Value::Int(y)) => x < y,
-                                (Value::Float(x), Value::Float(y)) => x < y,
-                                (Value::Int(x), Value::Float(y)) => (*x as f64) < *y,
-                                (Value::Float(x), Value::Int(y)) => *x < (*y as f64),
-                                _ => return Err(SemaError::type_error("number", a.type_name())),
-                            };
-                            return Ok(if a_lt_b { a } else { b });
-                        }
+                    if items.len() == 3 {
+                        let a = sema_eval_value(&items[1], env)?;
+                        let b = sema_eval_value(&items[2], env)?;
+                        let a_lt_b = match (&a, &b) {
+                            (Value::Int(x), Value::Int(y)) => x < y,
+                            (Value::Float(x), Value::Float(y)) => x < y,
+                            (Value::Int(x), Value::Float(y)) => (*x as f64) < *y,
+                            (Value::Float(x), Value::Int(y)) => *x < (*y as f64),
+                            _ => return Err(SemaError::type_error("number", a.type_name())),
+                        };
+                        return Ok(if a_lt_b { a } else { b });
+                    }
                 } else if head_spur == sf.max {
-                        if items.len() == 3 {
-                            let a = sema_eval_value(&items[1], env)?;
-                            let b = sema_eval_value(&items[2], env)?;
-                            let a_gt_b = match (&a, &b) {
-                                (Value::Int(x), Value::Int(y)) => x > y,
-                                (Value::Float(x), Value::Float(y)) => x > y,
-                                (Value::Int(x), Value::Float(y)) => (*x as f64) > *y,
-                                (Value::Float(x), Value::Int(y)) => *x > (*y as f64),
-                                _ => return Err(SemaError::type_error("number", a.type_name())),
-                            };
-                            return Ok(if a_gt_b { a } else { b });
-                        }
+                    if items.len() == 3 {
+                        let a = sema_eval_value(&items[1], env)?;
+                        let b = sema_eval_value(&items[2], env)?;
+                        let a_gt_b = match (&a, &b) {
+                            (Value::Int(x), Value::Int(y)) => x > y,
+                            (Value::Float(x), Value::Float(y)) => x > y,
+                            (Value::Int(x), Value::Float(y)) => (*x as f64) > *y,
+                            (Value::Float(x), Value::Int(y)) => *x > (*y as f64),
+                            _ => return Err(SemaError::type_error("number", a.type_name())),
+                        };
+                        return Ok(if a_gt_b { a } else { b });
+                    }
                 } else if head_spur == sf.first {
-                        if items.len() == 2 {
-                            let val = sema_eval_value(&items[1], env)?;
-                            return match &val {
-                                Value::List(l) => Ok(l.first().cloned().unwrap_or(Value::Nil)),
-                                Value::Vector(v) => Ok(v.first().cloned().unwrap_or(Value::Nil)),
-                                _ => Err(SemaError::type_error("list or vector", val.type_name())),
-                            };
-                        }
+                    if items.len() == 2 {
+                        let val = sema_eval_value(&items[1], env)?;
+                        return match &val {
+                            Value::List(l) => Ok(l.first().cloned().unwrap_or(Value::Nil)),
+                            Value::Vector(v) => Ok(v.first().cloned().unwrap_or(Value::Nil)),
+                            _ => Err(SemaError::type_error("list or vector", val.type_name())),
+                        };
+                    }
                 } else if head_spur == sf.nth {
-                        if items.len() == 3 {
-                            let coll = sema_eval_value(&items[1], env)?;
-                            let idx_val = sema_eval_value(&items[2], env)?;
-                            if let Some(idx) = idx_val.as_int() {
-                                let idx = idx as usize;
-                                return match &coll {
-                                    Value::List(l) => l.get(idx).cloned().ok_or_else(|| {
-                                        SemaError::eval(format!(
-                                            "index {idx} out of bounds (length {})",
-                                            l.len()
-                                        ))
-                                    }),
-                                    Value::Vector(v) => v.get(idx).cloned().ok_or_else(|| {
-                                        SemaError::eval(format!(
-                                            "index {idx} out of bounds (length {})",
-                                            v.len()
-                                        ))
-                                    }),
-                                    _ => Err(SemaError::type_error(
-                                        "list or vector",
-                                        coll.type_name(),
-                                    )),
-                                };
-                            }
-                        }
-                } else if head_spur == sf.float {
-                        if items.len() == 2 {
-                            let val = sema_eval_value(&items[1], env)?;
-                            return match &val {
-                                Value::Int(n) => Ok(Value::Float(*n as f64)),
-                                Value::Float(_) => Ok(val),
-                                Value::String(s) => {
-                                    s.parse::<f64>().map(Value::Float).map_err(|_| {
-                                        SemaError::eval(format!("cannot convert '{s}' to float"))
-                                    })
-                                }
-                                _ => {
-                                    Err(SemaError::type_error("number or string", val.type_name()))
-                                }
+                    if items.len() == 3 {
+                        let coll = sema_eval_value(&items[1], env)?;
+                        let idx_val = sema_eval_value(&items[2], env)?;
+                        if let Some(idx) = idx_val.as_int() {
+                            let idx = idx as usize;
+                            return match &coll {
+                                Value::List(l) => l.get(idx).cloned().ok_or_else(|| {
+                                    SemaError::eval(format!(
+                                        "index {idx} out of bounds (length {})",
+                                        l.len()
+                                    ))
+                                }),
+                                Value::Vector(v) => v.get(idx).cloned().ok_or_else(|| {
+                                    SemaError::eval(format!(
+                                        "index {idx} out of bounds (length {})",
+                                        v.len()
+                                    ))
+                                }),
+                                _ => Err(SemaError::type_error("list or vector", coll.type_name())),
                             };
                         }
+                    }
+                } else if head_spur == sf.float {
+                    if items.len() == 2 {
+                        let val = sema_eval_value(&items[1], env)?;
+                        return match &val {
+                            Value::Int(n) => Ok(Value::Float(*n as f64)),
+                            Value::Float(_) => Ok(val),
+                            Value::String(s) => s.parse::<f64>().map(Value::Float).map_err(|_| {
+                                SemaError::eval(format!("cannot convert '{s}' to float"))
+                            }),
+                            _ => Err(SemaError::type_error("number or string", val.type_name())),
+                        };
+                    }
                 } else if head_spur == sf.string_split {
-                        if items.len() == 3 {
-                            let s_val = sema_eval_value(&items[1], env)?;
-                            let sep_val = sema_eval_value(&items[2], env)?;
-                            if let (Some(s), Some(sep)) = (s_val.as_str(), sep_val.as_str()) {
-                                // Fast path for single-char separator
-                                if sep.len() == 1 {
-                                    let sep_byte = sep.as_bytes()[0];
-                                    let bytes = s.as_bytes();
-                                    if let Some(pos) = memchr::memchr(sep_byte, bytes) {
-                                        // Two-part split: most common case (e.g., CSV/1BRC)
-                                        let left = &s[..pos];
-                                        let right = &s[pos + 1..];
-                                        // Check if there are more parts
-                                        if memchr::memchr(sep_byte, right.as_bytes()).is_some() {
-                                            let parts: Vec<Value> =
-                                                s.split(sep).map(Value::string).collect();
-                                            return Ok(Value::list(parts));
-                                        }
-                                        return Ok(Value::list(vec![
-                                            Value::string(left),
-                                            Value::string(right),
-                                        ]));
-                                    } else {
-                                        return Ok(Value::list(vec![Value::string(s)]));
+                    if items.len() == 3 {
+                        let s_val = sema_eval_value(&items[1], env)?;
+                        let sep_val = sema_eval_value(&items[2], env)?;
+                        if let (Some(s), Some(sep)) = (s_val.as_str(), sep_val.as_str()) {
+                            // Fast path for single-char separator
+                            if sep.len() == 1 {
+                                let sep_byte = sep.as_bytes()[0];
+                                let bytes = s.as_bytes();
+                                if let Some(pos) = memchr::memchr(sep_byte, bytes) {
+                                    // Two-part split: most common case (e.g., CSV/1BRC)
+                                    let left = &s[..pos];
+                                    let right = &s[pos + 1..];
+                                    // Check if there are more parts
+                                    if memchr::memchr(sep_byte, right.as_bytes()).is_some() {
+                                        let parts: Vec<Value> =
+                                            s.split(sep).map(Value::string).collect();
+                                        return Ok(Value::list(parts));
                                     }
-                                }
-                                let parts: Vec<Value> = s.split(sep).map(Value::string).collect();
-                                return Ok(Value::list(parts));
-                            }
-                            if s_val.as_str().is_none() {
-                                return Err(SemaError::type_error("string", s_val.type_name()));
-                            }
-                            return Err(SemaError::type_error("string", sep_val.type_name()));
-                        }
-                } else if head_spur == sf.string_to_number {
-                        if items.len() == 2 {
-                            let val = sema_eval_value(&items[1], env)?;
-                            if let Some(s) = val.as_str() {
-                                // Fast path: try simple decimal format first (e.g., "-12.3", "4.5")
-                                if let Some(fast) = fast_parse_number(s) {
-                                    return Ok(fast);
-                                }
-                                if let Ok(n) = s.parse::<i64>() {
-                                    return Ok(Value::Int(n));
-                                } else if let Ok(f) = s.parse::<f64>() {
-                                    return Ok(Value::Float(f));
+                                    return Ok(Value::list(vec![
+                                        Value::string(left),
+                                        Value::string(right),
+                                    ]));
                                 } else {
-                                    return Err(SemaError::eval(format!(
-                                        "cannot parse '{s}' as number"
-                                    )));
+                                    return Ok(Value::list(vec![Value::string(s)]));
                                 }
                             }
-                            return Err(SemaError::type_error("string", val.type_name()));
+                            let parts: Vec<Value> = s.split(sep).map(Value::string).collect();
+                            return Ok(Value::list(parts));
                         }
+                        if s_val.as_str().is_none() {
+                            return Err(SemaError::type_error("string", s_val.type_name()));
+                        }
+                        return Err(SemaError::type_error("string", sep_val.type_name()));
+                    }
+                } else if head_spur == sf.string_to_number {
+                    if items.len() == 2 {
+                        let val = sema_eval_value(&items[1], env)?;
+                        if let Some(s) = val.as_str() {
+                            // Fast path: try simple decimal format first (e.g., "-12.3", "4.5")
+                            if let Some(fast) = fast_parse_number(s) {
+                                return Ok(fast);
+                            }
+                            if let Ok(n) = s.parse::<i64>() {
+                                return Ok(Value::Int(n));
+                            } else if let Ok(f) = s.parse::<f64>() {
+                                return Ok(Value::Float(f));
+                            } else {
+                                return Err(SemaError::eval(format!(
+                                    "cannot parse '{s}' as number"
+                                )));
+                            }
+                        }
+                        return Err(SemaError::type_error("string", val.type_name()));
+                    }
                 }
             }
             // Keywords in function position: (:key map)

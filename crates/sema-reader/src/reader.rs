@@ -199,6 +199,10 @@ impl Parser {
                 token: Token::Bool(b),
                 ..
             }) => Ok(Value::Bool(*b)),
+            Some(SpannedToken {
+                token: Token::Char(c),
+                ..
+            }) => Ok(Value::Char(*c)),
             Some(t) => Err(SemaError::Reader {
                 message: format!("unexpected token: {:?}", t.token),
                 span,
@@ -803,5 +807,48 @@ mod tests {
     fn test_read_unexpected_char() {
         assert!(read("@").is_err());
         assert!(read("$").is_err());
+    }
+
+    // ====== Character literal tests ======
+
+    #[test]
+    fn test_read_char_literal() {
+        assert_eq!(read("#\\a").unwrap(), Value::Char('a'));
+        assert_eq!(read("#\\Z").unwrap(), Value::Char('Z'));
+        assert_eq!(read("#\\0").unwrap(), Value::Char('0'));
+    }
+
+    #[test]
+    fn test_read_char_named() {
+        assert_eq!(read("#\\space").unwrap(), Value::Char(' '));
+        assert_eq!(read("#\\newline").unwrap(), Value::Char('\n'));
+        assert_eq!(read("#\\tab").unwrap(), Value::Char('\t'));
+        assert_eq!(read("#\\return").unwrap(), Value::Char('\r'));
+        assert_eq!(read("#\\nul").unwrap(), Value::Char('\0'));
+    }
+
+    #[test]
+    fn test_read_char_special() {
+        assert_eq!(read("#\\(").unwrap(), Value::Char('('));
+        assert_eq!(read("#\\)").unwrap(), Value::Char(')'));
+    }
+
+    #[test]
+    fn test_read_char_in_list() {
+        let result = read("(#\\a #\\b)").unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![Value::Char('a'), Value::Char('b')])
+        );
+    }
+
+    #[test]
+    fn test_read_char_unknown_name() {
+        assert!(read("#\\foobar").is_err());
+    }
+
+    #[test]
+    fn test_read_char_eof() {
+        assert!(read("#\\").is_err());
     }
 }
