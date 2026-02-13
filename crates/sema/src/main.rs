@@ -299,21 +299,21 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
                 ),
                 (
                     "value".to_string(),
-                    serde_json::Value::String(s.to_string()),
-                ),
-            ]
-            .into_iter()
-            .collect(),
-        ),
-        Value::Keyword(s) => serde_json::Value::Object(
-            [
-                (
+                    serde_json::Value::String(sema_core::resolve(*s)),
+                    ),
+                    ]
+                    .into_iter()
+                    .collect(),
+                    ),
+                    Value::Keyword(s) => serde_json::Value::Object(
+                    [
+                    (
                     "type".to_string(),
                     serde_json::Value::String("keyword".into()),
-                ),
-                (
+                    ),
+                    (
                     "value".to_string(),
-                    serde_json::Value::String(s.to_string()),
+                    serde_json::Value::String(sema_core::resolve(*s)),
                 ),
             ]
             .into_iter()
@@ -387,8 +387,8 @@ fn print_ast(val: &Value, indent: usize) {
         Value::Int(n) => println!("{pad}Int {n}"),
         Value::Float(f) => println!("{pad}Float {f}"),
         Value::String(s) => println!("{pad}String {s:?}"),
-        Value::Symbol(s) => println!("{pad}Symbol {s}"),
-        Value::Keyword(s) => println!("{pad}Keyword :{s}"),
+        Value::Symbol(s) => println!("{pad}Symbol {}", sema_core::resolve(*s)),
+        Value::Keyword(s) => println!("{pad}Keyword :{}", sema_core::resolve(*s)),
         Value::List(items) => {
             println!("{pad}List");
             for item in items.iter() {
@@ -569,7 +569,8 @@ fn print_env(interpreter: &Interpreter) {
     if user_bindings.is_empty() {
         println!("(no user-defined bindings)");
     } else {
-        for (name, val) in user_bindings {
+        for (spur, val) in user_bindings {
+            let name = sema_core::resolve(*spur);
             println!("  {name} = {val}");
         }
     }

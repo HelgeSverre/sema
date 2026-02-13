@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::rc::Rc;
 
-use sema_core::{CallFrame, Env, Lambda, SemaError, Span, SpanMap, StackTrace, Value};
+use sema_core::{resolve, CallFrame, Env, Lambda, SemaError, Span, SpanMap, StackTrace, Value};
 
 use crate::special_forms;
 
@@ -256,12 +256,13 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
             }
             Ok(Trampoline::Value(Value::Map(Rc::new(result))))
         }
+        Value::HashMap(_) => Ok(Trampoline::Value(expr.clone())),
 
         // Symbol lookup
-        Value::Symbol(name) => env
-            .get(name)
+        Value::Symbol(spur) => env
+            .get(*spur)
             .map(Trampoline::Value)
-            .ok_or_else(|| SemaError::Unbound(name.to_string())),
+            .ok_or_else(|| SemaError::Unbound(resolve(*spur))),
 
         // Function application / special forms
         Value::List(items) => {
@@ -273,8 +274,9 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
             let args = &items[1..];
 
             // Check for special forms (by symbol name)
-            if let Value::Symbol(name) = head {
-                if let Some(result) = special_forms::try_eval_special(name, args, env) {
+            if let Value::Symbol(spur) = head {
+                let name = resolve(*spur);
+                if let Some(result) = special_forms::try_eval_special(&name, args, env) {
                     return result;
                 }
             }
@@ -330,15 +332,21 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
                     // Evaluate the expansion in the current env (TCO)
                     Ok(Trampoline::Eval(expanded, env.clone()))
                 }
-                Value::Keyword(kw) => {
+                Value::Keyword(spur) => {
                     // Keywords as functions: (:key map) => (get map :key)
                     if args.len() != 1 {
-                        return Err(SemaError::arity(format!(":{kw}"), "1", args.len()));
+                        let name = resolve(*spur);
+                        return Err(SemaError::arity(format!(":{name}"), "1", args.len()));
                     }
                     let map_val = eval_value(&args[0], env)?;
+                    let key = Value::Keyword(*spur);
                     match &map_val {
                         Value::Map(map) => {
-                            let key = Value::Keyword(Rc::clone(kw));
+                            Ok(Trampoline::Value(
+                                map.get(&key).cloned().unwrap_or(Value::Nil),
+                            ))
+                        }
+                        Value::HashMap(map) => {
                             Ok(Trampoline::Value(
                                 map.get(&key).cloned().unwrap_or(Value::Nil),
                             ))
@@ -372,10 +380,10 @@ fn apply_lambda(lambda: &Lambda, args: &[Value]) -> Result<Trampoline, SemaError
             ));
         }
         for (param, arg) in lambda.params.iter().zip(args.iter()) {
-            new_env.set(param.clone(), arg.clone());
+            new_env.set(sema_core::intern(param), arg.clone());
         }
         let rest_args = args[lambda.params.len()..].to_vec();
-        new_env.set(rest.clone(), Value::list(rest_args));
+        new_env.set(sema_core::intern(rest), Value::list(rest_args));
     } else {
         if args.len() != lambda.params.len() {
             return Err(SemaError::arity(
@@ -385,14 +393,14 @@ fn apply_lambda(lambda: &Lambda, args: &[Value]) -> Result<Trampoline, SemaError
             ));
         }
         for (param, arg) in lambda.params.iter().zip(args.iter()) {
-            new_env.set(param.clone(), arg.clone());
+            new_env.set(sema_core::intern(param), arg.clone());
         }
     }
 
     // Self-reference for recursion
     if let Some(ref name) = lambda.name {
         new_env.set(
-            name.clone(),
+            sema_core::intern(name),
             Value::Lambda(Rc::new(Lambda {
                 params: lambda.params.clone(),
                 rest_param: lambda.rest_param.clone(),
@@ -434,10 +442,10 @@ pub fn apply_macro(
             ));
         }
         for (param, arg) in mac.params.iter().zip(args.iter()) {
-            env.set(param.clone(), arg.clone());
+            env.set(sema_core::intern(param), arg.clone());
         }
         let rest_args = args[mac.params.len()..].to_vec();
-        env.set(rest.clone(), Value::list(rest_args));
+        env.set(sema_core::intern(rest), Value::list(rest_args));
     } else {
         if args.len() != mac.params.len() {
             return Err(SemaError::arity(
@@ -447,7 +455,7 @@ pub fn apply_macro(
             ));
         }
         for (param, arg) in mac.params.iter().zip(args.iter()) {
-            env.set(param.clone(), arg.clone());
+            env.set(sema_core::intern(param), arg.clone());
         }
     }
 

@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
+use hashbrown::HashMap as HBHashMap;
 use sema_core::{SemaError, Value};
 
 use crate::list::call_function;
@@ -31,7 +32,8 @@ pub fn register(env: &sema_core::Env) {
         };
         match &args[0] {
             Value::Map(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
-            _ => Err(SemaError::type_error("map", args[0].type_name())),
+            Value::HashMap(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
         }
     });
 
@@ -41,17 +43,29 @@ pub fn register(env: &sema_core::Env) {
                 "assoc: requires map and even number of key-value pairs",
             ));
         }
-        let mut map = match args[0].clone() {
-            Value::Map(m) => match Rc::try_unwrap(m) {
-                Ok(map) => map,
-                Err(m) => m.as_ref().clone(),
-            },
-            _ => return Err(SemaError::type_error("map", args[0].type_name())),
-        };
-        for pair in args[1..].chunks(2) {
-            map.insert(pair[0].clone(), pair[1].clone());
+        match args[0].clone() {
+            Value::Map(m) => {
+                let mut map = match Rc::try_unwrap(m) {
+                    Ok(map) => map,
+                    Err(m) => m.as_ref().clone(),
+                };
+                for pair in args[1..].chunks(2) {
+                    map.insert(pair[0].clone(), pair[1].clone());
+                }
+                Ok(Value::Map(Rc::new(map)))
+            }
+            Value::HashMap(m) => {
+                let mut map = match Rc::try_unwrap(m) {
+                    Ok(map) => map,
+                    Err(m) => m.as_ref().clone(),
+                };
+                for pair in args[1..].chunks(2) {
+                    map.insert(pair[0].clone(), pair[1].clone());
+                }
+                Ok(Value::HashMap(Rc::new(map)))
+            }
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
         }
-        Ok(Value::Map(Rc::new(map)))
     });
 
     register_fn(env, "dissoc", |args| {
@@ -77,7 +91,8 @@ pub fn register(env: &sema_core::Env) {
         }
         match &args[0] {
             Value::Map(map) => Ok(Value::list(map.keys().cloned().collect())),
-            _ => Err(SemaError::type_error("map", args[0].type_name())),
+            Value::HashMap(map) => Ok(Value::list(map.keys().cloned().collect())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
         }
     });
 
@@ -87,7 +102,8 @@ pub fn register(env: &sema_core::Env) {
         }
         match &args[0] {
             Value::Map(map) => Ok(Value::list(map.values().cloned().collect())),
-            _ => Err(SemaError::type_error("map", args[0].type_name())),
+            Value::HashMap(map) => Ok(Value::list(map.values().cloned().collect())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
         }
     });
 
@@ -112,7 +128,8 @@ pub fn register(env: &sema_core::Env) {
         }
         match &args[0] {
             Value::Map(map) => Ok(Value::Bool(map.contains_key(&args[1]))),
-            _ => Err(SemaError::type_error("map", args[0].type_name())),
+            Value::HashMap(map) => Ok(Value::Bool(map.contains_key(&args[1]))),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
         }
     });
 
@@ -122,6 +139,7 @@ pub fn register(env: &sema_core::Env) {
         }
         match &args[0] {
             Value::Map(m) => Ok(Value::Int(m.len() as i64)),
+            Value::HashMap(m) => Ok(Value::Int(m.len() as i64)),
             Value::List(l) => Ok(Value::Int(l.len() as i64)),
             Value::Vector(v) => Ok(Value::Int(v.len() as i64)),
             Value::String(s) => Ok(Value::Int(s.len() as i64)),
@@ -136,6 +154,7 @@ pub fn register(env: &sema_core::Env) {
         }
         match &args[0] {
             Value::Map(m) => Ok(Value::Bool(m.is_empty())),
+            Value::HashMap(m) => Ok(Value::Bool(m.is_empty())),
             Value::List(l) => Ok(Value::Bool(l.is_empty())),
             Value::Vector(v) => Ok(Value::Bool(v.is_empty())),
             Value::String(s) => Ok(Value::Bool(s.is_empty())),
@@ -271,5 +290,88 @@ pub fn register(env: &sema_core::Env) {
         let new_val = call_function(&args[2], &[current])?;
         map.insert(key.clone(), new_val);
         Ok(Value::Map(Rc::new(map)))
+    });
+
+    // --- hashmap builtins ---
+
+    register_fn(env, "hashmap/new", |args| {
+        if args.len() % 2 != 0 {
+            return Err(SemaError::eval(
+                "hashmap/new: requires even number of arguments",
+            ));
+        }
+        let mut map = HBHashMap::with_capacity(args.len() / 2);
+        for pair in args.chunks(2) {
+            map.insert(pair[0].clone(), pair[1].clone());
+        }
+        Ok(Value::HashMap(Rc::new(map)))
+    });
+
+    register_fn(env, "hashmap/get", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("hashmap/get", "2-3", args.len()));
+        }
+        let default = if args.len() == 3 {
+            args[2].clone()
+        } else {
+            Value::Nil
+        };
+        match &args[0] {
+            Value::HashMap(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
+            Value::Map(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
+            _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "hashmap/assoc", |args| {
+        if args.len() < 3 || args.len() % 2 != 1 {
+            return Err(SemaError::eval(
+                "hashmap/assoc: requires hashmap and even number of key-value pairs",
+            ));
+        }
+        let mut map = match args[0].clone() {
+            Value::HashMap(m) => match Rc::try_unwrap(m) {
+                Ok(map) => map,
+                Err(m) => m.as_ref().clone(),
+            },
+            _ => return Err(SemaError::type_error("hashmap", args[0].type_name())),
+        };
+        for pair in args[1..].chunks(2) {
+            map.insert(pair[0].clone(), pair[1].clone());
+        }
+        Ok(Value::HashMap(Rc::new(map)))
+    });
+
+    register_fn(env, "hashmap/to-map", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("hashmap/to-map", "1", args.len()));
+        }
+        match &args[0] {
+            Value::HashMap(hm) => {
+                let map: BTreeMap<Value, Value> = hm.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                Ok(Value::Map(Rc::new(map)))
+            }
+            _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "hashmap/keys", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("hashmap/keys", "1", args.len()));
+        }
+        match &args[0] {
+            Value::HashMap(map) => Ok(Value::list(map.keys().cloned().collect())),
+            _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "hashmap/contains?", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("hashmap/contains?", "2", args.len()));
+        }
+        match &args[0] {
+            Value::HashMap(map) => Ok(Value::Bool(map.contains_key(&args[1]))),
+            _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
+        }
     });
 }

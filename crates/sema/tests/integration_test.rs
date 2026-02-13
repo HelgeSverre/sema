@@ -685,7 +685,7 @@ fn test_gensym() {
     // gensym with prefix
     let result = eval(r#"(gensym "tmp")"#);
     if let Value::Symbol(s) = &result {
-        assert!(s.starts_with("tmp__"));
+        assert!(sema_core::resolve(*s).starts_with("tmp__"));
     } else {
         panic!("expected symbol");
     }
@@ -4782,4 +4782,77 @@ fn test_ast_parse_error() {
         stderr.contains("Parse error"),
         "expected parse error: {stderr}"
     );
+}
+
+#[test]
+fn test_string_split_memchr() {
+    // Basic split
+    assert_eq!(
+        eval_to_string(r#"(string/split "a;b;c" ";")"#),
+        r#"("a" "b" "c")"#
+    );
+    // Two-part split (1BRC hot path)
+    assert_eq!(
+        eval_to_string(r#"(string/split "Berlin;12.3" ";")"#),
+        r#"("Berlin" "12.3")"#
+    );
+    // No match
+    assert_eq!(
+        eval_to_string(r#"(string/split "hello" ";")"#),
+        r#"("hello")"#
+    );
+    // Multi-char separator
+    assert_eq!(
+        eval_to_string(r#"(string/split "a::b::c" "::")"#),
+        r#"("a" "b" "c")"#
+    );
+    // Empty parts
+    assert_eq!(
+        eval_to_string(r#"(string/split "a;;b" ";")"#),
+        r#"("a" "" "b")"#
+    );
+}
+
+#[test]
+fn test_hashmap_basic() {
+    assert_eq!(eval_to_string("(hashmap/get (hashmap/new :a 1 :b 2) :a)"), "1");
+    assert_eq!(eval_to_string("(hashmap/get (hashmap/new :a 1 :b 2) :c)"), "nil");
+    assert_eq!(eval_to_string("(hashmap/get (hashmap/new :a 1) :a 99)"), "1");
+    assert_eq!(eval_to_string("(hashmap/get (hashmap/new) :a 99)"), "99");
+}
+
+#[test]
+fn test_hashmap_assoc() {
+    assert_eq!(
+        eval_to_string("(hashmap/get (hashmap/assoc (hashmap/new) :a 1) :a)"),
+        "1"
+    );
+}
+
+#[test]
+fn test_hashmap_to_map() {
+    assert_eq!(
+        eval_to_string("(hashmap/to-map (hashmap/new :b 2 :a 1))"),
+        "{:a 1 :b 2}"
+    );
+}
+
+#[test]
+fn test_hashmap_keys() {
+    assert_eq!(
+        eval_to_string("(sort (hashmap/keys (hashmap/new :b 2 :a 1)))"),
+        "(:a :b)"
+    );
+}
+
+#[test]
+fn test_hashmap_generic_ops() {
+    assert_eq!(eval_to_string("(get (hashmap/new :a 1) :a)"), "1");
+    assert_eq!(eval_to_string("(get (assoc (hashmap/new) :a 1) :a)"), "1");
+    assert_eq!(eval_to_string("(sort (keys (hashmap/new :b 2 :a 1)))"), "(:a :b)");
+    assert_eq!(eval_to_string("(contains? (hashmap/new :a 1) :a)"), "#t");
+    assert_eq!(eval_to_string("(count (hashmap/new :a 1 :b 2))"), "2");
+    assert_eq!(eval_to_string("(empty? (hashmap/new))"), "#t");
+    assert_eq!(eval_to_string("(empty? (hashmap/new :a 1))"), "#f");
+    assert_eq!(eval_to_string("(length (hashmap/new :a 1 :b 2))"), "2");
 }

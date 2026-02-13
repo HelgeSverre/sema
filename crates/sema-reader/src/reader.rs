@@ -188,13 +188,13 @@ impl Parser {
                 if s == "nil" {
                     Ok(Value::Nil)
                 } else {
-                    Ok(Value::Symbol(Rc::new(s.clone())))
+                    Ok(Value::symbol(s))
                 }
             }
             Some(SpannedToken {
                 token: Token::Keyword(s),
                 ..
-            }) => Ok(Value::Keyword(Rc::new(s.clone()))),
+            }) => Ok(Value::keyword(s)),
             Some(SpannedToken {
                 token: Token::Bool(b),
                 ..

@@ -375,3 +375,33 @@ crates/sema/src/
 - Added `pair?` (non-empty list), `boolean?` (= `bool?`), `procedure?` (= `fn?`), `equal?` (= `eq?`)
 - Primary names remain `bool?`, `fn?`, `eq?` — aliases exist for Scheme compatibility
 - `pair?` is new functionality: returns `#t` for non-empty lists (Sema has no dotted pairs/improper lists, so `pair?` ≡ non-empty `list?`)
+
+## Performance Optimization Decisions
+
+### 43. String interning for symbols and keywords (lasso)
+
+- `Value::Symbol` and `Value::Keyword` store `Spur` (u32) instead of `Rc<String>`
+- `Env::bindings` changed from `BTreeMap<String, Value>` to `BTreeMap<Spur, Value>` for direct Spur-keyed lookups
+- Thread-local `Rodeo` interner, accessed via `intern()/resolve()/with_resolved()`
+- `Value::String` remains `Rc<String>` — arbitrary user strings are NOT interned
+- Eq comparison of symbols/keywords is now O(1) integer comparison
+- Ord comparison still resolves to lexicographic for deterministic BTreeMap ordering
+- Mini-eval special form dispatch uses pre-interned Spur constants for O(1) matching (no string comparison)
+- Consistent with existing `thread_local!` pattern (LLM provider, module cache)
+
+### 44. HashMap variant for performance-critical accumulation (hashbrown)
+
+- Added `Value::HashMap(Rc<hashbrown::HashMap<Value, Value>>)` as opt-in fast map
+- `hashmap/new`, `hashmap/get`, `hashmap/assoc`, `hashmap/to-map`, `hashmap/keys`, `hashmap/contains?` builtins
+- Existing `get`, `assoc`, `keys`, `vals`, `contains?`, `count`, `empty?` also work on HashMap
+- `Value::Map` (BTreeMap) remains the default for deterministic ordered output
+- HashMap used where O(1) lookup matters more than key ordering (e.g., 1BRC accumulator with ~400 entries)
+- `Hash` impl added for `Value`: hashes discriminant + inner value; functions/maps hash by discriminant only
+- COW optimization (Rc::make_mut) applies to HashMap assoc just like BTreeMap assoc
+- HashMap Display sorts entries for deterministic output
+
+### 45. SIMD byte search with memchr
+
+- `memchr` crate used in inlined `string/split` for single-byte separator search
+- Replaces `bytes.iter().position()` with `memchr::memchr()` (SIMD-optimized)
+- Minimal impact on short strings but beneficial for longer string processing

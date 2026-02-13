@@ -1,9 +1,48 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
+use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+use lasso::{Rodeo, Spur};
+
 use crate::error::SemaError;
+
+thread_local! {
+    static INTERNER: RefCell<Rodeo> = RefCell::new(Rodeo::default());
+}
+
+/// Intern a string, returning a Spur key.
+pub fn intern(s: &str) -> Spur {
+    INTERNER.with(|r| r.borrow_mut().get_or_intern(s))
+}
+
+/// Resolve a Spur key back to a String.
+pub fn resolve(spur: Spur) -> String {
+    INTERNER.with(|r| r.borrow().resolve(&spur).to_string())
+}
+
+/// Resolve a Spur and call f with the &str, avoiding allocation.
+pub fn with_resolved<F, R>(spur: Spur, f: F) -> R
+where
+    F: FnOnce(&str) -> R,
+{
+    INTERNER.with(|r| {
+        let interner = r.borrow();
+        f(interner.resolve(&spur))
+    })
+}
+
+/// Compare two Spurs by their resolved string content (lexicographic).
+pub fn compare_spurs(a: Spur, b: Spur) -> std::cmp::Ordering {
+    if a == b {
+        return std::cmp::Ordering::Equal;
+    }
+    INTERNER.with(|r| {
+        let interner = r.borrow();
+        interner.resolve(&a).cmp(interner.resolve(&b))
+    })
+}
 
 /// A native function callable from Sema.
 pub type NativeFnInner = dyn Fn(&[Value]) -> Result<Value, SemaError>;
@@ -106,11 +145,12 @@ pub enum Value {
     Int(i64),
     Float(f64),
     String(Rc<String>),
-    Symbol(Rc<String>),
-    Keyword(Rc<String>),
+    Symbol(Spur),
+    Keyword(Spur),
     List(Rc<Vec<Value>>),
     Vector(Rc<Vec<Value>>),
     Map(Rc<BTreeMap<Value, Value>>),
+    HashMap(Rc<hashbrown::HashMap<Value, Value>>),
     Lambda(Rc<Lambda>),
     Macro(Rc<Macro>),
     NativeFn(Rc<NativeFn>),
@@ -134,6 +174,7 @@ impl Value {
             Value::List(_) => "list",
             Value::Vector(_) => "vector",
             Value::Map(_) => "map",
+            Value::HashMap(_) => "hashmap",
             Value::Lambda(_) => "lambda",
             Value::Macro(_) => "macro",
             Value::NativeFn(_) => "native-fn",
@@ -171,16 +212,30 @@ impl Value {
         }
     }
 
-    pub fn as_symbol(&self) -> Option<&str> {
+    pub fn as_symbol(&self) -> Option<String> {
         match self {
-            Value::Symbol(s) => Some(s),
+            Value::Symbol(s) => Some(resolve(*s)),
             _ => None,
         }
     }
 
-    pub fn as_keyword(&self) -> Option<&str> {
+    pub fn as_keyword(&self) -> Option<String> {
         match self {
-            Value::Keyword(s) => Some(s),
+            Value::Keyword(s) => Some(resolve(*s)),
+            _ => None,
+        }
+    }
+
+    pub fn as_symbol_spur(&self) -> Option<Spur> {
+        match self {
+            Value::Symbol(s) => Some(*s),
+            _ => None,
+        }
+    }
+
+    pub fn as_keyword_spur(&self) -> Option<Spur> {
+        match self {
+            Value::Keyword(s) => Some(*s),
             _ => None,
         }
     }
@@ -193,11 +248,11 @@ impl Value {
     }
 
     pub fn symbol(s: &str) -> Value {
-        Value::Symbol(Rc::new(s.to_string()))
+        Value::Symbol(intern(s))
     }
 
     pub fn keyword(s: &str) -> Value {
-        Value::Keyword(Rc::new(s.to_string()))
+        Value::Keyword(intern(s))
     }
 
     pub fn string(s: &str) -> Value {
@@ -210,6 +265,29 @@ impl Value {
 
     pub fn vector(v: Vec<Value>) -> Value {
         Value::Vector(Rc::new(v))
+    }
+
+    pub fn hashmap(entries: Vec<(Value, Value)>) -> Value {
+        let map: hashbrown::HashMap<Value, Value> = entries.into_iter().collect();
+        Value::HashMap(Rc::new(map))
+    }
+}
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+        match self {
+            Value::Nil => {}
+            Value::Bool(b) => b.hash(state),
+            Value::Int(n) => n.hash(state),
+            Value::Float(f) => f.to_bits().hash(state),
+            Value::String(s) => s.hash(state),
+            Value::Symbol(s) => s.hash(state),
+            Value::Keyword(s) => s.hash(state),
+            Value::List(l) => l.hash(state),
+            Value::Vector(v) => v.hash(state),
+            _ => {}
+        }
     }
 }
 
@@ -227,6 +305,7 @@ impl PartialEq for Value {
             (Value::List(a), Value::List(b)) => a == b,
             (Value::Vector(a), Value::Vector(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
+            (Value::HashMap(a), Value::HashMap(b)) => a == b,
             _ => false,
         }
     }
@@ -255,7 +334,8 @@ impl Ord for Value {
                 Value::List(_) => 7,
                 Value::Vector(_) => 8,
                 Value::Map(_) => 9,
-                _ => 10,
+                Value::HashMap(_) => 10,
+                _ => 11,
             }
         }
         match (self, other) {
@@ -264,8 +344,8 @@ impl Ord for Value {
             (Value::Int(a), Value::Int(b)) => a.cmp(b),
             (Value::Float(a), Value::Float(b)) => a.to_bits().cmp(&b.to_bits()),
             (Value::String(a), Value::String(b)) => a.cmp(b),
-            (Value::Symbol(a), Value::Symbol(b)) => a.cmp(b),
-            (Value::Keyword(a), Value::Keyword(b)) => a.cmp(b),
+            (Value::Symbol(a), Value::Symbol(b)) => compare_spurs(*a, *b),
+            (Value::Keyword(a), Value::Keyword(b)) => compare_spurs(*a, *b),
             (Value::List(a), Value::List(b)) => a.cmp(b),
             (Value::Vector(a), Value::Vector(b)) => a.cmp(b),
             _ => type_order(self).cmp(&type_order(other)),
@@ -288,8 +368,14 @@ impl fmt::Display for Value {
                 }
             }
             Value::String(s) => write!(f, "\"{s}\""),
-            Value::Symbol(s) => write!(f, "{s}"),
-            Value::Keyword(s) => write!(f, ":{s}"),
+            Value::Symbol(s) => {
+                let name = resolve(*s);
+                write!(f, "{name}")
+            }
+            Value::Keyword(s) => {
+                let name = resolve(*s);
+                write!(f, ":{name}")
+            }
             Value::List(items) => {
                 write!(f, "(")?;
                 for (i, item) in items.iter().enumerate() {
@@ -313,6 +399,18 @@ impl fmt::Display for Value {
             Value::Map(map) => {
                 write!(f, "{{")?;
                 for (i, (k, v)) in map.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{k} {v}")?;
+                }
+                write!(f, "}}")
+            }
+            Value::HashMap(map) => {
+                let mut entries: Vec<_> = map.iter().collect();
+                entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+                write!(f, "{{")?;
+                for (i, (k, v)) in entries.iter().enumerate() {
                     if i > 0 {
                         write!(f, " ")?;
                     }
@@ -351,7 +449,7 @@ fn truncate(s: &str, max: usize) -> String {
 /// A Sema environment: a chain of scopes with bindings.
 #[derive(Debug, Clone)]
 pub struct Env {
-    pub bindings: Rc<RefCell<BTreeMap<String, Value>>>,
+    pub bindings: Rc<RefCell<BTreeMap<Spur, Value>>>,
     pub parent: Option<Rc<Env>>,
 }
 
@@ -370,8 +468,8 @@ impl Env {
         }
     }
 
-    pub fn get(&self, name: &str) -> Option<Value> {
-        if let Some(val) = self.bindings.borrow().get(name) {
+    pub fn get(&self, name: Spur) -> Option<Value> {
+        if let Some(val) = self.bindings.borrow().get(&name) {
             Some(val.clone())
         } else if let Some(parent) = &self.parent {
             parent.get(name)
@@ -380,28 +478,36 @@ impl Env {
         }
     }
 
-    pub fn set(&self, name: String, val: Value) {
+    pub fn get_str(&self, name: &str) -> Option<Value> {
+        self.get(intern(name))
+    }
+
+    pub fn set(&self, name: Spur, val: Value) {
         self.bindings.borrow_mut().insert(name, val);
     }
 
+    pub fn set_str(&self, name: &str, val: Value) {
+        self.set(intern(name), val);
+    }
+
     /// Update a binding that already exists in the current scope, avoiding key allocation.
-    pub fn update(&self, name: &str, val: Value) {
+    pub fn update(&self, name: Spur, val: Value) {
         let mut bindings = self.bindings.borrow_mut();
-        if let Some(entry) = bindings.get_mut(name) {
+        if let Some(entry) = bindings.get_mut(&name) {
             *entry = val;
         } else {
-            bindings.insert(name.to_string(), val);
+            bindings.insert(name, val);
         }
     }
 
     /// Remove and return a binding from the current scope only (not parents).
-    pub fn take(&self, name: &str) -> Option<Value> {
-        self.bindings.borrow_mut().remove(name)
+    pub fn take(&self, name: Spur) -> Option<Value> {
+        self.bindings.borrow_mut().remove(&name)
     }
 
     /// Remove and return a binding from any scope in the parent chain.
-    pub fn take_anywhere(&self, name: &str) -> Option<Value> {
-        if let Some(val) = self.bindings.borrow_mut().remove(name) {
+    pub fn take_anywhere(&self, name: Spur) -> Option<Value> {
+        if let Some(val) = self.bindings.borrow_mut().remove(&name) {
             Some(val)
         } else if let Some(parent) = &self.parent {
             parent.take_anywhere(name)
@@ -411,9 +517,9 @@ impl Env {
     }
 
     /// Set a variable in the scope where it's defined (for set!).
-    pub fn set_existing(&self, name: &str, val: Value) -> bool {
-        if self.bindings.borrow().contains_key(name) {
-            self.bindings.borrow_mut().insert(name.to_string(), val);
+    pub fn set_existing(&self, name: Spur, val: Value) -> bool {
+        if self.bindings.borrow().contains_key(&name) {
+            self.bindings.borrow_mut().insert(name, val);
             true
         } else if let Some(parent) = &self.parent {
             parent.set_existing(name, val)

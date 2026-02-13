@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use sema_core::{Conversation, Env, Message, NativeFn, Prompt, Role, SemaError, Value};
+use sema_core::{Conversation, Env, Message, NativeFn, Prompt, Role, SemaError, Value, resolve};
 
 use crate::anthropic::AnthropicProvider;
 use crate::embeddings::{CohereEmbeddingProvider, OpenAiCompatEmbeddingProvider};
@@ -46,7 +46,7 @@ fn full_eval(expr: &Value, env: &Env) -> Result<Value, SemaError> {
 
 fn register_fn(env: &Env, name: &str, f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static) {
     env.set(
-        name.to_string(),
+        sema_core::intern(name),
         Value::NativeFn(Rc::new(NativeFn {
             name: name.to_string(),
             func: Box::new(f),
@@ -173,7 +173,7 @@ pub fn register_llm_builtins(env: &Env) {
 
         PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
-            match provider_name {
+            match provider_name.as_str() {
                 "anthropic" => {
                     let api_key = api_key
                         .clone()
@@ -581,7 +581,7 @@ pub fn register_llm_builtins(env: &Env) {
                 }
                 if let Some(mode) = opts.get(&Value::keyword("tool-mode")) {
                     if let Some(s) = mode.as_keyword() {
-                        tool_mode = s.to_string();
+                        tool_mode = s;
                     }
                 }
                 if let Some(rounds) = opts.get(&Value::keyword("max-tool-rounds")) {
@@ -803,7 +803,7 @@ pub fn register_llm_builtins(env: &Env) {
         let cat_names: Vec<String> = categories
             .iter()
             .map(|c| match c {
-                Value::Keyword(s) => s.to_string(),
+                Value::Keyword(s) => resolve(*s),
                 Value::String(s) => s.to_string(),
                 other => other.to_string(),
             })
@@ -835,7 +835,7 @@ pub fn register_llm_builtins(env: &Env) {
         // Return as keyword if it was in the original list as keyword
         if categories
             .iter()
-            .any(|c| matches!(c, Value::Keyword(s) if s.as_ref() == &category))
+            .any(|c| matches!(c, Value::Keyword(s) if resolve(*s) == category))
         {
             Ok(Value::keyword(&category))
         } else {
@@ -854,9 +854,10 @@ pub fn register_llm_builtins(env: &Env) {
                 model = get_opt_string(opts, "model").unwrap_or_default();
                 for (k, v) in opts.iter() {
                     if let Value::Keyword(key) = k {
-                        if key.as_ref() != "model" {
+                        let key_str = resolve(*key);
+                        if key_str != "model" {
                             metadata.insert(
-                                key.to_string(),
+                                key_str,
                                 match v {
                                     Value::String(s) => s.to_string(),
                                     other => other.to_string(),
@@ -1355,7 +1356,7 @@ pub fn register_llm_builtins(env: &Env) {
 
         PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
-            match provider_name {
+            match provider_name.as_str() {
                 "jina" => {
                     let api_key = api_key
                         .clone()
@@ -1645,7 +1646,7 @@ pub fn register_llm_builtins(env: &Env) {
             _ => return Err(SemaError::type_error("conversation", args[0].type_name())),
         };
         let role = match &args[1] {
-            Value::Keyword(s) => match s.as_ref() as &str {
+            Value::Keyword(s) => match resolve(*s).as_str() {
                 "system" => Role::System,
                 "user" => Role::User,
                 "assistant" => Role::Assistant,
@@ -1689,13 +1690,13 @@ pub fn register_llm_builtins(env: &Env) {
         }
         let name = args[0]
             .as_keyword()
-            .or_else(|| args[0].as_str())
+            .or_else(|| args[0].as_str().map(|s| s.to_string()))
             .ok_or_else(|| SemaError::type_error("keyword or string", args[0].type_name()))?;
         PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
-            if reg.get(name).is_some() {
-                reg.set_default(name);
-                Ok(Value::keyword(name))
+            if reg.get(&name).is_some() {
+                reg.set_default(&name);
+                Ok(Value::keyword(&name))
             } else {
                 Err(SemaError::Llm(format!("provider not configured: {name}")))
             }
@@ -1848,7 +1849,7 @@ fn format_schema(val: &Value) -> String {
             let mut fields = Vec::new();
             for (k, v) in map.iter() {
                 let key = match k {
-                    Value::Keyword(s) => s.to_string(),
+                    Value::Keyword(s) => resolve(*s),
                     Value::String(s) => s.to_string(),
                     other => other.to_string(),
                 };
@@ -1856,7 +1857,7 @@ fn format_schema(val: &Value) -> String {
                     Value::Map(inner) => {
                         if let Some(t) = inner.get(&Value::keyword("type")) {
                             match t {
-                                Value::Keyword(s) => s.to_string(),
+                                Value::Keyword(s) => resolve(*s),
                                 Value::String(s) => s.to_string(),
                                 other => other.to_string(),
                             }
@@ -1926,7 +1927,7 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
             let mut required = Vec::new();
             for (k, v) in map.iter() {
                 let key = match k {
-                    Value::Keyword(s) => s.to_string(),
+                    Value::Keyword(s) => resolve(*s),
                     Value::String(s) => s.to_string(),
                     other => other.to_string(),
                 };
@@ -1935,7 +1936,7 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
                         let mut prop_obj = serde_json::Map::new();
                         if let Some(t) = inner.get(&Value::keyword("type")) {
                             let type_str = match t {
-                                Value::Keyword(s) => s.to_string(),
+                                Value::Keyword(s) => resolve(*s),
                                 Value::String(s) => s.to_string(),
                                 _ => "string".to_string(),
                             };
@@ -1959,7 +1960,7 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
                                             serde_json::Value::String(s.to_string())
                                         }
                                         Value::Keyword(s) => {
-                                            serde_json::Value::String(s.to_string())
+                                            serde_json::Value::String(resolve(*s))
                                         }
                                         _ => serde_json::Value::String(v.to_string()),
                                     })
@@ -2086,7 +2087,7 @@ fn json_args_to_sema(params: &Value, arguments: &serde_json::Value) -> Vec<Value
                 .keys()
                 .map(|k| {
                     let key_str = match k {
-                        Value::Keyword(s) => s.to_string(),
+                        Value::Keyword(s) => resolve(*s),
                         Value::String(s) => s.to_string(),
                         other => other.to_string(),
                     };
@@ -2120,10 +2121,10 @@ fn call_value_fn(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
                     ));
                 }
                 for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    env.set(param.clone(), arg.clone());
+                    env.set(sema_core::intern(param), arg.clone());
                 }
                 let rest_args = args[lambda.params.len()..].to_vec();
-                env.set(rest.clone(), Value::list(rest_args));
+                env.set(sema_core::intern(rest), Value::list(rest_args));
             } else {
                 if args.len() != lambda.params.len() {
                     return Err(SemaError::arity(
@@ -2133,13 +2134,13 @@ fn call_value_fn(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
                     ));
                 }
                 for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    env.set(param.clone(), arg.clone());
+                    env.set(sema_core::intern(param), arg.clone());
                 }
             }
             // Self-reference
             if let Some(ref name) = lambda.name {
                 env.set(
-                    name.clone(),
+                    sema_core::intern(name),
                     Value::Lambda(Rc::new(sema_core::Lambda {
                         params: lambda.params.clone(),
                         rest_param: lambda.rest_param.clone(),
@@ -2167,9 +2168,9 @@ fn call_value_fn(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
 /// Minimal evaluator for use within LLM builtins (avoids circular dep with sema-eval).
 fn simple_eval(expr: &Value, env: &Env) -> Result<Value, SemaError> {
     match expr {
-        Value::Symbol(name) => env
-            .get(name)
-            .ok_or_else(|| SemaError::Unbound(name.to_string())),
+        Value::Symbol(spur) => env
+            .get(*spur)
+            .ok_or_else(|| SemaError::Unbound(resolve(*spur))),
         Value::List(items) if !items.is_empty() => {
             let func_val = simple_eval(&items[0], env)?;
             let mut args = Vec::new();
@@ -2192,8 +2193,8 @@ pub fn sema_value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
             .map(serde_json::Value::Number)
             .ok_or_else(|| SemaError::eval("cannot encode NaN/Infinity as JSON")),
         Value::String(s) => Ok(serde_json::Value::String(s.to_string())),
-        Value::Keyword(s) => Ok(serde_json::Value::String(s.to_string())),
-        Value::Symbol(s) => Ok(serde_json::Value::String(s.to_string())),
+        Value::Keyword(s) => Ok(serde_json::Value::String(resolve(*s))),
+        Value::Symbol(s) => Ok(serde_json::Value::String(resolve(*s))),
         Value::List(items) | Value::Vector(items) => {
             let arr: Result<Vec<_>, _> = items.iter().map(sema_value_to_json).collect();
             Ok(serde_json::Value::Array(arr?))
@@ -2203,7 +2204,19 @@ pub fn sema_value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
             for (k, v) in map.iter() {
                 let key = match k {
                     Value::String(s) => s.to_string(),
-                    Value::Keyword(s) => s.to_string(),
+                    Value::Keyword(s) => resolve(*s),
+                    other => other.to_string(),
+                };
+                obj.insert(key, sema_value_to_json(v)?);
+            }
+            Ok(serde_json::Value::Object(obj))
+        }
+        Value::HashMap(map) => {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in map.iter() {
+                let key = match k {
+                    Value::String(s) => s.to_string(),
+                    Value::Keyword(s) => resolve(*s),
                     other => other.to_string(),
                 };
                 obj.insert(key, sema_value_to_json(v)?);

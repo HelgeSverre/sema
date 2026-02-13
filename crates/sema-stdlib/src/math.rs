@@ -136,8 +136,8 @@ pub fn register(env: &sema_core::Env) {
     });
 
     // Bind pi and e as constants (bare symbol access)
-    env.set("pi".to_string(), Value::Float(std::f64::consts::PI));
-    env.set("e".to_string(), Value::Float(std::f64::consts::E));
+    env.set_str("pi", Value::Float(std::f64::consts::PI));
+    env.set_str("e", Value::Float(std::f64::consts::E));
 
     register_fn(env, "int", |args| {
         if args.len() != 1 {

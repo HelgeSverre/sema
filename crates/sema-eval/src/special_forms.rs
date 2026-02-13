@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use sema_core::{Agent, Env, Lambda, Macro, SemaError, ToolDefinition, Value};
+use sema_core::{intern, resolve, Agent, Env, Lambda, Macro, SemaError, ToolDefinition, Value};
 
 use crate::eval::{self, Trampoline};
 
@@ -75,7 +75,7 @@ fn eval_cond(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             return Err(SemaError::eval("cond clause must not be empty"));
         }
         // (else body...) or (test body...)
-        let is_else = matches!(&items[0], Value::Symbol(s) if s.as_ref() == "else");
+        let is_else = matches!(&items[0], Value::Symbol(s) if resolve(*s) == "else");
         if is_else || eval::eval_value(&items[0], env)?.is_truthy() {
             if items.len() == 1 {
                 return Ok(Trampoline::Value(Value::Bool(true)));
@@ -96,12 +96,12 @@ fn eval_define(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     }
     match &args[0] {
         // (define x expr)
-        Value::Symbol(name) => {
+        Value::Symbol(spur) => {
             if args.len() != 2 {
                 return Err(SemaError::arity("define", "2", args.len()));
             }
             let val = eval::eval_value(&args[1], env)?;
-            env.set(name.to_string(), val);
+            env.set(*spur, val);
             Ok(Trampoline::Value(Value::Nil))
         }
         // (define (f x y) body...) => (define f (lambda (x y) body...))
@@ -133,7 +133,7 @@ fn eval_define(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
                 env: env.clone(),
                 name: Some(name.clone()),
             }));
-            env.set(name, lambda);
+            env.set(intern(&name), lambda);
             Ok(Trampoline::Value(Value::Nil))
         }
         other => Err(SemaError::type_error("symbol or list", other.type_name())),
@@ -166,12 +166,12 @@ fn eval_set(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if args.len() != 2 {
         return Err(SemaError::arity("set!", "2", args.len()));
     }
-    let name = args[0]
-        .as_symbol()
+    let spur = args[0]
+        .as_symbol_spur()
         .ok_or_else(|| SemaError::eval("set!: first argument must be a symbol"))?;
     let val = eval::eval_value(&args[1], env)?;
-    if !env.set_existing(name, val) {
-        return Err(SemaError::Unbound(name.to_string()));
+    if !env.set_existing(spur, val) {
+        return Err(SemaError::Unbound(resolve(spur)));
     }
     Ok(Trampoline::Value(Value::Nil))
 }
@@ -250,10 +250,10 @@ fn eval_let(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         // Build env with params bound + self-reference
         let new_env = Env::with_parent(Rc::new(env.clone()));
         for (p, v) in params.iter().zip(init_vals.iter()) {
-            new_env.set(p.clone(), v.clone());
+            new_env.set(intern(p), v.clone());
         }
         new_env.set(
-            loop_name.to_string(),
+            intern(&loop_name),
             Value::Lambda(Rc::new(Lambda {
                 params: lambda.params.clone(),
                 rest_param: None,
@@ -285,12 +285,12 @@ fn eval_let(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         if pair.len() != 2 {
             return Err(SemaError::eval("let: each binding must have 2 elements"));
         }
-        let name = pair[0]
-            .as_symbol()
+        let name_spur = pair[0]
+            .as_symbol_spur()
             .ok_or_else(|| SemaError::eval("let: binding name must be a symbol"))?;
         // Evaluate in the OUTER env for let (not let*)
         let val = eval::eval_value(&pair[1], env)?;
-        new_env.set(name.to_string(), val);
+        new_env.set(name_spur, val);
     }
 
     // Eval body with tail call on last expr
@@ -317,12 +317,12 @@ fn eval_let_star(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         if pair.len() != 2 {
             return Err(SemaError::eval("let*: each binding must have 2 elements"));
         }
-        let name = pair[0]
-            .as_symbol()
+        let name_spur = pair[0]
+            .as_symbol_spur()
             .ok_or_else(|| SemaError::eval("let*: binding name must be a symbol"))?;
         // Evaluate in the NEW env (sequential binding)
         let val = eval::eval_value(&pair[1], &new_env)?;
-        new_env.set(name.to_string(), val);
+        new_env.set(name_spur, val);
     }
 
     for expr in &args[1..args.len() - 1] {
@@ -342,7 +342,7 @@ fn eval_letrec(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     let new_env = Env::with_parent(Rc::new(env.clone()));
 
     // Pass 1: bind all names to Nil (placeholders)
-    let mut names = Vec::new();
+    let mut name_spurs = Vec::new();
     for binding in bindings {
         let pair = binding
             .as_list()
@@ -350,18 +350,18 @@ fn eval_letrec(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         if pair.len() != 2 {
             return Err(SemaError::eval("letrec: each binding must have 2 elements"));
         }
-        let name = pair[0]
-            .as_symbol()
+        let spur = pair[0]
+            .as_symbol_spur()
             .ok_or_else(|| SemaError::eval("letrec: binding name must be a symbol"))?;
-        names.push(name.to_string());
-        new_env.set(name.to_string(), Value::Nil);
+        name_spurs.push(spur);
+        new_env.set(spur, Value::Nil);
     }
 
     // Pass 2: evaluate init exprs in new env, update bindings
     for (i, binding) in bindings.iter().enumerate() {
         let pair = binding.as_list().unwrap();
         let val = eval::eval_value(&pair[1], &new_env)?;
-        new_env.set(names[i].clone(), val);
+        new_env.set(name_spurs[i], val);
     }
 
     // Eval body with tail call on last expr
@@ -465,7 +465,7 @@ fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         body,
         name: name.clone(),
     }));
-    env.set(name, mac);
+    env.set(intern(&name), mac);
     Ok(Trampoline::Value(Value::Nil))
 }
 
@@ -546,8 +546,8 @@ fn eval_prompt(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         if let Value::List(items) = arg {
             if !items.is_empty() {
                 if let Some(role_str) = items[0].as_symbol() {
-                    if role_names.contains(&role_str) {
-                        let role = match role_str {
+                    if role_names.contains(&role_str.as_str()) {
+                        let role = match role_str.as_str() {
                             "system" => Role::System,
                             "user" => Role::User,
                             "assistant" => Role::Assistant,
@@ -593,13 +593,16 @@ fn eval_message(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     }
     let role_val = eval::eval_value(&args[0], env)?;
     let role = match &role_val {
-        Value::Keyword(s) => match s.as_ref() as &str {
-            "system" => Role::System,
-            "user" => Role::User,
-            "assistant" => Role::Assistant,
-            "tool" => Role::Tool,
-            other => return Err(SemaError::eval(format!("message: unknown role '{other}'"))),
-        },
+        Value::Keyword(spur) => {
+            let s = resolve(*spur);
+            match s.as_str() {
+                "system" => Role::System,
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                "tool" => Role::Tool,
+                other => return Err(SemaError::eval(format!("message: unknown role '{other}'"))),
+            }
+        }
         other => return Err(SemaError::type_error("keyword", other.type_name())),
     };
     let mut content = String::new();
@@ -639,7 +642,7 @@ fn eval_deftool(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         parameters,
         handler,
     }));
-    env.set(name, tool.clone());
+    env.set(intern(&name), tool.clone());
     Ok(Trampoline::Value(tool))
 }
 
@@ -689,7 +692,7 @@ fn eval_defagent(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         max_turns,
         model,
     }));
-    env.set(name, agent.clone());
+    env.set(intern(&name), agent.clone());
     Ok(Trampoline::Value(agent))
 }
 
@@ -716,7 +719,7 @@ fn eval_try(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if catch_form.is_empty() {
         return Err(SemaError::eval("try: catch form is empty"));
     }
-    let is_catch = matches!(&catch_form[0], Value::Symbol(s) if s.as_ref() == "catch");
+    let is_catch = matches!(&catch_form[0], Value::Symbol(s) if resolve(*s) == "catch");
     if !is_catch {
         return Err(SemaError::eval(
             "try: last argument must be (catch var handler...)",
@@ -747,7 +750,7 @@ fn eval_try(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             // Convert error to a Sema value (map)
             let err_val = error_to_value(&err);
             let catch_env = Env::with_parent(Rc::new(env.clone()));
-            catch_env.set(catch_var, err_val);
+            catch_env.set(intern(&catch_var), err_val);
             // Eval handler with TCO on last expr
             for expr in &handler_body[..handler_body.len() - 1] {
                 eval::eval_value(expr, &catch_env)?;
@@ -863,7 +866,7 @@ fn eval_module(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         .as_list()
         .ok_or_else(|| SemaError::eval("module: second argument must be (export sym1 sym2 ...)"))?;
     if export_list.is_empty()
-        || !matches!(&export_list[0], Value::Symbol(s) if s.as_ref() == "export")
+        || !matches!(&export_list[0], Value::Symbol(s) if resolve(*s) == "export")
     {
         return Err(SemaError::eval(
             "module: second argument must start with 'export'",
@@ -973,13 +976,20 @@ fn collect_module_exports(
         Some(names) => {
             let mut exports = std::collections::BTreeMap::new();
             for name in names {
-                if let Some(val) = bindings.get(name) {
+                let spur = intern(name);
+                if let Some(val) = bindings.get(&spur) {
                     exports.insert(name.clone(), val.clone());
                 }
             }
             exports
         }
-        None => bindings.clone(),
+        None => {
+            let mut exports = std::collections::BTreeMap::new();
+            for (spur, val) in bindings.iter() {
+                exports.insert(resolve(*spur), val.clone());
+            }
+            exports
+        }
     }
 }
 
@@ -991,14 +1001,14 @@ fn copy_exports_to_env(
 ) -> Result<(), SemaError> {
     if selective.is_empty() {
         for (name, val) in exports {
-            env.set(name.clone(), val.clone());
+            env.set(intern(name), val.clone());
         }
     } else {
         for name in selective {
             let val = exports.get(name).ok_or_else(|| {
                 SemaError::eval(format!("import: module does not export '{name}'"))
             })?;
-            env.set(name.clone(), val.clone());
+            env.set(intern(name), val.clone());
         }
     }
     Ok(())
@@ -1065,7 +1075,7 @@ fn eval_case(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             return Err(SemaError::eval("case: clause must not be empty"));
         }
         // (else body...)
-        let is_else = matches!(&items[0], Value::Symbol(s) if s.as_ref() == "else");
+        let is_else = matches!(&items[0], Value::Symbol(s) if resolve(*s) == "else");
         if is_else {
             if items.len() == 1 {
                 return Ok(Trampoline::Value(Value::Nil));
@@ -1110,8 +1120,8 @@ fn eval_macroexpand(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> 
     // Check if it's a list starting with a macro name
     if let Value::List(items) = &form {
         if !items.is_empty() {
-            if let Value::Symbol(name) = &items[0] {
-                if let Some(Value::Macro(mac)) = env.get(name) {
+            if let Value::Symbol(spur) = &items[0] {
+                if let Some(Value::Macro(mac)) = env.get(*spur) {
                     let expanded = eval::apply_macro(&mac, &items[1..], env)?;
                     return Ok(Trampoline::Value(expanded));
                 }

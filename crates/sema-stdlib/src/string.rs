@@ -251,7 +251,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_symbol()
             .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(s.to_string())))
+        Ok(Value::String(Rc::new(s)))
     });
 
     register_fn(env, "string->keyword", |args| {
@@ -269,7 +269,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("keyword->string", "1", args.len()));
         }
         match &args[0] {
-            Value::Keyword(s) => Ok(Value::String(Rc::new(s.to_string()))),
+            Value::Keyword(s) => Ok(Value::String(Rc::new(sema_core::resolve(*s)))),
             other => Err(SemaError::type_error("keyword", other.type_name())),
         }
     });

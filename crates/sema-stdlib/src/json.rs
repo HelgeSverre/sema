@@ -48,8 +48,8 @@ pub fn value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
             .map(serde_json::Value::Number)
             .ok_or_else(|| SemaError::eval("json/encode: cannot encode NaN/Infinity")),
         Value::String(s) => Ok(serde_json::Value::String(s.to_string())),
-        Value::Keyword(s) => Ok(serde_json::Value::String(s.to_string())),
-        Value::Symbol(s) => Ok(serde_json::Value::String(s.to_string())),
+        Value::Keyword(s) => Ok(serde_json::Value::String(sema_core::resolve(*s))),
+        Value::Symbol(s) => Ok(serde_json::Value::String(sema_core::resolve(*s))),
         Value::List(items) | Value::Vector(items) => {
             let arr: Result<Vec<_>, _> = items.iter().map(value_to_json).collect();
             Ok(serde_json::Value::Array(arr?))
@@ -59,8 +59,21 @@ pub fn value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
             for (k, v) in map.iter() {
                 let key = match k {
                     Value::String(s) => s.to_string(),
-                    Value::Keyword(s) => s.to_string(),
-                    Value::Symbol(s) => s.to_string(),
+                    Value::Keyword(s) => sema_core::resolve(*s),
+                    Value::Symbol(s) => sema_core::resolve(*s),
+                    other => other.to_string(),
+                };
+                obj.insert(key, value_to_json(v)?);
+            }
+            Ok(serde_json::Value::Object(obj))
+        }
+        Value::HashMap(map) => {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in map.iter() {
+                let key = match k {
+                    Value::String(s) => s.to_string(),
+                    Value::Keyword(s) => sema_core::resolve(*s),
+                    Value::Symbol(s) => sema_core::resolve(*s),
                     other => other.to_string(),
                 };
                 obj.insert(key, value_to_json(v)?);

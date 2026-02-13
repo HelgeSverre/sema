@@ -46,7 +46,7 @@ fn register_fn(
     f: impl Fn(&[Value]) -> Result<Value, sema_core::SemaError> + 'static,
 ) {
     env.set(
-        name.to_string(),
+        sema_core::intern(name),
         Value::NativeFn(Rc::new(sema_core::NativeFn {
             name: name.to_string(),
             func: Box::new(f),

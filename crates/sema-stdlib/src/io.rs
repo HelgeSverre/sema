@@ -369,8 +369,8 @@ pub fn register(env: &sema_core::Env) {
         if let Value::Lambda(ref lambda) = func {
             if lambda.params.len() == 1 && lambda.rest_param.is_none() {
                 let lambda_env = Env::with_parent(Rc::new(lambda.env.clone()));
-                let param0 = &lambda.params[0];
-                lambda_env.set(param0.clone(), Value::Nil);
+                let param0_spur = sema_core::intern(&lambda.params[0]);
+                lambda_env.set(param0_spur, Value::Nil);
                 let mut line_buf = String::with_capacity(64);
                 loop {
                     line_buf.clear();
@@ -386,7 +386,7 @@ pub fn register(env: &sema_core::Env) {
                             line_buf.pop();
                         }
                     }
-                    lambda_env.update(param0, Value::String(Rc::new(line_buf.clone())));
+                    lambda_env.update(param0_spur, Value::String(Rc::new(line_buf.clone())));
                     for expr in &lambda.body {
                         sema_eval_value(expr, &lambda_env)?;
                     }
@@ -432,11 +432,11 @@ pub fn register(env: &sema_core::Env) {
         if let Value::Lambda(ref lambda) = func {
             if lambda.params.len() == 2 && lambda.rest_param.is_none() {
                 let lambda_env = Env::with_parent(Rc::new(lambda.env.clone()));
-                let param0 = &lambda.params[0];
-                let param1 = &lambda.params[1];
+                let param0_spur = sema_core::intern(&lambda.params[0]);
+                let param1_spur = sema_core::intern(&lambda.params[1]);
                 // Pre-populate keys so update() can find them
-                lambda_env.set(param0.clone(), Value::Nil);
-                lambda_env.set(param1.clone(), Value::Nil);
+                lambda_env.set(param0_spur, Value::Nil);
+                lambda_env.set(param1_spur, Value::Nil);
                 let mut line_buf = String::with_capacity(64);
                 loop {
                     line_buf.clear();
@@ -452,8 +452,8 @@ pub fn register(env: &sema_core::Env) {
                             line_buf.pop();
                         }
                     }
-                    lambda_env.update(param0, acc);
-                    lambda_env.update(param1, Value::String(Rc::new(line_buf.clone())));
+                    lambda_env.update(param0_spur, acc);
+                    lambda_env.update(param1_spur, Value::String(Rc::new(line_buf.clone())));
                     let mut result = Value::Nil;
                     for expr in &lambda.body {
                         result = sema_eval_value(expr, &lambda_env)?;

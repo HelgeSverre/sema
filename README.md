@@ -79,6 +79,7 @@ sema> (:name person)
 | List         | parenthesized        | `(1 2 3)`, `(+ a b)`            |
 | Vector       | bracketed            | `[1 2 3]`, `["a" "b"]`          |
 | Map          | curly-braced         | `{:name "Ada" :age 36}`         |
+| HashMap      | `(hashmap/new ...)`  | `(hashmap/new :a 1 :b 2)`      |
 | Prompt       | `(prompt ...)`       | LLM prompt (see below)          |
 | Message      | `(message ...)`      | LLM message (see below)         |
 | Conversation | `(conversation/new)` | LLM conversation (see below)    |
@@ -365,6 +366,23 @@ Most list functions work on vectors too.
 (map/filter (fn (k v) (> v 1)) {:a 1 :b 2 :c 3}) ; => {:b 2 :c 3}
 (map/select-keys {:a 1 :b 2 :c 3} '(:a :c))      ; => {:a 1 :c 3}
 (map/update {:a 1} :a (fn (v) (+ v 10)))           ; => {:a 11}
+```
+
+#### HashMaps
+
+For performance-critical workloads with many keys, use `hashmap` for O(1) lookups instead of the sorted `map`:
+
+```scheme
+(hashmap/new :a 1 :b 2 :c 3)          ; create a hashmap
+(hashmap/get (hashmap/new :a 1) :a)    ; => 1
+(hashmap/assoc (hashmap/new) :a 1)     ; add entries
+(hashmap/to-map (hashmap/new :b 2 :a 1))  ; => {:a 1 :b 2} (sorted)
+(hashmap/keys (hashmap/new :a 1 :b 2)) ; => (:a :b) (unordered)
+(hashmap/contains? (hashmap/new :a 1) :a)  ; => #t
+
+;; Generic get, assoc, keys, vals, count, contains? also work on hashmaps
+(get (hashmap/new :a 1 :b 2) :a)       ; => 1
+(assoc (hashmap/new) :x 42)            ; => hashmap with :x 42
 ```
 
 #### Predicates & Type Checking
@@ -834,10 +852,10 @@ sema --model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
 
 ```
 crates/
-  sema-core/     Value types, errors, environment (Rc, BTreeMap, thiserror)
+  sema-core/     Value types, errors, environment (Rc, BTreeMap, lasso, hashbrown, thiserror)
   sema-reader/   Hand-written lexer and s-expression parser
   sema-eval/     Trampoline-based evaluator, special forms, module system
-  sema-stdlib/   Standard library builtins
+  sema-stdlib/   Standard library builtins (memchr, hashbrown)
   sema-llm/      LLM provider trait + multi-provider API clients
   sema/          Binary: REPL (rustyline) and file runner (clap)
 ```

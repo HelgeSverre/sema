@@ -37,7 +37,7 @@ fn http_request(
                         for (k, v) in headers.iter() {
                             let key = match k {
                                 Value::String(s) => s.to_string(),
-                                Value::Keyword(s) => s.to_string(),
+                                Value::Keyword(s) => sema_core::resolve(*s),
                                 other => other.to_string(),
                             };
                             let val = match v {
