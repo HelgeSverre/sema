@@ -1,7 +1,7 @@
-;; coding-agent.sema — Minimal Coding Agent
+;; coding-agent.sema — Coding Agent with Terminal UX
 ;;
 ;; A real coding agent with file editing, search, and shell tools.
-;; Follows production agent patterns: search → read → edit → verify.
+;; Shows each tool call with color-coded output and animated spinners.
 ;;
 ;; Usage:
 ;;   sema examples/ai-tools/coding-agent.sema
@@ -22,6 +22,12 @@
 
 (define (command-safe? cmd)
   (not (any (lambda (pat) (string/contains? cmd pat)) banned-commands)))
+
+;; ---- Helper: truncate long strings ----
+(define (truncate-str s max-len)
+  (if (> (string-length s) max-len)
+    (string-append (substring s 0 max-len) "...")
+    s))
 
 ;; ---- Tool definitions ----
 
@@ -127,20 +133,57 @@ Workflow: search → read → edit → verify" cwd platform)
    :tools [read-file write-file edit-file search list-files run-command]
    :max-turns 50})
 
+;; ---- Tool call display callback ----
+
+(define active-spinner #f)
+
+(define (on-tool-call event)
+  (let ((evt (:event event))
+        (tool (:tool event))
+        (args (:args event)))
+    (cond
+      ((= evt "start")
+       ;; Show tool header
+       (println-error (term/style (format "  ── ~a ──" tool) :bold :cyan))
+       ;; Show key args (truncated)
+       (when (map? args)
+         (for-each
+           (lambda (key)
+             (let ((val (get args key)))
+               (println-error (format "     ~a: ~a"
+                 (term/dim (keyword->string key))
+                 (term/dim (truncate-str (format "~a" val) 60))))))
+           (keys args)))
+       ;; Start spinner
+       (set! active-spinner (term/spinner-start (term/dim (format "  ~a..." tool)))))
+
+      ((= evt "end")
+       ;; Stop spinner with success
+       (when active-spinner
+         (term/spinner-stop active-spinner
+           {:symbol (term/green "✔") :text (term/dim (format "~a (~ams)" tool (:duration-ms event)))})
+         (set! active-spinner #f))
+       (println-error "")))))
+
 ;; ---- Interactive REPL ----
 
-(println-error "Coding Agent")
-(println-error (format "Working directory: ~a" cwd))
-(println-error "Type your request, or 'quit' to exit.")
+(define prompt-str (term/style "sɛ̂ma ❯ " :bold :magenta))
+
+(println-error "")
+(println-error (term/style "  Coding Agent" :bold))
+(println-error (term/dim (format "  Working directory: ~a" cwd)))
+(println-error (term/dim "  Type your request, or 'quit' to exit."))
 (println-error "")
 
 (let loop ()
-  (print-error "> ")
+  (print-error prompt-str)
   (define input (read-line))
   (when (and (not (= input "quit"))
              (not (= input "exit"))
              (not (= input "")))
-    (define response (agent/run coder input))
+    (println-error "")
+    (define response (agent/run coder input {:on-tool-call on-tool-call}))
+    (println "")
     (println response)
     (println "")
     (loop)))

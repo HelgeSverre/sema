@@ -1510,7 +1510,7 @@ dependencies = [
 
 [[package]]
 name = "sema"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "clap",
  "rustyline",
@@ -1524,7 +1524,7 @@ dependencies = [
 
 [[package]]
 name = "sema-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "hashbrown 0.15.5",
  "lasso",
@@ -1535,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "sema-eval"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "sema-core",
  "sema-llm",
@@ -1545,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "sema-llm"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "futures",
  "reqwest",
@@ -1558,7 +1558,7 @@ dependencies = [
 
 [[package]]
 name = "sema-reader"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "proptest",
  "sema-core",
@@ -1566,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "sema-stdlib"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64",
  "chrono",

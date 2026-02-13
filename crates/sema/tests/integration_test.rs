@@ -2022,6 +2022,51 @@ fn test_string_escapes() {
     assert_eq!(eval(r#"(string-length "\"")"#), Value::Int(1));
 }
 
+#[test]
+fn test_string_hex_escape_r7rs() {
+    // \x<hex>; R7RS-style
+    assert_eq!(eval(r#""\x41;""#), Value::string("A"));
+    assert_eq!(eval(r#""\x1B;""#), Value::string("\x1B"));
+    assert_eq!(eval(r#""\x3BB;""#), Value::string("λ"));
+    assert_eq!(eval(r#"(string-length "\x41;")"#), Value::Int(1));
+    // string-length counts bytes; U+1F600 is 4 UTF-8 bytes
+    assert_eq!(eval(r#"(string-length "\x1F600;")"#), Value::Int(4));
+}
+
+#[test]
+fn test_string_u_escape() {
+    assert_eq!(eval(r#""\u0041""#), Value::string("A"));
+    assert_eq!(eval(r#""\u03BB""#), Value::string("λ"));
+    assert_eq!(eval(r#"(string-length "\u0041")"#), Value::Int(1));
+}
+
+#[test]
+fn test_string_big_u_escape() {
+    assert_eq!(eval(r#""\U00000041""#), Value::string("A"));
+    assert_eq!(eval(r#""\U0001F600""#), Value::string("😀"));
+    // string-length counts bytes; U+1F600 is 4 UTF-8 bytes
+    assert_eq!(eval(r#"(string-length "\U0001F600")"#), Value::Int(4));
+}
+
+#[test]
+fn test_string_null_escape() {
+    assert_eq!(eval(r#"(string-length "\0")"#), Value::Int(1));
+}
+
+#[test]
+fn test_string_mixed_escape_types() {
+    assert_eq!(eval(r#""\x48;\u0069""#), Value::string("Hi"));
+    assert_eq!(eval(r#"(string-append "\x48;" "\u0069")"#), Value::string("Hi"));
+}
+
+#[test]
+fn test_string_ansi_escape_codes() {
+    // Real-world: ANSI color escape sequences
+    // "\x1B;[31m" = ESC [ 3 1 m = 5 bytes
+    let result = eval(r#"(string-length "\x1B;[31m")"#);
+    assert_eq!(result, Value::Int(5));
+}
+
 // ====== 21. Multi-expression Begin / Sequencing ======
 
 #[test]
@@ -5774,7 +5819,11 @@ fn test_iota() {
     assert_eq!(
         eval("(iota 5)"),
         Value::list(vec![
-            Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)
+            Value::Int(0),
+            Value::Int(1),
+            Value::Int(2),
+            Value::Int(3),
+            Value::Int(4)
         ])
     );
     assert_eq!(
@@ -5783,7 +5832,12 @@ fn test_iota() {
     );
     assert_eq!(
         eval("(iota 4 0 2)"),
-        Value::list(vec![Value::Int(0), Value::Int(2), Value::Int(4), Value::Int(6)])
+        Value::list(vec![
+            Value::Int(0),
+            Value::Int(2),
+            Value::Int(4),
+            Value::Int(6)
+        ])
     );
     assert_eq!(eval("(iota 0)"), Value::list(vec![]));
 }
@@ -5802,8 +5856,119 @@ fn test_string_map() {
         eval(r#"(string/map (lambda (c) c) "abc")"#),
         Value::string("abc")
     );
+    assert_eq!(eval(r#"(string/map char-upcase "")"#), Value::string(""));
+}
+
+// ====================================================================
+// Terminal: term/ color and style functions
+// ====================================================================
+
+#[test]
+fn test_term_bold() {
     assert_eq!(
-        eval(r#"(string/map char-upcase "")"#),
-        Value::string("")
+        eval(r#"(term/bold "hello")"#),
+        Value::string("\x1b[1mhello\x1b[0m")
+    );
+}
+
+#[test]
+fn test_term_dim() {
+    assert_eq!(
+        eval(r#"(term/dim "text")"#),
+        Value::string("\x1b[2mtext\x1b[0m")
+    );
+}
+
+#[test]
+fn test_term_colors() {
+    assert_eq!(
+        eval(r#"(term/red "error")"#),
+        Value::string("\x1b[31merror\x1b[0m")
+    );
+    assert_eq!(
+        eval(r#"(term/green "ok")"#),
+        Value::string("\x1b[32mok\x1b[0m")
+    );
+    assert_eq!(
+        eval(r#"(term/cyan "info")"#),
+        Value::string("\x1b[36minfo\x1b[0m")
+    );
+    assert_eq!(
+        eval(r#"(term/gray "muted")"#),
+        Value::string("\x1b[90mmuted\x1b[0m")
+    );
+}
+
+#[test]
+fn test_term_style_compound() {
+    assert_eq!(
+        eval(r#"(term/style "text" :bold :red)"#),
+        Value::string("\x1b[1;31mtext\x1b[0m")
+    );
+    assert_eq!(
+        eval(r#"(term/style "ok" :bold :green)"#),
+        Value::string("\x1b[1;32mok\x1b[0m")
+    );
+}
+
+#[test]
+fn test_term_style_no_keywords() {
+    // term/style with just text and no keywords returns plain text
+    assert_eq!(eval(r#"(term/style "plain")"#), Value::string("plain"));
+}
+
+#[test]
+fn test_term_strip() {
+    assert_eq!(
+        eval(r#"(term/strip (term/bold "hello"))"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(term/strip (term/style "text" :bold :red))"#),
+        Value::string("text")
+    );
+    assert_eq!(
+        eval(r#"(term/strip "no ansi here")"#),
+        Value::string("no ansi here")
+    );
+}
+
+#[test]
+fn test_term_rgb() {
+    assert_eq!(
+        eval(r#"(term/rgb "hi" 255 100 0)"#),
+        Value::string("\x1b[38;2;255;100;0mhi\x1b[0m")
+    );
+}
+
+#[test]
+fn test_term_strip_rgb() {
+    assert_eq!(
+        eval(r#"(term/strip (term/rgb "hi" 255 100 0))"#),
+        Value::string("hi")
+    );
+}
+
+#[test]
+fn test_term_spinner_start_stop() {
+    // Spinner start returns an integer ID, stop returns nil
+    assert_eq!(
+        eval(
+            r#"(let ((id (term/spinner-start "test")))
+                   (term/spinner-stop id))"#
+        ),
+        Value::Nil
+    );
+}
+
+#[test]
+fn test_term_spinner_update() {
+    assert_eq!(
+        eval(
+            r#"(let ((id (term/spinner-start "initial")))
+                   (term/spinner-update id "updated")
+                   (term/spinner-stop id))"#
+        ),
+        Value::Nil
     );
 }

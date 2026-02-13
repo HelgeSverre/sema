@@ -17,6 +17,7 @@ mod predicates;
 mod regex_ops;
 mod string;
 mod system;
+mod terminal;
 
 use sema_core::{Env, Value};
 use std::rc::Rc;
@@ -40,6 +41,7 @@ pub fn register_stdlib(env: &Env) {
     datetime::register(env);
     csv_ops::register(env);
     bytevector::register(env);
+    terminal::register(env);
 }
 
 fn register_fn(

@@ -613,6 +613,7 @@ pub fn register_llm_builtins(env: &Env) {
                 &tools,
                 &tool_schemas,
                 max_tool_rounds,
+                None,
             )?;
             Ok(Value::String(Rc::new(result)))
         }
@@ -1131,10 +1132,10 @@ pub fn register_llm_builtins(env: &Env) {
         })
     });
 
-    // (agent/run agent "user message")
+    // (agent/run agent "user message") or (agent/run agent "msg" {:on-tool-call callback})
     register_fn(env, "agent/run", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("agent/run", "2", args.len()));
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("agent/run", "2-3", args.len()));
         }
         let agent = match &args[0] {
             Value::Agent(a) => a.clone(),
@@ -1143,6 +1144,13 @@ pub fn register_llm_builtins(env: &Env) {
         let user_msg = match &args[1] {
             Value::String(s) => s.to_string(),
             other => other.to_string(),
+        };
+
+        // Extract optional :on-tool-call callback from 3rd arg
+        let on_tool_call = if let Some(Value::Map(opts)) = args.get(2) {
+            opts.get(&Value::keyword("on-tool-call")).cloned()
+        } else {
+            None
         };
 
         let messages = vec![ChatMessage {
@@ -1166,6 +1174,7 @@ pub fn register_llm_builtins(env: &Env) {
             &agent.tools,
             &tool_schemas,
             agent.max_turns,
+            on_tool_call.as_ref(),
         )?;
         Ok(Value::String(Rc::new(result)))
     });
@@ -2003,6 +2012,7 @@ fn run_tool_loop(
     tools: &[Value],
     tool_schemas: &[ToolSchema],
     max_rounds: usize,
+    on_tool_call: Option<&Value>,
 ) -> Result<String, SemaError> {
     let mut messages = initial_messages;
     let mut last_content = String::new();
@@ -2032,7 +2042,53 @@ fn run_tool_loop(
 
         // Execute each tool call and add results
         for tc in &response.tool_calls {
+            // Build args map for callback
+            let args_value = json_to_sema_value(&tc.arguments);
+
+            // Fire "start" event
+            if let Some(callback) = on_tool_call {
+                let mut event_map = BTreeMap::new();
+                event_map.insert(
+                    Value::keyword("event"),
+                    Value::String(Rc::new("start".to_string())),
+                );
+                event_map.insert(
+                    Value::keyword("tool"),
+                    Value::String(Rc::new(tc.name.clone())),
+                );
+                event_map.insert(Value::keyword("args"), args_value.clone());
+                let _ = call_value_fn(callback, &[Value::Map(Rc::new(event_map))]);
+            }
+
+            let start_time = std::time::Instant::now();
             let result = execute_tool_call(tools, &tc.name, &tc.arguments)?;
+            let duration_ms = start_time.elapsed().as_millis() as i64;
+
+            // Fire "end" event
+            if let Some(callback) = on_tool_call {
+                let mut event_map = BTreeMap::new();
+                event_map.insert(
+                    Value::keyword("event"),
+                    Value::String(Rc::new("end".to_string())),
+                );
+                event_map.insert(
+                    Value::keyword("tool"),
+                    Value::String(Rc::new(tc.name.clone())),
+                );
+                event_map.insert(Value::keyword("args"), args_value);
+                // Truncate result for the callback to avoid huge payloads
+                let result_preview = if result.len() > 200 {
+                    format!("{}...", &result[..200])
+                } else {
+                    result.clone()
+                };
+                event_map.insert(
+                    Value::keyword("result"),
+                    Value::String(Rc::new(result_preview)),
+                );
+                event_map.insert(Value::keyword("duration-ms"), Value::Int(duration_ms));
+                let _ = call_value_fn(callback, &[Value::Map(Rc::new(event_map))]);
+            }
 
             messages.push(ChatMessage {
                 role: "user".to_string(),

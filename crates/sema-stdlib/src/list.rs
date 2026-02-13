@@ -750,7 +750,8 @@ pub fn register(env: &sema_core::Env) {
         let items = get_sequence(&args[0], "list/split-at")?;
         let n = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as usize;
         let n = n.min(items.len());
         let left = items[..n].to_vec();
         let right = items[n..].to_vec();
@@ -875,7 +876,8 @@ pub fn register(env: &sema_core::Env) {
         }
         let n = args[0]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
+            as usize;
         let val = args[1].clone();
         Ok(Value::list(vec![val; n]))
     });
@@ -885,7 +887,8 @@ pub fn register(env: &sema_core::Env) {
         }
         let n = args[0]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
+            as usize;
         let val = args[1].clone();
         Ok(Value::list(vec![val; n]))
     });

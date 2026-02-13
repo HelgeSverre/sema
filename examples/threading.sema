@@ -1,0 +1,116 @@
+;;; threading.sema — Threading macros for pipeline-style code
+;;;
+;;; Implements Clojure-style -> (thread-first), ->> (thread-last),
+;;; and as-> (thread-as) using defmacro.
+;;;
+;;; Demonstrates: defmacro, quasiquote, recursive macro expansion
+
+;;; --- Threading Macros ---
+
+;; Thread-first: inserts val as the FIRST argument of each form
+;; (-> 5 (+ 3) (* 2)) => (* (+ 5 3) 2) => 16
+(defmacro -> (val . forms)
+  (if (null? forms)
+    val
+    (let ((form (car forms))
+          (rest (cdr forms)))
+      (if (list? form)
+        `(-> (,(car form) ,val ,@(cdr form)) ,@rest)
+        `(-> (,form ,val) ,@rest)))))
+
+;; Thread-last: inserts val as the LAST argument of each form
+;; (->> (range 10) (filter odd?) (map (fn (x) (* x x)))) => (1 9 25 49 81)
+(defmacro ->> (val . forms)
+  (if (null? forms)
+    val
+    (let ((form (car forms))
+          (rest (cdr forms)))
+      (if (list? form)
+        `(->> (,(car form) ,@(cdr form) ,val) ,@rest)
+        `(->> (,form ,val) ,@rest)))))
+
+;; Thread-as: binds val to a name, allowing arbitrary placement
+;; (as-> 5 x (+ x 3) (* x x) (- x 1)) => 63
+(defmacro as-> (val name . forms)
+  (if (null? forms)
+    val
+    (let ((form (car forms))
+          (rest (cdr forms)))
+      `(let ((,name ,val))
+         (as-> ,form ,name ,@rest)))))
+
+;; Conditional thread-first: short-circuits on nil
+(defmacro some-> (val . forms)
+  (if (null? forms)
+    val
+    (let ((form (car forms))
+          (rest (cdr forms)))
+      (if (list? form)
+        `(let ((__v ,val))
+           (if (nil? __v) nil (some-> (,(car form) __v ,@(cdr form)) ,@rest)))
+        `(let ((__v ,val))
+           (if (nil? __v) nil (some-> (,form __v) ,@rest)))))))
+
+;;; --- Demos ---
+
+(println "=== Threading Macros ===\n")
+
+;; Thread-first: value flows as first argument
+(println "--- Thread-first (->) ---")
+(println (format "  (-> 5 (+ 3) (* 2))           = ~a"
+  (-> 5 (+ 3) (* 2))))
+
+(println (format "  (-> \"hello\" string-length)    = ~a"
+  (-> "hello" string-length)))
+
+(println (format "  (-> \"hello world\" (string/split \" \") length) = ~a"
+  (-> "hello world" (string/split " ") length)))
+
+;; Thread-last: value flows as last argument
+(println "\n--- Thread-last (->>) ---")
+(println (format "  (->> (range 10) (filter odd?)) = ~a"
+  (->> (range 10) (filter odd?))))
+
+(println (format "  (->> (range 1 6) (map (fn (x) (* x x)))) = ~a"
+  (->> (range 1 6) (map (fn (x) (* x x))))))
+
+(println (format "  (->> (range 1 11) (filter even?) (foldl + 0)) = ~a"
+  (->> (range 1 11) (filter even?) (foldl + 0))))
+
+;; Thread-as: explicit binding for flexible placement
+(println "\n--- Thread-as (as->) ---")
+(println (format "  (as-> 5 x (+ x 3) (* x x) (- x 1)) = ~a"
+  (as-> 5 x (+ x 3) (* x x) (- x 1))))
+
+(println (format "  (as-> (range 1 6) x (map (fn (n) (* n n)) x) (foldl + 0 x)) = ~a"
+  (as-> (range 1 6) x (map (fn (n) (* n n)) x) (foldl + 0 x))))
+
+;; Some->: nil-safe threading
+(println "\n--- Nil-safe threading (some->) ---")
+(define people {:alice {:age 30 :address {:city "Paris"}}
+                :bob {:age 25 :address nil}})
+
+(println (format "  alice's city: ~a"
+  (some-> (get people :alice) (get :address) (get :city))))
+(println (format "  bob's city:   ~a"
+  (some-> (get people :bob) (get :address) (get :city))))
+
+;; Practical example: data pipeline
+(println "\n--- Practical: word frequency pipeline ---")
+(define text "the quick brown fox jumps over the lazy brown fox the fox")
+
+(define word-counts
+  (->> (string/split text " ")
+       (foldl (fn (acc w)
+                (map/update acc (string->keyword w) (fn (v) (if (nil? v) 1 (+ v 1)))))
+              {})
+       (map/entries)))
+
+(define top-words (sort word-counts (fn (a b) (- (cadr b) (cadr a)))))
+
+(for-each
+  (fn (entry)
+    (println (format "  ~a: ~a" (car entry) (cadr entry))))
+  top-words)
+
+(println "\nDone!")

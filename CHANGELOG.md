@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1
+
+### Added
+- **System introspection** — `sys/tty` (TTY device name), `sys/pid` (process ID), `sys/arch` (CPU architecture), `sys/os` (OS name), `sys/which` (find executable in PATH), `sys/elapsed` (monotonic nanosecond timer)
+
+### Fixed
+- `test_sys_interactive` no longer flaky in environments with a TTY attached
+
 ## 0.6.0
 
 ### Added

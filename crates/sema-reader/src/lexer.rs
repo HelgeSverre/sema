@@ -159,6 +159,113 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             'r' => s.push('\r'),
                             '\\' => s.push('\\'),
                             '"' => s.push('"'),
+                            '0' => s.push('\0'),
+                            'x' => {
+                                // R7RS hex escape: \x<hex>;
+                                let mut hex = String::new();
+                                while i + 1 < chars.len()
+                                    && chars[i + 1] != ';'
+                                    && chars[i + 1].is_ascii_hexdigit()
+                                {
+                                    i += 1;
+                                    col += 1;
+                                    hex.push(chars[i]);
+                                }
+                                if hex.is_empty() {
+                                    return Err(SemaError::Reader {
+                                        message: "empty hex escape \\x;".to_string(),
+                                        span,
+                                    });
+                                }
+                                if i + 1 >= chars.len() || chars[i + 1] != ';' {
+                                    return Err(SemaError::Reader {
+                                        message: "hex escape \\x missing terminating semicolon"
+                                            .to_string(),
+                                        span,
+                                    });
+                                }
+                                // advance to the ';' — outer loop's i+=1 will move past it
+                                i += 1;
+                                col += 1;
+                                let code = u32::from_str_radix(&hex, 16).map_err(|_| {
+                                    SemaError::Reader {
+                                        message: format!("invalid hex escape \\x{};", hex),
+                                        span: span.clone(),
+                                    }
+                                })?;
+                                let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
+                                    message: format!(
+                                        "invalid unicode scalar value \\x{};",
+                                        hex
+                                    ),
+                                    span: span.clone(),
+                                })?;
+                                s.push(ch);
+                            }
+                            'u' => {
+                                // \u<4 hex digits>
+                                let mut hex = String::new();
+                                for _ in 0..4 {
+                                    if i + 1 >= chars.len()
+                                        || !chars[i + 1].is_ascii_hexdigit()
+                                    {
+                                        return Err(SemaError::Reader {
+                                            message: "\\u escape requires exactly 4 hex digits"
+                                                .to_string(),
+                                            span,
+                                        });
+                                    }
+                                    i += 1;
+                                    col += 1;
+                                    hex.push(chars[i]);
+                                }
+                                let code = u32::from_str_radix(&hex, 16).map_err(|_| {
+                                    SemaError::Reader {
+                                        message: format!("invalid hex escape \\u{}", hex),
+                                        span: span.clone(),
+                                    }
+                                })?;
+                                let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
+                                    message: format!(
+                                        "invalid unicode scalar value \\u{}",
+                                        hex
+                                    ),
+                                    span: span.clone(),
+                                })?;
+                                s.push(ch);
+                            }
+                            'U' => {
+                                // \U<8 hex digits>
+                                let mut hex = String::new();
+                                for _ in 0..8 {
+                                    if i + 1 >= chars.len()
+                                        || !chars[i + 1].is_ascii_hexdigit()
+                                    {
+                                        return Err(SemaError::Reader {
+                                            message: "\\U escape requires exactly 8 hex digits"
+                                                .to_string(),
+                                            span,
+                                        });
+                                    }
+                                    i += 1;
+                                    col += 1;
+                                    hex.push(chars[i]);
+                                }
+                                let code = u32::from_str_radix(&hex, 16).map_err(|_| {
+                                    SemaError::Reader {
+                                        message: format!("invalid hex escape \\U{}", hex),
+                                        span: span.clone(),
+                                    }
+                                })?;
+                                let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
+                                    message: format!(
+                                        "invalid unicode scalar value \\U{}",
+                                        hex
+                                    ),
+                                    span: span.clone(),
+                                })?;
+                                s.push(ch);
+                            }
                             other => {
                                 s.push('\\');
                                 s.push(other);

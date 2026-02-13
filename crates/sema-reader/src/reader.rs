@@ -940,4 +940,163 @@ mod tests {
             ])
         );
     }
+
+    // ====== Hex/Unicode escape tests ======
+
+    #[test]
+    fn test_read_string_hex_escape_basic() {
+        // \x41; is 'A'
+        let result = read(r#""\x41;""#).unwrap();
+        assert_eq!(result, Value::string("A"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_lowercase() {
+        let result = read(r#""\x6c;""#).unwrap();
+        assert_eq!(result, Value::string("l"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_mixed_case() {
+        let result = read(r#""\x4F;""#).unwrap();
+        assert_eq!(result, Value::string("O"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_esc_char() {
+        // \x1B; is ESC (0x1b) — the main motivating use case
+        let result = read(r#""\x1B;""#).unwrap();
+        assert_eq!(result, Value::string("\x1B"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_null() {
+        let result = read(r#""\x0;""#).unwrap();
+        assert_eq!(result, Value::string("\0"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_unicode() {
+        // \x3BB; is λ (Greek small letter lambda)
+        let result = read(r#""\x3BB;""#).unwrap();
+        assert_eq!(result, Value::string("λ"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_emoji() {
+        // \x1F600; is 😀
+        let result = read(r#""\x1F600;""#).unwrap();
+        assert_eq!(result, Value::string("😀"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_in_context() {
+        // Mix hex escapes with regular text and other escapes
+        let result = read(r#""hello\x20;world""#).unwrap();
+        assert_eq!(result, Value::string("hello world"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_multiple() {
+        let result = read(r#""\x48;\x69;""#).unwrap();
+        assert_eq!(result, Value::string("Hi"));
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_missing_semicolon() {
+        assert!(read(r#""\x41""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_no_digits() {
+        assert!(read(r#""\x;""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_invalid_hex() {
+        assert!(read(r#""\xGG;""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_invalid_codepoint() {
+        // 0xD800 is a surrogate — invalid Unicode scalar
+        assert!(read(r#""\xD800;""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_hex_escape_too_large() {
+        // 0x110000 is above Unicode max
+        assert!(read(r#""\x110000;""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_u_escape_basic() {
+        // \u0041 is 'A'
+        let result = read(r#""\u0041""#).unwrap();
+        assert_eq!(result, Value::string("A"));
+    }
+
+    #[test]
+    fn test_read_string_u_escape_lambda() {
+        let result = read(r#""\u03BB""#).unwrap();
+        assert_eq!(result, Value::string("λ"));
+    }
+
+    #[test]
+    fn test_read_string_u_escape_esc() {
+        let result = read(r#""\u001B""#).unwrap();
+        assert_eq!(result, Value::string("\x1B"));
+    }
+
+    #[test]
+    fn test_read_string_u_escape_too_few_digits() {
+        assert!(read(r#""\u041""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_u_escape_surrogate() {
+        assert!(read(r#""\uD800""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_big_u_escape_basic() {
+        let result = read(r#""\U00000041""#).unwrap();
+        assert_eq!(result, Value::string("A"));
+    }
+
+    #[test]
+    fn test_read_string_big_u_escape_emoji() {
+        let result = read(r#""\U0001F600""#).unwrap();
+        assert_eq!(result, Value::string("😀"));
+    }
+
+    #[test]
+    fn test_read_string_big_u_escape_too_few_digits() {
+        assert!(read(r#""\U0041""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_big_u_escape_invalid() {
+        assert!(read(r#""\U00110000""#).is_err());
+    }
+
+    #[test]
+    fn test_read_string_null_escape() {
+        let result = read(r#""\0""#).unwrap();
+        assert_eq!(result, Value::string("\0"));
+    }
+
+    #[test]
+    fn test_read_string_mixed_escapes() {
+        // Mix all escape types in one string
+        let result = read(r#""\x48;\u0069\n\t""#).unwrap();
+        assert_eq!(result, Value::string("Hi\n\t"));
+    }
+
+    #[test]
+    fn test_read_string_ansi_escape_sequence() {
+        // Real-world: ANSI color code ESC[31m (red)
+        let result = read(r#""\x1B;[31mRed\x1B;[0m""#).unwrap();
+        assert_eq!(result, Value::string("\x1B[31mRed\x1B[0m"));
+    }
 }
