@@ -643,6 +643,17 @@ For performance-critical workloads with many keys, use `hashmap` for O(1) lookup
 (sys/platform)                            ; => "macos" / "linux" / "windows"
 (sys/env-all)                             ; => {:HOME "..." :PATH "..." ...}
 (sys/set-env "KEY" "value")               ; set env var
+(sys/pid)                                 ; => 12345 (process ID)
+(sys/os)                                  ; => "macos" (OS name)
+(sys/arch)                                ; => "aarch64" (CPU architecture)
+(sys/tty)                                 ; => "/dev/ttys003" or nil
+(sys/which "cargo")                       ; => "/Users/.../.cargo/bin/cargo" or nil
+(sys/elapsed)                             ; => 482937100 (nanoseconds since start)
+(sys/interactive?)                        ; => #t if stdin is a TTY
+(sys/hostname)                            ; => "my-machine"
+(sys/user)                                ; => "ada"
+(sys/home-dir)                            ; => "/Users/ada"
+(sys/temp-dir)                            ; => "/tmp"
 (shell "ls -la")                          ; run shell command, return stdout
 (exit 0)                                  ; exit with code
 ```
