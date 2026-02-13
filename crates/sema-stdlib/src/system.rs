@@ -189,4 +189,84 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::Bool(std::io::stdin().is_terminal()))
     });
+
+    register_fn(env, "sys/tty", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/tty", "0", args.len()));
+        }
+        if !std::io::stdin().is_terminal() {
+            return Ok(Value::Nil);
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let fd = std::io::stdin().as_raw_fd();
+            unsafe {
+                let name = libc::ttyname(fd);
+                if name.is_null() {
+                    Ok(Value::Nil)
+                } else {
+                    let s = std::ffi::CStr::from_ptr(name).to_string_lossy().to_string();
+                    Ok(Value::String(Rc::new(s)))
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Value::Nil)
+        }
+    });
+
+    register_fn(env, "sys/pid", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/pid", "0", args.len()));
+        }
+        Ok(Value::Int(std::process::id() as i64))
+    });
+
+    register_fn(env, "sys/arch", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/arch", "0", args.len()));
+        }
+        Ok(Value::String(Rc::new(std::env::consts::ARCH.to_string())))
+    });
+
+    register_fn(env, "sys/os", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/os", "0", args.len()));
+        }
+        Ok(Value::String(Rc::new(std::env::consts::OS.to_string())))
+    });
+
+    register_fn(env, "sys/which", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("sys/which", "1", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let path_var = std::env::var("PATH").unwrap_or_default();
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        for dir in path_var.split(sep) {
+            let candidate = std::path::Path::new(dir).join(name);
+            if candidate.is_file() {
+                return Ok(Value::String(Rc::new(
+                    candidate.to_string_lossy().to_string(),
+                )));
+            }
+        }
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "sys/elapsed", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/elapsed", "0", args.len()));
+        }
+        use std::time::Instant;
+        thread_local! {
+            static START: Instant = Instant::now();
+        }
+        let nanos = START.with(|s| s.elapsed().as_nanos()) as i64;
+        Ok(Value::Int(nanos))
+    });
 }

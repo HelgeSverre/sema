@@ -5592,6 +5592,62 @@ fn test_sys_interactive() {
     assert_eq!(eval("(boolean? (sys/interactive?))"), Value::Bool(true));
 }
 
+#[test]
+fn test_sys_tty() {
+    // In test/CI context may or may not have a TTY; just verify it returns string or nil
+    let result = eval("(sys/tty)");
+    assert!(matches!(result, Value::String(_) | Value::Nil));
+}
+
+#[test]
+fn test_sys_pid() {
+    let result = eval("(sys/pid)");
+    match result {
+        Value::Int(pid) => assert!(pid > 0),
+        _ => panic!("expected int"),
+    }
+}
+
+#[test]
+fn test_sys_arch() {
+    let result = eval("(sys/arch)");
+    assert!(matches!(result, Value::String(_)));
+    assert_eq!(eval("(string? (sys/arch))"), Value::Bool(true));
+}
+
+#[test]
+fn test_sys_os() {
+    let result = eval("(sys/os)");
+    assert!(matches!(result, Value::String(_)));
+    assert_eq!(eval("(string? (sys/os))"), Value::Bool(true));
+}
+
+#[test]
+fn test_sys_which() {
+    // "sh" should exist on any unix system
+    let result = eval(r#"(sys/which "sh")"#);
+    assert!(matches!(result, Value::String(_)));
+    // non-existent binary returns nil
+    assert_eq!(
+        eval(r#"(sys/which "this-binary-does-not-exist-xyz")"#),
+        Value::Nil
+    );
+}
+
+#[test]
+fn test_sys_elapsed() {
+    let result = eval("(sys/elapsed)");
+    match result {
+        Value::Int(ns) => assert!(ns >= 0),
+        _ => panic!("expected int"),
+    }
+    // Two calls should be monotonically increasing
+    assert_eq!(
+        eval("(let ((a (sys/elapsed)) (b (sys/elapsed))) (<= a b))"),
+        Value::Bool(true)
+    );
+}
+
 // ====================================================================
 // List: list/shuffle, list/split-at, list/take-while, list/drop-while,
 //       list/sum, list/min, list/max, list/pick, list/repeat, iota

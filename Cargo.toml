@@ -38,6 +38,7 @@ memchr = "2"
 lasso = "0.7"
 hashbrown = "0.15"
 hostname = "0.4"
+libc = "0.2"
 
 [profile.release]
 debug = true

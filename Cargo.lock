@@ -1576,6 +1576,7 @@ dependencies = [
  "hmac",
  "hostname",
  "lasso",
+ "libc",
  "md5",
  "memchr",
  "rand 0.10.0",
