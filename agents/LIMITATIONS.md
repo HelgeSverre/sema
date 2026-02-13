@@ -1,7 +1,7 @@
 # Sema Lisp — Known Limitations & Gaps
 
 Assessed against standard Scheme (R7RS) and practical Lisp expectations.
-Status: as of Phase 9 completion (multi-provider LLM, tool calling for all providers, SDK completeness).
+Status: as of v0.5.0 (record types, bytevectors, char comparison predicates).
 
 ---
 
@@ -61,9 +61,9 @@ Path ops: `path/join`, `path/dirname`, `path/basename`, `path/extension`, `path/
 HTTP: `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`.
 Still no streaming/port-based I/O.
 
-### 12. No Struct/Record Types
+### ~~12. No Struct/Record Types~~ → RESOLVED
 
-Maps-with-keywords serve as de facto structs but with no type checking, constructors, or accessor generation. No `define-record-type`.
+R7RS `define-record-type` with constructors, type predicates, and field accessors. `record?` predicate. `type` returns record type name as keyword.
 
 ### ~~13. No Stack Traces~~ → RESOLVED
 
@@ -118,9 +118,9 @@ Strings are immutable. No in-place character mutation.
 
 Higher-order list functions use Rust iteration internally, not Scheme-level recursion — correct but not extensible via tail calls.
 
-### 25. No `char=?` / `char<?` Comparison Predicates
+### ~~25. No `char=?` / `char<?` Comparison Predicates~~ → RESOLVED
 
-Character comparison uses generic `=`, `<`, `>` which work via the `Ord` impl, but the standard R7RS `char=?`, `char<?`, `char>?`, `char<=?`, `char>=?` predicates are absent.
+Full R7RS character comparison: `char=?`, `char<?`, `char>?`, `char<=?`, `char>=?` and case-insensitive `char-ci=?`, `char-ci<?`, `char-ci>?`, `char-ci<=?`, `char-ci>=?`.
 
 ### 26. No `with-exception-handler`
 
@@ -130,9 +130,9 @@ Only `try`/`catch`/`throw`. No R7RS `with-exception-handler` / `raise` / `raise-
 
 No destructuring bind for multiple values.
 
-### 28. No Bytevectors
+### ~~28. No Bytevectors~~ → RESOLVED
 
-No `bytevector`, `make-bytevector`, or binary I/O.
+`Value::Bytevector` with `#u8(1 2 3)` reader syntax. `make-bytevector`, `bytevector`, `bytevector-length`, `bytevector-u8-ref`, `bytevector-u8-set!` (COW), `bytevector-copy`, `bytevector-append`, `bytevector->list`, `list->bytevector`, `utf8->string`, `string->utf8`, `bytevector?`.
 
 ### 29. No `let-values` / `receive`
 
@@ -148,7 +148,6 @@ The stdlib mini-eval (`call_function` in `list.rs`) doesn't support mutual tail 
 
 | # | Gap | Priority | Effort | Notes |
 |---|-----|----------|--------|-------|
-| 12 | No Struct/Record Types | Medium | Medium | Maps work as de facto structs; `define-record-type` would add type safety |
 | 15 | No `guard` (R7RS) | Low | Low | `try`/`catch` covers the use case; `guard` is syntactic sugar |
 | 16 | No Full Numeric Tower | Low | High | Rationals/bignums require `num` crate integration throughout |
 | 18 | No Continuations | Low | Very High | Requires CPS transform or VM rewrite; trampoline can't capture continuations |
@@ -158,10 +157,8 @@ The stdlib mini-eval (`call_function` in `list.rs`) doesn't support mutual tail 
 | 22 | No Tail Position in `do` Body | Low | Low | Body is for side effects; result exprs already have TCO |
 | 23 | No `string-set!` | Low | Low | Intentional — immutable strings are simpler and safer |
 | 24 | No Proper Tail Recursion in map/filter | Low | Medium | Stdlib uses Rust iteration; would need eval access |
-| 25 | No `char=?`/`char<?` Predicates | Low | Low | Generic comparison works; these are convenience aliases |
 | 26 | No `with-exception-handler` | Low | Medium | `try`/`catch` is sufficient for most use cases |
 | 27 | No `define-values` | Low | Low | Rarely needed without multiple return values |
-| 28 | No Bytevectors | Medium | Medium | Needed for binary file I/O and network protocols |
 | 29 | No `let-values`/`receive` | Low | Low | Blocked by #19 |
 | 30 | No Tail Calls in Stdlib Mutual Recursion | Low | High | Architectural: stdlib can't depend on eval |
 
@@ -169,11 +166,10 @@ The stdlib mini-eval (`call_function` in `list.rs`) doesn't support mutual tail 
 
 ## Recommended Next Implementations
 
-1. **`char=?`/`char<?` comparison predicates** (#25) — Low effort, improves R7RS conformance. Just register aliases in `string.rs`.
-2. **Struct/Record types** (#12) — Medium effort, high value. `define-record-type` with constructor, predicate, and accessor generation.
-3. **Bytevectors** (#28) — Enables binary I/O. `make-bytevector`, `bytevector-u8-ref`, `bytevector-u8-set!`, `bytevector-length`.
-4. **Dynamic binding** (#20) — `make-parameter`/`parameterize` via thread-local storage fits the existing architecture.
-5. **Hygienic macros** (#21) — High effort but important for library authors. Consider `syntax-rules` subset first.
+1. **Dynamic binding** (#20) — `make-parameter`/`parameterize` via thread-local storage fits the existing architecture.
+2. **Hygienic macros** (#21) — High effort but important for library authors. Consider `syntax-rules` subset first.
+3. **Multiple return values** (#19) — `values`/`call-with-values` enables `define-values` and `let-values`.
+4. **`guard`** (#15) — Low effort syntactic sugar over `try`/`catch`.
 
 ---
 
@@ -181,7 +177,10 @@ The stdlib mini-eval (`call_function` in `list.rs`) doesn't support mutual tail 
 
 - **Closures** — Properly implemented with lexical scoping
 - **Tail Call Optimization** — Trampoline-based, works for direct recursion in `if`/`cond`/`let`/`begin`/`and`/`or`/`when`/`unless` + named `let`
-- **Data types** — Int, Float, String, Char, Symbol, Keyword, List, Vector, Map, Bool, Nil, Promise + LLM types
+- **Data types** — Int, Float, String, Char, Symbol, Keyword, List, Vector, Map, Record, Bytevector, Bool, Nil, Promise + LLM types
+- **Record types** — R7RS `define-record-type` with constructors, predicates, field accessors. `record?`, `type` returns record tag
+- **Bytevectors** — `#u8(1 2 3)` literal syntax. `make-bytevector`, `bytevector`, `bytevector-length`, `bytevector-u8-ref`, `bytevector-u8-set!` (COW), `bytevector-copy`, `bytevector-append`, `bytevector->list`, `list->bytevector`, `utf8->string`, `string->utf8`
+- **Character comparison** — R7RS `char=?`, `char<?`, `char>?`, `char<=?`, `char>=?` + case-insensitive `char-ci=?` etc.
 - **Macros** — `defmacro` with quasiquote/unquote/unquote-splicing (non-hygienic but functional)
 - **String operations** — split, trim, replace, contains?, format, str, index-of, chars, repeat, pad-left, pad-right
 - **Map operations** — hash-map, get, assoc, dissoc, keys, vals, merge, contains?, count, entries, map-vals, filter, select-keys, update

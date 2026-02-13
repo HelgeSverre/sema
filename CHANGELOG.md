@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+- **Character comparison predicates** — R7RS `char=?`, `char<?`, `char>?`, `char<=?`, `char>=?` and case-insensitive `char-ci=?`, `char-ci<?`, `char-ci>?`, `char-ci<=?`, `char-ci>=?`.
+- **`define-record-type`** — R7RS record types with constructors, type predicates, and field accessors. `record?` predicate. `type` returns record type name as keyword for records.
+- **Bytevectors** — `Value::Bytevector` with `#u8(1 2 3)` reader syntax. `make-bytevector`, `bytevector`, `bytevector-length`, `bytevector-u8-ref`, `bytevector-u8-set!` (COW), `bytevector-copy`, `bytevector-append`, `bytevector->list`, `list->bytevector`, `utf8->string`, `string->utf8`, `bytevector?`.
+
 ## 0.4.0
 
 ### Added
