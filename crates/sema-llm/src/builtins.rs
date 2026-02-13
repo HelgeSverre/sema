@@ -604,7 +604,7 @@ pub fn register_llm_builtins(env: &Env) {
         } else {
             // Chat with tool execution loop
             let tool_schemas = build_tool_schemas(&tools)?;
-            let result = run_tool_loop(
+            let (result, _msgs) = run_tool_loop(
                 messages,
                 model,
                 max_tokens,
@@ -1132,7 +1132,8 @@ pub fn register_llm_builtins(env: &Env) {
         })
     });
 
-    // (agent/run agent "user message") or (agent/run agent "msg" {:on-tool-call callback})
+    // (agent/run agent "msg") returns string
+    // (agent/run agent "msg" {:on-tool-call cb :messages history}) returns {:response "..." :messages [...]}
     register_fn(env, "agent/run", |args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("agent/run", "2-3", args.len()));
@@ -1146,17 +1147,31 @@ pub fn register_llm_builtins(env: &Env) {
             other => other.to_string(),
         };
 
-        // Extract optional :on-tool-call callback from 3rd arg
-        let on_tool_call = if let Some(Value::Map(opts)) = args.get(2) {
-            opts.get(&Value::keyword("on-tool-call")).cloned()
+        // Extract options from 3rd arg
+        let opts = if let Some(Value::Map(m)) = args.get(2) {
+            Some(m.clone())
         } else {
             None
         };
 
-        let messages = vec![ChatMessage {
+        let on_tool_call = opts
+            .as_ref()
+            .and_then(|o| o.get(&Value::keyword("on-tool-call")).cloned());
+
+        // Build messages: prior history + new user message
+        let mut messages = if let Some(ref o) = opts {
+            if let Some(history) = o.get(&Value::keyword("messages")) {
+                sema_list_to_chat_messages(history)?
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+        messages.push(ChatMessage {
             role: "user".to_string(),
             content: user_msg,
-        }];
+        });
 
         let tool_schemas = build_tool_schemas(&agent.tools)?;
         let system = if agent.system.is_empty() {
@@ -1165,7 +1180,7 @@ pub fn register_llm_builtins(env: &Env) {
             Some(agent.system.clone())
         };
 
-        let result = run_tool_loop(
+        let (result, final_messages) = run_tool_loop(
             messages,
             agent.model.clone(),
             Some(4096),
@@ -1176,7 +1191,23 @@ pub fn register_llm_builtins(env: &Env) {
             agent.max_turns,
             on_tool_call.as_ref(),
         )?;
-        Ok(Value::String(Rc::new(result)))
+
+        // 3-arg form with opts: return {:response "..." :messages [...]}
+        if opts.is_some() {
+            let mut map = BTreeMap::new();
+            map.insert(
+                Value::keyword("response"),
+                Value::String(Rc::new(result)),
+            );
+            map.insert(
+                Value::keyword("messages"),
+                chat_messages_to_sema_list(&final_messages),
+            );
+            Ok(Value::Map(Rc::new(map)))
+        } else {
+            // 2-arg form: return string (backward compat)
+            Ok(Value::String(Rc::new(result)))
+        }
     });
 
     // (llm/pmap fn collection {:max-tokens N ...})
@@ -2002,6 +2033,64 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
     }
 }
 
+/// Convert a Sema list of {:role "..." :content "..."} maps to Vec<ChatMessage>.
+fn sema_list_to_chat_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
+    let items = match val {
+        Value::List(l) => l.as_ref().clone(),
+        Value::Vector(v) => v.as_ref().clone(),
+        Value::Nil => return Ok(Vec::new()),
+        _ => {
+            return Err(SemaError::type_error(
+                "list of message maps",
+                val.type_name(),
+            ))
+        }
+    };
+    let mut messages = Vec::with_capacity(items.len());
+    for item in &items {
+        if let Value::Map(m) = item {
+            let role = m
+                .get(&Value::keyword("role"))
+                .map(|v| match v {
+                    Value::String(s) => s.to_string(),
+                    other => other.to_string(),
+                })
+                .unwrap_or_default();
+            let content = m
+                .get(&Value::keyword("content"))
+                .map(|v| match v {
+                    Value::String(s) => s.to_string(),
+                    other => other.to_string(),
+                })
+                .unwrap_or_default();
+            messages.push(ChatMessage { role, content });
+        } else {
+            return Err(SemaError::type_error("message map", item.type_name()));
+        }
+    }
+    Ok(messages)
+}
+
+/// Convert Vec<ChatMessage> to a Sema list of {:role "..." :content "..."} maps.
+fn chat_messages_to_sema_list(messages: &[ChatMessage]) -> Value {
+    let items: Vec<Value> = messages
+        .iter()
+        .map(|msg| {
+            let mut map = BTreeMap::new();
+            map.insert(
+                Value::keyword("role"),
+                Value::String(Rc::new(msg.role.clone())),
+            );
+            map.insert(
+                Value::keyword("content"),
+                Value::String(Rc::new(msg.content.clone())),
+            );
+            Value::Map(Rc::new(map))
+        })
+        .collect();
+    Value::List(Rc::new(items))
+}
+
 /// The tool execution loop: send -> check for tool_calls -> execute -> send results -> repeat.
 fn run_tool_loop(
     initial_messages: Vec<ChatMessage>,
@@ -2013,7 +2102,7 @@ fn run_tool_loop(
     tool_schemas: &[ToolSchema],
     max_rounds: usize,
     on_tool_call: Option<&Value>,
-) -> Result<String, SemaError> {
+) -> Result<(String, Vec<ChatMessage>), SemaError> {
     let mut messages = initial_messages;
     let mut last_content = String::new();
 
@@ -2029,7 +2118,14 @@ fn run_tool_loop(
         last_content = response.content.clone();
 
         if response.tool_calls.is_empty() {
-            return Ok(last_content);
+            // Push final assistant message onto history
+            if !last_content.is_empty() {
+                messages.push(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: last_content.clone(),
+                });
+            }
+            return Ok((last_content, messages));
         }
 
         // Add assistant message (with content if any)
@@ -2097,7 +2193,14 @@ fn run_tool_loop(
         }
     }
 
-    Ok(last_content)
+    // Push final assistant message if we exhausted rounds
+    if !last_content.is_empty() {
+        messages.push(ChatMessage {
+            role: "assistant".to_string(),
+            content: last_content.clone(),
+        });
+    }
+    Ok((last_content, messages))
 }
 
 /// Execute a tool call by finding the handler and invoking it.
