@@ -845,6 +845,7 @@ fn test_regex_split() {
 // --- HTTP (requires network) ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_get() {
     let result = eval(r#"(http/get "https://httpbin.org/get")"#);
     if let Value::Map(m) = &result {
@@ -855,6 +856,7 @@ fn test_http_get() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post() {
     let result = eval(r#"(http/post "https://httpbin.org/post" {:name "sema"})"#);
     if let Value::Map(m) = &result {
@@ -865,6 +867,7 @@ fn test_http_post() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_request_generic() {
     let result = eval(r#"(http/request "PATCH" "https://httpbin.org/patch" {} "data")"#);
     if let Value::Map(m) = &result {
@@ -877,6 +880,7 @@ fn test_http_request_generic() {
 // --- HTTP: Response Structure Validation ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_response_has_body() {
     let result = eval(
         r#"
@@ -896,6 +900,7 @@ fn test_http_response_has_body() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_response_has_headers() {
     let result = eval(
         r#"
@@ -915,6 +920,7 @@ fn test_http_response_has_headers() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_response_body_json_decode() {
     let result = eval(
         r#"
@@ -929,6 +935,7 @@ fn test_http_response_body_json_decode() {
 // --- HTTP: All Methods ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_put() {
     let result = eval(
         r#"
@@ -944,6 +951,7 @@ fn test_http_put() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_delete() {
     let result = eval(
         r#"
@@ -955,6 +963,7 @@ fn test_http_delete() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_head() {
     let result = eval(
         r#"
@@ -970,6 +979,7 @@ fn test_http_head() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_patch_with_json_body() {
     let result = eval(
         r#"
@@ -987,6 +997,7 @@ fn test_http_patch_with_json_body() {
 // --- HTTP: Request Headers ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_custom_headers() {
     let result = eval(
         r#"
@@ -1000,6 +1011,7 @@ fn test_http_custom_headers() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_multiple_headers() {
     let result = eval(
         r#"
@@ -1018,6 +1030,7 @@ fn test_http_multiple_headers() {
 // --- HTTP: Body Handling ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_map_body_echoed() {
     let result = eval(
         r#"
@@ -1030,6 +1043,7 @@ fn test_http_post_map_body_echoed() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_string_body() {
     let result = eval(
         r#"
@@ -1043,6 +1057,7 @@ fn test_http_post_string_body() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_nested_map() {
     let result = eval(
         r#"
@@ -1055,6 +1070,7 @@ fn test_http_post_nested_map() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_empty_string_body() {
     let result = eval(
         r#"
@@ -1068,6 +1084,7 @@ fn test_http_post_empty_string_body() {
 // --- HTTP: Status Codes ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_status_404() {
     let result = eval(
         r#"
@@ -1079,6 +1096,7 @@ fn test_http_status_404() {
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_status_500() {
     let result = eval(
         r#"
@@ -1092,6 +1110,7 @@ fn test_http_status_500() {
 // --- HTTP: Query Parameters ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_get_with_query_params() {
     let result = eval(
         r#"
@@ -1106,6 +1125,7 @@ fn test_http_get_with_query_params() {
 // --- HTTP: Timeout ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_timeout() {
     let _err = eval_err(r#"(http/get "https://httpbin.org/delay/10" {:timeout 1000})"#);
     // Just verifying it errors (timeout after 1s, but server delays 10s)
@@ -1114,16 +1134,19 @@ fn test_http_timeout() {
 // --- HTTP: Error Handling ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_invalid_url() {
     let _err = eval_err(r#"(http/get "http://invalid.invalid.invalid")"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_get_wrong_arity() {
     let _err = eval_err(r#"(http/get)"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_wrong_arity() {
     let _err = eval_err(r#"(http/post "https://httpbin.org/post")"#);
 }
@@ -1131,6 +1154,7 @@ fn test_http_post_wrong_arity() {
 // --- HTTP: Unicode ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_unicode_body() {
     let result = eval(
         r#"
@@ -1145,6 +1169,7 @@ fn test_http_unicode_body() {
 // --- HTTP: Redirect ---
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_redirect() {
     let result = eval(
         r#"
@@ -1159,59 +1184,70 @@ fn test_http_redirect() {
 
 // Unknown method → error (http.rs line 31)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_request_unknown_method() {
     let _err = eval_err(r#"(http/request "BOGUS" "https://httpbin.org/get")"#);
 }
 
 // Non-string URL → type error (http.rs line 111, 122, etc.)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_get_non_string_url() {
     let _err = eval_err(r#"(http/get 42)"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_non_string_url() {
     let _err = eval_err(r#"(http/post 42 "body")"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_request_non_string_method() {
     let _err = eval_err(r#"(http/request 42 "https://httpbin.org/get")"#);
 }
 
 // Too many args (upper arity bounds)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_get_too_many_args() {
     let _err = eval_err(r#"(http/get "url" {} "extra")"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_too_many_args() {
     let _err = eval_err(r#"(http/post "url" "body" {} "extra")"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_put_wrong_arity() {
     let _err = eval_err(r#"(http/put "url")"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_delete_wrong_arity() {
     let _err = eval_err(r#"(http/delete)"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_request_too_few_args() {
     let _err = eval_err(r#"(http/request "GET")"#);
 }
 
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_request_too_many_args() {
     let _err = eval_err(r#"(http/request "GET" "url" {} "body" "extra")"#);
 }
 
 // http/request minimal 2-arg path (opts and body both None)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_request_minimal_args() {
     let result = eval(
         r#"
@@ -1224,6 +1260,7 @@ fn test_http_request_minimal_args() {
 
 // Non-string/non-map body → to_string() fallback (http.rs line 71-73)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_integer_body() {
     let result = eval(
         r#"
@@ -1237,6 +1274,7 @@ fn test_http_post_integer_body() {
 
 // Map body auto-sets Content-Type: application/json (http.rs line 67-69)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_post_map_sets_content_type_json() {
     let result = eval(
         r#"
@@ -1250,6 +1288,7 @@ fn test_http_post_map_sets_content_type_json() {
 
 // String header keys (http.rs line 39 - Value::String branch)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_headers_with_string_keys() {
     let result = eval(
         r#"
@@ -1264,6 +1303,7 @@ fn test_http_headers_with_string_keys() {
 
 // Opts as non-map → silently ignored (http.rs line 35)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_get_opts_non_map_ignored() {
     let result = eval(
         r#"
@@ -1276,6 +1316,7 @@ fn test_http_get_opts_non_map_ignored() {
 
 // http/delete with opts (exercises the opts path for delete)
 #[test]
+#[ignore] // requires network (httpbin.org)
 fn test_http_delete_with_opts() {
     let result = eval(
         r#"
@@ -3117,6 +3158,174 @@ fn test_file_write_lines() {
     } else {
         panic!("expected list");
     }
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_for_each_line() {
+    let dir = "/tmp/sema-test-foreach-line";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    eval(&format!(
+        r#"(file/write "{dir}/data.txt" "alpha\nbeta\ngamma")"#
+    ));
+
+    // Count lines using for-each-line with a mutable counter
+    let result = eval(&format!(
+        r#"(begin
+             (define count 0)
+             (file/for-each-line "{dir}/data.txt"
+               (fn (line) (set! count (+ count 1))))
+             count)"#
+    ));
+    assert_eq!(result, Value::Int(3));
+
+    // Collect lines into a list via set!
+    let collected = eval(&format!(
+        r#"(begin
+             (define lines '())
+             (file/for-each-line "{dir}/data.txt"
+               (fn (line) (set! lines (append lines (list line)))))
+             lines)"#
+    ));
+    if let Value::List(items) = &collected {
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::string("alpha"));
+        assert_eq!(items[1], Value::string("beta"));
+        assert_eq!(items[2], Value::string("gamma"));
+    } else {
+        panic!("expected list, got: {collected}");
+    }
+
+    // Empty file — should call function zero times
+    eval(&format!(r#"(file/write "{dir}/empty.txt" "")"#));
+    let empty_count = eval(&format!(
+        r#"(begin
+             (define n 0)
+             (file/for-each-line "{dir}/empty.txt"
+               (fn (line) (set! n (+ n 1))))
+             n)"#
+    ));
+    // BufReader.lines() on "" yields zero lines
+    assert_eq!(empty_count, Value::Int(0));
+
+    // Single line, no trailing newline
+    eval(&format!(r#"(file/write "{dir}/one.txt" "hello")"#));
+    let one = eval(&format!(
+        r#"(begin
+             (define result '())
+             (file/for-each-line "{dir}/one.txt"
+               (fn (line) (set! result (append result (list line)))))
+             result)"#
+    ));
+    if let Value::List(items) = &one {
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0], Value::string("hello"));
+    } else {
+        panic!("expected list");
+    }
+
+    // Arity errors
+    assert!(
+        eval_err(&format!(r#"(file/for-each-line "{dir}/data.txt")"#))
+            .to_string()
+            .contains("expects")
+    );
+    assert!(eval_err(r#"(file/for-each-line)"#)
+        .to_string()
+        .contains("expects"));
+
+    // Non-existent file
+    assert!(
+        eval_err(r#"(file/for-each-line "/tmp/nonexistent-sema.txt" (fn (l) l))"#)
+            .to_string()
+            .contains("file/for-each-line")
+    );
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn test_file_fold_lines() {
+    let dir = "/tmp/sema-test-fold-lines";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    eval(&format!(r#"(file/write "{dir}/nums.txt" "10\n20\n30")"#));
+
+    // Sum numbers using fold-lines
+    let result = eval(&format!(
+        r#"(file/fold-lines "{dir}/nums.txt"
+             (fn (acc line) (+ acc (string->number line)))
+             0)"#
+    ));
+    assert_eq!(result, Value::Int(60));
+
+    // Count lines
+    let count = eval(&format!(
+        r#"(file/fold-lines "{dir}/nums.txt"
+             (fn (n line) (+ n 1))
+             0)"#
+    ));
+    assert_eq!(count, Value::Int(3));
+
+    // Collect lines into a list
+    let collected = eval(&format!(
+        r#"(file/fold-lines "{dir}/nums.txt"
+             (fn (acc line) (append acc (list line)))
+             '())"#
+    ));
+    if let Value::List(items) = &collected {
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::string("10"));
+        assert_eq!(items[1], Value::string("20"));
+        assert_eq!(items[2], Value::string("30"));
+    } else {
+        panic!("expected list, got: {collected}");
+    }
+
+    // Empty file — returns initial accumulator
+    eval(&format!(r#"(file/write "{dir}/empty.txt" "")"#));
+    let empty = eval(&format!(
+        r#"(file/fold-lines "{dir}/empty.txt"
+             (fn (acc line) (+ acc 1))
+             42)"#
+    ));
+    assert_eq!(empty, Value::Int(42));
+
+    // Build a map from key=value lines
+    eval(&format!(
+        r#"(file/write "{dir}/kv.txt" "name=alice\nage=30\ncity=paris")"#
+    ));
+    let map_result = eval(&format!(
+        r#"(file/fold-lines "{dir}/kv.txt"
+             (fn (acc line)
+               (let ((parts (string/split line "=")))
+                 (assoc acc (first parts) (nth parts 1))))
+             {{}})"#
+    ));
+    if let Value::Map(m) = &map_result {
+        assert_eq!(m.get(&Value::string("name")), Some(&Value::string("alice")));
+        assert_eq!(m.get(&Value::string("age")), Some(&Value::string("30")));
+        assert_eq!(m.get(&Value::string("city")), Some(&Value::string("paris")));
+    } else {
+        panic!("expected map, got: {map_result}");
+    }
+
+    // Arity errors
+    assert!(eval_err(r#"(file/fold-lines "f" (fn (a b) a))"#)
+        .to_string()
+        .contains("expects"));
+    assert!(eval_err(r#"(file/fold-lines)"#)
+        .to_string()
+        .contains("expects"));
+
+    // Non-existent file
+    assert!(
+        eval_err(r#"(file/fold-lines "/tmp/nonexistent-sema.txt" (fn (a l) a) 0)"#)
+            .to_string()
+            .contains("file/fold-lines")
+    );
 
     let _ = std::fs::remove_dir_all(dir);
 }
