@@ -19,6 +19,7 @@ pub enum Token {
     Keyword(String),
     Bool(bool),
     Char(char),
+    BytevectorStart,
     Dot,
 }
 
@@ -246,6 +247,14 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 token: Token::Char(c),
                                 span,
                             });
+                        }
+                        'u' if i + 3 < chars.len() && chars[i + 2] == '8' && chars[i + 3] == '(' => {
+                            tokens.push(SpannedToken {
+                                token: Token::BytevectorStart,
+                                span,
+                            });
+                            i += 4;
+                            col += 4;
                         }
                         _ => {
                             return Err(SemaError::Reader {

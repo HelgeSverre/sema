@@ -84,6 +84,7 @@ impl Parser {
                 let inner = self.parse_expr()?;
                 self.make_list_with_span(vec![Value::symbol("unquote-splicing"), inner], span)
             }
+            Some(Token::BytevectorStart) => self.parse_bytevector(),
             Some(_) => self.parse_atom(),
         }
     }
@@ -164,6 +165,42 @@ impl Parser {
         }
         self.expect(&Token::RBrace)?;
         Ok(Value::Map(Rc::new(map)))
+    }
+
+    fn parse_bytevector(&mut self) -> Result<Value, SemaError> {
+        let open_span = self.span();
+        self.advance(); // consume BytevectorStart token
+        let mut bytes = Vec::new();
+        while self.peek() != Some(&Token::RParen) {
+            if self.peek().is_none() {
+                return Err(SemaError::Reader {
+                    message: "unterminated bytevector".to_string(),
+                    span: open_span,
+                });
+            }
+            let span = self.span();
+            match self.peek() {
+                Some(Token::Int(n)) => {
+                    let n = *n;
+                    self.advance();
+                    if n < 0 || n > 255 {
+                        return Err(SemaError::Reader {
+                            message: format!("#u8(...): byte value {n} out of range 0..255"),
+                            span,
+                        });
+                    }
+                    bytes.push(n as u8);
+                }
+                _ => {
+                    return Err(SemaError::Reader {
+                        message: "#u8(...): expected integer byte value".to_string(),
+                        span,
+                    });
+                }
+            }
+        }
+        self.expect(&Token::RParen)?;
+        Ok(Value::bytevector(bytes))
     }
 
     fn parse_atom(&mut self) -> Result<Value, SemaError> {
@@ -850,5 +887,54 @@ mod tests {
     #[test]
     fn test_read_char_eof() {
         assert!(read("#\\").is_err());
+    }
+
+    // ====== Bytevector literal tests ======
+
+    #[test]
+    fn test_read_bytevector_literal() {
+        assert_eq!(read("#u8(1 2 3)").unwrap(), Value::bytevector(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn test_read_bytevector_empty() {
+        assert_eq!(read("#u8()").unwrap(), Value::bytevector(vec![]));
+    }
+
+    #[test]
+    fn test_read_bytevector_single() {
+        assert_eq!(read("#u8(255)").unwrap(), Value::bytevector(vec![255]));
+    }
+
+    #[test]
+    fn test_read_bytevector_out_of_range() {
+        assert!(read("#u8(256)").is_err());
+    }
+
+    #[test]
+    fn test_read_bytevector_negative() {
+        assert!(read("#u8(-1)").is_err());
+    }
+
+    #[test]
+    fn test_read_bytevector_non_integer() {
+        assert!(read("#u8(1.5)").is_err());
+    }
+
+    #[test]
+    fn test_read_bytevector_unterminated() {
+        assert!(read("#u8(1 2").is_err());
+    }
+
+    #[test]
+    fn test_read_bytevector_in_list() {
+        let result = read("(#u8(1 2) #u8(3))").unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::bytevector(vec![1, 2]),
+                Value::bytevector(vec![3]),
+            ])
+        );
     }
 }

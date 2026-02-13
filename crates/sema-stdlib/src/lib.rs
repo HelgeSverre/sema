@@ -1,6 +1,7 @@
 #![allow(clippy::mutable_key_type, clippy::cloned_ref_to_slice_refs)]
 mod arithmetic;
 mod bitwise;
+mod bytevector;
 mod comparison;
 mod crypto;
 mod csv_ops;
@@ -38,6 +39,7 @@ pub fn register_stdlib(env: &Env) {
     crypto::register(env);
     datetime::register(env);
     csv_ops::register(env);
+    bytevector::register(env);
 }
 
 fn register_fn(

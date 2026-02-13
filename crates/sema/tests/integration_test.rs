@@ -5218,3 +5218,81 @@ fn test_define_record_type_multiple_types() {
         ])
     );
 }
+
+// ====== Bytevector tests ======
+
+#[test]
+fn test_bytevector_constructors() {
+    assert_eq!(eval("(bytevector 1 2 3)"), Value::bytevector(vec![1, 2, 3]));
+    assert_eq!(eval("(make-bytevector 3 7)"), Value::bytevector(vec![7, 7, 7]));
+    assert_eq!(eval("(make-bytevector 4)"), Value::bytevector(vec![0, 0, 0, 0]));
+}
+
+#[test]
+fn test_bytevector_length() {
+    assert_eq!(eval("(bytevector-length #u8(1 2 3))"), Value::Int(3));
+    assert_eq!(eval("(bytevector-length #u8())"), Value::Int(0));
+}
+
+#[test]
+fn test_bytevector_u8_ref() {
+    assert_eq!(eval("(bytevector-u8-ref #u8(10 20 30) 0)"), Value::Int(10));
+    assert_eq!(eval("(bytevector-u8-ref #u8(10 20 30) 2)"), Value::Int(30));
+}
+
+#[test]
+fn test_bytevector_u8_set() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("
+        (define a #u8(1 2 3))
+        (define b (bytevector-u8-set! a 0 9))
+        (list a b)
+    ").unwrap();
+    assert_eq!(
+        result,
+        Value::list(vec![
+            Value::bytevector(vec![1, 2, 3]),
+            Value::bytevector(vec![9, 2, 3]),
+        ])
+    );
+}
+
+#[test]
+fn test_bytevector_copy() {
+    assert_eq!(eval("(bytevector-copy #u8(1 2 3 4 5) 1 3)"), Value::bytevector(vec![2, 3]));
+    assert_eq!(eval("(bytevector-copy #u8(1 2 3))"), Value::bytevector(vec![1, 2, 3]));
+}
+
+#[test]
+fn test_bytevector_append() {
+    assert_eq!(eval("(bytevector-append #u8(1 2) #u8(3 4))"), Value::bytevector(vec![1, 2, 3, 4]));
+    assert_eq!(eval("(bytevector-append #u8(1) #u8(2) #u8(3))"), Value::bytevector(vec![1, 2, 3]));
+}
+
+#[test]
+fn test_bytevector_list_conversion() {
+    assert_eq!(
+        eval("(bytevector->list #u8(65 66 67))"),
+        Value::list(vec![Value::Int(65), Value::Int(66), Value::Int(67)])
+    );
+    assert_eq!(eval("(list->bytevector (list 1 2 3))"), Value::bytevector(vec![1, 2, 3]));
+}
+
+#[test]
+fn test_bytevector_utf8_conversion() {
+    assert_eq!(eval_to_string("(utf8->string #u8(104 105))"), "\"hi\"");
+    assert_eq!(eval("(string->utf8 \"hi\")"), Value::bytevector(vec![104, 105]));
+}
+
+#[test]
+fn test_bytevector_predicate() {
+    assert_eq!(eval("(bytevector? #u8(1 2))"), Value::Bool(true));
+    assert_eq!(eval("(bytevector? 42)"), Value::Bool(false));
+    assert_eq!(eval("(bytevector? (list 1 2))"), Value::Bool(false));
+}
+
+#[test]
+fn test_bytevector_display() {
+    assert_eq!(eval_to_string("#u8(1 2 3)"), "#u8(1 2 3)");
+    assert_eq!(eval_to_string("#u8()"), "#u8()");
+}

@@ -118,6 +118,13 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Bool(matches!(&args[0], Value::Conversation(_))))
     });
 
+    register_fn(env, "bytevector?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("bytevector?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(&args[0], Value::Bytevector(_))))
+    });
+
     register_fn(env, "record?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("record?", "1", args.len()));

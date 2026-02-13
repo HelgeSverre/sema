@@ -242,7 +242,8 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
         | Value::Float(_)
         | Value::String(_)
         | Value::Char(_)
-        | Value::Thunk(_) => Ok(Trampoline::Value(expr.clone())),
+        | Value::Thunk(_)
+        | Value::Bytevector(_) => Ok(Trampoline::Value(expr.clone())),
         Value::Keyword(_) => Ok(Trampoline::Value(expr.clone())),
         Value::Vector(items) => {
             let mut result = Vec::with_capacity(items.len());
@@ -277,10 +278,9 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
             let head = &items[0];
             let args = &items[1..];
 
-            // Check for special forms (by symbol name)
+            // Check for special forms (by interned Spur, no resolve() needed)
             if let Value::Symbol(spur) = head {
-                let name = resolve(*spur);
-                if let Some(result) = special_forms::try_eval_special(&name, args, env) {
+                if let Some(result) = special_forms::try_eval_special(*spur, args, env) {
                     return result;
                 }
             }

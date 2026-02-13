@@ -194,6 +194,7 @@ pub enum Value {
     Agent(Rc<Agent>),
     Thunk(Rc<Thunk>),
     Record(Rc<Record>),
+    Bytevector(Rc<Vec<u8>>),
 }
 
 impl Value {
@@ -221,6 +222,7 @@ impl Value {
             Value::Agent(_) => "agent",
             Value::Thunk(_) => "promise",
             Value::Record(_) => "record",
+            Value::Bytevector(_) => "bytevector",
         }
     }
 
@@ -327,6 +329,17 @@ impl Value {
             _ => None,
         }
     }
+
+    pub fn as_bytevector(&self) -> Option<&Rc<Vec<u8>>> {
+        match self {
+            Value::Bytevector(bv) => Some(bv),
+            _ => None,
+        }
+    }
+
+    pub fn bytevector(bytes: Vec<u8>) -> Value {
+        Value::Bytevector(Rc::new(bytes))
+    }
 }
 
 impl Hash for Value {
@@ -347,6 +360,7 @@ impl Hash for Value {
                 r.type_tag.hash(state);
                 r.fields.hash(state);
             }
+            Value::Bytevector(bv) => bv.hash(state),
             _ => {}
         }
     }
@@ -369,6 +383,7 @@ impl PartialEq for Value {
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::HashMap(a), Value::HashMap(b)) => a == b,
             (Value::Record(a), Value::Record(b)) => a.type_tag == b.type_tag && a.fields == b.fields,
+            (Value::Bytevector(a), Value::Bytevector(b)) => a == b,
             _ => false,
         }
     }
@@ -400,7 +415,8 @@ impl Ord for Value {
                 Value::Map(_) => 10,
                 Value::HashMap(_) => 11,
                 Value::Record(_) => 12,
-                _ => 13,
+                Value::Bytevector(_) => 13,
+                _ => 14,
             }
         }
         match (self, other) {
@@ -418,6 +434,7 @@ impl Ord for Value {
                 compare_spurs(a.type_tag, b.type_tag)
                     .then_with(|| a.fields.cmp(&b.fields))
             }
+            (Value::Bytevector(a), Value::Bytevector(b)) => a.cmp(b),
             _ => type_order(self).cmp(&type_order(other)),
         }
     }
@@ -526,6 +543,16 @@ impl fmt::Display for Value {
                     write!(f, " {field}")?;
                 }
                 write!(f, ">")
+            }
+            Value::Bytevector(bv) => {
+                write!(f, "#u8(")?;
+                for (i, byte) in bv.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{byte}")?;
+                }
+                write!(f, ")")
             }
         }
     }
