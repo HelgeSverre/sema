@@ -146,21 +146,21 @@ The stdlib mini-eval (`call_function` in `list.rs`) doesn't support mutual tail 
 
 ## Gap Analysis — Remaining Items
 
-| # | Gap | Priority | Effort | Notes |
-|---|-----|----------|--------|-------|
-| 15 | No `guard` (R7RS) | Low | Low | `try`/`catch` covers the use case; `guard` is syntactic sugar |
-| 16 | No Full Numeric Tower | Low | High | Rationals/bignums require `num` crate integration throughout |
-| 18 | No Continuations | Low | Very High | Requires CPS transform or VM rewrite; trampoline can't capture continuations |
-| 19 | No Multiple Return Values | Low | Medium | `values`/`call-with-values` need eval changes |
-| 20 | No Dynamic Binding | Low | Medium | `parameterize`/`make-parameter` via thread-local state |
-| 21 | No Hygienic Macros | Medium | High | `syntax-rules` requires pattern matcher + template expander |
-| 22 | No Tail Position in `do` Body | Low | Low | Body is for side effects; result exprs already have TCO |
-| 23 | No `string-set!` | Low | Low | Intentional — immutable strings are simpler and safer |
-| 24 | No Proper Tail Recursion in map/filter | Low | Medium | Stdlib uses Rust iteration; would need eval access |
-| 26 | No `with-exception-handler` | Low | Medium | `try`/`catch` is sufficient for most use cases |
-| 27 | No `define-values` | Low | Low | Rarely needed without multiple return values |
-| 29 | No `let-values`/`receive` | Low | Low | Blocked by #19 |
-| 30 | No Tail Calls in Stdlib Mutual Recursion | Low | High | Architectural: stdlib can't depend on eval |
+| #   | Gap                                      | Priority | Effort    | Notes                                                                        |
+| --- | ---------------------------------------- | -------- | --------- | ---------------------------------------------------------------------------- |
+| 15  | No `guard` (R7RS)                        | Low      | Low       | `try`/`catch` covers the use case; `guard` is syntactic sugar                |
+| 16  | No Full Numeric Tower                    | Low      | High      | Rationals/bignums require `num` crate integration throughout                 |
+| 18  | No Continuations                         | Low      | Very High | Requires CPS transform or VM rewrite; trampoline can't capture continuations |
+| 19  | No Multiple Return Values                | Low      | Medium    | `values`/`call-with-values` need eval changes                                |
+| 20  | No Dynamic Binding                       | Low      | Medium    | `parameterize`/`make-parameter` via thread-local state                       |
+| 21  | No Hygienic Macros                       | Medium   | High      | `syntax-rules` requires pattern matcher + template expander                  |
+| 22  | No Tail Position in `do` Body            | Low      | Low       | Body is for side effects; result exprs already have TCO                      |
+| 23  | No `string-set!`                         | Low      | Low       | Intentional — immutable strings are simpler and safer                        |
+| 24  | No Proper Tail Recursion in map/filter   | Low      | Medium    | Stdlib uses Rust iteration; would need eval access                           |
+| 26  | No `with-exception-handler`              | Low      | Medium    | `try`/`catch` is sufficient for most use cases                               |
+| 27  | No `define-values`                       | Low      | Low       | Rarely needed without multiple return values                                 |
+| 29  | No `let-values`/`receive`                | Low      | Low       | Blocked by #19                                                               |
+| 30  | No Tail Calls in Stdlib Mutual Recursion | Low      | High      | Architectural: stdlib can't depend on eval                                   |
 
 ---
 
