@@ -100,7 +100,8 @@ To release a new version (e.g., `0.7.0`):
 6. **Commit**: `git add -A && git commit -m "v0.X.0: <summary>"`
 7. **Tag**: `git tag v0.X.0`
 8. **Push**: `git push origin main --tags`
-9. **Deploy website**: `cd website && vc --prod`
+9. **GitHub release**: `gh release create v0.X.0 --title "v0.X.0: <summary>" --notes "<changelog entry>"`
+10. **Deploy website**: `cd website && vc --prod`
 
 ## Design Docs
 
