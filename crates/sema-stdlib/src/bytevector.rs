@@ -21,7 +21,7 @@ pub fn register(env: &sema_core::Env) {
             let f = args[1]
                 .as_int()
                 .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
-            if f < 0 || f > 255 {
+            if !(0..=255).contains(&f) {
                 return Err(SemaError::eval(format!(
                     "make-bytevector: fill value {f} out of range 0..255"
                 )));
@@ -39,7 +39,7 @@ pub fn register(env: &sema_core::Env) {
             let n = arg
                 .as_int()
                 .ok_or_else(|| SemaError::type_error("int", arg.type_name()))?;
-            if n < 0 || n > 255 {
+            if !(0..=255).contains(&n) {
                 return Err(SemaError::eval(format!(
                     "bytevector: byte value {n} at index {i} out of range 0..255"
                 )));
@@ -97,7 +97,7 @@ pub fn register(env: &sema_core::Env) {
                 bv.len()
             )));
         }
-        if byte < 0 || byte > 255 {
+        if !(0..=255).contains(&byte) {
             return Err(SemaError::eval(format!(
                 "bytevector-u8-set!: byte value {byte} out of range 0..255"
             )));
@@ -173,7 +173,7 @@ pub fn register(env: &sema_core::Env) {
             let n = item
                 .as_int()
                 .ok_or_else(|| SemaError::type_error("int", item.type_name()))?;
-            if n < 0 || n > 255 {
+            if !(0..=255).contains(&n) {
                 return Err(SemaError::eval(format!(
                     "list->bytevector: byte value {n} out of range 0..255"
                 )));
@@ -190,9 +190,8 @@ pub fn register(env: &sema_core::Env) {
         let bv = args[0]
             .as_bytevector()
             .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
-        let s = String::from_utf8((**bv).clone()).map_err(|e| {
-            SemaError::eval(format!("utf8->string: invalid UTF-8: {e}"))
-        })?;
+        let s = String::from_utf8((**bv).clone())
+            .map_err(|e| SemaError::eval(format!("utf8->string: invalid UTF-8: {e}")))?;
         Ok(Value::String(Rc::new(s)))
     });
 

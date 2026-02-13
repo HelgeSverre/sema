@@ -1,0 +1,36 @@
+;;; stdlib-meta.sema — Exercise all meta stdlib functions
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== Meta Operations ===")
+(newline)
+
+;; --- gensym (no prefix) ---
+(println "-- gensym --")
+(define s1 (gensym))
+(define s2 (gensym))
+(assert-eq (symbol? s1) #t "gensym returns a symbol")
+(assert-eq (symbol? s2) #t "gensym second call returns a symbol")
+(assert-eq (not (equal? s1 s2)) #t "gensym generates unique symbols")
+(println "  ✓ gensym s1 = " s1)
+(println "  ✓ gensym s2 = " s2)
+
+;; --- gensym with prefix ---
+(println "-- gensym with prefix --")
+(define s3 (gensym "my-var"))
+(define s4 (gensym "my-var"))
+(assert-eq (symbol? s3) #t "gensym with prefix returns a symbol")
+(assert-eq (not (equal? s3 s4)) #t "gensym with same prefix still unique")
+(println "  ✓ gensym \"my-var\" s3 = " s3)
+(println "  ✓ gensym \"my-var\" s4 = " s4)
+
+;; Prefix appears in generated symbol name
+(define s5 (gensym "test"))
+(define s5-str (symbol->string s5))
+(assert-eq (string/starts-with? s5-str "test") #t "gensym prefix appears in symbol name")
+
+(println "")
+(println "=== All Meta tests passed! ===")

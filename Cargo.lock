@@ -651,6 +651,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hostname"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617aaa3557aef3810a6369d0a99fac8a080891b68bd9f9812a1eeda0c0730cbd"
+dependencies = [
+ "cfg-if",
+ "libc",
+ "windows-link",
+]
+
+[[package]]
 name = "http"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1499,7 +1510,7 @@ dependencies = [
 
 [[package]]
 name = "sema"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "clap",
  "rustyline",
@@ -1513,7 +1524,7 @@ dependencies = [
 
 [[package]]
 name = "sema-core"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "hashbrown 0.15.5",
  "lasso",
@@ -1524,7 +1535,7 @@ dependencies = [
 
 [[package]]
 name = "sema-eval"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "sema-core",
  "sema-llm",
@@ -1534,7 +1545,7 @@ dependencies = [
 
 [[package]]
 name = "sema-llm"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "futures",
  "reqwest",
@@ -1547,7 +1558,7 @@ dependencies = [
 
 [[package]]
 name = "sema-reader"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "proptest",
  "sema-core",
@@ -1555,7 +1566,7 @@ dependencies = [
 
 [[package]]
 name = "sema-stdlib"
-version = "0.4.0"
+version = "0.6.0"
 dependencies = [
  "base64",
  "chrono",
@@ -1563,6 +1574,7 @@ dependencies = [
  "hashbrown 0.15.5",
  "hex",
  "hmac",
+ "hostname",
  "lasso",
  "md5",
  "memchr",

@@ -438,6 +438,89 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
+    register_fn(env, "string/last-index-of", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/last-index-of", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let sub = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        match s.rfind(sub) {
+            Some(idx) => Ok(Value::Int(idx as i64)),
+            None => Ok(Value::Nil),
+        }
+    });
+
+    register_fn(env, "string/reverse", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/reverse", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::String(Rc::new(s.chars().rev().collect::<String>())))
+    });
+
+    register_fn(env, "string/empty?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/empty?", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::Bool(s.is_empty()))
+    });
+
+    register_fn(env, "string/capitalize", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/capitalize", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let mut chars = s.chars();
+        let result = match chars.next() {
+            Some(first) => {
+                let mut r = first.to_uppercase().to_string();
+                for c in chars {
+                    r.extend(c.to_lowercase());
+                }
+                r
+            }
+            None => String::new(),
+        };
+        Ok(Value::String(Rc::new(result)))
+    });
+
+    register_fn(env, "string/title-case", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/title-case", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let result: Vec<String> = s
+            .split_whitespace()
+            .map(|word| {
+                let mut chars = word.chars();
+                match chars.next() {
+                    Some(first) => {
+                        let mut w = first.to_uppercase().to_string();
+                        for c in chars {
+                            w.extend(c.to_lowercase());
+                        }
+                        w
+                    }
+                    None => String::new(),
+                }
+            })
+            .collect();
+        Ok(Value::String(Rc::new(result.join(" "))))
+    });
+
     // Character functions
 
     register_fn(env, "char->integer", |args| {
@@ -650,5 +733,24 @@ pub fn register(env: &sema_core::Env) {
             s.push(c);
         }
         Ok(Value::String(Rc::new(s)))
+    });
+
+    register_fn(env, "string/map", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/map", "2", args.len()));
+        }
+        let s = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let mut result = String::with_capacity(s.len());
+        for ch in s.chars() {
+            let mapped = crate::list::call_function(&args[0], &[Value::Char(ch)])?;
+            match &mapped {
+                Value::Char(c) => result.push(*c),
+                Value::String(s) => result.push_str(s),
+                _ => return Err(SemaError::type_error("char or string", mapped.type_name())),
+            }
+        }
+        Ok(Value::String(Rc::new(result)))
     });
 }

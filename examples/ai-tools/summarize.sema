@@ -1,0 +1,56 @@
+;; summarize.sema — Text/File Summarizer
+;;
+;; Usage:
+;;   sema examples/ai-tools/summarize.sema -- README.md
+;;   cat long-doc.txt | sema examples/ai-tools/summarize.sema
+;;   sema examples/ai-tools/summarize.sema -- doc.md --bullets
+
+(define provider (llm/auto-configure))
+(when (nil? provider)
+  (println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (exit 1))
+
+;; Parse script args
+(define (script-args)
+  (let loop ((args (sys/args)) (found #f))
+    (cond
+      ((null? args) '())
+      (found (cons (car args) (loop (cdr args) #t)))
+      ((= (car args) "--") (loop (cdr args) #t))
+      (else (loop (cdr args) #f)))))
+
+(define args (script-args))
+
+;; Check for --bullets flag
+(define bullets? (any (lambda (a) (= a "--bullets")) args))
+(define file-args (filter (lambda (a) (not (string/starts-with? a "--"))) args))
+
+;; Get the text to summarize
+(define text
+  (cond
+    ((not (null? file-args))
+     (define path (car file-args))
+     (unless (file/exists? path)
+       (println-error (format "File not found: ~a" path))
+       (exit 1))
+     (println-error (format "Summarizing ~a..." path))
+     (file/read path))
+    ((not (sys/interactive?))
+     (println-error "Summarizing input...")
+     (read-stdin))
+    (else
+     (println-error "Usage: sema summarize.sema -- <file>")
+     (println-error "       cat document.txt | sema summarize.sema")
+     (exit 1))))
+
+(define system-msg
+  (if bullets?
+    "You are a summarizer. Provide a concise summary as bullet points. Each bullet should capture a key point. Use markdown bullet format (- )."
+    "You are a summarizer. Provide a clear, concise summary of the text. Keep it to 1-3 paragraphs depending on the length of the input."))
+
+(llm/stream
+  (prompt
+    (system system-msg)
+    (user (string-append "Summarize the following:\n\n" text)))
+  {:max-tokens 4096})
+(newline)

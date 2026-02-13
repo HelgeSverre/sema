@@ -565,7 +565,7 @@ fn print_env(interpreter: &Interpreter) {
         .iter()
         .filter(|(_, v)| !matches!(v, sema_core::Value::NativeFn(_)))
         .collect();
-    user_bindings.sort_by_key(|(k, _)| (*k).clone());
+    user_bindings.sort_by_key(|(k, _)| *k);
     if user_bindings.is_empty() {
         println!("(no user-defined bindings)");
     } else {

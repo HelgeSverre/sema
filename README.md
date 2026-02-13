@@ -280,6 +280,12 @@ Error maps in `catch` have keys: `:type`, `:message`, `:stack-trace`, and varian
 (math/quotient 10 3)  (math/remainder 10 3)
 (math/random)    (math/random-int 1 100)
 (math/clamp 15 0 10)  (math/sign -5)
+(modulo 10 3)    ; => 1 (Scheme alias)
+(expt 2 10)      ; => 1024 (Scheme alias)
+(ceiling 3.2)    ; => 4 (alias for ceil)
+(truncate 3.7)   ; => 3
+(even? 4)        ; => #t
+(odd? 3)         ; => #t
 
 ;; Constants
 pi               ; => 3.14159...
@@ -318,6 +324,10 @@ e                ; => 2.71828...
 (string/pad-left "42" 5 "0")          ; => "00042"
 (string/pad-right "hi" 5)             ; => "hi   "
 (string/number? "42")                 ; => #t
+(string/map char-upcase "hello")       ; => "HELLO"
+(string/capitalize "hello")            ; => "Hello"
+(string/title-case "hello world")      ; => "Hello World"
+(string/reverse "hello")               ; => "olleh"
 
 ;; Characters
 #\a                                   ; character literal
@@ -409,6 +419,27 @@ e                ; => 2.71828...
 (list/chunk 2 '(1 2 3 4 5))          ; => ((1 2) (3 4) (5))
 (frequencies '(a b a c b a))          ; => {a 3 b 2 c 1}
 (interpose ", " '("a" "b" "c"))      ; => ("a" ", " "b" ", " "c")
+
+;; Aggregation
+(list/sum '(1 2 3 4 5))               ; => 15
+(list/min '(3 1 4 1 5))               ; => 1
+(list/max '(3 1 4 1 5))               ; => 5
+
+;; Random
+(list/shuffle '(1 2 3 4 5))           ; => (3 1 5 2 4) (random order)
+(list/pick '(1 2 3 4 5))              ; => 3 (random element)
+
+;; Construction
+(list/repeat 3 0)                      ; => (0 0 0)
+(make-list 3 0)                        ; => (0 0 0) (alias)
+(iota 5)                               ; => (0 1 2 3 4)
+(iota 3 10)                            ; => (10 11 12)
+(iota 4 0 2)                           ; => (0 2 4 6)
+
+;; Splitting
+(list/split-at '(1 2 3 4 5) 3)        ; => ((1 2 3) (4 5))
+(list/take-while (fn (x) (< x 4)) '(1 2 3 4 5))  ; => (1 2 3)
+(list/drop-while (fn (x) (< x 4)) '(1 2 3 4 5))  ; => (4 5)
 ```
 
 #### Vectors

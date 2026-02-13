@@ -1,4 +1,6 @@
 use std::io::BufRead;
+use std::io::Read as _;
+use std::io::Write as _;
 use std::rc::Rc;
 
 use sema_core::{Env, SemaError, Value};
@@ -522,6 +524,45 @@ pub fn register(env: &sema_core::Env) {
         std::fs::copy(src, dest)
             .map_err(|e| SemaError::Io(format!("file/copy {src} -> {dest}: {e}")))?;
         Ok(Value::Nil)
+    });
+
+    register_fn(env, "print-error", |args| {
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                eprint!(" ");
+            }
+            match arg {
+                Value::String(s) => eprint!("{s}"),
+                other => eprint!("{other}"),
+            }
+        }
+        std::io::stderr().flush().ok();
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "println-error", |args| {
+        for (i, arg) in args.iter().enumerate() {
+            if i > 0 {
+                eprint!(" ");
+            }
+            match arg {
+                Value::String(s) => eprint!("{s}"),
+                other => eprint!("{other}"),
+            }
+        }
+        eprintln!();
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "read-stdin", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("read-stdin", "0", args.len()));
+        }
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .map_err(|e| SemaError::Io(format!("read-stdin: {e}")))?;
+        Ok(Value::String(Rc::new(buf)))
     });
 
     register_fn(env, "load", |args| {

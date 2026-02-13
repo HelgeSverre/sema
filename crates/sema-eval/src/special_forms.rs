@@ -1476,7 +1476,7 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
                 if args.len() != field_count {
                     return Err(SemaError::arity(
                         &ctor_name_clone,
-                        &field_count.to_string(),
+                        field_count.to_string(),
                         args.len(),
                     ));
                 }
@@ -1541,7 +1541,11 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
                 name: accessor_name,
                 func: Box::new(move |args: &[Value]| {
                     if args.len() != 1 {
-                        return Err(SemaError::arity(&accessor_name_for_closure, "1", args.len()));
+                        return Err(SemaError::arity(
+                            &accessor_name_for_closure,
+                            "1",
+                            args.len(),
+                        ));
                     }
                     match &args[0] {
                         Value::Record(r) if r.type_tag == type_tag => {

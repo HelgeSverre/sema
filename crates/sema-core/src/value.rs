@@ -382,7 +382,9 @@ impl PartialEq for Value {
             (Value::Vector(a), Value::Vector(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::HashMap(a), Value::HashMap(b)) => a == b,
-            (Value::Record(a), Value::Record(b)) => a.type_tag == b.type_tag && a.fields == b.fields,
+            (Value::Record(a), Value::Record(b)) => {
+                a.type_tag == b.type_tag && a.fields == b.fields
+            }
             (Value::Bytevector(a), Value::Bytevector(b)) => a == b,
             _ => false,
         }
@@ -431,8 +433,7 @@ impl Ord for Value {
             (Value::List(a), Value::List(b)) => a.cmp(b),
             (Value::Vector(a), Value::Vector(b)) => a.cmp(b),
             (Value::Record(a), Value::Record(b)) => {
-                compare_spurs(a.type_tag, b.type_tag)
-                    .then_with(|| a.fields.cmp(&b.fields))
+                compare_spurs(a.type_tag, b.type_tag).then_with(|| a.fields.cmp(&b.fields))
             }
             (Value::Bytevector(a), Value::Bytevector(b)) => a.cmp(b),
             _ => type_order(self).cmp(&type_order(other)),

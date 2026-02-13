@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::rc::Rc;
 
 use sema_core::{SemaError, Value};
@@ -141,5 +142,51 @@ pub fn register(env: &sema_core::Env) {
             map.insert(Value::keyword(&key), Value::String(Rc::new(val)));
         }
         Ok(Value::Map(Rc::new(map)))
+    });
+
+    register_fn(env, "sys/home-dir", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/home-dir", "0", args.len()));
+        }
+        match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+            Ok(home) => Ok(Value::String(Rc::new(home))),
+            Err(_) => Ok(Value::Nil),
+        }
+    });
+
+    register_fn(env, "sys/temp-dir", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/temp-dir", "0", args.len()));
+        }
+        Ok(Value::String(Rc::new(
+            std::env::temp_dir().to_string_lossy().to_string(),
+        )))
+    });
+
+    register_fn(env, "sys/hostname", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/hostname", "0", args.len()));
+        }
+        match hostname::get() {
+            Ok(name) => Ok(Value::String(Rc::new(name.to_string_lossy().to_string()))),
+            Err(_) => Ok(Value::Nil),
+        }
+    });
+
+    register_fn(env, "sys/user", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/user", "0", args.len()));
+        }
+        match std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
+            Ok(user) => Ok(Value::String(Rc::new(user))),
+            Err(_) => Ok(Value::Nil),
+        }
+    });
+
+    register_fn(env, "sys/interactive?", |args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("sys/interactive?", "0", args.len()));
+        }
+        Ok(Value::Bool(std::io::stdin().is_terminal()))
     });
 }

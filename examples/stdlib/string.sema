@@ -1,0 +1,209 @@
+;; Sema Stdlib: String & Char Functions
+;; Tests all string and character functions
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== String Functions ===")
+(println)
+
+;; string-append
+(assert-eq (string-append "hello" " " "world") "hello world" "string-append")
+
+;; string-length
+(assert-eq (string-length "hello") 5 "string-length")
+(assert-eq (string-length "") 0 "string-length empty")
+
+;; string-ref
+(assert-eq (string-ref "hello" 0) #\h "string-ref first")
+(assert-eq (string-ref "hello" 4) #\o "string-ref last")
+
+;; substring
+(assert-eq (substring "hello world" 0 5) "hello" "substring with end")
+(assert-eq (substring "hello world" 6) "world" "substring without end")
+
+;; string/split
+(assert-eq (string/split "a,b,c" ",") (list "a" "b" "c") "string/split")
+
+;; string/trim
+(assert-eq (string/trim "  hello  ") "hello" "string/trim")
+
+;; string/contains?
+(assert-eq (string/contains? "hello world" "world") #t "string/contains? true")
+(assert-eq (string/contains? "hello world" "xyz") #f "string/contains? false")
+
+;; string/starts-with?
+(assert-eq (string/starts-with? "hello world" "hello") #t "string/starts-with? true")
+(assert-eq (string/starts-with? "hello world" "world") #f "string/starts-with? false")
+
+;; string/ends-with?
+(assert-eq (string/ends-with? "hello world" "world") #t "string/ends-with? true")
+(assert-eq (string/ends-with? "hello world" "hello") #f "string/ends-with? false")
+
+;; string/upper
+(assert-eq (string/upper "hello") "HELLO" "string/upper")
+
+;; string/lower
+(assert-eq (string/lower "HELLO") "hello" "string/lower")
+
+;; string/replace
+(assert-eq (string/replace "hello world" "world" "sema") "hello sema" "string/replace")
+
+;; string/join
+(assert-eq (string/join (list "a" "b" "c") ", ") "a, b, c" "string/join")
+
+;; format
+(assert-eq (format "~a + ~a = ~a" 1 2 3) "1 + 2 = 3" "format ~a")
+(assert-eq (format "~s" "hello") "\"hello\"" "format ~s")
+(assert-eq (format "line1~%line2") "line1\nline2" "format ~%")
+
+;; string->symbol
+(assert-eq (string->symbol "foo") (quote foo) "string->symbol")
+
+;; symbol->string
+(assert-eq (symbol->string (quote hello)) "hello" "symbol->string")
+
+;; string->keyword
+(assert-eq (string->keyword "name") :name "string->keyword")
+
+;; keyword->string
+(assert-eq (keyword->string :name) "name" "keyword->string")
+
+;; str
+(assert-eq (str "hello" " " 42) "hello 42" "str")
+(assert-eq (str) "" "str empty")
+
+;; number->string
+(assert-eq (number->string 42) "42" "number->string int")
+(assert-eq (number->string 3.14) "3.14" "number->string float")
+
+;; string->number
+(assert-eq (string->number "42") 42 "string->number int")
+(assert-eq (string->number "3.14") 3.14 "string->number float")
+
+;; string/index-of
+(assert-eq (string/index-of "hello world" "world") 6 "string/index-of found")
+(assert-eq (string/index-of "hello" "xyz") nil "string/index-of not found")
+
+;; string/last-index-of
+(assert-eq (string/last-index-of "abcabc" "abc") 3 "string/last-index-of")
+(assert-eq (string/last-index-of "hello" "xyz") nil "string/last-index-of not found")
+
+;; string/chars
+(assert-eq (string/chars "hi") (list #\h #\i) "string/chars")
+
+;; string/repeat
+(assert-eq (string/repeat "ab" 3) "ababab" "string/repeat")
+
+;; string/trim-left
+(assert-eq (string/trim-left "  hello  ") "hello  " "string/trim-left")
+
+;; string/trim-right
+(assert-eq (string/trim-right "  hello  ") "  hello" "string/trim-right")
+
+;; string/number?
+(assert-eq (string/number? "42") #t "string/number? true")
+(assert-eq (string/number? "hello") #f "string/number? false")
+
+;; string/pad-left
+(assert-eq (string/pad-left "hi" 5) "   hi" "string/pad-left default")
+(assert-eq (string/pad-left "hi" 5 "0") "000hi" "string/pad-left with char")
+
+;; string/pad-right
+(assert-eq (string/pad-right "hi" 5) "hi   " "string/pad-right default")
+(assert-eq (string/pad-right "hi" 5 ".") "hi..." "string/pad-right with char")
+
+;; string/reverse
+(assert-eq (string/reverse "hello") "olleh" "string/reverse")
+
+;; string/empty?
+(assert-eq (string/empty? "") #t "string/empty? true")
+(assert-eq (string/empty? "hi") #f "string/empty? false")
+
+;; string/capitalize
+(assert-eq (string/capitalize "hello") "Hello" "string/capitalize")
+(assert-eq (string/capitalize "hELLO") "Hello" "string/capitalize mixed")
+
+;; string/title-case
+(assert-eq (string/title-case "hello world") "Hello World" "string/title-case")
+
+(println)
+(println "=== Character Functions ===")
+(println)
+
+;; char->integer
+(assert-eq (char->integer #\A) 65 "char->integer")
+
+;; integer->char
+(assert-eq (integer->char 65) #\A "integer->char")
+
+;; char-alphabetic?
+(assert-eq (char-alphabetic? #\a) #t "char-alphabetic? true")
+(assert-eq (char-alphabetic? #\1) #f "char-alphabetic? false")
+
+;; char-numeric?
+(assert-eq (char-numeric? #\5) #t "char-numeric? true")
+(assert-eq (char-numeric? #\a) #f "char-numeric? false")
+
+;; char-whitespace?
+(assert-eq (char-whitespace? #\space) #t "char-whitespace? true")
+(assert-eq (char-whitespace? #\a) #f "char-whitespace? false")
+
+;; char-upper-case?
+(assert-eq (char-upper-case? #\A) #t "char-upper-case? true")
+(assert-eq (char-upper-case? #\a) #f "char-upper-case? false")
+
+;; char-lower-case?
+(assert-eq (char-lower-case? #\a) #t "char-lower-case? true")
+(assert-eq (char-lower-case? #\A) #f "char-lower-case? false")
+
+;; char-upcase
+(assert-eq (char-upcase #\a) #\A "char-upcase")
+
+;; char-downcase
+(assert-eq (char-downcase #\A) #\a "char-downcase")
+
+;; char->string
+(assert-eq (char->string #\x) "x" "char->string")
+
+;; string->char
+(assert-eq (string->char "A") #\A "string->char")
+
+;; string->list
+(assert-eq (string->list "hi") (list #\h #\i) "string->list")
+
+;; list->string
+(assert-eq (list->string (list #\h #\i)) "hi" "list->string")
+
+;; char=?
+(assert-eq (char=? #\a #\a) #t "char=? true")
+(assert-eq (char=? #\a #\b) #f "char=? false")
+
+;; char<?
+(assert-eq (char<? #\a #\b) #t "char<? true")
+(assert-eq (char<? #\b #\a) #f "char<? false")
+
+;; char>?
+(assert-eq (char>? #\b #\a) #t "char>? true")
+(assert-eq (char>? #\a #\b) #f "char>? false")
+
+;; char<=?
+(assert-eq (char<=? #\a #\b) #t "char<=? less")
+(assert-eq (char<=? #\a #\a) #t "char<=? equal")
+
+;; char>=?
+(assert-eq (char>=? #\b #\a) #t "char>=? greater")
+(assert-eq (char>=? #\a #\a) #t "char>=? equal")
+
+;; char-ci=?
+(assert-eq (char-ci=? #\A #\a) #t "char-ci=? true")
+(assert-eq (char-ci=? #\a #\b) #f "char-ci=? false")
+
+;; string/map
+(assert-eq (string/map char-upcase "hello") "HELLO" "string/map")
+(assert-eq (string/map (fn (c) c) "abc") "abc" "string/map identity")
+
+(println)
+(println "All string & char tests passed!")

@@ -183,7 +183,7 @@ impl Parser {
                 Some(Token::Int(n)) => {
                     let n = *n;
                     self.advance();
-                    if n < 0 || n > 255 {
+                    if !(0..=255).contains(&n) {
                         return Err(SemaError::Reader {
                             message: format!("#u8(...): byte value {n} out of range 0..255"),
                             span,
@@ -893,7 +893,10 @@ mod tests {
 
     #[test]
     fn test_read_bytevector_literal() {
-        assert_eq!(read("#u8(1 2 3)").unwrap(), Value::bytevector(vec![1, 2, 3]));
+        assert_eq!(
+            read("#u8(1 2 3)").unwrap(),
+            Value::bytevector(vec![1, 2, 3])
+        );
     }
 
     #[test]

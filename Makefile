@@ -39,8 +39,13 @@ run:
 lint: fmt-check clippy
 
 examples: build
-	@echo "=== Running all examples ==="
+	@echo "=== Running examples ==="
 	@for f in examples/*.sema; do \
+		echo "--- $$f ---"; \
+		cargo run --quiet -- --no-llm "$$f" || true; \
+	done
+	@echo "=== Running stdlib examples ==="
+	@for f in examples/stdlib/*.sema; do \
 		echo "--- $$f ---"; \
 		cargo run --quiet -- --no-llm "$$f" || true; \
 	done
@@ -60,12 +65,12 @@ fuzz:
 	cd crates/sema-reader && rustup run nightly cargo fuzz run fuzz_read -- -max_total_time=60
 
 bench-1m: release
-	time ./target/release/sema examples/1brc.sema -- bench-1m.txt
+	time ./target/release/sema examples/benchmarks/1brc.sema -- bench-1m.txt
 
 bench-10m: release
-	time ./target/release/sema examples/1brc.sema -- bench-10m.txt
+	time ./target/release/sema examples/benchmarks/1brc.sema -- bench-10m.txt
 
 bench-100m: release
-	time ./target/release/sema examples/1brc.sema -- bench-100m.txt
+	time ./target/release/sema examples/benchmarks/1brc.sema -- bench-100m.txt
 
 all: lint test build

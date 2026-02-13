@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+- **List operations** — `list/shuffle` (random reorder), `list/split-at` (split at index), `list/take-while` / `list/drop-while` (predicate-based prefix ops), `list/sum` (numeric sum), `list/min` / `list/max` (extrema), `list/pick` (random element), `list/repeat` / `make-list` (create n copies), `iota` (SRFI-1 integer sequence generator)
+- **String operations** — `string/map` (map function over characters), `string/capitalize` (capitalize first letter), `string/reverse`, `string/title-case`
+- **Math aliases** — `modulo` (alias for mod), `expt` (alias for pow), `ceiling` (alias for ceil), `truncate`
+- **Type conversion** — `number->string`
+- **11 new example programs** — Gabriel benchmarks, ASCII art, Perlin noise, Game of Life, lorem ipsum, maze generator, Mandelbrot set, and more
+
+### Changed
+- Stdlib builtin count increased from ~280 to ~350+ registered functions
+
 ## 0.5.0
 
 ### Added

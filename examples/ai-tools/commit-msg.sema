@@ -1,0 +1,54 @@
+;; commit-msg.sema — Git Commit Message Generator
+;;
+;; Usage:
+;;   sema examples/ai-tools/commit-msg.sema
+
+(define provider (llm/auto-configure))
+(when (nil? provider)
+  (println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (exit 1))
+
+;; Get the staged diff
+(define result (shell "git" "diff" "--staged"))
+(define diff (:stdout result))
+
+(when (= (string/trim diff) "")
+  (println-error "No staged changes. Stage changes with 'git add' first.")
+  (exit 1))
+
+(println-error "Generating commit message...")
+
+;; Generate the commit message
+(define msg
+  (llm/chat
+    [(message :system "You are a git commit message generator. Write a concise conventional commit message for the given diff. Follow the format: type(scope): description
+
+Where type is one of: feat, fix, refactor, docs, test, chore, style, perf, build, ci
+Keep the first line under 72 characters. Add a blank line and brief body only if the change is complex.
+Output ONLY the commit message, nothing else.")
+     (message :user (string-append "Generate a commit message for this diff:\n\n" diff))]
+    {:max-tokens 200}))
+
+(define msg (string/trim msg))
+
+(println "")
+(println msg)
+(println "")
+
+;; Prompt for action
+(when (sys/interactive?)
+  (print-error "[a]ccept / [e]dit / [r]eject: ")
+  (define choice (string/trim (read-line)))
+  (cond
+    ((= choice "a")
+     (define commit-result (shell "git" "commit" "-m" msg))
+     (if (= (:exit-code commit-result) 0)
+       (println-error "Committed!")
+       (begin
+         (println-error "Commit failed:")
+         (println-error (:stderr commit-result)))))
+    ((= choice "e")
+     (println-error "Copy the message above, edit it, and run:")
+     (println-error "  git commit -m \"<your message>\""))
+    (else
+     (println-error "Rejected."))))

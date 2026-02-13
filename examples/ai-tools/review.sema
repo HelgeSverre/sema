@@ -1,0 +1,69 @@
+;; review.sema — AI Code Reviewer
+;;
+;; Usage:
+;;   sema examples/ai-tools/review.sema                       (review unstaged changes)
+;;   sema examples/ai-tools/review.sema -- --staged           (review staged changes)
+;;   sema examples/ai-tools/review.sema -- path/to/file.rs    (review specific file)
+
+(define provider (llm/auto-configure))
+(when (nil? provider)
+  (println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (exit 1))
+
+;; Parse script args
+(define (script-args)
+  (let loop ((args (sys/args)) (found #f))
+    (cond
+      ((null? args) '())
+      (found (cons (car args) (loop (cdr args) #t)))
+      ((= (car args) "--") (loop (cdr args) #t))
+      (else (loop (cdr args) #f)))))
+
+(define args (script-args))
+
+;; Determine what to review
+(define staged? (any (lambda (a) (= a "--staged")) args))
+(define file-args (filter (lambda (a) (not (string/starts-with? a "--"))) args))
+
+(define code
+  (cond
+    ;; Review a specific file
+    ((not (null? file-args))
+     (define path (car file-args))
+     (unless (file/exists? path)
+       (println-error (format "File not found: ~a" path))
+       (exit 1))
+     (println-error (format "Reviewing ~a..." path))
+     (string-append "File: " path "\n\n" (file/read path)))
+
+    ;; Review staged or unstaged changes
+    (else
+     (define diff-args (if staged? '("--staged") '()))
+     (define result (apply shell (cons "git" (cons "diff" diff-args))))
+     (define diff (:stdout result))
+     (when (= (string/trim diff) "")
+       (println-error (if staged?
+                        "No staged changes to review."
+                        "No unstaged changes to review. Try --staged."))
+       (exit 1))
+     (println-error (if staged? "Reviewing staged changes..." "Reviewing unstaged changes..."))
+     diff)))
+
+(llm/stream
+  (prompt
+    (system "You are an expert code reviewer. Review the code or diff provided.
+
+For each issue found, format as:
+
+**[SEVERITY] Category** — `location`
+Description and suggestion.
+
+Severity levels:
+- **[HIGH]** — Bugs, security issues, data loss risks
+- **[MED]** — Logic errors, performance issues, bad practices
+- **[LOW]** — Style, naming, minor improvements
+
+End with a brief summary. If the code looks good, say so. Be concise and actionable.")
+    (user code))
+  {:max-tokens 4096})
+(newline)

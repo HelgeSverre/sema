@@ -669,6 +669,267 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::list(result))
     });
 
+    register_fn(env, "take-while", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("take-while", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "take-while")?;
+        let mut result = Vec::new();
+        for item in &items {
+            if call_function(&args[0], &[item.clone()])?.is_truthy() {
+                result.push(item.clone());
+            } else {
+                break;
+            }
+        }
+        Ok(Value::list(result))
+    });
+
+    register_fn(env, "drop-while", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("drop-while", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "drop-while")?;
+        let mut dropping = true;
+        let mut result = Vec::new();
+        for item in &items {
+            if dropping && call_function(&args[0], &[item.clone()])?.is_truthy() {
+                continue;
+            }
+            dropping = false;
+            result.push(item.clone());
+        }
+        Ok(Value::list(result))
+    });
+
+    register_fn(env, "list/dedupe", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/dedupe", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/dedupe")?;
+        let mut result = Vec::new();
+        for item in &items {
+            if result.last() != Some(item) {
+                result.push(item.clone());
+            }
+        }
+        Ok(Value::list(result))
+    });
+
+    register_fn(env, "flat-map", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("flat-map", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "flat-map")?;
+        let mut result = Vec::new();
+        for item in &items {
+            let mapped = call_function(&args[0], &[item.clone()])?;
+            match mapped {
+                Value::List(l) => result.extend(l.iter().cloned()),
+                Value::Vector(v) => result.extend(v.iter().cloned()),
+                other => result.push(other),
+            }
+        }
+        Ok(Value::list(result))
+    });
+
+    register_fn(env, "list/shuffle", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/shuffle", "1", args.len()));
+        }
+        let mut items = get_sequence(&args[0], "list/shuffle")?;
+        use rand::seq::SliceRandom;
+        items.shuffle(&mut rand::rng());
+        Ok(Value::list(items))
+    });
+
+    register_fn(env, "list/split-at", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/split-at", "2", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/split-at")?;
+        let n = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as usize;
+        let n = n.min(items.len());
+        let left = items[..n].to_vec();
+        let right = items[n..].to_vec();
+        Ok(Value::list(vec![Value::list(left), Value::list(right)]))
+    });
+
+    register_fn(env, "list/take-while", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/take-while", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "list/take-while")?;
+        let mut result = Vec::new();
+        for item in &items {
+            let keep = call_function(&args[0], &[item.clone()])?;
+            if keep.is_truthy() {
+                result.push(item.clone());
+            } else {
+                break;
+            }
+        }
+        Ok(Value::list(result))
+    });
+
+    register_fn(env, "list/drop-while", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/drop-while", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "list/drop-while")?;
+        let mut dropping = true;
+        let mut result = Vec::new();
+        for item in &items {
+            if dropping {
+                let drop = call_function(&args[0], &[item.clone()])?;
+                if drop.is_truthy() {
+                    continue;
+                }
+                dropping = false;
+            }
+            result.push(item.clone());
+        }
+        Ok(Value::list(result))
+    });
+
+    register_fn(env, "list/sum", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/sum", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/sum")?;
+        let mut int_sum: i64 = 0;
+        let mut has_float = false;
+        let mut float_sum: f64 = 0.0;
+        for item in &items {
+            match item {
+                Value::Int(n) => {
+                    int_sum += n;
+                    float_sum += *n as f64;
+                }
+                Value::Float(f) => {
+                    has_float = true;
+                    float_sum += f;
+                }
+                _ => return Err(SemaError::type_error("number", item.type_name())),
+            }
+        }
+        if has_float {
+            Ok(Value::Float(float_sum))
+        } else {
+            Ok(Value::Int(int_sum))
+        }
+    });
+
+    register_fn(env, "list/min", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/min", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/min")?;
+        if items.is_empty() {
+            return Err(SemaError::eval("list/min: empty list"));
+        }
+        let mut result = items[0].clone();
+        for item in &items[1..] {
+            if num_lt(item, &result)? {
+                result = item.clone();
+            }
+        }
+        Ok(result)
+    });
+
+    register_fn(env, "list/max", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/max", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/max")?;
+        if items.is_empty() {
+            return Err(SemaError::eval("list/max: empty list"));
+        }
+        let mut result = items[0].clone();
+        for item in &items[1..] {
+            if num_lt(&result, item)? {
+                result = item.clone();
+            }
+        }
+        Ok(result)
+    });
+
+    register_fn(env, "list/pick", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/pick", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/pick")?;
+        if items.is_empty() {
+            return Err(SemaError::eval("list/pick: empty list"));
+        }
+        use rand::seq::IndexedRandom;
+        let chosen = items.choose(&mut rand::rng()).unwrap();
+        Ok(chosen.clone())
+    });
+
+    register_fn(env, "list/repeat", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/repeat", "2", args.len()));
+        }
+        let n = args[0]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
+        let val = args[1].clone();
+        Ok(Value::list(vec![val; n]))
+    });
+    register_fn(env, "make-list", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("make-list", "2", args.len()));
+        }
+        let n = args[0]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
+        let val = args[1].clone();
+        Ok(Value::list(vec![val; n]))
+    });
+
+    register_fn(env, "iota", |args| {
+        let (count, start, step) = match args.len() {
+            1 => {
+                let c = args[0]
+                    .as_int()
+                    .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+                (c, 0i64, 1i64)
+            }
+            2 => {
+                let c = args[0]
+                    .as_int()
+                    .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+                let s = args[1]
+                    .as_int()
+                    .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+                (c, s, 1)
+            }
+            3 => {
+                let c = args[0]
+                    .as_int()
+                    .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+                let s = args[1]
+                    .as_int()
+                    .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+                let st = args[2]
+                    .as_int()
+                    .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?;
+                (c, s, st)
+            }
+            _ => return Err(SemaError::arity("iota", "1-3", args.len())),
+        };
+        let mut result = Vec::with_capacity(count.max(0) as usize);
+        let mut val = start;
+        for _ in 0..count {
+            result.push(Value::Int(val));
+            val += step;
+        }
+        Ok(Value::list(result))
+    });
+
     // Car/cdr compositions (2-deep)
     register_fn(env, "caar", |args| first(&[first(args)?]));
     register_fn(env, "cadr", |args| first(&[rest(args)?]));
@@ -792,6 +1053,16 @@ fn flatten_recursive(val: &Value, out: &mut Vec<Value>) {
     }
 }
 
+fn num_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
+    match (a, b) {
+        (Value::Int(a), Value::Int(b)) => Ok(a < b),
+        (Value::Float(a), Value::Float(b)) => Ok(a < b),
+        (Value::Int(a), Value::Float(b)) => Ok((*a as f64) < *b),
+        (Value::Float(a), Value::Int(b)) => Ok(*a < (*b as f64)),
+        _ => Err(SemaError::type_error("number", a.type_name())),
+    }
+}
+
 /// Fast path for parsing simple numbers: integers and decimals like "-12.3", "4.5", "100".
 /// Returns None if the string doesn't match a simple pattern, falling back to std parse.
 fn fast_parse_number(s: &str) -> Option<Value> {
@@ -811,7 +1082,7 @@ fn fast_parse_number(s: &str) -> Option<Value> {
     let mut i = start;
     while i < bytes.len() && bytes[i] != b'.' {
         let b = bytes[i];
-        if b < b'0' || b > b'9' {
+        if !b.is_ascii_digit() {
             return None;
         }
         integer_part = integer_part * 10 + (b - b'0') as i64;
@@ -834,7 +1105,7 @@ fn fast_parse_number(s: &str) -> Option<Value> {
     let mut frac_part: i64 = 0;
     while i < bytes.len() {
         let b = bytes[i];
-        if b < b'0' || b > b'9' {
+        if !b.is_ascii_digit() {
             return None;
         }
         frac_part = frac_part * 10 + (b - b'0') as i64;
@@ -1493,26 +1764,22 @@ pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                         }
                         return Err(SemaError::type_error("string", sep_val.type_name()));
                     }
-                } else if head_spur == sf.string_to_number {
-                    if items.len() == 2 {
-                        let val = sema_eval_value(&items[1], env)?;
-                        if let Some(s) = val.as_str() {
-                            // Fast path: try simple decimal format first (e.g., "-12.3", "4.5")
-                            if let Some(fast) = fast_parse_number(s) {
-                                return Ok(fast);
-                            }
-                            if let Ok(n) = s.parse::<i64>() {
-                                return Ok(Value::Int(n));
-                            } else if let Ok(f) = s.parse::<f64>() {
-                                return Ok(Value::Float(f));
-                            } else {
-                                return Err(SemaError::eval(format!(
-                                    "cannot parse '{s}' as number"
-                                )));
-                            }
+                } else if head_spur == sf.string_to_number && items.len() == 2 {
+                    let val = sema_eval_value(&items[1], env)?;
+                    if let Some(s) = val.as_str() {
+                        // Fast path: try simple decimal format first (e.g., "-12.3", "4.5")
+                        if let Some(fast) = fast_parse_number(s) {
+                            return Ok(fast);
                         }
-                        return Err(SemaError::type_error("string", val.type_name()));
+                        if let Ok(n) = s.parse::<i64>() {
+                            return Ok(Value::Int(n));
+                        } else if let Ok(f) = s.parse::<f64>() {
+                            return Ok(Value::Float(f));
+                        } else {
+                            return Err(SemaError::eval(format!("cannot parse '{s}' as number")));
+                        }
                     }
+                    return Err(SemaError::type_error("string", val.type_name()));
                 }
             }
             // Keywords in function position: (:key map)

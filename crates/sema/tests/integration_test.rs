@@ -5113,7 +5113,9 @@ fn test_char_ci_comparison_predicates() {
 #[test]
 fn test_define_record_type_basic() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("
+    let result = interp
+        .eval_str(
+            "
         (define-record-type point
             (make-point x y)
             point?
@@ -5121,7 +5123,9 @@ fn test_define_record_type_basic() {
             (y point-y))
         (define p (make-point 3 4))
         (list (point? p) (point-x p) (point-y p))
-    ").unwrap();
+    ",
+        )
+        .unwrap();
     assert_eq!(
         result,
         Value::list(vec![Value::Bool(true), Value::Int(3), Value::Int(4)])
@@ -5131,56 +5135,72 @@ fn test_define_record_type_basic() {
 #[test]
 fn test_define_record_type_predicate_false() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("
+    let result = interp
+        .eval_str(
+            "
         (define-record-type point
             (make-point x y)
             point?
             (x point-x)
             (y point-y))
         (point? 42)
-    ").unwrap();
+    ",
+        )
+        .unwrap();
     assert_eq!(result, Value::Bool(false));
 }
 
 #[test]
 fn test_define_record_type_equality() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("
+    let result = interp
+        .eval_str(
+            "
         (define-record-type point
             (make-point x y)
             point?
             (x point-x)
             (y point-y))
         (equal? (make-point 1 2) (make-point 1 2))
-    ").unwrap();
+    ",
+        )
+        .unwrap();
     assert_eq!(result, Value::Bool(true));
 }
 
 #[test]
 fn test_define_record_type_type_function() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("
+    let result = interp
+        .eval_str(
+            "
         (define-record-type point
             (make-point x y)
             point?
             (x point-x)
             (y point-y))
         (type (make-point 1 2))
-    ").unwrap();
+    ",
+        )
+        .unwrap();
     assert_eq!(result, Value::keyword("point"));
 }
 
 #[test]
 fn test_define_record_type_record_predicate() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("
+    let result = interp
+        .eval_str(
+            "
         (define-record-type point
             (make-point x y)
             point?
             (x point-x)
             (y point-y))
         (list (record? (make-point 1 2)) (record? 42))
-    ").unwrap();
+    ",
+        )
+        .unwrap();
     assert_eq!(
         result,
         Value::list(vec![Value::Bool(true), Value::Bool(false)])
@@ -5190,31 +5210,41 @@ fn test_define_record_type_record_predicate() {
 #[test]
 fn test_define_record_type_mutator_ignored() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("
+    let result = interp
+        .eval_str(
+            "
         (define-record-type point
             (make-point x y)
             point?
             (x point-x set-point-x!)
             (y point-y set-point-y!))
         (point-x (make-point 7 8))
-    ").unwrap();
+    ",
+        )
+        .unwrap();
     assert_eq!(result, Value::Int(7));
 }
 
 #[test]
 fn test_define_record_type_multiple_types() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("
+    let result = interp
+        .eval_str(
+            "
         (define-record-type point (make-point x y) point? (x point-x) (y point-y))
         (define-record-type color (make-color r g b) color? (r color-r) (g color-g) (b color-b))
         (list (point? (make-point 1 2)) (color? (make-point 1 2))
               (color? (make-color 255 0 0)) (point? (make-color 255 0 0)))
-    ").unwrap();
+    ",
+        )
+        .unwrap();
     assert_eq!(
         result,
         Value::list(vec![
-            Value::Bool(true), Value::Bool(false),
-            Value::Bool(true), Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(false),
+            Value::Bool(true),
+            Value::Bool(false),
         ])
     );
 }
@@ -5224,8 +5254,14 @@ fn test_define_record_type_multiple_types() {
 #[test]
 fn test_bytevector_constructors() {
     assert_eq!(eval("(bytevector 1 2 3)"), Value::bytevector(vec![1, 2, 3]));
-    assert_eq!(eval("(make-bytevector 3 7)"), Value::bytevector(vec![7, 7, 7]));
-    assert_eq!(eval("(make-bytevector 4)"), Value::bytevector(vec![0, 0, 0, 0]));
+    assert_eq!(
+        eval("(make-bytevector 3 7)"),
+        Value::bytevector(vec![7, 7, 7])
+    );
+    assert_eq!(
+        eval("(make-bytevector 4)"),
+        Value::bytevector(vec![0, 0, 0, 0])
+    );
 }
 
 #[test]
@@ -5243,11 +5279,15 @@ fn test_bytevector_u8_ref() {
 #[test]
 fn test_bytevector_u8_set() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("
+    let result = interp
+        .eval_str(
+            "
         (define a #u8(1 2 3))
         (define b (bytevector-u8-set! a 0 9))
         (list a b)
-    ").unwrap();
+    ",
+        )
+        .unwrap();
     assert_eq!(
         result,
         Value::list(vec![
@@ -5259,14 +5299,26 @@ fn test_bytevector_u8_set() {
 
 #[test]
 fn test_bytevector_copy() {
-    assert_eq!(eval("(bytevector-copy #u8(1 2 3 4 5) 1 3)"), Value::bytevector(vec![2, 3]));
-    assert_eq!(eval("(bytevector-copy #u8(1 2 3))"), Value::bytevector(vec![1, 2, 3]));
+    assert_eq!(
+        eval("(bytevector-copy #u8(1 2 3 4 5) 1 3)"),
+        Value::bytevector(vec![2, 3])
+    );
+    assert_eq!(
+        eval("(bytevector-copy #u8(1 2 3))"),
+        Value::bytevector(vec![1, 2, 3])
+    );
 }
 
 #[test]
 fn test_bytevector_append() {
-    assert_eq!(eval("(bytevector-append #u8(1 2) #u8(3 4))"), Value::bytevector(vec![1, 2, 3, 4]));
-    assert_eq!(eval("(bytevector-append #u8(1) #u8(2) #u8(3))"), Value::bytevector(vec![1, 2, 3]));
+    assert_eq!(
+        eval("(bytevector-append #u8(1 2) #u8(3 4))"),
+        Value::bytevector(vec![1, 2, 3, 4])
+    );
+    assert_eq!(
+        eval("(bytevector-append #u8(1) #u8(2) #u8(3))"),
+        Value::bytevector(vec![1, 2, 3])
+    );
 }
 
 #[test]
@@ -5275,13 +5327,19 @@ fn test_bytevector_list_conversion() {
         eval("(bytevector->list #u8(65 66 67))"),
         Value::list(vec![Value::Int(65), Value::Int(66), Value::Int(67)])
     );
-    assert_eq!(eval("(list->bytevector (list 1 2 3))"), Value::bytevector(vec![1, 2, 3]));
+    assert_eq!(
+        eval("(list->bytevector (list 1 2 3))"),
+        Value::bytevector(vec![1, 2, 3])
+    );
 }
 
 #[test]
 fn test_bytevector_utf8_conversion() {
     assert_eq!(eval_to_string("(utf8->string #u8(104 105))"), "\"hi\"");
-    assert_eq!(eval("(string->utf8 \"hi\")"), Value::bytevector(vec![104, 105]));
+    assert_eq!(
+        eval("(string->utf8 \"hi\")"),
+        Value::bytevector(vec![104, 105])
+    );
 }
 
 #[test]
@@ -5295,4 +5353,400 @@ fn test_bytevector_predicate() {
 fn test_bytevector_display() {
     assert_eq!(eval_to_string("#u8(1 2 3)"), "#u8(1 2 3)");
     assert_eq!(eval_to_string("#u8()"), "#u8()");
+}
+
+#[test]
+fn test_truncate() {
+    assert_eq!(eval("(truncate 3.9)"), Value::Int(3));
+    assert_eq!(eval("(truncate -3.9)"), Value::Int(-3));
+    assert_eq!(eval("(truncate 5)"), Value::Int(5));
+}
+
+#[test]
+fn test_scheme_aliases() {
+    assert_eq!(eval("(modulo 17 5)"), Value::Int(2));
+    assert_eq!(eval("(expt 2 10)"), Value::Int(1024));
+    assert_eq!(eval("(ceiling 3.2)"), Value::Int(4));
+}
+
+#[test]
+fn test_math_pow_namespaced() {
+    assert_eq!(eval("(math/pow 2.0 10.0)"), Value::Float(1024.0));
+    assert_eq!(eval("(math/pow 2 3)"), Value::Int(8));
+}
+
+#[test]
+fn test_math_hyperbolic() {
+    assert_eq!(eval("(math/sinh 0)"), Value::Float(0.0));
+    assert_eq!(eval("(math/cosh 0)"), Value::Float(1.0));
+    assert_eq!(eval("(math/tanh 0)"), Value::Float(0.0));
+}
+
+#[test]
+fn test_math_angle_conversion() {
+    if let Value::Float(f) = eval("(math/degrees->radians 180)") {
+        assert!((f - std::f64::consts::PI).abs() < 1e-10);
+    } else {
+        panic!("expected float");
+    }
+    if let Value::Float(f) = eval("(math/radians->degrees pi)") {
+        assert!((f - 180.0).abs() < 1e-10);
+    } else {
+        panic!("expected float");
+    }
+}
+
+#[test]
+fn test_math_lerp() {
+    assert_eq!(eval("(math/lerp 0.0 10.0 0.5)"), Value::Float(5.0));
+    assert_eq!(eval("(math/lerp 0.0 10.0 0.0)"), Value::Float(0.0));
+    assert_eq!(eval("(math/lerp 0.0 10.0 1.0)"), Value::Float(10.0));
+}
+
+#[test]
+fn test_math_map_range() {
+    assert_eq!(
+        eval("(math/map-range 5.0 0.0 10.0 0.0 100.0)"),
+        Value::Float(50.0)
+    );
+    assert_eq!(
+        eval("(math/map-range 0.0 0.0 10.0 0.0 100.0)"),
+        Value::Float(0.0)
+    );
+}
+
+#[test]
+fn test_math_special_values() {
+    assert_eq!(eval("(math/nan? math/nan)"), Value::Bool(true));
+    assert_eq!(eval("(math/nan? 1.0)"), Value::Bool(false));
+    assert_eq!(eval("(math/infinite? math/infinity)"), Value::Bool(true));
+    assert_eq!(eval("(math/infinite? 1.0)"), Value::Bool(false));
+}
+
+#[test]
+fn test_even_odd_predicates() {
+    assert_eq!(eval("(even? 4)"), Value::Bool(true));
+    assert_eq!(eval("(even? 3)"), Value::Bool(false));
+    assert_eq!(eval("(odd? 3)"), Value::Bool(true));
+    assert_eq!(eval("(odd? 4)"), Value::Bool(false));
+    assert_eq!(eval("(even? 0)"), Value::Bool(true));
+}
+
+#[test]
+fn test_take_while() {
+    assert_eq!(
+        eval_to_string("(take-while (lambda (x) (< x 4)) (list 1 2 3 4 5))"),
+        "(1 2 3)"
+    );
+    assert_eq!(
+        eval_to_string("(take-while (lambda (x) (< x 1)) (list 1 2 3))"),
+        "()"
+    );
+}
+
+#[test]
+fn test_drop_while() {
+    assert_eq!(
+        eval_to_string("(drop-while (lambda (x) (< x 4)) (list 1 2 3 4 5))"),
+        "(4 5)"
+    );
+    assert_eq!(
+        eval_to_string("(drop-while (lambda (x) (< x 10)) (list 1 2 3))"),
+        "()"
+    );
+}
+
+#[test]
+fn test_list_dedupe() {
+    assert_eq!(
+        eval_to_string("(list/dedupe (list 1 1 2 2 3 1 1))"),
+        "(1 2 3 1)"
+    );
+    assert_eq!(eval_to_string("(list/dedupe (list 1 2 3))"), "(1 2 3)");
+    assert_eq!(eval_to_string("(list/dedupe (list))"), "()");
+}
+
+#[test]
+fn test_flat_map() {
+    assert_eq!(
+        eval_to_string("(flat-map (lambda (x) (list x (* x 10))) (list 1 2 3))"),
+        "(1 10 2 20 3 30)"
+    );
+    assert_eq!(
+        eval_to_string("(flat-map (lambda (x) (list)) (list 1 2 3))"),
+        "()"
+    );
+}
+
+#[test]
+fn test_sys_home_dir() {
+    let result = eval("(sys/home-dir)");
+    assert!(matches!(result, Value::String(_)));
+    if let Value::String(s) = &result {
+        assert!(!s.is_empty());
+    }
+}
+
+#[test]
+fn test_sys_temp_dir() {
+    let result = eval("(sys/temp-dir)");
+    assert!(matches!(result, Value::String(_)));
+    if let Value::String(s) = &result {
+        assert!(!s.is_empty());
+    }
+}
+
+#[test]
+fn test_sys_hostname() {
+    let result = eval("(sys/hostname)");
+    assert!(matches!(result, Value::String(_)));
+}
+
+#[test]
+fn test_sys_user() {
+    let result = eval("(sys/user)");
+    assert!(matches!(result, Value::String(_)));
+    if let Value::String(s) = &result {
+        assert!(!s.is_empty());
+    }
+}
+
+#[test]
+fn test_string_last_index_of() {
+    assert_eq!(
+        eval(r#"(string/last-index-of "abcabc" "bc")"#),
+        Value::Int(4)
+    );
+    assert_eq!(eval(r#"(string/last-index-of "hello" "xyz")"#), Value::Nil);
+    assert_eq!(eval(r#"(string/last-index-of "aaa" "a")"#), Value::Int(2));
+}
+
+#[test]
+fn test_string_reverse() {
+    assert_eq!(eval(r#"(string/reverse "hello")"#), Value::string("olleh"));
+    assert_eq!(eval(r#"(string/reverse "")"#), Value::string(""));
+    assert_eq!(eval(r#"(string/reverse "a")"#), Value::string("a"));
+}
+
+#[test]
+fn test_string_empty() {
+    assert_eq!(eval(r#"(string/empty? "")"#), Value::Bool(true));
+    assert_eq!(eval(r#"(string/empty? "hello")"#), Value::Bool(false));
+    assert_eq!(eval(r#"(string/empty? " ")"#), Value::Bool(false));
+}
+
+#[test]
+fn test_string_capitalize() {
+    assert_eq!(
+        eval(r#"(string/capitalize "hello")"#),
+        Value::string("Hello")
+    );
+    assert_eq!(
+        eval(r#"(string/capitalize "HELLO")"#),
+        Value::string("Hello")
+    );
+    assert_eq!(eval(r#"(string/capitalize "")"#), Value::string(""));
+    assert_eq!(eval(r#"(string/capitalize "a")"#), Value::string("A"));
+}
+
+#[test]
+fn test_string_title_case() {
+    assert_eq!(
+        eval(r#"(string/title-case "hello world")"#),
+        Value::string("Hello World")
+    );
+    assert_eq!(
+        eval(r#"(string/title-case "foo bar baz")"#),
+        Value::string("Foo Bar Baz")
+    );
+    assert_eq!(eval(r#"(string/title-case "")"#), Value::string(""));
+}
+
+// ====================================================================
+// IO: print-error, println-error
+// ====================================================================
+
+#[test]
+fn test_print_error() {
+    assert_eq!(eval(r#"(print-error "hello")"#), Value::Nil);
+    assert_eq!(eval(r#"(print-error "a" "b" "c")"#), Value::Nil);
+    assert_eq!(eval(r#"(print-error 42)"#), Value::Nil);
+}
+
+#[test]
+fn test_println_error() {
+    assert_eq!(eval(r#"(println-error "hello")"#), Value::Nil);
+    assert_eq!(eval(r#"(println-error "a" "b" "c")"#), Value::Nil);
+    assert_eq!(eval(r#"(println-error)"#), Value::Nil);
+}
+
+// ====================================================================
+// System: sys/interactive?
+// ====================================================================
+
+#[test]
+fn test_sys_interactive() {
+    // In test context, stdin is not a terminal
+    assert_eq!(eval("(sys/interactive?)"), Value::Bool(false));
+    assert_eq!(eval("(boolean? (sys/interactive?))"), Value::Bool(true));
+}
+
+// ====================================================================
+// List: list/shuffle, list/split-at, list/take-while, list/drop-while,
+//       list/sum, list/min, list/max, list/pick, list/repeat, iota
+// ====================================================================
+
+#[test]
+fn test_list_shuffle() {
+    // Shuffle returns a list of same length with same elements
+    let result = eval("(length (list/shuffle (list 1 2 3 4 5)))");
+    assert_eq!(result, Value::Int(5));
+    // Shuffle of empty list is empty
+    assert_eq!(eval("(list/shuffle '())"), Value::list(vec![]));
+}
+
+#[test]
+fn test_list_split_at() {
+    assert_eq!(
+        eval("(list/split-at (list 1 2 3 4 5) 3)"),
+        Value::list(vec![
+            Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+            Value::list(vec![Value::Int(4), Value::Int(5)]),
+        ])
+    );
+    assert_eq!(
+        eval("(list/split-at (list 1 2 3) 0)"),
+        Value::list(vec![
+            Value::list(vec![]),
+            Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+        ])
+    );
+    assert_eq!(
+        eval("(list/split-at (list 1 2 3) 5)"),
+        Value::list(vec![
+            Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)]),
+            Value::list(vec![]),
+        ])
+    );
+}
+
+#[test]
+fn test_list_take_while() {
+    assert_eq!(
+        eval("(list/take-while (lambda (x) (< x 4)) (list 1 2 3 4 5))"),
+        Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+    );
+    assert_eq!(
+        eval("(list/take-while (lambda (x) (< x 1)) (list 1 2 3))"),
+        Value::list(vec![])
+    );
+    assert_eq!(
+        eval("(list/take-while (lambda (x) #t) (list 1 2 3))"),
+        Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+    );
+}
+
+#[test]
+fn test_list_drop_while() {
+    assert_eq!(
+        eval("(list/drop-while (lambda (x) (< x 4)) (list 1 2 3 4 5))"),
+        Value::list(vec![Value::Int(4), Value::Int(5)])
+    );
+    assert_eq!(
+        eval("(list/drop-while (lambda (x) (< x 1)) (list 1 2 3))"),
+        Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+    );
+    assert_eq!(
+        eval("(list/drop-while (lambda (x) #t) (list 1 2 3))"),
+        Value::list(vec![])
+    );
+}
+
+#[test]
+fn test_list_sum() {
+    assert_eq!(eval("(list/sum (list 1 2 3 4 5))"), Value::Int(15));
+    assert_eq!(eval("(list/sum (list 1.0 2.0 3.0))"), Value::Float(6.0));
+    assert_eq!(eval("(list/sum (list 1 2.0 3))"), Value::Float(6.0));
+    assert_eq!(eval("(list/sum '())"), Value::Int(0));
+}
+
+#[test]
+fn test_list_min() {
+    assert_eq!(eval("(list/min (list 3 1 4 1 5))"), Value::Int(1));
+    assert_eq!(eval("(list/min (list 3.0 1.5 2.0))"), Value::Float(1.5));
+    assert_eq!(eval("(list/min (list 42))"), Value::Int(42));
+}
+
+#[test]
+fn test_list_max() {
+    assert_eq!(eval("(list/max (list 3 1 4 1 5))"), Value::Int(5));
+    assert_eq!(eval("(list/max (list 3.0 1.5 2.0))"), Value::Float(3.0));
+    assert_eq!(eval("(list/max (list 42))"), Value::Int(42));
+}
+
+#[test]
+fn test_list_pick() {
+    // Pick returns an element from the list
+    let result = eval("(list/pick (list 1 2 3 4 5))");
+    match result {
+        Value::Int(n) => assert!((1..=5).contains(&n)),
+        _ => panic!("expected int"),
+    }
+}
+
+#[test]
+fn test_list_repeat() {
+    assert_eq!(
+        eval("(list/repeat 3 0)"),
+        Value::list(vec![Value::Int(0), Value::Int(0), Value::Int(0)])
+    );
+    assert_eq!(
+        eval(r#"(list/repeat 2 "x")"#),
+        Value::list(vec![Value::string("x"), Value::string("x")])
+    );
+    assert_eq!(eval("(list/repeat 0 1)"), Value::list(vec![]));
+    // make-list alias
+    assert_eq!(
+        eval("(make-list 3 0)"),
+        Value::list(vec![Value::Int(0), Value::Int(0), Value::Int(0)])
+    );
+}
+
+#[test]
+fn test_iota() {
+    assert_eq!(
+        eval("(iota 5)"),
+        Value::list(vec![
+            Value::Int(0), Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)
+        ])
+    );
+    assert_eq!(
+        eval("(iota 3 10)"),
+        Value::list(vec![Value::Int(10), Value::Int(11), Value::Int(12)])
+    );
+    assert_eq!(
+        eval("(iota 4 0 2)"),
+        Value::list(vec![Value::Int(0), Value::Int(2), Value::Int(4), Value::Int(6)])
+    );
+    assert_eq!(eval("(iota 0)"), Value::list(vec![]));
+}
+
+// ====================================================================
+// String: string/map
+// ====================================================================
+
+#[test]
+fn test_string_map() {
+    assert_eq!(
+        eval(r#"(string/map char-upcase "hello")"#),
+        Value::string("HELLO")
+    );
+    assert_eq!(
+        eval(r#"(string/map (lambda (c) c) "abc")"#),
+        Value::string("abc")
+    );
+    assert_eq!(
+        eval(r#"(string/map char-upcase "")"#),
+        Value::string("")
+    );
 }

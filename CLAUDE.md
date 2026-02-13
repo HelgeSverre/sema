@@ -38,7 +38,7 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 - **sema-core** — `Value` enum (18 variants), `Env` (Rc + RefCell + BTreeMap), `SemaError`
 - **sema-reader** — Lexer + parser producing `Value` AST
 - **sema-eval** — Trampoline-based tree-walking evaluator, 29 special forms, module system
-- **sema-stdlib** — 226 native functions across 17 modules registered into `Env`
+- **sema-stdlib** — 350+ native functions across 17 modules registered into `Env`
 - **sema-llm** — LLM provider trait + Anthropic/OpenAI clients (tokio `block_on` for sync)
 - **sema** — Binary: CLI (clap) + REPL (rustyline) + integration tests
 
@@ -83,6 +83,24 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 **New builtin function**: Add to appropriate `crates/sema-stdlib/src/*.rs`, register in that module's `register()` fn, add integration test.
 
 **New special form**: Add match arm in `try_eval_special()` in `special_forms.rs`, implement handler returning `Trampoline`, add integration test.
+
+## Release Procedure
+
+To release a new version (e.g., `0.7.0`):
+
+1. **Run tests**: `cargo test` — all must pass
+2. **Bump versions** in all 6 `crates/*/Cargo.toml` files (`version = "X.Y.Z"`)
+3. **Update CHANGELOG.md** — add new `## X.Y.Z` section at top with `### Added` / `### Changed` / `### Fixed`
+4. **Update docs**:
+   - `README.md` — add new functions to the Standard Library section, update builtin count
+   - `CLAUDE.md` — update builtin count if changed
+   - `examples/stdlib/*.sema` — add example tests for new functions
+   - `website/index.html` — add new functions to the stdlib-card `fn-list` spans
+5. **Build release**: `cargo build --release`
+6. **Commit**: `git add -A && git commit -m "v0.X.0: <summary>"`
+7. **Tag**: `git tag v0.X.0`
+8. **Push**: `git push origin main --tags`
+9. **Deploy website**: `cd website && vc --prod`
 
 ## Design Docs
 
