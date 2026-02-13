@@ -1759,10 +1759,7 @@ pub fn register_llm_builtins(env: &Env) {
                     let mut map = BTreeMap::new();
                     map.insert(Value::keyword("limit"), Value::Float(max_cost));
                     map.insert(Value::keyword("spent"), Value::Float(spent));
-                    map.insert(
-                        Value::keyword("remaining"),
-                        Value::Float(max_cost - spent),
-                    );
+                    map.insert(Value::keyword("remaining"), Value::Float(max_cost - spent));
                     Ok(Value::Map(Rc::new(map)))
                 }
                 None => Ok(Value::Nil),
@@ -1891,9 +1888,7 @@ fn do_complete(mut request: ChatRequest) -> Result<ChatResponse, SemaError> {
                 Err(crate::types::LlmError::RateLimited { retry_after_ms }) => {
                     retries += 1;
                     if retries > max_retries {
-                        return Err(SemaError::Llm(
-                            "rate limited after 3 retries".to_string(),
-                        ));
+                        return Err(SemaError::Llm("rate limited after 3 retries".to_string()));
                     }
                     let wait = std::cmp::min(retry_after_ms, 30000);
                     std::thread::sleep(std::time::Duration::from_millis(wait));

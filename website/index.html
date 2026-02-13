@@ -750,9 +750,9 @@
       <code class="ic">cond</code> and <code class="ic">case</code> for multi-way branching.
     </p>
     <p>
-      <code class="ic">when</code> and <code class="ic">unless</code> for single-branch
-      conditionals. <code class="ic">and</code> / <code class="ic">or</code> short-circuit
-      and return their deciding value.
+      Scheme <code class="ic">do</code> loops with parallel variable update.
+      <code class="ic">delay</code> / <code class="ic">force</code> for lazy evaluation
+      with memoized promises.
     </p>
   </div>
   <div class="split-code">
@@ -772,10 +772,14 @@
   <span class="p">((</span><span class="b">=</span> x <span class="n">0</span><span class="p">)</span> <span class="s">"zero"</span><span class="p">)</span>
   <span class="p">(</span>else    <span class="s">"positive"</span><span class="p">))</span>
 
-<span class="p">(</span><span class="k">case</span> <span class="p">(</span><span class="kw">:status</span> response<span class="p">)</span>
-  <span class="p">((</span><span class="kw">:ok</span><span class="p">)</span>             <span class="s">"success"</span><span class="p">)</span>
-  <span class="p">((</span><span class="kw">:error</span> <span class="kw">:timeout</span><span class="p">)</span> <span class="s">"failure"</span><span class="p">)</span>
-  <span class="p">(</span>else              <span class="s">"unknown"</span><span class="p">))</span></code></pre>
+<span class="c">;; Do loop &mdash; Scheme iteration</span>
+<span class="p">(</span><span class="k">do</span> <span class="p">((</span>i <span class="n">0</span> <span class="p">(</span><span class="b">+</span> i <span class="n">1</span><span class="p">))</span>
+     <span class="p">(</span>sum <span class="n">0</span> <span class="p">(</span><span class="b">+</span> sum i<span class="p">)))</span>
+    <span class="p">((</span><span class="b">=</span> i <span class="n">10</span><span class="p">)</span> sum<span class="p">))</span>  <span class="c">; =&gt; 45</span>
+
+<span class="c">;; Lazy evaluation</span>
+<span class="p">(</span><span class="k">define</span> p <span class="p">(</span><span class="k">delay</span> <span class="p">(</span><span class="b">+</span> <span class="n">1</span> <span class="n">2</span><span class="p">)))</span>
+<span class="p">(</span><span class="k">force</span> p<span class="p">)</span>  <span class="c">; =&gt; 3 (memoized)</span></code></pre>
   </div>
 </section>
 
@@ -861,7 +865,7 @@
 
 <div id="data" class="section-divider">
   <h2><span class="paren">(</span>Data types<span class="paren">)</span></h2>
-  <p>Fifteen types, from integers to agents. Everything is a value.</p>
+  <p>Seventeen types, from integers to agents. Everything is a value.</p>
 </div>
 
 <div class="ref-section">
@@ -874,6 +878,7 @@
     <div class="type-card"><span class="type-name">Nil</span> <span class="type-ex">nil</span></div>
     <div class="type-card"><span class="type-name">Symbol</span> <span class="type-ex">foo &nbsp;my-var &nbsp;+</span></div>
     <div class="type-card"><span class="type-name">Keyword</span> <span class="type-ex">:name &nbsp;:type &nbsp;:ok</span></div>
+    <div class="type-card"><span class="type-name">Character</span> <span class="type-ex">#\a &nbsp;#\space &nbsp;#\newline</span></div>
     <div class="type-card"><span class="type-name">List</span> <span class="type-ex">(1 2 3) &nbsp;(+ a b)</span></div>
     <div class="type-card"><span class="type-name">Vector</span> <span class="type-ex">[1 2 3] &nbsp;["a" "b"]</span></div>
     <div class="type-card"><span class="type-name">Map</span> <span class="type-ex">{:name "Ada" :age 36}</span></div>
@@ -886,6 +891,7 @@
     <div class="type-card"><span class="type-name">Conversation</span> <span class="type-ex">(conversation/new {})</span></div>
     <div class="type-card"><span class="type-name">Tool</span> <span class="type-ex">(deftool name ...)</span></div>
     <div class="type-card"><span class="type-name">Agent</span> <span class="type-ex">(defagent name ...)</span></div>
+    <div class="type-card"><span class="type-name">Promise</span> <span class="type-ex">(delay expr)</span></div>
   </div>
 </div>
 
@@ -939,16 +945,18 @@
 <section class="split reverse compact">
   <div class="split-text">
     <div class="label">Text</div>
-    <h2><span class="paren">(</span>Strings &amp; Regex<span class="paren">)</span></h2>
+    <h2><span class="paren">(</span>Strings &amp; Characters<span class="paren">)</span></h2>
     <p>
       Slash-namespaced string operations: split, join, trim, upper, lower,
       pad, replace, contains, starts-with, ends-with, repeat, chars.
+      First-class character type with <code class="ic">#\a</code> literals,
+      predicates, and case conversion.
     </p>
     <p>
       Full regex support via Rust&rsquo;s <code class="ic">regex</code> crate:
       match, find-all, replace, split.
-      <code class="ic">format</code> with <code class="ic">~a</code> placeholders
-      for string interpolation.
+      Convert between strings and character lists with
+      <code class="ic">string-&gt;list</code> / <code class="ic">list-&gt;string</code>.
     </p>
   </div>
   <div class="split-code">
@@ -959,15 +967,18 @@
 <span class="p">(</span><span class="b">string/pad-left</span> <span class="s">"42"</span> <span class="n">5</span> <span class="s">"0"</span><span class="p">)</span> <span class="c">; =&gt; "00042"</span>
 <span class="p">(</span><span class="b">format</span> <span class="s">"~a is ~a"</span> <span class="s">"Sema"</span> <span class="s">"great"</span><span class="p">)</span>
 
+<span class="c">;; Characters</span>
+<span class="p">(</span><span class="b">string-&gt;list</span> <span class="s">"hello"</span><span class="p">)</span>
+<span class="c">; =&gt; (#\h #\e #\l #\l #\o)</span>
+<span class="p">(</span><span class="b">char-upcase</span> <span class="n">#\a</span><span class="p">)</span>          <span class="c">; =&gt; #\A</span>
+<span class="p">(</span><span class="b">char-&gt;integer</span> <span class="n">#\A</span><span class="p">)</span>        <span class="c">; =&gt; 65</span>
+<span class="p">(</span><span class="b">list-&gt;string</span> '<span class="p">(</span><span class="n">#\h</span> <span class="n">#\i</span><span class="p">))</span>  <span class="c">; =&gt; "hi"</span>
+
 <span class="c">;; Regular expressions</span>
 <span class="p">(</span><span class="b">regex/match?</span> <span class="s">"\\d+"</span> <span class="s">"abc123"</span><span class="p">)</span>
 <span class="c">; =&gt; #t</span>
 <span class="p">(</span><span class="b">regex/find-all</span> <span class="s">"\\d+"</span> <span class="s">"a1b2c3"</span><span class="p">)</span>
-<span class="c">; =&gt; ("1" "2" "3")</span>
-<span class="p">(</span><span class="b">regex/replace-all</span> <span class="s">"\\d"</span> <span class="s">"a1b2"</span> <span class="s">"X"</span><span class="p">)</span>
-<span class="c">; =&gt; "aXbX"</span>
-<span class="p">(</span><span class="b">regex/split</span> <span class="s">","</span> <span class="s">"a,b,c"</span><span class="p">)</span>
-<span class="c">; =&gt; ("a" "b" "c")</span></code></pre>
+<span class="c">; =&gt; ("1" "2" "3")</span></code></pre>
   </div>
 </section>
 
@@ -1048,12 +1059,21 @@
         <span>string/contains?</span> <span>string/starts-with?</span> <span>string/ends-with?</span>
         <span>string/replace</span> <span>string/index-of</span> <span>string/chars</span>
         <span>string/repeat</span> <span>string/pad-left</span> <span>string/pad-right</span>
+        <span>char-&gt;integer</span> <span>integer-&gt;char</span>
+        <span>char-alphabetic?</span> <span>char-numeric?</span> <span>char-whitespace?</span>
+        <span>char-upper-case?</span> <span>char-lower-case?</span>
+        <span>char-upcase</span> <span>char-downcase</span>
+        <span>char-&gt;string</span> <span>string-&gt;char</span>
+        <span>string-&gt;list</span> <span>list-&gt;string</span>
       </div>
     </div>
     <div class="stdlib-card">
       <h4>Lists</h4>
       <div class="fn-list">
         <span>list</span> <span>cons</span> <span>car</span> <span>cdr</span>
+        <span>caar</span> <span>cadr</span> <span>cdar</span> <span>cddr</span>
+        <span>caaar</span> <span>caadr</span> <span>cadar</span> <span>caddr</span>
+        <span>cdaar</span> <span>cdadr</span> <span>cddar</span> <span>cdddr</span>
         <span>first</span> <span>rest</span> <span>last</span> <span>nth</span> <span>length</span>
         <span>append</span> <span>reverse</span> <span>range</span>
         <span>map</span> <span>filter</span> <span>foldl</span> <span>foldr</span>
@@ -1064,6 +1084,7 @@
         <span>list/unique</span> <span>list/index-of</span>
         <span>list/group-by</span> <span>list/interleave</span> <span>list/chunk</span>
         <span>frequencies</span> <span>interpose</span>
+        <span>assq</span> <span>assv</span>
       </div>
     </div>
     <div class="stdlib-card">
@@ -1083,7 +1104,8 @@
         <span>list?</span> <span>vector?</span> <span>map?</span>
         <span>number?</span> <span>integer?</span> <span>float?</span>
         <span>string?</span> <span>symbol?</span> <span>keyword?</span>
-        <span>bool?</span> <span>fn?</span>
+        <span>char?</span> <span>bool?</span> <span>fn?</span>
+        <span>promise?</span> <span>promise-forced?</span>
         <span>zero?</span> <span>even?</span> <span>odd?</span>
         <span>positive?</span> <span>negative?</span>
         <span>eq?</span> <span>not</span>

@@ -71,27 +71,14 @@
 
 ;; --- Caesar cipher ---
 (define (caesar-encrypt text shift)
-  (let ((chars (string/chars text)))
-    (string/join
-      (map (fn (ch)
-        (let ((c (string-ref ch 0)))
-          (cond
-            ((and (string/contains? "abcdefghijklmnopqrstuvwxyz" (string/lower c))
-                  (regex/match? "[a-zA-Z]" c))
-             (let ((base (if (string/contains? "ABCDEFGHIJKLMNOPQRSTUVWXYZ" c) 65 97))
-                   (idx (string/index-of
-                          (if (string/contains? "ABCDEFGHIJKLMNOPQRSTUVWXYZ" c)
-                            "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                            "abcdefghijklmnopqrstuvwxyz")
-                          c)))
-               (string-ref
-                 (if (string/contains? "ABCDEFGHIJKLMNOPQRSTUVWXYZ" c)
-                   "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-                   "abcdefghijklmnopqrstuvwxyz")
-                 (math/remainder (+ idx shift) 26))))
-            (else c))))
-      chars)
-      "")))
+  (list->string
+    (map (fn (ch)
+      (if (char-alphabetic? ch)
+        (let ((base (if (char-upper-case? ch) 65 97))
+              (code (char->integer ch)))
+          (integer->char (+ base (math/remainder (- (+ code shift) base) 26))))
+        ch))
+      (string/chars text))))
 
 (define original "Hello World")
 (define encrypted (caesar-encrypt original 3))

@@ -76,6 +76,7 @@ sema> (:name person)
 | Nil          | `nil`                | `nil`                           |
 | Symbol       | bare identifier      | `foo`, `my-var`, `+`            |
 | Keyword      | colon-prefixed       | `:name`, `:type`, `:ok`         |
+| Character    | `#\` prefix          | `#\a`, `#\space`, `#\newline`   |
 | List         | parenthesized        | `(1 2 3)`, `(+ a b)`            |
 | Vector       | bracketed            | `[1 2 3]`, `["a" "b"]`          |
 | Map          | curly-braced         | `{:name "Ada" :age 36}`         |
@@ -84,6 +85,7 @@ sema> (:name person)
 | Conversation | `(conversation/new)` | LLM conversation (see below)    |
 | Tool         | `(deftool ...)`      | LLM tool definition (see below) |
 | Agent        | `(defagent ...)`     | LLM agent (see below)           |
+| Promise      | `(delay expr)`       | Lazy evaluation (see below)     |
 
 ### Special Forms
 
@@ -148,9 +150,33 @@ These are built into the evaluator — they control evaluation order and cannot 
 
 ```scheme
 (begin expr1 expr2 ... exprN)          ; evaluate in order, return last
-(do expr1 expr2 ... exprN)             ; alias for begin
 (and a b c)                            ; short-circuit, returns last truthy or #f
 (or a b c)                             ; short-circuit, returns first truthy or #f
+```
+
+#### Iteration
+
+```scheme
+;; Scheme do loop: (do ((var init step) ...) (test result ...) body ...)
+(do ((i 0 (+ i 1))
+     (sum 0 (+ sum i)))
+    ((= i 10) sum))                    ; => 45
+
+;; Do loop with body (side effects)
+(do ((i 0 (+ i 1)))
+    ((= i 5))
+  (println i))                         ; prints 0..4
+```
+
+#### Lazy Evaluation
+
+```scheme
+(define p (delay (+ 1 2)))             ; create a promise (not evaluated yet)
+(force p)                              ; => 3 (evaluate and memoize)
+(force p)                              ; => 3 (returns cached value)
+(force 42)                             ; => 42 (non-promise passes through)
+(promise? p)                           ; => #t
+(promise-forced? p)                    ; => #t (after forcing)
 ```
 
 #### Error Handling
@@ -247,7 +273,7 @@ e                ; => 2.71828...
 ```scheme
 (string-append "hello" " " "world")   ; => "hello world"
 (string-length "hello")               ; => 5
-(string-ref "hello" 0)                ; => "h"
+(string-ref "hello" 0)                ; => #\h (returns char)
 (substring "hello" 1 3)               ; => "el"
 (str 42)                              ; => "42" (any value to string)
 (format "~a is ~a" "Sema" "great")    ; => "Sema is great"
@@ -265,11 +291,27 @@ e                ; => 2.71828...
 (string/ends-with? "hello" "lo")      ; => #t
 (string/replace "hello" "l" "r")      ; => "herro"
 (string/index-of "hello" "ll")        ; => 2
-(string/chars "abc")                  ; => ("a" "b" "c")
+(string/chars "abc")                  ; => (#\a #\b #\c)
 (string/repeat "ab" 3)                ; => "ababab"
 (string/pad-left "42" 5 "0")          ; => "00042"
 (string/pad-right "hi" 5)             ; => "hi   "
 (string/number? "42")                 ; => #t
+
+;; Characters
+#\a                                   ; character literal
+#\space  #\newline  #\tab             ; named characters
+(char->integer #\A)                   ; => 65
+(integer->char 65)                    ; => #\A
+(char-alphabetic? #\a)                ; => #t
+(char-numeric? #\5)                   ; => #t
+(char-whitespace? #\space)            ; => #t
+(char-upper-case? #\A)                ; => #t
+(char-upcase #\a)                     ; => #\A
+(char-downcase #\Z)                   ; => #\z
+(char->string #\a)                    ; => "a"
+(string->char "a")                    ; => #\a
+(string->list "abc")                  ; => (#\a #\b #\c)
+(list->string '(#\h #\i))            ; => "hi"
 
 ;; Type conversions
 (string->number "42")                 ; => 42
@@ -289,8 +331,16 @@ e                ; => 2.71828...
 (cdr '(1 2 3))                        ; => (2 3)
 (first '(1 2 3))                      ; => 1
 (rest '(1 2 3))                       ; => (2 3)
+(cadr '(1 2 3))                       ; => 2 (car/cdr compositions: caar..cdddr)
+(caddr '(1 2 3))                      ; => 3
 (last '(1 2 3))                       ; => 3
 (nth '(10 20 30) 1)                   ; => 20
+
+;; Association lists
+(define alist '(("a" 1) ("b" 2) ("c" 3)))
+(assoc "b" alist)                     ; => ("b" 2) (alist lookup)
+(assq 'b '((a 1) (b 2)))             ; => (b 2) (uses eq? comparison)
+(assv 2 '((1 "one") (2 "two")))      ; => (2 "two") (uses eqv? comparison)
 (length '(1 2 3))                     ; => 3
 (append '(1 2) '(3 4))                ; => (1 2 3 4)
 (reverse '(1 2 3))                    ; => (3 2 1)
@@ -375,6 +425,7 @@ Most list functions work on vectors too.
 (pair? '(1 2))     ; #t (non-empty list, Scheme compat)
 (number? 42)       (integer? 42)      (float? 3.14)
 (string? "hi")     (symbol? 'x)       (keyword? :k)
+(char? #\a)        (promise? (delay 1))  (promise-forced? p)
 (bool? #t)         (fn? car)
 (zero? 0)          (even? 4)          (odd? 3)
 (positive? 1)      (negative? -1)

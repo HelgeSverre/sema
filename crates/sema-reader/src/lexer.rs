@@ -18,6 +18,7 @@ pub enum Token {
     Symbol(String),
     Keyword(String),
     Bool(bool),
+    Char(char),
     Dot,
 }
 
@@ -205,6 +206,46 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             });
                             i += 2;
                             col += 2;
+                        }
+                        '\\' => {
+                            // Character literal: #\a, #\space, #\newline, etc.
+                            i += 2; // skip #\
+                            col += 2;
+                            if i >= chars.len() {
+                                return Err(SemaError::Reader {
+                                    message: "unexpected end of input after #\\".to_string(),
+                                    span,
+                                });
+                            }
+                            let start = i;
+                            if chars[i].is_alphabetic() {
+                                while i < chars.len() && is_symbol_char(chars[i]) {
+                                    i += 1;
+                                    col += 1;
+                                }
+                            } else {
+                                i += 1;
+                                col += 1;
+                            }
+                            let name: String = chars[start..i].iter().collect();
+                            let c = match name.as_str() {
+                                "space" => ' ',
+                                "newline" => '\n',
+                                "tab" => '\t',
+                                "return" => '\r',
+                                "nul" => '\0',
+                                s if s.chars().count() == 1 => s.chars().next().unwrap(),
+                                _ => {
+                                    return Err(SemaError::Reader {
+                                        message: format!("unknown character name: {name}"),
+                                        span,
+                                    });
+                                }
+                            };
+                            tokens.push(SpannedToken {
+                                token: Token::Char(c),
+                                span,
+                            });
                         }
                         _ => {
                             return Err(SemaError::Reader {

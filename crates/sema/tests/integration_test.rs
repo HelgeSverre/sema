@@ -43,7 +43,9 @@ fn test_define_and_call() {
 #[test]
 fn test_defun_alias() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("(defun square (x) (* x x)) (square 5)").unwrap();
+    let result = interp
+        .eval_str("(defun square (x) (* x x)) (square 5)")
+        .unwrap();
     assert_eq!(result.to_string(), "25");
 }
 
@@ -1396,8 +1398,8 @@ fn test_eq_identity() {
 
 #[test]
 fn test_string_ref() {
-    assert_eq!(eval(r#"(string-ref "hello" 0)"#), Value::string("h"));
-    assert_eq!(eval(r#"(string-ref "hello" 4)"#), Value::string("o"));
+    assert_eq!(eval(r#"(string-ref "hello" 0)"#), Value::Char('h'));
+    assert_eq!(eval(r#"(string-ref "hello" 4)"#), Value::Char('o'));
 }
 
 #[test]
@@ -1749,13 +1751,15 @@ fn test_fn_alias() {
 }
 
 #[test]
-fn test_do_alias() {
-    // do is an alias for begin
-    assert_eq!(eval("(do 1 2 3)"), Value::Int(3));
+fn test_do_loop() {
+    // do is now a proper Scheme iteration form
+    // Sum 1..10
     assert_eq!(
-        eval("(do (define x 10) (define y 20) (+ x y))"),
-        Value::Int(30)
+        eval("(do ((i 0 (+ i 1)) (sum 0 (+ sum i))) ((= i 10) sum))"),
+        Value::Int(45)
     );
+    // begin still works for sequencing
+    assert_eq!(eval("(begin 1 2 3)"), Value::Int(3));
 }
 
 // ====== 11. Quasiquote with Unquote-Splicing ======
@@ -2248,7 +2252,7 @@ fn test_string_index_of() {
 fn test_string_chars() {
     assert_eq!(
         eval_to_string(r#"(string/chars "abc")"#),
-        r#"("a" "b" "c")"#
+        r#"(#\a #\b #\c)"#
     );
     assert_eq!(eval_to_string(r#"(string/chars "")"#), "()");
 }
@@ -4257,7 +4261,9 @@ fn test_stack_trace_loaded_file() {
 #[test]
 fn test_tool_slash_name() {
     assert_eq!(
-        eval(r#"(begin (deftool t1 "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1))"#),
+        eval(
+            r#"(begin (deftool t1 "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1))"#
+        ),
         Value::string("t1")
     );
 }
@@ -4265,7 +4271,9 @@ fn test_tool_slash_name() {
 #[test]
 fn test_tool_slash_description() {
     assert_eq!(
-        eval(r#"(begin (deftool t2 "my desc" {:x {:type :string}} (lambda (x) "ok")) (tool/description t2))"#),
+        eval(
+            r#"(begin (deftool t2 "my desc" {:x {:type :string}} (lambda (x) "ok")) (tool/description t2))"#
+        ),
         Value::string("my desc")
     );
 }
@@ -4273,7 +4281,9 @@ fn test_tool_slash_description() {
 #[test]
 fn test_tool_slash_parameters() {
     assert_eq!(
-        eval(r#"(begin (deftool t3 "desc" {:x {:type :string}} (lambda (x) "ok")) (map? (tool/parameters t3)))"#),
+        eval(
+            r#"(begin (deftool t3 "desc" {:x {:type :string}} (lambda (x) "ok")) (map? (tool/parameters t3)))"#
+        ),
         Value::Bool(true)
     );
 }
@@ -4305,7 +4315,9 @@ fn test_agent_slash_tools() {
 #[test]
 fn test_agent_slash_model() {
     assert_eq!(
-        eval(r#"(begin (defagent a4 {:system "sys" :tools [] :model "claude-3"}) (agent/model a4))"#),
+        eval(
+            r#"(begin (defagent a4 {:system "sys" :tools [] :model "claude-3"}) (agent/model a4))"#
+        ),
         Value::string("claude-3")
     );
 }
@@ -4313,7 +4325,9 @@ fn test_agent_slash_model() {
 #[test]
 fn test_agent_slash_max_turns() {
     assert_eq!(
-        eval(r#"(begin (defagent a5 {:system "sys" :tools [] :max-turns 5}) (agent/max-turns a5))"#),
+        eval(
+            r#"(begin (defagent a5 {:system "sys" :tools [] :max-turns 5}) (agent/max-turns a5))"#
+        ),
         Value::Int(5)
     );
 }
@@ -4329,7 +4343,9 @@ fn test_prompt_slash_messages() {
 #[test]
 fn test_prompt_slash_append() {
     assert_eq!(
-        eval(r#"(length (prompt/messages (prompt/append (prompt (user "a")) (prompt (assistant "b")))))"#),
+        eval(
+            r#"(length (prompt/messages (prompt/append (prompt (user "a")) (prompt (assistant "b")))))"#
+        ),
         Value::Int(2)
     );
 }
@@ -4337,10 +4353,12 @@ fn test_prompt_slash_append() {
 #[test]
 fn test_prompt_slash_set_system() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
           (define p (prompt (user "hello")))
           (define p2 (prompt/set-system p "system msg"))
-          (length (prompt/messages p2)))"#),
+          (length (prompt/messages p2)))"#
+        ),
         Value::Int(2)
     );
 }
@@ -4366,7 +4384,9 @@ fn test_message_slash_content() {
 #[test]
 fn test_legacy_tool_name_alias() {
     assert_eq!(
-        eval(r#"(begin (deftool t1l "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1l))"#),
+        eval(
+            r#"(begin (deftool t1l "desc" {:x {:type :string}} (lambda (x) "ok")) (tool/name t1l))"#
+        ),
         Value::string("t1l")
     );
 }
@@ -4400,19 +4420,13 @@ fn test_legacy_message_role_alias() {
 #[test]
 fn test_llm_list_providers_empty() {
     // No providers configured, should return empty list
-    assert_eq!(
-        eval(r#"(length (llm/list-providers))"#),
-        Value::Int(0)
-    );
+    assert_eq!(eval(r#"(length (llm/list-providers))"#), Value::Int(0));
 }
 
 #[test]
 fn test_llm_current_provider_none() {
     // No provider configured
-    assert_eq!(
-        eval(r#"(llm/current-provider)"#),
-        Value::Nil
-    );
+    assert_eq!(eval(r#"(llm/current-provider)"#), Value::Nil);
 }
 
 #[test]
@@ -4427,10 +4441,12 @@ fn test_llm_set_budget() {
 #[test]
 fn test_llm_budget_remaining_values() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
           (llm/set-budget 5.0)
           (define b (llm/budget-remaining))
-          (:limit b))"#),
+          (:limit b))"#
+        ),
         Value::Float(5.0)
     );
 }
@@ -4457,4 +4473,215 @@ fn test_llm_set_default_no_provider() {
     let err = eval_err(r#"(llm/set-default :anthropic)"#);
     let msg = format!("{}", err.inner());
     assert!(msg.contains("not configured"), "got: {msg}");
+}
+
+// ====== Car/Cdr Compositions ======
+
+#[test]
+fn test_car_cdr_compositions() {
+    // 2-deep
+    assert_eq!(eval("(caar '((1 2) 3))"), Value::Int(1));
+    assert_eq!(eval("(cadr '(1 2 3))"), Value::Int(2));
+    assert_eq!(eval_to_string("(cdar '((1 2) 3))"), "(2)");
+    assert_eq!(eval_to_string("(cddr '(1 2 3))"), "(3)");
+    // 3-deep
+    assert_eq!(eval("(caaar '(((1 2) 3) 4))"), Value::Int(1));
+    assert_eq!(eval("(caadr '(1 (2 3) 4))"), Value::Int(2));
+    assert_eq!(eval("(cadar '((1 2 3) 4))"), Value::Int(2));
+    assert_eq!(eval("(caddr '(1 2 3 4))"), Value::Int(3));
+    assert_eq!(eval_to_string("(cdaar '(((1 2 3)) 4))"), "(2 3)");
+    assert_eq!(eval_to_string("(cdadr '(1 (2 3 4)))"), "(3 4)");
+    assert_eq!(eval_to_string("(cddar '((1 2 3) 4))"), "(3)");
+    assert_eq!(eval_to_string("(cdddr '(1 2 3 4))"), "(4)");
+}
+
+// ====== Association Lists ======
+
+#[test]
+fn test_assoc() {
+    assert_eq!(
+        eval_to_string(r#"(assoc "b" '(("a" 1) ("b" 2) ("c" 3)))"#),
+        r#"("b" 2)"#
+    );
+    assert_eq!(
+        eval(r#"(assoc "z" '(("a" 1) ("b" 2)))"#),
+        Value::Bool(false)
+    );
+    assert_eq!(eval_to_string("(assoc 2 '((1 a) (2 b) (3 c)))"), "(2 b)");
+}
+
+#[test]
+fn test_assq() {
+    assert_eq!(
+        eval_to_string("(assq :name '((:name \"Alice\") (:age 30)))"),
+        r#"(:name "Alice")"#
+    );
+    assert_eq!(eval("(assq :missing '((:a 1) (:b 2)))"), Value::Bool(false));
+}
+
+#[test]
+fn test_assv() {
+    assert_eq!(eval_to_string("(assv 42 '((1 a) (42 b) (3 c)))"), "(42 b)");
+    assert_eq!(eval("(assv 99 '((1 a) (2 b)))"), Value::Bool(false));
+}
+
+// ====== Do Loop ======
+
+#[test]
+fn test_do_loop_basic() {
+    // Sum 1..10
+    assert_eq!(
+        eval("(do ((i 0 (+ i 1)) (sum 0 (+ sum i))) ((= i 10) sum))"),
+        Value::Int(45)
+    );
+}
+
+#[test]
+fn test_do_loop_factorial() {
+    assert_eq!(
+        eval("(do ((i 1 (+ i 1)) (acc 1 (* acc i))) ((> i 5) acc))"),
+        Value::Int(120)
+    );
+}
+
+#[test]
+fn test_do_loop_with_body() {
+    // Body executes for side effects; test clause returns result
+    assert_eq!(
+        eval("(begin (define count 0) (do ((i 0 (+ i 1))) ((= i 3) count) (set! count (+ count 1))))"),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn test_do_loop_no_step() {
+    // Variable without step expr stays constant
+    assert_eq!(
+        eval("(do ((x 10) (i 0 (+ i 1))) ((= i 3) x))"),
+        Value::Int(10)
+    );
+}
+
+#[test]
+fn test_do_begin_still_works() {
+    assert_eq!(eval("(begin 1 2 3)"), Value::Int(3));
+    assert_eq!(
+        eval("(begin (define x 10) (define y 20) (+ x y))"),
+        Value::Int(30)
+    );
+}
+
+// ====== Character Literals ======
+
+#[test]
+fn test_char_literals() {
+    assert_eq!(eval(r"#\a"), Value::Char('a'));
+    assert_eq!(eval(r"#\Z"), Value::Char('Z'));
+    assert_eq!(eval(r"#\space"), Value::Char(' '));
+    assert_eq!(eval(r"#\newline"), Value::Char('\n'));
+    assert_eq!(eval(r"#\tab"), Value::Char('\t'));
+}
+
+#[test]
+fn test_char_predicate() {
+    assert_eq!(eval(r"(char? #\a)"), Value::Bool(true));
+    assert_eq!(eval(r#"(char? "a")"#), Value::Bool(false));
+    assert_eq!(eval("(char? 42)"), Value::Bool(false));
+}
+
+#[test]
+fn test_char_conversions() {
+    assert_eq!(eval(r"(char->integer #\a)"), Value::Int(97));
+    assert_eq!(eval(r"(char->integer #\A)"), Value::Int(65));
+    assert_eq!(eval("(integer->char 97)"), Value::Char('a'));
+    assert_eq!(eval(r#"(char->string #\x)"#), Value::string("x"));
+    assert_eq!(eval(r#"(string->char "z")"#), Value::Char('z'));
+}
+
+#[test]
+fn test_char_predicates() {
+    assert_eq!(eval(r"(char-alphabetic? #\a)"), Value::Bool(true));
+    assert_eq!(eval(r"(char-alphabetic? #\1)"), Value::Bool(false));
+    assert_eq!(eval(r"(char-numeric? #\5)"), Value::Bool(true));
+    assert_eq!(eval(r"(char-numeric? #\a)"), Value::Bool(false));
+    assert_eq!(eval(r"(char-whitespace? #\space)"), Value::Bool(true));
+    assert_eq!(eval(r"(char-whitespace? #\a)"), Value::Bool(false));
+    assert_eq!(eval(r"(char-upper-case? #\A)"), Value::Bool(true));
+    assert_eq!(eval(r"(char-upper-case? #\a)"), Value::Bool(false));
+    assert_eq!(eval(r"(char-lower-case? #\a)"), Value::Bool(true));
+    assert_eq!(eval(r"(char-lower-case? #\A)"), Value::Bool(false));
+}
+
+#[test]
+fn test_char_case() {
+    assert_eq!(eval(r"(char-upcase #\a)"), Value::Char('A'));
+    assert_eq!(eval(r"(char-downcase #\A)"), Value::Char('a'));
+    assert_eq!(eval(r"(char-upcase #\1)"), Value::Char('1'));
+}
+
+#[test]
+fn test_string_ref_returns_char() {
+    assert_eq!(eval(r#"(char? (string-ref "hello" 0))"#), Value::Bool(true));
+    assert_eq!(eval(r#"(string-ref "abc" 1)"#), Value::Char('b'));
+}
+
+#[test]
+fn test_string_to_list_chars() {
+    assert_eq!(
+        eval_to_string(r#"(string->list "abc")"#),
+        "(#\\a #\\b #\\c)"
+    );
+    assert_eq!(eval_to_string(r#"(string->list "")"#), "()");
+}
+
+#[test]
+fn test_list_to_string() {
+    assert_eq!(
+        eval(r#"(list->string (list #\h #\i))"#),
+        Value::string("hi")
+    );
+    assert_eq!(eval(r#"(list->string '())"#), Value::string(""));
+}
+
+// ====== Delay/Force (Lazy Evaluation) ======
+
+#[test]
+fn test_delay_force_basic() {
+    assert_eq!(eval("(force (delay (+ 1 2)))"), Value::Int(3));
+    assert_eq!(eval("(force (delay 42))"), Value::Int(42));
+}
+
+#[test]
+fn test_delay_is_promise() {
+    assert_eq!(eval("(promise? (delay 1))"), Value::Bool(true));
+    assert_eq!(eval("(promise? 42)"), Value::Bool(false));
+    assert_eq!(eval("(promise? (list 1))"), Value::Bool(false));
+}
+
+#[test]
+fn test_delay_memoization() {
+    // Body evaluated only once — counter only increments once
+    assert_eq!(
+        eval("(begin (define counter 0) (define p (delay (begin (set! counter (+ counter 1)) counter))) (force p) (force p) counter)"),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn test_force_non_promise() {
+    // force on non-promise returns value as-is (R7RS compatible)
+    assert_eq!(eval("(force 42)"), Value::Int(42));
+    assert_eq!(eval(r#"(force "hello")"#), Value::string("hello"));
+}
+
+#[test]
+fn test_promise_forced_predicate() {
+    assert_eq!(
+        eval("(begin (define p (delay 1)) (promise-forced? p))"),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        eval("(begin (define p (delay 1)) (force p) (promise-forced? p))"),
+        Value::Bool(true)
+    );
 }

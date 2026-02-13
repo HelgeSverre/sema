@@ -31,7 +31,10 @@ fn parse_tool_calls(message: &serde_json::Value) -> Vec<ToolCall> {
         .filter_map(|(i, tc)| {
             let func = tc.get("function")?;
             let name = func.get("name")?.as_str()?.to_string();
-            let arguments = func.get("arguments").cloned().unwrap_or(serde_json::Value::Object(Default::default()));
+            let arguments = func
+                .get("arguments")
+                .cloned()
+                .unwrap_or(serde_json::Value::Object(Default::default()));
             Some(ToolCall {
                 id: format!("ollama-call-{i}"),
                 name,

@@ -41,13 +41,13 @@ Full regex suite: `regex/match?`, `regex/match`, `regex/find-all`, `regex/replac
 
 ## Medium — Nice to Have
 
-### 9. `do` Aliased to `begin`
+### ~~9. `do` Aliased to `begin`~~ → RESOLVED
 
-`do` is an alias for `begin` (sequence), which shadows the standard Scheme `do` loop:
+Proper Scheme `do` loop implemented. `begin` remains for sequencing.
 
 ```scheme
-;; Scheme do loop — not supported:
-(do ((i 0 (+ i 1))) ((= i 10)) (display i))
+(do ((i 0 (+ i 1)) (sum 0 (+ sum i)))
+    ((= i 10) sum))  ; => 45
 ```
 
 ### ~~10. No `case` / Pattern Matching~~ → RESOLVED (Phase 7)
@@ -86,9 +86,9 @@ We chose `try`/`catch`/`throw` over R7RS `guard`. The error map with `:type` key
 
 Only `i64` and `f64`. No rationals (`1/3`), bignums, or complex numbers.
 
-### 17. No Char Type
+### ~~17. No Char Type~~ → RESOLVED
 
-`string-ref` returns a one-character string. No `char?`, `char->integer`, etc.
+Full character type: `#\a`, `#\space`, `#\newline` literals. `char?`, `char->integer`, `integer->char`, `char-alphabetic?`, `char-numeric?`, `char-whitespace?`, `char-upper-case?`, `char-lower-case?`, `char-upcase`, `char-downcase`, `char->string`, `string->char`, `string->list`, `list->string`. `string-ref` and `string/chars` now return `Char` values.
 
 ### 18. No Continuations
 
@@ -106,17 +106,88 @@ No `dynamic-wind`, `parameterize`, `make-parameter`.
 
 Only `defmacro` (Lisp-style). No `syntax-rules` or `syntax-case`.
 
+### 22. No Tail Position in `do` Body
+
+The `do` loop evaluates its body for side effects but does not support tail calls within the body — only the result expressions are in tail position.
+
+### 23. No `string-set!`
+
+Strings are immutable. No in-place character mutation.
+
+### 24. No Proper Tail Recursion in `map`/`filter`
+
+Higher-order list functions use Rust iteration internally, not Scheme-level recursion — correct but not extensible via tail calls.
+
+### 25. No `char=?` / `char<?` Comparison Predicates
+
+Character comparison uses generic `=`, `<`, `>` which work via the `Ord` impl, but the standard R7RS `char=?`, `char<?`, `char>?`, `char<=?`, `char>=?` predicates are absent.
+
+### 26. No `with-exception-handler`
+
+Only `try`/`catch`/`throw`. No R7RS `with-exception-handler` / `raise` / `raise-continuable`.
+
+### 27. No `define-values`
+
+No destructuring bind for multiple values.
+
+### 28. No Bytevectors
+
+No `bytevector`, `make-bytevector`, or binary I/O.
+
+### 29. No `let-values` / `receive`
+
+No destructuring forms for multiple return values (related to #19).
+
+### 30. No Tail Calls Across Mutual Recursion in Stdlib
+
+The stdlib mini-eval (`call_function` in `list.rs`) doesn't support mutual tail calls, so `map`/`filter` callbacks can't mutually recurse with TCO.
+
+---
+
+## Gap Analysis — Remaining Items
+
+| # | Gap | Priority | Effort | Notes |
+|---|-----|----------|--------|-------|
+| 12 | No Struct/Record Types | Medium | Medium | Maps work as de facto structs; `define-record-type` would add type safety |
+| 15 | No `guard` (R7RS) | Low | Low | `try`/`catch` covers the use case; `guard` is syntactic sugar |
+| 16 | No Full Numeric Tower | Low | High | Rationals/bignums require `num` crate integration throughout |
+| 18 | No Continuations | Low | Very High | Requires CPS transform or VM rewrite; trampoline can't capture continuations |
+| 19 | No Multiple Return Values | Low | Medium | `values`/`call-with-values` need eval changes |
+| 20 | No Dynamic Binding | Low | Medium | `parameterize`/`make-parameter` via thread-local state |
+| 21 | No Hygienic Macros | Medium | High | `syntax-rules` requires pattern matcher + template expander |
+| 22 | No Tail Position in `do` Body | Low | Low | Body is for side effects; result exprs already have TCO |
+| 23 | No `string-set!` | Low | Low | Intentional — immutable strings are simpler and safer |
+| 24 | No Proper Tail Recursion in map/filter | Low | Medium | Stdlib uses Rust iteration; would need eval access |
+| 25 | No `char=?`/`char<?` Predicates | Low | Low | Generic comparison works; these are convenience aliases |
+| 26 | No `with-exception-handler` | Low | Medium | `try`/`catch` is sufficient for most use cases |
+| 27 | No `define-values` | Low | Low | Rarely needed without multiple return values |
+| 28 | No Bytevectors | Medium | Medium | Needed for binary file I/O and network protocols |
+| 29 | No `let-values`/`receive` | Low | Low | Blocked by #19 |
+| 30 | No Tail Calls in Stdlib Mutual Recursion | Low | High | Architectural: stdlib can't depend on eval |
+
+---
+
+## Recommended Next Implementations
+
+1. **`char=?`/`char<?` comparison predicates** (#25) — Low effort, improves R7RS conformance. Just register aliases in `string.rs`.
+2. **Struct/Record types** (#12) — Medium effort, high value. `define-record-type` with constructor, predicate, and accessor generation.
+3. **Bytevectors** (#28) — Enables binary I/O. `make-bytevector`, `bytevector-u8-ref`, `bytevector-u8-set!`, `bytevector-length`.
+4. **Dynamic binding** (#20) — `make-parameter`/`parameterize` via thread-local storage fits the existing architecture.
+5. **Hygienic macros** (#21) — High effort but important for library authors. Consider `syntax-rules` subset first.
+
 ---
 
 ## What Works Well
 
 - **Closures** — Properly implemented with lexical scoping
 - **Tail Call Optimization** — Trampoline-based, works for direct recursion in `if`/`cond`/`let`/`begin`/`and`/`or`/`when`/`unless` + named `let`
-- **Data types** — Int, Float, String, Symbol, Keyword, List, Vector, Map, Bool, Nil + LLM types
+- **Data types** — Int, Float, String, Char, Symbol, Keyword, List, Vector, Map, Bool, Nil, Promise + LLM types
 - **Macros** — `defmacro` with quasiquote/unquote/unquote-splicing (non-hygienic but functional)
 - **String operations** — split, trim, replace, contains?, format, str, index-of, chars, repeat, pad-left, pad-right
 - **Map operations** — hash-map, get, assoc, dissoc, keys, vals, merge, contains?, count, entries, map-vals, filter, select-keys, update
-- **List operations** — car/cdr, cons, map (multi-list), filter, foldl, foldr, reduce, sort, range, take, drop, zip, flatten, partition, any, every, member, last, apply, index-of, unique, group-by, interleave, chunk
+- **List operations** — car/cdr + 12 compositions (caar through cdddr), cons, map (multi-list), filter, foldl, foldr, reduce, sort, range, take, drop, zip, flatten, partition, any, every, member, last, apply, index-of, unique, group-by, interleave, chunk, assoc/assq/assv (alist lookup)
+- **Lazy evaluation** — `delay`/`force` with memoized promises, `promise?`, `promise-forced?`
+- **Iteration** — proper Scheme `do` loop with parallel assignment
 - **Math** — Full suite: abs, min, max, floor, ceil, round, sqrt, pow, log, sin, cos, tan, asin, acos, atan, atan2, exp, log10, log2, gcd, lcm, quotient, remainder, random, random-int, clamp, sign, pi, e
 - **Bitwise** — bit/and, bit/or, bit/xor, bit/not, bit/shift-left, bit/shift-right
 - **Error handling** — try/catch/throw with typed error maps

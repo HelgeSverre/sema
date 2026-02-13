@@ -158,4 +158,28 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::Bool(args[0] == args[1]))
     });
+
+    register_fn(env, "char?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("char?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(&args[0], Value::Char(_))))
+    });
+
+    register_fn(env, "promise?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("promise?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(&args[0], Value::Thunk(_))))
+    });
+
+    register_fn(env, "promise-forced?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("promise-forced?", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Thunk(t) => Ok(Value::Bool(t.forced.borrow().is_some())),
+            _ => Err(SemaError::type_error("promise", args[0].type_name())),
+        }
+    });
 }

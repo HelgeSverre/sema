@@ -36,9 +36,24 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "assoc", |args| {
+        // Scheme alist lookup: (assoc key alist)
+        if args.len() == 2 {
+            if let Value::List(items) = &args[1] {
+                let key = &args[0];
+                for pair in items.iter() {
+                    if let Value::List(p) = pair {
+                        if !p.is_empty() && &p[0] == key {
+                            return Ok(pair.clone());
+                        }
+                    }
+                }
+                return Ok(Value::Bool(false));
+            }
+        }
+        // Clojure-style map assoc: (assoc map key val ...)
         if args.len() < 3 || args.len() % 2 != 1 {
             return Err(SemaError::eval(
-                "assoc: requires map and even number of key-value pairs",
+                "assoc: requires (key alist) or (map key val ...)",
             ));
         }
         let mut map = match &args[0] {

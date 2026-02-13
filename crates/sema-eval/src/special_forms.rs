@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use sema_core::{Agent, Env, Lambda, Macro, SemaError, ToolDefinition, Value};
+use sema_core::{Agent, Env, Lambda, Macro, SemaError, Thunk, ToolDefinition, Value};
 
 use crate::eval::{self, Trampoline};
 
@@ -21,7 +21,8 @@ pub fn try_eval_special(
         "let" => Some(eval_let(args, env)),
         "let*" => Some(eval_let_star(args, env)),
         "letrec" => Some(eval_letrec(args, env)),
-        "begin" | "do" => Some(eval_begin(args, env)),
+        "begin" => Some(eval_begin(args, env)),
+        "do" => Some(eval_do(args, env)),
         "and" => Some(eval_and(args, env)),
         "or" => Some(eval_or(args, env)),
         "when" => Some(eval_when(args, env)),
@@ -41,6 +42,8 @@ pub fn try_eval_special(
         "eval" => Some(eval_eval(args, env)),
         "macroexpand" => Some(eval_macroexpand(args, env)),
         "with-budget" => Some(eval_with_budget(args, env)),
+        "delay" => Some(eval_delay(args, env)),
+        "force" => Some(eval_force(args, env)),
         _ => None,
     }
 }
@@ -1150,6 +1153,128 @@ fn eval_with_budget(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> 
 
     body_result?;
     Ok(Trampoline::Value(result))
+}
+
+/// (do ((var init step) ...) (test result ...) body ...)
+fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() < 2 {
+        return Err(SemaError::arity("do", "2+", args.len()));
+    }
+
+    let bindings = args[0]
+        .as_list()
+        .ok_or_else(|| SemaError::eval("do: bindings must be a list"))?;
+    let test_clause = args[1]
+        .as_list()
+        .ok_or_else(|| SemaError::eval("do: test clause must be a list"))?;
+    if test_clause.is_empty() {
+        return Err(SemaError::eval("do: test clause must not be empty"));
+    }
+    let body = &args[2..];
+
+    let mut var_names = Vec::new();
+    let mut step_exprs: Vec<Option<Value>> = Vec::new();
+
+    let loop_env = Env::with_parent(Rc::new(env.clone()));
+
+    for binding in bindings {
+        let parts = binding
+            .as_list()
+            .ok_or_else(|| SemaError::eval("do: each binding must be a list"))?;
+        if parts.len() < 2 || parts.len() > 3 {
+            return Err(SemaError::eval(
+                "do: binding must be (var init) or (var init step)",
+            ));
+        }
+        let name = parts[0]
+            .as_symbol()
+            .ok_or_else(|| SemaError::eval("do: variable name must be a symbol"))?
+            .to_string();
+        let init_val = eval::eval_value(&parts[1], env)?;
+        let step = if parts.len() == 3 {
+            Some(parts[2].clone())
+        } else {
+            None
+        };
+        loop_env.set(name.clone(), init_val);
+        var_names.push(name);
+        step_exprs.push(step);
+    }
+
+    loop {
+        let test_result = eval::eval_value(&test_clause[0], &loop_env)?;
+        if test_result.is_truthy() {
+            if test_clause.len() == 1 {
+                return Ok(Trampoline::Value(Value::Nil));
+            }
+            for expr in &test_clause[1..test_clause.len() - 1] {
+                eval::eval_value(expr, &loop_env)?;
+            }
+            return Ok(Trampoline::Eval(
+                test_clause.last().unwrap().clone(),
+                loop_env,
+            ));
+        }
+
+        for expr in body {
+            eval::eval_value(expr, &loop_env)?;
+        }
+
+        // Compute all step values before updating (parallel assignment)
+        let new_vals: Vec<Option<Value>> = step_exprs
+            .iter()
+            .map(|step| {
+                step.as_ref()
+                    .map(|expr| eval::eval_value(expr, &loop_env))
+                    .transpose()
+            })
+            .collect::<Result<_, _>>()?;
+
+        for (name, new_val) in var_names.iter().zip(new_vals.into_iter()) {
+            if let Some(val) = new_val {
+                loop_env.set(name.clone(), val);
+            }
+        }
+    }
+}
+
+/// (delay expr) — create a lazy promise
+fn eval_delay(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("delay", "1", args.len()));
+    }
+    let lambda = Value::Lambda(Rc::new(Lambda {
+        params: vec![],
+        rest_param: None,
+        body: vec![args[0].clone()],
+        env: env.clone(),
+        name: None,
+    }));
+    let thunk = Thunk {
+        body: lambda,
+        forced: std::cell::RefCell::new(None),
+    };
+    Ok(Trampoline::Value(Value::Thunk(Rc::new(thunk))))
+}
+
+/// (force promise) — evaluate a promise, memoizing the result
+fn eval_force(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("force", "1", args.len()));
+    }
+    let val = eval::eval_value(&args[0], env)?;
+    match &val {
+        Value::Thunk(thunk) => {
+            if let Some(cached) = &*thunk.forced.borrow() {
+                return Ok(Trampoline::Value(cached.clone()));
+            }
+            let call_expr = Value::list(vec![thunk.body.clone()]);
+            let result = eval::eval_value(&call_expr, env)?;
+            *thunk.forced.borrow_mut() = Some(result.clone());
+            Ok(Trampoline::Value(result))
+        }
+        _ => Ok(Trampoline::Value(val)),
+    }
 }
 
 /// Parse parameter list, handling rest params (e.g., `(a b . rest)`)

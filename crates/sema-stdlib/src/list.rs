@@ -583,6 +583,55 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::list(result))
     });
+
+    // Car/cdr compositions (2-deep)
+    register_fn(env, "caar", |args| first(&[first(args)?]));
+    register_fn(env, "cadr", |args| first(&[rest(args)?]));
+    register_fn(env, "cdar", |args| rest(&[first(args)?]));
+    register_fn(env, "cddr", |args| rest(&[rest(args)?]));
+
+    // Car/cdr compositions (3-deep)
+    register_fn(env, "caaar", |args| first(&[first(&[first(args)?])?]));
+    register_fn(env, "caadr", |args| first(&[first(&[rest(args)?])?]));
+    register_fn(env, "cadar", |args| first(&[rest(&[first(args)?])?]));
+    register_fn(env, "caddr", |args| first(&[rest(&[rest(args)?])?]));
+    register_fn(env, "cdaar", |args| rest(&[first(&[first(args)?])?]));
+    register_fn(env, "cdadr", |args| rest(&[first(&[rest(args)?])?]));
+    register_fn(env, "cddar", |args| rest(&[rest(&[first(args)?])?]));
+    register_fn(env, "cdddr", |args| rest(&[rest(&[rest(args)?])?]));
+
+    // Association list functions (assoc is dual-purpose in map.rs)
+    register_fn(env, "assq", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("assq", "2", args.len()));
+        }
+        let key = &args[0];
+        let alist = get_sequence(&args[1], "assq")?;
+        for pair in &alist {
+            if let Value::List(p) = pair {
+                if !p.is_empty() && &p[0] == key {
+                    return Ok(pair.clone());
+                }
+            }
+        }
+        Ok(Value::Bool(false))
+    });
+
+    register_fn(env, "assv", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("assv", "2", args.len()));
+        }
+        let key = &args[0];
+        let alist = get_sequence(&args[1], "assv")?;
+        for pair in &alist {
+            if let Value::List(p) = pair {
+                if !p.is_empty() && &p[0] == key {
+                    return Ok(pair.clone());
+                }
+            }
+        }
+        Ok(Value::Bool(false))
+    });
 }
 
 fn first(args: &[Value]) -> Result<Value, SemaError> {
@@ -750,7 +799,7 @@ fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                             return Ok(Value::Nil);
                         }
                     }
-                    "begin" | "do" => {
+                    "begin" => {
                         let mut result = Value::Nil;
                         for item in &items[1..] {
                             result = sema_eval_value(item, env)?;

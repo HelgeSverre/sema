@@ -236,9 +236,13 @@ pub fn eval_value(expr: &Value, env: &Env) -> EvalResult {
 fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
     match expr {
         // Self-evaluating forms
-        Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_) | Value::String(_) => {
-            Ok(Trampoline::Value(expr.clone()))
-        }
+        Value::Nil
+        | Value::Bool(_)
+        | Value::Int(_)
+        | Value::Float(_)
+        | Value::String(_)
+        | Value::Char(_)
+        | Value::Thunk(_) => Ok(Trampoline::Value(expr.clone())),
         Value::Keyword(_) => Ok(Trampoline::Value(expr.clone())),
         Value::Vector(items) => {
             let mut result = Vec::with_capacity(items.len());

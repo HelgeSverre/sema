@@ -4,5 +4,6 @@ pub mod value;
 
 pub use error::{CallFrame, SemaError, Span, SpanMap, StackTrace};
 pub use value::{
-    Agent, Conversation, Env, Lambda, Macro, Message, NativeFn, Prompt, Role, ToolDefinition, Value,
+    Agent, Conversation, Env, Lambda, Macro, Message, NativeFn, Prompt, Role, Thunk,
+    ToolDefinition, Value,
 };
