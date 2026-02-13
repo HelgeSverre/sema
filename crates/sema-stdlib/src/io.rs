@@ -1,7 +1,9 @@
+use std::io::BufRead;
 use std::rc::Rc;
 
-use sema_core::{SemaError, Value};
+use sema_core::{Env, SemaError, Value};
 
+use crate::list::{call_function, sema_eval_value};
 use crate::register_fn;
 
 pub fn register(env: &sema_core::Env) {
@@ -349,6 +351,137 @@ pub fn register(env: &sema_core::Env) {
             .map_err(|e| SemaError::Io(format!("file/read-lines {path}: {e}")))?;
         let lines: Vec<Value> = content.split('\n').map(Value::string).collect();
         Ok(Value::list(lines))
+    });
+
+    register_fn(env, "file/for-each-line", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("file/for-each-line", "2", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let func = args[1].clone();
+        let file = std::fs::File::open(path)
+            .map_err(|e| SemaError::Io(format!("file/for-each-line {path}: {e}")))?;
+        let mut reader = std::io::BufReader::new(file);
+
+        // Fast path: reuse env for Lambda calls
+        if let Value::Lambda(ref lambda) = func {
+            if lambda.params.len() == 1 && lambda.rest_param.is_none() {
+                let lambda_env = Env::with_parent(Rc::new(lambda.env.clone()));
+                let param0 = &lambda.params[0];
+                lambda_env.set(param0.clone(), Value::Nil);
+                let mut line_buf = String::with_capacity(64);
+                loop {
+                    line_buf.clear();
+                    let n = reader
+                        .read_line(&mut line_buf)
+                        .map_err(|e| SemaError::Io(format!("file/for-each-line {path}: {e}")))?;
+                    if n == 0 {
+                        break;
+                    }
+                    if line_buf.ends_with('\n') {
+                        line_buf.pop();
+                        if line_buf.ends_with('\r') {
+                            line_buf.pop();
+                        }
+                    }
+                    lambda_env.update(param0, Value::String(Rc::new(line_buf.clone())));
+                    for expr in &lambda.body {
+                        sema_eval_value(expr, &lambda_env)?;
+                    }
+                }
+                return Ok(Value::Nil);
+            }
+        }
+
+        let mut line_buf = String::with_capacity(64);
+        loop {
+            line_buf.clear();
+            let n = reader
+                .read_line(&mut line_buf)
+                .map_err(|e| SemaError::Io(format!("file/for-each-line {path}: {e}")))?;
+            if n == 0 {
+                break;
+            }
+            if line_buf.ends_with('\n') {
+                line_buf.pop();
+                if line_buf.ends_with('\r') {
+                    line_buf.pop();
+                }
+            }
+            call_function(&func, &[Value::String(Rc::new(line_buf.clone()))])?;
+        }
+        Ok(Value::Nil)
+    });
+
+    register_fn(env, "file/fold-lines", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity("file/fold-lines", "3", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let func = args[1].clone();
+        let mut acc = args[2].clone();
+        let file = std::fs::File::open(path)
+            .map_err(|e| SemaError::Io(format!("file/fold-lines {path}: {e}")))?;
+        let mut reader = std::io::BufReader::with_capacity(256 * 1024, file);
+
+        // Fast path: reuse env for Lambda calls, move acc instead of cloning
+        if let Value::Lambda(ref lambda) = func {
+            if lambda.params.len() == 2 && lambda.rest_param.is_none() {
+                let lambda_env = Env::with_parent(Rc::new(lambda.env.clone()));
+                let param0 = &lambda.params[0];
+                let param1 = &lambda.params[1];
+                // Pre-populate keys so update() can find them
+                lambda_env.set(param0.clone(), Value::Nil);
+                lambda_env.set(param1.clone(), Value::Nil);
+                let mut line_buf = String::with_capacity(64);
+                loop {
+                    line_buf.clear();
+                    let n = reader
+                        .read_line(&mut line_buf)
+                        .map_err(|e| SemaError::Io(format!("file/fold-lines {path}: {e}")))?;
+                    if n == 0 {
+                        break;
+                    }
+                    if line_buf.ends_with('\n') {
+                        line_buf.pop();
+                        if line_buf.ends_with('\r') {
+                            line_buf.pop();
+                        }
+                    }
+                    lambda_env.update(param0, acc);
+                    lambda_env.update(param1, Value::String(Rc::new(line_buf.clone())));
+                    let mut result = Value::Nil;
+                    for expr in &lambda.body {
+                        result = sema_eval_value(expr, &lambda_env)?;
+                    }
+                    acc = result;
+                }
+                return Ok(acc);
+            }
+        }
+
+        let mut line_buf = String::with_capacity(64);
+        loop {
+            line_buf.clear();
+            let n = reader
+                .read_line(&mut line_buf)
+                .map_err(|e| SemaError::Io(format!("file/fold-lines {path}: {e}")))?;
+            if n == 0 {
+                break;
+            }
+            if line_buf.ends_with('\n') {
+                line_buf.pop();
+                if line_buf.ends_with('\r') {
+                    line_buf.pop();
+                }
+            }
+            acc = call_function(&func, &[acc, Value::String(Rc::new(line_buf.clone()))])?;
+        }
+        Ok(acc)
     });
 
     register_fn(env, "file/write-lines", |args| {

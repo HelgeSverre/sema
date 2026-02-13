@@ -658,6 +658,85 @@ fn flatten_recursive(val: &Value, out: &mut Vec<Value>) {
     }
 }
 
+/// Fast path for parsing simple numbers: integers and decimals like "-12.3", "4.5", "100".
+/// Returns None if the string doesn't match a simple pattern, falling back to std parse.
+fn fast_parse_number(s: &str) -> Option<Value> {
+    let bytes = s.as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+    let (negative, start) = if bytes[0] == b'-' {
+        (true, 1)
+    } else {
+        (false, 0)
+    };
+    if start >= bytes.len() {
+        return None;
+    }
+    let mut integer_part: i64 = 0;
+    let mut i = start;
+    while i < bytes.len() && bytes[i] != b'.' {
+        let b = bytes[i];
+        if b < b'0' || b > b'9' {
+            return None;
+        }
+        integer_part = integer_part * 10 + (b - b'0') as i64;
+        i += 1;
+    }
+    if i == bytes.len() {
+        // Pure integer
+        return Some(Value::Int(if negative { -integer_part } else { integer_part }));
+    }
+    // Has decimal point
+    if bytes[i] != b'.' {
+        return None;
+    }
+    i += 1;
+    let frac_start = i;
+    let mut frac_part: i64 = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b < b'0' || b > b'9' {
+            return None;
+        }
+        frac_part = frac_part * 10 + (b - b'0') as i64;
+        i += 1;
+    }
+    let frac_digits = i - frac_start;
+    if frac_digits == 0 {
+        return None;
+    }
+    static POWERS: [f64; 5] = [1.0, 10.0, 100.0, 1000.0, 10000.0];
+    let divisor = if frac_digits < POWERS.len() {
+        POWERS[frac_digits]
+    } else {
+        10f64.powi(frac_digits as i32)
+    };
+    let result = integer_part as f64 + frac_part as f64 / divisor;
+    Some(Value::Float(if negative { -result } else { result }))
+}
+
+/// Check if a symbol name appears anywhere in a slice of AST expressions.
+fn symbol_appears_in(name: &str, exprs: &[Value]) -> bool {
+    for expr in exprs {
+        match expr {
+            Value::Symbol(s) if s.as_str() == name => return true,
+            Value::List(items) => {
+                if symbol_appears_in(name, items) {
+                    return true;
+                }
+            }
+            Value::Vector(items) => {
+                if symbol_appears_in(name, items) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
 /// Call a Sema function (lambda or native) with given args.
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     match func {
@@ -721,7 +800,7 @@ pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
 /// Minimal eval for stdlib usage (avoids circular dependency).
 /// Handles: symbols, function calls, if, begin, let, let*, cond, when, unless,
 /// and, or, define, set!, quote, lambda/fn.
-fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
+pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
     match expr {
         Value::Symbol(name) => env
             .get(name)
@@ -993,7 +1072,9 @@ fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                         }
                         if let Value::Symbol(ref name) = items[1] {
                             let val = sema_eval_value(&items[2], env)?;
-                            env.set(name.to_string(), val);
+                            if !env.set_existing(name, val.clone()) {
+                                env.set(name.to_string(), val);
+                            }
                             return Ok(Value::Nil);
                         }
                         return Err(SemaError::eval("set!: expected symbol"));
@@ -1031,6 +1112,250 @@ fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                             name: None,
                         })));
                     }
+                    // --- Inlined builtins for hot-path performance ---
+                    "assoc" => {
+                        if items.len() >= 4 && items.len() % 2 == 0 {
+                            // Try to TAKE the map from env if it's a symbol not used in key/val exprs
+                            let mut map_rc = if let Value::Symbol(ref sym) = items[1] {
+                                if !symbol_appears_in(sym, &items[2..]) {
+                                    match env.take_anywhere(sym) {
+                                        Some(Value::Map(m)) => m,
+                                        Some(other) => {
+                                            env.set(sym.to_string(), other);
+                                            // fall through to generic path
+                                            let func_val = sema_eval_value(&items[0], env)?;
+                                            let mut args = Vec::with_capacity(items.len() - 1);
+                                            for arg in &items[1..] {
+                                                args.push(sema_eval_value(arg, env)?);
+                                            }
+                                            return call_function(&func_val, &args);
+                                        }
+                                        None => {
+                                            // symbol in parent scope, can't take
+                                            let func_val = sema_eval_value(&items[0], env)?;
+                                            let mut args = Vec::with_capacity(items.len() - 1);
+                                            for arg in &items[1..] {
+                                                args.push(sema_eval_value(arg, env)?);
+                                            }
+                                            return call_function(&func_val, &args);
+                                        }
+                                    }
+                                } else {
+                                    // symbol appears in key/val exprs, eval normally
+                                    match sema_eval_value(&items[1], env)? {
+                                        Value::Map(m) => m,
+                                        other => {
+                                            return Err(SemaError::type_error(
+                                                "map",
+                                                other.type_name(),
+                                            ))
+                                        }
+                                    }
+                                }
+                            } else {
+                                match sema_eval_value(&items[1], env)? {
+                                    Value::Map(m) => m,
+                                    other => {
+                                        return Err(SemaError::type_error("map", other.type_name()))
+                                    }
+                                }
+                            };
+                            // Rc::make_mut: mutates in-place if refcount == 1
+                            let map = Rc::make_mut(&mut map_rc);
+                            for pair in items[2..].chunks(2) {
+                                let key = sema_eval_value(&pair[0], env)?;
+                                let val = sema_eval_value(&pair[1], env)?;
+                                map.insert(key, val);
+                            }
+                            return Ok(Value::Map(map_rc));
+                        }
+                    }
+                    "get" => {
+                        if items.len() == 3 || items.len() == 4 {
+                            let map_val = sema_eval_value(&items[1], env)?;
+                            if let Value::Map(m) = &map_val {
+                                let key = sema_eval_value(&items[2], env)?;
+                                let default = if items.len() == 4 {
+                                    sema_eval_value(&items[3], env)?
+                                } else {
+                                    Value::Nil
+                                };
+                                return Ok(m.get(&key).cloned().unwrap_or(default));
+                            }
+                            return Err(SemaError::type_error("map", map_val.type_name()));
+                        }
+                    }
+                    "nil?" => {
+                        if items.len() == 2 {
+                            let val = sema_eval_value(&items[1], env)?;
+                            return Ok(Value::Bool(matches!(val, Value::Nil)));
+                        }
+                    }
+                    "+" => {
+                        if items.len() == 3 {
+                            let a = sema_eval_value(&items[1], env)?;
+                            let b = sema_eval_value(&items[2], env)?;
+                            return match (&a, &b) {
+                                (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x + y)),
+                                (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
+                                (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 + y)),
+                                (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x + *y as f64)),
+                                _ => Err(SemaError::type_error("number", a.type_name())),
+                            };
+                        }
+                    }
+                    "=" => {
+                        if items.len() == 3 {
+                            let a = sema_eval_value(&items[1], env)?;
+                            let b = sema_eval_value(&items[2], env)?;
+                            return Ok(Value::Bool(match (&a, &b) {
+                                (Value::Int(x), Value::Int(y)) => x == y,
+                                (Value::Int(x), Value::Float(y)) => (*x as f64) == *y,
+                                (Value::Float(x), Value::Int(y)) => *x == (*y as f64),
+                                (Value::Float(x), Value::Float(y)) => x == y,
+                                _ => a == b,
+                            }));
+                        }
+                    }
+                    "min" => {
+                        if items.len() == 3 {
+                            let a = sema_eval_value(&items[1], env)?;
+                            let b = sema_eval_value(&items[2], env)?;
+                            let a_lt_b = match (&a, &b) {
+                                (Value::Int(x), Value::Int(y)) => x < y,
+                                (Value::Float(x), Value::Float(y)) => x < y,
+                                (Value::Int(x), Value::Float(y)) => (*x as f64) < *y,
+                                (Value::Float(x), Value::Int(y)) => *x < (*y as f64),
+                                _ => return Err(SemaError::type_error("number", a.type_name())),
+                            };
+                            return Ok(if a_lt_b { a } else { b });
+                        }
+                    }
+                    "max" => {
+                        if items.len() == 3 {
+                            let a = sema_eval_value(&items[1], env)?;
+                            let b = sema_eval_value(&items[2], env)?;
+                            let a_gt_b = match (&a, &b) {
+                                (Value::Int(x), Value::Int(y)) => x > y,
+                                (Value::Float(x), Value::Float(y)) => x > y,
+                                (Value::Int(x), Value::Float(y)) => (*x as f64) > *y,
+                                (Value::Float(x), Value::Int(y)) => *x > (*y as f64),
+                                _ => return Err(SemaError::type_error("number", a.type_name())),
+                            };
+                            return Ok(if a_gt_b { a } else { b });
+                        }
+                    }
+                    "first" => {
+                        if items.len() == 2 {
+                            let val = sema_eval_value(&items[1], env)?;
+                            return match &val {
+                                Value::List(l) => Ok(l.first().cloned().unwrap_or(Value::Nil)),
+                                Value::Vector(v) => Ok(v.first().cloned().unwrap_or(Value::Nil)),
+                                _ => Err(SemaError::type_error("list or vector", val.type_name())),
+                            };
+                        }
+                    }
+                    "nth" => {
+                        if items.len() == 3 {
+                            let coll = sema_eval_value(&items[1], env)?;
+                            let idx_val = sema_eval_value(&items[2], env)?;
+                            if let Some(idx) = idx_val.as_int() {
+                                let idx = idx as usize;
+                                return match &coll {
+                                    Value::List(l) => l.get(idx).cloned().ok_or_else(|| {
+                                        SemaError::eval(format!(
+                                            "index {idx} out of bounds (length {})",
+                                            l.len()
+                                        ))
+                                    }),
+                                    Value::Vector(v) => v.get(idx).cloned().ok_or_else(|| {
+                                        SemaError::eval(format!(
+                                            "index {idx} out of bounds (length {})",
+                                            v.len()
+                                        ))
+                                    }),
+                                    _ => Err(SemaError::type_error(
+                                        "list or vector",
+                                        coll.type_name(),
+                                    )),
+                                };
+                            }
+                        }
+                    }
+                    "float" => {
+                        if items.len() == 2 {
+                            let val = sema_eval_value(&items[1], env)?;
+                            return match &val {
+                                Value::Int(n) => Ok(Value::Float(*n as f64)),
+                                Value::Float(_) => Ok(val),
+                                Value::String(s) => {
+                                    s.parse::<f64>().map(Value::Float).map_err(|_| {
+                                        SemaError::eval(format!("cannot convert '{s}' to float"))
+                                    })
+                                }
+                                _ => {
+                                    Err(SemaError::type_error("number or string", val.type_name()))
+                                }
+                            };
+                        }
+                    }
+                    "string/split" => {
+                        if items.len() == 3 {
+                            let s_val = sema_eval_value(&items[1], env)?;
+                            let sep_val = sema_eval_value(&items[2], env)?;
+                            if let (Some(s), Some(sep)) = (s_val.as_str(), sep_val.as_str()) {
+                                // Fast path for single-char separator
+                                if sep.len() == 1 {
+                                    let sep_byte = sep.as_bytes()[0];
+                                    let bytes = s.as_bytes();
+                                    if let Some(pos) = bytes.iter().position(|&b| b == sep_byte) {
+                                        // Two-part split: most common case (e.g., CSV/1BRC)
+                                        let left = &s[..pos];
+                                        let right = &s[pos + 1..];
+                                        // Check if there are more parts
+                                        if right.as_bytes().iter().any(|&b| b == sep_byte) {
+                                            let parts: Vec<Value> =
+                                                s.split(sep).map(Value::string).collect();
+                                            return Ok(Value::list(parts));
+                                        }
+                                        return Ok(Value::list(vec![
+                                            Value::string(left),
+                                            Value::string(right),
+                                        ]));
+                                    } else {
+                                        return Ok(Value::list(vec![Value::string(s)]));
+                                    }
+                                }
+                                let parts: Vec<Value> = s.split(sep).map(Value::string).collect();
+                                return Ok(Value::list(parts));
+                            }
+                            if s_val.as_str().is_none() {
+                                return Err(SemaError::type_error("string", s_val.type_name()));
+                            }
+                            return Err(SemaError::type_error("string", sep_val.type_name()));
+                        }
+                    }
+                    "string->number" => {
+                        if items.len() == 2 {
+                            let val = sema_eval_value(&items[1], env)?;
+                            if let Some(s) = val.as_str() {
+                                // Fast path: try simple decimal format first (e.g., "-12.3", "4.5")
+                                if let Some(fast) = fast_parse_number(s) {
+                                    return Ok(fast);
+                                }
+                                if let Ok(n) = s.parse::<i64>() {
+                                    return Ok(Value::Int(n));
+                                } else if let Ok(f) = s.parse::<f64>() {
+                                    return Ok(Value::Float(f));
+                                } else {
+                                    return Err(SemaError::eval(format!(
+                                        "cannot parse '{s}' as number"
+                                    )));
+                                }
+                            }
+                            return Err(SemaError::type_error("string", val.type_name()));
+                        }
+                    }
                     _ => {} // fall through to normal function call
                 }
             }
@@ -1046,7 +1371,7 @@ fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
             }
             // Normal function call
             let func_val = sema_eval_value(&items[0], env)?;
-            let mut args = Vec::new();
+            let mut args = Vec::with_capacity(items.len() - 1);
             for arg in &items[1..] {
                 args.push(sema_eval_value(arg, env)?);
             }

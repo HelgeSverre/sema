@@ -384,6 +384,32 @@ impl Env {
         self.bindings.borrow_mut().insert(name, val);
     }
 
+    /// Update a binding that already exists in the current scope, avoiding key allocation.
+    pub fn update(&self, name: &str, val: Value) {
+        let mut bindings = self.bindings.borrow_mut();
+        if let Some(entry) = bindings.get_mut(name) {
+            *entry = val;
+        } else {
+            bindings.insert(name.to_string(), val);
+        }
+    }
+
+    /// Remove and return a binding from the current scope only (not parents).
+    pub fn take(&self, name: &str) -> Option<Value> {
+        self.bindings.borrow_mut().remove(name)
+    }
+
+    /// Remove and return a binding from any scope in the parent chain.
+    pub fn take_anywhere(&self, name: &str) -> Option<Value> {
+        if let Some(val) = self.bindings.borrow_mut().remove(name) {
+            Some(val)
+        } else if let Some(parent) = &self.parent {
+            parent.take_anywhere(name)
+        } else {
+            None
+        }
+    }
+
     /// Set a variable in the scope where it's defined (for set!).
     pub fn set_existing(&self, name: &str, val: Value) -> bool {
         if self.bindings.borrow().contains_key(name) {
