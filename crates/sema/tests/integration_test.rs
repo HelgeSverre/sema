@@ -5109,3 +5109,112 @@ fn test_char_ci_comparison_predicates() {
     assert_eq!(eval("(char-ci<=? #\\A #\\a)"), Value::Bool(true));
     assert_eq!(eval("(char-ci>=? #\\a #\\A)"), Value::Bool(true));
 }
+
+#[test]
+fn test_define_record_type_basic() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("
+        (define-record-type point
+            (make-point x y)
+            point?
+            (x point-x)
+            (y point-y))
+        (define p (make-point 3 4))
+        (list (point? p) (point-x p) (point-y p))
+    ").unwrap();
+    assert_eq!(
+        result,
+        Value::list(vec![Value::Bool(true), Value::Int(3), Value::Int(4)])
+    );
+}
+
+#[test]
+fn test_define_record_type_predicate_false() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("
+        (define-record-type point
+            (make-point x y)
+            point?
+            (x point-x)
+            (y point-y))
+        (point? 42)
+    ").unwrap();
+    assert_eq!(result, Value::Bool(false));
+}
+
+#[test]
+fn test_define_record_type_equality() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("
+        (define-record-type point
+            (make-point x y)
+            point?
+            (x point-x)
+            (y point-y))
+        (equal? (make-point 1 2) (make-point 1 2))
+    ").unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_define_record_type_type_function() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("
+        (define-record-type point
+            (make-point x y)
+            point?
+            (x point-x)
+            (y point-y))
+        (type (make-point 1 2))
+    ").unwrap();
+    assert_eq!(result, Value::keyword("point"));
+}
+
+#[test]
+fn test_define_record_type_record_predicate() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("
+        (define-record-type point
+            (make-point x y)
+            point?
+            (x point-x)
+            (y point-y))
+        (list (record? (make-point 1 2)) (record? 42))
+    ").unwrap();
+    assert_eq!(
+        result,
+        Value::list(vec![Value::Bool(true), Value::Bool(false)])
+    );
+}
+
+#[test]
+fn test_define_record_type_mutator_ignored() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("
+        (define-record-type point
+            (make-point x y)
+            point?
+            (x point-x set-point-x!)
+            (y point-y set-point-y!))
+        (point-x (make-point 7 8))
+    ").unwrap();
+    assert_eq!(result, Value::Int(7));
+}
+
+#[test]
+fn test_define_record_type_multiple_types() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("
+        (define-record-type point (make-point x y) point? (x point-x) (y point-y))
+        (define-record-type color (make-color r g b) color? (r color-r) (g color-g) (b color-b))
+        (list (point? (make-point 1 2)) (color? (make-point 1 2))
+              (color? (make-color 255 0 0)) (point? (make-color 255 0 0)))
+    ").unwrap();
+    assert_eq!(
+        result,
+        Value::list(vec![
+            Value::Bool(true), Value::Bool(false),
+            Value::Bool(true), Value::Bool(false),
+        ])
+    );
+}

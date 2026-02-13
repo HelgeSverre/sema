@@ -1,52 +1,186 @@
+use std::cell::Cell;
 use std::rc::Rc;
 
 use sema_core::{
-    intern, resolve, Agent, Env, Lambda, Macro, SemaError, Thunk, ToolDefinition, Value,
+    intern, resolve, Agent, Env, Lambda, Macro, Record, SemaError, Spur, Thunk, ToolDefinition,
+    Value,
 };
 
 use crate::eval::{self, Trampoline};
 
+/// Cached Spur values for special form names to avoid resolve() allocations in the hot path.
+struct SpecialFormSpurs {
+    quote: Spur,
+    if_: Spur,
+    cond: Spur,
+    define: Spur,
+    defun: Spur,
+    set_bang: Spur,
+    lambda: Spur,
+    fn_: Spur,
+    let_: Spur,
+    let_star: Spur,
+    letrec: Spur,
+    begin: Spur,
+    do_: Spur,
+    and: Spur,
+    or: Spur,
+    when: Spur,
+    unless: Spur,
+    defmacro: Spur,
+    quasiquote: Spur,
+    prompt: Spur,
+    message: Spur,
+    deftool: Spur,
+    defagent: Spur,
+    throw: Spur,
+    try_: Spur,
+    module: Spur,
+    import: Spur,
+    load: Spur,
+    case: Spur,
+    eval: Spur,
+    macroexpand: Spur,
+    with_budget: Spur,
+    delay: Spur,
+    force: Spur,
+    define_record_type: Spur,
+}
+
+impl SpecialFormSpurs {
+    fn init() -> Self {
+        Self {
+            quote: intern("quote"),
+            if_: intern("if"),
+            cond: intern("cond"),
+            define: intern("define"),
+            defun: intern("defun"),
+            set_bang: intern("set!"),
+            lambda: intern("lambda"),
+            fn_: intern("fn"),
+            let_: intern("let"),
+            let_star: intern("let*"),
+            letrec: intern("letrec"),
+            begin: intern("begin"),
+            do_: intern("do"),
+            and: intern("and"),
+            or: intern("or"),
+            when: intern("when"),
+            unless: intern("unless"),
+            defmacro: intern("defmacro"),
+            quasiquote: intern("quasiquote"),
+            prompt: intern("prompt"),
+            message: intern("message"),
+            deftool: intern("deftool"),
+            defagent: intern("defagent"),
+            throw: intern("throw"),
+            try_: intern("try"),
+            module: intern("module"),
+            import: intern("import"),
+            load: intern("load"),
+            case: intern("case"),
+            eval: intern("eval"),
+            macroexpand: intern("macroexpand"),
+            with_budget: intern("with-budget"),
+            delay: intern("delay"),
+            force: intern("force"),
+            define_record_type: intern("define-record-type"),
+        }
+    }
+}
+
+thread_local! {
+    static SF: Cell<Option<&'static SpecialFormSpurs>> = const { Cell::new(None) };
+}
+
+fn special_forms() -> &'static SpecialFormSpurs {
+    SF.with(|cell| match cell.get() {
+        Some(sf) => sf,
+        None => {
+            let sf: &'static SpecialFormSpurs = Box::leak(Box::new(SpecialFormSpurs::init()));
+            cell.set(Some(sf));
+            sf
+        }
+    })
+}
+
 /// Evaluate a special form. Returns Some(result) if the head is a special form, None otherwise.
 pub fn try_eval_special(
-    head: &str,
+    head_spur: Spur,
     args: &[Value],
     env: &Env,
 ) -> Option<Result<Trampoline, SemaError>> {
-    match head {
-        "quote" => Some(eval_quote(args)),
-        "if" => Some(eval_if(args, env)),
-        "cond" => Some(eval_cond(args, env)),
-        "define" => Some(eval_define(args, env)),
-        "defun" => Some(eval_defun(args, env)),
-        "set!" => Some(eval_set(args, env)),
-        "lambda" | "fn" => Some(eval_lambda(args, env, None)),
-        "let" => Some(eval_let(args, env)),
-        "let*" => Some(eval_let_star(args, env)),
-        "letrec" => Some(eval_letrec(args, env)),
-        "begin" => Some(eval_begin(args, env)),
-        "do" => Some(eval_do(args, env)),
-        "and" => Some(eval_and(args, env)),
-        "or" => Some(eval_or(args, env)),
-        "when" => Some(eval_when(args, env)),
-        "unless" => Some(eval_unless(args, env)),
-        "defmacro" => Some(eval_defmacro(args, env)),
-        "quasiquote" => Some(eval_quasiquote(args, env)),
-        "prompt" => Some(eval_prompt(args, env)),
-        "message" => Some(eval_message(args, env)),
-        "deftool" => Some(eval_deftool(args, env)),
-        "defagent" => Some(eval_defagent(args, env)),
-        "throw" => Some(eval_throw(args, env)),
-        "try" => Some(eval_try(args, env)),
-        "module" => Some(eval_module(args, env)),
-        "import" => Some(eval_import(args, env)),
-        "load" => Some(eval_load(args, env)),
-        "case" => Some(eval_case(args, env)),
-        "eval" => Some(eval_eval(args, env)),
-        "macroexpand" => Some(eval_macroexpand(args, env)),
-        "with-budget" => Some(eval_with_budget(args, env)),
-        "delay" => Some(eval_delay(args, env)),
-        "force" => Some(eval_force(args, env)),
-        _ => None,
+    let sf = special_forms();
+    if head_spur == sf.quote {
+        Some(eval_quote(args))
+    } else if head_spur == sf.if_ {
+        Some(eval_if(args, env))
+    } else if head_spur == sf.cond {
+        Some(eval_cond(args, env))
+    } else if head_spur == sf.define {
+        Some(eval_define(args, env))
+    } else if head_spur == sf.defun {
+        Some(eval_defun(args, env))
+    } else if head_spur == sf.set_bang {
+        Some(eval_set(args, env))
+    } else if head_spur == sf.lambda || head_spur == sf.fn_ {
+        Some(eval_lambda(args, env, None))
+    } else if head_spur == sf.let_ {
+        Some(eval_let(args, env))
+    } else if head_spur == sf.let_star {
+        Some(eval_let_star(args, env))
+    } else if head_spur == sf.letrec {
+        Some(eval_letrec(args, env))
+    } else if head_spur == sf.begin {
+        Some(eval_begin(args, env))
+    } else if head_spur == sf.do_ {
+        Some(eval_do(args, env))
+    } else if head_spur == sf.and {
+        Some(eval_and(args, env))
+    } else if head_spur == sf.or {
+        Some(eval_or(args, env))
+    } else if head_spur == sf.when {
+        Some(eval_when(args, env))
+    } else if head_spur == sf.unless {
+        Some(eval_unless(args, env))
+    } else if head_spur == sf.defmacro {
+        Some(eval_defmacro(args, env))
+    } else if head_spur == sf.quasiquote {
+        Some(eval_quasiquote(args, env))
+    } else if head_spur == sf.prompt {
+        Some(eval_prompt(args, env))
+    } else if head_spur == sf.message {
+        Some(eval_message(args, env))
+    } else if head_spur == sf.deftool {
+        Some(eval_deftool(args, env))
+    } else if head_spur == sf.defagent {
+        Some(eval_defagent(args, env))
+    } else if head_spur == sf.throw {
+        Some(eval_throw(args, env))
+    } else if head_spur == sf.try_ {
+        Some(eval_try(args, env))
+    } else if head_spur == sf.module {
+        Some(eval_module(args, env))
+    } else if head_spur == sf.import {
+        Some(eval_import(args, env))
+    } else if head_spur == sf.load {
+        Some(eval_load(args, env))
+    } else if head_spur == sf.case {
+        Some(eval_case(args, env))
+    } else if head_spur == sf.eval {
+        Some(eval_eval(args, env))
+    } else if head_spur == sf.macroexpand {
+        Some(eval_macroexpand(args, env))
+    } else if head_spur == sf.with_budget {
+        Some(eval_with_budget(args, env))
+    } else if head_spur == sf.delay {
+        Some(eval_delay(args, env))
+    } else if head_spur == sf.force {
+        Some(eval_force(args, env))
+    } else if head_spur == sf.define_record_type {
+        Some(eval_define_record_type(args, env))
+    } else {
+        None
     }
 }
 
@@ -1212,6 +1346,7 @@ fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         step_exprs.push(step);
     }
 
+    let mut new_vals: Vec<Option<Value>> = vec![None; var_names.len()];
     loop {
         let test_result = eval::eval_value(&test_clause[0], &loop_env)?;
         if test_result.is_truthy() {
@@ -1232,17 +1367,15 @@ fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         }
 
         // Compute all step values before updating (parallel assignment)
-        let new_vals: Vec<Option<Value>> = step_exprs
-            .iter()
-            .map(|step| {
-                step.as_ref()
-                    .map(|expr| eval::eval_value(expr, &loop_env))
-                    .transpose()
-            })
-            .collect::<Result<_, _>>()?;
+        for (i, step) in step_exprs.iter().enumerate() {
+            new_vals[i] = match step {
+                Some(expr) => Some(eval::eval_value(expr, &loop_env)?),
+                None => None,
+            };
+        }
 
-        for (name, new_val) in var_names.iter().zip(new_vals.into_iter()) {
-            if let Some(val) = new_val {
+        for (i, name) in var_names.iter().enumerate() {
+            if let Some(val) = new_vals[i].take() {
                 loop_env.set(*name, val);
             }
         }
@@ -1279,13 +1412,152 @@ fn eval_force(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             if let Some(cached) = &*thunk.forced.borrow() {
                 return Ok(Trampoline::Value(cached.clone()));
             }
-            let call_expr = Value::list(vec![thunk.body.clone()]);
-            let result = eval::eval_value(&call_expr, env)?;
+            let result = match &thunk.body {
+                Value::Lambda(lambda) => {
+                    let thunk_env = Env::with_parent(Rc::new(lambda.env.clone()));
+                    let mut res = Value::Nil;
+                    for expr in &lambda.body {
+                        res = eval::eval_value(expr, &thunk_env)?;
+                    }
+                    res
+                }
+                other => eval::eval_value(other, env)?,
+            };
             *thunk.forced.borrow_mut() = Some(result.clone());
             Ok(Trampoline::Value(result))
         }
         _ => Ok(Trampoline::Value(val)),
     }
+}
+
+/// (define-record-type <name> (<ctor> <field> ...) <pred> (<field> <accessor> [<mutator>]) ...)
+fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() < 3 {
+        return Err(SemaError::eval(
+            "define-record-type: requires at least type name, constructor, and predicate",
+        ));
+    }
+
+    let type_name = args[0]
+        .as_symbol()
+        .ok_or_else(|| SemaError::eval("define-record-type: type name must be a symbol"))?;
+    let type_tag = intern(&type_name);
+
+    let ctor_spec = args[1]
+        .as_list()
+        .ok_or_else(|| SemaError::eval("define-record-type: constructor spec must be a list"))?;
+    if ctor_spec.is_empty() {
+        return Err(SemaError::eval(
+            "define-record-type: constructor spec must have a name",
+        ));
+    }
+    let ctor_name = ctor_spec[0]
+        .as_symbol()
+        .ok_or_else(|| SemaError::eval("define-record-type: constructor name must be a symbol"))?;
+    let field_names: Vec<String> = ctor_spec[1..]
+        .iter()
+        .map(|v| {
+            v.as_symbol()
+                .ok_or_else(|| SemaError::eval("define-record-type: field name must be a symbol"))
+        })
+        .collect::<Result<_, _>>()?;
+    let field_count = field_names.len();
+
+    let pred_name = args[2]
+        .as_symbol()
+        .ok_or_else(|| SemaError::eval("define-record-type: predicate must be a symbol"))?;
+
+    let ctor_name_clone = ctor_name.clone();
+    env.set_str(
+        &ctor_name,
+        Value::NativeFn(Rc::new(sema_core::NativeFn {
+            name: ctor_name.clone(),
+            func: Box::new(move |args: &[Value]| {
+                if args.len() != field_count {
+                    return Err(SemaError::arity(
+                        &ctor_name_clone,
+                        &field_count.to_string(),
+                        args.len(),
+                    ));
+                }
+                Ok(Value::Record(Rc::new(Record {
+                    type_tag,
+                    fields: args.to_vec(),
+                })))
+            }),
+        })),
+    );
+
+    let pred_name_for_closure = pred_name.clone();
+    let pred_name_for_set = pred_name.clone();
+    env.set_str(
+        &pred_name_for_set,
+        Value::NativeFn(Rc::new(sema_core::NativeFn {
+            name: pred_name,
+            func: Box::new(move |args: &[Value]| {
+                if args.len() != 1 {
+                    return Err(SemaError::arity(&pred_name_for_closure, "1", args.len()));
+                }
+                Ok(Value::Bool(
+                    matches!(&args[0], Value::Record(r) if r.type_tag == type_tag),
+                ))
+            }),
+        })),
+    );
+
+    for field_spec_val in &args[3..] {
+        let field_spec = field_spec_val
+            .as_list()
+            .ok_or_else(|| SemaError::eval("define-record-type: field spec must be a list"))?;
+        if field_spec.len() < 2 {
+            return Err(SemaError::eval(
+                "define-record-type: field spec must have at least (field-name accessor)",
+            ));
+        }
+
+        let field_name = field_spec[0]
+            .as_symbol()
+            .ok_or_else(|| SemaError::eval("define-record-type: field name must be a symbol"))?;
+
+        let field_idx = field_names
+            .iter()
+            .position(|n| n == &field_name)
+            .ok_or_else(|| {
+                SemaError::eval(format!(
+                    "define-record-type: field '{field_name}' not in constructor"
+                ))
+            })?;
+
+        let accessor_name = field_spec[1]
+            .as_symbol()
+            .ok_or_else(|| SemaError::eval("define-record-type: accessor must be a symbol"))?;
+
+        let accessor_name_for_closure = accessor_name.clone();
+        let accessor_name_for_set = accessor_name.clone();
+        let type_name_for_err = type_name.clone();
+        env.set_str(
+            &accessor_name_for_set,
+            Value::NativeFn(Rc::new(sema_core::NativeFn {
+                name: accessor_name,
+                func: Box::new(move |args: &[Value]| {
+                    if args.len() != 1 {
+                        return Err(SemaError::arity(&accessor_name_for_closure, "1", args.len()));
+                    }
+                    match &args[0] {
+                        Value::Record(r) if r.type_tag == type_tag => {
+                            Ok(r.fields[field_idx].clone())
+                        }
+                        _ => Err(SemaError::type_error(
+                            &type_name_for_err,
+                            args[0].type_name(),
+                        )),
+                    }
+                }),
+            })),
+        );
+    }
+
+    Ok(Trampoline::Value(Value::Nil))
 }
 
 /// Parse parameter list, handling rest params (e.g., `(a b . rest)`)

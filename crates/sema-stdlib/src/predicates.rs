@@ -118,11 +118,21 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Bool(matches!(&args[0], Value::Conversation(_))))
     });
 
+    register_fn(env, "record?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("record?", "1", args.len()));
+        }
+        Ok(Value::Bool(matches!(&args[0], Value::Record(_))))
+    });
+
     register_fn(env, "type", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("type", "1", args.len()));
         }
-        Ok(Value::keyword(args[0].type_name()))
+        match &args[0] {
+            Value::Record(r) => Ok(Value::Keyword(r.type_tag)),
+            other => Ok(Value::keyword(other.type_name())),
+        }
     });
 
     register_fn(env, "pair?", |args| {
