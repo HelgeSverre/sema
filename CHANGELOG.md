@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+### Performance
+- **Optimized `file/fold-lines`** — reuses lambda env and moves accumulator (no Rc clone per line)
+- **Optimized `file/for-each-line`** — reuses lambda env instead of creating a new one per line
+- **Inlined hot-path builtins in mini-eval** — `assoc`, `get`, `nil?`, `+`, `=`, `min`, `max`, `first`, `nth`, `float`, `string/split`, `string->number` bypass Env lookup and NativeFn dispatch
+- **Zero-clone `assoc`** — uses `Env::take` + `Rc::make_mut` to mutate maps in-place when refcount is 1
+- **Added `Env::take()`** — removes and returns a binding from the current scope, enabling move semantics
+
+### Internal
+- Made `sema_eval_value` public in sema-stdlib for reuse by `file/fold-lines` and `file/for-each-line`
+
 ## 0.2.0
 
 ### Added
