@@ -1,0 +1,130 @@
+;; game-of-life.sema — Conway's Game of Life with ASCII visualization
+;; Usage: sema examples/game-of-life.sema
+
+(println "=== Conway's Game of Life ===")
+(println "")
+
+;; Grid dimensions
+(define ROWS 20)
+(define COLS 40)
+
+;; Create a blank grid (list of lists, all zeros)
+(define (make-grid rows cols)
+  (map (fn (_) (map (fn (_) 0) (range cols))) (range rows)))
+
+;; Access a cell with toroidal wrapping
+(define (grid-get grid r c rows cols)
+  (nth (nth grid (mod r rows)) (mod c cols)))
+
+;; Set a cell in the grid (returns new grid)
+(define (grid-set grid r c val)
+  (map (fn (ri)
+    (if (= ri r)
+        (map (fn (ci)
+          (if (= ci c) val (nth (nth grid ri) ci)))
+          (range COLS))
+        (nth grid ri)))
+    (range ROWS)))
+
+;; Set multiple cells from a list of (row col) pairs
+(define (grid-set-cells grid cells)
+  (foldl (fn (g cell) (grid-set g (car cell) (cadr cell) 1))
+         grid cells))
+
+;; Count live neighbors (8 surrounding cells with wrapping)
+;; Add ROWS/COLS before subtracting to avoid unsigned underflow
+(define (count-neighbors grid r c)
+  (let ((ru (+ r ROWS -1))
+        (rd (+ r 1))
+        (cl (+ c COLS -1))
+        (cr (+ c 1)))
+    (+ (grid-get grid ru cl ROWS COLS)
+       (grid-get grid ru c  ROWS COLS)
+       (grid-get grid ru cr ROWS COLS)
+       (grid-get grid r  cl ROWS COLS)
+       (grid-get grid r  cr ROWS COLS)
+       (grid-get grid rd cl ROWS COLS)
+       (grid-get grid rd c  ROWS COLS)
+       (grid-get grid rd cr ROWS COLS))))
+
+;; Apply Game of Life rules to compute next cell state
+(define (next-cell grid r c)
+  (let* ((alive (grid-get grid r c ROWS COLS))
+         (n     (count-neighbors grid r c)))
+    (cond
+      ((and (= alive 1) (< n 2)) 0)       ; underpopulation
+      ((and (= alive 1) (> n 3)) 0)       ; overpopulation
+      ((and (= alive 0) (= n 3)) 1)       ; reproduction
+      (else alive))))                       ; survival or stays dead
+
+;; Compute next generation (returns new grid)
+(define (next-generation grid)
+  (map (fn (r)
+    (map (fn (c) (next-cell grid r c))
+         (range COLS)))
+    (range ROWS)))
+
+;; Count total live cells
+(define (count-alive grid)
+  (foldl + 0 (map (fn (row) (foldl + 0 row)) grid)))
+
+;; Render a single row as a string
+(define (render-row row)
+  (string/join
+    (map (fn (cell) (if (= cell 1) "█" " ")) row)
+    ""))
+
+;; Display the grid
+(define (display-grid grid gen)
+  (let ((alive (count-alive grid))
+        (border (string/repeat "─" COLS)))
+    (println (format "Generation ~a  |  Live cells: ~a" gen alive))
+    (println (string-append "┌" border "┐"))
+    (for-each
+      (fn (row) (println (string-append "│" (render-row row) "│")))
+      grid)
+    (println (string-append "└" border "┘"))
+    (println "")))
+
+;; --- Seed the grid with classic patterns ---
+(define grid (make-grid ROWS COLS))
+
+;; Glider at (2, 2) — moves diagonally
+;; .X.
+;; ..X
+;; XXX
+(define grid (grid-set-cells grid
+  (list (list 2 3) (list 3 4) (list 4 2) (list 4 3) (list 4 4))))
+
+;; Blinker at (5, 15) — period 2 oscillator
+;; XXX
+(define grid (grid-set-cells grid
+  (list (list 5 15) (list 5 16) (list 5 17))))
+
+;; R-pentomino at (8, 20) — chaotic, long-lived
+;; .XX
+;; XX.
+;; .X.
+(define grid (grid-set-cells grid
+  (list (list 8 21) (list 8 22)
+        (list 9 20) (list 9 21)
+        (list 10 21))))
+
+;; --- Run simulation ---
+(define NUM-GENERATIONS 20)
+
+(define t-start (time-ms))
+
+;; Display initial state and run generations
+(define (run grid gen)
+  (display-grid grid gen)
+  (if (< gen NUM-GENERATIONS)
+      (run (next-generation grid) (+ gen 1))
+      grid))
+
+(define final-grid (run grid 0))
+
+(define t-end (time-ms))
+
+(println (format "Simulation complete: ~a generations in ~a ms"
+  NUM-GENERATIONS (- t-end t-start)))

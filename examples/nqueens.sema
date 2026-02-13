@@ -1,0 +1,51 @@
+;; nqueens.sema — N-Queens solver benchmark (Gabriel benchmark suite)
+;; Tests recursion, backtracking, list manipulation (append, cons, car, cdr).
+;; Public Domain.
+;;
+;; Usage: sema examples/nqueens.sema
+
+(define (nqueens n)
+
+  (define (one-to n)
+    (let loop ((i n) (l '()))
+      (if (= i 0) l (loop (- i 1) (cons i l)))))
+
+  (define (try-it x y z)
+    (if (null? x)
+      (if (null? y)
+        1
+        0)
+      (+ (if (ok? (car x) 1 z)
+           (try-it (append (cdr x) y) '() (cons (car x) z))
+           0)
+         (try-it (cdr x) (cons (car x) y) z))))
+
+  (define (ok? row dist placed)
+    (if (null? placed)
+      #t
+      (and (not (= (car placed) (+ row dist)))
+           (not (= (car placed) (- row dist)))
+           (ok? row (+ dist 1) (cdr placed)))))
+
+  (try-it (one-to n) '() '()))
+
+(println "=== N-Queens Benchmark ===")
+
+;; Verify correctness
+(println (format "Solutions for 1-queen: ~a" (nqueens 1)))
+(println (format "Solutions for 4-queens: ~a" (nqueens 4)))
+(println (format "Solutions for 5-queens: ~a" (nqueens 5)))
+(println (format "Solutions for 8-queens: ~a" (nqueens 8)))
+(println "")
+
+;; Benchmark: run 8-queens 500 times
+(define t0 (time-ms))
+(define result
+  (let loop ((n 500) (v 0))
+    (if (= n 0)
+        v
+        (loop (- n 1) (nqueens 8)))))
+(define elapsed (- (time-ms) t0))
+
+(println (format "8-queens result: ~a solutions" result))
+(println (format "500 iterations in ~a ms" elapsed))

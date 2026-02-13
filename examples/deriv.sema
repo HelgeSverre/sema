@@ -1,0 +1,51 @@
+;; deriv.sema — Symbolic derivative benchmark (Gabriel benchmark suite)
+;; Tests cons-heavy list manipulation, car/cdr, cond, map, recursion.
+;; Original by Vaughan Pratt, 1985. Public Domain.
+;;
+;; Usage: sema examples/deriv.sema
+
+(define (deriv-aux a) (list '/ (deriv a) a))
+
+(define (deriv a)
+  (cond
+    ((not (pair? a))
+     (cond ((= a 'x) 1) (else 0)))
+    ((= (car a) '+)
+     (cons '+ (map deriv (cdr a))))
+    ((= (car a) '-)
+     (cons '- (map deriv (cdr a))))
+    ((= (car a) '*)
+     (list '*
+           a
+           (cons '+ (map deriv-aux (cdr a)))))
+    ((= (car a) '/)
+     (list '-
+           (list '/
+                 (deriv (cadr a))
+                 (caddr a))
+           (list '/
+                 (cadr a)
+                 (list '*
+                       (caddr a)
+                       (caddr a)
+                       (deriv (caddr a))))))
+    (else 'error)))
+
+(define test-expr '(+ (* 3 x x) (* a x x) (* b x) 5))
+
+(println "=== DERIV Benchmark ===")
+(println (format "Expression: ~a" test-expr))
+(println (format "Derivative: ~a" (deriv test-expr)))
+(println "")
+
+(define t0 (time-ms))
+(do ((i 0 (+ i 1)))
+    ((= i 50000))
+  (deriv test-expr)
+  (deriv test-expr)
+  (deriv test-expr)
+  (deriv test-expr)
+  (deriv test-expr))
+(define elapsed (- (time-ms) t0))
+
+(println (format "250000 derivations in ~a ms" elapsed))

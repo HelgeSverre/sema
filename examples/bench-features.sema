@@ -1,0 +1,125 @@
+;; bench-features.sema — Micro-benchmarks for language features and hot paths
+;; Usage: sema examples/bench-features.sema
+
+;; ============ Helpers ============
+(define (bench name thunk iterations)
+  (let ((t0 (time-ms)))
+    (do ((i 0 (+ i 1)))
+        ((= i iterations))
+      (thunk))
+    (let ((elapsed (- (time-ms) t0)))
+      (println (format "  ~a: ~a ms (~a iterations)" name elapsed iterations)))))
+
+;; ============ 1. Car/cdr compositions ============
+(println "=== Car/cdr compositions ===")
+
+(define deep-list '((((1 2) (3 4)) ((5 6) (7 8))) (((9 10) (11 12)) ((13 14) (15 16)))))
+
+(bench "caar" (fn () (caar deep-list)) 100000)
+(bench "cadr" (fn () (cadr deep-list)) 100000)
+(bench "caddr on '(1 2 3 4 5)" (fn () (caddr '(1 2 3 4 5))) 100000)
+(bench "cdddr on '(1 2 3 4 5)" (fn () (cdddr '(1 2 3 4 5))) 100000)
+(bench "caaar" (fn () (caaar deep-list)) 100000)
+
+;; ============ 2. Association lists ============
+(println "\n=== Association lists ===")
+
+(define test-alist '((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7) (h 8) (i 9) (j 10)))
+
+(bench "assoc (alist, hit first)" (fn () (assoc 'a test-alist)) 100000)
+(bench "assoc (alist, hit last)" (fn () (assoc 'j test-alist)) 100000)
+(bench "assoc (alist, miss)" (fn () (assoc 'z test-alist)) 100000)
+(bench "assq (hit first)" (fn () (assq 'a test-alist)) 100000)
+(bench "assq (hit last)" (fn () (assq 'j test-alist)) 100000)
+
+;; ============ 3. Do loop vs named let ============
+(println "\n=== Do loop vs named let ===")
+
+(bench "do loop (sum 1..1000)"
+  (fn ()
+    (do ((i 0 (+ i 1))
+         (sum 0 (+ sum i)))
+        ((= i 1000) sum)))
+  10000)
+
+(bench "named let (sum 1..1000)"
+  (fn ()
+    (let loop ((i 0) (sum 0))
+      (if (= i 1000) sum
+          (loop (+ i 1) (+ sum i)))))
+  10000)
+
+;; ============ 4. Character operations ============
+(println "\n=== Character operations ===")
+
+(bench "char-alphabetic?" (fn () (char-alphabetic? #\a)) 100000)
+(bench "char->integer" (fn () (char->integer #\z)) 100000)
+(bench "char-upcase" (fn () (char-upcase #\a)) 100000)
+(bench "string->list" (fn () (string->list "hello world test")) 100000)
+(bench "list->string" (fn () (list->string '(#\h #\e #\l #\l #\o))) 100000)
+(bench "string-ref" (fn () (string-ref "hello" 2)) 100000)
+
+;; ============ 5. Lazy evaluation ============
+(println "\n=== Lazy evaluation (delay/force) ===")
+
+(bench "delay (create promise)" (fn () (delay (+ 1 2))) 100000)
+(bench "force (evaluate + cache)"
+  (fn ()
+    (let ((p (delay (+ 1 2))))
+      (force p)))
+  100000)
+(bench "force (cache hit)"
+  (fn ()
+    (let ((p (delay (+ 1 2))))
+      (force p)
+      (force p)
+      (force p)))
+  100000)
+
+;; ============ 6. Hot path: special form dispatch ============
+(println "\n=== Special form dispatch (hot path) ===")
+
+(bench "if (true branch)" (fn () (if #t 1 2)) 100000)
+(bench "if (false branch)" (fn () (if #f 1 2)) 100000)
+(bench "cond (first clause)" (fn () (cond (#t 1) (#t 2))) 100000)
+(bench "let binding" (fn () (let ((x 1) (y 2)) (+ x y))) 100000)
+(bench "begin" (fn () (begin 1 2 3)) 100000)
+
+;; ============ 7. Map operations (hot path in 1BRC) ============
+(println "\n=== Map operations ===")
+
+(define small-map {:a 1 :b 2 :c 3 :d 4 :e 5})
+(define small-hashmap (hashmap/new :a 1 :b 2 :c 3 :d 4 :e 5))
+
+(bench "get (BTreeMap)" (fn () (get small-map :c)) 100000)
+(bench "get (HashMap)" (fn () (get small-hashmap :c)) 100000)
+(bench "assoc (BTreeMap)" (fn () (assoc small-map :f 6)) 100000)
+(bench "assoc (HashMap)" (fn () (assoc small-hashmap :f 6)) 100000)
+(bench "keyword-as-fn" (fn () (:c small-map)) 100000)
+
+;; ============ 8. String operations ============
+(println "\n=== String operations ===")
+
+(bench "string/split (;)" (fn () (string/split "Copenhagen;12.3" ";")) 100000)
+(bench "string->number" (fn () (string->number "12.3")) 100000)
+(bench "format (~a)" (fn () (format "~a=~a/~a/~a" "city" 1.0 2.0 3.0)) 100000)
+
+;; ============ 9. Env lookup depth ============
+(println "\n=== Env lookup depth ===")
+
+(define global-var 42)
+(bench "global lookup"
+  (fn ()
+    (let ((x 1))
+      (let ((y 2))
+        (let ((z 3))
+          global-var))))
+  100000)
+
+(bench "local lookup"
+  (fn ()
+    (let ((x 42))
+      x))
+  100000)
+
+(println "\n=== Done ===")

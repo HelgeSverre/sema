@@ -1,0 +1,427 @@
+;; scheme-algorithms.sema — Classic Scheme algorithms exercising Sema features
+;; Usage: sema examples/scheme-algorithms.sema
+
+;; ============================================================
+;; 1. Fibonacci — naive and tail-recursive
+;; ============================================================
+(println "=== 1. Fibonacci ===")
+
+(define (fib-naive n)
+  (if (< n 2) n
+      (+ (fib-naive (- n 1)) (fib-naive (- n 2)))))
+
+(define (fib-tail n)
+  (let loop ((i n) (a 0) (b 1))
+    (if (= i 0) a
+        (loop (- i 1) b (+ a b)))))
+
+(println (format "  fib-naive(10) = ~a" (fib-naive 10)))
+(println (format "  fib-tail(10)  = ~a" (fib-tail 10)))
+(println (format "  fib-tail(50)  = ~a" (fib-tail 50)))
+
+;; Benchmark naive vs tail-recursive
+(let ((t0 (time-ms)))
+  (fib-naive 30)
+  (println (format "  fib-naive(30) time: ~ams" (- (time-ms) t0))))
+
+(let ((t0 (time-ms)))
+  (do ((i 0 (+ i 1)))
+      ((= i 10000))
+    (fib-tail 50))
+  (println (format "  fib-tail(50) x10000 time: ~ams" (- (time-ms) t0))))
+
+;; Verify first 10 match
+(define fib-first-10 (map fib-tail (range 10)))
+(println (format "  First 10: ~a" fib-first-10))
+
+;; ============================================================
+;; 2. Mergesort
+;; ============================================================
+(println "\n=== 2. Mergesort ===")
+
+(define (merge xs ys)
+  (cond
+    ((null? xs) ys)
+    ((null? ys) xs)
+    ((<= (car xs) (car ys))
+     (cons (car xs) (merge (cdr xs) ys)))
+    (else
+     (cons (car ys) (merge xs (cdr ys))))))
+
+(define (split-at lst n)
+  (let loop ((i 0) (rest lst) (acc '()))
+    (if (or (= i n) (null? rest))
+        (list (reverse acc) rest)
+        (loop (+ i 1) (cdr rest) (cons (car rest) acc)))))
+
+(define (mergesort lst)
+  (if (or (null? lst) (null? (cdr lst)))
+      lst
+      (let* ((halves (split-at lst (math/quotient (length lst) 2)))
+             (left   (car halves))
+             (right  (cadr halves)))
+        (merge (mergesort left) (mergesort right)))))
+
+(define unsorted '(38 27 43 3 9 82 10 1 57 24))
+(define sorted-result (mergesort unsorted))
+(println (format "  Input:  ~a" unsorted))
+(println (format "  Sorted: ~a" sorted-result))
+
+;; Verify against builtin sort
+(define builtin-sorted (sort unsorted <))
+(println (format "  Matches builtin sort? ~a" (equal? sorted-result builtin-sorted)))
+
+;; Benchmark
+(define big-list (reverse (range 500)))
+(let ((t0 (time-ms)))
+  (mergesort big-list)
+  (println (format "  Mergesort 500 elements: ~ams" (- (time-ms) t0))))
+
+;; ============================================================
+;; 3. Towers of Hanoi
+;; ============================================================
+(println "\n=== 3. Towers of Hanoi ===")
+
+(define hanoi-moves '())
+
+(define (hanoi n from to via)
+  (when (> n 0)
+    (hanoi (- n 1) from via to)
+    (set! hanoi-moves
+      (cons (format "  Move disk ~a: ~a → ~a" n from to) hanoi-moves))
+    (hanoi (- n 1) via to from)))
+
+(hanoi 4 "A" "C" "B")
+(define moves (reverse hanoi-moves))
+(println (format "  ~a moves for 4 disks:" (length moves)))
+(for-each println (take 5 moves))
+(println "  ...")
+(for-each println (drop (- (length moves) 3) moves))
+
+;; Verify: 2^n - 1 moves
+;; 2^4 - 1 = 15
+(println (format "  Expected moves: 15, got: ~a ✓" (length moves)))
+
+;; ============================================================
+;; 4. Ackermann function
+;; ============================================================
+(println "\n=== 4. Ackermann Function ===")
+
+(define (ackermann m n)
+  (cond
+    ((= m 0) (+ n 1))
+    ((= n 0) (ackermann (- m 1) 1))
+    (else (ackermann (- m 1) (ackermann m (- n 1))))))
+
+(println "  Ackermann values:")
+(for-each
+  (fn (m)
+    (for-each
+      (fn (n)
+        (display (format "  A(~a,~a)=~a" m n (ackermann m n))))
+      (range 5))
+    (println ""))
+  (range 4))
+
+;; Benchmark
+(let ((t0 (time-ms)))
+  (ackermann 3 8)
+  (println (format "  A(3,8) = ~a in ~ams" (ackermann 3 8) (- (time-ms) t0))))
+
+;; ============================================================
+;; 5. Sieve of Eratosthenes
+;; ============================================================
+(println "\n=== 5. Sieve of Eratosthenes ===")
+
+(define (sieve candidates)
+  (if (null? candidates)
+      '()
+      (let ((p (car candidates)))
+        (cons p
+          (sieve
+            (filter (fn (x) (not (= 0 (math/remainder x p))))
+                    (cdr candidates)))))))
+
+(define primes-50 (sieve (range 2 50)))
+(println (format "  Primes under 50: ~a" primes-50))
+(println (format "  Count: ~a" (length primes-50)))
+
+;; Benchmark larger sieve
+(let ((t0 (time-ms)))
+  (define primes-1k (sieve (range 2 1000)))
+  (println (format "  Primes under 1000: ~a found in ~ams"
+    (length primes-1k) (- (time-ms) t0))))
+
+;; ============================================================
+;; 6. Church Numerals
+;; ============================================================
+(println "\n=== 6. Church Numerals ===")
+
+;; Church encoding: a number n is (lambda (f) (lambda (x) (f (f ... (f x)))))
+(define church-zero (fn (f) (fn (x) x)))
+(define (church-succ n) (fn (f) (fn (x) (f ((n f) x)))))
+(define (church-add a b) (fn (f) (fn (x) ((a f) ((b f) x)))))
+(define (church-mul a b) (fn (f) (a (b f))))
+(define (church->int n) ((n (fn (x) (+ x 1))) 0))
+
+(define one   (church-succ church-zero))
+(define two   (church-succ one))
+(define three (church-succ two))
+(define five  (church-add two three))
+(define six   (church-mul two three))
+(define ten   (church-add five five))
+
+(println (format "  zero  = ~a" (church->int church-zero)))
+(println (format "  one   = ~a" (church->int one)))
+(println (format "  two   = ~a" (church->int two)))
+(println (format "  three = ~a" (church->int three)))
+(println (format "  2 + 3 = ~a" (church->int five)))
+(println (format "  2 × 3 = ~a" (church->int six)))
+(println (format "  5 + 5 = ~a" (church->int ten)))
+
+;; Church booleans
+(define church-true  (fn (a b) a))
+(define church-false (fn (a b) b))
+(define (church-if c t f) (c t f))
+(define (church-zero? n) ((n (fn (_) church-false)) church-true))
+
+(println (format "  zero? zero  = ~a" (church-if (church-zero? church-zero) "true" "false")))
+(println (format "  zero? three = ~a" (church-if (church-zero? three) "true" "false")))
+
+;; ============================================================
+;; 7. Binary Tree Operations
+;; ============================================================
+(println "\n=== 7. Binary Tree Operations ===")
+
+;; Trees as (value left right), leaves as (value () ())
+(define (make-leaf v) (list v '() '()))
+(define (make-node v left right) (list v left right))
+(define (tree-value t) (car t))
+(define (tree-left t) (cadr t))
+(define (tree-right t) (caddr t))
+(define (tree-leaf? t) (and (null? (tree-left t)) (null? (tree-right t))))
+
+;; Insert into BST
+(define (bst-insert tree val)
+  (if (null? tree)
+      (make-leaf val)
+      (let ((v (tree-value tree)))
+        (cond
+          ((< val v) (make-node v (bst-insert (tree-left tree) val) (tree-right tree)))
+          ((> val v) (make-node v (tree-left tree) (bst-insert (tree-right tree) val)))
+          (else tree)))))
+
+;; In-order traversal
+(define (tree-inorder tree)
+  (if (null? tree)
+      '()
+      (append (tree-inorder (tree-left tree))
+              (list (tree-value tree))
+              (tree-inorder (tree-right tree)))))
+
+;; Tree map
+(define (tree-map f tree)
+  (if (null? tree)
+      '()
+      (make-node (f (tree-value tree))
+                 (tree-map f (tree-left tree))
+                 (tree-map f (tree-right tree)))))
+
+;; Tree fold (in-order)
+(define (tree-fold f init tree)
+  (if (null? tree)
+      init
+      (let ((left-result (tree-fold f init (tree-left tree))))
+        (let ((mid-result (f left-result (tree-value tree))))
+          (tree-fold f mid-result (tree-right tree))))))
+
+;; Tree depth
+(define (tree-depth tree)
+  (if (null? tree) 0
+      (+ 1 (max (tree-depth (tree-left tree))
+                 (tree-depth (tree-right tree))))))
+
+;; Build BST from list
+(define values '(5 3 7 1 4 6 8 2 9))
+(define bst (foldl (fn (tree val) (bst-insert tree val)) '() values))
+(define sorted-vals (tree-inorder bst))
+
+(println (format "  Input:    ~a" values))
+(println (format "  In-order: ~a" sorted-vals))
+(println (format "  Sorted?   ~a" (equal? sorted-vals (sort values <))))
+(println (format "  Depth:    ~a" (tree-depth bst)))
+(println (format "  Sum:      ~a" (tree-fold + 0 bst)))
+
+;; tree-map: double all values
+(define doubled-tree (tree-map (fn (x) (* x 2)) bst))
+(println (format "  Doubled:  ~a" (tree-inorder doubled-tree)))
+
+;; ============================================================
+;; 8. CPS (Continuation-Passing Style) Factorial
+;; ============================================================
+(println "\n=== 8. CPS Transform — Factorial ===")
+
+;; Direct style factorial
+(define (fact-direct n)
+  (if (= n 0) 1 (* n (fact-direct (- n 1)))))
+
+;; CPS factorial: k is the continuation
+(define (fact-cps n k)
+  (if (= n 0)
+      (k 1)
+      (fact-cps (- n 1) (fn (result) (k (* n result))))))
+
+(println (format "  fact-direct(10) = ~a" (fact-direct 10)))
+(println (format "  fact-cps(10)    = ~a" (fact-cps 10 (fn (x) x))))
+(println (format "  Match? ~a" (= (fact-direct 10) (fact-cps 10 (fn (x) x)))))
+
+;; CPS fibonacci
+(define (fib-cps n k)
+  (if (< n 2)
+      (k n)
+      (fib-cps (- n 1)
+        (fn (r1)
+          (fib-cps (- n 2)
+            (fn (r2) (k (+ r1 r2))))))))
+
+(println (format "  fib-cps(10)     = ~a" (fib-cps 10 (fn (x) x))))
+(println (format "  Match naive?    ~a" (= (fib-naive 10) (fib-cps 10 (fn (x) x)))))
+
+;; CPS with early exit: product that short-circuits on zero
+(define (product-cps lst k)
+  (cond
+    ((null? lst) (k 1))
+    ((= (car lst) 0) 0)
+    (else (product-cps (cdr lst) (fn (rest) (k (* (car lst) rest)))))))
+
+(println (format "  product(1 2 3 4 5) = ~a" (product-cps '(1 2 3 4 5) (fn (x) x))))
+(println (format "  product(1 2 0 4 5) = ~a (short-circuit)" (product-cps '(1 2 0 4 5) (fn (x) x))))
+
+;; ============================================================
+;; 9. Association List Operations
+;; ============================================================
+(println "\n=== 9. Association List Operations ===")
+
+(define (alist-set alist key val)
+  (cons (list key val)
+    (filter (fn (pair) (not (equal? (car pair) key))) alist)))
+
+(define (alist-remove alist key)
+  (filter (fn (pair) (not (equal? (car pair) key))) alist))
+
+(define (alist-keys alist) (map car alist))
+(define (alist-values alist) (map cadr alist))
+
+(define (alist-merge a b)
+  (foldl (fn (acc pair) (alist-set acc (car pair) (cadr pair))) a b))
+
+;; Build up an alist
+(define my-alist '())
+(set! my-alist (alist-set my-alist 'name "Alice"))
+(set! my-alist (alist-set my-alist 'age 30))
+(set! my-alist (alist-set my-alist 'city "Oslo"))
+
+(println (format "  alist: ~a" my-alist))
+(println (format "  assoc 'name: ~a" (assoc 'name my-alist)))
+(println (format "  assoc 'age:  ~a" (assoc 'age my-alist)))
+(println (format "  keys:   ~a" (alist-keys my-alist)))
+(println (format "  values: ~a" (alist-values my-alist)))
+
+;; Update existing key
+(set! my-alist (alist-set my-alist 'age 31))
+(println (format "  After birthday: ~a" (assoc 'age my-alist)))
+
+;; Remove
+(set! my-alist (alist-remove my-alist 'city))
+(println (format "  After removing city: ~a" my-alist))
+
+;; Merge
+(define extra '((email "alice@example.com") (country "Norway")))
+(define merged (alist-merge my-alist extra))
+(println (format "  Merged: ~a" merged))
+
+;; assq (identity comparison for symbols)
+(println (format "  assq 'name: ~a" (assq 'name merged)))
+
+;; ============================================================
+;; 10. Lazy Streams (delay/force)
+;; ============================================================
+(println "\n=== 10. Lazy Streams ===")
+
+;; A stream is (value promise-of-rest) — a two-element list
+(define stream-nil '())
+(define (stream-null? s) (null? s))
+(define (stream-car s) (car s))
+(define (stream-cdr s) (force (cadr s)))
+
+(define (stream-cons head tail-thunk)
+  (list head (delay (tail-thunk))))
+
+;; Take n elements from a stream
+(define (stream-take n s)
+  (if (or (= n 0) (stream-null? s))
+      '()
+      (cons (stream-car s)
+            (stream-take (- n 1) (stream-cdr s)))))
+
+;; Infinite stream of integers from n
+(define (integers-from n)
+  (stream-cons n (fn () (integers-from (+ n 1)))))
+
+;; Stream map
+(define (stream-map f s)
+  (if (stream-null? s)
+      stream-nil
+      (stream-cons (f (stream-car s))
+                   (fn () (stream-map f (stream-cdr s))))))
+
+;; Stream filter
+(define (stream-filter pred s)
+  (cond
+    ((stream-null? s) stream-nil)
+    ((pred (stream-car s))
+     (stream-cons (stream-car s)
+                  (fn () (stream-filter pred (stream-cdr s)))))
+    (else (stream-filter pred (stream-cdr s)))))
+
+;; Natural numbers
+(define nats (integers-from 0))
+(println (format "  First 15 naturals: ~a" (stream-take 15 nats)))
+
+;; Squares
+(define squares (stream-map (fn (x) (* x x)) (integers-from 1)))
+(println (format "  First 10 squares:  ~a" (stream-take 10 squares)))
+
+;; Even numbers via filter
+(define evens (stream-filter (fn (x) (= 0 (mod x 2))) (integers-from 0)))
+(println (format "  First 10 evens:    ~a" (stream-take 10 evens)))
+
+;; Fibonacci stream
+(define (fib-stream a b)
+  (stream-cons a (fn () (fib-stream b (+ a b)))))
+
+(define fibs (fib-stream 0 1))
+(println (format "  First 15 fibs:     ~a" (stream-take 15 fibs)))
+
+;; Sieve of Eratosthenes on infinite stream
+(define (stream-sieve s)
+  (let ((p (stream-car s)))
+    (stream-cons p
+      (fn () (stream-sieve
+               (stream-filter (fn (x) (not (= 0 (math/remainder x p))))
+                              (stream-cdr s)))))))
+
+(define prime-stream (stream-sieve (integers-from 2)))
+(println (format "  First 20 primes:   ~a" (stream-take 20 prime-stream)))
+
+;; Verify promise?
+(define p (delay (+ 1 2)))
+(println (format "  promise? before force: ~a" (promise? p)))
+(force p)
+(println (format "  promise? after force:  ~a" (promise? p)))
+(println (format "  forced value: ~a" (force p)))
+
+;; ============================================================
+;; Summary
+;; ============================================================
+(println "\n=== All sections complete! ===")
