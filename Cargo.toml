@@ -34,3 +34,6 @@ csv = "1"
 md5 = "0.8"
 hmac = "0.12"
 hex = "0.4"
+
+[profile.release]
+debug = true

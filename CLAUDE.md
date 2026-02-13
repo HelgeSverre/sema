@@ -7,7 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 make build                                               # dev build
 make release                                             # optimized build
-make test                                                # all tests (282 tests, all passing)
+make test                                                # all tests (http tests ignored)
+make test-http                                           # run HTTP integration tests (requires network)
 make lint                                                # fmt-check + clippy -D warnings
 make fmt                                                 # cargo fmt
 make install                                             # install to ~/.cargo/bin

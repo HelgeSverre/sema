@@ -1,4 +1,4 @@
-.PHONY: all build release install uninstall test check clippy fmt fmt-check clean run lint examples test-providers fuzz setup
+.PHONY: all build release install uninstall test test-http check clippy fmt fmt-check clean run lint examples test-providers fuzz setup bench-1m bench-10m bench-100m
 
 build:
 	cargo build
@@ -14,6 +14,9 @@ uninstall:
 
 test:
 	cargo test
+
+test-http:
+	cargo test -p sema --test integration_test test_http -- --ignored
 
 check:
 	cargo check
@@ -55,5 +58,14 @@ setup:
 
 fuzz:
 	cd crates/sema-reader && rustup run nightly cargo fuzz run fuzz_read -- -max_total_time=60
+
+bench-1m: release
+	time ./target/release/sema examples/1brc.sema -- bench-1m.txt
+
+bench-10m: release
+	time ./target/release/sema examples/1brc.sema -- bench-10m.txt
+
+bench-100m: release
+	time ./target/release/sema examples/1brc.sema -- bench-100m.txt
 
 all: lint test build
