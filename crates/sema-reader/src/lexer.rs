@@ -194,10 +194,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                     }
                                 })?;
                                 let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
-                                    message: format!(
-                                        "invalid unicode scalar value \\x{};",
-                                        hex
-                                    ),
+                                    message: format!("invalid unicode scalar value \\x{};", hex),
                                     span: span.clone(),
                                 })?;
                                 s.push(ch);
@@ -206,9 +203,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 // \u<4 hex digits>
                                 let mut hex = String::new();
                                 for _ in 0..4 {
-                                    if i + 1 >= chars.len()
-                                        || !chars[i + 1].is_ascii_hexdigit()
-                                    {
+                                    if i + 1 >= chars.len() || !chars[i + 1].is_ascii_hexdigit() {
                                         return Err(SemaError::Reader {
                                             message: "\\u escape requires exactly 4 hex digits"
                                                 .to_string(),
@@ -226,10 +221,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                     }
                                 })?;
                                 let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
-                                    message: format!(
-                                        "invalid unicode scalar value \\u{}",
-                                        hex
-                                    ),
+                                    message: format!("invalid unicode scalar value \\u{}", hex),
                                     span: span.clone(),
                                 })?;
                                 s.push(ch);
@@ -238,9 +230,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 // \U<8 hex digits>
                                 let mut hex = String::new();
                                 for _ in 0..8 {
-                                    if i + 1 >= chars.len()
-                                        || !chars[i + 1].is_ascii_hexdigit()
-                                    {
+                                    if i + 1 >= chars.len() || !chars[i + 1].is_ascii_hexdigit() {
                                         return Err(SemaError::Reader {
                                             message: "\\U escape requires exactly 8 hex digits"
                                                 .to_string(),
@@ -258,10 +248,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                     }
                                 })?;
                                 let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
-                                    message: format!(
-                                        "invalid unicode scalar value \\U{}",
-                                        hex
-                                    ),
+                                    message: format!("invalid unicode scalar value \\U{}", hex),
                                     span: span.clone(),
                                 })?;
                                 s.push(ch);

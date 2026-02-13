@@ -38,14 +38,10 @@ pub fn register(env: &sema_core::Env) {
             // Single string: run through the system shell for command parsing
             let shell = if cfg!(windows) { "cmd" } else { "sh" };
             let flag = if cfg!(windows) { "/C" } else { "-c" };
-            std::process::Command::new(shell)
-                .args([flag, cmd])
-                .output()
+            std::process::Command::new(shell).args([flag, cmd]).output()
         } else {
             // Explicit args: run the command directly
-            std::process::Command::new(cmd)
-                .args(&cmd_args)
-                .output()
+            std::process::Command::new(cmd).args(&cmd_args).output()
         }
         .map_err(|e| SemaError::Io(format!("shell: {e}")))?;
 

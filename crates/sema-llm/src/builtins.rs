@@ -1195,10 +1195,7 @@ pub fn register_llm_builtins(env: &Env) {
         // 3-arg form with opts: return {:response "..." :messages [...]}
         if opts.is_some() {
             let mut map = BTreeMap::new();
-            map.insert(
-                Value::keyword("response"),
-                Value::String(Rc::new(result)),
-            );
+            map.insert(Value::keyword("response"), Value::String(Rc::new(result)));
             map.insert(
                 Value::keyword("messages"),
                 chat_messages_to_sema_list(&final_messages),

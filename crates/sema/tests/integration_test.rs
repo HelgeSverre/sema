@@ -2056,7 +2056,10 @@ fn test_string_null_escape() {
 #[test]
 fn test_string_mixed_escape_types() {
     assert_eq!(eval(r#""\x48;\u0069""#), Value::string("Hi"));
-    assert_eq!(eval(r#"(string-append "\x48;" "\u0069")"#), Value::string("Hi"));
+    assert_eq!(
+        eval(r#"(string-append "\x48;" "\u0069")"#),
+        Value::string("Hi")
+    );
 }
 
 #[test]
