@@ -45,7 +45,7 @@
 ;; Create the multimethod — dispatches on :type keyword
 (define area
   (-> (make-multi (fn (shape) (get shape :type)))
-      (add-method :circle (fn (s) (* math/pi (get s :radius) (get s :radius))))
+      (add-method :circle (fn (s) (* pi (get s :radius) (get s :radius))))
       (add-method :rect (fn (s) (* (get s :width) (get s :height))))
       (add-method :triangle (fn (s) (* 0.5 (get s :base) (get s :height))))))
 
@@ -57,14 +57,14 @@
 
 (for-each
   (fn (s)
-    (println (format "  ~a area = ~a" (get s :type) (math/round (* 100 (invoke area s))))))
+    (println (format "  ~a area = ~a" (get s :type) (round (* 100 (invoke area s))))))
   shapes)
 
 ;; Add a new shape without modifying existing code!
 (define area (add-method area :ellipse
-  (fn (s) (* math/pi (get s :a) (get s :b)))))
+  (fn (s) (* pi (get s :a) (get s :b)))))
 (println (format "  ~a area = ~a" :ellipse
-  (math/round (* 100 (invoke area {:type :ellipse :a 3 :b 5})))))
+  (round (* 100 (invoke area {:type :ellipse :a 3 :b 5})))))
 
 ;;; --- Demo 2: Serialization (dispatch on type-of) ---
 
@@ -126,7 +126,7 @@
 ;; Add a new operation: power
 (define eval-expr
   (add-method eval-expr :pow
-    (fn (e) (math/pow (invoke eval-expr (get e :left))
+    (fn (e) (pow (invoke eval-expr (get e :left))
                       (invoke eval-expr (get e :right))))))
 
 (println (format "  2 ^ 10 = ~a"
@@ -163,7 +163,7 @@
         (fn (a b)
           (let ((dx (- (get a :x) (get b :x)))
                 (dy (- (get a :y) (get b :y)))
-                (dist (math/sqrt (+ (* dx dx) (* dy dy)))))
+                (dist (sqrt (+ (* dx dx) (* dy dy)))))
             (<= dist (+ (get a :r) (get b :r))))))
       (add-method (list :rect :rect)
         (fn (a b)

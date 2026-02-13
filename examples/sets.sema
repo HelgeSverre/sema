@@ -193,7 +193,7 @@
                 (b (nth item-tags j)))
             (println (format "    ~a vs ~a: ~a"
               (car a) (car b)
-              (math/round (* 100 (jaccard (cadr a) (cadr b)))))))))
+              (round (* 100 (jaccard (cadr a) (cadr b)))))))))
       (range (length item-tags))))
   (range (length item-tags)))
 

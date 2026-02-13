@@ -10,21 +10,25 @@
 
 ;; Simple list comprehension: (for/list ((var seq) ...) body)
 ;; Supports (:when pred) clauses for filtering
+;;
+;; All bindings are expanded at macro time (no runtime macro calls),
+;; so the generated code works with the stdlib's HOF mini-evaluator.
 (defmacro for/list (bindings body)
-  (if (null? bindings)
-    `(list ,body)
-    (let ((clause (car bindings))
-          (rest (cdr bindings)))
-      (if (and (list? clause) (= (car clause) :when))
-        ;; Filter clause: (:when pred)
-        `(let ((__result (for/list ,rest ,body)))
-           (if ,(cadr clause) __result '()))
-        ;; Binding clause: (var seq)
-        (let ((var (car clause))
-              (seq (cadr clause)))
-          `(apply append
-             (map (fn (,var) (for/list ,rest ,body))
-                  ,seq)))))))
+  (define (expand bs)
+    (if (null? bs)
+      `(list ,body)
+      (let ((clause (car bs))
+            (rest (cdr bs)))
+        (if (and (list? clause) (= (car clause) :when))
+          ;; Filter clause: (:when pred)
+          `(let ((__result ,(expand rest)))
+             (if ,(cadr clause) __result '()))
+          ;; Binding clause: (var seq)
+          (let ((var (car clause))
+                (seq (cadr clause)))
+            `(apply append
+               (map (fn (,var) ,(expand rest)) ,seq)))))))
+  (expand bindings))
 
 ;; for/map: build a map from key-value pairs
 ;; (for/map ((x xs)) (list key-expr val-expr))
@@ -74,9 +78,9 @@
 (define triples
   (for/list ((a (range 1 21))
              (b (range a 21))
-             (:when (let ((c (math/sqrt (+ (* a a) (* b b)))))
-                      (= c (math/floor c)))))
-    (list a b (int (math/sqrt (+ (* a a) (* b b)))))))
+             (:when (let ((c (sqrt (+ (* a a) (* b b)))))
+                      (= c (floor c)))))
+    (list a b (int (sqrt (+ (* a a) (* b b)))))))
 (println (format "\nPythagorean triples (a,b < 20): ~a" triples))
 
 ;; FizzBuzz via comprehension
@@ -117,12 +121,11 @@
 (println (format "All positive in (1 -2 3)? ~a"
   (for/every? ((n (list 1 -2 3))) (> n 0))))
 
-;; Matrix transpose via nested comprehension
+;; Matrix transpose using comprehension + map
 (define matrix (list (list 1 2 3) (list 4 5 6) (list 7 8 9)))
 (define transposed
   (for/list ((col (range 3)))
-    (for/list ((row matrix))
-      (nth row col))))
+    (map (fn (row) (nth row col)) matrix)))
 (println (format "\nMatrix:     ~a" matrix))
 (println (format "Transposed: ~a" transposed))
 

@@ -3,10 +3,10 @@
 ;;; Functional turtle: each command transforms the state and
 ;;; accumulates line segments. Final state is rendered to SVG.
 ;;;
-;;; Demonstrates: math/sin, math/cos, foldl over commands,
+;;; Demonstrates: sin, cos, foldl over commands,
 ;;;               map building, string construction, file output
 
-(define deg->rad (/ math/pi 180))
+(define deg->rad (/ pi 180))
 
 ;;; --- Turtle state ---
 ;;; A turtle is a map: {:x :y :angle :pen :lines}
@@ -16,20 +16,19 @@
 
 (define (make-turtle)
   {:x 0.0 :y 0.0 :angle 90.0 :pen #t :color "black" :width 1
-   :lines '()})
+   :lines (list)})
 
 ;;; --- Turtle commands ---
 
 (define (forward t dist)
   (let* ((rad (* (get t :angle) deg->rad))
-         (nx (+ (get t :x) (* dist (math/cos rad))))
-         (ny (- (get t :y) (* dist (math/sin rad)))))  ;; SVG y is flipped
+         (nx (+ (get t :x) (* dist (cos rad))))
+         (ny (- (get t :y) (* dist (sin rad))))  ;; SVG y is flipped
+         (line (assoc {} :x1 (get t :x) :y1 (get t :y)
+                         :x2 nx :y2 ny
+                         :color (get t :color) :width (get t :width))))
     (if (get t :pen)
-      (assoc t :x nx :y ny
-             :lines (cons {:x1 (get t :x) :y1 (get t :y)
-                           :x2 nx :y2 ny
-                           :color (get t :color) :width (get t :width)}
-                          (get t :lines)))
+      (assoc t :x nx :y ny :lines (cons line (get t :lines)))
       (assoc t :x nx :y ny))))
 
 (define (right t degrees) (assoc t :angle (- (get t :angle) degrees)))
@@ -58,15 +57,15 @@
                         (map (fn (l) (get l :x2)) lines)))
          (all-y (append (map (fn (l) (get l :y1)) lines)
                         (map (fn (l) (get l :y2)) lines)))
-         (min-x (foldl math/min 1e9 all-x))
-         (max-x (foldl math/max -1e9 all-x))
-         (min-y (foldl math/min 1e9 all-y))
-         (max-y (foldl math/max -1e9 all-y))
+         (min-x (foldl (fn (a b) (if (< a b) a b)) 999999.0 all-x))
+         (max-x (foldl (fn (a b) (if (> a b) a b)) -999999.0 all-x))
+         (min-y (foldl (fn (a b) (if (< a b) a b)) 999999.0 all-y))
+         (max-y (foldl (fn (a b) (if (> a b) a b)) -999999.0 all-y))
          (dx (- max-x min-x))
          (dy (- max-y min-y))
          (margin 20)
-         (scale (math/min (/ (- svg-width (* 2 margin)) (if (= dx 0) 1 dx))
-                          (/ (- svg-height (* 2 margin)) (if (= dy 0) 1 dy))))
+         (scale (min (/ (- svg-width (* 2 margin)) (if (= dx 0) 1 dx))
+                     (/ (- svg-height (* 2 margin)) (if (= dy 0) 1 dy))))
          ;; Transform function
          (tx (fn (x) (+ margin (* (- x min-x) scale))))
          (ty (fn (y) (+ margin (* (- y min-y) scale)))))
@@ -78,10 +77,10 @@
       (string/join
         (map (fn (l)
                (format "  <line x1=\"~a\" y1=\"~a\" x2=\"~a\" y2=\"~a\" stroke=\"~a\" stroke-width=\"~a\" stroke-linecap=\"round\"/>"
-                 (math/round (tx (get l :x1)))
-                 (math/round (ty (get l :y1)))
-                 (math/round (tx (get l :x2)))
-                 (math/round (ty (get l :y2)))
+                 (round (tx (get l :x1)))
+                 (round (ty (get l :y1)))
+                 (round (tx (get l :x2)))
+                 (round (ty (get l :y2)))
                  (get l :color)
                  (get l :width)))
              lines)
@@ -201,15 +200,15 @@
                                      (y (* row 5.0))
                                      (dx (- (get l :x2) (get l :x1)))
                                      (dy (- (get l :y2) (get l :y1)))
-                                     (len (math/sqrt (+ (* dx dx) (* dy dy))))
+                                     (len (sqrt (+ (* dx dx) (* dy dy))))
                                      (t (if (= len 0) 0
                                           (/ (+ (* (- x (get l :x1)) dx)
                                                 (* (- y (get l :y1)) dy))
                                              (* len len))))
-                                     (t (math/max 0.0 (math/min 1.0 t)))
+                                     (t (max 0.0 (min 1.0 t)))
                                      (px (+ (get l :x1) (* t dx)))
                                      (py (+ (get l :y1) (* t dy)))
-                                     (dist (math/sqrt (+ (* (- x px) (- x px))
+                                     (dist (sqrt (+ (* (- x px) (- x px))
                                                          (* (- y py) (- y py))))))
                                 (< dist 3.0)))
                             lines)))

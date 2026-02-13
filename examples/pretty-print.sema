@@ -157,7 +157,7 @@
 (pretty-print '(define (process-data items)
                  (let ((filtered (filter valid? items))
                        (transformed (map transform filtered))
-                       (sorted (sort transformed))))
+                       (sorted (sort transformed)))
                    (if (null? sorted)
                      (error "no valid items")
                      (take 10 sorted)))))

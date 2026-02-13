@@ -51,7 +51,7 @@
 ;; Shrink an integer toward zero
 (define (shrink-int n)
   (if (= n 0) '()
-    (let ((half (if (> n 0) (math/floor (/ n 2)) (math/ceil (/ n 2)))))
+    (let ((half (if (> n 0) (floor (/ n 2)) (ceil (/ n 2)))))
       (list 0 half))))
 
 ;; Shrink a list by removing elements
@@ -187,7 +187,7 @@
 ;; abs is always non-negative
 (report "abs-non-negative"
   (check-property
-    (fn (n) (>= (math/abs n) 0))
+    (fn (n) (>= (abs n) 0))
     (gen/int -10000 10000)
     shrink-int))
 
@@ -227,7 +227,7 @@
 (define (distance p1 p2)
   (let ((dx (- (car p1) (car p2)))
         (dy (- (cadr p1) (cadr p2))))
-    (math/sqrt (+ (* dx dx) (* dy dy)))))
+    (sqrt (+ (* dx dx) (* dy dy)))))
 
 (report "triangle-inequality"
   (let ((gen-p (gen/point)))
