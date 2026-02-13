@@ -34,10 +34,20 @@ pub fn register(env: &sema_core::Env) {
             })
             .collect::<Result<_, _>>()?;
 
-        let output = std::process::Command::new(cmd)
-            .args(&cmd_args)
-            .output()
-            .map_err(|e| SemaError::Io(format!("shell: {e}")))?;
+        let output = if cmd_args.is_empty() {
+            // Single string: run through the system shell for command parsing
+            let shell = if cfg!(windows) { "cmd" } else { "sh" };
+            let flag = if cfg!(windows) { "/C" } else { "-c" };
+            std::process::Command::new(shell)
+                .args([flag, cmd])
+                .output()
+        } else {
+            // Explicit args: run the command directly
+            std::process::Command::new(cmd)
+                .args(&cmd_args)
+                .output()
+        }
+        .map_err(|e| SemaError::Io(format!("shell: {e}")))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
