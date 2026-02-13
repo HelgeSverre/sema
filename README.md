@@ -67,28 +67,42 @@ sema> (:name person)
 
 ### Data Types
 
-| Type         | Syntax               | Examples                        |
-| ------------ | -------------------- | ------------------------------- |
-| Integer      | digits               | `42`, `-7`, `0`                 |
-| Float        | digits with `.`      | `3.14`, `-0.5`, `1e10`          |
-| String       | double-quoted        | `"hello"`, `"line\nbreak"`      |
-| Boolean      | `#t` / `#f`          | `#t`, `#f`                      |
-| Nil          | `nil`                | `nil`                           |
-| Symbol       | bare identifier      | `foo`, `my-var`, `+`            |
-| Keyword      | colon-prefixed       | `:name`, `:type`, `:ok`         |
-| Character    | `#\` prefix          | `#\a`, `#\space`, `#\newline`   |
-| List         | parenthesized        | `(1 2 3)`, `(+ a b)`            |
-| Vector       | bracketed            | `[1 2 3]`, `["a" "b"]`          |
-| Map          | curly-braced         | `{:name "Ada" :age 36}`         |
-| HashMap      | `(hashmap/new ...)`  | `(hashmap/new :a 1 :b 2)`      |
-| Prompt       | `(prompt ...)`       | LLM prompt (see below)          |
-| Message      | `(message ...)`      | LLM message (see below)         |
-| Conversation | `(conversation/new)` | LLM conversation (see below)    |
-| Tool         | `(deftool ...)`      | LLM tool definition (see below) |
-| Agent        | `(defagent ...)`     | LLM agent (see below)           |
-| Promise      | `(delay expr)`       | Lazy evaluation (see below)     |
-| Record       | `define-record-type` | `(define-record-type point ...)` |
-| Bytevector   | `#u8(...)` literal   | `#u8(1 2 3)`, `#u8()`            |
+| Type         | Syntax               | Examples                              |
+| ------------ | -------------------- | ------------------------------------- |
+| Integer      | digits               | `42`, `-7`, `0`                       |
+| Float        | digits with `.`      | `3.14`, `-0.5`, `1e10`                |
+| String       | double-quoted        | `"hello"`, `"line\nbreak"`, `"\x1B;"` |
+| Boolean      | `#t` / `#f`          | `#t`, `#f`                            |
+| Nil          | `nil`                | `nil`                                 |
+| Symbol       | bare identifier      | `foo`, `my-var`, `+`                  |
+| Keyword      | colon-prefixed       | `:name`, `:type`, `:ok`               |
+| Character    | `#\` prefix          | `#\a`, `#\space`, `#\newline`         |
+| List         | parenthesized        | `(1 2 3)`, `(+ a b)`                  |
+| Vector       | bracketed            | `[1 2 3]`, `["a" "b"]`                |
+| Map          | curly-braced         | `{:name "Ada" :age 36}`               |
+| HashMap      | `(hashmap/new ...)`  | `(hashmap/new :a 1 :b 2)`             |
+| Prompt       | `(prompt ...)`       | LLM prompt (see below)                |
+| Message      | `(message ...)`      | LLM message (see below)               |
+| Conversation | `(conversation/new)` | LLM conversation (see below)          |
+| Tool         | `(deftool ...)`      | LLM tool definition (see below)       |
+| Agent        | `(defagent ...)`     | LLM agent (see below)                 |
+| Promise      | `(delay expr)`       | Lazy evaluation (see below)           |
+| Record       | `define-record-type` | `(define-record-type point ...)`      |
+| Bytevector   | `#u8(...)` literal   | `#u8(1 2 3)`, `#u8()`                 |
+
+### String Escape Sequences
+
+| Escape       | Description                          | Example               |
+| ------------ | ------------------------------------ | --------------------- |
+| `\n`         | Newline                              | `"line\nbreak"`       |
+| `\t`         | Tab                                  | `"col1\tcol2"`        |
+| `\r`         | Carriage return                      | `"text\r"`            |
+| `\\`         | Backslash                            | `"path\\file"`        |
+| `\"`         | Double quote                         | `"say \"hi\""`        |
+| `\0`         | Null character                       | `"\0"`                |
+| `\x<hex>;`   | Unicode scalar (R7RS, 1+ hex digits) | `"\x1B;"`, `"\x3BB;"` |
+| `\uNNNN`     | Unicode code point (4 hex digits)    | `"\u03BB"` (λ)        |
+| `\UNNNNNNNN` | Unicode code point (8 hex digits)    | `"\U0001F600"` (😀)   |
 
 ### Special Forms
 
@@ -925,10 +939,10 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 sema ast [OPTIONS] [FILE]
 ```
 
-| Flag              | Description                     |
-| ----------------- | ------------------------------- |
+| Flag                | Description                      |
+| ------------------- | -------------------------------- |
 | `-e, --eval <EXPR>` | Parse expression instead of file |
-| `--json`          | Output AST as JSON              |
+| `--json`            | Output AST as JSON               |
 
 ### Examples
 

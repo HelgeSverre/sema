@@ -1,16 +1,25 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **String escape sequences** — R7RS-style `\x<hex>;` hex escapes, `\uNNNN` (4-digit), `\UNNNNNNNN` (8-digit) Unicode escapes, and `\0` null escape in string literals. Enables producing any Unicode character including ESC (`\x1B;`) for ANSI terminal codes.
+
 ## 0.6.1
 
 ### Added
+
 - **System introspection** — `sys/tty` (TTY device name), `sys/pid` (process ID), `sys/arch` (CPU architecture), `sys/os` (OS name), `sys/which` (find executable in PATH), `sys/elapsed` (monotonic nanosecond timer)
 
 ### Fixed
+
 - `test_sys_interactive` no longer flaky in environments with a TTY attached
 
 ## 0.6.0
 
 ### Added
+
 - **List operations** — `list/shuffle` (random reorder), `list/split-at` (split at index), `list/take-while` / `list/drop-while` (predicate-based prefix ops), `list/sum` (numeric sum), `list/min` / `list/max` (extrema), `list/pick` (random element), `list/repeat` / `make-list` (create n copies), `iota` (SRFI-1 integer sequence generator)
 - **String operations** — `string/map` (map function over characters), `string/capitalize` (capitalize first letter), `string/reverse`, `string/title-case`
 - **Math aliases** — `modulo` (alias for mod), `expt` (alias for pow), `ceiling` (alias for ceil), `truncate`
@@ -19,11 +28,13 @@
 - **System introspection** — `sys/tty` (TTY device name), `sys/pid` (process ID), `sys/arch` (CPU architecture), `sys/os` (OS name), `sys/which` (find executable in PATH), `sys/elapsed` (monotonic nanosecond timer)
 
 ### Changed
+
 - Stdlib builtin count increased from ~280 to ~350+ registered functions
 
 ## 0.5.0
 
 ### Added
+
 - **Character comparison predicates** — R7RS `char=?`, `char<?`, `char>?`, `char<=?`, `char>=?` and case-insensitive `char-ci=?`, `char-ci<?`, `char-ci>?`, `char-ci<=?`, `char-ci>=?`.
 - **`define-record-type`** — R7RS record types with constructors, type predicates, and field accessors. `record?` predicate. `type` returns record type name as keyword for records.
 - **Bytevectors** — `Value::Bytevector` with `#u8(1 2 3)` reader syntax. `make-bytevector`, `bytevector`, `bytevector-length`, `bytevector-u8-ref`, `bytevector-u8-set!` (COW), `bytevector-copy`, `bytevector-append`, `bytevector->list`, `list->bytevector`, `utf8->string`, `string->utf8`, `bytevector?`.
@@ -31,6 +42,7 @@
 ## 0.4.0
 
 ### Added
+
 - **Character type** — First-class `#\a` syntax with named characters (`#\space`, `#\newline`, `#\tab`, `#\return`, `#\nul`). `char?`, `char-alphabetic?`, `char-numeric?`, `char-whitespace?`, `char-upper-case?`, `char-lower-case?` predicates. `char-upcase`, `char-downcase` case conversion. `char->integer`, `integer->char`, `char->string`, `string->char`, `string->list`, `list->string` conversions.
 - **Lazy evaluation** — `delay`/`force` with memoized promises. `promise?` and `promise-forced?` predicates. `force` on non-promise passes through (R7RS compatible).
 - **Proper `do` loop** — R7RS `(do ((var init step) ...) (test result ...) body ...)` with parallel variable assignment. Replaces previous `do` alias for `begin`.
@@ -38,6 +50,7 @@
 - **Association lists** — `assoc` now dual-purpose: `(assoc key alist)` for alist lookup, `(assoc map key val ...)` for map assoc. New `assq` and `assv` functions.
 
 ### Changed
+
 - `string-ref` now returns `Value::Char` instead of a single-character string
 - `string/chars` now returns a list of `Char` values instead of single-character strings
 - `do` is no longer an alias for `begin` — it is now a proper Scheme iteration form
@@ -45,24 +58,28 @@
 ## 0.3.0
 
 ### Performance
+
 - **String interning with `lasso`** — `Value::Symbol` and `Value::Keyword` now store `Spur` (u32 interned key) instead of `Rc<String>`. Symbol/keyword equality is O(1) integer comparison. `Env` bindings keyed by `Spur` for direct lookup without string allocation. Mini-eval special form dispatch uses pre-interned Spur constants — no string matching in hot path.
 - **`hashbrown` HashMap variant** — New `Value::HashMap` type backed by `hashbrown::HashMap` with O(1) amortized lookups. `hashmap/new`, `hashmap/get`, `hashmap/assoc`, `hashmap/to-map`, `hashmap/keys`, `hashmap/contains?` builtins. Existing `get`, `assoc`, `keys`, `vals`, `contains?`, `count`, `empty?` also work on HashMaps. COW optimization (Rc::make_mut) applies to HashMap assoc.
 - **SIMD byte search with `memchr`** — `string/split` uses SIMD-accelerated `memchr` for single-byte delimiter search.
 - **1BRC benchmark: 1580ms → 1340ms** (15% faster for 1M rows)
 
 ### Added
+
 - `Value::HashMap` data type — opt-in unordered hash map for performance-critical accumulation
 - `hashmap/new`, `hashmap/get`, `hashmap/assoc`, `hashmap/to-map`, `hashmap/keys`, `hashmap/contains?` builtins
 - `Hash` implementation for `Value` — enables use as `HashMap` keys
 - `intern()`, `resolve()`, `with_resolved()` — string interner API in `sema-core`
 
 ### Changed
+
 - `Value::Symbol` stores `Spur` (u32) instead of `Rc<String>` — **breaking if matching on inner type directly**
 - `Value::Keyword` stores `Spur` (u32) instead of `Rc<String>` — **breaking if matching on inner type directly**
 - `Env::bindings` uses `BTreeMap<Spur, Value>` instead of `BTreeMap<String, Value>`
 - `as_symbol()` and `as_keyword()` now return `Option<String>` instead of `Option<&str>`
 
 ### Dependencies
+
 - Added `lasso` 0.7 (string interning) to `sema-core`
 - Added `hashbrown` 0.15 (fast HashMap) to `sema-core` and `sema-stdlib`
 - Added `memchr` 2 (SIMD byte search) to `sema-stdlib`
@@ -70,6 +87,7 @@
 ## 0.2.1
 
 ### Performance
+
 - **Optimized `file/fold-lines`** — reuses lambda env and moves accumulator (no Rc clone per line)
 - **Optimized `file/for-each-line`** — reuses lambda env instead of creating a new one per line
 - **Inlined hot-path builtins in mini-eval** — `assoc`, `get`, `nil?`, `+`, `=`, `min`, `max`, `first`, `nth`, `float`, `string/split`, `string->number` bypass Env lookup and NativeFn dispatch
@@ -77,11 +95,13 @@
 - **Added `Env::take()`** — removes and returns a binding from the current scope, enabling move semantics
 
 ### Internal
+
 - Made `sema_eval_value` public in sema-stdlib for reuse by `file/fold-lines` and `file/for-each-line`
 
 ## 0.2.0
 
 ### Added
+
 - **`defun` alias** — Common Lisp-style `(defun name (params) body)` as alias for `define`
 - **`sema ast` subcommand** — Parse source and display AST as tree or JSON (`--json`)
 - **Slash-namespaced LLM accessors** — `tool/name`, `agent/system`, `prompt/messages`, `message/role`, etc. (legacy names still work)
@@ -93,6 +113,7 @@
 - **`conversation/say` options** — accepts optional `{:temperature :max-tokens :system}` map
 
 ### Fixed
+
 - Website code examples now use valid, copy-pasteable Sema syntax
 
 ## 0.1.0
