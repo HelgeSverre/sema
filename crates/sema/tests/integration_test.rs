@@ -5586,8 +5586,9 @@ fn test_println_error() {
 
 #[test]
 fn test_sys_interactive() {
-    // In test context, stdin is not a terminal
-    assert_eq!(eval("(sys/interactive?)"), Value::Bool(false));
+    // Result depends on whether stdin is a TTY; just verify it returns a boolean
+    let result = eval("(sys/interactive?)");
+    assert!(matches!(result, Value::Bool(_)));
     assert_eq!(eval("(boolean? (sys/interactive?))"), Value::Bool(true));
 }
 
