@@ -21,7 +21,7 @@
 (println (format "gcd(gcd(48, 36), 24) = ~a" (math/gcd (math/gcd 48 36) 24)))
 
 ;; --- Trigonometric identity: sin^2(x) + cos^2(x) = 1 ---
-(define test-angles (list 0.0 0.5 1.0 1.5 2.0 (pi)))
+(define test-angles (list 0.0 0.5 1.0 1.5 2.0 pi))
 (println "\nVerifying sin²(x) + cos²(x) = 1:")
 (for-each
   (fn (x)
