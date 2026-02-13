@@ -41,8 +41,11 @@ pub fn register(env: &sema_core::Env) {
                 "assoc: requires map and even number of key-value pairs",
             ));
         }
-        let mut map = match &args[0] {
-            Value::Map(m) => m.as_ref().clone(),
+        let mut map = match args[0].clone() {
+            Value::Map(m) => match Rc::try_unwrap(m) {
+                Ok(map) => map,
+                Err(m) => m.as_ref().clone(),
+            },
             _ => return Err(SemaError::type_error("map", args[0].type_name())),
         };
         for pair in args[1..].chunks(2) {
@@ -55,8 +58,11 @@ pub fn register(env: &sema_core::Env) {
         if args.len() < 2 {
             return Err(SemaError::arity("dissoc", "2+", args.len()));
         }
-        let mut map = match &args[0] {
-            Value::Map(m) => m.as_ref().clone(),
+        let mut map = match args[0].clone() {
+            Value::Map(m) => match Rc::try_unwrap(m) {
+                Ok(map) => map,
+                Err(m) => m.as_ref().clone(),
+            },
             _ => return Err(SemaError::type_error("map", args[0].type_name())),
         };
         for key in &args[1..] {
