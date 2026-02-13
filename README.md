@@ -87,6 +87,8 @@ sema> (:name person)
 | Tool         | `(deftool ...)`      | LLM tool definition (see below) |
 | Agent        | `(defagent ...)`     | LLM agent (see below)           |
 | Promise      | `(delay expr)`       | Lazy evaluation (see below)     |
+| Record       | `define-record-type` | `(define-record-type point ...)` |
+| Bytevector   | `#u8(...)` literal   | `#u8(1 2 3)`, `#u8()`            |
 
 ### Special Forms
 
@@ -178,6 +180,25 @@ These are built into the evaluator — they control evaluation order and cannot 
 (force 42)                             ; => 42 (non-promise passes through)
 (promise? p)                           ; => #t
 (promise-forced? p)                    ; => #t (after forcing)
+```
+
+#### Record Types
+
+```scheme
+;; Define a record type with constructor, predicate, and accessors
+(define-record-type point
+  (make-point x y)
+  point?
+  (x point-x)
+  (y point-y))
+
+(define p (make-point 3 4))
+(point? p)                             ; => #t
+(point-x p)                           ; => 3
+(point-y p)                           ; => 4
+(record? p)                           ; => #t
+(type p)                              ; => :point
+(equal? (make-point 1 2) (make-point 1 2))  ; => #t
 ```
 
 #### Error Handling
@@ -314,6 +335,14 @@ e                ; => 2.71828...
 (string->list "abc")                  ; => (#\a #\b #\c)
 (list->string '(#\h #\i))            ; => "hi"
 
+;; Character comparison (R7RS)
+(char=? #\a #\a)                      ; => #t
+(char<? #\a #\b)                      ; => #t
+(char>? #\b #\a)                      ; => #t
+(char<=? #\a #\b)                     ; => #t
+(char>=? #\b #\a)                     ; => #t
+(char-ci=? #\A #\a)                   ; => #t (case-insensitive)
+
 ;; Type conversions
 (string->number "42")                 ; => 42
 (number->string 42)                   ; => "42"
@@ -393,6 +422,24 @@ e                ; => 2.71828...
 
 Most list functions work on vectors too.
 
+#### Bytevectors
+
+```scheme
+#u8(1 2 3)                            ; literal syntax
+(bytevector 1 2 3)                    ; => #u8(1 2 3)
+(make-bytevector 4)                   ; => #u8(0 0 0 0)
+(make-bytevector 3 255)               ; => #u8(255 255 255)
+(bytevector-length #u8(1 2 3))        ; => 3
+(bytevector-u8-ref #u8(10 20 30) 1)   ; => 20
+(bytevector-u8-set! #u8(1 2 3) 0 9)  ; => #u8(9 2 3) (COW, original unchanged)
+(bytevector-copy #u8(1 2 3 4 5) 1 3) ; => #u8(2 3)
+(bytevector-append #u8(1 2) #u8(3 4)); => #u8(1 2 3 4)
+(bytevector->list #u8(65 66))         ; => (65 66)
+(list->bytevector '(1 2 3))           ; => #u8(1 2 3)
+(utf8->string #u8(104 105))           ; => "hi"
+(string->utf8 "hi")                   ; => #u8(104 105)
+```
+
 #### Maps
 
 ```scheme
@@ -443,7 +490,8 @@ For performance-critical workloads with many keys, use `hashmap` for O(1) lookup
 (pair? '(1 2))     ; #t (non-empty list, Scheme compat)
 (number? 42)       (integer? 42)      (float? 3.14)
 (string? "hi")     (symbol? 'x)       (keyword? :k)
-(char? #\a)        (promise? (delay 1))  (promise-forced? p)
+(char? #\a)        (record? r)        (bytevector? #u8())
+(promise? (delay 1))  (promise-forced? p)
 (bool? #t)         (fn? car)
 (zero? 0)          (even? 4)          (odd? 3)
 (positive? 1)      (negative? -1)

@@ -28,7 +28,8 @@ Integration tests are in `crates/sema/tests/integration_test.rs`. Reader unit te
 - Use `SemaError::eval()`, `::type_error()`, `::arity()` constructors, not raw variant construction.
 - Functions return `Result<Value, SemaError>`. Native builtins are `NativeFn` (takes `&[Value]`, returns `Result<Value, SemaError>`).
 - Single-threaded: `Rc` everywhere, not `Arc`. `BTreeMap` for deterministic ordering.
-- Sema language uses Clojure-style keywords (`:foo`), maps (`{:k v}`), vectors (`[1 2 3]`), and Scheme-style `define`/`lambda`/`let`.
+- Sema language uses Clojure-style keywords (`:foo`), maps (`{:k v}`), vectors (`[1 2 3]`), bytevectors (`#u8(1 2 3)`), and Scheme-style `define`/`lambda`/`let`.
+- Record types via `define-record-type` special form. `Value::Record` stores type tag (Spur) + positional fields (Vec<Value>).
 - Stdlib functions use `/` as namespace separator (e.g. `string/trim`, `file/read`, `math/gcd`, `bit/and`), not `-`.
 - Legacy Scheme names kept: `string-append`, `string-length`, `string-ref`, `substring`.
 - Arrow conversions: `string->symbol`, `keyword->string`. Predicates end in `?`: `null?`, `list?`, `file/exists?`.

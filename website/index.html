@@ -859,13 +859,50 @@
   </div>
 </section>
 
+<!-- ——— Record Types ——— -->
+<section class="split compact">
+  <div class="split-text">
+    <div class="label">Structured Data</div>
+    <h2><span class="paren">(</span>Record types<span class="paren">)</span></h2>
+    <p>
+      R7RS-style <code class="ic">define-record-type</code> generates a constructor,
+      a type predicate, and field accessors automatically. Records are
+      first-class values with named fields.
+    </p>
+    <p>
+      Bytevectors (<code class="ic">#u8(...)</code>) provide efficient byte-level
+      data with UTF-8 conversion via <code class="ic">utf8-&gt;string</code>
+      and <code class="ic">string-&gt;utf8</code>.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Define a record type</span>
+<span class="p">(</span><span class="k">define-record-type</span> &lt;point&gt;
+  <span class="p">(</span>make-point x y<span class="p">)</span>
+  point?
+  <span class="p">(</span>x point-x<span class="p">)</span>
+  <span class="p">(</span>y point-y<span class="p">))</span>
+
+<span class="p">(</span><span class="k">define</span> p <span class="p">(</span>make-point <span class="n">3</span> <span class="n">4</span><span class="p">))</span>
+<span class="p">(</span>point? p<span class="p">)</span>    <span class="c">; =&gt; #t</span>
+<span class="p">(</span>point-x p<span class="p">)</span>   <span class="c">; =&gt; 3</span>
+<span class="p">(</span>point-y p<span class="p">)</span>   <span class="c">; =&gt; 4</span>
+
+<span class="c">;; Bytevectors</span>
+<span class="p">(</span><span class="k">define</span> bv <span class="n">#u8(72 101 108 108 111)</span><span class="p">)</span>
+<span class="p">(</span><span class="b">utf8-&gt;string</span> bv<span class="p">)</span>  <span class="c">; =&gt; "Hello"</span>
+<span class="p">(</span><span class="b">bytevector-length</span> bv<span class="p">)</span>  <span class="c">; =&gt; 5</span>
+<span class="p">(</span><span class="b">string-&gt;utf8</span> <span class="s">"hi"</span><span class="p">)</span>  <span class="c">; =&gt; #u8(104 105)</span></code></pre>
+  </div>
+</section>
+
 <!-- ═══════════════════════════════════════════════════════
      DATA TYPES
      ═══════════════════════════════════════════════════════ -->
 
 <div id="data" class="section-divider">
   <h2><span class="paren">(</span>Data types<span class="paren">)</span></h2>
-  <p>Eighteen types, from integers to agents. Everything is a value.</p>
+  <p>Twenty types, from integers to agents. Everything is a value.</p>
 </div>
 
 <div class="ref-section">
@@ -883,6 +920,8 @@
     <div class="type-card"><span class="type-name">Vector</span> <span class="type-ex">[1 2 3] &nbsp;["a" "b"]</span></div>
     <div class="type-card"><span class="type-name">Map</span> <span class="type-ex">{:name "Ada" :age 36}</span></div>
     <div class="type-card"><span class="type-name">HashMap</span> <span class="type-ex">(hashmap/new :a 1 :b 2)</span></div>
+    <div class="type-card"><span class="type-name">Record</span> <span class="type-ex">(define-record-type &lt;point&gt; ...)</span></div>
+    <div class="type-card"><span class="type-name">Bytevector</span> <span class="type-ex">#u8(0 127 255)</span></div>
   </div>
 
   <h3>LLM Types</h3>
@@ -1065,6 +1104,8 @@
         <span>char-upper-case?</span> <span>char-lower-case?</span>
         <span>char-upcase</span> <span>char-downcase</span>
         <span>char-&gt;string</span> <span>string-&gt;char</span>
+        <span>char=?</span> <span>char&lt;?</span> <span>char&gt;?</span> <span>char&lt;=?</span> <span>char&gt;=?</span>
+        <span>char-ci=?</span> <span>char-ci&lt;?</span> <span>char-ci&gt;?</span> <span>char-ci&lt;=?</span> <span>char-ci&gt;=?</span>
         <span>string-&gt;list</span> <span>list-&gt;string</span>
       </div>
     </div>
@@ -1106,6 +1147,7 @@
         <span>number?</span> <span>integer?</span> <span>float?</span>
         <span>string?</span> <span>symbol?</span> <span>keyword?</span>
         <span>char?</span> <span>bool?</span> <span>fn?</span>
+        <span>bytevector?</span> <span>record?</span>
         <span>promise?</span> <span>promise-forced?</span>
         <span>zero?</span> <span>even?</span> <span>odd?</span>
         <span>positive?</span> <span>negative?</span>
@@ -1168,6 +1210,22 @@
         <span>string-&gt;keyword</span> <span>keyword-&gt;string</span>
         <span>list-&gt;vector</span> <span>vector-&gt;list</span>
         <span>read</span> <span>read-many</span> <span>gensym</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Bytevectors</h4>
+      <div class="fn-list">
+        <span>make-bytevector</span> <span>bytevector</span>
+        <span>bytevector-length</span> <span>bytevector-u8-ref</span> <span>bytevector-u8-set!</span>
+        <span>bytevector-copy</span> <span>bytevector-append</span>
+        <span>bytevector-&gt;list</span> <span>list-&gt;bytevector</span>
+        <span>utf8-&gt;string</span> <span>string-&gt;utf8</span>
+      </div>
+    </div>
+    <div class="stdlib-card">
+      <h4>Records</h4>
+      <div class="fn-list">
+        <span>define-record-type</span>
       </div>
     </div>
   </div>
@@ -1472,6 +1530,14 @@
     <div class="feat">
       <h3>Clojure-Style Data</h3>
       <p>Keywords (<code>:foo</code>), maps (<code>{:k v}</code>), vectors (<code>[1 2]</code>). Keywords as functions.</p>
+    </div>
+    <div class="feat">
+      <h3>Record Types</h3>
+      <p><code>define-record-type</code> with auto-generated constructor, predicate, and field accessors.</p>
+    </div>
+    <div class="feat">
+      <h3>Bytevectors</h3>
+      <p>R7RS bytevectors with <code>#u8(...)</code> literals. UTF-8 encoding/decoding and byte-level I/O.</p>
     </div>
   </div>
 </section>
