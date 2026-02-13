@@ -102,6 +102,13 @@ impl Clone for Thunk {
     }
 }
 
+/// A record: tagged product type created by define-record-type.
+#[derive(Debug, Clone)]
+pub struct Record {
+    pub type_tag: Spur,
+    pub fields: Vec<Value>,
+}
+
 /// A message role in a conversation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Role {
@@ -186,6 +193,7 @@ pub enum Value {
     ToolDef(Rc<ToolDefinition>),
     Agent(Rc<Agent>),
     Thunk(Rc<Thunk>),
+    Record(Rc<Record>),
 }
 
 impl Value {
@@ -212,6 +220,7 @@ impl Value {
             Value::ToolDef(_) => "tool",
             Value::Agent(_) => "agent",
             Value::Thunk(_) => "promise",
+            Value::Record(_) => "record",
         }
     }
 
@@ -311,6 +320,13 @@ impl Value {
         let map: hashbrown::HashMap<Value, Value> = entries.into_iter().collect();
         Value::HashMap(Rc::new(map))
     }
+
+    pub fn as_record(&self) -> Option<&Rc<Record>> {
+        match self {
+            Value::Record(r) => Some(r),
+            _ => None,
+        }
+    }
 }
 
 impl Hash for Value {
@@ -327,6 +343,10 @@ impl Hash for Value {
             Value::Char(c) => c.hash(state),
             Value::List(l) => l.hash(state),
             Value::Vector(v) => v.hash(state),
+            Value::Record(r) => {
+                r.type_tag.hash(state);
+                r.fields.hash(state);
+            }
             _ => {}
         }
     }
@@ -348,6 +368,7 @@ impl PartialEq for Value {
             (Value::Vector(a), Value::Vector(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a == b,
             (Value::HashMap(a), Value::HashMap(b)) => a == b,
+            (Value::Record(a), Value::Record(b)) => a.type_tag == b.type_tag && a.fields == b.fields,
             _ => false,
         }
     }
@@ -378,7 +399,8 @@ impl Ord for Value {
                 Value::Vector(_) => 9,
                 Value::Map(_) => 10,
                 Value::HashMap(_) => 11,
-                _ => 12,
+                Value::Record(_) => 12,
+                _ => 13,
             }
         }
         match (self, other) {
@@ -392,6 +414,10 @@ impl Ord for Value {
             (Value::Char(a), Value::Char(b)) => a.cmp(b),
             (Value::List(a), Value::List(b)) => a.cmp(b),
             (Value::Vector(a), Value::Vector(b)) => a.cmp(b),
+            (Value::Record(a), Value::Record(b)) => {
+                compare_spurs(a.type_tag, b.type_tag)
+                    .then_with(|| a.fields.cmp(&b.fields))
+            }
             _ => type_order(self).cmp(&type_order(other)),
         }
     }
@@ -493,6 +519,14 @@ impl fmt::Display for Value {
                     write!(f, "<promise>")
                 }
             }
+            Value::Record(r) => {
+                let tag = resolve(r.type_tag);
+                write!(f, "#<record {tag}")?;
+                for field in &r.fields {
+                    write!(f, " {field}")?;
+                }
+                write!(f, ">")
+            }
         }
     }
 }
@@ -577,13 +611,17 @@ impl Env {
 
     /// Set a variable in the scope where it's defined (for set!).
     pub fn set_existing(&self, name: Spur, val: Value) -> bool {
-        if self.bindings.borrow().contains_key(&name) {
-            self.bindings.borrow_mut().insert(name, val);
+        let mut bindings = self.bindings.borrow_mut();
+        if let Some(entry) = bindings.get_mut(&name) {
+            *entry = val;
             true
-        } else if let Some(parent) = &self.parent {
-            parent.set_existing(name, val)
         } else {
-            false
+            drop(bindings);
+            if let Some(parent) = &self.parent {
+                parent.set_existing(name, val)
+            } else {
+                false
+            }
         }
     }
 }
