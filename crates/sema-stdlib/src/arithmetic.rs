@@ -16,7 +16,7 @@ pub fn register(env: &sema_core::Env) {
                     if has_float {
                         float_sum += *n as f64;
                     } else {
-                        int_sum += n;
+                        int_sum = int_sum.wrapping_add(*n);
                     }
                 }
                 Value::Float(f) => {
@@ -42,7 +42,7 @@ pub fn register(env: &sema_core::Env) {
         }
         if args.len() == 1 {
             return match &args[0] {
-                Value::Int(n) => Ok(Value::Int(-n)),
+                Value::Int(n) => Ok(Value::Int(n.wrapping_neg())),
                 Value::Float(f) => Ok(Value::Float(-f)),
                 _ => Err(SemaError::type_error("number", args[0].type_name())),
             };
@@ -62,7 +62,7 @@ pub fn register(env: &sema_core::Env) {
                     } else if has_float {
                         result_float -= *n as f64;
                     } else {
-                        result_int -= n;
+                        result_int = result_int.wrapping_sub(*n);
                     }
                 }
                 Value::Float(f) => {
@@ -99,7 +99,7 @@ pub fn register(env: &sema_core::Env) {
                     if has_float {
                         float_prod *= *n as f64;
                     } else {
-                        int_prod *= n;
+                        int_prod = int_prod.wrapping_mul(*n);
                     }
                 }
                 Value::Float(f) => {

@@ -8,7 +8,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("abs", "1", args.len()));
         }
         match &args[0] {
-            Value::Int(n) => Ok(Value::Int(n.abs())),
+            Value::Int(n) => Ok(Value::Int(n.wrapping_abs())),
             Value::Float(f) => Ok(Value::Float(f.abs())),
             _ => Err(SemaError::type_error("number", args[0].type_name())),
         }
@@ -91,7 +91,7 @@ pub fn register(env: &sema_core::Env) {
         }
         match (&args[0], &args[1]) {
             (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
-                Ok(Value::Int(base.pow(*exp as u32)))
+                Ok(Value::Int(base.wrapping_pow(*exp as u32)))
             }
             _ => {
                 let base = args[0]
@@ -188,7 +188,7 @@ pub fn register(env: &sema_core::Env) {
         if b == 0 {
             return Err(SemaError::eval("math/quotient: division by zero"));
         }
-        Ok(Value::Int(a / b))
+        Ok(Value::Int(a.wrapping_div(b)))
     });
 
     register_fn(env, "math/remainder", |args| {
@@ -214,11 +214,11 @@ pub fn register(env: &sema_core::Env) {
         let mut a = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-            .abs();
+            .wrapping_abs();
         let mut b = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            .abs();
+            .wrapping_abs();
         while b != 0 {
             let t = b;
             b = a % b;
@@ -234,11 +234,11 @@ pub fn register(env: &sema_core::Env) {
         let a = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-            .abs();
+            .wrapping_abs();
         let b = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            .abs();
+            .wrapping_abs();
         if a == 0 && b == 0 {
             return Ok(Value::Int(0));
         }
@@ -249,7 +249,7 @@ pub fn register(env: &sema_core::Env) {
             gb = ga % gb;
             ga = t;
         }
-        Ok(Value::Int(a / ga * b))
+        Ok(Value::Int((a / ga).wrapping_mul(b)))
     });
 
     register_fn(env, "math/tan", |args| {
@@ -446,7 +446,7 @@ pub fn register(env: &sema_core::Env) {
         }
         match (&args[0], &args[1]) {
             (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
-                Ok(Value::Int(base.pow(*exp as u32)))
+                Ok(Value::Int(base.wrapping_pow(*exp as u32)))
             }
             _ => {
                 let base = args[0]
@@ -477,7 +477,7 @@ pub fn register(env: &sema_core::Env) {
         }
         match (&args[0], &args[1]) {
             (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
-                Ok(Value::Int(base.pow(*exp as u32)))
+                Ok(Value::Int(base.wrapping_pow(*exp as u32)))
             }
             _ => {
                 let base = args[0]
