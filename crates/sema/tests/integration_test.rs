@@ -6152,7 +6152,9 @@ fn test_llm_pricing_status() {
 #[test]
 fn test_budget_with_unknown_model_does_not_error() {
     let interp = Interpreter::new();
-    let result = interp.eval_str("(begin (llm/set-budget 1.00) (llm/budget-remaining))").unwrap();
+    let result = interp
+        .eval_str("(begin (llm/set-budget 1.00) (llm/budget-remaining))")
+        .unwrap();
     match &result {
         Value::Map(m) => {
             assert!(m.contains_key(&Value::keyword("limit")));

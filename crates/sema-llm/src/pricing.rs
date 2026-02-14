@@ -84,10 +84,8 @@ fn lookup_fetched(model: &str) -> Option<(f64, f64)> {
         // Substring match: model.contains(id), longest id wins
         let mut best: Option<(usize, f64, f64)> = None;
         for (id, _, input, output) in &fp.entries {
-            if model.contains(id.as_str()) {
-                if best.is_none() || id.len() > best.unwrap().0 {
-                    best = Some((id.len(), *input, *output));
-                }
+            if model.contains(id.as_str()) && (best.is_none() || id.len() > best.unwrap().0) {
+                best = Some((id.len(), *input, *output));
             }
         }
         best.map(|(_, input, output)| (input, output))
@@ -115,7 +113,10 @@ pub fn model_pricing(model: &str) -> Option<(f64, f64)> {
         return Some(result);
     }
 
-    // 3. Hardcoded fallback (may be stale)
+    // 3. Hardcoded fallback (estimates — may be outdated).
+    // Dynamic pricing from llm-prices.com is preferred when available.
+    // Last manually updated: 2025-01.
+    // Override with (llm/set-pricing "model" input output).
     match model {
         // Anthropic
         m if m.contains("claude-3-5-haiku") || m.contains("claude-haiku-4-5") => Some((1.0, 5.0)),
@@ -134,10 +135,10 @@ pub fn model_pricing(model: &str) -> Option<(f64, f64)> {
         m if m.contains("gemini-1.5-flash") => Some((0.075, 0.30)),
         m if m.contains("gemini-1.5-pro") => Some((1.25, 5.00)),
         m if m.contains("gemini") => Some((0.10, 0.40)), // fallback for other gemini models
-        // Groq (free tier, but track tokens)
-        m if m.contains("llama") || m.contains("mixtral") || m.contains("gemma") => {
-            Some((0.0, 0.0))
-        }
+        // Groq (paid — prices vary by model, these are estimates)
+        m if m.contains("llama") && !m.contains("ollama") => Some((0.10, 0.30)),
+        m if m.contains("mixtral") => Some((0.25, 0.25)),
+        m if m.contains("gemma") => Some((0.10, 0.20)),
         // xAI
         m if m.contains("grok-3-mini") => Some((0.30, 0.50)),
         m if m.contains("grok-3") => Some((3.00, 15.00)),
@@ -146,8 +147,8 @@ pub fn model_pricing(model: &str) -> Option<(f64, f64)> {
         m if m.contains("mistral-small") => Some((0.10, 0.30)),
         m if m.contains("mistral-medium") => Some((2.70, 8.10)),
         m if m.contains("mistral-large") => Some((2.00, 6.00)),
-        // Moonshot
-        m if m.contains("moonshot") => Some((0.0, 0.0)),
+        // Moonshot (estimates)
+        m if m.contains("moonshot") => Some((0.50, 1.50)),
         _ => None,
     }
 }
