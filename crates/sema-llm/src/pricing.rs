@@ -222,6 +222,42 @@ pub fn fetch_pricing_from_remote() -> Result<String, String> {
     })
 }
 
+/// Best-effort pricing refresh. Called during llm/auto-configure.
+/// 1. Load disk cache into memory (fast, sync)
+/// 2. Attempt network fetch (short timeout, swallow errors)
+/// 3. On success, update memory + write disk cache
+pub fn refresh_pricing(cache_path: Option<&std::path::Path>) {
+    let cache = cache_path.and_then(|p| {
+        read_pricing_cache(p).ok().flatten()
+    });
+
+    // Load cache into memory
+    if let Some(ref json) = cache {
+        let _ = load_fetched_pricing_from_str(json);
+    }
+
+    // Try network fetch (best-effort)
+    match fetch_pricing_from_remote() {
+        Ok(json) => {
+            if load_fetched_pricing_from_str(&json).is_ok() {
+                if let Some(p) = cache_path {
+                    let _ = write_pricing_cache(p, &json);
+                }
+            }
+        }
+        Err(_) => {
+            // Network unavailable — silently continue with cache or hardcoded
+        }
+    }
+}
+
+/// Return the default cache path: ~/.sema/pricing-cache.json
+pub fn default_cache_path() -> Option<std::path::PathBuf> {
+    std::env::var("HOME")
+        .ok()
+        .map(|home| std::path::PathBuf::from(home).join(".sema").join("pricing-cache.json"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -327,5 +363,14 @@ mod tests {
     #[test]
     fn test_fetch_pricing_url_is_correct() {
         assert_eq!(PRICING_URL, "https://www.llm-prices.com/current-v1.json");
+    }
+
+    #[test]
+    fn test_refresh_pricing_loads_cache_fallback() {
+        clear_fetched_pricing();
+        let fake_cache = std::env::temp_dir().join("sema-pricing-noexist").join("cache.json");
+        refresh_pricing(Some(&fake_cache));
+        // Hardcoded should still work
+        assert!(model_pricing("gpt-4o-mini").is_some());
     }
 }

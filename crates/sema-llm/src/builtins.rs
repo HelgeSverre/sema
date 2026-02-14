@@ -497,6 +497,9 @@ pub fn register_llm_builtins(env: &Env) {
                 }
             }
 
+            // Best-effort pricing refresh
+            pricing::refresh_pricing(pricing::default_cache_path().as_deref());
+
             match first_configured {
                 Some(name) => Ok(Value::keyword(name)),
                 None => Ok(Value::Nil),
@@ -1493,18 +1496,18 @@ pub fn register_llm_builtins(env: &Env) {
         track_usage(&response.usage)?;
 
         if single {
-            // Return flat list of floats
             let embedding = response.embeddings.into_iter().next().unwrap_or_default();
-            Ok(Value::list(
-                embedding.into_iter().map(Value::Float).collect(),
-            ))
+            let bytes: Vec<u8> = embedding.iter().flat_map(|f| f.to_le_bytes()).collect();
+            Ok(Value::bytevector(bytes))
         } else {
-            // Return list of lists
             Ok(Value::list(
                 response
                     .embeddings
                     .into_iter()
-                    .map(|emb| Value::list(emb.into_iter().map(Value::Float).collect()))
+                    .map(|emb| {
+                        let bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                        Value::bytevector(bytes)
+                    })
                     .collect(),
             ))
         }
@@ -1515,28 +1518,186 @@ pub fn register_llm_builtins(env: &Env) {
         if args.len() != 2 {
             return Err(SemaError::arity("llm/similarity", "2", args.len()));
         }
-        let vec1 = extract_float_vec(&args[0])?;
-        let vec2 = extract_float_vec(&args[1])?;
 
-        if vec1.len() != vec2.len() {
-            return Err(SemaError::eval(format!(
-                "llm/similarity: vectors must have same length ({} vs {})",
-                vec1.len(),
-                vec2.len()
-            )));
-        }
-        if vec1.is_empty() {
-            return Err(SemaError::eval("llm/similarity: empty vectors"));
-        }
+        let a_is_bv = matches!(&args[0], Value::Bytevector(_));
+        let b_is_bv = matches!(&args[1], Value::Bytevector(_));
+        let a_is_list = matches!(&args[0], Value::List(_) | Value::Vector(_));
+        let b_is_list = matches!(&args[1], Value::List(_) | Value::Vector(_));
 
-        let dot: f64 = vec1.iter().zip(vec2.iter()).map(|(a, b)| a * b).sum();
-        let mag1: f64 = vec1.iter().map(|x| x * x).sum::<f64>().sqrt();
-        let mag2: f64 = vec2.iter().map(|x| x * x).sum::<f64>().sqrt();
-
-        if mag1 == 0.0 || mag2 == 0.0 {
-            Ok(Value::Float(0.0))
+        if a_is_bv && b_is_bv {
+            let ba = match &args[0] {
+                Value::Bytevector(b) => b,
+                _ => unreachable!(),
+            };
+            let bb = match &args[1] {
+                Value::Bytevector(b) => b,
+                _ => unreachable!(),
+            };
+            if ba.len() != bb.len() {
+                return Err(SemaError::eval(format!(
+                    "llm/similarity: bytevectors must have same length ({} vs {})",
+                    ba.len(),
+                    bb.len()
+                )));
+            }
+            if ba.is_empty() {
+                return Err(SemaError::eval("llm/similarity: empty vectors"));
+            }
+            if ba.len() % 8 != 0 {
+                return Err(SemaError::eval(format!(
+                    "llm/similarity: bytevector length must be a multiple of 8 (got {})",
+                    ba.len()
+                )));
+            }
+            let mut dot = 0.0_f64;
+            let mut mag_a = 0.0_f64;
+            let mut mag_b = 0.0_f64;
+            for (ca, cb) in ba.chunks_exact(8).zip(bb.chunks_exact(8)) {
+                let fa = f64::from_le_bytes(ca.try_into().unwrap());
+                let fb = f64::from_le_bytes(cb.try_into().unwrap());
+                dot += fa * fb;
+                mag_a += fa * fa;
+                mag_b += fb * fb;
+            }
+            if mag_a == 0.0 || mag_b == 0.0 {
+                Ok(Value::Float(0.0))
+            } else {
+                Ok(Value::Float(dot / (mag_a.sqrt() * mag_b.sqrt())))
+            }
+        } else if a_is_list && b_is_list {
+            let va = extract_float_vec(&args[0])?;
+            let vb = extract_float_vec(&args[1])?;
+            if va.len() != vb.len() {
+                return Err(SemaError::eval(format!(
+                    "llm/similarity: vectors must have same length ({} vs {})",
+                    va.len(),
+                    vb.len()
+                )));
+            }
+            if va.is_empty() {
+                return Err(SemaError::eval("llm/similarity: empty vectors"));
+            }
+            let mut dot = 0.0_f64;
+            let mut mag_a = 0.0_f64;
+            let mut mag_b = 0.0_f64;
+            for i in 0..va.len() {
+                dot += va[i] * vb[i];
+                mag_a += va[i] * va[i];
+                mag_b += vb[i] * vb[i];
+            }
+            if mag_a == 0.0 || mag_b == 0.0 {
+                Ok(Value::Float(0.0))
+            } else {
+                Ok(Value::Float(dot / (mag_a.sqrt() * mag_b.sqrt())))
+            }
         } else {
-            Ok(Value::Float(dot / (mag1 * mag2)))
+            Err(SemaError::eval(
+                "llm/similarity: both arguments must be the same type (both bytevectors or both lists). \
+                 Use embedding/->list or embedding/list->embedding to convert between formats.",
+            ))
+        }
+    });
+
+    register_fn(env, "embedding/length", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("embedding/length", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Bytevector(bv) => {
+                if bv.len() % 8 != 0 {
+                    return Err(SemaError::eval(format!(
+                        "embedding/length: bytevector length {} is not divisible by 8",
+                        bv.len()
+                    )));
+                }
+                Ok(Value::Int((bv.len() / 8) as i64))
+            }
+            _ => Err(SemaError::type_error("bytevector", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "embedding/ref", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("embedding/ref", "2", args.len()));
+        }
+        match (&args[0], &args[1]) {
+            (Value::Bytevector(bv), Value::Int(idx)) => {
+                if bv.len() % 8 != 0 {
+                    return Err(SemaError::eval(format!(
+                        "embedding/ref: bytevector length {} is not divisible by 8",
+                        bv.len()
+                    )));
+                }
+                let idx = *idx as usize;
+                let num_elements = bv.len() / 8;
+                if idx >= num_elements {
+                    return Err(SemaError::eval(format!(
+                        "embedding/ref: index {} out of bounds (length {})",
+                        idx, num_elements
+                    )));
+                }
+                let start = idx * 8;
+                let bytes: [u8; 8] = bv[start..start + 8].try_into().unwrap();
+                Ok(Value::Float(f64::from_le_bytes(bytes)))
+            }
+            (Value::Bytevector(_), _) => Err(SemaError::type_error("integer", args[1].type_name())),
+            _ => Err(SemaError::type_error("bytevector", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "embedding/->list", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("embedding/->list", "1", args.len()));
+        }
+        match &args[0] {
+            Value::Bytevector(bv) => {
+                if bv.len() % 8 != 0 {
+                    return Err(SemaError::eval(format!(
+                        "embedding/->list: bytevector length {} is not divisible by 8",
+                        bv.len()
+                    )));
+                }
+                let floats: Vec<Value> = bv
+                    .chunks_exact(8)
+                    .map(|chunk| {
+                        let bytes: [u8; 8] = chunk.try_into().unwrap();
+                        Value::Float(f64::from_le_bytes(bytes))
+                    })
+                    .collect();
+                Ok(Value::list(floats))
+            }
+            _ => Err(SemaError::type_error("bytevector", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "embedding/list->embedding", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity(
+                "embedding/list->embedding",
+                "1",
+                args.len(),
+            ));
+        }
+        match &args[0] {
+            Value::List(items) => {
+                let mut bytes = Vec::with_capacity(items.len() * 8);
+                for (i, item) in items.iter().enumerate() {
+                    let f = match item {
+                        Value::Float(f) => *f,
+                        Value::Int(n) => *n as f64,
+                        _ => {
+                            return Err(SemaError::eval(format!(
+                                "embedding/list->embedding: element {} is {}, expected number",
+                                i,
+                                item.type_name()
+                            )));
+                        }
+                    };
+                    bytes.extend_from_slice(&f.to_le_bytes());
+                }
+                Ok(Value::bytevector(bytes))
+            }
+            _ => Err(SemaError::type_error("list", args[0].type_name())),
         }
     });
 
@@ -2237,22 +2398,33 @@ fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Va
     if let serde_json::Value::Object(json_obj) = arguments {
         // Prefer lambda param names (preserves declaration order) over BTreeMap keys
         if let Value::Lambda(lambda) = handler {
-            return lambda.params.iter().map(|name| {
-                json_obj.get(name)
-                    .map(json_to_sema_value)
-                    .unwrap_or(Value::Nil)
-            }).collect();
+            return lambda
+                .params
+                .iter()
+                .map(|name| {
+                    json_obj
+                        .get(name)
+                        .map(json_to_sema_value)
+                        .unwrap_or(Value::Nil)
+                })
+                .collect();
         }
         // Fallback: use param map keys (BTreeMap order — alphabetical)
         if let Value::Map(param_map) = params {
-            return param_map.keys().map(|k| {
-                let key_str = match k {
-                    Value::Keyword(s) => resolve(*s),
-                    Value::String(s) => s.to_string(),
-                    other => other.to_string(),
-                };
-                json_obj.get(&key_str).map(json_to_sema_value).unwrap_or(Value::Nil)
-            }).collect();
+            return param_map
+                .keys()
+                .map(|k| {
+                    let key_str = match k {
+                        Value::Keyword(s) => resolve(*s),
+                        Value::String(s) => s.to_string(),
+                        other => other.to_string(),
+                    };
+                    json_obj
+                        .get(&key_str)
+                        .map(json_to_sema_value)
+                        .unwrap_or(Value::Nil)
+                })
+                .collect();
         }
     }
     vec![json_to_sema_value(arguments)]
@@ -2410,10 +2582,10 @@ pub fn json_to_sema_value(json: &serde_json::Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use sema_core::{intern, Lambda};
+    use serde_json::json;
 
-        fn make_lambda(params: &[&str]) -> Value {
+    fn make_lambda(params: &[&str]) -> Value {
         Value::Lambda(Rc::new(Lambda {
             params: params.iter().map(|s| s.to_string()).collect(),
             rest_param: None,
@@ -2423,13 +2595,10 @@ mod tests {
         }))
     }
 
-        fn make_param_map(keys: &[&str]) -> Value {
+    fn make_param_map(keys: &[&str]) -> Value {
         let mut map = BTreeMap::new();
         for k in keys {
-            map.insert(
-                Value::keyword(*k),
-                Value::Map(Rc::new(BTreeMap::new())),
-            );
+            map.insert(Value::keyword(*k), Value::Map(Rc::new(BTreeMap::new())));
         }
         Value::Map(Rc::new(map))
     }
