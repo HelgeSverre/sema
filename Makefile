@@ -1,4 +1,4 @@
-.PHONY: all build release install uninstall test test-http check clippy fmt fmt-check clean run lint examples test-providers fuzz setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy
+.PHONY: all build release install uninstall test test-http check clippy fmt fmt-check clean run lint examples test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy
 
 build:
 	cargo build
@@ -61,8 +61,14 @@ setup:
 	rustup toolchain install nightly
 	cargo install cargo-fuzz
 
-fuzz:
+fuzz: fuzz-reader fuzz-eval
+
+fuzz-reader:
 	cd crates/sema-reader && rustup run nightly cargo fuzz run fuzz_read -- -max_total_time=60
+	cd crates/sema-reader && rustup run nightly cargo fuzz run fuzz_read_many -- -max_total_time=60
+
+fuzz-eval:
+	cd crates/sema-eval && rustup run nightly cargo fuzz run fuzz_eval -- -max_total_time=120 -timeout=10
 
 bench-1m: release
 	time ./target/release/sema examples/benchmarks/1brc.sema -- bench-1m.txt
