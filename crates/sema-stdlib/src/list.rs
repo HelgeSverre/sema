@@ -88,6 +88,18 @@ fn special_forms() -> &'static SpecialFormSpurs {
     })
 }
 
+fn repeat_impl(args: &[Value]) -> Result<Value, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("list/repeat", "2", args.len()));
+    }
+    let n = args[0]
+        .as_int()
+        .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
+        as usize;
+    let val = args[1].clone();
+    Ok(Value::list(vec![val; n]))
+}
+
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "list", |args| Ok(Value::list(args.to_vec())));
 
@@ -870,28 +882,8 @@ pub fn register(env: &sema_core::Env) {
         Ok(chosen.clone())
     });
 
-    register_fn(env, "list/repeat", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/repeat", "2", args.len()));
-        }
-        let n = args[0]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-            as usize;
-        let val = args[1].clone();
-        Ok(Value::list(vec![val; n]))
-    });
-    register_fn(env, "make-list", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("make-list", "2", args.len()));
-        }
-        let n = args[0]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-            as usize;
-        let val = args[1].clone();
-        Ok(Value::list(vec![val; n]))
-    });
+    register_fn(env, "list/repeat", repeat_impl);
+    register_fn(env, "make-list", repeat_impl);
 
     register_fn(env, "iota", |args| {
         let (count, start, step) = match args.len() {
@@ -1066,8 +1058,14 @@ fn num_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
     }
 }
 
-/// Fast path for parsing simple numbers: integers and decimals like "-12.3", "4.5", "100".
-/// Returns None if the string doesn't match a simple pattern, falling back to std parse.
+/// Hand-rolled number parser optimized for the simple decimal formats common in data
+/// processing (e.g., "-12.3", "4.5", "100").
+///
+/// Rust's `str::parse::<f64>()` handles scientific notation, infinity, NaN, etc. — all
+/// unnecessary for typical CSV/TSV data. This parser avoids that overhead by only handling
+/// `[-]digits[.digits]`, returning `None` for anything more complex so callers can fall
+/// back to the standard parser. Uses a precomputed powers-of-10 table to avoid `powi()`
+/// for common fractional digit counts (1–4).
 fn fast_parse_number(s: &str) -> Option<Value> {
     let bytes = s.as_bytes();
     if bytes.is_empty() {
@@ -1209,9 +1207,19 @@ pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     }
 }
 
-/// Minimal eval for stdlib usage (avoids circular dependency).
-/// Handles: symbols, function calls, if, begin, let, let*, cond, when, unless,
-/// and, or, define, set!, quote, lambda/fn.
+/// Minimal evaluator that bypasses the full trampoline-based eval in `sema-eval`.
+///
+/// This exists for two reasons:
+/// 1. **Dependency isolation** — `sema-stdlib` cannot depend on `sema-eval` (circular dep),
+///    so hot-path builtins like `file/fold-lines` need a local evaluator.
+/// 2. **Performance** — the full evaluator's trampoline dispatch, call stack management,
+///    and span tracking add ~4x overhead vs. direct recursive eval. For tight loops
+///    processing millions of rows (e.g., the 1BRC benchmark), this is the difference
+///    between 1.6s and 6.2s on 1M rows.
+///
+/// Also inlines hot-path builtins (`assoc`, `get`, `+`, `=`, `min`, `max`, `first`,
+/// `nth`, `nil?`, `float`, `string/split`, `string->number`) to skip `Env` lookup
+/// and `NativeFn` dispatch overhead.
 pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
     match expr {
         Value::Symbol(spur) => env
@@ -1737,15 +1745,17 @@ pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                         let s_val = sema_eval_value(&items[1], env)?;
                         let sep_val = sema_eval_value(&items[2], env)?;
                         if let (Some(s), Some(sep)) = (s_val.as_str(), sep_val.as_str()) {
-                            // Fast path for single-char separator
+                            // Inlined string/split with SIMD-accelerated separator search via
+                            // memchr. Optimizes for the common case of splitting on a single
+                            // byte (e.g., ";" in CSV). When there are exactly two parts (the
+                            // overwhelmingly common case in line-oriented data processing),
+                            // we avoid collecting into a full Vec via the iterator.
                             if sep.len() == 1 {
                                 let sep_byte = sep.as_bytes()[0];
                                 let bytes = s.as_bytes();
                                 if let Some(pos) = memchr::memchr(sep_byte, bytes) {
-                                    // Two-part split: most common case (e.g., CSV/1BRC)
                                     let left = &s[..pos];
                                     let right = &s[pos + 1..];
-                                    // Check if there are more parts
                                     if memchr::memchr(sep_byte, right.as_bytes()).is_some() {
                                         let parts: Vec<Value> =
                                             s.split(sep).map(Value::string).collect();

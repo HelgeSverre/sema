@@ -2,6 +2,25 @@ use sema_core::{SemaError, Value};
 
 use crate::register_fn;
 
+fn mod_impl(args: &[Value]) -> Result<Value, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("mod", "2", args.len()));
+    }
+    match (&args[0], &args[1]) {
+        (Value::Int(a), Value::Int(b)) => {
+            if *b == 0 {
+                Err(SemaError::eval("modulo by zero"))
+            } else {
+                Ok(Value::Int(a % b))
+            }
+        }
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
+        (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 % b)),
+        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % *b as f64)),
+        _ => Err(SemaError::type_error("number", args[0].type_name())),
+    }
+}
+
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "+", |args| {
         if args.is_empty() {
@@ -147,22 +166,6 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
-    register_fn(env, "mod", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("mod", "2", args.len()));
-        }
-        match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) => {
-                if *b == 0 {
-                    Err(SemaError::eval("modulo by zero"))
-                } else {
-                    Ok(Value::Int(a % b))
-                }
-            }
-            (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
-            (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 % b)),
-            (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % *b as f64)),
-            _ => Err(SemaError::type_error("number", args[0].type_name())),
-        }
-    });
+    register_fn(env, "mod", mod_impl);
+    register_fn(env, "modulo", mod_impl);
 }

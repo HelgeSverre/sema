@@ -2,6 +2,37 @@ use sema_core::{SemaError, Value};
 
 use crate::register_fn;
 
+fn pow_impl(args: &[Value]) -> Result<Value, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("pow", "2", args.len()));
+    }
+    match (&args[0], &args[1]) {
+        (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
+            Ok(Value::Int(base.wrapping_pow(*exp as u32)))
+        }
+        _ => {
+            let base = args[0]
+                .as_float()
+                .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
+            let exp = args[1]
+                .as_float()
+                .ok_or_else(|| SemaError::type_error("number", args[1].type_name()))?;
+            Ok(Value::Float(base.powf(exp)))
+        }
+    }
+}
+
+fn ceil_impl(args: &[Value]) -> Result<Value, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("ceil", "1", args.len()));
+    }
+    match &args[0] {
+        Value::Int(n) => Ok(Value::Int(*n)),
+        Value::Float(f) => Ok(Value::Int(f.ceil() as i64)),
+        _ => Err(SemaError::type_error("number", args[0].type_name())),
+    }
+}
+
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "abs", |args| {
         if args.len() != 1 {
@@ -53,16 +84,8 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
-    register_fn(env, "ceil", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("ceil", "1", args.len()));
-        }
-        match &args[0] {
-            Value::Int(n) => Ok(Value::Int(*n)),
-            Value::Float(f) => Ok(Value::Int(f.ceil() as i64)),
-            _ => Err(SemaError::type_error("number", args[0].type_name())),
-        }
-    });
+    register_fn(env, "ceil", ceil_impl);
+    register_fn(env, "ceiling", ceil_impl);
 
     register_fn(env, "round", |args| {
         if args.len() != 1 {
@@ -85,25 +108,9 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Float(f.sqrt()))
     });
 
-    register_fn(env, "pow", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("pow", "2", args.len()));
-        }
-        match (&args[0], &args[1]) {
-            (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
-                Ok(Value::Int(base.wrapping_pow(*exp as u32)))
-            }
-            _ => {
-                let base = args[0]
-                    .as_float()
-                    .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
-                let exp = args[1]
-                    .as_float()
-                    .ok_or_else(|| SemaError::type_error("number", args[1].type_name()))?;
-                Ok(Value::Float(base.powf(exp)))
-            }
-        }
-    });
+    register_fn(env, "pow", pow_impl);
+    register_fn(env, "expt", pow_impl);
+    register_fn(env, "math/pow", pow_impl);
 
     register_fn(env, "log", |args| {
         if args.len() != 1 {
@@ -414,83 +421,6 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
-    register_fn(env, "modulo", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("modulo", "2", args.len()));
-        }
-        match (&args[0], &args[1]) {
-            (Value::Int(a), Value::Int(b)) => {
-                if *b == 0 {
-                    return Err(SemaError::eval("modulo: division by zero"));
-                }
-                Ok(Value::Int(a % b))
-            }
-            _ => {
-                let a = args[0]
-                    .as_float()
-                    .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
-                let b = args[1]
-                    .as_float()
-                    .ok_or_else(|| SemaError::type_error("number", args[1].type_name()))?;
-                if b == 0.0 {
-                    return Err(SemaError::eval("modulo: division by zero"));
-                }
-                Ok(Value::Float(a % b))
-            }
-        }
-    });
-
-    register_fn(env, "expt", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("expt", "2", args.len()));
-        }
-        match (&args[0], &args[1]) {
-            (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
-                Ok(Value::Int(base.wrapping_pow(*exp as u32)))
-            }
-            _ => {
-                let base = args[0]
-                    .as_float()
-                    .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
-                let exp = args[1]
-                    .as_float()
-                    .ok_or_else(|| SemaError::type_error("number", args[1].type_name()))?;
-                Ok(Value::Float(base.powf(exp)))
-            }
-        }
-    });
-
-    register_fn(env, "ceiling", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("ceiling", "1", args.len()));
-        }
-        match &args[0] {
-            Value::Int(n) => Ok(Value::Int(*n)),
-            Value::Float(f) => Ok(Value::Int(f.ceil() as i64)),
-            _ => Err(SemaError::type_error("number", args[0].type_name())),
-        }
-    });
-
-    register_fn(env, "math/pow", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("math/pow", "2", args.len()));
-        }
-        match (&args[0], &args[1]) {
-            (Value::Int(base), Value::Int(exp)) if *exp >= 0 => {
-                Ok(Value::Int(base.wrapping_pow(*exp as u32)))
-            }
-            _ => {
-                let base = args[0]
-                    .as_float()
-                    .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
-                let exp = args[1]
-                    .as_float()
-                    .ok_or_else(|| SemaError::type_error("number", args[1].type_name()))?;
-                Ok(Value::Float(base.powf(exp)))
-            }
-        }
-    });
-
     register_fn(env, "math/sinh", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("math/sinh", "1", args.len()));
@@ -603,26 +533,6 @@ pub fn register(env: &sema_core::Env) {
 
     env.set_str("math/infinity", Value::Float(f64::INFINITY));
     env.set_str("math/nan", Value::Float(f64::NAN));
-
-    register_fn(env, "even?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("even?", "1", args.len()));
-        }
-        let n = args[0]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
-        Ok(Value::Bool(n % 2 == 0))
-    });
-
-    register_fn(env, "odd?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("odd?", "1", args.len()));
-        }
-        let n = args[0]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
-        Ok(Value::Bool(n % 2 != 0))
-    });
 }
 
 fn num_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {

@@ -2,6 +2,23 @@ use sema_core::{SemaError, Value};
 
 use crate::register_fn;
 
+fn bool_pred(args: &[Value]) -> Result<Value, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("bool?", "1", args.len()));
+    }
+    Ok(Value::Bool(matches!(&args[0], Value::Bool(_))))
+}
+
+fn procedure_pred(args: &[Value]) -> Result<Value, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("fn?", "1", args.len()));
+    }
+    Ok(Value::Bool(matches!(
+        &args[0],
+        Value::Lambda(_) | Value::NativeFn(_)
+    )))
+}
+
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "null?", |args| {
         if args.len() != 1 {
@@ -80,12 +97,8 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Bool(matches!(&args[0], Value::Map(_))))
     });
 
-    register_fn(env, "bool?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("bool?", "1", args.len()));
-        }
-        Ok(Value::Bool(matches!(&args[0], Value::Bool(_))))
-    });
+    register_fn(env, "bool?", bool_pred);
+    register_fn(env, "boolean?", bool_pred);
 
     register_fn(env, "nil?", |args| {
         if args.len() != 1 {
@@ -94,15 +107,8 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Bool(matches!(&args[0], Value::Nil)))
     });
 
-    register_fn(env, "fn?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("fn?", "1", args.len()));
-        }
-        Ok(Value::Bool(matches!(
-            &args[0],
-            Value::Lambda(_) | Value::NativeFn(_)
-        )))
-    });
+    register_fn(env, "fn?", procedure_pred);
+    register_fn(env, "procedure?", procedure_pred);
 
     register_fn(env, "prompt?", |args| {
         if args.len() != 1 {
@@ -150,23 +156,6 @@ pub fn register(env: &sema_core::Env) {
             Value::List(l) => !l.is_empty(),
             _ => false,
         }))
-    });
-
-    register_fn(env, "boolean?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("boolean?", "1", args.len()));
-        }
-        Ok(Value::Bool(matches!(&args[0], Value::Bool(_))))
-    });
-
-    register_fn(env, "procedure?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("procedure?", "1", args.len()));
-        }
-        Ok(Value::Bool(matches!(
-            &args[0],
-            Value::Lambda(_) | Value::NativeFn(_)
-        )))
     });
 
     register_fn(env, "equal?", |args| {
