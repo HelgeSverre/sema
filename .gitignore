@@ -23,6 +23,6 @@
 
 # Misc
 wip/
-docs/
+/docs/
 bench-*.txt
 measurements.txt

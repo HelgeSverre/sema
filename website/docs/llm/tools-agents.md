@@ -1,0 +1,128 @@
+---
+outline: [2, 3]
+---
+
+# Tools & Agents
+
+## Tools
+
+Tools let you define functions that the LLM can invoke during a conversation. The LLM sees the tool's name, description, and parameter schema, and can call it when appropriate.
+
+### `deftool`
+
+Define a tool with a name, description, parameter schema, and handler function.
+
+```scheme
+(deftool lookup-capital
+  "Look up the capital of a country"
+  {:country {:type :string :description "Country name"}}
+  (lambda (country)
+    (cond
+      ((= country "Norway") "Oslo")
+      ((= country "France") "Paris")
+      (else "Unknown"))))
+```
+
+### Using Tools with Chat
+
+Pass tools to `llm/chat` — the LLM will call them automatically when needed.
+
+```scheme
+(llm/chat
+  [(message :user "What is the capital of Norway?")]
+  {:tools [lookup-capital] :max-tokens 100})
+```
+
+### Inspecting Tools
+
+### `tool/name`
+
+```scheme
+(tool/name lookup-capital)              ; => "lookup-capital"
+```
+
+### `tool/description`
+
+```scheme
+(tool/description lookup-capital)       ; => "Look up the capital..."
+```
+
+### `tool/parameters`
+
+```scheme
+(tool/parameters lookup-capital)        ; => {:country {:type :string ...}}
+```
+
+### `tool?`
+
+```scheme
+(tool? lookup-capital)                  ; => #t
+```
+
+## Agents
+
+Agents combine a system prompt, tools, and a multi-turn loop. They handle the back-and-forth of tool calls automatically.
+
+### `defagent`
+
+Define an agent with a system prompt, tools, model, and turn limit.
+
+```scheme
+(deftool get-weather
+  "Get weather for a city"
+  {:city {:type :string}}
+  (lambda (city)
+    (format "~a: 22°C, sunny" city)))
+
+(defagent weather-bot
+  {:system "You are a weather assistant. Use the get-weather tool."
+   :tools [get-weather]
+   :model "claude-haiku-4-5-20251001"
+   :max-turns 3})
+```
+
+### `agent/run`
+
+Run an agent with a user message. The agent will loop, calling tools as needed, until it has a final answer or hits the turn limit.
+
+```scheme
+(agent/run weather-bot "What's the weather in Tokyo?")
+```
+
+### Inspecting Agents
+
+### `agent/name`
+
+```scheme
+(agent/name weather-bot)                ; => "weather-bot"
+```
+
+### `agent/system`
+
+```scheme
+(agent/system weather-bot)              ; => "You are a weather assistant..."
+```
+
+### `agent/tools`
+
+```scheme
+(agent/tools weather-bot)               ; => list of tool values
+```
+
+### `agent/model`
+
+```scheme
+(agent/model weather-bot)               ; => "claude-haiku-4-5-20251001"
+```
+
+### `agent/max-turns`
+
+```scheme
+(agent/max-turns weather-bot)           ; => 3
+```
+
+### `agent?`
+
+```scheme
+(agent? weather-bot)                    ; => #t
+```
