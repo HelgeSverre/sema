@@ -843,7 +843,12 @@ Agents combine a system prompt, tools, and a multi-turn loop:
 (llm/similarity v1 v2)                 ; => 0.87 (cosine similarity)
 
 ;; Batch embeddings
-(llm/embed ["cat" "dog" "fish"])       ; => list of vectors
+(llm/embed ["cat" "dog" "fish"])       ; => list of bytevectors
+
+;; Embedding accessors
+(embedding/length v1)                  ; => 1536 (dimensions)
+(embedding/ref v1 0)                   ; => 0.023 (first dimension)
+(embedding/->list v1)                  ; => (0.023 -0.014 ...) as list
 ```
 
 ### Provider Management
@@ -874,9 +879,12 @@ Agents combine a system prompt, tools, and a multi-turn loop:
 (llm/budget-remaining)                 ; => {:limit 1.0 :spent 0.05 :remaining 0.95}
 (llm/clear-budget)                     ; remove limit
 
-;; Custom pricing for unlisted models
-(llm/set-pricing "my-model" 1.0 3.0)  ; input/output per million tokens
+;; Pricing sources (checked in order: custom > dynamic > built-in)
+(llm/pricing-status)                   ; => {:source fetched :updated-at "2025-10-10"}
+(llm/set-pricing "my-model" 1.0 3.0)  ; custom pricing (per million tokens)
 ```
+
+Pricing data is fetched from [llm-prices.com](https://www.llm-prices.com) during auto-configure and cached locally. Works fully offline with built-in fallback estimates.
 
 ### Batch & Parallel
 
