@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Dynamic LLM pricing** — pricing data is now fetched from [llm-prices.com](https://www.llm-prices.com) during `(llm/auto-configure)` and cached at `~/.sema/pricing-cache.json`. Falls back to built-in estimates when offline. Custom pricing via `(llm/set-pricing)` always takes priority.
+- **`llm/pricing-status`** — new builtin to inspect which pricing source is active and when it was last updated.
+
+### Fixed
+
+- **Stale Groq pricing** — Groq models are no longer hardcoded as free ($0.00); updated to current estimates.
+- **Budget enforcement with unknown pricing** — now warns once instead of silently skipping cost tracking when pricing is unavailable for a model.
+
+## 0.8.2
+
+### Performance
+
+- **Env bindings switched from `BTreeMap` to `hashbrown::HashMap`** — variable lookups are now O(1) amortized instead of O(log n), significantly improving performance on compute-heavy code.
+- **Pre-interned special form symbols** — `else`, `catch`, and `export` symbols in `cond`/`try`/`case`/`module` are now compared as integer Spurs instead of allocating strings via `resolve()`.
+- **Deferred `CallFrame` file allocation** — `CallFrame.file` now stores `PathBuf` directly instead of eagerly converting to `String` on every function call; string conversion only happens when formatting stack traces (on errors).
+- **Lambda self-reference via `Rc::clone`** — recursive named lambdas no longer reconstruct the entire `Lambda` struct (params, body, env) on every call; they reuse the existing `Rc<Lambda>`.
+- **Allocation-free `Display` for `Value`** — `Symbol`, `Keyword`, and `Record` display now use `with_resolved()` (borrows `&str`) instead of `resolve()` (allocates `String`).
+- **Step-limit check hoisted out of trampoline loop** — `EVAL_STEP_LIMIT` TLS read moved before the loop so it's read once per eval instead of every iteration.
+- **Optimized release profile** — added `lto = "thin"`, `codegen-units = 1`, `panic = "abort"` for faster release binaries; separate `release-with-debug` profile for profiling.
+
+## 0.8.1
+
+### Fixed
+
+- **Unicode-safe string operations** — `string-length`, `substring`, `length`, and `count` now count characters (Unicode scalar values) instead of bytes. `string/pad-left` and `string/pad-right` use character width for padding. Previously, `(string-length "héllo")` returned 6 (bytes); now it correctly returns 5 (characters). `substring` no longer panics on multi-byte character boundaries.
+- **Display panic on multi-byte strings** — Fixed `truncate` in `Value::Message` display to use character-based truncation instead of byte slicing, which could panic on messages containing emoji or non-ASCII text.
+- **HashMap support in map operations** — `dissoc`, `merge`, `map/entries`, `map/map-vals`, `map/filter`, `map/select-keys`, `map/map-keys`, and `map/update` now accept both sorted maps and hashmaps, preserving the input type. Previously these functions only worked on sorted maps.
+
 ## 0.8.0
 
 ### Added
