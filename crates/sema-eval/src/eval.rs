@@ -28,6 +28,13 @@ thread_local! {
     static CALL_STACK: RefCell<Vec<CallFrame>> = const { RefCell::new(Vec::new()) };
     /// Span table: Rc pointer address → source span
     static SPAN_TABLE: RefCell<HashMap<usize, Span>> = RefCell::new(HashMap::new());
+    /// Eval nesting depth — tracks recursive eval_value calls (special forms + function calls)
+    static EVAL_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Optional step limit for the trampoline loop (0 = unlimited).
+    /// Used by fuzz targets to terminate infinite loops.
+    static EVAL_STEP_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Current step counter (reset per top-level eval).
+    static EVAL_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 pub fn push_file_path(path: PathBuf) {
@@ -112,6 +119,12 @@ pub fn lookup_span(ptr: usize) -> Option<Span> {
     SPAN_TABLE.with(|t| t.borrow().get(&ptr).cloned())
 }
 
+/// Set an optional limit on total eval steps (0 = unlimited).
+/// When the limit is reached, eval returns an error instead of continuing.
+pub fn set_eval_step_limit(limit: usize) {
+    EVAL_STEP_LIMIT.with(|l| l.set(limit));
+}
+
 /// Get the current file name (for stack frames).
 pub fn current_file_name() -> Option<String> {
     CURRENT_FILE.with(|f| f.borrow().last().map(|p| p.to_string_lossy().to_string()))
@@ -165,12 +178,21 @@ impl Interpreter {
     }
 
     pub fn eval(&self, expr: &Value) -> EvalResult {
-        let env = Env::with_parent(self.global_env.clone());
-        eval_value(expr, &env)
+        eval_value(expr, &Env::with_parent(self.global_env.clone()))
     }
 
     pub fn eval_str(&self, input: &str) -> EvalResult {
         eval_string(input, &Env::with_parent(self.global_env.clone()))
+    }
+
+    /// Evaluate in the global environment so that `define` persists across calls.
+    pub fn eval_in_global(&self, expr: &Value) -> EvalResult {
+        eval_value(expr, &self.global_env)
+    }
+
+    /// Parse and evaluate in the global environment so that `define` persists across calls.
+    pub fn eval_str_in_global(&self, input: &str) -> EvalResult {
+        eval_string(input, &self.global_env)
     }
 }
 
@@ -190,14 +212,54 @@ pub fn eval(expr: &Value, env: &Env) -> EvalResult {
     eval_value(expr, env)
 }
 
-/// Evaluate with trampoline for TCO.
+/// Maximum eval nesting depth before we bail with an error.
+/// This prevents native stack overflow from unbounded recursion
+/// (both function calls and special form nesting like deeply nested if/let/begin).
+const MAX_EVAL_DEPTH: usize = 1024;
+
 pub fn eval_value(expr: &Value, env: &Env) -> EvalResult {
+    let depth = EVAL_DEPTH.with(|d| {
+        let v = d.get();
+        d.set(v + 1);
+        v
+    });
+    // Reset step counter at the top-level eval entry
+    if depth == 0 {
+        EVAL_STEPS.with(|s| s.set(0));
+    }
+    if depth > MAX_EVAL_DEPTH {
+        EVAL_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+        return Err(SemaError::eval(format!(
+            "maximum eval depth exceeded ({MAX_EVAL_DEPTH})"
+        )));
+    }
+
+    let result = eval_value_inner(expr, env);
+
+    EVAL_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    result
+}
+
+fn eval_value_inner(expr: &Value, env: &Env) -> EvalResult {
     let mut current_expr = expr.clone();
     let mut current_env = env.clone();
     let entry_depth = call_stack_depth();
     let guard = CallStackGuard { entry_depth };
 
     loop {
+        // Check optional step limit (used by fuzz targets to terminate infinite loops)
+        let limit = EVAL_STEP_LIMIT.with(|l| l.get());
+        if limit > 0 {
+            let steps = EVAL_STEPS.with(|s| {
+                let v = s.get() + 1;
+                s.set(v);
+                v
+            });
+            if steps > limit {
+                return Err(SemaError::eval("eval step limit exceeded".to_string()));
+            }
+        }
+
         match eval_step(&current_expr, &current_env) {
             Ok(Trampoline::Value(v)) => {
                 drop(guard);

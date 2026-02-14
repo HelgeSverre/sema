@@ -7,6 +7,10 @@ edition = "2021"
 name = "sema"
 path = "src/main.rs"
 
+[lib]
+name = "sema"
+path = "src/lib.rs"
+
 [dependencies]
 sema-core.workspace = true
 sema-reader.workspace = true
