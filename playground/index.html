@@ -87,15 +87,82 @@
   main {
     flex: 1;
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 200px 55fr 45fr;
     min-height: 0;
   }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    background: var(--bg);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    padding: 0 0.75rem;
+    height: 36px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-toolbar);
+    flex-shrink: 0;
+  }
+  .sidebar-title {
+    font-size: 0.7rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .sidebar-tree {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.5rem 0;
+  }
+  .tree-category {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.65rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    user-select: none;
+  }
+  .tree-category:hover { color: var(--text); }
+  .tree-chevron {
+    font-size: 0.6rem;
+    width: 0.8rem;
+    text-align: center;
+  }
+  .tree-items.collapsed { display: none; }
+  .tree-file {
+    display: block;
+    width: 100%;
+    padding: 0.25rem 0.75rem 0.25rem 1.8rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    color: var(--text);
+    background: none;
+    border: none;
+    text-align: left;
+    cursor: pointer;
+    transition: color 0.1s, background 0.1s;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .tree-file:hover { color: var(--text-bright); background: var(--gold-glow); }
+  .tree-file.active { color: var(--gold); background: var(--gold-glow); }
 
   /* ── Editor pane ── */
   .pane {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    min-width: 0;
   }
 
   .pane-header {
@@ -198,45 +265,6 @@
     font-style: italic;
   }
 
-  /* ── Examples bar ── */
-  .examples-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0 1rem;
-    height: 32px;
-    border-top: 1px solid var(--border);
-    background: var(--bg-toolbar);
-    flex-shrink: 0;
-    overflow-x: auto;
-  }
-
-  .examples-label {
-    font-size: 0.65rem;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-
-  .example-btn {
-    font-family: var(--mono);
-    font-size: 0.65rem;
-    color: var(--text);
-    background: none;
-    border: 1px solid var(--border);
-    padding: 0.15rem 0.55rem;
-    border-radius: 3px;
-    cursor: pointer;
-    white-space: nowrap;
-    transition: border-color 0.15s, color 0.15s;
-  }
-  .example-btn:hover {
-    border-color: var(--gold-dim);
-    color: var(--gold);
-  }
-
   /* ── Status bar ── */
   .status-bar {
     display: flex;
@@ -302,7 +330,8 @@
 
   /* ── Responsive ── */
   @media (max-width: 768px) {
-    main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+    main { grid-template-columns: 1fr; grid-template-rows: auto 1fr 1fr; }
+    .sidebar { max-height: 200px; border-right: none; border-bottom: 1px solid var(--border); }
     .editor-pane { border-right: none; border-bottom: 1px solid var(--border); }
   }
 </style>
@@ -324,6 +353,12 @@
 </header>
 
 <main>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span class="sidebar-title">Explorer</span>
+    </div>
+    <div class="sidebar-tree" id="sidebar-tree"></div>
+  </div>
   <div class="pane editor-pane">
     <div class="pane-header">
       <span class="pane-title">Source</span>
@@ -338,9 +373,6 @@
   (format &quot;Hello, ~a!&quot; name))
 
 (greet &quot;world&quot;)"></textarea>
-    <div class="examples-bar">
-      <span class="examples-label">Examples:</span>
-    </div>
   </div>
   <div class="pane output-pane">
     <div class="pane-header">
@@ -362,12 +394,13 @@
 import init, { WasmInterpreter } from './pkg/sema_wasm.js';
 
 const examples = [
-  { name: 'Hello', code: `;; Hello World
+  { category: 'Getting Started', files: [
+    { name: 'hello.sema', code: `;; Hello World
 (define (greet name)
   (format "Hello, ~a!" name))
 
 (greet "world")` },
-  { name: 'Fibonacci', code: `;; Fibonacci with tail-call optimization
+    { name: 'fibonacci.sema', code: `;; Fibonacci with tail-call optimization
 (define (fib n)
   (define (go a b i)
     (if (= i 0) a
@@ -375,22 +408,7 @@ const examples = [
   (go 0 1 n))
 
 (map fib (range 1 16))` },
-  { name: 'Map & Filter', code: `;; Functional data processing
-(define people
-  [{:name "Ada" :age 36}
-   {:name "Bob" :age 28}
-   {:name "Cat" :age 42}
-   {:name "Dan" :age 31}])
-
-(println "Names:" (map (fn (p) (:name p)) people))
-
-(println "Over 30:"
-  (filter (fn (p) (> (:age p) 30)) people))
-
-(println "Avg age:"
-  (/ (apply + (map (fn (p) (:age p)) people))
-     (length people)))` },
-  { name: 'FizzBuzz', code: `;; Classic FizzBuzz
+    { name: 'fizzbuzz.sema', code: `;; Classic FizzBuzz
 (define (fizzbuzz n)
   (cond
     ((= 0 (mod n 15)) "FizzBuzz")
@@ -399,7 +417,21 @@ const examples = [
     (else              n)))
 
 (map fizzbuzz (range 1 21))` },
-  { name: 'Closures', code: `;; Closures and higher-order functions
+    { name: 'quicksort.sema', code: `;; Quicksort
+(define (qsort lst)
+  (if (or (null? lst) (null? (cdr lst)))
+      lst
+      (let ((pivot (car lst))
+            (rest  (cdr lst)))
+        (append
+          (qsort (filter (fn (x) (< x pivot)) rest))
+          (list pivot)
+          (qsort (filter (fn (x) (>= x pivot)) rest))))))
+
+(qsort '(38 27 43 3 9 82 10 1))` },
+  ]},
+  { category: 'Functional', files: [
+    { name: 'closures.sema', code: `;; Closures and higher-order functions
 (define (make-counter start)
   (let ((n start))
     (lambda ()
@@ -420,7 +452,250 @@ const examples = [
            (fn (x) (+ x 1))))
 
 (map add1-then-double (range 1 6))` },
-  { name: 'Strings', code: `;; String operations
+    { name: 'map-filter.sema', code: `;; Functional data processing
+(define people
+  [{:name "Ada" :age 36}
+   {:name "Bob" :age 28}
+   {:name "Cat" :age 42}
+   {:name "Dan" :age 31}])
+
+(println "Names:" (map (fn (p) (:name p)) people))
+
+(println "Over 30:"
+  (filter (fn (p) (> (:age p) 30)) people))
+
+(println "Avg age:"
+  (/ (apply + (map (fn (p) (:age p)) people))
+     (length people)))` },
+    { name: 'comprehensions.sema', code: `;;; List and map comprehensions via macros
+;;;
+;;; Implements Python/Haskell-style comprehensions:
+;;;   (for/list ((x xs) (y ys)) body)
+;;;   (for/list ((x xs) (:when pred)) body)
+
+;; Simple list comprehension
+(defmacro for/list (bindings body)
+  (define (expand bs)
+    (if (null? bs)
+      \`(list ,body)
+      (let ((clause (car bs))
+            (rest (cdr bs)))
+        (if (and (list? clause) (= (car clause) :when))
+          \`(let ((__result ,(expand rest)))
+             (if ,(cadr clause) __result '()))
+          (let ((var (car clause))
+                (seq (cadr clause)))
+            \`(apply append
+               (map (fn (,var) ,(expand rest)) ,seq)))))))
+  (expand bindings))
+
+(defmacro for/sum (bindings body)
+  \`(foldl + 0 (for/list ,bindings ,body)))
+
+(defmacro for/string (bindings body)
+  \`(string/join (for/list ,bindings ,body) ""))
+
+(defmacro for/every? (bindings body)
+  \`(null? (filter (fn (x) (not x)) (for/list ,bindings ,body))))
+
+(println "=== Comprehensions ===\\n")
+
+;; Squares of 1..10
+(println (format "Squares: ~a"
+  (for/list ((x (range 1 11))) (* x x))))
+
+;; Cartesian product
+(println (format "Pairs: ~a"
+  (for/list ((x (list 1 2 3))
+             (y (list "a" "b")))
+    (list x y))))
+
+;; Even squares with filter
+(println (format "Even squares: ~a"
+  (for/list ((x (range 1 21))
+             (:when (even? x)))
+    (* x x))))
+
+;; Pythagorean triples
+(define triples
+  (for/list ((a (range 1 21))
+             (b (range a 21))
+             (:when (let ((c (sqrt (+ (* a a) (* b b)))))
+                      (= c (floor c)))))
+    (list a b (int (sqrt (+ (* a a) (* b b)))))))
+(println (format "\\nPythagorean triples: ~a" triples))
+
+;; Sum of cubes
+(println (format "\\nSum of cubes 1..10: ~a"
+  (for/sum ((n (range 1 11))) (* n n n))))
+
+;; Matrix transpose
+(define matrix (list (list 1 2 3) (list 4 5 6) (list 7 8 9)))
+(define transposed
+  (for/list ((col (range 3)))
+    (map (fn (row) (nth row col)) matrix)))
+(println (format "\\nMatrix:     ~a" matrix))
+(println (format "Transposed: ~a" transposed))` },
+    { name: 'threading.sema', code: `;;; Threading macros for pipeline-style code
+;;; Clojure-style -> (thread-first), ->> (thread-last),
+;;; as-> (thread-as), some-> (nil-safe)
+
+(defmacro -> (val . forms)
+  (if (null? forms) val
+    (let ((form (car forms)) (rest (cdr forms)))
+      (if (list? form)
+        \`(-> (,(car form) ,val ,@(cdr form)) ,@rest)
+        \`(-> (,form ,val) ,@rest)))))
+
+(defmacro ->> (val . forms)
+  (if (null? forms) val
+    (let ((form (car forms)) (rest (cdr forms)))
+      (if (list? form)
+        \`(->> (,(car form) ,@(cdr form) ,val) ,@rest)
+        \`(->> (,form ,val) ,@rest)))))
+
+(defmacro as-> (val name . forms)
+  (if (null? forms) val
+    (let ((form (car forms)) (rest (cdr forms)))
+      \`(let ((,name ,val))
+         (as-> ,form ,name ,@rest)))))
+
+(defmacro some-> (val . forms)
+  (if (null? forms) val
+    (let ((form (car forms)) (rest (cdr forms)))
+      (if (list? form)
+        \`(let ((__v ,val))
+           (if (nil? __v) nil (some-> (,(car form) __v ,@(cdr form)) ,@rest)))
+        \`(let ((__v ,val))
+           (if (nil? __v) nil (some-> (,form __v) ,@rest)))))))
+
+(println "=== Threading Macros ===\\n")
+
+(println "--- Thread-first (->) ---")
+(println (format "  (-> 5 (+ 3) (* 2))           = ~a" (-> 5 (+ 3) (* 2))))
+(println (format "  (-> \\"hello\\" string-length)    = ~a" (-> "hello" string-length)))
+
+(println "\\n--- Thread-last (->>) ---")
+(println (format "  (->> (range 10) (filter odd?)) = ~a" (->> (range 10) (filter odd?))))
+(println (format "  (->> (range 1 11) (filter even?) (foldl + 0)) = ~a"
+  (->> (range 1 11) (filter even?) (foldl + 0))))
+
+(println "\\n--- Thread-as (as->) ---")
+(println (format "  (as-> 5 x (+ x 3) (* x x) (- x 1)) = ~a"
+  (as-> 5 x (+ x 3) (* x x) (- x 1))))
+
+(println "\\n--- Nil-safe threading (some->) ---")
+(define people {:alice {:age 30 :address {:city "Paris"}}
+                :bob {:age 25 :address nil}})
+(println (format "  alice's city: ~a"
+  (some-> (get people :alice) (get :address) (get :city))))
+(println (format "  bob's city:   ~a"
+  (some-> (get people :bob) (get :address) (get :city))))
+
+;; Practical: word frequency pipeline
+(println "\\n--- Word frequency pipeline ---")
+(define text "the quick brown fox jumps over the lazy brown fox the fox")
+(define top-words
+  (sort
+    (->> (string/split text " ")
+         (foldl (fn (acc w)
+                  (map/update acc (string->keyword w) (fn (v) (if (nil? v) 1 (+ v 1)))))
+                {})
+         (map/entries))
+    (fn (a b) (- (cadr b) (cadr a)))))
+
+(for-each
+  (fn (entry) (println (format "  ~a: ~a" (car entry) (cadr entry))))
+  top-words)` },
+    { name: 'lazy-streams.sema', code: `;;; Lazy sequences (streams) via closures
+;;; Infinite data structures using thunks (SICP-style)
+
+(define stream-empty nil)
+(define (stream-empty? s) (nil? s))
+(define (stream-cons head tail-thunk) (list head tail-thunk))
+(define (stream-car s) (car s))
+(define (stream-cdr s) ((cadr s)))
+
+(define (stream-take n s)
+  (let loop ((i n) (s s) (acc '()))
+    (if (or (= i 0) (stream-empty? s))
+      (reverse acc)
+      (loop (- i 1) (stream-cdr s) (cons (stream-car s) acc)))))
+
+(define (stream-drop n s)
+  (let loop ((i n) (s s))
+    (if (or (= i 0) (stream-empty? s)) s
+      (loop (- i 1) (stream-cdr s)))))
+
+(define (stream-ref s n) (stream-car (stream-drop n s)))
+
+(define (stream-map f s)
+  (if (stream-empty? s) stream-empty
+    (stream-cons (f (stream-car s))
+                 (fn () (stream-map f (stream-cdr s))))))
+
+(define (stream-filter pred s)
+  (cond
+    ((stream-empty? s) stream-empty)
+    ((pred (stream-car s))
+     (stream-cons (stream-car s)
+                  (fn () (stream-filter pred (stream-cdr s)))))
+    (else (stream-filter pred (stream-cdr s)))))
+
+(define (stream-from n)
+  (stream-cons n (fn () (stream-from (+ n 1)))))
+
+(define (stream-iterate f seed)
+  (stream-cons seed (fn () (stream-iterate f (f seed)))))
+
+(println "=== Lazy Sequences (Streams) ===\\n")
+
+(define naturals (stream-from 1))
+(println (format "First 15 naturals: ~a" (stream-take 15 naturals)))
+
+(define squares (stream-map (fn (x) (* x x)) naturals))
+(println (format "First 10 squares:  ~a" (stream-take 10 squares)))
+
+(define evens (stream-filter even? naturals))
+(println (format "First 10 evens:    ~a" (stream-take 10 evens)))
+
+(define powers-of-2 (stream-iterate (fn (x) (* x 2)) 1))
+(println (format "First 12 powers of 2: ~a" (stream-take 12 powers-of-2)))
+
+;; Fibonacci
+(define fibs
+  (let ()
+    (define (fib-gen a b) (stream-cons a (fn () (fib-gen b (+ a b)))))
+    (fib-gen 0 1)))
+(println (format "\\nFirst 20 Fibonacci: ~a" (stream-take 20 fibs)))
+(println (format "50th Fibonacci: ~a" (stream-ref fibs 50)))
+
+;; Sieve of Eratosthenes
+(define (sieve s)
+  (let ((p (stream-car s)))
+    (stream-cons p
+      (fn () (sieve (stream-filter
+                      (fn (n) (not (= 0 (math/remainder n p))))
+                      (stream-cdr s)))))))
+
+(define primes (sieve (stream-from 2)))
+(println (format "\\nFirst 25 primes: ~a" (stream-take 25 primes)))
+(println (format "100th prime: ~a" (stream-ref primes 99)))
+
+;; Collatz streams
+(define (collatz-stream n)
+  (stream-cons n
+    (fn () (if (= n 1) stream-empty
+      (collatz-stream (if (even? n) (/ n 2) (+ (* 3 n) 1)))))))
+
+(println (format "\\nCollatz(27): ~a" (stream-take 30 (collatz-stream 27))))
+
+;; First 10 primes > 1000
+(define big-primes (stream-filter (fn (p) (> p 1000)) primes))
+(println (format "\\nFirst 10 primes > 1000: ~a" (stream-take 10 big-primes)))` },
+  ]},
+  { category: 'Data', files: [
+    { name: 'strings.sema', code: `;; String operations
 (define text "Hello, Sema World!")
 
 (println "Upper:" (string/upper text))
@@ -434,7 +709,172 @@ const examples = [
 (define name "Sema")
 (define version "0.8.0")
 (format "~a v~a — A Lisp with LLM primitives" name version)` },
-  { name: 'Macros', code: `;; Define a simple macro
+    { name: 'data-pipeline.sema', code: `;; CSV processing, data transformation, and analysis
+
+(define csv-data "name,age,score,city
+Alice,32,95,Berlin
+Bob,28,82,London
+Charlie,35,91,Berlin
+Diana,24,78,Paris
+Eve,31,99,London
+Frank,29,85,Berlin
+Grace,27,73,Paris
+Henry,33,88,London")
+
+(define records (csv/parse-maps csv-data))
+(println (format "Loaded ~a records" (length records)))
+
+(define typed-records
+  (map (fn (r)
+    (assoc r :age (int (get r :age)) :score (int (get r :score))))
+    records))
+
+;; Statistics
+(define ages (map (fn (r) (get r :age)) typed-records))
+(define scores (map (fn (r) (get r :score)) typed-records))
+(println (format "Average age: ~a" (round (/ (foldl + 0 ages) (float (length ages))))))
+(println (format "Average score: ~a" (round (/ (foldl + 0 scores) (float (length scores))))))
+(println (format "Score range: ~a - ~a" (apply min scores) (apply max scores)))
+
+;; Group by city
+(define by-city (list/group-by (fn (r) (get r :city)) typed-records))
+(println "\\nPer-city breakdown:")
+(for-each
+  (fn (entry)
+    (let ((city (first entry)) (people (nth entry 1)))
+      (let* ((city-scores (map (fn (r) (get r :score)) people))
+             (city-avg (/ (foldl + 0 city-scores) (float (length city-scores)))))
+        (println (format "  ~a: ~a people, avg score ~a" city (length people) (round city-avg))))))
+  (map/entries by-city))
+
+;; Ranking
+(define ranked (sort typed-records (fn (a b) (- (get b :score) (get a :score)))))
+(println "\\nRanking:")
+(for-each
+  (fn (r)
+    (println (format "  ~a. ~a — ~a pts"
+      (string/pad-left (str (+ 1 (list/index-of ranked r))) 2)
+      (string/pad-right (get r :name) 8)
+      (get r :score))))
+  ranked)
+
+;; Export as CSV
+(define export-rows
+  (cons '("name" "score" "grade")
+    (map (fn (r)
+      (let ((score (get r :score)))
+        (list (get r :name) (str score)
+              (cond ((>= score 90) "A") ((>= score 80) "B")
+                    ((>= score 70) "C") (else "D")))))
+      ranked)))
+(println "\\nExported CSV:")
+(println (csv/encode export-rows))` },
+    { name: 'sets.sema', code: `;;; Set data structure built on maps
+
+(define (set . elems) (foldl (fn (s e) (assoc s e #t)) {} elems))
+(define (list->set lst) (foldl (fn (s e) (assoc s e #t)) {} lst))
+(define (set->list s) (keys s))
+(define empty-set {})
+(define (set/size s) (length (keys s)))
+(define (set/member? s elem) (not (nil? (get s elem))))
+(define (set/add s elem) (assoc s elem #t))
+(define (set/remove s elem) (dissoc s elem))
+
+(define (set/union s1 s2)
+  (foldl (fn (s e) (assoc s e #t)) s1 (keys s2)))
+(define (set/intersection s1 s2)
+  (foldl (fn (s e) (if (set/member? s2 e) (assoc s e #t) s)) {} (keys s1)))
+(define (set/difference s1 s2)
+  (foldl (fn (s e) (if (set/member? s2 e) s (assoc s e #t))) {} (keys s1)))
+(define (set/subset? s1 s2)
+  (foldl (fn (acc e) (and acc (set/member? s2 e))) #t (keys s1)))
+(define (set/filter pred s)
+  (foldl (fn (acc e) (if (pred e) (assoc acc e #t) acc)) {} (keys s)))
+(define (set/map f s) (list->set (map f (keys s))))
+(define (set/fold f init s) (foldl f init (keys s)))
+(define (set/display s) (str "#{" (string/join (map str (set->list s)) " ") "}"))
+
+(define (set/power-set s)
+  (let ((elems (set->list s)))
+    (foldl (fn (subsets elem)
+             (append subsets (map (fn (sub) (set/add sub elem)) subsets)))
+           (list empty-set) elems)))
+
+(println "=== Sets ===\\n")
+
+(define s1 (set 1 2 3 4 5))
+(define s2 (set 3 4 5 6 7))
+(define s3 (set 1 2 3))
+
+(println (format "s1 = ~a" (set/display s1)))
+(println (format "s2 = ~a" (set/display s2)))
+(println (format "\\ns1 ∪ s2  = ~a" (set/display (set/union s1 s2))))
+(println (format "s1 ∩ s2  = ~a" (set/display (set/intersection s1 s2))))
+(println (format "s1 \\\\ s2  = ~a" (set/display (set/difference s1 s2))))
+(println (format "\\ns3 ⊆ s1? ~a" (set/subset? s3 s1)))
+(println (format "evens:   ~a" (set/display (set/filter even? s1))))
+(println (format "doubled: ~a" (set/display (set/map (fn (x) (* x 2)) s1))))
+(println (format "sum:     ~a" (set/fold + 0 s1)))
+
+(println (format "\\nPower set of ~a:" (set/display (set 1 2 3))))
+(for-each (fn (sub) (println (format "  ~a" (set/display sub))))
+  (set/power-set (set 1 2 3)))` },
+    { name: 'text-processing.sema', code: `;; String manipulation, regex, and text analysis
+
+(define sample-text
+  "The quick brown fox jumps over the lazy dog. The dog barked at the fox.
+   Foxes are clever animals. Dogs are loyal companions.
+   The quick brown fox ran quickly through the forest.")
+
+;; Word frequency analysis
+(define words (map string/lower (regex/find-all "[A-Za-z]+" sample-text)))
+(println (format "Total words: ~a" (length words)))
+(println (format "Unique words: ~a" (length (list/unique words))))
+
+(define freq
+  (foldl (fn (acc word)
+    (map/update acc (string->keyword word) (fn (v) (if (nil? v) 1 (+ v 1)))))
+    {} words))
+
+(define sorted-freq
+  (sort (map/entries freq) (fn (a b) (- (nth b 1) (nth a 1)))))
+
+(println "\\nTop 10 most frequent words:")
+(for-each
+  (fn (entry)
+    (println (format "  ~a: ~a"
+      (string/pad-right (keyword->string (first entry)) 12)
+      (string/repeat "#" (nth entry 1)))))
+  (take 10 sorted-freq))
+
+;; Sentence extraction
+(define sentences
+  (filter (fn (s) (> (string-length (string/trim s)) 0))
+    (regex/split "[.!?]+" sample-text)))
+(println (format "\\n~a sentences found:" (length sentences)))
+(for-each (fn (s) (println (format "  - ~a" (string/trim s)))) sentences)
+
+;; Caesar cipher
+(define (caesar-encrypt text shift)
+  (list->string
+    (map (fn (ch)
+      (if (char-alphabetic? ch)
+        (let ((base (if (char-upper-case? ch) 65 97))
+              (code (char->integer ch)))
+          (integer->char (+ base (math/remainder (- (+ code shift) base) 26))))
+        ch))
+      (string/chars text))))
+
+(define original "Hello World")
+(define encrypted (caesar-encrypt original 3))
+(define decrypted (caesar-encrypt encrypted 23))
+(println (format "\\nCaesar cipher (shift 3):"))
+(println (format "  Original:  ~a" original))
+(println (format "  Encrypted: ~a" encrypted))
+(println (format "  Decrypted: ~a" decrypted))` },
+  ]},
+  { category: 'Patterns', files: [
+    { name: 'macros.sema', code: `;; Define a simple macro
 (defmacro unless (condition . body)
   \`(if (not ,condition) (begin ,@body)))
 
@@ -454,140 +894,366 @@ const examples = [
   (filter (fn (x) (> x 4))
     (map (fn (x) (* x x))
       (sort data <))))` },
-  { name: 'Maze', code: `;; ASCII maze generator
-(define width 15)
-(define height 10)
+    { name: 'multimethods.sema', code: `;;; Type-dispatched polymorphism via maps
 
-(define (pos x y) (str x "," y))
+(defmacro -> (val . forms)
+  (if (null? forms) val
+    (let ((form (car forms)) (rest (cdr forms)))
+      (if (list? form)
+        \`(-> (,(car form) ,val ,@(cdr form)) ,@rest)
+        \`(-> (,form ,val) ,@rest)))))
 
-(define (shuffle lst)
-  (if (<= (length lst) 1) lst
-    (let* ((i (math/random-int 0 (- (length lst) 1)))
-           (picked (nth lst i))
-           (rest (append (take i lst) (drop (+ i 1) lst))))
-      (cons picked (shuffle rest)))))
+(define (make-multi dispatch-fn) {:dispatch-fn dispatch-fn :methods {} :default nil})
+(define (add-method multi dispatch-val impl)
+  (assoc multi :methods (assoc (get multi :methods) dispatch-val impl)))
+(define (set-default-method multi impl) (assoc multi :default impl))
 
-(define directions (list (list 0 -1) (list 0 1) (list -1 0) (list 1 0)))
+(define (invoke multi . args)
+  (let* ((dispatch-val (apply (get multi :dispatch-fn) args))
+         (method (get (get multi :methods) dispatch-val)))
+    (if (nil? method)
+      (if (nil? (get multi :default))
+        (error (format "No method for: ~a" dispatch-val))
+        (apply (get multi :default) args))
+      (apply method args))))
 
-(define (unvisited-neighbors grid cx cy)
-  (filter
-    (fn (entry)
-      (let ((nx (car entry)) (ny (cadr entry)))
-        (and (>= nx 0) (< nx width)
-             (>= ny 0) (< ny height)
-             (not (get grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #f)))))
-    (map (fn (dir)
-           (list (+ cx (car dir)) (+ cy (cadr dir)) (car dir) (cadr dir)))
-         (shuffle directions))))
+(println "=== Multimethods ===\\n")
+(println "--- Shape area ---")
 
-(define (generate-maze)
-  (let loop ((stack (list (list 0 0)))
-             (grid (assoc {} (pos 1 1) #t)))
-    (if (null? stack) grid
-      (let* ((cell (car stack))
-             (cx (car cell)) (cy (cadr cell))
-             (neighbors (unvisited-neighbors grid cx cy)))
-        (if (null? neighbors)
-          (loop (cdr stack) grid)
-          (let* ((next (car neighbors))
-                 (nx (car next)) (ny (cadr next))
-                 (dx (nth next 2)) (dy (nth next 3))
-                 (grid (assoc grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #t))
-                 (grid (assoc grid (pos (+ (* cx 2) 1 dx) (+ (* cy 2) 1 dy)) #t)))
-            (loop (cons (list nx ny) stack) grid)))))))
+(define area
+  (-> (make-multi (fn (shape) (get shape :type)))
+      (add-method :circle (fn (s) (* pi (get s :radius) (get s :radius))))
+      (add-method :rect (fn (s) (* (get s :width) (get s :height))))
+      (add-method :triangle (fn (s) (* 0.5 (get s :base) (get s :height))))))
 
-(define grid-w (+ (* 2 width) 1))
-(define grid-h (+ (* 2 height) 1))
+(for-each
+  (fn (s) (println (format "  ~a area = ~a" (get s :type) (round (* 100 (invoke area s))))))
+  (list {:type :circle :radius 5}
+        {:type :rect :width 4 :height 6}
+        {:type :triangle :base 8 :height 3}))
 
-(define (render grid)
-  (for-each
-    (fn (y)
-      (println
-        (string/join
-          (map (fn (x)
-                 (if (get grid (pos x y) #f) "  " "##"))
-               (range grid-w)) "")))
-    (range grid-h)))
+;; Open extension — add ellipse without modifying existing code
+(define area (add-method area :ellipse
+  (fn (s) (* pi (get s :a) (get s :b)))))
+(println (format "  ~a area = ~a" :ellipse
+  (round (* 100 (invoke area {:type :ellipse :a 3 :b 5})))))
 
-(render (generate-maze))` },
-  { name: 'Mandelbrot', code: `;; ASCII Mandelbrot set
-(define chars " .:-=+*#%@")
-(define num-chars (string-length chars))
+(println "\\n--- Animal sounds ---")
+(define speak
+  (-> (make-multi (fn (a) (get a :species)))
+      (add-method :dog (fn (a) (format "~a says: Woof!" (get a :name))))
+      (add-method :cat (fn (a) (format "~a says: Meow!" (get a :name))))
+      (add-method :duck (fn (a) (format "~a says: Quack!" (get a :name))))
+      (set-default-method (fn (a) (format "~a says: ..." (get a :name))))))
 
-(define (mandelbrot-iter cx cy max-iter)
-  (do ((i 0 (+ i 1))
-       (zr 0.0 (+ (- (* zr zr) (* zi zi)) cx))
-       (zi 0.0 (+ (* 2.0 old-zr zi) cy))
-       (old-zr 0.0 zr))
-    ((or (>= i max-iter)
-         (> (+ (* zr zr) (* zi zi)) 4.0))
-     i)))
+(for-each
+  (fn (a) (println (format "  ~a" (invoke speak a))))
+  (list {:species :dog :name "Rex"} {:species :cat :name "Whiskers"}
+        {:species :duck :name "Donald"} {:species :fish :name "Nemo"}))` },
+    { name: 'functional-patterns.sema', code: `;; Functional programming patterns and idioms
 
-(define (iter->char iter max-iter)
-  (if (= iter max-iter)
-    (char->string (string-ref chars (- num-chars 1)))
-    (let ((idx (floor (* (/ iter max-iter) (- num-chars 1)))))
-      (char->string (string-ref chars idx)))))
+;; === Currying ===
+(define (curry2 f) (fn (a) (fn (b) (f a b))))
+(define add (curry2 +))
+(define add5 (add 5))
+(define double ((curry2 *) 2))
+(define triple ((curry2 *) 3))
+(println (format "add5(3) = ~a, double(7) = ~a, triple(7) = ~a"
+  (add5 3) (double 7) (triple 7)))
 
-(define (render x-min x-max y-min y-max w h max-iter)
-  (let ((dx (/ (- x-max x-min) w))
-        (dy (/ (- y-max y-min) h)))
-    (do ((row 0 (+ row 1)))
-      ((= row h))
-      (let ((cy (+ y-min (* row dy))))
-        (do ((col 0 (+ col 1)))
-          ((= col w))
-          (let* ((cx (+ x-min (* col dx)))
-                 (iter (mandelbrot-iter cx cy max-iter)))
-            (display (iter->char iter max-iter)))))
-      (newline))))
+;; === Pipeline ===
+(define (pipe . fns)
+  (foldl (fn (acc f) (fn (x) (f (acc x)))) (fn (x) x) fns))
 
-(render -2.5 1.0 -1.1 1.1 60 24 80)` },
-  { name: 'Perlin Noise', code: `;; Value noise terrain generator
-(define width 60)
-(define height 20)
-(define seed (math/random-int 1 999999))
+(define process
+  (pipe (fn (x) (* x 2)) (fn (x) (+ x 10)) (fn (x) (* x x))))
+(println (format "pipe(double, +10, square)(5) = ~a" (process 5)))
 
-(define (hash x y)
-  (let* ((h (mod (+ (* (abs x) 374761393) (* (abs y) 668265263)
-                    (* seed 1274126177)) 1000000003))
-         (h2 (mod (* h h) 1000000007)))
-    (/ (mod (abs h2) 1000000) 1000000.0)))
+;; === Option/Maybe ===
+(define (maybe-map f val) (if (nil? val) nil (f val)))
+(define (maybe-or val default) (if (nil? val) default val))
 
-(define (fade t)
-  (let ((t3 (* t t t)))
-    (* t3 (+ (* t (- (* t 6.0) 15.0)) 10.0))))
+(define config {:db {:host "localhost" :port 5432} :cache nil})
+(println (format "\\ndb host: ~a"
+  (maybe-or (maybe-map (fn (db) (get db :host)) (get config :db)) "unknown")))
+(println (format "cache host: ~a"
+  (maybe-or (maybe-map (fn (c) (get c :host)) (get config :cache)) "not configured")))
 
-(define (lerp a b t) (+ a (* (- b a) t)))
+;; === Error handling ===
+(define (safe-divide a b) (try (/ a b) (catch e nil)))
+(define (try-parse s) (try {:ok (int s)} (catch e {:error (:message e)})))
+(println (format "\\n10/3 = ~a, 10/0 = ~a" (safe-divide 10 3) (safe-divide 10 0)))
+(println (format "parse \\"99\\": ~a" (try-parse "99")))
+(println (format "parse \\"nope\\": ~a" (try-parse "nope")))
 
-(define (value-noise x y)
-  (let* ((ix (floor x)) (iy (floor y))
-         (fx (- x ix)) (fy (- y iy))
-         (u (fade fx)) (v (fade fy)))
-    (lerp (lerp (hash ix iy) (hash (+ ix 1) iy) u)
-          (lerp (hash ix (+ iy 1)) (hash (+ ix 1) (+ iy 1)) u)
-          v)))
+;; === Binary Search Tree ===
+(define (make-tree val left right) (list val left right))
+(define (tree-val t) (first t))
+(define (tree-left t) (nth t 1))
+(define (tree-right t) (nth t 2))
 
-(define (octave-noise x y)
-  (let loop ((i 0) (freq 1.0) (amp 1.0) (total 0.0) (max-amp 0.0))
-    (if (= i 3) (/ total max-amp)
-      (loop (+ i 1) (* freq 2.0) (* amp 0.5)
-            (+ total (* amp (value-noise (* x freq 0.08) (* y freq 0.08))))
-            (+ max-amp amp)))))
+(define (tree-insert tree val)
+  (if (nil? tree) (make-tree val nil nil)
+    (cond
+      ((< val (tree-val tree))
+       (make-tree (tree-val tree) (tree-insert (tree-left tree) val) (tree-right tree)))
+      ((> val (tree-val tree))
+       (make-tree (tree-val tree) (tree-left tree) (tree-insert (tree-right tree) val)))
+      (else tree))))
 
-(define (terrain-char val)
-  (cond ((< val 0.30) "~") ((< val 0.38) ".") ((< val 0.50) ",")
-        ((< val 0.60) ";") ((< val 0.72) ":") ((< val 0.85) "%")
-        (#t "#")))
+(define (tree-inorder tree)
+  (if (nil? tree) '()
+    (append (tree-inorder (tree-left tree))
+            (list (tree-val tree))
+            (tree-inorder (tree-right tree)))))
 
-(do ((y 0 (+ y 1))) ((= y height))
-  (do ((x 0 (+ x 1))) ((= x width))
-    (display (terrain-char (octave-noise x y))))
-  (newline))
+(define bst (foldl tree-insert nil (list 5 3 7 1 4 6 8 2)))
+(println (format "\\nBST inorder: ~a" (tree-inorder bst)))
 
-(println "")
-(println "~ water  . sand  , grass  ; shrub  : forest  % mountain  # peak")` },
-  { name: 'Game of Life', code: `;; Conway's Game of Life
+;; === Collatz ===
+(define (collatz n)
+  (let loop ((x n) (steps 0))
+    (cond ((= x 1) steps)
+          ((even? x) (loop (/ x 2) (+ steps 1)))
+          (else (loop (+ (* 3 x) 1) (+ steps 1))))))
+
+(println "\\nCollatz sequence lengths:")
+(for-each (fn (n)
+  (println (format "  ~a → ~a steps" (string/pad-left (str n) 4) (collatz n))))
+  (list 1 7 27 97 871 6171))` },
+    { name: 'scheme-basics.sema', code: `;; Standard Scheme features
+;; Car/cdr compositions, alists, do loops, characters, promises
+
+(println "=== Car/Cdr Compositions ===")
+(define nested '((1 2 3) (4 5 6) (7 8 9)))
+(println (format "nested:  ~s" nested))
+(println (format "caar:    ~a" (caar nested)))
+(println (format "cadr:    ~s" (cadr nested)))
+(println (format "caddr:   ~s" (caddr nested)))
+
+(println "\\n=== Association Lists ===")
+(define phonebook
+  '(("Alice" "555-1234") ("Bob" "555-5678") ("Charlie" "555-9012")))
+(define entry (assoc "Bob" phonebook))
+(println (format "assoc \\"Bob\\": ~s" entry))
+(println (format "Bob's number: ~a" (cadr entry)))
+
+(println "\\n=== Do Loops ===")
+(define sum
+  (do ((i 1 (+ i 1)) (acc 0 (+ acc i)))
+    ((> i 10) acc)))
+(println (format "Sum 1..10: ~a" sum))
+
+(define fact
+  (do ((n 10 (- n 1)) (acc 1 (* acc n)))
+    ((= n 0) acc)))
+(println (format "10!: ~a" fact))
+
+(println "\\n=== Characters ===")
+(println (format "alphabetic? #\\\\A: ~a" (char-alphabetic? #\\A)))
+(println (format "numeric? #\\\\5: ~a" (char-numeric? #\\5)))
+(println (format "upcase #\\\\a: ~s" (char-upcase #\\a)))
+(println (format "string->list: ~s" (string->list "Hello")))
+
+(println "\\n=== Promises (delay/force) ===")
+(define p (delay (begin (println "  Computing...") (* 6 7))))
+(println (format "promise? p: ~a" (promise? p)))
+(println "Forcing p:")
+(define result (force p))
+(println (format "Result: ~a" result))
+(println (format "Forced? ~a" (promise-forced? p)))
+
+;; Memoization
+(define counter 0)
+(define memo-p (delay (begin (set! counter (+ counter 1)) counter)))
+(println (format "\\nFirst force:  ~a" (force memo-p)))
+(println (format "Second force: ~a (same — memoized)" (force memo-p)))` },
+    { name: 'quickcheck.sema', code: `;;; Property-based testing framework
+;;; Random inputs, test properties, shrink to minimal counterexamples
+
+(define qc-num-tests 100)
+
+;; Generators
+(define (gen/int lo hi) (fn () (math/random-int lo hi)))
+(define (gen/nat) (gen/int 0 1000))
+(define (gen/char) (fn () (char->string (integer->char (math/random-int 32 126)))))
+(define (gen/string-of max-len)
+  (fn () (let ((len (math/random-int 0 max-len)))
+    (string/join (map (fn (_) ((gen/char))) (range len)) ""))))
+(define (gen/list-of elem-gen max-len)
+  (fn () (let ((len (math/random-int 0 max-len)))
+    (map (fn (_) (elem-gen)) (range len)))))
+
+;; Shrinking
+(define (shrink-int n)
+  (if (= n 0) '()
+    (let ((half (if (> n 0) (floor (/ n 2)) (ceil (/ n 2)))))
+      (list 0 half))))
+
+(define (shrink-list lst)
+  (if (null? lst) '()
+    (cons '() (map (fn (i) (append (take i lst) (drop (+ i 1) lst)))
+                   (range (length lst))))))
+
+(define (find-minimal prop val shrinker)
+  (let loop ((current val) (fuel 50))
+    (if (= fuel 0) current
+      (let ((candidates (shrinker current)))
+        (let check ((cs candidates))
+          (if (null? cs) current
+            (if (not (prop (car cs)))
+              (loop (car cs) (- fuel 1))
+              (check (cdr cs)))))))))
+
+;; Test runner
+(define (check-property prop gen shrinker)
+  (let loop ((i 0))
+    (if (= i qc-num-tests)
+      {:status :pass :tests qc-num-tests}
+      (let ((val (gen)))
+        (if (prop val) (loop (+ i 1))
+          (let ((shrunk (if shrinker (find-minimal prop val shrinker) val)))
+            {:status :fail :counterexample val :shrunk shrunk :after-tests (+ i 1)}))))))
+
+(define (check-property-2 prop gen-a gen-b shrinker-a shrinker-b)
+  (let loop ((i 0))
+    (if (= i qc-num-tests)
+      {:status :pass :tests qc-num-tests}
+      (let ((a (gen-a)) (b (gen-b)))
+        (if (prop a b) (loop (+ i 1))
+          {:status :fail :counterexample (list a b) :after-tests (+ i 1)})))))
+
+(define (report name result)
+  (if (= (get result :status) :pass)
+    (println (format "  PASS  ~a (~a tests)" name (get result :tests)))
+    (begin
+      (println (format "  FAIL  ~a (after ~a tests)" name (get result :after-tests)))
+      (println (format "        counterexample: ~a" (get result :counterexample)))
+      (when (not (= (get result :counterexample) (get result :shrunk)))
+        (println (format "        shrunk to:      ~a" (get result :shrunk)))))))
+
+(println "=== Property-Based Testing ===\\n")
+(println "--- Should pass ---")
+
+(report "add-commutative"
+  (check-property-2 (fn (a b) (= (+ a b) (+ b a)))
+    (gen/int -1000 1000) (gen/int -1000 1000) nil nil))
+
+(report "reverse-involution"
+  (check-property (fn (lst) (equal? lst (reverse (reverse lst))))
+    (gen/list-of (gen/int 0 100) 20) shrink-list))
+
+(report "sort-idempotent"
+  (check-property (fn (lst) (equal? (sort lst) (sort (sort lst))))
+    (gen/list-of (gen/int -100 100) 20) shrink-list))
+
+(report "abs-non-negative"
+  (check-property (fn (n) (>= (abs n) 0))
+    (gen/int -10000 10000) shrink-int))
+
+(println "\\n--- Should fail (testing shrinking) ---")
+
+(report "all-less-than-50"
+  (check-property (fn (n) (< n 50)) (gen/int 0 100) shrink-int))
+
+(report "sort-is-identity"
+  (check-property (fn (lst) (equal? lst (sort lst)))
+    (gen/list-of (gen/int 0 100) 10) shrink-list))` },
+  ]},
+  { category: 'Visuals', files: [
+    { name: 'ascii-art.sema', code: `;; ASCII art generators and visualizations
+
+;; === 1. Sierpinski Triangle ===
+(println "=== Sierpinski Triangle ===\\n")
+
+(define sierpinski-rows 16)
+
+(define (pascal-next row)
+  (let loop ((i 0) (acc '()))
+    (if (> i (length row)) (reverse acc)
+      (let ((left (if (= i 0) 0 (nth row (- i 1))))
+            (right (if (= i (length row)) 0 (nth row i))))
+        (loop (+ i 1) (cons (+ left right) acc))))))
+
+(define (pascal-rows n)
+  (let loop ((i 1) (current '(1)) (acc (list '(1))))
+    (if (= i n) acc
+      (let ((next (pascal-next current)))
+        (loop (+ i 1) next (append acc (list next)))))))
+
+(for-each
+  (fn (row)
+    (display (string/repeat " " (- sierpinski-rows (length row))))
+    (for-each
+      (fn (val) (if (= 0 (mod val 2)) (display "  ") (display "* ")))
+      row)
+    (println ""))
+  (pascal-rows sierpinski-rows))
+
+;; === 2. Diamond ===
+(println "\\n=== Diamond ===\\n")
+
+(define diamond-size 9)
+(let ((half (/ (- diamond-size 1) 2)))
+  (let loop-top ((i 0))
+    (when (<= i half)
+      (display (string/repeat " " (- half i)))
+      (println (string/repeat "*" (+ 1 (* 2 i))))
+      (loop-top (+ i 1))))
+  (let loop-bot ((i (- half 1)))
+    (when (>= i 0)
+      (display (string/repeat " " (- half i)))
+      (println (string/repeat "*" (+ 1 (* 2 i))))
+      (loop-bot (- i 1)))))
+
+;; === 3. Sine Wave ===
+(println "\\n=== Sine Wave ===\\n")
+
+(define wave-cols 60)
+(define wave-rows 21)
+(define wave-mid (/ (- wave-rows 1) 2))
+
+(let loop-row ((row 0))
+  (when (< row wave-rows)
+    (let ((line
+            (let loop-col ((col 0) (acc ""))
+              (if (>= col wave-cols) acc
+                (let* ((x (* (/ col (- wave-cols 1.0)) (* 4.0 pi)))
+                       (y (sin x))
+                       (target-row (round (* (- 1.0 y) 0.5 (- wave-rows 1)))))
+                  (cond
+                    ((= row (round target-row))
+                     (loop-col (+ col 1) (string-append acc "*")))
+                    ((and (= row wave-mid) (= col 0))
+                     (loop-col (+ col 1) (string-append acc "+")))
+                    ((= row wave-mid)
+                     (loop-col (+ col 1) (string-append acc "-")))
+                    ((= col 0)
+                     (loop-col (+ col 1) (string-append acc "|")))
+                    (else
+                     (loop-col (+ col 1) (string-append acc " ")))))))))
+      (println line))
+    (loop-row (+ row 1))))
+
+;; === 4. Bar Chart ===
+(println "\\n=== Bar Chart ===\\n")
+
+(define chart-data
+  (list (list "Rust" 85) (list "Python" 72) (list "JavaScript" 68)
+        (list "Go" 54) (list "Sema" 95) (list "Haskell" 42) (list "C" 61)))
+
+(define chart-max (foldl (fn (mx item) (if (> (nth item 1) mx) (nth item 1) mx)) 0 chart-data))
+(define max-label-len (foldl (fn (mx item) (if (> (string-length (nth item 0)) mx) (string-length (nth item 0)) mx)) 0 chart-data))
+
+(for-each
+  (fn (item)
+    (let* ((label (nth item 0)) (value (nth item 1))
+           (bar-len (round (* (/ value (+ chart-max 0.0)) 40))))
+      (println (format "  ~a|~a ~a"
+        (string/pad-right label (+ max-label-len 1))
+        (string/repeat "█" bar-len) value))))
+  chart-data)` },
+    { name: 'game-of-life.sema', code: `;; Conway's Game of Life
 (define ROWS 15)
 (define COLS 30)
 
@@ -646,61 +1312,460 @@ const examples = [
   (if (< gen 15) (run (next-gen grid) (+ gen 1)) grid))
 
 (run grid 0)` },
-  { name: 'ASCII Art', code: `;; Sierpinski Triangle
-(define rows 16)
+    { name: 'maze.sema', code: `;; ASCII maze generator
+(define width 15)
+(define height 10)
 
-(define (pascal-next row)
-  (let loop ((i 0) (acc '()))
-    (if (> i (length row)) (reverse acc)
-      (let ((left (if (= i 0) 0 (nth row (- i 1))))
-            (right (if (= i (length row)) 0 (nth row i))))
-        (loop (+ i 1) (cons (+ left right) acc))))))
+(define (pos x y) (str x "," y))
 
-(define (pascal-rows n)
-  (let loop ((i 1) (current '(1)) (acc (list '(1))))
-    (if (= i n) acc
-      (let ((next (pascal-next current)))
-        (loop (+ i 1) next (append acc (list next)))))))
+(define (shuffle lst)
+  (if (<= (length lst) 1) lst
+    (let* ((i (math/random-int 0 (- (length lst) 1)))
+           (picked (nth lst i))
+           (rest (append (take i lst) (drop (+ i 1) lst))))
+      (cons picked (shuffle rest)))))
 
-(for-each
-  (fn (row)
-    (display (string/repeat " " (- rows (length row))))
-    (for-each
-      (fn (val) (if (= 0 (mod val 2)) (display "  ") (display "* ")))
-      row)
-    (println ""))
-  (pascal-rows rows))
+(define directions (list (list 0 -1) (list 0 1) (list -1 0) (list 1 0)))
 
-;; Diamond
+(define (unvisited-neighbors grid cx cy)
+  (filter
+    (fn (entry)
+      (let ((nx (car entry)) (ny (cadr entry)))
+        (and (>= nx 0) (< nx width)
+             (>= ny 0) (< ny height)
+             (not (get grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #f)))))
+    (map (fn (dir)
+           (list (+ cx (car dir)) (+ cy (cadr dir)) (car dir) (cadr dir)))
+         (shuffle directions))))
+
+(define (generate-maze)
+  (let loop ((stack (list (list 0 0)))
+             (grid (assoc {} (pos 1 1) #t)))
+    (if (null? stack) grid
+      (let* ((cell (car stack))
+             (cx (car cell)) (cy (cadr cell))
+             (neighbors (unvisited-neighbors grid cx cy)))
+        (if (null? neighbors)
+          (loop (cdr stack) grid)
+          (let* ((next (car neighbors))
+                 (nx (car next)) (ny (cadr next))
+                 (dx (nth next 2)) (dy (nth next 3))
+                 (grid (assoc grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #t))
+                 (grid (assoc grid (pos (+ (* cx 2) 1 dx) (+ (* cy 2) 1 dy)) #t)))
+            (loop (cons (list nx ny) stack) grid)))))))
+
+(define grid-w (+ (* 2 width) 1))
+(define grid-h (+ (* 2 height) 1))
+
+(define (render grid)
+  (for-each
+    (fn (y)
+      (println
+        (string/join
+          (map (fn (x)
+                 (if (get grid (pos x y) #f) "  " "##"))
+               (range grid-w)) "")))
+    (range grid-h)))
+
+(render (generate-maze))` },
+    { name: 'perlin-noise.sema', code: `;; Value noise terrain generator
+(define width 60)
+(define height 20)
+(define seed (math/random-int 1 999999))
+
+(define (hash x y)
+  (let* ((h (mod (+ (* (abs x) 374761393) (* (abs y) 668265263)
+                    (* seed 1274126177)) 1000000003))
+         (h2 (mod (* h h) 1000000007)))
+    (/ (mod (abs h2) 1000000) 1000000.0)))
+
+(define (fade t)
+  (let ((t3 (* t t t)))
+    (* t3 (+ (* t (- (* t 6.0) 15.0)) 10.0))))
+
+(define (lerp a b t) (+ a (* (- b a) t)))
+
+(define (value-noise x y)
+  (let* ((ix (floor x)) (iy (floor y))
+         (fx (- x ix)) (fy (- y iy))
+         (u (fade fx)) (v (fade fy)))
+    (lerp (lerp (hash ix iy) (hash (+ ix 1) iy) u)
+          (lerp (hash ix (+ iy 1)) (hash (+ ix 1) (+ iy 1)) u)
+          v)))
+
+(define (octave-noise x y)
+  (let loop ((i 0) (freq 1.0) (amp 1.0) (total 0.0) (max-amp 0.0))
+    (if (= i 3) (/ total max-amp)
+      (loop (+ i 1) (* freq 2.0) (* amp 0.5)
+            (+ total (* amp (value-noise (* x freq 0.08) (* y freq 0.08))))
+            (+ max-amp amp)))))
+
+(define (terrain-char val)
+  (cond ((< val 0.30) "~") ((< val 0.38) ".") ((< val 0.50) ",")
+        ((< val 0.60) ";") ((< val 0.72) ":") ((< val 0.85) "%")
+        (#t "#")))
+
+(do ((y 0 (+ y 1))) ((= y height))
+  (do ((x 0 (+ x 1))) ((= x width))
+    (display (terrain-char (octave-noise x y))))
+  (newline))
+
 (println "")
-(let ((half 4))
-  (let loop-top ((i 0))
-    (when (<= i half)
-      (display (string/repeat " " (- half i)))
-      (println (string/repeat "*" (+ 1 (* 2 i))))
-      (loop-top (+ i 1))))
-  (let loop-bot ((i (- half 1)))
-    (when (>= i 0)
-      (display (string/repeat " " (- half i)))
-      (println (string/repeat "*" (+ 1 (* 2 i))))
-      (loop-bot (- i 1)))))` },
-  { name: 'Quicksort', code: `;; Quicksort
-(define (qsort lst)
-  (if (or (null? lst) (null? (cdr lst)))
-      lst
-      (let ((pivot (car lst))
-            (rest  (cdr lst)))
-        (append
-          (qsort (filter (fn (x) (< x pivot)) rest))
-          (list pivot)
-          (qsort (filter (fn (x) (>= x pivot)) rest))))))
+(println "~ water  . sand  , grass  ; shrub  : forest  % mountain  # peak")` },
+    { name: 'mandelbrot.sema', code: `;; ASCII Mandelbrot set renderer
+(define chars " .:-=+*#%@")
+(define num-chars (string-length chars))
 
-(qsort '(38 27 43 3 9 82 10 1))` },
+(define (mandelbrot-iter cx cy max-iter)
+  (do ((i 0 (+ i 1))
+       (zr 0.0 (+ (- (* zr zr) (* zi zi)) cx))
+       (zi 0.0 (+ (* 2.0 old-zr zi) cy))
+       (old-zr 0.0 zr))
+    ((or (>= i max-iter)
+         (> (+ (* zr zr) (* zi zi)) 4.0))
+     i)))
+
+(define (iter->char iter max-iter)
+  (if (= iter max-iter)
+    (char->string (string-ref chars (- num-chars 1)))
+    (let ((idx (floor (* (/ iter max-iter) (- num-chars 1)))))
+      (char->string (string-ref chars idx)))))
+
+(define (render x-min x-max y-min y-max w h max-iter)
+  (let ((dx (/ (- x-max x-min) w))
+        (dy (/ (- y-max y-min) h)))
+    (do ((row 0 (+ row 1)))
+      ((= row h))
+      (let ((cy (+ y-min (* row dy))))
+        (do ((col 0 (+ col 1)))
+          ((= col w))
+          (let* ((cx (+ x-min (* col dx)))
+                 (iter (mandelbrot-iter cx cy max-iter)))
+            (display (iter->char iter max-iter)))))
+      (newline))))
+
+(render -2.5 1.0 -1.1 1.1 60 20 60)` },
+    { name: 'lorem-ipsum.sema', code: `;; Random text and data generator
+
+(define (pick-random lst) (nth lst (math/random-int 0 (- (length lst) 1))))
+(define (pick-n n lst)
+  (if (<= n 0) '() (cons (pick-random lst) (pick-n (- n 1) lst))))
+(define (capitalize s)
+  (if (> (string-length s) 0)
+    (string-append (string/upper (substring s 0 1)) (substring s 1)) s))
+
+(define lorem-words
+  (list "lorem" "ipsum" "dolor" "sit" "amet" "consectetur" "adipiscing"
+        "elit" "sed" "do" "eiusmod" "tempor" "incididunt" "ut" "labore"
+        "et" "dolore" "magna" "aliqua" "enim" "ad" "minim" "veniam"
+        "quis" "nostrud" "exercitation" "ullamco" "laboris" "nisi"
+        "aliquip" "ex" "ea" "commodo" "consequat" "duis" "aute" "irure"
+        "in" "reprehenderit" "voluptate" "velit" "esse" "cillum"
+        "fugiat" "nulla" "pariatur" "excepteur" "sint" "occaecat"
+        "cupidatat" "non" "proident" "sunt" "culpa" "qui" "officia"
+        "deserunt" "mollit" "anim" "id" "est" "laborum"))
+
+(define (generate-sentence)
+  (let ((words (pick-n (math/random-int 5 15) lorem-words)))
+    (string-append (capitalize (string/join words " ")) ".")))
+
+(define (generate-paragraph)
+  (let loop ((i 0) (count (math/random-int 3 6)) (acc '()))
+    (if (>= i count) (string/join (reverse acc) " ")
+      (loop (+ i 1) count (cons (generate-sentence) acc)))))
+
+(println "=== Lorem Ipsum ===\\n")
+(println (generate-paragraph))
+(println "")
+(println (generate-paragraph))
+
+;; Random names
+(define first-names
+  (list "James" "Mary" "Robert" "Patricia" "John" "Jennifer" "Emma"
+        "Oliver" "Ava" "Liam" "Sophia" "Noah" "Isabella" "Ethan"))
+(define last-names
+  (list "Smith" "Johnson" "Williams" "Brown" "Jones" "Garcia" "Miller"
+        "Davis" "Rodriguez" "Martinez" "Wilson" "Anderson" "Thomas"))
+
+(println "\\n=== Random Names ===\\n")
+(let loop ((i 0))
+  (when (< i 8)
+    (println (format "  ~a. ~a ~a" (+ i 1) (pick-random first-names) (pick-random last-names)))
+    (loop (+ i 1))))
+
+;; Random data table
+(define cities (list "New York" "London" "Tokyo" "Paris" "Berlin" "Sydney" "Toronto"))
+
+(println "\\n=== Data Table ===\\n")
+(println (format "| ~a | ~a | ~a | ~a |"
+  (string/pad-right "Name" 20) (string/pad-right "Age" 5)
+  (string/pad-right "City" 12) (string/pad-right "Score" 7)))
+(println (format "|~a|~a|~a|~a|"
+  (string/repeat "-" 22) (string/repeat "-" 7)
+  (string/repeat "-" 14) (string/repeat "-" 9)))
+
+(let loop ((i 0))
+  (when (< i 6)
+    (println (format "| ~a | ~a | ~a | ~a |"
+      (string/pad-right (str (pick-random first-names) " " (pick-random last-names)) 20)
+      (string/pad-right (str (math/random-int 22 65)) 5)
+      (string/pad-right (pick-random cities) 12)
+      (string/pad-right (str (math/random-int 50 100)) 7)))
+    (loop (+ i 1))))` },
+  ]},
+  { category: 'Math & Crypto', files: [
+    { name: 'math-crypto.sema', code: `;; Math, crypto, base64, UUID, bitwise operations
+
+;; Prime sieve
+(define (sieve-primes n)
+  (let loop ((candidates (range 2 n)) (primes '()))
+    (if (null? candidates) (reverse primes)
+      (let ((p (first candidates)))
+        (loop (filter (fn (x) (not (= 0 (math/remainder x p)))) (rest candidates))
+              (cons p primes))))))
+
+(define primes-100 (sieve-primes 100))
+(println (format "Primes under 100 (~a total):" (length primes-100)))
+(println (format "  ~a" (string/join (map str primes-100) " ")))
+
+(println (format "\\ngcd(12, 8) = ~a" (math/gcd 12 8)))
+(println (format "lcm(12, 8) = ~a" (math/lcm 12 8)))
+
+;; Trig identity
+(println "\\nVerifying sin²(x) + cos²(x) = 1:")
+(for-each (fn (x)
+  (let ((s (sin x)) (c (cos x)))
+    (println (format "  x=~a → ~a ✓"
+      (string/pad-right (str (round (* x 100))) 4)
+      (+ (* s s) (* c c))))))
+  (list 0.0 0.5 1.0 1.5 2.0 pi))
+
+;; Bitwise IP parsing
+(define (ip-to-int a b c d)
+  (bit/or (bit/or (bit/shift-left a 24) (bit/shift-left b 16))
+          (bit/or (bit/shift-left c 8) d)))
+(define (int-to-ip n)
+  (format "~a.~a.~a.~a"
+    (bit/and (bit/shift-right n 24) 255)
+    (bit/and (bit/shift-right n 16) 255)
+    (bit/and (bit/shift-right n 8) 255)
+    (bit/and n 255)))
+
+(println (format "\\n192.168.1.100 → ~a → ~a"
+  (ip-to-int 192 168 1 100)
+  (int-to-ip (ip-to-int 192 168 1 100))))
+
+;; UUID
+(println "\\nUUIDs:")
+(for-each (fn (_) (println (format "  ~a" (uuid/v4)))) (range 3))
+
+;; Base64
+(println "\\nBase64:")
+(for-each (fn (msg)
+  (let ((enc (base64/encode msg)))
+    (println (format "  ~a → ~a → ~a"
+      (string/pad-right msg 20) (string/pad-right enc 28) (base64/decode enc)))))
+  (list "Hello, World!" "Sema Lisp rocks" "data: 42"))
+
+;; SHA-256
+(println "\\nSHA-256:")
+(for-each (fn (input)
+  (println (format "  sha256(~a) = ~a..."
+    (string/pad-right (format "\\"~a\\"" input) 15)
+    (substring (hash/sha256 input) 0 16))))
+  (list "" "hello" "Hello" "Sema"))` },
+    { name: 'pretty-print.sema', code: `;;; S-expression pretty printer
+
+(define pp-indent 2)
+(define pp-width 60)
+
+(define (flat-length val) (string-length (str val)))
+(define (flat val) (str val))
+
+(define (pp val indent)
+  (cond
+    ((number? val) (flat val))
+    ((string? val) (format "\\"~a\\"" val))
+    ((symbol? val) (flat val))
+    ((keyword? val) (flat val))
+    ((boolean? val) (if val "#t" "#f"))
+    ((nil? val) "nil")
+    ((list? val)
+     (if (null? val) "()"
+       (let ((flat-repr (flat val)))
+         (if (<= (+ indent (string-length flat-repr)) pp-width)
+           flat-repr (pp-list val indent)))))
+    ((vector? val)
+     (let ((flat-repr (flat val)))
+       (if (<= (+ indent (string-length flat-repr)) pp-width)
+         flat-repr (pp-vector val indent))))
+    ((map? val)
+     (let ((flat-repr (flat val)))
+       (if (<= (+ indent (string-length flat-repr)) pp-width)
+         flat-repr (pp-map val indent))))
+    (else (flat val))))
+
+(define (pp-list lst indent)
+  (let* ((head (car lst))
+         (is-special (and (symbol? head)
+                          (let ((s (str head)))
+                            (or (= s "define") (= s "fn") (= s "lambda")
+                                (= s "let") (= s "let*") (= s "if")
+                                (= s "cond") (= s "when") (= s "begin"))))))
+    (if is-special (pp-special lst indent) (pp-call lst indent))))
+
+(define (pp-special lst indent)
+  (let* ((head (car lst)) (rest-items (cdr lst))
+         (child-indent (+ indent pp-indent))
+         (pad (string/repeat " " child-indent)))
+    (if (null? rest-items) (str "(" head ")")
+      (let* ((first-arg (car rest-items)) (more (cdr rest-items))
+             (line1 (str "(" head " " (pp first-arg (+ indent (string-length (str head)) 2)))))
+        (if (null? more) (str line1 ")")
+          (string-append line1 "\\n"
+            (string/join (map (fn (item) (str pad (pp item child-indent))) more) "\\n")
+            ")"))))))
+
+(define (pp-call lst indent)
+  (let* ((child-indent (+ indent pp-indent))
+         (pad (string/repeat " " child-indent))
+         (items (map (fn (item) (pp item child-indent)) lst)))
+    (string-append "(" (string/join items (str "\\n" pad)) ")")))
+
+(define (pp-vector vec indent)
+  (let* ((ci (+ indent 1)) (pad (string/repeat " " ci))
+         (items (map (fn (item) (pp item ci)) (vector->list vec))))
+    (string-append "[" (string/join items (str "\\n" pad)) "]")))
+
+(define (pp-map m indent)
+  (let* ((ci (+ indent 1)) (pad (string/repeat " " ci))
+         (lines (map (fn (entry)
+           (str (pp (car entry) ci) " "
+                (pp (cadr entry) (+ ci (flat-length (car entry)) 1))))
+           (map/entries m))))
+    (string-append "{" (string/join lines (str "\\n" pad)) "}")))
+
+(define (pretty-print val) (println (pp val 0)))
+
+(println "=== S-Expression Pretty Printer ===\\n")
+
+(println "--- Short list ---")
+(pretty-print '(+ 1 2 3))
+
+(println "\\n--- Nested expression ---")
+(pretty-print '(define (fibonacci n)
+                 (let loop ((i n) (a 0) (b 1))
+                   (if (= i 0) a (loop (- i 1) b (+ a b))))))
+
+(println "\\n--- Map ---")
+(pretty-print {:name "Alice" :age 30 :hobbies (list "reading" "hiking" "coding")
+               :address {:street "123 Main St" :city "Wonderland"}})
+
+(println "\\n--- Lambda ---")
+(pretty-print '(fn (request)
+                 (let ((method (get request :method))
+                       (path (get request :path)))
+                   (cond
+                     ((= method "GET") (handle-get path))
+                     ((= method "POST") (handle-post path (get request :body)))
+                     (else (error "unsupported method"))))))` },
+    { name: 'datetime.sema', code: `;; Date/time operations
+
+(define now (time/now))
+(println (format "Current: ~a" (time/format now "%Y-%m-%d %H:%M:%S UTC")))
+
+(define parts (time/date-parts now))
+(println (format "\\nDate parts:"))
+(println (format "  Year: ~a  Month: ~a  Day: ~a" (get parts :year) (get parts :month) (get parts :day)))
+(println (format "  Hour: ~a  Min: ~a  Sec: ~a" (get parts :hour) (get parts :minute) (get parts :second)))
+(println (format "  Weekday: ~a" (get parts :weekday)))
+
+;; Parse and reformat
+(println "\\nDate reformatting:")
+(for-each (fn (date-str)
+  (let* ((ts (time/parse date-str "%Y-%m-%d %H:%M:%S"))
+         (parts (time/date-parts ts)))
+    (println (format "  ~a → ~a (~a)"
+      date-str (time/format ts "%B %d, %Y") (get parts :weekday)))))
+  (list "2024-01-15 10:30:00" "2024-06-21 14:00:00" "2024-12-25 00:00:00"))
+
+;; Epoch milestones
+(println "\\nEpoch milestones:")
+(for-each (fn (m)
+  (println (format "  ~a: ~a"
+    (string/pad-right (first m) 16)
+    (time/format (nth m 1) "%Y-%m-%d %H:%M:%S"))))
+  (list (list "Unix epoch" 0.0) (list "Y2K" 946684800.0)
+        (list "Unix 1 billion" 1000000000.0) (list "2024-01-01" 1704067200.0)))
+
+;; Date arithmetic
+(println "\\nDays between dates:")
+(define (days-between a b)
+  (let ((ta (time/parse a "%Y-%m-%d %H:%M:%S"))
+        (tb (time/parse b "%Y-%m-%d %H:%M:%S")))
+    (round (/ (abs (- tb ta)) 86400.0))))
+(println (format "  2024-01-01 to 2024-12-25: ~a days"
+  (days-between "2024-01-01 00:00:00" "2024-12-25 00:00:00")))
+
+;; Timing operations
+(println "\\nTiming operations:")
+(define (measure name thunk)
+  (let ((start (time-ms)))
+    (thunk)
+    (println (format "  ~a took ~ams" (string/pad-right name 30) (- (time-ms) start)))))
+
+(measure "Sum 1 to 100000" (fn () (foldl + 0 (range 1 100001))))
+(measure "Generate 1000 random numbers" (fn () (map (fn (_) (math/random)) (range 1000))))
+(measure "Sort 1000 random ints"
+  (fn () (sort (map (fn (_) (math/random-int 1 10000)) (range 1000)))))` },
+  ]},
 ];
 
 let interp = null;
+let activeBtn = null;
+
+function buildSidebar() {
+  const tree = document.getElementById('sidebar-tree');
+  for (const cat of examples) {
+    const catDiv = document.createElement('div');
+
+    const header = document.createElement('div');
+    header.className = 'tree-category';
+    const chevron = document.createElement('span');
+    chevron.className = 'tree-chevron';
+    chevron.textContent = '▾';
+    header.appendChild(chevron);
+    header.appendChild(document.createTextNode(cat.category));
+
+    const items = document.createElement('div');
+    items.className = 'tree-items';
+
+    header.onclick = () => {
+      items.classList.toggle('collapsed');
+      chevron.textContent = items.classList.contains('collapsed') ? '▸' : '▾';
+    };
+
+    for (const file of cat.files) {
+      const btn = document.createElement('button');
+      btn.className = 'tree-file';
+      btn.textContent = file.name;
+      btn.onclick = () => {
+        document.getElementById('editor').value = file.code;
+        if (activeBtn) activeBtn.classList.remove('active');
+        btn.classList.add('active');
+        activeBtn = btn;
+      };
+      items.appendChild(btn);
+    }
+
+    catDiv.appendChild(header);
+    catDiv.appendChild(items);
+    tree.appendChild(catDiv);
+  }
+}
 
 async function main() {
+  buildSidebar();
   await init();
   interp = new WasmInterpreter();
 
@@ -709,18 +1774,6 @@ async function main() {
   document.getElementById('status').className = 'status-text status-ready';
   document.getElementById('run-btn').disabled = false;
   document.getElementById('output').innerHTML = '<div class="output-welcome">Ready. Write some Sema code and press Run.</div>';
-
-  // Populate examples
-  const bar = document.querySelector('.examples-bar');
-  for (const ex of examples) {
-    const btn = document.createElement('button');
-    btn.className = 'example-btn';
-    btn.textContent = ex.name;
-    btn.onclick = () => {
-      document.getElementById('editor').value = ex.code;
-    };
-    bar.appendChild(btn);
-  }
 
   document.getElementById('loading').classList.add('hidden');
 }

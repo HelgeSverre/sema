@@ -1731,10 +1731,12 @@ name = "sema-wasm"
 version = "0.8.0"
 dependencies = [
  "getrandom 0.4.1",
+ "js-sys",
  "sema-core",
  "sema-eval",
  "sema-reader",
  "sema-stdlib",
+ "serde_json",
  "uuid",
  "wasm-bindgen",
 ]
