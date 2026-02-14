@@ -6,7 +6,9 @@ mod comparison;
 mod crypto;
 mod csv_ops;
 mod datetime;
+#[cfg(not(target_arch = "wasm32"))]
 mod http;
+#[cfg(not(target_arch = "wasm32"))]
 mod io;
 pub(crate) mod json;
 mod list;
@@ -16,7 +18,9 @@ mod meta;
 mod predicates;
 mod regex_ops;
 mod string;
+#[cfg(not(target_arch = "wasm32"))]
 mod system;
+#[cfg(not(target_arch = "wasm32"))]
 mod terminal;
 
 use sema_core::{Env, Value};
@@ -29,18 +33,22 @@ pub fn register_stdlib(env: &Env) {
     string::register(env);
     predicates::register(env);
     map::register(env);
+    #[cfg(not(target_arch = "wasm32"))]
     io::register(env);
     math::register(env);
+    #[cfg(not(target_arch = "wasm32"))]
     system::register(env);
     json::register(env);
     meta::register(env);
     regex_ops::register(env);
+    #[cfg(not(target_arch = "wasm32"))]
     http::register(env);
     bitwise::register(env);
     crypto::register(env);
     datetime::register(env);
     csv_ops::register(env);
     bytevector::register(env);
+    #[cfg(not(target_arch = "wasm32"))]
     terminal::register(env);
 }
 

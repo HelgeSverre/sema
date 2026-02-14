@@ -6,6 +6,7 @@ members = [
     "crates/sema-llm",
     "crates/sema-stdlib",
     "crates/sema",
+    "playground/crate",
 ]
 resolver = "2"
 

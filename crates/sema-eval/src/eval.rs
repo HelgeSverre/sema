@@ -169,9 +169,11 @@ impl Interpreter {
         // Register stdlib
         sema_stdlib::register_stdlib(&env);
         // Register LLM builtins
-        sema_llm::builtins::register_llm_builtins(&env);
-        // Register the full evaluator callback for LLM tool execution
-        sema_llm::builtins::set_eval_callback(eval_value);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            sema_llm::builtins::register_llm_builtins(&env);
+            sema_llm::builtins::set_eval_callback(eval_value);
+        }
         Interpreter {
             global_env: Rc::new(env),
         }

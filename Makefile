@@ -95,3 +95,15 @@ site-preview: site-build
 
 site-deploy: site-build
 	cd website && npx vercel --prod
+
+# Playground
+.PHONY: playground-build playground-dev playground-deploy
+
+playground-build:
+	cd playground/crate && wasm-pack build --target web --out-dir ../pkg
+
+playground-dev: playground-build
+	cd playground && python3 -m http.server 8787
+
+playground-deploy: playground-build
+	cd playground && npx vercel --prod
