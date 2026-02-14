@@ -9,17 +9,17 @@
 
 ## Architecture (Cargo workspace, 6 crates)
 
-- **sema-core** → `Value` enum, `Env` (Rc+RefCell+BTreeMap), `SemaError` (thiserror)
+- **sema-core** → `Value` enum, `Env` (Rc+RefCell+HashMap), `SemaError` (thiserror)
 - **sema-reader** → Lexer + s-expression parser → `Value` AST
 - **sema-eval** → Trampoline-based TCO evaluator, special forms, module system (thread-local `MODULE_CACHE`/`CURRENT_FILE`)
 - **sema-stdlib** → 350+ native functions across 17 modules registered into `Env`
-- **sema-llm** → LLM provider trait + Anthropic/OpenAI clients (tokio `block_on`)
+- **sema-llm** → LLM provider trait + Anthropic/OpenAI clients (tokio `block_on`), dynamic pricing from llm-prices.com with disk cache fallback
 - **sema** → Binary (clap CLI + rustyline REPL) + integration tests
 - Dep flow: `sema-core ← sema-reader ← sema-eval ← sema-stdlib/sema-llm ← sema`. **Critical**: stdlib/llm depend on core, NOT eval.
 
 ## Code Style
 
-- Rust 2021, single-threaded (`Rc`, not `Arc`), `BTreeMap` for deterministic ordering.
+- Rust 2021, single-threaded (`Rc`, not `Arc`), `hashbrown::HashMap` for `Env` bindings, `BTreeMap` for user-facing sorted maps.
 - Errors: `SemaError::eval()` / `::type_error()` / `::arity()` constructors — never raw enum variants.
 - Native fns: `NativeFn` takes `&[Value]` → `Result<Value, SemaError>`. Special forms return `Trampoline`.
 - Sema naming: slash-namespaced (`string/trim`, `file/read`), predicates end `?`, arrows for conversions (`string->symbol`). Legacy Scheme names kept (`string-append`, `substring`).
