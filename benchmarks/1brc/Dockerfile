@@ -1,3 +1,12 @@
+# Stage 1: Build Sema from source
+FROM rust:bookworm AS sema-builder
+WORKDIR /sema-src
+COPY sema-src/Cargo.toml sema-src/Cargo.lock ./
+COPY sema-src/crates ./crates/
+COPY sema-src/playground/crate ./playground/crate/
+RUN cargo build --release -p sema 2>&1 | tail -5
+
+# Stage 2: Benchmark image
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -51,7 +60,11 @@ RUN curl -fsSL https://download.racket-lang.org/installers/8.15/racket-8.15-x86_
 ENV PATH="/opt/racket/bin:$PATH"
 RUN racket -e '(displayln "ready")' || echo "Racket install needs fixup"
 
+# Sema binary from build stage
+COPY --from=sema-builder /sema-src/target/release/sema /usr/local/bin/sema
+
 WORKDIR /bench
 COPY . .
+COPY sema-src/examples/benchmarks/1brc.sema /bench/1brc.sema
 RUN chmod +x run-benchmarks.sh
 ENTRYPOINT ["/bench/run-benchmarks.sh"]

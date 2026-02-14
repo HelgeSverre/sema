@@ -1,0 +1,69 @@
+;; 1brc.sema — One Billion Row Challenge solution
+;; Usage: sema examples/1brc.sema <measurements-file>
+;; Reads semicolon-delimited weather measurements and computes min/mean/max per station.
+
+;; --- Round to 1 decimal place ---
+(define (round1 x)
+  (/ (round (* x 10.0)) 10.0))
+
+;; --- Format a station's results ---
+(define (format-station name stats)
+  (let ((mn  (round1 (get stats :min)))
+        (avg (round1 (/ (get stats :sum) (get stats :count))))
+        (mx  (round1 (get stats :max))))
+    (format "~a=~a/~a/~a" name mn avg mx)))
+
+;; --- Parse CLI arguments (after "--") ---
+(define (script-args)
+  (let loop ((args (sys/args)))
+    (cond
+      ((null? args) '())
+      ((= (first args) "--") (rest args))
+      (else (loop (rest args))))))
+
+(define args (script-args))
+(when (< (length args) 1)
+  (println "Usage: sema examples/1brc.sema -- <measurements-file>")
+  (exit 1))
+(define input-file (first args))
+
+;; --- Process file (streaming) ---
+(define t0 (time-ms))
+
+(define result
+  (file/fold-lines input-file
+    (fn (acc line)
+      (if (= line "")
+          acc
+          (let ((parts (string/split line ";")))
+            (let ((name (first parts))
+                  (temp (float (string->number (nth parts 1)))))
+              (let ((existing (get acc name)))
+                (if (nil? existing)
+                    (assoc acc name (assoc {} :min temp :max temp :sum temp :count 1))
+                    (assoc acc name
+                      (assoc {}
+                        :min   (min temp (get existing :min))
+                        :max   (max temp (get existing :max))
+                        :sum   (+ temp (get existing :sum))
+                        :count (+ 1 (get existing :count))))))))))
+    (hashmap/new)))
+
+(define t1 (time-ms))
+(println (format "Processed ~a stations in ~a ms" (length (keys result)) (- t1 t0)))
+
+;; --- Phase 3: Format output ---
+(define sorted-result (hashmap/to-map result))
+(define sorted-names (sort (keys sorted-result)))
+
+(define formatted
+  (map (fn (name) (format-station name (get result name)))
+       sorted-names))
+
+(define output (string-append "{" (string/join formatted ", ") "}"))
+
+(define t2 (time-ms))
+(println (format "Formatted in ~a ms" (- t2 t1)))
+
+(println output)
+(println (format "Total: ~a ms" (- t2 t0)))
