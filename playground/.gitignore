@@ -2,4 +2,6 @@
 # We check it in so Vercel can deploy it as static files
 # But ignore the .gitignore that wasm-pack creates inside pkg/
 pkg/.gitignore
+node_modules/
+test-results/
 .vercel
