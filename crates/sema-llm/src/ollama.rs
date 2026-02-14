@@ -1,5 +1,5 @@
 use crate::provider::LlmProvider;
-use crate::types::*;
+use crate::types::{ChatRequest, ChatResponse, LlmError, ToolCall, ToolSchema, Usage};
 
 /// Convert our `ToolSchema` list into Ollama's (OpenAI-compatible) tools JSON.
 fn build_tools_json(tools: &[ToolSchema]) -> serde_json::Value {

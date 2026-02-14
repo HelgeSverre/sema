@@ -1,5 +1,5 @@
 use crate::provider::LlmProvider;
-use crate::types::*;
+use crate::types::{ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError, Usage};
 
 /// An embedding-only provider that uses OpenAI-compatible embed API.
 /// Works for Jina, Voyage, and other providers with the same format.

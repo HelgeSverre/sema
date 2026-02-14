@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::LlmProvider;
-use crate::types::*;
+use crate::types::{ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError, ToolCall, Usage};
 
 pub struct OpenAiProvider {
     name: String,
