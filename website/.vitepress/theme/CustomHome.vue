@@ -121,11 +121,12 @@
     <span class="p">(</span>loop <span class="p">(</span><span class="b">+</span> i <span class="n">1</span><span class="p">)</span> <span class="p">(</span><span class="b">+</span> sum i<span class="p">))))</span>
 <span class="c">; =&gt; 4950</span>
 
-<span class="c">;; Cond and case</span>
+<span class="c">;; Cond — multi-way branching</span>
+<span class="p">(</span><span class="k">define</span> x <span class="n">5</span><span class="p">)</span>
 <span class="p">(</span><span class="k">cond</span>
   <span class="p">((</span><span class="b">&lt;</span> x <span class="n">0</span><span class="p">)</span> <span class="s">"negative"</span><span class="p">)</span>
   <span class="p">((</span><span class="b">=</span> x <span class="n">0</span><span class="p">)</span> <span class="s">"zero"</span><span class="p">)</span>
-  <span class="p">(</span>else    <span class="s">"positive"</span><span class="p">))</span>
+  <span class="p">(</span>else    <span class="s">"positive"</span><span class="p">))</span>  <span class="c">; =&gt; "positive"</span>
 
 <span class="c">;; Do loop &mdash; Scheme iteration</span>
 <span class="p">(</span><span class="k">do</span> <span class="p">((</span>i <span class="n">0</span> <span class="p">(</span><span class="b">+</span> i <span class="n">1</span><span class="p">))</span>

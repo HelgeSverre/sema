@@ -63,7 +63,7 @@ sema> (:name person)
                 {:name "Bob" :age 28}
                 {:name "Cat" :age 42}])
 
-(map :name people)
+(map (fn (p) (:name p)) people)
 ; => ("Ada" "Bob" "Cat")
 
 (filter (fn (p) (> (:age p) 30)) people)
