@@ -71,8 +71,11 @@ echo ""
 # ── Native compilers ──
 run_bench "sbcl"     sbcl --script /bench/1brc.lisp "$DATA_FILE"
 run_bench "chez"     scheme --script /bench/1brc.ss "$DATA_FILE"
-run_bench "chicken"  csi -s /bench/1brc.chicken.scm "$DATA_FILE"
-run_bench "gambit"   env BENCH_FILE="$DATA_FILE" gsi /bench/1brc.gambit.scm
+run_bench "chicken"  /bench/1brc-chicken "$DATA_FILE"
+run_bench "gambit"   env BENCH_FILE="$DATA_FILE" /bench/1brc-gambit
+
+# ── JIT-compiled ──
+run_bench "fennel"   fennel --lua luajit /bench/1brc.fnl "$DATA_FILE"
 
 # ── JVM-based ──
 run_bench "clojure"  clojure -M /bench/1brc.clj "$DATA_FILE"
@@ -83,11 +86,10 @@ run_bench "sema"     sema --no-llm /bench/1brc.sema -- "$DATA_FILE"
 
 # ── Bytecode VMs / Interpreters ──
 run_bench "racket"   racket /bench/1brc.rkt "$DATA_FILE"
-run_bench "guile"    guile --no-auto-compile /bench/1brc.scm "$DATA_FILE"
+run_bench "guile"    guile /bench/1brc.scm "$DATA_FILE"
 run_bench "gauche"   gosh /bench/1brc.gauche.scm "$DATA_FILE"
 run_bench "janet"    janet /bench/1brc.janet "$DATA_FILE"
-run_bench "fennel"   fennel --lua luajit /bench/1brc.fnl "$DATA_FILE"
-run_bench "ecl"      ecl --shell /bench/1brc.ecl.lisp -- "$DATA_FILE"
+run_bench "ecl"      ecl --load /bench/1brc.ecl.fas -- "$DATA_FILE"
 run_bench "emacs"    emacs --batch --script /bench/1brc.el "$DATA_FILE"
 run_bench "newlisp"  newlisp /bench/1brc.lsp "$DATA_FILE"
 run_bench "picolisp" picolisp /bench/1brc.l "$DATA_FILE"

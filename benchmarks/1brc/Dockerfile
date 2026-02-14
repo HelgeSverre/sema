@@ -1,10 +1,6 @@
-# Stage 1: Build Sema from source
+# Stage 1: Install Sema from GitHub
 FROM rust:bookworm AS sema-builder
-WORKDIR /sema-src
-COPY sema-src/Cargo.toml sema-src/Cargo.lock ./
-COPY sema-src/crates ./crates/
-COPY sema-src/playground/crate ./playground/crate/
-RUN cargo build --release -p sema 2>&1 | tail -5
+RUN cargo install --git https://github.com/HelgeSverre/sema sema
 
 # Stage 2: Benchmark image
 FROM debian:bookworm-slim
@@ -61,10 +57,21 @@ ENV PATH="/opt/racket/bin:$PATH"
 RUN racket -e '(displayln "ready")' || echo "Racket install needs fixup"
 
 # Sema binary from build stage
-COPY --from=sema-builder /sema-src/target/release/sema /usr/local/bin/sema
+COPY --from=sema-builder /usr/local/cargo/bin/sema /usr/local/bin/sema
 
 WORKDIR /bench
 COPY . .
-COPY sema-src/examples/benchmarks/1brc.sema /bench/1brc.sema
+
+# Compile benchmarks for dialects that have compilers
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential libssl-dev && \
+    # Chicken Scheme: compile to native binary via C
+    csc -O3 -o /bench/1brc-chicken /bench/1brc.chicken.scm && \
+    # Gambit Scheme: compile to native binary via C
+    cd /bench && gsc -exe -o 1brc-gambit 1brc.gambit.scm && \
+    # ECL: compile to native FASL
+    ecl --eval '(compile-file "/bench/1brc.ecl.lisp")' --eval '(ext:quit 0)' && \
+    # Cleanup
+    apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+
 RUN chmod +x run-benchmarks.sh
 ENTRYPOINT ["/bench/run-benchmarks.sh"]
