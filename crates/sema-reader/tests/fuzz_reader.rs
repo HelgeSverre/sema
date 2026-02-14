@@ -1,7 +1,6 @@
 use proptest::prelude::*;
 use sema_reader::{read, read_many};
 
-// ====== Core property: reader never panics on arbitrary input ======
 
 proptest! {
     #[test]
@@ -16,7 +15,6 @@ proptest! {
     }
 }
 
-// ====== Targeted fuzz: inputs biased toward valid Sema syntax ======
 
 fn sema_atom() -> impl Strategy<Value = String> {
     prop_oneof![
@@ -82,7 +80,6 @@ proptest! {
     }
 }
 
-// ====== Targeted fuzz: delimiter-heavy strings (stress bracket matching) ======
 
 proptest! {
     #[test]
@@ -107,7 +104,6 @@ proptest! {
     }
 }
 
-// ====== Targeted fuzz: strings with escape sequences ======
 
 proptest! {
     #[test]
@@ -129,7 +125,6 @@ proptest! {
     }
 }
 
-// ====== Targeted fuzz: numeric edge cases ======
 
 proptest! {
     #[test]

@@ -19,7 +19,6 @@ pub use sema_core::{intern, resolve, with_resolved, Env, SemaError, Value};
 /// Result of evaluating a Sema expression.
 pub type EvalResult = Result<Value>;
 
-/// Convenience alias for results throughout the Sema API.
 pub type Result<T> = std::result::Result<T, SemaError>;
 
 /// Builder for configuring and constructing an [`Interpreter`].
@@ -37,7 +36,7 @@ impl Default for InterpreterBuilder {
 }
 
 impl InterpreterBuilder {
-    /// Create a new builder with default settings (stdlib on, llm off).
+    /// Create a new builder.
     pub fn new() -> Self {
         Self {
             stdlib: true,
@@ -55,6 +54,16 @@ impl InterpreterBuilder {
     pub fn with_llm(mut self, enable: bool) -> Self {
         self.llm = enable;
         self
+    }
+
+    /// Disable the standard library.
+    pub fn without_stdlib(self) -> Self {
+        self.with_stdlib(false)
+    }
+
+    /// Disable the LLM builtins.
+    pub fn without_llm(self) -> Self {
+        self.with_llm(false)
     }
 
     /// Build the [`Interpreter`] with the configured options.
@@ -93,7 +102,6 @@ impl Default for Interpreter {
 }
 
 impl Interpreter {
-    /// Create an interpreter with the standard library enabled and LLM disabled.
     pub fn new() -> Self {
         InterpreterBuilder::new().build()
     }
@@ -153,7 +161,6 @@ impl Interpreter {
         &self.inner.global_env
     }
 
-    /// Convenience alias for [`global_env`](Self::global_env).
     pub fn env(&self) -> &Rc<Env> {
         self.global_env()
     }

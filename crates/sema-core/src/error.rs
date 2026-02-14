@@ -116,7 +116,6 @@ impl SemaError {
         }
     }
 
-    /// Get the stack trace, if any.
     pub fn stack_trace(&self) -> Option<&StackTrace> {
         match self {
             SemaError::WithTrace { trace, .. } => Some(trace),
@@ -124,7 +123,6 @@ impl SemaError {
         }
     }
 
-    /// Get the inner error (unwrapping WithTrace if present).
     pub fn inner(&self) -> &SemaError {
         match self {
             SemaError::WithTrace { inner, .. } => inner,

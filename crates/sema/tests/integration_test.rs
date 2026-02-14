@@ -364,7 +364,6 @@ fn test_llm_reset_usage() {
     assert_eq!(eval_to_string("(llm/reset-usage)"), "nil");
 }
 
-// === Phase 6: Extended list ops ===
 
 #[test]
 fn test_multi_list_map() {
@@ -451,7 +450,6 @@ fn test_foldr() {
     assert_eq!(eval("(foldr + 0 '(1 2 3 4 5))"), Value::Int(15));
 }
 
-// === Phase 6: Named let and letrec ===
 
 #[test]
 fn test_named_let_sum() {
@@ -493,7 +491,6 @@ fn test_letrec() {
     );
 }
 
-// === Phase 6: Error handling ===
 
 #[test]
 fn test_try_catch_error() {
@@ -546,7 +543,6 @@ fn test_nested_try() {
     );
 }
 
-// === Phase 6: Module system ===
 
 fn eval_err(input: &str) -> SemaError {
     let interp = Interpreter::new();
@@ -634,9 +630,7 @@ fn test_module_cache() {
     );
 }
 
-// ====== Phase 7: Real-World Capabilities ======
 
-// --- Metaprogramming ---
 
 #[test]
 fn test_case() {
@@ -712,7 +706,6 @@ fn test_macroexpand() {
     assert_eq!(eval("(macroexpand '(+ 1 2))"), eval("'(+ 1 2)"));
 }
 
-// --- File I/O ---
 
 #[test]
 fn test_file_operations() {
@@ -770,7 +763,6 @@ fn test_file_operations() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-// --- Path operations ---
 
 #[test]
 fn test_path_operations() {
@@ -790,7 +782,6 @@ fn test_path_operations() {
     assert!(matches!(result, Value::String(_)));
 }
 
-// --- Regex ---
 
 #[test]
 fn test_regex_match() {
@@ -842,7 +833,6 @@ fn test_regex_split() {
     );
 }
 
-// --- HTTP (requires network) ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -877,7 +867,6 @@ fn test_http_request_generic() {
     }
 }
 
-// --- HTTP: Response Structure Validation ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -932,7 +921,6 @@ fn test_http_response_body_json_decode() {
     assert_eq!(result, Value::string("https://httpbin.org/get"));
 }
 
-// --- HTTP: All Methods ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -994,7 +982,6 @@ fn test_http_patch_with_json_body() {
     );
 }
 
-// --- HTTP: Request Headers ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1027,7 +1014,6 @@ fn test_http_multiple_headers() {
     );
 }
 
-// --- HTTP: Body Handling ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1081,7 +1067,6 @@ fn test_http_post_empty_string_body() {
     assert_eq!(result, Value::Int(200));
 }
 
-// --- HTTP: Status Codes ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1107,7 +1092,6 @@ fn test_http_status_500() {
     assert_eq!(result, Value::Int(500));
 }
 
-// --- HTTP: Query Parameters ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1122,7 +1106,6 @@ fn test_http_get_with_query_params() {
     assert_eq!(result, Value::string("bar"));
 }
 
-// --- HTTP: Timeout ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1131,7 +1114,6 @@ fn test_http_timeout() {
     // Just verifying it errors (timeout after 1s, but server delays 10s)
 }
 
-// --- HTTP: Error Handling ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1151,7 +1133,6 @@ fn test_http_post_wrong_arity() {
     let _err = eval_err(r#"(http/post "https://httpbin.org/post")"#);
 }
 
-// --- HTTP: Unicode ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1166,7 +1147,6 @@ fn test_http_unicode_body() {
     assert_eq!(result, Value::string("Hello 世界"));
 }
 
-// --- HTTP: Redirect ---
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1180,7 +1160,6 @@ fn test_http_redirect() {
     assert_eq!(result, Value::Int(200));
 }
 
-// --- HTTP: Untested Code Paths ---
 
 // Unknown method → error (http.rs line 31)
 #[test]
@@ -1328,12 +1307,9 @@ fn test_http_delete_with_opts() {
     assert_eq!(result, Value::Int(200));
 }
 
-// ====================================================================
 // Expanded test suite — covering implemented but previously untested
 // features, edge cases, and patterns from mal/Chibi/R7RS test suites.
-// ====================================================================
 
-// ====== 1. Untested Predicates ======
 
 #[test]
 fn test_bool_predicate() {
@@ -1393,7 +1369,6 @@ fn test_vector_predicate() {
     assert_eq!(eval("(vector? 42)"), Value::Bool(false));
 }
 
-// ====== 2. Numeric Predicates ======
 
 #[test]
 fn test_even_odd() {
@@ -1419,7 +1394,6 @@ fn test_zero_positive_negative() {
     assert_eq!(eval("(negative? 1)"), Value::Bool(false));
 }
 
-// ====== 3. Equality (eq?) ======
 
 #[test]
 fn test_eq_identity() {
@@ -1435,7 +1409,6 @@ fn test_eq_identity() {
     assert_eq!(eval("(eq? (list 1 2) (list 1 2))"), Value::Bool(true));
 }
 
-// ====== 4. String Operations ======
 
 #[test]
 fn test_string_ref() {
@@ -1525,7 +1498,6 @@ fn test_string_append_coercion() {
     );
 }
 
-// ====== 5. Map Operations ======
 
 #[test]
 fn test_hash_map() {
@@ -1599,7 +1571,6 @@ fn test_keyword_as_fn_missing_key() {
     assert_eq!(eval("(:missing {:a 1})"), Value::Nil);
 }
 
-// ====== 6. Math Operations ======
 
 #[test]
 fn test_round() {
@@ -1671,7 +1642,6 @@ fn test_int_float_conversion() {
     assert_eq!(eval(r#"(float "2.5")"#), Value::Float(2.5));
 }
 
-// ====== 7. Arithmetic Edge Cases ======
 
 #[test]
 fn test_division_by_zero() {
@@ -1715,7 +1685,6 @@ fn test_chained_comparison() {
     assert_eq!(eval("(= 5 5 4 5)"), Value::Bool(false));
 }
 
-// ====== 8. Arity & Type Error Handling ======
 
 #[test]
 fn test_arity_errors() {
@@ -1741,7 +1710,6 @@ fn test_unbound_variable() {
     assert!(matches!(err.inner(), SemaError::Unbound(_)));
 }
 
-// ====== 9. Truthiness Edge Cases ======
 
 #[test]
 fn test_truthiness() {
@@ -1755,7 +1723,6 @@ fn test_truthiness() {
     assert_eq!(eval("(if :foo 1 2)"), Value::Int(1));
 }
 
-// ====== 10. Special Form Edge Cases ======
 
 #[test]
 fn test_and_or_empty() {
@@ -1803,7 +1770,6 @@ fn test_do_loop() {
     assert_eq!(eval("(begin 1 2 3)"), Value::Int(3));
 }
 
-// ====== 11. Quasiquote with Unquote-Splicing ======
 
 #[test]
 fn test_unquote_splicing() {
@@ -1816,7 +1782,6 @@ fn test_unquote_splicing() {
     assert_eq!(eval_to_string("`(a ,@(list) b)"), "(a b)");
 }
 
-// ====== 12. Closure & Scoping ======
 
 #[test]
 fn test_nested_closures() {
@@ -1853,7 +1818,6 @@ fn test_closure_captures_environment() {
     );
 }
 
-// ====== 13. Tail Call Optimization ======
 
 #[test]
 fn test_tco_deep_recursion() {
@@ -1890,7 +1854,6 @@ fn test_tco_named_let() {
     );
 }
 
-// ====== 14. for-each ======
 
 #[test]
 fn test_for_each() {
@@ -1900,7 +1863,6 @@ fn test_for_each() {
     assert_eq!(eval("(for-each (lambda (x) x) (list))"), Value::Nil);
 }
 
-// ====== 15. List Edge Cases ======
 
 #[test]
 fn test_map_empty_list() {
@@ -1935,7 +1897,6 @@ fn test_nested_list_ops() {
     );
 }
 
-// ====== 16. Format Edge Cases ======
 
 #[test]
 fn test_format_directives() {
@@ -1949,7 +1910,6 @@ fn test_format_directives() {
     assert_eq!(eval(r#"(format "~~")"#), Value::string("~"));
 }
 
-// ====== 17. Vector Operations ======
 
 #[test]
 fn test_vector_basics() {
@@ -1960,7 +1920,6 @@ fn test_vector_basics() {
     assert_eq!(eval("(empty? [1])"), Value::Bool(false));
 }
 
-// ====== 18. Cond Edge Cases ======
 
 #[test]
 fn test_cond_no_match_no_else() {
@@ -1972,7 +1931,6 @@ fn test_cond_first_match_wins() {
     assert_eq!(eval("(cond (#t 1) (#t 2) (else 3))"), Value::Int(1));
 }
 
-// ====== 19. Error Handling Edge Cases ======
 
 #[test]
 fn test_error_builtin() {
@@ -2006,7 +1964,6 @@ fn test_try_catch_division_by_zero() {
     );
 }
 
-// ====== 20. Reader Edge Cases ======
 
 #[test]
 fn test_negative_numbers() {
@@ -2070,7 +2027,6 @@ fn test_string_ansi_escape_codes() {
     assert_eq!(result, Value::Int(5));
 }
 
-// ====== 21. Multi-expression Begin / Sequencing ======
 
 #[test]
 fn test_begin_returns_last() {
@@ -2085,7 +2041,6 @@ fn test_lambda_multi_body() {
     );
 }
 
-// ====== 22. Higher-Order Function Patterns ======
 
 #[test]
 fn test_compose_higher_order() {
@@ -2121,7 +2076,6 @@ fn test_partial_application_pattern() {
     );
 }
 
-// ====== 23. Recursive Data Patterns ======
 
 #[test]
 fn test_ackermann() {
@@ -2155,7 +2109,6 @@ fn test_flatten_deep() {
     );
 }
 
-// ====== 24. Macro Edge Cases ======
 
 #[test]
 fn test_defmacro_with_quasiquote() {
@@ -2190,11 +2143,8 @@ fn test_defmacro_unless_custom() {
     );
 }
 
-// ====================================================================
 // New stdlib functions — tests for features added in current dev branch
-// ====================================================================
 
-// ====== List: index-of, unique, group-by, interleave, chunk ======
 
 #[test]
 fn test_list_index_of() {
@@ -2260,7 +2210,6 @@ fn test_list_chunk() {
     assert_eq!(eval_to_string("(list/chunk 2 (list))"), "()");
 }
 
-// ====== Map: entries, map-vals, filter, select-keys, update ======
 
 #[test]
 fn test_map_entries() {
@@ -2325,7 +2274,6 @@ fn test_map_update() {
     );
 }
 
-// ====== String: index-of, chars, repeat, pad-left, pad-right ======
 
 #[test]
 fn test_string_index_of() {
@@ -2379,7 +2327,6 @@ fn test_string_pad_right() {
     );
 }
 
-// ====== Math: quotient, remainder, gcd, lcm, trig, exp, log, random, clamp, sign ======
 
 #[test]
 fn test_math_quotient_remainder() {
@@ -2474,7 +2421,6 @@ fn test_math_sign() {
     assert_eq!(eval("(math/sign -0.5)"), Value::Int(-1));
 }
 
-// ====== Bitwise operations ======
 
 #[test]
 fn test_bitwise_ops() {
@@ -2495,7 +2441,6 @@ fn test_bitwise_edge_cases() {
     assert_eq!(eval("(bit/shift-left 1 0)"), Value::Int(1)); // no shift
 }
 
-// ====== System operations ======
 
 #[test]
 fn test_sys_cwd() {
@@ -2535,7 +2480,6 @@ fn test_sys_env_all() {
     }
 }
 
-// ====== File predicates (is-file?, is-symlink?) ======
 
 #[test]
 fn test_file_is_file() {
@@ -2580,7 +2524,6 @@ fn test_file_is_symlink() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-// ====== Phase 8: UUID, Base64, Hashing, Date/Time, CSV ======
 
 #[test]
 fn test_uuid_v4() {
@@ -2730,9 +2673,7 @@ fn test_csv_encode() {
     }
 }
 
-// ====================================================================
 // Regex operations — extended coverage
-// ====================================================================
 
 #[test]
 fn test_regex_match_no_match() {
@@ -2785,9 +2726,7 @@ fn test_regex_split_whitespace() {
     );
 }
 
-// ====================================================================
 // String conversion functions
-// ====================================================================
 
 #[test]
 fn test_string_to_symbol() {
@@ -2837,9 +2776,7 @@ fn test_string_to_number() {
         .contains("cannot parse"));
 }
 
-// ====================================================================
 // JSON encode-pretty
-// ====================================================================
 
 #[test]
 fn test_json_encode_pretty() {
@@ -2853,9 +2790,7 @@ fn test_json_encode_pretty() {
     }
 }
 
-// ====================================================================
 // Meta: gensym — additional coverage
-// ====================================================================
 
 #[test]
 fn test_gensym_is_symbol_type() {
@@ -2864,9 +2799,7 @@ fn test_gensym_is_symbol_type() {
     assert_eq!(eval(r#"(symbol? (gensym "pfx"))"#), Value::Bool(true));
 }
 
-// ====================================================================
 // System: env, shell, time-ms, sleep
-// ====================================================================
 
 #[test]
 fn test_env_var() {
@@ -2902,9 +2835,7 @@ fn test_time_ms() {
     }
 }
 
-// ====================================================================
 // List functions: nth, take, drop, last, zip, sort, flatten
-// ====================================================================
 
 #[test]
 fn test_nth() {
@@ -2952,9 +2883,7 @@ fn test_range_with_step() {
     assert!(eval_err("(range 0 10 0)").to_string().contains("step"));
 }
 
-// ====================================================================
 // IO: read, read-many (parsing s-expressions from strings)
-// ====================================================================
 
 #[test]
 fn test_read_sexp() {
@@ -2971,10 +2900,8 @@ fn test_read_many() {
     );
 }
 
-// ====================================================================
 // File operations (extended): append, delete, rename, list, mkdir,
 // is-directory?, info, read-lines, write-lines, copy
-// ====================================================================
 
 #[test]
 fn test_file_append_standalone() {
@@ -3418,9 +3345,7 @@ fn test_file_copy() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-// ====================================================================
 // Path operations (extended): join, dirname, basename, extension, absolute
-// ====================================================================
 
 #[test]
 fn test_path_join_extended() {
@@ -3481,9 +3406,7 @@ fn test_path_absolute_extended() {
     assert!(err.to_string().contains("path/absolute"));
 }
 
-// ====================================================================
 // String: trim-left, trim-right, number?
-// ====================================================================
 
 #[test]
 fn test_string_trim_left() {
@@ -3525,9 +3448,7 @@ fn test_string_number_predicate() {
     assert_eq!(eval(r#"(string/number? "12abc")"#), Value::Bool(false));
 }
 
-// ====================================================================
 // Map: map-keys, from-entries
-// ====================================================================
 
 #[test]
 fn test_map_map_keys() {
@@ -3560,10 +3481,8 @@ fn test_map_from_entries_error() {
     assert!(err.to_string().contains("pair"));
 }
 
-// ====================================================================
 // Extended tests for existing list functions: any, every, reduce,
 // partition, foldr, member
-// ====================================================================
 
 #[test]
 fn test_any_with_even_predicate() {
@@ -3643,10 +3562,8 @@ fn test_member_extended() {
     assert_eq!(eval_to_string("(member :b '(:a :b :c))"), "(:b :c)");
 }
 
-// ====================================================================
 // New list functions: sort-by, flatten-deep, interpose, frequencies,
 // list->vector, vector->list
-// ====================================================================
 
 #[test]
 fn test_sort_by() {
@@ -3762,9 +3679,7 @@ fn test_frequencies_arity_error() {
     assert!(err.to_string().contains("1"));
 }
 
-// ====================================================================
 // Crypto: hash/md5, hash/hmac-sha256
-// ====================================================================
 
 #[test]
 fn test_hash_md5() {
@@ -3806,9 +3721,7 @@ fn test_hash_hmac_sha256_errors() {
     assert!(err.to_string().contains("Type error"));
 }
 
-// ====================================================================
 // Datetime: time/add, time/diff
-// ====================================================================
 
 #[test]
 fn test_time_add() {
@@ -3836,9 +3749,7 @@ fn test_time_diff_errors() {
     assert!(err.to_string().contains("time/diff"));
 }
 
-// ====================================================================
 // System: sys/set-env
-// ====================================================================
 
 #[test]
 fn test_sys_set_env() {
@@ -3860,11 +3771,8 @@ fn test_sys_set_env_errors() {
     assert!(err.to_string().contains("Type error"));
 }
 
-// ====================================================================
 // LLM Data Types: Prompts, Messages, Conversations, Tools, Agents
-// ====================================================================
 
-// ====== 1. Prompt Construction & Manipulation ======
 
 #[test]
 fn test_prompt_creation() {
@@ -3930,7 +3838,6 @@ fn test_prompt_set_system_adds_when_missing() {
     assert_eq!(result, Value::Int(2));
 }
 
-// ====== 2. Message Construction & Accessors ======
 
 #[test]
 fn test_message_creation() {
@@ -4003,7 +3910,6 @@ fn test_message_from_prompt() {
     );
 }
 
-// ====== 3. Conversation Construction & Manipulation ======
 
 #[test]
 fn test_conversation_new() {
@@ -4153,7 +4059,6 @@ fn test_conversation_add_message_role_check() {
     );
 }
 
-// ====== 4. Tool Definition & Accessors ======
 
 #[test]
 fn test_tool_predicate() {
@@ -4197,7 +4102,6 @@ fn test_tool_parameters() {
     );
 }
 
-// ====== 5. Agent Definition & Accessors ======
 
 #[test]
 fn test_agent_predicate() {
@@ -4286,7 +4190,6 @@ fn test_agent_with_tools() {
     );
 }
 
-// ====== 6. llm/similarity (pure math, no LLM needed) ======
 
 #[test]
 fn test_llm_similarity_identical() {
@@ -4324,7 +4227,6 @@ fn test_llm_similarity_error_empty() {
     assert!(err.to_string().contains("empty"));
 }
 
-// ====== 7. Prompt multi-message workflows ======
 
 #[test]
 fn test_prompt_system_user_assistant() {
@@ -4358,7 +4260,6 @@ fn test_prompt_append_preserves_order() {
     );
 }
 
-// ====== 8. Error handling for LLM type functions ======
 
 #[test]
 fn test_message_role_error_on_non_message() {
@@ -4408,7 +4309,6 @@ fn test_conversation_add_message_error_on_bad_role() {
     assert!(err.to_string().contains("unknown role"));
 }
 
-// ====== Stack Trace Tests ======
 
 #[test]
 fn test_stack_trace_nested_functions() {
@@ -4513,7 +4413,6 @@ fn test_stack_trace_loaded_file() {
     assert_eq!(names[1], "bad-fn");
 }
 
-// === Slash-namespaced accessors (new primary names) ===
 
 #[test]
 fn test_tool_slash_name() {
@@ -4636,7 +4535,6 @@ fn test_message_slash_content() {
     );
 }
 
-// === Legacy aliases still work ===
 
 #[test]
 fn test_legacy_tool_name_alias() {
@@ -4672,7 +4570,6 @@ fn test_legacy_message_role_alias() {
     );
 }
 
-// === New builtins ===
 
 #[test]
 fn test_llm_list_providers_empty() {
@@ -4919,7 +4816,6 @@ fn test_hashmap_generic_ops() {
     assert_eq!(eval_to_string("(length (hashmap/new :a 1 :b 2))"), "2");
 }
 
-// ====== Car/Cdr Compositions ======
 
 #[test]
 fn test_car_cdr_compositions() {
@@ -4939,7 +4835,6 @@ fn test_car_cdr_compositions() {
     assert_eq!(eval_to_string("(cdddr '(1 2 3 4))"), "(4)");
 }
 
-// ====== Association Lists ======
 
 #[test]
 fn test_assoc_alist() {
@@ -4969,7 +4864,6 @@ fn test_assv() {
     assert_eq!(eval("(assv 99 '((1 a) (2 b)))"), Value::Bool(false));
 }
 
-// ====== Do Loop ======
 
 #[test]
 fn test_do_loop_basic() {
@@ -5015,7 +4909,6 @@ fn test_do_begin_still_works() {
     );
 }
 
-// ====== Character Literals ======
 
 #[test]
 fn test_char_literals() {
@@ -5087,7 +4980,6 @@ fn test_list_to_string() {
     assert_eq!(eval(r#"(list->string '())"#), Value::string(""));
 }
 
-// ====== Delay/Force (Lazy Evaluation) ======
 
 #[test]
 fn test_delay_force_basic() {
@@ -5297,7 +5189,6 @@ fn test_define_record_type_multiple_types() {
     );
 }
 
-// ====== Bytevector tests ======
 
 #[test]
 fn test_bytevector_constructors() {
@@ -5610,9 +5501,7 @@ fn test_string_title_case() {
     assert_eq!(eval(r#"(string/title-case "")"#), Value::string(""));
 }
 
-// ====================================================================
 // IO: print-error, println-error
-// ====================================================================
 
 #[test]
 fn test_print_error() {
@@ -5628,9 +5517,7 @@ fn test_println_error() {
     assert_eq!(eval(r#"(println-error)"#), Value::Nil);
 }
 
-// ====================================================================
 // System: sys/interactive?
-// ====================================================================
 
 #[test]
 fn test_sys_interactive() {
@@ -5696,10 +5583,8 @@ fn test_sys_elapsed() {
     );
 }
 
-// ====================================================================
 // List: list/shuffle, list/split-at, list/take-while, list/drop-while,
 //       list/sum, list/min, list/max, list/pick, list/repeat, iota
-// ====================================================================
 
 #[test]
 fn test_list_shuffle() {
@@ -5845,9 +5730,7 @@ fn test_iota() {
     assert_eq!(eval("(iota 0)"), Value::list(vec![]));
 }
 
-// ====================================================================
 // String: string/map
-// ====================================================================
 
 #[test]
 fn test_string_map() {
@@ -5862,9 +5745,7 @@ fn test_string_map() {
     assert_eq!(eval(r#"(string/map char-upcase "")"#), Value::string(""));
 }
 
-// ====================================================================
 // Terminal: term/ color and style functions
-// ====================================================================
 
 #[test]
 fn test_term_bold() {
@@ -5976,7 +5857,6 @@ fn test_term_spinner_update() {
     );
 }
 
-// ====== Tool Argument Ordering ======
 // Regression tests: deftool params stored as BTreeMap (alphabetical keys).
 // Lambda handlers must receive args in declaration order, not alphabetical.
 // The actual json_args_to_sema ordering fix is tested via unit tests in

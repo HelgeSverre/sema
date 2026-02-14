@@ -89,7 +89,6 @@ impl Parser {
         }
     }
 
-    /// Create a Value::List and record its span in the span map.
     fn make_list_with_span(&mut self, items: Vec<Value>, span: Span) -> Result<Value, SemaError> {
         let rc = Rc::new(items);
         let ptr = Rc::as_ptr(&rc) as usize;
@@ -294,7 +293,6 @@ pub fn read_many_with_spans(input: &str) -> Result<(Vec<Value>, SpanMap), SemaEr
 mod tests {
     use super::*;
 
-    // ====== Existing basic tests ======
 
     #[test]
     fn test_read_int() {
@@ -414,7 +412,6 @@ mod tests {
         assert_eq!(result.len(), 1);
     }
 
-    // ====== Number edge cases ======
 
     #[test]
     fn test_read_zero() {
@@ -472,7 +469,6 @@ mod tests {
         assert_eq!(result, Value::list(vec![Value::Int(-3)]));
     }
 
-    // ====== String edge cases ======
 
     #[test]
     fn test_read_empty_string() {
@@ -524,7 +520,6 @@ mod tests {
         assert_eq!(read("\"(+ 1 2)\"").unwrap(), Value::string("(+ 1 2)"));
     }
 
-    // ====== Symbol edge cases ======
 
     #[test]
     fn test_read_operator_symbols() {
@@ -561,7 +556,6 @@ mod tests {
         assert_eq!(read("false").unwrap(), Value::Bool(false));
     }
 
-    // ====== Keyword edge cases ======
 
     #[test]
     fn test_read_bare_colon_error() {
@@ -579,7 +573,6 @@ mod tests {
         assert_eq!(read(":max-turns").unwrap(), Value::keyword("max-turns"));
     }
 
-    // ====== Boolean edge cases ======
 
     #[test]
     fn test_read_hash_invalid() {
@@ -587,7 +580,6 @@ mod tests {
         assert!(read("#").is_err());
     }
 
-    // ====== Empty / whitespace-only input ======
 
     #[test]
     fn test_read_empty() {
@@ -614,7 +606,6 @@ mod tests {
         assert_eq!(read_many("; just a comment").unwrap(), vec![]);
     }
 
-    // ====== List edge cases ======
 
     #[test]
     fn test_read_empty_list() {
@@ -658,7 +649,6 @@ mod tests {
         );
     }
 
-    // ====== Vector edge cases ======
 
     #[test]
     fn test_read_empty_vector() {
@@ -670,7 +660,6 @@ mod tests {
         assert!(read("[1 2").is_err());
     }
 
-    // ====== Map edge cases ======
 
     #[test]
     fn test_read_empty_map() {
@@ -696,7 +685,6 @@ mod tests {
         assert_eq!(result, Value::Map(Rc::new(expected)));
     }
 
-    // ====== Quote edge cases ======
 
     #[test]
     fn test_read_nested_quote() {
@@ -742,7 +730,6 @@ mod tests {
         assert!(read("`").is_err());
     }
 
-    // ====== Comment edge cases ======
 
     #[test]
     fn test_read_comment_after_expr() {
@@ -761,7 +748,6 @@ mod tests {
         assert_eq!(read_many("; comment").unwrap(), vec![]);
     }
 
-    // ====== Whitespace variants ======
 
     #[test]
     fn test_read_crlf_line_endings() {
@@ -777,7 +763,6 @@ mod tests {
         );
     }
 
-    // ====== Mixed / complex expressions ======
 
     #[test]
     fn test_read_mixed_collections() {
@@ -807,7 +792,6 @@ mod tests {
         assert_eq!(result[6], Value::Nil);
     }
 
-    // ====== SpanMap tests ======
 
     #[test]
     fn test_span_map_tracks_lists() {
@@ -838,7 +822,6 @@ mod tests {
         }
     }
 
-    // ====== Unexpected character ======
 
     #[test]
     fn test_read_unexpected_char() {
@@ -846,7 +829,6 @@ mod tests {
         assert!(read("$").is_err());
     }
 
-    // ====== Character literal tests ======
 
     #[test]
     fn test_read_char_literal() {
@@ -889,7 +871,6 @@ mod tests {
         assert!(read("#\\").is_err());
     }
 
-    // ====== Bytevector literal tests ======
 
     #[test]
     fn test_read_bytevector_literal() {
@@ -941,7 +922,6 @@ mod tests {
         );
     }
 
-    // ====== Hex/Unicode escape tests ======
 
     #[test]
     fn test_read_string_hex_escape_basic() {

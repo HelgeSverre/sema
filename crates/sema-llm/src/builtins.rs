@@ -2030,7 +2030,6 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
     }
 }
 
-/// Convert a Sema list of {:role "..." :content "..."} maps to Vec<ChatMessage>.
 fn sema_list_to_chat_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
     let items = match val {
         Value::List(l) => l.as_ref().clone(),
@@ -2068,7 +2067,6 @@ fn sema_list_to_chat_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError
     Ok(messages)
 }
 
-/// Convert Vec<ChatMessage> to a Sema list of {:role "..." :content "..."} maps.
 fn chat_messages_to_sema_list(messages: &[ChatMessage]) -> Value {
     let items: Vec<Value> = messages
         .iter()
@@ -2338,7 +2336,6 @@ fn simple_eval(expr: &Value, env: &Env) -> Result<Value, SemaError> {
     }
 }
 
-/// Convert a Sema value to a serde_json Value.
 pub fn sema_value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
     match val {
         Value::Nil => Ok(serde_json::Value::Null),
@@ -2385,7 +2382,6 @@ pub fn sema_value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
     }
 }
 
-/// Convert serde_json::Value to sema Value (used by extract)
 pub fn json_to_sema_value(json: &serde_json::Value) -> Value {
     match json {
         serde_json::Value::Null => Value::Nil,
@@ -2417,8 +2413,7 @@ mod tests {
     use serde_json::json;
     use sema_core::{intern, Lambda};
 
-    /// Helper: build a Lambda value with given param names and a trivial body.
-    fn make_lambda(params: &[&str]) -> Value {
+        fn make_lambda(params: &[&str]) -> Value {
         Value::Lambda(Rc::new(Lambda {
             params: params.iter().map(|s| s.to_string()).collect(),
             rest_param: None,
@@ -2428,8 +2423,7 @@ mod tests {
         }))
     }
 
-    /// Helper: build a param map from keyword names (simulates deftool schema).
-    fn make_param_map(keys: &[&str]) -> Value {
+        fn make_param_map(keys: &[&str]) -> Value {
         let mut map = BTreeMap::new();
         for k in keys {
             map.insert(
