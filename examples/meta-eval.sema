@@ -340,19 +340,27 @@
                       (bind-loop (cdr bs))))
                   (meta-eval body let-env))))
 
-             ;; (and <a> <b>)
+             ;; (and <expr>...) — variadic, short-circuit
              ((sym-named? head "and")
-              (let ((a (meta-eval (car args) env)))
-                (if (or (equal? a #f) (null? a))
-                  #f
-                  (meta-eval (nth args 1) env))))
+              (let and-loop ((remaining args))
+                (if (null? remaining)
+                  #t
+                  (let ((val (meta-eval (car remaining) env)))
+                    (if (or (equal? val #f) (null? val))
+                      #f
+                      (if (null? (cdr remaining))
+                        val
+                        (and-loop (cdr remaining))))))))
 
-             ;; (or <a> <b>)
+             ;; (or <expr>...) — variadic, short-circuit
              ((sym-named? head "or")
-              (let ((a (meta-eval (car args) env)))
-                (if (and (not (equal? a #f)) (not (null? a)))
-                  a
-                  (meta-eval (nth args 1) env))))
+              (let or-loop ((remaining args))
+                (if (null? remaining)
+                  #f
+                  (let ((val (meta-eval (car remaining) env)))
+                    (if (and (not (equal? val #f)) (not (null? val)))
+                      val
+                      (or-loop (cdr remaining)))))))
 
              ;; Function application
              (else
