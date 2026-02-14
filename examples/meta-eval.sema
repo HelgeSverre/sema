@@ -1,0 +1,629 @@
+;; meta-eval.sema — A Lisp interpreter written in Sema
+;;
+;; A complete lexer, parser, and evaluator for a minimal Lisp,
+;; implemented entirely in Sema. Supports: numbers, strings, symbols,
+;; booleans, nil, quote, if, define, lambda, and a handful of builtins.
+;;
+;; This is the classic "meta-circular evaluator" — a language interpreting
+;; a subset of itself — the oldest rite of passage in Lisp.
+
+;; ============================================================
+;; 1. LEXER — tokenize a source string into a flat token list
+;; ============================================================
+
+;; Each token is a map: {:type <keyword> :value <val>}
+;; Token types: :lparen :rparen :quote :number :string :symbol :bool :nil
+
+(define (tokenize src)
+  (let ((len (string-length src)))
+    (let loop ((pos 0) (tokens '()))
+      (if (>= pos len)
+        (reverse tokens)
+        (let ((ch (string-ref src pos)))
+          (cond
+            ;; Skip whitespace
+            ((char-whitespace? ch)
+             (loop (+ pos 1) tokens))
+
+            ;; Skip line comments
+            ((char=? ch #\;)
+             (let skip ((p (+ pos 1)))
+               (if (or (>= p len) (char=? (string-ref src p) #\newline))
+                 (loop (+ p 1) tokens)
+                 (skip (+ p 1)))))
+
+            ;; Parentheses
+            ((char=? ch #\()
+             (loop (+ pos 1) (cons {:type :lparen} tokens)))
+            ((char=? ch #\))
+             (loop (+ pos 1) (cons {:type :rparen} tokens)))
+
+            ;; Quote shorthand
+            ((char=? ch #\')
+             (loop (+ pos 1) (cons {:type :quote} tokens)))
+
+            ;; String literals
+            ((char=? ch #\")
+             (let scan ((p (+ pos 1)) (chars '()))
+               (cond
+                 ((>= p len)
+                  (error "unterminated string literal"))
+                 ((char=? (string-ref src p) #\\)
+                  (if (>= (+ p 1) len)
+                    (error "unterminated escape in string")
+                    (let ((esc (string-ref src (+ p 1))))
+                      (scan (+ p 2)
+                            (cons (cond ((char=? esc #\n) #\newline)
+                                        ((char=? esc #\t) #\tab)
+                                        ((char=? esc #\\) #\\)
+                                        ((char=? esc #\") #\")
+                                        (else esc))
+                                  chars)))))
+                 ((char=? (string-ref src p) #\")
+                  (loop (+ p 1)
+                        (cons {:type :string :value (list->string (reverse chars))}
+                              tokens)))
+                 (else
+                  (scan (+ p 1) (cons (string-ref src p) chars))))))
+
+            ;; Numbers (including negative: -N where N starts with digit)
+            ((or (char-numeric? ch)
+                 (and (char=? ch #\-)
+                      (< (+ pos 1) len)
+                      (char-numeric? (string-ref src (+ pos 1)))))
+             (let scan ((p (if (char=? ch #\-) (+ pos 1) pos))
+                        (has-dot #f))
+               (cond
+                 ((and (< p len) (char-numeric? (string-ref src p)))
+                  (scan (+ p 1) has-dot))
+                 ((and (< p len) (char=? (string-ref src p) #\.) (not has-dot))
+                  (scan (+ p 1) #t))
+                 (else
+                  (let ((numstr (substring src pos p)))
+                    (loop p (cons {:type :number
+                                   :value (string->number numstr)}
+                                  tokens)))))))
+
+            ;; Booleans: #t #f
+            ((char=? ch #\#)
+             (if (< (+ pos 1) len)
+               (let ((next (string-ref src (+ pos 1))))
+                 (cond
+                   ((char=? next #\t)
+                    (loop (+ pos 2) (cons {:type :bool :value #t} tokens)))
+                   ((char=? next #\f)
+                    (loop (+ pos 2) (cons {:type :bool :value #f} tokens)))
+                   (else (error (format "unexpected #~a" (char->string next))))))
+               (error "unexpected # at end of input")))
+
+            ;; Symbols — anything else that's not a delimiter
+            (else
+             (let scan ((p pos))
+               (if (and (< p len)
+                        (let ((c (string-ref src p)))
+                          (not (or (char-whitespace? c)
+                                   (char=? c #\()
+                                   (char=? c #\))
+                                   (char=? c #\")
+                                   (char=? c #\;)))))
+                 (scan (+ p 1))
+                 (let ((sym (substring src pos p)))
+                   (loop p
+                         (cons (cond
+                                 ((equal? sym "nil") {:type :nil})
+                                 (else {:type :symbol :value sym}))
+                               tokens))))))))))))
+
+;; ============================================================
+;; 2. PARSER — recursive descent from token list to AST
+;; ============================================================
+
+;; Returns {:expr <ast> :rest <remaining-tokens>}
+;; AST representation:
+;;   numbers  → Sema numbers
+;;   strings  → Sema strings
+;;   bools    → Sema booleans
+;;   nil      → the symbol :nil-value (to distinguish from Sema nil)
+;;   symbols  → {:ast :symbol :name "foo"}
+;;   lists    → {:ast :list :items (<ast>...)}
+
+;; Sentinel for the interpreted nil (distinct from Sema's nil)
+(define NIL :__meta-nil__)
+
+(define (meta-nil? v) (equal? v NIL))
+
+(define (parse-expr tokens)
+  (when (null? tokens)
+    (error "unexpected end of input"))
+  (let ((tok (car tokens))
+        (rest (cdr tokens)))
+    (cond
+      ;; Quote: 'x → (quote x)
+      ((equal? (get tok :type) :quote)
+       (let ((inner (parse-expr rest)))
+         {:expr {:ast :list
+                 :items (list {:ast :symbol :name "quote"}
+                              (get inner :expr))}
+          :rest (get inner :rest)}))
+
+      ;; Open paren: parse a list
+      ((equal? (get tok :type) :lparen)
+       (let loop ((toks rest) (items '()))
+         (cond
+           ((null? toks)
+            (error "unexpected end of input — missing )"))
+           ((equal? (get (car toks) :type) :rparen)
+            {:expr {:ast :list :items (reverse items)}
+             :rest (cdr toks)})
+           (else
+            (let ((parsed (parse-expr toks)))
+              (loop (get parsed :rest)
+                    (cons (get parsed :expr) items)))))))
+
+      ;; Atoms
+      ((equal? (get tok :type) :number) {:expr (get tok :value) :rest rest})
+      ((equal? (get tok :type) :string) {:expr (get tok :value) :rest rest})
+      ((equal? (get tok :type) :bool)   {:expr (get tok :value) :rest rest})
+      ((equal? (get tok :type) :nil)    {:expr NIL :rest rest})
+      ((equal? (get tok :type) :symbol) {:expr {:ast :symbol :name (get tok :value)}
+                                         :rest rest})
+
+      (else (error (format "unexpected token: ~a" tok))))))
+
+;; Parse all expressions from a token list
+(define (parse-all tokens)
+  (let loop ((toks tokens) (exprs '()))
+    (if (null? toks)
+      (reverse exprs)
+      (let ((result (parse-expr toks)))
+        (loop (get result :rest) (cons (get result :expr) exprs))))))
+
+;; Convenience: string → AST list
+(define (parse-source src)
+  (parse-all (tokenize src)))
+
+;; ============================================================
+;; 3. ENVIRONMENT — mutable closure-based frames
+;; ============================================================
+;;
+;; Each env is a closure (message-passing object) that responds to:
+;;   (env :lookup name)     → value or error
+;;   (env :define name val) → mutates bindings in place via set!
+
+(define (make-env parent)
+  (define bindings {})
+  (fn (msg . args)
+    (cond
+      ((equal? msg :lookup)
+       (let ((name (car args)))
+         (let ((key (string->keyword name)))
+           (if (contains? bindings key)
+             (get bindings key)
+             (if (nil? parent)
+               (error (format "unbound variable: ~a" name))
+               (parent :lookup name))))))
+
+      ((equal? msg :define)
+       (let ((name (car args))
+             (value (nth args 1)))
+         (set! bindings (assoc bindings (string->keyword name) value))
+         value))
+
+      (else (error (format "unknown env message: ~a" msg))))))
+
+;; ============================================================
+;; 4. EVALUATOR — eval / apply
+;; ============================================================
+
+;; A closure is: {:type :closure :params (...) :body <ast> :env <env-fn>}
+
+;; Helper: check if an AST node is a symbol with a given name
+(define (sym-named? node name)
+  (and (map? node)
+       (equal? (get node :ast) :symbol)
+       (equal? (get node :name) name)))
+
+;; Helper: extract param names from AST param list
+;; NOTE: We avoid stdlib map/filter/for-each in the evaluator because
+;; the stdlib HOFs use a mini-evaluator that doesn't preserve closures
+;; over variables like our mutable env. Use manual loops instead.
+(define (extract-param-names param-items)
+  (let loop ((items param-items) (result '()))
+    (if (null? items)
+      (reverse result)
+      (loop (cdr items) (cons (get (car items) :name) result)))))
+
+;; Helper: evaluate a list of expressions, returning list of values
+(define (eval-list exprs env)
+  (let loop ((remaining exprs) (result '()))
+    (if (null? remaining)
+      (reverse result)
+      (loop (cdr remaining)
+            (cons (meta-eval (car remaining) env) result)))))
+
+(define (meta-eval expr env)
+  (cond
+    ;; Self-evaluating: numbers, strings, booleans
+    ((number? expr) expr)
+    ((string? expr) expr)
+    ((boolean? expr) expr)
+
+    ;; Our nil sentinel
+    ((meta-nil? expr) '())
+
+    ;; Symbol lookup
+    ((and (map? expr) (equal? (get expr :ast) :symbol))
+     (env :lookup (get expr :name)))
+
+    ;; List forms (special forms + application)
+    ((and (map? expr) (equal? (get expr :ast) :list))
+     (let ((items (get expr :items)))
+       (if (null? items)
+         '()  ;; empty list evaluates to empty list
+         (let ((head (car items))
+               (args (cdr items)))
+           (cond
+             ;; (quote <datum>)
+             ((sym-named? head "quote")
+              (if (null? args)
+                (error "quote requires an argument")
+                (ast->datum (car args))))
+
+             ;; (if <test> <then> <else?>)
+             ((sym-named? head "if")
+              (let ((test-val (meta-eval (car args) env)))
+                (if (or (equal? test-val #f) (null? test-val))
+                  (if (>= (length args) 3)
+                    (meta-eval (nth args 2) env)
+                    '())
+                  (meta-eval (nth args 1) env))))
+
+             ;; (define <name> <expr>) or (define (<name> <params>...) <body>)
+             ((sym-named? head "define")
+              (let ((target (car args)))
+                (if (and (map? target) (equal? (get target :ast) :list))
+                  ;; Function shorthand: (define (f x y) body)
+                  (let ((fname (get (car (get target :items)) :name))
+                        (params (extract-param-names (cdr (get target :items))))
+                        (body (nth args 1)))
+                    (let ((closure {:type :closure
+                                    :params params
+                                    :body body
+                                    :env env}))
+                      (env :define fname closure)
+                      closure))
+                  ;; Simple: (define name expr)
+                  (let ((name (get target :name))
+                        (val (meta-eval (nth args 1) env)))
+                    (env :define name val)
+                    val))))
+
+             ;; (lambda (params...) body) or (fn (params...) body)
+             ((or (sym-named? head "lambda") (sym-named? head "fn"))
+              (let ((params (extract-param-names (get (car args) :items)))
+                    (body (nth args 1)))
+                {:type :closure :params params :body body :env env}))
+
+             ;; (begin <expr>...)
+             ((sym-named? head "begin")
+              (let loop ((exprs args) (result '()))
+                (if (null? exprs)
+                  result
+                  (loop (cdr exprs) (meta-eval (car exprs) env)))))
+
+             ;; (cond (test expr)... (else expr))
+             ((sym-named? head "cond")
+              (let loop ((clauses args))
+                (if (null? clauses)
+                  '()
+                  (let ((clause (get (car clauses) :items)))
+                    (let ((test (car clause)))
+                      (if (sym-named? test "else")
+                        (meta-eval (nth clause 1) env)
+                        (let ((test-val (meta-eval test env)))
+                          (if (and (not (equal? test-val #f))
+                                   (not (null? test-val)))
+                            (meta-eval (nth clause 1) env)
+                            (loop (cdr clauses))))))))))
+
+             ;; (let ((name val)...) body)
+             ((sym-named? head "let")
+              (let ((binding-list (get (car args) :items))
+                    (body (nth args 1)))
+                (let ((let-env (make-env env)))
+                  (let bind-loop ((bs binding-list))
+                    (when (not (null? bs))
+                      (let ((pair (get (car bs) :items)))
+                        (let-env :define
+                          (get (car pair) :name)
+                          (meta-eval (nth pair 1) env)))
+                      (bind-loop (cdr bs))))
+                  (meta-eval body let-env))))
+
+             ;; (and <a> <b>)
+             ((sym-named? head "and")
+              (let ((a (meta-eval (car args) env)))
+                (if (or (equal? a #f) (null? a))
+                  #f
+                  (meta-eval (nth args 1) env))))
+
+             ;; (or <a> <b>)
+             ((sym-named? head "or")
+              (let ((a (meta-eval (car args) env)))
+                (if (and (not (equal? a #f)) (not (null? a)))
+                  a
+                  (meta-eval (nth args 1) env))))
+
+             ;; Function application
+             (else
+              (let ((fn-val (meta-eval head env))
+                    (arg-vals (eval-list args env)))
+                (meta-apply fn-val arg-vals))))))))
+
+    (else (error (format "cannot evaluate: ~a" expr)))))
+
+;; Convert AST back to a Sema datum (for quote)
+(define (ast->datum ast)
+  (cond
+    ((number? ast) ast)
+    ((string? ast) ast)
+    ((boolean? ast) ast)
+    ((meta-nil? ast) '())
+    ((and (map? ast) (equal? (get ast :ast) :symbol))
+     (string->symbol (get ast :name)))
+    ((and (map? ast) (equal? (get ast :ast) :list))
+     (map ast->datum (get ast :items)))
+    (else ast)))
+
+;; Apply a function to arguments
+(define (meta-apply fn-val args)
+  (cond
+    ;; Native builtin
+    ((and (map? fn-val) (equal? (get fn-val :type) :builtin))
+     ((get fn-val :proc) args))
+
+    ;; User-defined closure
+    ((and (map? fn-val) (equal? (get fn-val :type) :closure))
+     (let ((params (get fn-val :params))
+           (body (get fn-val :body))
+           (closure-env (get fn-val :env)))
+       ;; Create a child env and bind parameters
+       (let ((call-env (make-env closure-env)))
+         (let bind-loop ((ps params) (as args))
+           (when (not (null? ps))
+             (call-env :define (car ps) (car as))
+             (bind-loop (cdr ps) (cdr as))))
+         (meta-eval body call-env))))
+
+    (else (error (format "not a function: ~a" fn-val)))))
+
+;; ============================================================
+;; 5. BUILTINS — primitive operations
+;; ============================================================
+
+(define (make-builtin proc)
+  {:type :builtin :proc proc})
+
+(define (setup-builtins)
+  (let ((env (make-env nil)))
+    ;; Arithmetic
+    (env :define "+" (make-builtin (fn (args) (foldl + 0 args))))
+    (env :define "-" (make-builtin
+      (fn (args)
+        (if (= (length args) 1)
+          (- 0 (car args))
+          (foldl - (car args) (cdr args))))))
+    (env :define "*" (make-builtin (fn (args) (foldl * 1 args))))
+    (env :define "/" (make-builtin
+      (fn (args)
+        (if (= (length args) 1)
+          (/ 1 (car args))
+          (foldl / (car args) (cdr args))))))
+    (env :define "remainder" (make-builtin
+      (fn (args) (- (car args) (* (/ (car args) (nth args 1)) (nth args 1))))))
+
+    ;; Comparison
+    (env :define "=" (make-builtin
+      (fn (args) (equal? (car args) (nth args 1)))))
+    (env :define "<" (make-builtin
+      (fn (args) (< (car args) (nth args 1)))))
+    (env :define ">" (make-builtin
+      (fn (args) (> (car args) (nth args 1)))))
+    (env :define "<=" (make-builtin
+      (fn (args) (<= (car args) (nth args 1)))))
+    (env :define ">=" (make-builtin
+      (fn (args) (>= (car args) (nth args 1)))))
+
+    ;; List operations
+    (env :define "cons" (make-builtin
+      (fn (args) (cons (car args) (nth args 1)))))
+    (env :define "car" (make-builtin (fn (args) (car (car args)))))
+    (env :define "cdr" (make-builtin (fn (args) (cdr (car args)))))
+    (env :define "list" (make-builtin (fn (args) args)))
+    (env :define "null?" (make-builtin (fn (args) (null? (car args)))))
+    (env :define "pair?" (make-builtin (fn (args) (pair? (car args)))))
+    (env :define "length" (make-builtin (fn (args) (length (car args)))))
+    (env :define "append" (make-builtin
+      (fn (args) (append (car args) (nth args 1)))))
+
+    ;; Type predicates
+    (env :define "number?" (make-builtin (fn (args) (number? (car args)))))
+    (env :define "string?" (make-builtin (fn (args) (string? (car args)))))
+    (env :define "boolean?" (make-builtin (fn (args) (boolean? (car args)))))
+    (env :define "not" (make-builtin (fn (args) (not (car args)))))
+    (env :define "equal?" (make-builtin
+      (fn (args) (equal? (car args) (nth args 1)))))
+
+    ;; I/O
+    (env :define "display" (make-builtin (fn (args) (display (car args)))))
+    (env :define "newline" (make-builtin (fn (args) (println))))
+
+    ;; String operations
+    (env :define "string-append" (make-builtin
+      (fn (args) (apply string-append args))))
+    (env :define "string-length" (make-builtin
+      (fn (args) (string-length (car args)))))
+    (env :define "number->string" (make-builtin
+      (fn (args) (number->string (car args)))))
+
+    env))
+
+;; ============================================================
+;; 6. RUN — parse and evaluate a program string
+;; ============================================================
+
+(define (run-program src)
+  (let ((exprs (parse-source src))
+        (env (setup-builtins)))
+    (let loop ((remaining exprs) (result '()))
+      (if (null? remaining)
+        result
+        (loop (cdr remaining)
+              (meta-eval (car remaining) env))))))
+
+;; ============================================================
+;; 7. DEMO — run example programs
+;; ============================================================
+
+(println "=== Meta-Eval: A Lisp Interpreter in Sema ===")
+(println)
+
+;; --- Test 1: Arithmetic ---
+(println "--- Arithmetic ---")
+(println (format "  (+ 1 2 3)       = ~a" (run-program "(+ 1 2 3)")))
+(println (format "  (* 6 7)         = ~a" (run-program "(* 6 7)")))
+(println (format "  (- 10 3)        = ~a" (run-program "(- 10 3)")))
+(println (format "  (/ 100 4)       = ~a" (run-program "(/ 100 4)")))
+(println (format "  (+ 1 (* 2 3))   = ~a" (run-program "(+ 1 (* 2 3))")))
+
+;; --- Test 2: Booleans and conditionals ---
+(println)
+(println "--- Conditionals ---")
+(println (format "  (if #t 1 2)     = ~a" (run-program "(if #t 1 2)")))
+(println (format "  (if #f 1 2)     = ~a" (run-program "(if #f 1 2)")))
+(println (format "  (if (> 5 3) \"yes\" \"no\") = ~a"
+  (run-program "(if (> 5 3) \"yes\" \"no\")")))
+
+;; --- Test 3: Define and use variables ---
+(println)
+(println "--- Variables ---")
+(println (format "  (define x 42) x = ~a" (run-program "(define x 42) x")))
+(println (format "  pi * 2         = ~a"
+  (run-program "(define pi 3.14159) (* pi 2)")))
+
+;; --- Test 4: Lambda ---
+(println)
+(println "--- Lambda ---")
+(println (format "  ((fn (x) (* x x)) 5) = ~a"
+  (run-program "((lambda (x) (* x x)) 5)")))
+(println (format "  (define square ...) (square 7) = ~a"
+  (run-program "(define (square x) (* x x)) (square 7)")))
+
+;; --- Test 5: Recursion ---
+(println)
+(println "--- Recursion ---")
+(println (format "  factorial(10) = ~a"
+  (run-program "
+    (define (factorial n)
+      (if (<= n 1) 1 (* n (factorial (- n 1)))))
+    (factorial 10)")))
+
+(println (format "  fibonacci(10) = ~a"
+  (run-program "
+    (define (fib n)
+      (if (<= n 1) n (+ (fib (- n 1)) (fib (- n 2)))))
+    (fib 10)")))
+
+;; --- Test 6: Higher-order functions ---
+(println)
+(println "--- Higher-Order Functions ---")
+(println (format "  map square over (1 2 3 4 5) = ~a"
+  (run-program "
+    (define (square x) (* x x))
+    (define (my-map f lst)
+      (if (null? lst) '()
+        (cons (f (car lst)) (my-map f (cdr lst)))))
+    (my-map square (list 1 2 3 4 5))")))
+
+;; --- Test 7: Closures ---
+(println)
+(println "--- Closures ---")
+(println (format "  make-adder(5)(3) = ~a"
+  (run-program "
+    (define (make-adder n)
+      (lambda (x) (+ n x)))
+    (define add5 (make-adder 5))
+    (add5 3)")))
+
+;; --- Test 8: List operations ---
+(println)
+(println "--- Lists ---")
+(println (format "  (car '(1 2 3))  = ~a" (run-program "(car '(1 2 3))")))
+(println (format "  (cdr '(1 2 3))  = ~a" (run-program "(cdr '(1 2 3))")))
+(println (format "  (cons 0 '(1 2)) = ~a" (run-program "(cons 0 '(1 2))")))
+
+;; --- Test 9: Cond ---
+(println)
+(println "--- Cond ---")
+(println (format "  fizzbuzz(15) = ~a"
+  (run-program "
+    (define (fizzbuzz n)
+      (cond
+        ((= (remainder n 15) 0) \"FizzBuzz\")
+        ((= (remainder n 3) 0)  \"Fizz\")
+        ((= (remainder n 5) 0)  \"Buzz\")
+        (else (number->string n))))
+    (fizzbuzz 15)")))
+
+;; --- Test 10: Let bindings ---
+(println)
+(println "--- Let ---")
+(println (format "  (let ((x 2) (y 3)) (+ x y)) = ~a"
+  (run-program "(let ((x 2) (y 3)) (+ x y))")))
+(println (format "  nested let = ~a"
+  (run-program "
+    (let ((x 10))
+      (let ((y 20))
+        (+ x y)))")))
+
+;; --- Test 11: A bigger program ---
+(println)
+(println "--- Bigger Program: List Utilities ---")
+(run-program "
+  (define (my-map f lst)
+    (if (null? lst) '()
+      (cons (f (car lst)) (my-map f (cdr lst)))))
+
+  (define (my-filter pred lst)
+    (if (null? lst) '()
+      (if (pred (car lst))
+        (cons (car lst) (my-filter pred (cdr lst)))
+        (my-filter pred (cdr lst)))))
+
+  (define (my-foldl f acc lst)
+    (if (null? lst) acc
+      (my-foldl f (f acc (car lst)) (cdr lst))))
+
+  (define (my-reverse lst)
+    (my-foldl (lambda (acc x) (cons x acc)) '() lst))
+
+  (define nums (list 1 2 3 4 5 6 7 8 9 10))
+  (define squares (my-map (lambda (x) (* x x)) nums))
+  (define evens (my-filter (lambda (x) (= (remainder x 2) 0)) nums))
+  (define sum (my-foldl + 0 nums))
+
+  (display \"  squares: \") (display squares) (newline)
+  (display \"  evens:   \") (display evens) (newline)
+  (display \"  sum:     \") (display sum) (newline)
+  (display \"  reverse: \") (display (my-reverse (list 1 2 3 4 5))) (newline)")
+
+;; --- Test 12: Mutual recursion via define ---
+(println)
+(println "--- And/Or as Special Forms ---")
+(println (format "  (and #t #f)     = ~a" (run-program "(and #t #f)")))
+(println (format "  (and #t #t)     = ~a" (run-program "(and #t #t)")))
+(println (format "  (or #f #t)      = ~a" (run-program "(or #f #t)")))
+(println (format "  (or #f #f)      = ~a" (run-program "(or #f #f)")))
+
+(println)
+(println "=== All tests passed! ===")
