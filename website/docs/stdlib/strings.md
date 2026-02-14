@@ -17,11 +17,13 @@ Concatenate strings together.
 
 ### `string-length`
 
-Return the length of a string.
+Return the number of characters in a string.
 
 ```scheme
 (string-length "hello")   ; => 5
 (string-length "")        ; => 0
+(string-length "héllo")   ; => 5
+(string-length "日本語")   ; => 3
 ```
 
 ### `string-ref`
@@ -35,11 +37,12 @@ Return the character at a given index.
 
 ### `substring`
 
-Extract a substring by start and end index.
+Extract a substring by start and end character index.
 
 ```scheme
 (substring "hello" 1 3)   ; => "el"
 (substring "hello" 0 5)   ; => "hello"
+(substring "héllo" 1 2)   ; => "é"
 ```
 
 ### `str`
@@ -176,11 +179,11 @@ Replace all occurrences of a substring.
 
 ### `string/index-of`
 
-Return the index of the first occurrence of a substring, or -1 if not found.
+Return the byte index of the first occurrence of a substring, or `nil` if not found.
 
 ```scheme
 (string/index-of "hello" "ll")   ; => 2
-(string/index-of "hello" "xyz")  ; => -1
+(string/index-of "hello" "xyz")  ; => nil
 ```
 
 ### `string/chars`
@@ -242,6 +245,128 @@ Reverse a string.
 
 ```scheme
 (string/reverse "hello")   ; => "olleh"
+```
+
+## Unicode & Encoding
+
+### `string/byte-length`
+
+Return the UTF-8 byte length of a string (as opposed to character count from `string-length`). Useful for understanding the actual memory footprint — emoji and CJK characters use more bytes than ASCII.
+
+```scheme
+(string/byte-length "hello")   ; => 5   (ASCII: 1 byte each)
+(string/byte-length "héllo")   ; => 6   (é is 2 bytes in UTF-8)
+(string/byte-length "日本語")   ; => 9   (CJK: 3 bytes each)
+(string/byte-length "😀")      ; => 4   (emoji: 4 bytes)
+```
+
+Compare with `string-length` which counts characters:
+
+```scheme
+(string-length "😀")           ; => 1   (one character)
+(string/byte-length "😀")      ; => 4   (four bytes)
+```
+
+### `string/codepoints`
+
+Return a list of Unicode codepoint integers for each character in a string. This reveals the internal structure of composed characters and emoji sequences.
+
+```scheme
+(string/codepoints "ABC")      ; => (65 66 67)
+(string/codepoints "é")        ; => (233)
+(string/codepoints "😀")       ; => (128512)
+```
+
+Emoji that appear as a single glyph are often multiple codepoints joined by Zero Width Joiner (U+200D = 8205):
+
+```scheme
+;; 👨‍👩‍👦 is actually 👨 + ZWJ + 👩 + ZWJ + 👦
+(string/codepoints "👨‍👩‍👦")   ; => (128104 8205 128105 8205 128102)
+
+;; 👋🏽 is 👋 + skin tone modifier
+(string/codepoints "👋🏽")      ; => (128075 127997)
+```
+
+### `string/from-codepoints`
+
+Construct a string from a list of Unicode codepoint integers. This is the inverse of `string/codepoints` and enables building emoji programmatically by combining codepoints.
+
+```scheme
+(string/from-codepoints (list 65 66 67))   ; => "ABC"
+(string/from-codepoints (list 233))        ; => "é"
+```
+
+Build emoji by combining people with ZWJ (8205):
+
+```scheme
+;; Build a family: 👨 + ZWJ + 👩 + ZWJ + 👧
+(string/from-codepoints (list 128104 8205 128105 8205 128103))
+;; => 👨‍👩‍👧
+
+;; Build a profession: 👩 + ZWJ + 💻
+(string/from-codepoints (list 128105 8205 128187))
+;; => 👩‍💻
+
+;; Add skin tone: 👋 + modifier
+(string/from-codepoints (list 128075 127997))
+;; => 👋🏽
+
+;; Build flags from Regional Indicators (A=127462):
+(string/from-codepoints (list 127475 127476))
+;; => 🇳🇴 (NO = Norway)
+```
+
+Roundtrip any string through codepoints:
+
+```scheme
+(string/from-codepoints (string/codepoints "Hello 世界"))
+;; => "Hello 世界"
+```
+
+### `string/normalize`
+
+Normalize a string to a Unicode normalization form. Supported forms: `:nfc`, `:nfd`, `:nfkc`, `:nfkd` (as keywords or strings).
+
+- **NFC** — Canonical Decomposition, followed by Canonical Composition (most common)
+- **NFD** — Canonical Decomposition
+- **NFKC** — Compatibility Decomposition, followed by Canonical Composition
+- **NFKD** — Compatibility Decomposition
+
+```scheme
+;; NFC: combine decomposed characters
+;; e + combining acute accent → é
+(string/normalize "e\u0301" :nfc)    ; => "é"
+
+;; NFD: decompose composed characters
+(string-length (string/normalize "é" :nfd))  ; => 2 (e + combining accent)
+
+;; NFKC/NFKD: compatibility decomposition (ligatures, etc.)
+(string/normalize "\uFB01" :nfkc)    ; => "fi" (ﬁ ligature → two letters)
+
+;; String form names also work
+(string/normalize "e\u0301" "NFC")   ; => "é"
+```
+
+### `string/foldcase`
+
+Apply Unicode case folding to a string. Useful for case-insensitive comparisons and normalization. Uses full Unicode-aware lowercasing.
+
+```scheme
+(string/foldcase "HELLO")        ; => "hello"
+(string/foldcase "Hello World")  ; => "hello world"
+(string/foldcase "Straße")       ; => "straße"
+(string/foldcase "ΩΜΕΓΑ")        ; => "ωμεγα"
+```
+
+### `string-ci=?`
+
+Case-insensitive string equality comparison. Compares two strings after applying case folding to both.
+
+```scheme
+(string-ci=? "Hello" "hello")   ; => #t
+(string-ci=? "ABC" "abc")       ; => #t
+(string-ci=? "CAFÉ" "café")     ; => #t
+(string-ci=? "hello" "world")   ; => #f
 ```
 
 ## Characters

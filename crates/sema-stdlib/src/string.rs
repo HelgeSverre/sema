@@ -1,4 +1,5 @@
 use sema_core::{SemaError, Value};
+use unicode_normalization::UnicodeNormalization;
 
 use crate::register_fn;
 
@@ -21,7 +22,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::Int(s.len() as i64))
+        Ok(Value::Int(s.chars().count() as i64))
     });
 
     register_fn(env, "string-ref", |args| {
@@ -52,18 +53,29 @@ pub fn register(env: &sema_core::Env) {
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
             as usize;
+        let char_count = s.chars().count();
         let end = if args.len() == 3 {
             args[2]
                 .as_int()
                 .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?
                 as usize
         } else {
-            s.len()
+            char_count
         };
-        if start > s.len() || end > s.len() || start > end {
+        if start > char_count || end > char_count || start > end {
             return Err(SemaError::eval("substring: index out of bounds"));
         }
-        Ok(Value::string(&s[start..end]))
+        let start_byte = s
+            .char_indices()
+            .nth(start)
+            .map(|(i, _)| i)
+            .unwrap_or(s.len());
+        let end_byte = if end == char_count {
+            s.len()
+        } else {
+            s.char_indices().nth(end).map(|(i, _)| i).unwrap_or(s.len())
+        };
+        Ok(Value::string(&s[start_byte..end_byte]))
     });
 
     register_fn(env, "string/split", |args| {
@@ -401,10 +413,11 @@ pub fn register(env: &sema_core::Env) {
         } else {
             ' '
         };
-        if s.len() >= width {
+        let char_len = s.chars().count();
+        if char_len >= width {
             Ok(Value::string(s))
         } else {
-            let padding: String = std::iter::repeat_n(pad_char, width - s.len()).collect();
+            let padding: String = std::iter::repeat_n(pad_char, width - char_len).collect();
             Ok(Value::string(&format!("{}{}", padding, s)))
         }
     });
@@ -428,10 +441,11 @@ pub fn register(env: &sema_core::Env) {
         } else {
             ' '
         };
-        if s.len() >= width {
+        let char_len = s.chars().count();
+        if char_len >= width {
             Ok(Value::string(s))
         } else {
-            let padding: String = std::iter::repeat_n(pad_char, width - s.len()).collect();
+            let padding: String = std::iter::repeat_n(pad_char, width - char_len).collect();
             Ok(Value::string(&format!("{}{}", s, padding)))
         }
     });
@@ -750,5 +764,99 @@ pub fn register(env: &sema_core::Env) {
             }
         }
         Ok(Value::string(&result))
+    });
+
+    register_fn(env, "string/byte-length", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/byte-length", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::Int(s.len() as i64))
+    });
+
+    register_fn(env, "string/codepoints", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/codepoints", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let codepoints: Vec<Value> = s.chars().map(|c| Value::Int(c as u32 as i64)).collect();
+        Ok(Value::list(codepoints))
+    });
+
+    register_fn(env, "string/from-codepoints", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/from-codepoints", "1", args.len()));
+        }
+        let items = match &args[0] {
+            Value::List(l) => l.as_ref(),
+            Value::Vector(v) => v.as_ref(),
+            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
+        };
+        let mut s = String::with_capacity(items.len());
+        for item in items {
+            let n = match item {
+                Value::Int(n) => *n,
+                _ => return Err(SemaError::type_error("integer", item.type_name())),
+            };
+            let c = char::from_u32(n as u32).ok_or_else(|| {
+                SemaError::eval(format!("string/from-codepoints: invalid codepoint {n}"))
+            })?;
+            s.push(c);
+        }
+        Ok(Value::string(&s))
+    });
+
+    register_fn(env, "string/normalize", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/normalize", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let form = args[1]
+            .as_str()
+            .map(|s| s.to_string())
+            .or_else(|| args[1].as_keyword())
+            .ok_or_else(|| SemaError::type_error("string or keyword", args[1].type_name()))?;
+        let normalized = match form.to_lowercase().as_str() {
+            "nfc" => s.nfc().collect::<String>(),
+            "nfd" => s.nfd().collect::<String>(),
+            "nfkc" => s.nfkc().collect::<String>(),
+            "nfkd" => s.nfkd().collect::<String>(),
+            _ => {
+                return Err(SemaError::eval(format!(
+                    "string/normalize: unknown form {:?}",
+                    form
+                )))
+            }
+        };
+        Ok(Value::string(&normalized))
+    });
+
+    register_fn(env, "string/foldcase", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/foldcase", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::string(&s.to_lowercase()))
+    });
+
+    register_fn(env, "string-ci=?", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string-ci=?", "2", args.len()));
+        }
+        let a = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let b = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        Ok(Value::Bool(a.to_lowercase() == b.to_lowercase()))
     });
 }
