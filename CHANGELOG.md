@@ -1,18 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.9.0
 
 ### Added
 
 - **Dynamic LLM pricing** — pricing data is now fetched from [llm-prices.com](https://www.llm-prices.com) during `(llm/auto-configure)` and cached at `~/.sema/pricing-cache.json`. Falls back to built-in estimates when offline. Custom pricing via `(llm/set-pricing)` always takes priority.
 - **`llm/pricing-status`** — new builtin to inspect which pricing source is active and when it was last updated.
-
-### Fixed
-
-- **Stale Groq pricing** — Groq models are no longer hardcoded as free ($0.00); updated to current estimates.
-- **Budget enforcement with unknown pricing** — now warns once instead of silently skipping cost tracking when pricing is unavailable for a model.
-
-## 0.8.2
+- **WASM playground** — browser-based Sema interpreter with categorized examples and file tree sidebar.
 
 ### Performance
 
@@ -24,13 +18,13 @@
 - **Step-limit check hoisted out of trampoline loop** — `EVAL_STEP_LIMIT` TLS read moved before the loop so it's read once per eval instead of every iteration.
 - **Optimized release profile** — added `lto = "thin"`, `codegen-units = 1`, `panic = "abort"` for faster release binaries; separate `release-with-debug` profile for profiling.
 
-## 0.8.1
-
 ### Fixed
 
 - **Unicode-safe string operations** — `string-length`, `substring`, `length`, and `count` now count characters (Unicode scalar values) instead of bytes. `string/pad-left` and `string/pad-right` use character width for padding. Previously, `(string-length "héllo")` returned 6 (bytes); now it correctly returns 5 (characters). `substring` no longer panics on multi-byte character boundaries.
 - **Display panic on multi-byte strings** — Fixed `truncate` in `Value::Message` display to use character-based truncation instead of byte slicing, which could panic on messages containing emoji or non-ASCII text.
 - **HashMap support in map operations** — `dissoc`, `merge`, `map/entries`, `map/map-vals`, `map/filter`, `map/select-keys`, `map/map-keys`, and `map/update` now accept both sorted maps and hashmaps, preserving the input type. Previously these functions only worked on sorted maps.
+- **Stale Groq pricing** — Groq models are no longer hardcoded as free ($0.00); updated to current estimates.
+- **Budget enforcement with unknown pricing** — now warns once instead of silently skipping cost tracking when pricing is unavailable for a model.
 
 ## 0.8.0
 
