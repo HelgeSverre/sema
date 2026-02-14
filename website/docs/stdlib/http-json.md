@@ -50,10 +50,9 @@ Make an HTTP DELETE request.
 Make a generic HTTP request with full control over method and options.
 
 ```scheme
-(http/request {:method "PATCH"
-               :url "https://example.com/resource"
-               :body "data"
-               :headers {"Content-Type" "text/plain"}})
+(http/request "PATCH" "https://example.com/resource"
+  {:headers {"Content-Type" "text/plain"}}
+  "data")
 ```
 
 ## JSON

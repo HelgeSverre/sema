@@ -584,11 +584,11 @@
 <span class="c">;; Simple semantic search</span>
 <span class="p">(</span><span class="k">define</span> query <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"programming"</span><span class="p">))</span>
 <span class="p">(</span><span class="k">define</span> docs
-  <span class="p">(</span><span class="b">map</span> <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>d<span class="p">)</span> <span class="p">{</span><span class="kw">:text</span> d
-              <span class="kw">:vec</span>  <span class="p">(</span><span class="b">llm/embed</span> d<span class="p">)})</span>
-    '<span class="p">(</span><span class="s">"Lisp is great"</span>
-      <span class="s">"cooking recipes"</span>
-      <span class="s">"Rust programming"</span><span class="p">)))</span>
+  <span class="p">(</span><span class="b">map</span> <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>d<span class="p">)</span> <span class="p">(</span><span class="b">hash-map</span> <span class="kw">:text</span> d
+                       <span class="kw">:vec</span>  <span class="p">(</span><span class="b">llm/embed</span> d<span class="p">)))</span>
+    <span class="p">(</span><span class="b">list</span> <span class="s">"Lisp is great"</span>
+          <span class="s">"cooking recipes"</span>
+          <span class="s">"Rust programming"</span><span class="p">)))</span>
 <span class="p">(</span><span class="b">sort-by</span>
   <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>d<span class="p">)</span> <span class="p">(</span><span class="b">-</span> <span class="p">(</span><span class="b">llm/similarity</span> query <span class="p">(</span><span class="kw">:vec</span> d<span class="p">))))</span>
   docs<span class="p">)</span></code></pre>
