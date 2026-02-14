@@ -364,7 +364,6 @@ fn test_llm_reset_usage() {
     assert_eq!(eval_to_string("(llm/reset-usage)"), "nil");
 }
 
-
 #[test]
 fn test_multi_list_map() {
     assert_eq!(eval_to_string("(map + '(1 2 3) '(10 20 30))"), "(11 22 33)");
@@ -450,7 +449,6 @@ fn test_foldr() {
     assert_eq!(eval("(foldr + 0 '(1 2 3 4 5))"), Value::Int(15));
 }
 
-
 #[test]
 fn test_named_let_sum() {
     assert_eq!(
@@ -490,7 +488,6 @@ fn test_letrec() {
         Value::Bool(true)
     );
 }
-
 
 #[test]
 fn test_try_catch_error() {
@@ -542,7 +539,6 @@ fn test_nested_try() {
         Value::Int(2)
     );
 }
-
 
 fn eval_err(input: &str) -> SemaError {
     let interp = Interpreter::new();
@@ -630,8 +626,6 @@ fn test_module_cache() {
     );
 }
 
-
-
 #[test]
 fn test_case() {
     assert_eq!(
@@ -706,7 +700,6 @@ fn test_macroexpand() {
     assert_eq!(eval("(macroexpand '(+ 1 2))"), eval("'(+ 1 2)"));
 }
 
-
 #[test]
 fn test_file_operations() {
     let dir = "/tmp/sema-test-fileops";
@@ -763,7 +756,6 @@ fn test_file_operations() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
-
 #[test]
 fn test_path_operations() {
     assert_eq!(
@@ -781,7 +773,6 @@ fn test_path_operations() {
     let result = eval(r#"(path/absolute ".")"#);
     assert!(matches!(result, Value::String(_)));
 }
-
 
 #[test]
 fn test_regex_match() {
@@ -833,7 +824,6 @@ fn test_regex_split() {
     );
 }
 
-
 #[test]
 #[ignore] // requires network (httpbin.org)
 fn test_http_get() {
@@ -866,7 +856,6 @@ fn test_http_request_generic() {
         panic!("expected map");
     }
 }
-
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -920,7 +909,6 @@ fn test_http_response_body_json_decode() {
     );
     assert_eq!(result, Value::string("https://httpbin.org/get"));
 }
-
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -982,7 +970,6 @@ fn test_http_patch_with_json_body() {
     );
 }
 
-
 #[test]
 #[ignore] // requires network (httpbin.org)
 fn test_http_custom_headers() {
@@ -1013,7 +1000,6 @@ fn test_http_multiple_headers() {
         Value::list(vec![Value::string("one"), Value::string("two")])
     );
 }
-
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1067,7 +1053,6 @@ fn test_http_post_empty_string_body() {
     assert_eq!(result, Value::Int(200));
 }
 
-
 #[test]
 #[ignore] // requires network (httpbin.org)
 fn test_http_status_404() {
@@ -1092,7 +1077,6 @@ fn test_http_status_500() {
     assert_eq!(result, Value::Int(500));
 }
 
-
 #[test]
 #[ignore] // requires network (httpbin.org)
 fn test_http_get_with_query_params() {
@@ -1106,14 +1090,12 @@ fn test_http_get_with_query_params() {
     assert_eq!(result, Value::string("bar"));
 }
 
-
 #[test]
 #[ignore] // requires network (httpbin.org)
 fn test_http_timeout() {
     let _err = eval_err(r#"(http/get "https://httpbin.org/delay/10" {:timeout 1000})"#);
     // Just verifying it errors (timeout after 1s, but server delays 10s)
 }
-
 
 #[test]
 #[ignore] // requires network (httpbin.org)
@@ -1133,7 +1115,6 @@ fn test_http_post_wrong_arity() {
     let _err = eval_err(r#"(http/post "https://httpbin.org/post")"#);
 }
 
-
 #[test]
 #[ignore] // requires network (httpbin.org)
 fn test_http_unicode_body() {
@@ -1147,7 +1128,6 @@ fn test_http_unicode_body() {
     assert_eq!(result, Value::string("Hello 世界"));
 }
 
-
 #[test]
 #[ignore] // requires network (httpbin.org)
 fn test_http_redirect() {
@@ -1159,7 +1139,6 @@ fn test_http_redirect() {
     );
     assert_eq!(result, Value::Int(200));
 }
-
 
 // Unknown method → error (http.rs line 31)
 #[test]
@@ -1310,7 +1289,6 @@ fn test_http_delete_with_opts() {
 // Expanded test suite — covering implemented but previously untested
 // features, edge cases, and patterns from mal/Chibi/R7RS test suites.
 
-
 #[test]
 fn test_bool_predicate() {
     assert_eq!(eval("(bool? #t)"), Value::Bool(true));
@@ -1369,7 +1347,6 @@ fn test_vector_predicate() {
     assert_eq!(eval("(vector? 42)"), Value::Bool(false));
 }
 
-
 #[test]
 fn test_even_odd() {
     assert_eq!(eval("(even? 0)"), Value::Bool(true));
@@ -1394,7 +1371,6 @@ fn test_zero_positive_negative() {
     assert_eq!(eval("(negative? 1)"), Value::Bool(false));
 }
 
-
 #[test]
 fn test_eq_identity() {
     // eq? uses structural equality in Sema (PartialEq)
@@ -1408,7 +1384,6 @@ fn test_eq_identity() {
                                                          // Lists: structural equality
     assert_eq!(eval("(eq? (list 1 2) (list 1 2))"), Value::Bool(true));
 }
-
 
 #[test]
 fn test_string_ref() {
@@ -1498,7 +1473,6 @@ fn test_string_append_coercion() {
     );
 }
 
-
 #[test]
 fn test_hash_map() {
     assert_eq!(eval("(get (hash-map :x 1 :y 2) :x)"), Value::Int(1));
@@ -1571,7 +1545,6 @@ fn test_keyword_as_fn_missing_key() {
     assert_eq!(eval("(:missing {:a 1})"), Value::Nil);
 }
 
-
 #[test]
 fn test_round() {
     assert_eq!(eval("(round 3.4)"), Value::Int(3));
@@ -1642,7 +1615,6 @@ fn test_int_float_conversion() {
     assert_eq!(eval(r#"(float "2.5")"#), Value::Float(2.5));
 }
 
-
 #[test]
 fn test_division_by_zero() {
     let err = eval_err("(/ 1 0)");
@@ -1685,7 +1657,6 @@ fn test_chained_comparison() {
     assert_eq!(eval("(= 5 5 4 5)"), Value::Bool(false));
 }
 
-
 #[test]
 fn test_arity_errors() {
     assert!(eval_err("(car)").to_string().contains("expects"));
@@ -1710,7 +1681,6 @@ fn test_unbound_variable() {
     assert!(matches!(err.inner(), SemaError::Unbound(_)));
 }
 
-
 #[test]
 fn test_truthiness() {
     // Only nil and #f are falsy
@@ -1722,7 +1692,6 @@ fn test_truthiness() {
     assert_eq!(eval("(if (list) 1 2)"), Value::Int(1));
     assert_eq!(eval("(if :foo 1 2)"), Value::Int(1));
 }
-
 
 #[test]
 fn test_and_or_empty() {
@@ -1770,7 +1739,6 @@ fn test_do_loop() {
     assert_eq!(eval("(begin 1 2 3)"), Value::Int(3));
 }
 
-
 #[test]
 fn test_unquote_splicing() {
     assert_eq!(
@@ -1781,7 +1749,6 @@ fn test_unquote_splicing() {
     // Splicing empty list
     assert_eq!(eval_to_string("`(a ,@(list) b)"), "(a b)");
 }
-
 
 #[test]
 fn test_nested_closures() {
@@ -1818,7 +1785,6 @@ fn test_closure_captures_environment() {
     );
 }
 
-
 #[test]
 fn test_tco_deep_recursion() {
     // If TCO is broken, this will stack overflow
@@ -1854,7 +1820,6 @@ fn test_tco_named_let() {
     );
 }
 
-
 #[test]
 fn test_for_each() {
     // for-each returns nil
@@ -1862,7 +1827,6 @@ fn test_for_each() {
     // for-each on empty list
     assert_eq!(eval("(for-each (lambda (x) x) (list))"), Value::Nil);
 }
-
 
 #[test]
 fn test_map_empty_list() {
@@ -1897,7 +1861,6 @@ fn test_nested_list_ops() {
     );
 }
 
-
 #[test]
 fn test_format_directives() {
     // ~a: display without quotes
@@ -1910,7 +1873,6 @@ fn test_format_directives() {
     assert_eq!(eval(r#"(format "~~")"#), Value::string("~"));
 }
 
-
 #[test]
 fn test_vector_basics() {
     assert_eq!(eval("(vector? [1 2 3])"), Value::Bool(true));
@@ -1919,7 +1881,6 @@ fn test_vector_basics() {
     assert_eq!(eval("(empty? [])"), Value::Bool(true));
     assert_eq!(eval("(empty? [1])"), Value::Bool(false));
 }
-
 
 #[test]
 fn test_cond_no_match_no_else() {
@@ -1930,7 +1891,6 @@ fn test_cond_no_match_no_else() {
 fn test_cond_first_match_wins() {
     assert_eq!(eval("(cond (#t 1) (#t 2) (else 3))"), Value::Int(1));
 }
-
 
 #[test]
 fn test_error_builtin() {
@@ -1964,7 +1924,6 @@ fn test_try_catch_division_by_zero() {
     );
 }
 
-
 #[test]
 fn test_negative_numbers() {
     assert_eq!(eval("-42"), Value::Int(-42));
@@ -1986,8 +1945,8 @@ fn test_string_hex_escape_r7rs() {
     assert_eq!(eval(r#""\x1B;""#), Value::string("\x1B"));
     assert_eq!(eval(r#""\x3BB;""#), Value::string("λ"));
     assert_eq!(eval(r#"(string-length "\x41;")"#), Value::Int(1));
-    // string-length counts bytes; U+1F600 is 4 UTF-8 bytes
-    assert_eq!(eval(r#"(string-length "\x1F600;")"#), Value::Int(4));
+    // string-length counts characters; U+1F600 is 1 character
+    assert_eq!(eval(r#"(string-length "\x1F600;")"#), Value::Int(1));
 }
 
 #[test]
@@ -2001,8 +1960,8 @@ fn test_string_u_escape() {
 fn test_string_big_u_escape() {
     assert_eq!(eval(r#""\U00000041""#), Value::string("A"));
     assert_eq!(eval(r#""\U0001F600""#), Value::string("😀"));
-    // string-length counts bytes; U+1F600 is 4 UTF-8 bytes
-    assert_eq!(eval(r#"(string-length "\U0001F600")"#), Value::Int(4));
+    // string-length counts characters; U+1F600 is 1 character
+    assert_eq!(eval(r#"(string-length "\U0001F600")"#), Value::Int(1));
 }
 
 #[test]
@@ -2027,7 +1986,6 @@ fn test_string_ansi_escape_codes() {
     assert_eq!(result, Value::Int(5));
 }
 
-
 #[test]
 fn test_begin_returns_last() {
     assert_eq!(eval("(begin (+ 1 2) (+ 3 4) (+ 5 6))"), Value::Int(11));
@@ -2040,7 +1998,6 @@ fn test_lambda_multi_body() {
         Value::Int(13)
     );
 }
-
 
 #[test]
 fn test_compose_higher_order() {
@@ -2076,7 +2033,6 @@ fn test_partial_application_pattern() {
     );
 }
 
-
 #[test]
 fn test_ackermann() {
     assert_eq!(
@@ -2108,7 +2064,6 @@ fn test_flatten_deep() {
         "(1 2 3 4 5)"
     );
 }
-
 
 #[test]
 fn test_defmacro_with_quasiquote() {
@@ -2144,7 +2099,6 @@ fn test_defmacro_unless_custom() {
 }
 
 // New stdlib functions — tests for features added in current dev branch
-
 
 #[test]
 fn test_list_index_of() {
@@ -2210,7 +2164,6 @@ fn test_list_chunk() {
     assert_eq!(eval_to_string("(list/chunk 2 (list))"), "()");
 }
 
-
 #[test]
 fn test_map_entries() {
     // BTreeMap is sorted by key, so entries are in key order
@@ -2274,7 +2227,6 @@ fn test_map_update() {
     );
 }
 
-
 #[test]
 fn test_string_index_of() {
     assert_eq!(
@@ -2326,7 +2278,6 @@ fn test_string_pad_right() {
         Value::string("hello")
     );
 }
-
 
 #[test]
 fn test_math_quotient_remainder() {
@@ -2421,7 +2372,6 @@ fn test_math_sign() {
     assert_eq!(eval("(math/sign -0.5)"), Value::Int(-1));
 }
 
-
 #[test]
 fn test_bitwise_ops() {
     assert_eq!(eval("(bit/and 12 10)"), Value::Int(8)); // 1100 & 1010 = 1000
@@ -2440,7 +2390,6 @@ fn test_bitwise_edge_cases() {
     assert_eq!(eval("(bit/xor 42 0)"), Value::Int(42)); // x ^ 0 = x
     assert_eq!(eval("(bit/shift-left 1 0)"), Value::Int(1)); // no shift
 }
-
 
 #[test]
 fn test_sys_cwd() {
@@ -2479,7 +2428,6 @@ fn test_sys_env_all() {
         assert!(!m.is_empty());
     }
 }
-
 
 #[test]
 fn test_file_is_file() {
@@ -2523,7 +2471,6 @@ fn test_file_is_symlink() {
 
     let _ = std::fs::remove_dir_all(dir);
 }
-
 
 #[test]
 fn test_uuid_v4() {
@@ -3773,7 +3720,6 @@ fn test_sys_set_env_errors() {
 
 // LLM Data Types: Prompts, Messages, Conversations, Tools, Agents
 
-
 #[test]
 fn test_prompt_creation() {
     // Prompt is created via special form
@@ -3837,7 +3783,6 @@ fn test_prompt_set_system_adds_when_missing() {
     );
     assert_eq!(result, Value::Int(2));
 }
-
 
 #[test]
 fn test_message_creation() {
@@ -3909,7 +3854,6 @@ fn test_message_from_prompt() {
         Value::keyword("user")
     );
 }
-
 
 #[test]
 fn test_conversation_new() {
@@ -4059,7 +4003,6 @@ fn test_conversation_add_message_role_check() {
     );
 }
 
-
 #[test]
 fn test_tool_predicate() {
     assert_eq!(
@@ -4101,7 +4044,6 @@ fn test_tool_parameters() {
         Value::Bool(true)
     );
 }
-
 
 #[test]
 fn test_agent_predicate() {
@@ -4190,7 +4132,6 @@ fn test_agent_with_tools() {
     );
 }
 
-
 #[test]
 fn test_llm_similarity_identical() {
     assert_eq!(
@@ -4227,6 +4168,73 @@ fn test_llm_similarity_error_empty() {
     assert!(err.to_string().contains("empty"));
 }
 
+#[test]
+fn test_embedding_list_roundtrip() {
+    // Convert list -> embedding bytevector -> list, verify roundtrip
+    assert_eq!(
+        eval_to_string("(embedding/->list (embedding/list->embedding '(1.0 2.0 3.0)))"),
+        "(1.0 2.0 3.0)"
+    );
+}
+
+#[test]
+fn test_embedding_length() {
+    assert_eq!(
+        eval("(embedding/length (embedding/list->embedding '(1.0 2.0 3.0)))"),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn test_embedding_ref() {
+    assert_eq!(
+        eval("(embedding/ref (embedding/list->embedding '(10.5 20.5 30.5)) 1)"),
+        Value::Float(20.5)
+    );
+}
+
+#[test]
+fn test_embedding_ref_out_of_bounds() {
+    let err = eval_err("(embedding/ref (embedding/list->embedding '(1.0 2.0)) 5)");
+    assert!(err.to_string().contains("out of bounds"));
+}
+
+#[test]
+fn test_embedding_similarity_bytevectors() {
+    // Bytevector-based similarity (same as list-based, but through bytevector path)
+    assert_eq!(
+        eval("(llm/similarity (embedding/list->embedding '(1.0 0.0 0.0)) (embedding/list->embedding '(1.0 0.0 0.0)))"),
+        Value::Float(1.0)
+    );
+    assert_eq!(
+        eval("(llm/similarity (embedding/list->embedding '(1.0 0.0)) (embedding/list->embedding '(0.0 1.0)))"),
+        Value::Float(0.0)
+    );
+}
+
+#[test]
+fn test_embedding_similarity_mixed_error() {
+    let err = eval_err("(llm/similarity (embedding/list->embedding '(1.0 0.0)) '(0.0 1.0))");
+    assert!(err.to_string().contains("same type"));
+}
+
+#[test]
+fn test_embedding_list_to_embedding_preserves_values() {
+    // Verify f64 encoding precision
+    assert_eq!(
+        eval("(embedding/ref (embedding/list->embedding '(3.14159265358979)) 0)"),
+        Value::Float(3.14159265358979)
+    );
+}
+
+#[test]
+fn test_embedding_integers_coerced() {
+    // Integers should be accepted and coerced to float
+    assert_eq!(
+        eval("(embedding/ref (embedding/list->embedding '(42)) 0)"),
+        Value::Float(42.0)
+    );
+}
 
 #[test]
 fn test_prompt_system_user_assistant() {
@@ -4259,7 +4267,6 @@ fn test_prompt_append_preserves_order() {
         Value::string("first")
     );
 }
-
 
 #[test]
 fn test_message_role_error_on_non_message() {
@@ -4308,7 +4315,6 @@ fn test_conversation_add_message_error_on_bad_role() {
     let err = eval_err(r#"(conversation/add-message (conversation/new) :invalid "hi")"#);
     assert!(err.to_string().contains("unknown role"));
 }
-
 
 #[test]
 fn test_stack_trace_nested_functions() {
@@ -4412,7 +4418,6 @@ fn test_stack_trace_loaded_file() {
     assert_eq!(names[0], "+");
     assert_eq!(names[1], "bad-fn");
 }
-
 
 #[test]
 fn test_tool_slash_name() {
@@ -4535,7 +4540,6 @@ fn test_message_slash_content() {
     );
 }
 
-
 #[test]
 fn test_legacy_tool_name_alias() {
     assert_eq!(
@@ -4569,7 +4573,6 @@ fn test_legacy_message_role_alias() {
         Value::keyword("assistant")
     );
 }
-
 
 #[test]
 fn test_llm_list_providers_empty() {
@@ -4816,7 +4819,6 @@ fn test_hashmap_generic_ops() {
     assert_eq!(eval_to_string("(length (hashmap/new :a 1 :b 2))"), "2");
 }
 
-
 #[test]
 fn test_car_cdr_compositions() {
     // 2-deep
@@ -4834,7 +4836,6 @@ fn test_car_cdr_compositions() {
     assert_eq!(eval_to_string("(cddar '((1 2 3) 4))"), "(3)");
     assert_eq!(eval_to_string("(cdddr '(1 2 3 4))"), "(4)");
 }
-
 
 #[test]
 fn test_assoc_alist() {
@@ -4863,7 +4864,6 @@ fn test_assv() {
     assert_eq!(eval_to_string("(assv 42 '((1 a) (42 b) (3 c)))"), "(42 b)");
     assert_eq!(eval("(assv 99 '((1 a) (2 b)))"), Value::Bool(false));
 }
-
 
 #[test]
 fn test_do_loop_basic() {
@@ -4908,7 +4908,6 @@ fn test_do_begin_still_works() {
         Value::Int(30)
     );
 }
-
 
 #[test]
 fn test_char_literals() {
@@ -4979,7 +4978,6 @@ fn test_list_to_string() {
     );
     assert_eq!(eval(r#"(list->string '())"#), Value::string(""));
 }
-
 
 #[test]
 fn test_delay_force_basic() {
@@ -5188,7 +5186,6 @@ fn test_define_record_type_multiple_types() {
         ])
     );
 }
-
 
 #[test]
 fn test_bytevector_constructors() {
@@ -5877,10 +5874,7 @@ fn test_deftool_lambda_param_order_not_alphabetical() {
           ;; Direct call: args are positional per lambda declaration order
           ((lambda (path content) (list path content)) "/tmp/test.txt" "hello world"))"#,
     );
-    assert_eq!(
-        format!("{}", result),
-        "(\"/tmp/test.txt\" \"hello world\")"
-    );
+    assert_eq!(format!("{}", result), "(\"/tmp/test.txt\" \"hello world\")");
 }
 
 #[test]
@@ -5931,4 +5925,226 @@ fn test_deftool_three_params_ordering() {
             (f "C" "A" "B")))"#,
     );
     assert_eq!(result, Value::string("C-A-B"));
+}
+
+#[test]
+fn test_unicode_string_length() {
+    // string-length should count characters, not bytes
+    assert_eq!(eval(r#"(string-length "hello")"#), Value::Int(5));
+    assert_eq!(eval(r#"(string-length "héllo")"#), Value::Int(5));
+    assert_eq!(eval(r#"(string-length "λ")"#), Value::Int(1));
+    assert_eq!(eval(r#"(string-length "日本語")"#), Value::Int(3));
+    assert_eq!(eval(r#"(string-length "😀")"#), Value::Int(1));
+    assert_eq!(eval(r#"(string-length "")"#), Value::Int(0));
+}
+
+#[test]
+fn test_unicode_substring() {
+    // substring should use character indices, not byte indices
+    assert_eq!(eval(r#"(substring "héllo" 0 1)"#), Value::string("h"));
+    assert_eq!(eval(r#"(substring "héllo" 1 2)"#), Value::string("é"));
+    assert_eq!(eval(r#"(substring "héllo" 0 5)"#), Value::string("héllo"));
+    assert_eq!(eval(r#"(substring "日本語" 1 3)"#), Value::string("本語"));
+    assert_eq!(eval(r#"(substring "😀🎉" 0 1)"#), Value::string("😀"));
+    assert_eq!(eval(r#"(substring "😀🎉" 1 2)"#), Value::string("🎉"));
+}
+
+#[test]
+fn test_unicode_string_ref() {
+    assert_eq!(eval(r#"(string-ref "héllo" 1)"#), Value::Char('é'));
+    assert_eq!(eval(r#"(string-ref "日本語" 2)"#), Value::Char('語'));
+}
+
+#[test]
+fn test_unicode_string_pad() {
+    // Padding should count characters, not bytes
+    assert_eq!(eval(r#"(string/pad-left "éx" 5)"#), Value::string("   éx"));
+    assert_eq!(eval(r#"(string/pad-right "éx" 5)"#), Value::string("éx   "));
+    // Already at or past width
+    assert_eq!(
+        eval(r#"(string/pad-left "héllo" 3)"#),
+        Value::string("héllo")
+    );
+}
+
+#[test]
+fn test_unicode_length_consistency() {
+    // length and string-length should agree on character count
+    assert_eq!(eval(r#"(length "héllo")"#), Value::Int(5));
+    assert_eq!(eval(r#"(count "héllo")"#), Value::Int(5));
+}
+
+#[test]
+fn test_dissoc_hashmap() {
+    // dissoc should work on hashmaps and preserve type
+    assert_eq!(
+        eval("(hashmap/contains? (dissoc (hashmap/new :a 1 :b 2 :c 3) :b) :b)"),
+        Value::Bool(false)
+    );
+    assert_eq!(
+        eval("(count (dissoc (hashmap/new :a 1 :b 2 :c 3) :b))"),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_merge_hashmap() {
+    // merge should work with hashmaps
+    assert_eq!(
+        eval("(count (merge (hashmap/new :a 1) (hashmap/new :b 2)))"),
+        Value::Int(2)
+    );
+    // merge mixed: Map + HashMap
+    assert_eq!(
+        eval("(count (merge {:a 1} (hashmap/new :b 2)))"),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_map_entries_hashmap() {
+    // map/entries should work on hashmaps
+    assert_eq!(
+        eval("(length (map/entries (hashmap/new :a 1 :b 2)))"),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_map_ops_hashmap() {
+    // map/map-vals on hashmap
+    assert_eq!(
+        eval(
+            "(get (hashmap/to-map (map/map-vals (lambda (v) (* v 2)) (hashmap/new :a 1 :b 2))) :a)"
+        ),
+        Value::Int(2)
+    );
+    // map/filter on hashmap
+    assert_eq!(
+        eval("(count (map/filter (lambda (k v) (> v 1)) (hashmap/new :a 1 :b 2 :c 3)))"),
+        Value::Int(2)
+    );
+    // map/select-keys on hashmap
+    assert_eq!(
+        eval("(count (map/select-keys (hashmap/new :a 1 :b 2 :c 3) (list :a :c)))"),
+        Value::Int(2)
+    );
+    // map/map-keys on hashmap
+    assert_eq!(
+        eval("(count (map/map-keys (lambda (k) k) (hashmap/new :a 1 :b 2)))"),
+        Value::Int(2)
+    );
+    // map/update on hashmap
+    assert_eq!(
+        eval("(hashmap/get (map/update (hashmap/new :a 1) :a (lambda (v) (+ v 10))) :a)"),
+        Value::Int(11)
+    );
+}
+
+#[test]
+fn test_string_byte_length() {
+    // ASCII: each char is 1 byte
+    assert_eq!(eval(r#"(string/byte-length "hello")"#), Value::Int(5));
+    // UTF-8 multi-byte: "é" is 2 bytes, so "héllo" is 6 bytes
+    assert_eq!(eval(r#"(string/byte-length "héllo")"#), Value::Int(6));
+    // CJK: each char is 3 bytes
+    assert_eq!(eval(r#"(string/byte-length "日本語")"#), Value::Int(9));
+    // Empty string
+    assert_eq!(eval(r#"(string/byte-length "")"#), Value::Int(0));
+}
+
+#[test]
+fn test_string_codepoints() {
+    assert_eq!(eval_to_string(r#"(string/codepoints "ABC")"#), "(65 66 67)");
+    // "é" is U+00E9 = 233
+    assert_eq!(eval_to_string(r#"(string/codepoints "é")"#), "(233)");
+    assert_eq!(eval_to_string(r#"(string/codepoints "")"#), "()");
+}
+
+#[test]
+fn test_string_from_codepoints() {
+    assert_eq!(
+        eval(r#"(string/from-codepoints (list 65 66 67))"#),
+        Value::string("ABC")
+    );
+    assert_eq!(
+        eval(r#"(string/from-codepoints (list 233))"#),
+        Value::string("é")
+    );
+    assert_eq!(
+        eval(r#"(string/from-codepoints (list))"#),
+        Value::string("")
+    );
+}
+
+#[test]
+fn test_string_from_codepoints_roundtrip() {
+    assert_eq!(
+        eval(r#"(string/from-codepoints (string/codepoints "Hello 世界"))"#),
+        Value::string("Hello 世界")
+    );
+}
+
+#[test]
+fn test_string_normalize() {
+    // NFC normalization: combining e + acute accent → é
+    // U+0065 (e) + U+0301 (combining acute) → U+00E9 (é) in NFC
+    assert_eq!(
+        eval(r#"(string/normalize "e\u0301" :nfc)"#),
+        Value::string("é")
+    );
+    // NFD decomposition: é → e + combining acute
+    assert_eq!(
+        eval(r#"(string-length (string/normalize "é" :nfd))"#),
+        Value::Int(2)
+    );
+    // NFKC: ﬁ ligature → "fi"
+    assert_eq!(
+        eval(r#"(string/normalize "\uFB01" :nfkc)"#),
+        Value::string("fi")
+    );
+    // NFKD: ﬁ ligature → "fi"
+    assert_eq!(
+        eval(r#"(string/normalize "\uFB01" :nfkd)"#),
+        Value::string("fi")
+    );
+    // String form names also work
+    assert_eq!(
+        eval(r#"(string/normalize "e\u0301" "NFC")"#),
+        Value::string("é")
+    );
+}
+
+#[test]
+fn test_string_foldcase() {
+    assert_eq!(eval(r#"(string/foldcase "HELLO")"#), Value::string("hello"));
+    assert_eq!(
+        eval(r#"(string/foldcase "Hello World")"#),
+        Value::string("hello world")
+    );
+    // German sharp s stays lowercase
+    assert_eq!(
+        eval(r#"(string/foldcase "Straße")"#),
+        Value::string("straße")
+    );
+}
+
+#[test]
+fn test_string_ci_equal() {
+    assert_eq!(eval(r#"(string-ci=? "Hello" "hello")"#), Value::Bool(true));
+    assert_eq!(eval(r#"(string-ci=? "ABC" "abc")"#), Value::Bool(true));
+    assert_eq!(eval(r#"(string-ci=? "hello" "world")"#), Value::Bool(false));
+    assert_eq!(eval(r#"(string-ci=? "" "")"#), Value::Bool(true));
+}
+
+#[test]
+fn test_llm_pricing_status() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("(llm/pricing-status)").unwrap();
+    match &result {
+        Value::Map(m) => {
+            assert!(m.contains_key(&Value::keyword("source")));
+        }
+        _ => panic!("expected map, got {result}"),
+    }
 }

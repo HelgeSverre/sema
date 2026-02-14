@@ -1930,6 +1930,17 @@ pub fn register_llm_builtins(env: &Env) {
         })
     });
 
+    // (llm/pricing-status)
+    register_fn(env, "llm/pricing-status", |_args| {
+        let (source, updated_at) = pricing::pricing_status();
+        let mut map = std::collections::BTreeMap::new();
+        map.insert(Value::keyword("source"), Value::symbol(source));
+        if let Some(date) = updated_at {
+            map.insert(Value::keyword("updated-at"), Value::string(&date));
+        }
+        Ok(Value::Map(Rc::new(map)))
+    });
+
     // (llm/set-budget max-cost-usd) — set a budget limit
     register_fn(env, "llm/set-budget", |args| {
         if args.len() != 1 {

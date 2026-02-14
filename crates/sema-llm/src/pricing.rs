@@ -58,11 +58,7 @@ pub fn clear_fetched_pricing() {
 
 /// Returns the `updated_at` timestamp of the fetched pricing data, if loaded.
 pub fn fetched_pricing_updated_at() -> Option<String> {
-    FETCHED_PRICING.with(|p| {
-        p.borrow()
-            .as_ref()
-            .map(|fp| fp.updated_at.clone())
-    })
+    FETCHED_PRICING.with(|p| p.borrow().as_ref().map(|fp| fp.updated_at.clone()))
 }
 
 fn lookup_fetched(model: &str) -> Option<(f64, f64)> {
@@ -227,9 +223,7 @@ pub fn fetch_pricing_from_remote() -> Result<String, String> {
 /// 2. Attempt network fetch (short timeout, swallow errors)
 /// 3. On success, update memory + write disk cache
 pub fn refresh_pricing(cache_path: Option<&std::path::Path>) {
-    let cache = cache_path.and_then(|p| {
-        read_pricing_cache(p).ok().flatten()
-    });
+    let cache = cache_path.and_then(|p| read_pricing_cache(p).ok().flatten());
 
     // Load cache into memory
     if let Some(ref json) = cache {
@@ -253,9 +247,22 @@ pub fn refresh_pricing(cache_path: Option<&std::path::Path>) {
 
 /// Return the default cache path: ~/.sema/pricing-cache.json
 pub fn default_cache_path() -> Option<std::path::PathBuf> {
-    std::env::var("HOME")
-        .ok()
-        .map(|home| std::path::PathBuf::from(home).join(".sema").join("pricing-cache.json"))
+    std::env::var("HOME").ok().map(|home| {
+        std::path::PathBuf::from(home)
+            .join(".sema")
+            .join("pricing-cache.json")
+    })
+}
+
+/// Returns the current pricing source info: source name and updated_at if available.
+pub fn pricing_status() -> (&'static str, Option<String>) {
+    let has_fetched = FETCHED_PRICING.with(|f| f.borrow().is_some());
+    if has_fetched {
+        let updated = fetched_pricing_updated_at();
+        ("fetched", updated)
+    } else {
+        ("hardcoded", None)
+    }
 }
 
 #[cfg(test)]
@@ -368,7 +375,9 @@ mod tests {
     #[test]
     fn test_refresh_pricing_loads_cache_fallback() {
         clear_fetched_pricing();
-        let fake_cache = std::env::temp_dir().join("sema-pricing-noexist").join("cache.json");
+        let fake_cache = std::env::temp_dir()
+            .join("sema-pricing-noexist")
+            .join("cache.json");
         refresh_pricing(Some(&fake_cache));
         // Hardcoded should still work
         assert!(model_pricing("gpt-4o-mini").is_some());
