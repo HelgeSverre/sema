@@ -194,6 +194,34 @@ pub fn read_pricing_cache(path: &std::path::Path) -> Result<Option<String>, Stri
     }
 }
 
+pub const PRICING_URL: &str = "https://www.llm-prices.com/current-v1.json";
+
+/// Fetch pricing from llm-prices.com with a short timeout.
+/// Returns Ok(json_string) on success, Err on any failure.
+/// This function uses tokio runtime internally (same pattern as LLM providers).
+pub fn fetch_pricing_from_remote() -> Result<String, String> {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    rt.block_on(async {
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_millis(500))
+            .timeout(std::time::Duration::from_secs(2))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let resp = client
+            .get(PRICING_URL)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        resp.text().await.map_err(|e| e.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,5 +322,10 @@ mod tests {
         let result = read_pricing_cache(std::path::Path::new("/nonexistent/path/cache.json"));
         assert!(result.is_ok());
         assert!(result.unwrap().is_none());
+    }
+
+    #[test]
+    fn test_fetch_pricing_url_is_correct() {
+        assert_eq!(PRICING_URL, "https://www.llm-prices.com/current-v1.json");
     }
 }
