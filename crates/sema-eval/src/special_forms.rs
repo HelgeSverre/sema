@@ -8,7 +8,12 @@ use sema_core::{
 
 use crate::eval::{self, Trampoline};
 
-/// Cached Spur values for special form names to avoid resolve() allocations in the hot path.
+/// Pre-interned `Spur` handles for all special form names.
+///
+/// Special form dispatch is the hottest path in the evaluator — every list expression
+/// checks whether its head is a special form. By caching the interned `Spur` (u32) for
+/// each name, we compare integers instead of resolving strings. This also avoids calling
+/// `resolve()` which allocates a `String` from the thread-local interner on every lookup.
 struct SpecialFormSpurs {
     quote: Spur,
     if_: Spur,

@@ -15,7 +15,6 @@ pub enum Trampoline {
 
 pub type EvalResult = Result<Value, SemaError>;
 
-// --- Module system thread-local state ---
 
 thread_local! {
     /// Cache of already-loaded modules: canonical path → exported bindings
@@ -87,7 +86,6 @@ pub fn create_module_env(env: &Env) -> Env {
     Env::with_parent(Rc::new(current))
 }
 
-// --- Call stack / span table functions ---
 
 pub fn push_call_frame(frame: CallFrame) {
     CALL_STACK.with(|s| s.borrow_mut().push(frame));
@@ -125,7 +123,6 @@ pub fn set_eval_step_limit(limit: usize) {
     EVAL_STEP_LIMIT.with(|l| l.set(limit));
 }
 
-/// Get the current file name (for stack frames).
 pub fn current_file_name() -> Option<String> {
     CURRENT_FILE.with(|f| f.borrow().last().map(|p| p.to_string_lossy().to_string()))
 }
@@ -342,7 +339,8 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
             let head = &items[0];
             let args = &items[1..];
 
-            // Check for special forms (by interned Spur, no resolve() needed)
+            // O(1) special form dispatch: compare the symbol's Spur (u32 interned handle)
+            // against cached constants, avoiding string resolution entirely.
             if let Value::Symbol(spur) = head {
                 if let Some(result) = special_forms::try_eval_special(*spur, args, env) {
                     return result;
