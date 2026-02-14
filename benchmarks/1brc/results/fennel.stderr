@@ -1,18 +1,1 @@
-/bench/1brc.fnl:17:7: Compile error: expected even number of name/value bindings
-
-  (let [7m[(semi (string.find line ";" 1 true))][0m
-* Try finding where the identifier or value is missing.
-stack traceback:
-	[C]: in function 'error'
-	/usr/local/bin/fennel:4273: in function 'assert-compile'
-	/usr/local/bin/fennel:2835: in function 'assert'
-	/usr/local/bin/fennel:1491: in function 'special'
-	/usr/local/bin/fennel:3385: in function 'compile1'
-	/usr/local/bin/fennel:1087: in function 'compile_do'
-	/usr/local/bin/fennel:1774: in function 'special'
-	/usr/local/bin/fennel:3385: in function 'compile1'
-	/usr/local/bin/fennel:3897: in function 'compile-string'
-	/usr/local/bin/fennel:6034: in function ?
-	[C]: in function 'xpcall'
-	/usr/local/bin/fennel:6945: in function ?
-	[C]: in ?
+Elapsed: 2626 ms
