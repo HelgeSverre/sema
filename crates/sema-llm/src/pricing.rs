@@ -174,6 +174,26 @@ pub fn set_custom_pricing(model_pattern: &str, input_per_million: f64, output_pe
     });
 }
 
+/// Write pricing JSON to cache file (atomic: write temp + rename).
+pub fn write_pricing_cache(path: &std::path::Path, json: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, json).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Read pricing JSON from cache file. Returns Ok(None) if file doesn't exist.
+pub fn read_pricing_cache(path: &std::path::Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => Ok(Some(content)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +263,36 @@ mod tests {
     fn test_unknown_model_returns_none() {
         clear_fetched_pricing();
         assert!(model_pricing("totally-unknown-model-xyz").is_none());
+    }
+
+    #[test]
+    fn test_cache_roundtrip() {
+        let dir = std::env::temp_dir().join("sema-pricing-test");
+        let _ = std::fs::create_dir_all(&dir);
+        let cache_path = dir.join("pricing-cache.json");
+
+        let json = r#"{
+            "updated_at": "2025-10-10",
+            "prices": [
+                {"id": "test-model", "vendor": "test", "name": "Test", "input": 1.5, "output": 3.0, "input_cached": null}
+            ]
+        }"#;
+
+        write_pricing_cache(&cache_path, json).unwrap();
+        assert!(cache_path.exists());
+
+        let loaded = read_pricing_cache(&cache_path).unwrap();
+        assert!(loaded.is_some());
+        let content = loaded.unwrap();
+        assert!(content.contains("test-model"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_cache_read_missing_file() {
+        let result = read_pricing_cache(std::path::Path::new("/nonexistent/path/cache.json"));
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none());
     }
 }
