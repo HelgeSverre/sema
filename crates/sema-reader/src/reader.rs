@@ -27,7 +27,7 @@ impl Parser {
     fn span(&self) -> Span {
         self.tokens
             .get(self.pos)
-            .map(|t| t.span.clone())
+            .map(|t| t.span)
             .unwrap_or(Span { line: 0, col: 0 })
     }
 
@@ -293,7 +293,6 @@ pub fn read_many_with_spans(input: &str) -> Result<(Vec<Value>, SpanMap), SemaEr
 mod tests {
     use super::*;
 
-
     #[test]
     fn test_read_int() {
         assert_eq!(read("42").unwrap(), Value::Int(42));
@@ -412,7 +411,6 @@ mod tests {
         assert_eq!(result.len(), 1);
     }
 
-
     #[test]
     fn test_read_zero() {
         assert_eq!(read("0").unwrap(), Value::Int(0));
@@ -469,7 +467,6 @@ mod tests {
         assert_eq!(result, Value::list(vec![Value::Int(-3)]));
     }
 
-
     #[test]
     fn test_read_empty_string() {
         assert_eq!(read(r#""""#).unwrap(), Value::string(""));
@@ -520,7 +517,6 @@ mod tests {
         assert_eq!(read("\"(+ 1 2)\"").unwrap(), Value::string("(+ 1 2)"));
     }
 
-
     #[test]
     fn test_read_operator_symbols() {
         assert_eq!(read("+").unwrap(), Value::symbol("+"));
@@ -556,7 +552,6 @@ mod tests {
         assert_eq!(read("false").unwrap(), Value::Bool(false));
     }
 
-
     #[test]
     fn test_read_bare_colon_error() {
         // `:` alone without a name should error
@@ -573,13 +568,11 @@ mod tests {
         assert_eq!(read(":max-turns").unwrap(), Value::keyword("max-turns"));
     }
 
-
     #[test]
     fn test_read_hash_invalid() {
         assert!(read("#x").is_err());
         assert!(read("#").is_err());
     }
-
 
     #[test]
     fn test_read_empty() {
@@ -605,7 +598,6 @@ mod tests {
     fn test_read_comment_only() {
         assert_eq!(read_many("; just a comment").unwrap(), vec![]);
     }
-
 
     #[test]
     fn test_read_empty_list() {
@@ -649,7 +641,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_read_empty_vector() {
         assert_eq!(read("[]").unwrap(), Value::vector(vec![]));
@@ -659,7 +650,6 @@ mod tests {
     fn test_read_unterminated_vector() {
         assert!(read("[1 2").is_err());
     }
-
 
     #[test]
     fn test_read_empty_map() {
@@ -684,7 +674,6 @@ mod tests {
         expected.insert(Value::keyword("a"), Value::Int(2));
         assert_eq!(result, Value::Map(Rc::new(expected)));
     }
-
 
     #[test]
     fn test_read_nested_quote() {
@@ -730,7 +719,6 @@ mod tests {
         assert!(read("`").is_err());
     }
 
-
     #[test]
     fn test_read_comment_after_expr() {
         assert_eq!(read_many("42 ; comment").unwrap(), vec![Value::Int(42)]);
@@ -748,7 +736,6 @@ mod tests {
         assert_eq!(read_many("; comment").unwrap(), vec![]);
     }
 
-
     #[test]
     fn test_read_crlf_line_endings() {
         let result = read_many("1\r\n2\r\n3").unwrap();
@@ -762,7 +749,6 @@ mod tests {
             Value::list(vec![Value::symbol("+"), Value::Int(1), Value::Int(2)])
         );
     }
-
 
     #[test]
     fn test_read_mixed_collections() {
@@ -791,7 +777,6 @@ mod tests {
         assert_eq!(result[5], Value::Bool(true));
         assert_eq!(result[6], Value::Nil);
     }
-
 
     #[test]
     fn test_span_map_tracks_lists() {
@@ -822,13 +807,11 @@ mod tests {
         }
     }
 
-
     #[test]
     fn test_read_unexpected_char() {
         assert!(read("@").is_err());
         assert!(read("$").is_err());
     }
-
 
     #[test]
     fn test_read_char_literal() {
@@ -870,7 +853,6 @@ mod tests {
     fn test_read_char_eof() {
         assert!(read("#\\").is_err());
     }
-
 
     #[test]
     fn test_read_bytevector_literal() {
@@ -921,7 +903,6 @@ mod tests {
             ])
         );
     }
-
 
     #[test]
     fn test_read_string_hex_escape_basic() {

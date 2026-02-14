@@ -1,0 +1,3 @@
+
+ERR: list or string expected in function find : nil
+called from user function (main)

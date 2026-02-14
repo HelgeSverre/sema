@@ -1,0 +1,125 @@
+;; matrix-math.sema — Matrix operations using nested lists
+;; Demonstrates: nested lists, map/zip, recursion, formatted output
+
+(println "=== Matrix Math ===\n")
+
+;; --- Core operations ---
+
+(define (matrix-rows m) (length m))
+(define (matrix-cols m) (length (first m)))
+
+(define (matrix-transpose m)
+  (map (fn (c) (map (fn (row) (nth row c)) m))
+       (range (matrix-cols m))))
+
+(define (matrix-add a b)
+  (map (fn (pair) (map + (first pair) (nth pair 1)))
+       (zip a b)))
+
+(define (matrix-scalar-multiply s m)
+  (map (fn (row) (map (fn (x) (* s x)) row)) m))
+
+(define (matrix-multiply a b)
+  (let ((bt (matrix-transpose b)))
+    (map (fn (row-a)
+      (map (fn (col-b)
+        (foldl + 0 (map * row-a col-b)))
+        bt))
+      a)))
+
+(define (matrix-identity n)
+  (map (fn (i)
+    (map (fn (j) (if (= i j) 1 0)) (range n)))
+    (range n)))
+
+;; Determinant for 2x2 and 3x3
+(define (matrix-determinant m)
+  (let ((n (matrix-rows m)))
+    (cond
+      ((= n 1) (nth (first m) 0))
+      ((= n 2)
+       (- (* (nth (first m) 0) (nth (nth m 1) 1))
+          (* (nth (first m) 1) (nth (nth m 1) 0))))
+      ((= n 3)
+       (let ((a (first m)) (b (nth m 1)) (c (nth m 2)))
+         (- (+ (* (nth a 0) (- (* (nth b 1) (nth c 2)) (* (nth b 2) (nth c 1))))
+               (* (nth a 2) (- (* (nth b 0) (nth c 1)) (* (nth b 1) (nth c 0)))))
+            (* (nth a 1) (- (* (nth b 0) (nth c 2)) (* (nth b 2) (nth c 0)))))))
+      (else (throw "Determinant only supported for 1x1, 2x2, and 3x3")))))
+
+;; --- Pretty printing ---
+
+(define (matrix-print name m)
+  (define col-width 6)
+  (println (format "  ~a =" name))
+  (for-each
+    (fn (row)
+      (println (format "    │ ~a │"
+        (string/join
+          (map (fn (x) (string/pad-left (str x) col-width)) row)
+          " "))))
+    m)
+  (println ""))
+
+;; --- Demo ---
+
+(println "=== Basic Operations ===\n")
+
+(define A (list (list 1 2 3) (list 4 5 6) (list 7 8 9)))
+(define B (list (list 9 8 7) (list 6 5 4) (list 3 2 1)))
+
+(matrix-print "A" A)
+(matrix-print "B" B)
+(matrix-print "A + B" (matrix-add A B))
+(matrix-print "2 * A" (matrix-scalar-multiply 2 A))
+
+;; --- Transpose property: (A^T)^T = A ---
+(println "=== Transpose Properties ===\n")
+
+(define At (matrix-transpose A))
+(define Att (matrix-transpose At))
+
+(matrix-print "A" A)
+(matrix-print "Aᵀ" At)
+(matrix-print "(Aᵀ)ᵀ" Att)
+(println (format "  (Aᵀ)ᵀ = A? ~a\n" (if (equal? A Att) "YES ✓" "NO ✗")))
+
+;; --- Matrix multiplication ---
+(println "=== Multiplication ===\n")
+
+(define P (list (list 1 2) (list 3 4)))
+(define Q (list (list 5 6) (list 7 8)))
+
+(matrix-print "P" P)
+(matrix-print "Q" Q)
+(matrix-print "P × Q" (matrix-multiply P Q))
+
+;; Identity property: A × I = A
+(define I3 (matrix-identity 3))
+(matrix-print "I₃" I3)
+(matrix-print "A × I₃" (matrix-multiply A I3))
+(println (format "  A × I = A? ~a\n" (if (equal? (matrix-multiply A I3) A) "YES ✓" "NO ✗")))
+
+;; --- Determinants ---
+(println "=== Determinants ===\n")
+
+(define M2 (list (list 3 8) (list 4 6)))
+(matrix-print "M₂" M2)
+(println (format "  det(M₂) = 3×6 - 8×4 = ~a\n" (matrix-determinant M2)))
+
+(define M3 (list (list 6 1 1) (list 4 -2 5) (list 2 8 7)))
+(matrix-print "M₃" M3)
+(println (format "  det(M₃) = ~a\n" (matrix-determinant M3)))
+
+;; det(I) should be 1
+(println (format "  det(I₃) = ~a" (matrix-determinant I3)))
+
+;; det(2A) = 2^n * det(A) for n×n matrix
+(define det-A (matrix-determinant A))
+(define det-2A (matrix-determinant (matrix-scalar-multiply 2 A)))
+(println (format "  det(A) = ~a" det-A))
+(println (format "  det(2A) = ~a" det-2A))
+(println (format "  2³ × det(A) = ~a" (* 8 det-A)))
+(println (format "  det(2A) = 2³×det(A)? ~a" (if (= det-2A (* 8 det-A)) "YES ✓" "NO ✗")))
+
+(println "\nDone!")

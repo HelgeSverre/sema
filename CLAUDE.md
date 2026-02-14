@@ -35,7 +35,7 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
     └── sema-llm ────────────────┘
 ```
 
-- **sema-core** — `Value` enum (18 variants), `Env` (Rc + RefCell + BTreeMap), `SemaError`
+- **sema-core** — `Value` enum (18 variants), `Env` (Rc + RefCell + hashbrown::HashMap), `SemaError`
 - **sema-reader** — Lexer + parser producing `Value` AST
 - **sema-eval** — Trampoline-based tree-walking evaluator, 29 special forms, module system
 - **sema-stdlib** — 350+ native functions across 17 modules registered into `Env`
@@ -69,7 +69,7 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 
 - Errors: use `SemaError::eval()`, `::type_error()`, `::arity()` constructors — never raw enum variants
 - Native fns: `NativeFn` takes `&[Value]`, returns `Result<Value, SemaError>`
-- Single-threaded: `Rc` everywhere, not `Arc`. `BTreeMap` for deterministic ordering.
+- Single-threaded: `Rc` everywhere, not `Arc`. `hashbrown::HashMap` for `Env` bindings, `BTreeMap` for user-facing sorted maps.
 
 ### Sema Language Naming (Decision #24)
 

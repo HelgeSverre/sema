@@ -4,6 +4,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
+use hashbrown::HashMap as SpurMap;
 use lasso::{Rodeo, Spur};
 
 use crate::error::SemaError;
@@ -456,14 +457,8 @@ impl fmt::Display for Value {
                 }
             }
             Value::String(s) => write!(f, "\"{s}\""),
-            Value::Symbol(s) => {
-                let name = resolve(*s);
-                write!(f, "{name}")
-            }
-            Value::Keyword(s) => {
-                let name = resolve(*s);
-                write!(f, ":{name}")
-            }
+            Value::Symbol(s) => with_resolved(*s, |name| write!(f, "{name}")),
+            Value::Keyword(s) => with_resolved(*s, |name| write!(f, ":{name}")),
             Value::Char(c) => match c {
                 ' ' => write!(f, "#\\space"),
                 '\n' => write!(f, "#\\newline"),
@@ -538,8 +533,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::Record(r) => {
-                let tag = resolve(r.type_tag);
-                write!(f, "#<record {tag}")?;
+                with_resolved(r.type_tag, |tag| write!(f, "#<record {tag}"))?;
                 for field in &r.fields {
                     write!(f, " {field}")?;
                 }
@@ -560,31 +554,33 @@ impl fmt::Display for Value {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
+    let mut iter = s.chars();
+    let prefix: String = iter.by_ref().take(max).collect();
+    if iter.next().is_none() {
+        prefix
     } else {
-        format!("{}...", &s[..max])
+        format!("{prefix}...")
     }
 }
 
 /// A Sema environment: a chain of scopes with bindings.
 #[derive(Debug, Clone)]
 pub struct Env {
-    pub bindings: Rc<RefCell<BTreeMap<Spur, Value>>>,
+    pub bindings: Rc<RefCell<SpurMap<Spur, Value>>>,
     pub parent: Option<Rc<Env>>,
 }
 
 impl Env {
     pub fn new() -> Self {
         Env {
-            bindings: Rc::new(RefCell::new(BTreeMap::new())),
+            bindings: Rc::new(RefCell::new(SpurMap::new())),
             parent: None,
         }
     }
 
     pub fn with_parent(parent: Rc<Env>) -> Self {
         Env {
-            bindings: Rc::new(RefCell::new(BTreeMap::new())),
+            bindings: Rc::new(RefCell::new(SpurMap::new())),
             parent: Some(parent),
         }
     }

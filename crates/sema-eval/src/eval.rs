@@ -15,7 +15,6 @@ pub enum Trampoline {
 
 pub type EvalResult = Result<Value, SemaError>;
 
-
 thread_local! {
     /// Cache of already-loaded modules: canonical path → exported bindings
     static MODULE_CACHE: RefCell<BTreeMap<PathBuf, BTreeMap<String, Value>>> = const { RefCell::new(BTreeMap::new()) };
@@ -86,7 +85,6 @@ pub fn create_module_env(env: &Env) -> Env {
     Env::with_parent(Rc::new(current))
 }
 
-
 pub fn push_call_frame(frame: CallFrame) {
     CALL_STACK.with(|s| s.borrow_mut().push(frame));
 }
@@ -123,8 +121,8 @@ pub fn set_eval_step_limit(limit: usize) {
     EVAL_STEP_LIMIT.with(|l| l.set(limit));
 }
 
-pub fn current_file_name() -> Option<String> {
-    CURRENT_FILE.with(|f| f.borrow().last().map(|p| p.to_string_lossy().to_string()))
+pub fn current_file_path() -> Option<PathBuf> {
+    CURRENT_FILE.with(|f| f.borrow().last().cloned())
 }
 
 /// Look up a span for an expression via the SPAN_TABLE.
@@ -244,10 +242,9 @@ fn eval_value_inner(expr: &Value, env: &Env) -> EvalResult {
     let mut current_env = env.clone();
     let entry_depth = call_stack_depth();
     let guard = CallStackGuard { entry_depth };
+    let limit = EVAL_STEP_LIMIT.with(|l| l.get());
 
     loop {
-        // Check optional step limit (used by fuzz targets to terminate infinite loops)
-        let limit = EVAL_STEP_LIMIT.with(|l| l.get());
         if limit > 0 {
             let steps = EVAL_STEPS.with(|s| {
                 let v = s.get() + 1;
@@ -363,7 +360,7 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
                     // Push frame, call native fn
                     let frame = CallFrame {
                         name: native.name.to_string(),
-                        file: current_file_name(),
+                        file: current_file_path(),
                         span: call_span,
                     };
                     push_call_frame(frame);
@@ -386,7 +383,7 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
                     // Push frame — trampoline continues, eval_value guard handles cleanup
                     let frame = CallFrame {
                         name: lambda.name.as_deref().unwrap_or("<lambda>").to_string(),
-                        file: current_file_name(),
+                        file: current_file_path(),
                         span: call_span,
                     };
                     push_call_frame(frame);
@@ -429,7 +426,7 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// Apply a lambda to evaluated arguments with TCO.
-fn apply_lambda(lambda: &Lambda, args: &[Value]) -> Result<Trampoline, SemaError> {
+fn apply_lambda(lambda: &Rc<Lambda>, args: &[Value]) -> Result<Trampoline, SemaError> {
     let new_env = Env::with_parent(Rc::new(lambda.env.clone()));
 
     // Bind parameters
@@ -459,18 +456,9 @@ fn apply_lambda(lambda: &Lambda, args: &[Value]) -> Result<Trampoline, SemaError
         }
     }
 
-    // Self-reference for recursion
+    // Self-reference for recursion — just clone the Rc pointer
     if let Some(ref name) = lambda.name {
-        new_env.set(
-            sema_core::intern(name),
-            Value::Lambda(Rc::new(Lambda {
-                params: lambda.params.clone(),
-                rest_param: lambda.rest_param.clone(),
-                body: lambda.body.clone(),
-                env: lambda.env.clone(),
-                name: lambda.name.clone(),
-            })),
-        );
+        new_env.set(sema_core::intern(name), Value::Lambda(Rc::clone(lambda)));
     }
 
     // Evaluate body with TCO on last expression

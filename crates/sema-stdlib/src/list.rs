@@ -94,8 +94,7 @@ fn repeat_impl(args: &[Value]) -> Result<Value, SemaError> {
     }
     let n = args[0]
         .as_int()
-        .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-        as usize;
+        .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
     let val = args[1].clone();
     Ok(Value::list(vec![val; n]))
 }
@@ -133,11 +132,12 @@ pub fn register(env: &sema_core::Env) {
         match &args[0] {
             Value::List(l) => Ok(Value::Int(l.len() as i64)),
             Value::Vector(v) => Ok(Value::Int(v.len() as i64)),
-            Value::String(s) => Ok(Value::Int(s.len() as i64)),
+            Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
             Value::Map(m) => Ok(Value::Int(m.len() as i64)),
             Value::HashMap(m) => Ok(Value::Int(m.len() as i64)),
+            Value::Bytevector(bv) => Ok(Value::Int(bv.len() as i64)),
             _ => Err(SemaError::type_error(
-                "list, vector, string, or map",
+                "list, vector, string, map, or bytevector",
                 args[0].type_name(),
             )),
         }

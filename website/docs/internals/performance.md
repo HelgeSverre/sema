@@ -1,6 +1,6 @@
 # Performance Internals
 
-Sema is a tree-walking interpreter — there's no bytecode compiler or JIT. Despite that, targeted optimizations brought the [1 Billion Row Challenge](https://github.com/gunnarmorling/1brc) benchmark from **29s to 13s** on 10M rows (2.2x speedup). This page documents each optimization, why it was chosen, and its measured impact.
+Sema is a tree-walking interpreter — there's no bytecode compiler or JIT. Despite that, targeted optimizations brought the [1 Billion Row Challenge](https://github.com/gunnarmorling/1brc) benchmark from **~25s to ~13s** on 10M rows (~1.9x speedup). This page documents each optimization, why it was chosen, and its measured impact.
 
 All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset (semicolon-delimited weather station readings, one per line).
 
@@ -12,7 +12,7 @@ All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset
 | + COW assoc | 1,800 ms | ~18,000 ms | In-place map mutation |
 | + Env reuse | 1,626 ms | 16,059 ms | Lambda env recycling |
 | + String interning | 1,400 ms | ~14,000 ms | Spur-based dispatch |
-| + hashbrown | 1,340 ms | ~13,400 ms | O(1) accumulator |
+| + hashbrown | 1,340 ms | ~13,400 ms | Amortized O(1) accumulator |
 | **Total speedup** | **1.87x** | **~1.87x** | |
 
 ## 1. Copy-on-Write Map Mutation
@@ -41,10 +41,10 @@ The key insight is pairing this with `Env::take()` — by *removing* the accumul
 
 The `fold-lines` implementation moves (not clones) `acc` into the lambda env on each iteration, keeping the refcount at 1.
 
-**Impact:** ~30% of the total speedup. Turned O(stations) per row into O(1).
+**Impact:** ~30% of the total speedup. Eliminated the O(n) full-map clone, leaving only the O(log n) BTreeMap insert per row.
 
 **Literature:**
-- This is the same copy-on-write strategy used by Swift's value types and Clojure's persistent data structures (though Clojure uses structural sharing via HAMTs rather than Rc refcounting)
+- This is the same copy-on-write strategy used by Swift's value types. (Clojure's persistent data structures solve a related problem — avoiding full copies — but via structural sharing rather than refcount-based COW.)
 - Phil Bagwell, ["Ideal Hash Trees"](https://infoscience.epfl.ch/entities/publication/64410) (2001) — the paper behind Clojure/Scala persistent collections
 - Rust's `Rc::make_mut` provides the same semantics with less ceremony
 
@@ -82,7 +82,7 @@ Three wins stacked:
 **Literature:**
 - This is a manual application of escape analysis — the JVM's JIT does this automatically when it proves an allocation doesn't escape a loop
 - LuaJIT's trace compiler applies similar optimizations to eliminate per-iteration allocations
-- CPython's `__slots__` serves a similar purpose (pre-allocated attribute storage vs. per-instance dict)
+- CPython's `__slots__` is a distant analogy (pre-allocated attribute storage vs. per-instance dict), though the mechanism is different
 
 ## 3. Mini-Eval (Inlined Hot-Path Builtins)
 
@@ -115,7 +115,7 @@ This also exists for a structural reason: `sema-stdlib` cannot depend on `sema-e
 
 ## 4. String Interning (lasso)
 
-**Problem:** Symbol/keyword equality was O(n) string comparison. Environment lookups keyed by `String` required hashing the full string. Special form dispatch compared against 30+ string literals on every list evaluation.
+**Problem:** Symbol/keyword equality was O(n) string comparison. Environment lookups keyed by `String` required comparing the full string on each `BTreeMap` node visit. Special form dispatch compared against 30+ string literals on every list evaluation.
 
 **Solution:** Replace `Rc<String>` in `Value::Symbol` and `Value::Keyword` with `Spur` — a `u32` handle from the [lasso](https://crates.io/crates/lasso) string interner. Environment bindings keyed by `Spur` for direct integer lookup.
 
@@ -165,7 +165,7 @@ if head_spur == sf.if_ {
 ;; User code: opt into HashMap for the accumulator
 (file/fold-lines "data.csv"
   (lambda (acc line) ...)
-  (hashmap/new))  ; O(1) vs O(log n)
+  (hashmap/new))  ; amortized O(1) vs O(log n)
 
 ;; Convert back to sorted BTreeMap for output
 (hashmap/to-map acc)
@@ -249,7 +249,7 @@ Not everything we tried worked:
 
 | Approach | Result | Why |
 |----------|--------|-----|
-| **HashMap for Env** | Slower | `BTreeMap` is faster for the very small maps (1–3 entries) typical of `let` scopes. HashMap's hashing overhead exceeds BTreeMap's linear scan at that size. |
+| **HashMap for Env** | Slower | `BTreeMap` is faster for the very small maps (1–3 entries) typical of `let` scopes. HashMap's hashing overhead exceeds BTreeMap's few integer comparisons at that size. |
 | **Full evaluator callback** | 4x slower | Trampoline dispatch, call stack management, and span tracking dominate at ~6,200ms vs 1,600ms for the mini-eval. |
 | **im-rc / rpds (persistent collections)** | Slower | Structural sharing fights the COW optimization — the whole point is to *avoid* sharing and mutate in place when refcount is 1. |
 | **bumpalo / typed-arena** | Incompatible | Values need to escape the arena (returned from functions, stored in environments). Arena allocation only works for temporaries. |

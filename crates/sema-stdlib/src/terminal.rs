@@ -9,7 +9,6 @@ use sema_core::{SemaError, Value};
 
 use crate::register_fn;
 
-
 fn wrap_sgr(text: &str, code: &str) -> String {
     format!("\x1b[{code}m{text}\x1b[0m")
 }
@@ -28,7 +27,6 @@ fn make_style_fn(env: &sema_core::Env, name: &str, code: &str) {
     });
 }
 
-
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS: u64 = 80;
 
@@ -42,7 +40,6 @@ thread_local! {
     static SPINNERS: RefCell<HashMap<i64, SpinnerHandle>> = RefCell::new(HashMap::new());
     static SPINNER_COUNTER: Cell<i64> = const { Cell::new(0) };
 }
-
 
 pub fn register(env: &sema_core::Env) {
     // Modifiers
@@ -164,7 +161,6 @@ pub fn register(env: &sema_core::Env) {
             "\x1b[38;2;{r};{g};{b}m{text}\x1b[0m"
         )))
     });
-
 
     // (term/spinner-start "message") -> spinner-id
     register_fn(env, "term/spinner-start", |args| {

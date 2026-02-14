@@ -19,10 +19,7 @@ pub fn register(env: &sema_core::Env) {
         let mut rows = Vec::new();
         for result in rdr.records() {
             let record = result.map_err(|e| SemaError::eval(format!("csv/parse: {e}")))?;
-            let row: Vec<Value> = record
-                .iter()
-                .map(|field| Value::string(field))
-                .collect();
+            let row: Vec<Value> = record.iter().map(Value::string).collect();
             rows.push(Value::list(row));
         }
         Ok(Value::list(rows))
@@ -50,10 +47,7 @@ pub fn register(env: &sema_core::Env) {
             let mut map = BTreeMap::new();
             for (i, field) in record.iter().enumerate() {
                 if let Some(header) = headers.get(i) {
-                    map.insert(
-                        Value::keyword(header),
-                        Value::string(field),
-                    );
+                    map.insert(Value::keyword(header), Value::string(field));
                 }
             }
             rows.push(Value::Map(Rc::new(map)));

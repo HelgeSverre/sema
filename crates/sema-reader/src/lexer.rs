@@ -190,12 +190,12 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 let code = u32::from_str_radix(&hex, 16).map_err(|_| {
                                     SemaError::Reader {
                                         message: format!("invalid hex escape \\x{};", hex),
-                                        span: span.clone(),
+                                        span,
                                     }
                                 })?;
                                 let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
                                     message: format!("invalid unicode scalar value \\x{};", hex),
-                                    span: span.clone(),
+                                    span,
                                 })?;
                                 s.push(ch);
                             }
@@ -217,12 +217,12 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 let code = u32::from_str_radix(&hex, 16).map_err(|_| {
                                     SemaError::Reader {
                                         message: format!("invalid hex escape \\u{}", hex),
-                                        span: span.clone(),
+                                        span,
                                     }
                                 })?;
                                 let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
                                     message: format!("invalid unicode scalar value \\u{}", hex),
-                                    span: span.clone(),
+                                    span,
                                 })?;
                                 s.push(ch);
                             }
@@ -244,12 +244,12 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 let code = u32::from_str_radix(&hex, 16).map_err(|_| {
                                     SemaError::Reader {
                                         message: format!("invalid hex escape \\U{}", hex),
-                                        span: span.clone(),
+                                        span,
                                     }
                                 })?;
                                 let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
                                     message: format!("invalid unicode scalar value \\U{}", hex),
-                                    span: span.clone(),
+                                    span,
                                 })?;
                                 s.push(ch);
                             }
@@ -465,14 +465,14 @@ fn read_number(chars: &[char], span: &Span) -> Result<(Token, usize), SemaError>
         let s: String = chars[..i].iter().collect();
         let f: f64 = s.parse().map_err(|_| SemaError::Reader {
             message: format!("invalid float: {s}"),
-            span: span.clone(),
+            span: *span,
         })?;
         Ok((Token::Float(f), i))
     } else {
         let s: String = chars[..i].iter().collect();
         let n: i64 = s.parse().map_err(|_| SemaError::Reader {
             message: format!("invalid integer: {s}"),
-            span: span.clone(),
+            span: *span,
         })?;
         Ok((Token::Int(n), i))
     }

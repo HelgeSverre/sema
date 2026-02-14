@@ -195,28 +195,17 @@ pub const PRICING_URL: &str = "https://www.llm-prices.com/current-v1.json";
 
 /// Fetch pricing from llm-prices.com with a short timeout.
 /// Returns Ok(json_string) on success, Err on any failure.
-/// This function uses tokio runtime internally (same pattern as LLM providers).
+/// Uses blocking HTTP to avoid tokio runtime nesting issues.
 pub fn fetch_pricing_from_remote() -> Result<String, String> {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(std::time::Duration::from_millis(500))
+        .timeout(std::time::Duration::from_secs(2))
         .build()
         .map_err(|e| e.to_string())?;
 
-    rt.block_on(async {
-        let client = reqwest::Client::builder()
-            .connect_timeout(std::time::Duration::from_millis(500))
-            .timeout(std::time::Duration::from_secs(2))
-            .build()
-            .map_err(|e| e.to_string())?;
+    let resp = client.get(PRICING_URL).send().map_err(|e| e.to_string())?;
 
-        let resp = client
-            .get(PRICING_URL)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-
-        resp.text().await.map_err(|e| e.to_string())
-    })
+    resp.text().map_err(|e| e.to_string())
 }
 
 /// Best-effort pricing refresh. Called during llm/auto-configure.
@@ -248,11 +237,12 @@ pub fn refresh_pricing(cache_path: Option<&std::path::Path>) {
 
 /// Return the default cache path: ~/.sema/pricing-cache.json
 pub fn default_cache_path() -> Option<std::path::PathBuf> {
-    std::env::var("HOME").ok().map(|home| {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(
         std::path::PathBuf::from(home)
             .join(".sema")
-            .join("pricing-cache.json")
-    })
+            .join("pricing-cache.json"),
+    )
 }
 
 /// Returns the current pricing source info: source name and updated_at if available.

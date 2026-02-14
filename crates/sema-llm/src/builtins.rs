@@ -353,7 +353,7 @@ pub fn register_llm_builtins(env: &Env) {
 
     // Auto-configure from environment variables
     register_fn(env, "llm/auto-configure", |_args| {
-        PROVIDER_REGISTRY.with(|reg| {
+        let result = PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
             let mut first_configured: Option<&str> = None;
 
@@ -517,14 +517,16 @@ pub fn register_llm_builtins(env: &Env) {
                 }
             }
 
-            // Best-effort pricing refresh
-            pricing::refresh_pricing(pricing::default_cache_path().as_deref());
-
             match first_configured {
                 Some(name) => Ok(Value::keyword(name)),
                 None => Ok(Value::Nil),
             }
-        })
+        })?;
+
+        // Best-effort pricing refresh (outside PROVIDER_REGISTRY borrow)
+        pricing::refresh_pricing(pricing::default_cache_path().as_deref());
+
+        Ok(result)
     });
 
     // (llm/complete "prompt text" {:model "..." :max-tokens 200 :temperature 0.5})

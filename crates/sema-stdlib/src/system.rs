@@ -93,9 +93,7 @@ pub fn register(env: &sema_core::Env) {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/args", "0", args.len()));
         }
-        let args_list: Vec<Value> = std::env::args()
-            .map(|a| Value::string(&a))
-            .collect();
+        let args_list: Vec<Value> = std::env::args().map(|a| Value::string(&a)).collect();
         Ok(Value::list(args_list))
     });
 

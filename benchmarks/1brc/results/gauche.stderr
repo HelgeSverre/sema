@@ -1,0 +1,9 @@
+*** ERROR: pair required, but got 1771091538
+    While loading "/bench/1brc.gauche.scm" at line 68
+Stack Trace:
+_______________________________________
+  0  (current-ms)
+        at "/bench/1brc.gauche.scm":29
+  1  (eval s #f)
+  2  (with-error-handler (lambda (e) (cond (else (let1 e2 (if (con ...
+  3  (load-from-port (if ignore-coding port (open-coding-aware-por ...

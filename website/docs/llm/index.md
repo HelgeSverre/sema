@@ -40,7 +40,7 @@ Define tools the LLM can invoke, and build agents with system prompts, tools, an
 
 ### [Embeddings & Similarity](./embeddings.md)
 
-Generate embeddings and compute cosine similarity.
+Generate embeddings (as bytevectors), compute cosine similarity, and access embedding dimensions.
 
 ### [Structured Extraction](./extraction.md)
 

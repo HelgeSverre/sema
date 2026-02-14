@@ -49,19 +49,21 @@ Add or update a key-value pair, returning a new map.
 
 ### `dissoc`
 
-Remove a key, returning a new map.
+Remove a key, returning a new map. Works on both maps and hashmaps.
 
 ```scheme
-(dissoc {:a 1 :b 2} :a)   ; => {:b 2}
+(dissoc {:a 1 :b 2} :a)                     ; => {:b 2}
+(dissoc (hashmap/new :a 1 :b 2) :a)         ; hashmap without :a
 ```
 
 ### `merge`
 
-Merge multiple maps together. Later maps override earlier ones.
+Merge multiple maps together. Later maps override earlier ones. Works on both maps and hashmaps — the result type matches the first argument.
 
 ```scheme
 (merge {:a 1} {:b 2} {:c 3})   ; => {:a 1 :b 2 :c 3}
 (merge {:a 1} {:a 99})         ; => {:a 99}
+(merge (hashmap/new :a 1) {:b 2})  ; hashmap with :a and :b
 ```
 
 ### `keys`
@@ -213,10 +215,14 @@ Test if a hashmap contains a key.
 
 ### Generic Operations on HashMaps
 
-The generic functions `get`, `assoc`, `keys`, `vals`, `count`, and `contains?` also work on hashmaps:
+The generic functions `get`, `assoc`, `dissoc`, `keys`, `vals`, `merge`, `count`, `contains?`, and all `map/*` higher-order operations also work on hashmaps, preserving the hashmap type:
 
 ```scheme
 (get (hashmap/new :a 1 :b 2) :a)       ; => 1
 (assoc (hashmap/new) :x 42)            ; hashmap with :x 42
+(dissoc (hashmap/new :a 1 :b 2) :a)    ; hashmap without :a
+(merge (hashmap/new :a 1) {:b 2})      ; hashmap with :a and :b
 (count (hashmap/new :a 1 :b 2))        ; => 2
+(map/map-vals (fn (v) (* v 2)) (hashmap/new :a 1))  ; hashmap with :a 2
+(map/filter (fn (k v) (> v 1)) (hashmap/new :a 1 :b 2))  ; hashmap with :b
 ```

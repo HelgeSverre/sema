@@ -19,7 +19,7 @@ impl fmt::Display for Span {
 #[derive(Debug, Clone)]
 pub struct CallFrame {
     pub name: String,
-    pub file: Option<String>,
+    pub file: Option<std::path::PathBuf>,
     pub span: Option<Span>,
 }
 
@@ -32,8 +32,8 @@ impl fmt::Display for StackTrace {
         for frame in &self.0 {
             write!(f, "  at {}", frame.name)?;
             match (&frame.file, &frame.span) {
-                (Some(file), Some(span)) => writeln!(f, " ({file}:{span})")?,
-                (Some(file), None) => writeln!(f, " ({file})")?,
+                (Some(file), Some(span)) => writeln!(f, " ({}:{span})", file.display())?,
+                (Some(file), None) => writeln!(f, " ({})", file.display())?,
                 (None, Some(span)) => writeln!(f, " (<input>:{span})")?,
                 (None, None) => writeln!(f)?,
             }

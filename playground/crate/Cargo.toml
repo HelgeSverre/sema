@@ -16,7 +16,3 @@ js-sys = "0.3"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 serde_json = { workspace = true }
 uuid = { version = "1", features = ["v4", "js"] }
-
-[profile.release]
-opt-level = "s"
-lto = true

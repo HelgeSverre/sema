@@ -1,7 +1,6 @@
 use proptest::prelude::*;
 use sema_reader::{read, read_many};
 
-
 proptest! {
     #[test]
     fn reader_never_panics(input in "\\PC*") {
@@ -14,7 +13,6 @@ proptest! {
         let _ = read_many(&input);
     }
 }
-
 
 fn sema_atom() -> impl Strategy<Value = String> {
     prop_oneof![
@@ -80,7 +78,6 @@ proptest! {
     }
 }
 
-
 proptest! {
     #[test]
     fn delimiter_soup_never_panics(
@@ -104,7 +101,6 @@ proptest! {
     }
 }
 
-
 proptest! {
     #[test]
     fn string_escapes_never_panic(
@@ -124,7 +120,6 @@ proptest! {
         let _ = read(&content);
     }
 }
-
 
 proptest! {
     #[test]

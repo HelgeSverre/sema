@@ -47,7 +47,7 @@
   (try
     (llm/configure :jina {:api-key (env "JINA_API_KEY")})
     (define vecs (llm/embed "test" {:model "jina-embeddings-v3"}))
-    (println "  Jina:      OK (" (length vecs) "dims)")
+    (println "  Jina:      OK (" (embedding/length vecs) "dims)")
     (catch e
       (println "  Jina:      FAIL -" (get e :message)))))
 
@@ -55,7 +55,7 @@
   (try
     (llm/configure :voyage {:api-key (env "VOYAGE_API_KEY")})
     (define vecs (llm/embed "test" {:model "voyage-3-lite"}))
-    (println "  Voyage:    OK (" (length vecs) "dims)")
+    (println "  Voyage:    OK (" (embedding/length vecs) "dims)")
     (catch e
       (println "  Voyage:    FAIL -" (get e :message)))))
 
@@ -63,7 +63,7 @@
   (try
     (llm/configure :cohere {:api-key (env "COHERE_API_KEY")})
     (define vecs (llm/embed "test"))
-    (println "  Cohere:    OK (" (length vecs) "dims)")
+    (println "  Cohere:    OK (" (embedding/length vecs) "dims)")
     (catch e
       (println "  Cohere:    FAIL -" (get e :message)))))
 

@@ -1,0 +1,7 @@
+Berlin;12.3
+Berlin;-5.1
+Berlin;20.0
+Accra;24.1
+Accra;28.7
+Abha;11.9
+Abha;24.5

@@ -1,0 +1,131 @@
+;; hashmap-demo.sema — HashMap vs Map comparison and phone book application
+;; Demonstrates: hash-map, hashmap/*, map/*, merge, assoc, dissoc
+
+(println "=== HashMap vs Map (Ordered vs Unordered) ===\n")
+
+;; Ordered Map (BTreeMap) — keys are always sorted
+(define colors (hash-map :red "#FF0000" :green "#00FF00" :blue "#0000FF"))
+(println (format "Ordered map: ~a" colors))
+(println (format "Keys (sorted): ~a" (keys colors)))
+(println (format "Get :red → ~a" (get colors :red)))
+
+;; HashMap — unordered, faster lookups
+(define hm (hashmap/new :apple 3 :banana 5 :cherry 2))
+(println (format "\nHashMap: ~a" hm))
+(println (format "Get :banana → ~a" (hashmap/get hm :banana)))
+(println (format "Contains :apple? ~a" (hashmap/contains? hm :apple)))
+
+;; Add and convert
+(define hm2 (hashmap/assoc hm :date 7 :elderberry 1))
+(println (format "After assoc: ~a" (hashmap/keys hm2)))
+(println (format "As ordered map: ~a" (hashmap/to-map hm2)))
+
+(println "\n=== Word Frequency Counting ===\n")
+
+(define sentence "the cat sat on the mat the cat ate the rat on the mat")
+(define words (string/split sentence " "))
+
+;; Count with ordered map (foldl)
+(define freq
+  (foldl (fn (acc w)
+    (let ((sym (string->keyword w)))
+      (assoc acc sym (+ 1 (get acc sym 0)))))
+    (hash-map)
+    words))
+
+(println (format "Word frequencies: ~a" freq))
+(println (format "Most common words:"))
+(define sorted-words
+  (sort (map/entries freq) (fn (a b) (- (nth b 1) (nth a 1)))))
+(for-each
+  (fn (entry)
+    (println (format "  ~a → ~a times"
+      (string/pad-right (str (first entry)) 8)
+      (nth entry 1))))
+  sorted-words)
+
+(println "\n=== Map Transformations ===\n")
+
+(define inventory (hash-map :widgets 100 :gadgets 50 :gizmos 75 :doohickeys 30))
+(println (format "Inventory: ~a" inventory))
+
+;; Double all values
+(define doubled (map/map-vals (fn (v) (* v 2)) inventory))
+(println (format "Doubled: ~a" doubled))
+
+;; Filter items with 50+ stock
+(define well-stocked (map/filter (fn (k v) (>= v 50)) inventory))
+(println (format "Well-stocked (>=50): ~a" well-stocked))
+
+;; Select specific keys
+(define subset (map/select-keys inventory (list :widgets :gizmos)))
+(println (format "Selected keys: ~a" subset))
+
+;; Build map from entries
+(define from-entries
+  (map/from-entries (list (list :x 10) (list :y 20) (list :z 30))))
+(println (format "From entries: ~a" from-entries))
+
+;; Merge maps
+(define defaults (hash-map :color "blue" :size "medium" :count 1))
+(define overrides (hash-map :color "red" :count 5))
+(define merged (merge defaults overrides))
+(println (format "\nDefaults: ~a" defaults))
+(println (format "Overrides: ~a" overrides))
+(println (format "Merged: ~a" merged))
+
+(println "\n=== Phone Book Application ===\n")
+
+;; CREATE
+(define phonebook (hash-map))
+(define (pb-add pb name phone email)
+  (assoc pb (string->keyword name)
+    (hash-map :phone phone :email email :name name)))
+
+(define pb (pb-add phonebook "alice" "555-0101" "alice@example.com"))
+(define pb (pb-add pb "bob" "555-0202" "bob@example.com"))
+(define pb (pb-add pb "carol" "555-0303" "carol@example.com"))
+(define pb (pb-add pb "dave" "555-0404" "dave@example.com"))
+
+(println (format "Phone book has ~a contacts" (count pb)))
+
+;; READ
+(define (pb-lookup pb name)
+  (get pb (string->keyword name)))
+
+(define alice (pb-lookup pb "alice"))
+(println (format "Lookup alice: ~a — ~a" (get alice :phone) (get alice :email)))
+
+;; UPDATE
+(define pb (assoc pb :bob
+  (assoc (get pb :bob) :phone "555-9999")))
+(println (format "Updated bob's phone: ~a" (get (pb-lookup pb "bob") :phone)))
+
+;; DELETE
+(define pb (dissoc pb :dave))
+(println (format "After removing dave: ~a contacts" (count pb)))
+
+;; LIST all contacts
+(println "\nAll contacts:")
+(for-each
+  (fn (entry)
+    (let ((info (nth entry 1)))
+      (println (format "  ~a  phone: ~a  email: ~a"
+        (string/pad-right (get info :name) 8)
+        (string/pad-right (get info :phone) 10)
+        (get info :email)))))
+  (map/entries pb))
+
+;; SEARCH by partial name
+(define (pb-search pb query)
+  (filter (fn (entry)
+    (string/contains? (str (first entry)) query))
+    (map/entries pb)))
+
+(define results (pb-search pb "o"))
+(println (format "\nSearch for 'o': ~a match(es)" (length results)))
+(for-each
+  (fn (entry) (println (format "  ~a" (get (nth entry 1) :name))))
+  results)
+
+(println "\nDone!")

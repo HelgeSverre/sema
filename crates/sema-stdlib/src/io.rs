@@ -141,7 +141,6 @@ pub fn register(env: &sema_core::Env) {
         Err(SemaError::eval(msg))
     });
 
-
     register_fn(env, "file/append", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("file/append", "2", args.len()));
@@ -273,7 +272,6 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::Map(Rc::new(map)))
     });
-
 
     register_fn(env, "path/join", |args| {
         if args.is_empty() {

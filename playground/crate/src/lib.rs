@@ -2,9 +2,9 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
+use js_sys::Date;
 use sema_core::{Env, NativeFn, SemaError, Value};
 use wasm_bindgen::prelude::*;
-use js_sys::Date;
 
 thread_local! {
     /// Completed lines of output (flushed by println/newline)
@@ -173,19 +173,36 @@ fn register_wasm_io(env: &Env) {
 
     // term/* pass-through shims (ANSI codes are useless in the browser)
     for name in &[
-        "term/bold", "term/dim", "term/italic", "term/underline", "term/inverse", "term/strikethrough",
-        "term/black", "term/red", "term/green", "term/yellow", "term/blue", "term/magenta", "term/cyan", "term/white", "term/gray",
+        "term/bold",
+        "term/dim",
+        "term/italic",
+        "term/underline",
+        "term/inverse",
+        "term/strikethrough",
+        "term/black",
+        "term/red",
+        "term/green",
+        "term/yellow",
+        "term/blue",
+        "term/magenta",
+        "term/cyan",
+        "term/white",
+        "term/gray",
         "term/strip",
     ] {
         let fn_name = name.to_string();
-        register(name, Box::new(move |args: &[Value]| {
-            if args.len() != 1 {
-                return Err(SemaError::arity(&fn_name, "1", args.len()));
-            }
-            let text = args[0].as_str()
-                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::String(Rc::new(text.to_string())))
-        }));
+        register(
+            name,
+            Box::new(move |args: &[Value]| {
+                if args.len() != 1 {
+                    return Err(SemaError::arity(&fn_name, "1", args.len()));
+                }
+                let text = args[0]
+                    .as_str()
+                    .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+                Ok(Value::String(Rc::new(text.to_string())))
+            }),
+        );
     }
 
     // term/style: return first arg unchanged
@@ -195,7 +212,8 @@ fn register_wasm_io(env: &Env) {
             if args.is_empty() {
                 return Err(SemaError::arity("term/style", "1+", args.len()));
             }
-            let text = args[0].as_str()
+            let text = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             Ok(Value::String(Rc::new(text.to_string())))
         }),
@@ -208,7 +226,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 4 {
                 return Err(SemaError::arity("term/rgb", "4", args.len()));
             }
-            let text = args[0].as_str()
+            let text = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             Ok(Value::String(Rc::new(text.to_string())))
         }),
@@ -254,9 +273,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/elapsed", "0", args.len()));
             }
-            let nanos = WASM_START_MS.with(|&start| {
-                ((Date::now() - start) * 1_000_000.0) as i64
-            });
+            let nanos = WASM_START_MS.with(|&start| ((Date::now() - start) * 1_000_000.0) as i64);
             Ok(Value::Int(nanos))
         }),
     );
@@ -320,9 +337,7 @@ fn register_wasm_io(env: &Env) {
     // exit: not supported in WASM
     register(
         "exit",
-        Box::new(|_args: &[Value]| {
-            Err(SemaError::eval("exit not supported in WASM"))
-        }),
+        Box::new(|_args: &[Value]| Err(SemaError::eval("exit not supported in WASM"))),
     );
 
     // sys/interactive?: always false in WASM
@@ -619,7 +634,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("sys/which", "1", args.len()));
             }
-            args[0].as_str()
+            args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             Ok(Value::Nil)
         }),
@@ -643,13 +659,12 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/read", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            VFS.with(|vfs| {
-                match vfs.borrow().get(path) {
-                    Some(content) => Ok(Value::String(Rc::new(content.clone()))),
-                    None => Err(SemaError::Io(format!("file/read {path}: No such file"))),
-                }
+            VFS.with(|vfs| match vfs.borrow().get(path) {
+                Some(content) => Ok(Value::String(Rc::new(content.clone()))),
+                None => Err(SemaError::Io(format!("file/read {path}: No such file"))),
             })
         }),
     );
@@ -660,12 +675,15 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 2 {
                 return Err(SemaError::arity("file/write", "2", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let content = args[1].as_str()
+            let content = args[1]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
             VFS.with(|vfs| {
-                vfs.borrow_mut().insert(path.to_string(), content.to_string());
+                vfs.borrow_mut()
+                    .insert(path.to_string(), content.to_string());
             });
             Ok(Value::Nil)
         }),
@@ -677,7 +695,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/exists?", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let in_vfs = VFS.with(|vfs| vfs.borrow().contains_key(path));
             let in_dirs = VFS_DIRS.with(|dirs| dirs.borrow().contains(path));
@@ -691,13 +710,12 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/delete", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            VFS.with(|vfs| {
-                match vfs.borrow_mut().remove(path) {
-                    Some(_) => Ok(Value::Nil),
-                    None => Err(SemaError::Io(format!("file/delete {path}: No such file"))),
-                }
+            VFS.with(|vfs| match vfs.borrow_mut().remove(path) {
+                Some(_) => Ok(Value::Nil),
+                None => Err(SemaError::Io(format!("file/delete {path}: No such file"))),
             })
         }),
     );
@@ -708,9 +726,11 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 2 {
                 return Err(SemaError::arity("file/rename", "2", args.len()));
             }
-            let from = args[0].as_str()
+            let from = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let to = args[1].as_str()
+            let to = args[1]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
             VFS.with(|vfs| {
                 let mut map = vfs.borrow_mut();
@@ -719,7 +739,9 @@ fn register_wasm_io(env: &Env) {
                         map.insert(to.to_string(), content);
                         Ok(Value::Nil)
                     }
-                    None => Err(SemaError::Io(format!("file/rename {from} -> {to}: No such file"))),
+                    None => Err(SemaError::Io(format!(
+                        "file/rename {from} -> {to}: No such file"
+                    ))),
                 }
             })
         }),
@@ -731,7 +753,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/list", "1", args.len()));
             }
-            let dir = args[0].as_str()
+            let dir = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let prefix = if dir.ends_with('/') {
                 dir.to_string()
@@ -768,7 +791,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/mkdir", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             VFS_DIRS.with(|dirs| {
                 let mut set = dirs.borrow_mut();
@@ -797,9 +821,12 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/is-directory?", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::Bool(VFS_DIRS.with(|dirs| dirs.borrow().contains(path))))
+            Ok(Value::Bool(
+                VFS_DIRS.with(|dirs| dirs.borrow().contains(path)),
+            ))
         }),
     );
 
@@ -809,7 +836,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/is-file?", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             Ok(Value::Bool(VFS.with(|vfs| vfs.borrow().contains_key(path))))
         }),
@@ -821,7 +849,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/is-symlink?", "1", args.len()));
             }
-            let _path = args[0].as_str()
+            let _path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             Ok(Value::Bool(false))
         }),
@@ -833,9 +862,11 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 2 {
                 return Err(SemaError::arity("file/append", "2", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let content = args[1].as_str()
+            let content = args[1]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
             VFS.with(|vfs| {
                 let mut map = vfs.borrow_mut();
@@ -853,9 +884,11 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 2 {
                 return Err(SemaError::arity("file/copy", "2", args.len()));
             }
-            let src = args[0].as_str()
+            let src = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let dest = args[1].as_str()
+            let dest = args[1]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
             VFS.with(|vfs| {
                 let map = vfs.borrow();
@@ -866,7 +899,9 @@ fn register_wasm_io(env: &Env) {
                         vfs.borrow_mut().insert(dest.to_string(), content);
                         Ok(Value::Nil)
                     }
-                    None => Err(SemaError::Io(format!("file/copy {src} -> {dest}: No such file"))),
+                    None => Err(SemaError::Io(format!(
+                        "file/copy {src} -> {dest}: No such file"
+                    ))),
                 }
             })
         }),
@@ -878,16 +913,17 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/read-lines", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            VFS.with(|vfs| {
-                match vfs.borrow().get(path) {
-                    Some(content) => {
-                        let lines: Vec<Value> = content.split('\n').map(Value::string).collect();
-                        Ok(Value::list(lines))
-                    }
-                    None => Err(SemaError::Io(format!("file/read-lines {path}: No such file"))),
+            VFS.with(|vfs| match vfs.borrow().get(path) {
+                Some(content) => {
+                    let lines: Vec<Value> = content.split('\n').map(Value::string).collect();
+                    Ok(Value::list(lines))
                 }
+                None => Err(SemaError::Io(format!(
+                    "file/read-lines {path}: No such file"
+                ))),
             })
         }),
     );
@@ -898,7 +934,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 2 {
                 return Err(SemaError::arity("file/write-lines", "2", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let lines = match &args[1] {
                 Value::List(l) => l.as_ref(),
@@ -926,12 +963,15 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("file/info", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let is_file = VFS.with(|vfs| vfs.borrow().contains_key(path));
             let is_dir = VFS_DIRS.with(|dirs| dirs.borrow().contains(path));
             if !is_file && !is_dir {
-                return Err(SemaError::Io(format!("file/info {path}: No such file or directory")));
+                return Err(SemaError::Io(format!(
+                    "file/info {path}: No such file or directory"
+                )));
             }
             let size = if is_file {
                 VFS.with(|vfs| vfs.borrow().get(path).map(|c| c.len() as i64).unwrap_or(0))
@@ -950,23 +990,17 @@ fn register_wasm_io(env: &Env) {
 
     register(
         "read-line",
-        Box::new(|_args: &[Value]| {
-            Err(SemaError::eval("read-line not supported in WASM"))
-        }),
+        Box::new(|_args: &[Value]| Err(SemaError::eval("read-line not supported in WASM"))),
     );
 
     register(
         "read-stdin",
-        Box::new(|_args: &[Value]| {
-            Err(SemaError::eval("read-stdin not supported in WASM"))
-        }),
+        Box::new(|_args: &[Value]| Err(SemaError::eval("read-stdin not supported in WASM"))),
     );
 
     register(
         "shell",
-        Box::new(|_args: &[Value]| {
-            Err(SemaError::eval("shell not supported in WASM"))
-        }),
+        Box::new(|_args: &[Value]| Err(SemaError::eval("shell not supported in WASM"))),
     );
 
     // --- Reader/parser functions ---
@@ -977,16 +1011,15 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("load", "1", args.len()));
             }
-            let path = args[0].as_str()
+            let path = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            VFS.with(|vfs| {
-                match vfs.borrow().get(path) {
-                    Some(content) => {
-                        let exprs = sema_reader::read_many(content)?;
-                        Ok(Value::list(exprs))
-                    }
-                    None => Err(SemaError::Io(format!("load {path}: No such file"))),
+            VFS.with(|vfs| match vfs.borrow().get(path) {
+                Some(content) => {
+                    let exprs = sema_reader::read_many(content)?;
+                    Ok(Value::list(exprs))
                 }
+                None => Err(SemaError::Io(format!("load {path}: No such file"))),
             })
         }),
     );
@@ -997,7 +1030,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("read", "1", args.len()));
             }
-            let s = args[0].as_str()
+            let s = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             sema_reader::read(s)
         }),
@@ -1009,7 +1043,8 @@ fn register_wasm_io(env: &Env) {
             if args.len() != 1 {
                 return Err(SemaError::arity("read-many", "1", args.len()));
             }
-            let s = args[0].as_str()
+            let s = args[0]
+                .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let exprs = sema_reader::read_many(s)?;
             Ok(Value::list(exprs))

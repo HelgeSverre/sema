@@ -50,6 +50,9 @@ struct SpecialFormSpurs {
     delay: Spur,
     force: Spur,
     define_record_type: Spur,
+    else_: Spur,
+    catch: Spur,
+    export: Spur,
 }
 
 impl SpecialFormSpurs {
@@ -90,6 +93,9 @@ impl SpecialFormSpurs {
             delay: intern("delay"),
             force: intern("force"),
             define_record_type: intern("define-record-type"),
+            else_: intern("else"),
+            catch: intern("catch"),
+            export: intern("export"),
         }
     }
 }
@@ -211,6 +217,7 @@ fn eval_if(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 fn eval_cond(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    let sf = special_forms();
     for clause in args {
         let items = clause
             .as_list()
@@ -219,7 +226,7 @@ fn eval_cond(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             return Err(SemaError::eval("cond clause must not be empty"));
         }
         // (else body...) or (test body...)
-        let is_else = matches!(&items[0], Value::Symbol(s) if resolve(*s) == "else");
+        let is_else = matches!(&items[0], Value::Symbol(s) if *s == sf.else_);
         if is_else || eval::eval_value(&items[0], env)?.is_truthy() {
             if items.len() == 1 {
                 return Ok(Trampoline::Value(Value::Bool(true)));
@@ -851,6 +858,7 @@ fn eval_throw(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 
 /// (try body... (catch e handler-body...))
 fn eval_try(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    let sf = special_forms();
     if args.is_empty() {
         return Err(SemaError::arity("try", "1+", 0));
     }
@@ -863,7 +871,7 @@ fn eval_try(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if catch_form.is_empty() {
         return Err(SemaError::eval("try: catch form is empty"));
     }
-    let is_catch = matches!(&catch_form[0], Value::Symbol(s) if resolve(*s) == "catch");
+    let is_catch = matches!(&catch_form[0], Value::Symbol(s) if *s == sf.catch);
     if !is_catch {
         return Err(SemaError::eval(
             "try: last argument must be (catch var handler...)",
@@ -980,7 +988,10 @@ fn error_to_value(err: &SemaError) -> Value {
                     let mut fm = BTreeMap::new();
                     fm.insert(Value::keyword("name"), Value::string(&frame.name));
                     if let Some(ref file) = frame.file {
-                        fm.insert(Value::keyword("file"), Value::string(file));
+                        fm.insert(
+                            Value::keyword("file"),
+                            Value::string(&file.to_string_lossy()),
+                        );
                     }
                     if let Some(ref span) = frame.span {
                         fm.insert(Value::keyword("line"), Value::Int(span.line as i64));
@@ -997,6 +1008,7 @@ fn error_to_value(err: &SemaError) -> Value {
 
 /// (module name (export sym1 sym2 ...) body...)
 fn eval_module(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    let sf = special_forms();
     if args.len() < 2 {
         return Err(SemaError::arity("module", "2+", args.len()));
     }
@@ -1009,9 +1021,7 @@ fn eval_module(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     let export_list = args[1]
         .as_list()
         .ok_or_else(|| SemaError::eval("module: second argument must be (export sym1 sym2 ...)"))?;
-    if export_list.is_empty()
-        || !matches!(&export_list[0], Value::Symbol(s) if resolve(*s) == "export")
-    {
+    if export_list.is_empty() || !matches!(&export_list[0], Value::Symbol(s) if *s == sf.export) {
         return Err(SemaError::eval(
             "module: second argument must start with 'export'",
         ));
@@ -1206,6 +1216,7 @@ fn eval_load(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 
 /// (case key-expr ((datum ...) body ...) ... (else body ...))
 fn eval_case(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    let sf = special_forms();
     if args.len() < 2 {
         return Err(SemaError::arity("case", "2+", args.len()));
     }
@@ -1219,7 +1230,7 @@ fn eval_case(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             return Err(SemaError::eval("case: clause must not be empty"));
         }
         // (else body...)
-        let is_else = matches!(&items[0], Value::Symbol(s) if resolve(*s) == "else");
+        let is_else = matches!(&items[0], Value::Symbol(s) if *s == sf.else_);
         if is_else {
             if items.len() == 1 {
                 return Ok(Trampoline::Value(Value::Nil));

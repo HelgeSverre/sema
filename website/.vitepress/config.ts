@@ -21,7 +21,6 @@ export default defineConfig({
       { text: 'Docs', link: '/docs/' },
       { text: 'Stdlib', link: '/docs/stdlib/' },
       { text: 'LLM', link: '/docs/llm/' },
-      { text: 'Playground', link: 'https://sema.run' },
     ],
 
     sidebar: {
@@ -60,13 +59,16 @@ export default defineConfig({
             { text: 'System', link: '/docs/stdlib/system' },
             { text: 'Bytevectors', link: '/docs/stdlib/bytevectors' },
             { text: 'Records', link: '/docs/stdlib/records' },
-            { text: 'Playground & WASM', link: '/docs/stdlib/playground' },
           ],
         },
         {
           text: 'Internals',
           items: [
+            { text: 'Architecture', link: '/docs/internals/architecture' },
+            { text: 'Evaluator & TCO', link: '/docs/internals/evaluator' },
+            { text: 'Reader & Spans', link: '/docs/internals/reader' },
             { text: 'Performance', link: '/docs/internals/performance' },
+            { text: 'Lisp Dialect Benchmark', link: '/docs/internals/lisp-comparison' },
           ],
         },
         {
