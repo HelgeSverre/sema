@@ -215,5 +215,5 @@ Return the file extension (without the dot).
 Return the absolute path.
 
 ```scheme
-(path/absolute "file.txt")   ; => "/full/path/file.txt"
+(path/absolute ".")   ; => "/full/path/to/current/dir"
 ```

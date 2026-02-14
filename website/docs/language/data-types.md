@@ -45,12 +45,12 @@ Whole numbers. Standard arithmetic applies.
 
 ### Float
 
-Floating-point numbers with a decimal point or scientific notation.
+Floating-point numbers with a decimal point.
 
 ```scheme
 3.14
 -0.5
-1e10
+0.001
 ```
 
 ### String

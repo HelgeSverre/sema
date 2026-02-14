@@ -298,7 +298,9 @@ Test if a value is a conversation.
 Test if a value is a tool definition.
 
 ```scheme
+(deftool my-tool "A test tool" {:x {:type :string}} (lambda (x) x))
 (tool? my-tool)   ; => #t
+(tool? 42)        ; => #f
 ```
 
 ### `agent?`
@@ -306,5 +308,7 @@ Test if a value is a tool definition.
 Test if a value is an agent.
 
 ```scheme
+(defagent my-agent {:system "test"})
 (agent? my-agent)   ; => #t
+(agent? 42)         ; => #f
 ```
