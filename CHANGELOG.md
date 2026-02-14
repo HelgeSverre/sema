@@ -1,10 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 ### Added
 
 - **String escape sequences** — R7RS-style `\x<hex>;` hex escapes, `\uNNNN` (4-digit), `\UNNNNNNNN` (8-digit) Unicode escapes, and `\0` null escape in string literals. Enables producing any Unicode character including ESC (`\x1B;`) for ANSI terminal codes.
+- **Agent message history** — `(agent/run agent msg {:messages history})` returns `{:response "..." :messages [...]}`, enabling multi-turn agent conversations with persistent message history.
+- **VitePress documentation site** — Full documentation website with 30+ pages covering stdlib, LLM primitives, language reference, and CLI. All code examples verified against the interpreter.
+
+### Fixed
+
+- **Shell single-string commands** — `(shell "ls -la")` now correctly invokes the system shell for command parsing instead of treating the entire string as an executable name.
+- **Tool argument ordering** — `deftool` handlers now receive arguments in lambda declaration order instead of alphabetical BTreeMap key order, fixing mismatches when parameter names aren't alphabetically sorted.
 
 ## 0.6.1
 
