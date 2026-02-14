@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+
+- **Embedding API** — `sema` crate now exposes a library with `Interpreter`, `InterpreterBuilder`, and `register_fn()` for embedding Sema as a scripting engine in Rust applications. Builder toggles for stdlib (`with_stdlib`) and LLM (`with_llm`) with sensible defaults.
+- **Persistent defines** — `eval_str_in_global` / `eval_in_global` methods on the evaluator so that `define` persists across multiple eval calls (used by the embedding API).
+- **Embedding documentation** — new docs page with quick start, builder config, native function registration, a data pipeline example, and threading model notes.
+
+### Fixed
+
+- **Integer overflow panics** — stdlib arithmetic (`+`, `-`, `*`), `abs`, `pow`, `math/quotient`, `math/gcd`, `math/lcm` now use wrapping operations instead of panicking on overflow.
+- **"No global state" claim** — removed misleading claim from README and docs; Sema uses a thread-local string interner.
+
 ## 0.7.0
 
 ### Added
