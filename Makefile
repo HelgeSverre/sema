@@ -1,4 +1,4 @@
-.PHONY: all build release install uninstall test test-http check clippy fmt fmt-check clean run lint examples test-providers fuzz setup bench-1m bench-10m bench-100m
+.PHONY: all build release install uninstall test test-http check clippy fmt fmt-check clean run lint examples test-providers fuzz setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy
 
 build:
 	cargo build
@@ -74,3 +74,18 @@ bench-100m: release
 	time ./target/release/sema examples/benchmarks/1brc.sema -- bench-100m.txt
 
 all: lint test build
+
+# Website
+.PHONY: site-dev site-build site-preview site-deploy
+
+site-dev:
+	cd website && npm run dev
+
+site-build:
+	cd website && npm run build
+
+site-preview: site-build
+	cd website && npm run preview
+
+site-deploy: site-build
+	cd website && npx vercel --prod

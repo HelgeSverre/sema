@@ -22,7 +22,7 @@
   (fn () (= 0 (math/random-int 0 1))))
 
 (define (gen/char)
-  (fn () (char->string (int->char (math/random-int 32 126)))))
+  (fn () (char->string (integer->char (math/random-int 32 126)))))
 
 (define (gen/string-of max-len)
   (fn ()
@@ -76,13 +76,13 @@
   (let loop ((current val) (fuel 50))
     (if (= fuel 0) current
       (let ((candidates (shrinker current)))
-        (let try ((cs candidates))
+        (let check ((cs candidates))
           (if (null? cs) current
             (if (not (prop (car cs)))
               ;; Found a smaller failing case — keep shrinking
               (loop (car cs) (- fuel 1))
-              ;; This candidate passes — try next
-              (try (cdr cs)))))))))
+              ;; This candidate passes — check next
+              (check (cdr cs)))))))))
 
 ;;; --- Test runner ---
 

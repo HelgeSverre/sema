@@ -2216,7 +2216,7 @@ fn execute_tool_call(
         .ok_or_else(|| SemaError::Llm(format!("tool not found: {name}")))?;
 
     // Convert JSON arguments to Sema values and call the handler
-    let sema_args = json_args_to_sema(&tool_def.parameters, arguments);
+    let sema_args = json_args_to_sema(&tool_def.parameters, arguments, &tool_def.handler);
     let result = call_value_fn(&tool_def.handler, &sema_args)?;
 
     // Convert result to string for sending back to LLM
@@ -2233,30 +2233,31 @@ fn execute_tool_call(
 }
 
 /// Convert JSON arguments into a list of Sema values based on the parameter schema order.
-fn json_args_to_sema(params: &Value, arguments: &serde_json::Value) -> Vec<Value> {
-    match (params, arguments) {
-        (Value::Map(param_map), serde_json::Value::Object(json_obj)) => {
-            // Pass arguments in the order defined in the parameter schema
-            param_map
-                .keys()
-                .map(|k| {
-                    let key_str = match k {
-                        Value::Keyword(s) => resolve(*s),
-                        Value::String(s) => s.to_string(),
-                        other => other.to_string(),
-                    };
-                    json_obj
-                        .get(&key_str)
-                        .map(json_to_sema_value)
-                        .unwrap_or(Value::Nil)
-                })
-                .collect()
+/// When the handler is a lambda, uses its param names (declaration order) instead of
+/// BTreeMap key order (alphabetical), fixing argument ordering mismatches.
+fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Value) -> Vec<Value> {
+    if let serde_json::Value::Object(json_obj) = arguments {
+        // Prefer lambda param names (preserves declaration order) over BTreeMap keys
+        if let Value::Lambda(lambda) = handler {
+            return lambda.params.iter().map(|name| {
+                json_obj.get(name)
+                    .map(json_to_sema_value)
+                    .unwrap_or(Value::Nil)
+            }).collect();
         }
-        _ => {
-            // Single argument or fallback
-            vec![json_to_sema_value(arguments)]
+        // Fallback: use param map keys (BTreeMap order — alphabetical)
+        if let Value::Map(param_map) = params {
+            return param_map.keys().map(|k| {
+                let key_str = match k {
+                    Value::Keyword(s) => resolve(*s),
+                    Value::String(s) => s.to_string(),
+                    other => other.to_string(),
+                };
+                json_obj.get(&key_str).map(json_to_sema_value).unwrap_or(Value::Nil)
+            }).collect();
         }
     }
+    vec![json_to_sema_value(arguments)]
 }
 
 /// Call a Sema value as a function (lambda or native).
@@ -2407,5 +2408,189 @@ pub fn json_to_sema_value(json: &serde_json::Value) -> Value {
             }
             Value::Map(Rc::new(map))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use sema_core::{intern, Lambda};
+
+    /// Helper: build a Lambda value with given param names and a trivial body.
+    fn make_lambda(params: &[&str]) -> Value {
+        Value::Lambda(Rc::new(Lambda {
+            params: params.iter().map(|s| s.to_string()).collect(),
+            rest_param: None,
+            body: vec![Value::Nil],
+            env: Env::new(),
+            name: None,
+        }))
+    }
+
+    /// Helper: build a param map from keyword names (simulates deftool schema).
+    fn make_param_map(keys: &[&str]) -> Value {
+        let mut map = BTreeMap::new();
+        for k in keys {
+            map.insert(
+                Value::keyword(*k),
+                Value::Map(Rc::new(BTreeMap::new())),
+            );
+        }
+        Value::Map(Rc::new(map))
+    }
+
+    // -- json_args_to_sema tests --
+
+    #[test]
+    fn test_json_args_to_sema_lambda_declaration_order() {
+        // Params declared as (path, content) — but alphabetically content < path.
+        // The lambda path must use declaration order, not alphabetical.
+        let handler = make_lambda(&["path", "content"]);
+        let params = make_param_map(&["path", "content"]);
+        let args = json!({"path": "/tmp/test.txt", "content": "hello world"});
+
+        let result = json_args_to_sema(&params, &args, &handler);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], Value::string("/tmp/test.txt"));
+        assert_eq!(result[1], Value::string("hello world"));
+    }
+
+    #[test]
+    fn test_json_args_to_sema_many_params_declaration_order() {
+        // 4 params where alphabetical (a, b, c, d) != declaration order (d, b, a, c)
+        let handler = make_lambda(&["delta", "bravo", "alpha", "charlie"]);
+        let params = make_param_map(&["delta", "bravo", "alpha", "charlie"]);
+        let args = json!({
+            "alpha": "A",
+            "bravo": "B",
+            "charlie": "C",
+            "delta": "D"
+        });
+
+        let result = json_args_to_sema(&params, &args, &handler);
+
+        assert_eq!(result.len(), 4);
+        assert_eq!(result[0], Value::string("D")); // delta first (declaration order)
+        assert_eq!(result[1], Value::string("B")); // bravo second
+        assert_eq!(result[2], Value::string("A")); // alpha third
+        assert_eq!(result[3], Value::string("C")); // charlie fourth
+    }
+
+    #[test]
+    fn test_json_args_to_sema_missing_arg_yields_nil() {
+        let handler = make_lambda(&["path", "content"]);
+        let params = make_param_map(&["path", "content"]);
+        let args = json!({"path": "/tmp/test.txt"});
+
+        let result = json_args_to_sema(&params, &args, &handler);
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], Value::string("/tmp/test.txt"));
+        assert_eq!(result[1], Value::Nil);
+    }
+
+    #[test]
+    fn test_json_args_to_sema_non_lambda_falls_back_to_btreemap() {
+        // With a NativeFn handler, should fall back to param_map key order (alphabetical).
+        let handler = Value::NativeFn(Rc::new(NativeFn {
+            name: "test".to_string(),
+            func: Box::new(|_args| Ok(Value::Nil)),
+        }));
+        let params = make_param_map(&["zebra", "apple"]);
+        let args = json!({"zebra": "Z", "apple": "A"});
+
+        let result = json_args_to_sema(&params, &args, &handler);
+
+        // BTreeMap sorts alphabetically: apple < zebra
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0], Value::string("A")); // apple first (alphabetical)
+        assert_eq!(result[1], Value::string("Z")); // zebra second
+    }
+
+    #[test]
+    fn test_json_args_to_sema_non_object_json() {
+        let handler = make_lambda(&["x"]);
+        let params = make_param_map(&["x"]);
+        let args = json!("just a string");
+
+        let result = json_args_to_sema(&params, &args, &handler);
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0], Value::string("just a string"));
+    }
+
+    #[test]
+    fn test_json_args_to_sema_mixed_types() {
+        let handler = make_lambda(&["name", "age", "active"]);
+        let params = make_param_map(&["name", "age", "active"]);
+        let args = json!({"name": "Alice", "age": 30, "active": true});
+
+        let result = json_args_to_sema(&params, &args, &handler);
+
+        // Declaration order: name, age, active
+        assert_eq!(result[0], Value::string("Alice"));
+        assert_eq!(result[1], Value::Int(30));
+        assert_eq!(result[2], Value::Bool(true));
+    }
+
+    // -- execute_tool_call tests --
+
+    #[test]
+    fn test_execute_tool_call_arg_ordering() {
+        // Tool with params where alphabetical != declaration order.
+        // Handler returns "path={path}, content={content}" to verify ordering.
+        let handler = Value::Lambda(Rc::new(Lambda {
+            params: vec!["path".to_string(), "content".to_string()],
+            rest_param: None,
+            body: vec![
+                // Body: (string-append path "|" content)
+                // We can't call string-append without a full evaluator,
+                // so just return the first param to verify it's the path.
+                Value::Symbol(intern("path")),
+            ],
+            env: Env::new(),
+            name: Some("write-file-handler".to_string()),
+        }));
+
+        let tool = Value::ToolDef(Rc::new(sema_core::ToolDefinition {
+            name: "write-file".to_string(),
+            description: "Write content to a file".to_string(),
+            parameters: make_param_map(&["path", "content"]),
+            handler,
+        }));
+
+        let args = json!({"path": "/tmp/test.txt", "content": "file body here"});
+        let result = execute_tool_call(&[tool], "write-file", &args).unwrap();
+
+        // If ordering is wrong (alphabetical), content would be bound to `path`
+        // and we'd get "file body here" instead of the actual path.
+        assert_eq!(result, "/tmp/test.txt");
+    }
+
+    #[test]
+    fn test_execute_tool_call_reverse_alpha_order() {
+        // Declare params (z_last, a_first) — exact reverse of alphabetical.
+        let handler = Value::Lambda(Rc::new(Lambda {
+            params: vec!["z_last".to_string(), "a_first".to_string()],
+            rest_param: None,
+            body: vec![Value::Symbol(intern("z_last"))],
+            env: Env::new(),
+            name: Some("test-handler".to_string()),
+        }));
+
+        let tool = Value::ToolDef(Rc::new(sema_core::ToolDefinition {
+            name: "test-tool".to_string(),
+            description: "test".to_string(),
+            parameters: make_param_map(&["z_last", "a_first"]),
+            handler,
+        }));
+
+        let args = json!({"z_last": "ZLAST", "a_first": "AFIRST"});
+        let result = execute_tool_call(&[tool], "test-tool", &args).unwrap();
+
+        // Lambda body returns z_last — must be "ZLAST", not "AFIRST"
+        assert_eq!(result, "ZLAST");
     }
 }

@@ -5,7 +5,18 @@
 ;;; Uses maps as dispatch tables and closures for encapsulation.
 ;;;
 ;;; Demonstrates: closures as objects, maps as dispatch tables,
-;;;               type-of, dynamic dispatch, keyword dispatch
+;;;               type, dynamic dispatch, keyword dispatch
+
+;;; --- Threading macro (needed for builder chains) ---
+
+(defmacro -> (val . forms)
+  (if (null? forms)
+    val
+    (let ((form (car forms))
+          (rest (cdr forms)))
+      (if (list? form)
+        `(-> (,(car form) ,val ,@(cdr form)) ,@rest)
+        `(-> (,form ,val) ,@rest)))))
 
 ;;; --- Multimethod infrastructure ---
 
@@ -66,21 +77,21 @@
 (println (format "  ~a area = ~a" :ellipse
   (round (* 100 (invoke area {:type :ellipse :a 3 :b 5})))))
 
-;;; --- Demo 2: Serialization (dispatch on type-of) ---
+;;; --- Demo 2: Serialization (dispatch on type) ---
 
 (println "\n--- Serialize (dispatch on runtime type) ---")
 
 (define serialize
-  (-> (make-multi (fn (val) (type-of val)))
-      (add-method "integer" (fn (v) (str v)))
-      (add-method "float" (fn (v) (str v)))
-      (add-method "string" (fn (v) (str "\"" v "\"")))
-      (add-method "boolean" (fn (v) (if v "true" "false")))
-      (add-method "nil" (fn (v) "null"))
-      (add-method "keyword" (fn (v) (str "\"" v "\"")))
-      (add-method "list"
+  (-> (make-multi (fn (val) (type val)))
+      (add-method :int (fn (v) (str v)))
+      (add-method :float (fn (v) (str v)))
+      (add-method :string (fn (v) (str "\"" v "\"")))
+      (add-method :bool (fn (v) (if v "true" "false")))
+      (add-method :nil (fn (v) "null"))
+      (add-method :keyword (fn (v) (str "\"" v "\"")))
+      (add-method :list
         (fn (v) (str "[" (string/join (map (fn (x) (invoke serialize x)) v) ", ") "]")))
-      (add-method "map"
+      (add-method :map
         (fn (v)
           (str "{"
             (string/join
@@ -161,9 +172,9 @@
   (-> (make-multi (fn (a b) (list (get a :type) (get b :type))))
       (add-method (list :circle :circle)
         (fn (a b)
-          (let ((dx (- (get a :x) (get b :x)))
-                (dy (- (get a :y) (get b :y)))
-                (dist (sqrt (+ (* dx dx) (* dy dy)))))
+          (let* ((dx (- (get a :x) (get b :x)))
+                 (dy (- (get a :y) (get b :y)))
+                 (dist (sqrt (+ (* dx dx) (* dy dy)))))
             (<= dist (+ (get a :r) (get b :r))))))
       (add-method (list :rect :rect)
         (fn (a b)
