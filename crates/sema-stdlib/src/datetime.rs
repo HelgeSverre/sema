@@ -27,7 +27,7 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         let dt = timestamp_to_datetime(ts)?;
-        Ok(Value::String(Rc::new(dt.format(fmt).to_string())))
+        Ok(Value::string(&dt.format(fmt).to_string()))
     });
 
     register_fn(env, "time/parse", |args| {
@@ -65,7 +65,7 @@ pub fn register(env: &sema_core::Env) {
         map.insert(Value::keyword("second"), Value::Int(dt.second() as i64));
         map.insert(
             Value::keyword("weekday"),
-            Value::String(Rc::new(dt.format("%A").to_string())),
+            Value::string(&dt.format("%A").to_string()),
         );
         Ok(Value::Map(Rc::new(map)))
     });

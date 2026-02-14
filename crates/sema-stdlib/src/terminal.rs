@@ -2,7 +2,6 @@ use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::Write;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -10,7 +9,6 @@ use sema_core::{SemaError, Value};
 
 use crate::register_fn;
 
-// --- Color / Style helpers ---
 
 fn wrap_sgr(text: &str, code: &str) -> String {
     format!("\x1b[{code}m{text}\x1b[0m")
@@ -26,11 +24,10 @@ fn make_style_fn(env: &sema_core::Env, name: &str, code: &str) {
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(wrap_sgr(text, &code))))
+        Ok(Value::string(&wrap_sgr(text, &code)))
     });
 }
 
-// --- Spinner implementation ---
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL_MS: u64 = 80;
@@ -46,7 +43,6 @@ thread_local! {
     static SPINNER_COUNTER: Cell<i64> = const { Cell::new(0) };
 }
 
-// --- Registration ---
 
 pub fn register(env: &sema_core::Env) {
     // Modifiers
@@ -109,10 +105,10 @@ pub fn register(env: &sema_core::Env) {
             codes.push(code);
         }
         if codes.is_empty() {
-            return Ok(Value::String(Rc::new(text.to_string())));
+            return Ok(Value::string(text));
         }
         let combined = codes.join(";");
-        Ok(Value::String(Rc::new(wrap_sgr(text, &combined))))
+        Ok(Value::string(&wrap_sgr(text, &combined)))
     });
 
     // (term/strip "ansi-string") -> plain string
@@ -144,7 +140,7 @@ pub fn register(env: &sema_core::Env) {
                 result.push(ch);
             }
         }
-        Ok(Value::String(Rc::new(result)))
+        Ok(Value::string(&result))
     });
 
     // (term/rgb "text" r g b) -> 24-bit color
@@ -164,12 +160,11 @@ pub fn register(env: &sema_core::Env) {
         let b = args[3]
             .as_int()
             .ok_or_else(|| SemaError::type_error("integer", args[3].type_name()))?;
-        Ok(Value::String(Rc::new(format!(
+        Ok(Value::string(&format!(
             "\x1b[38;2;{r};{g};{b}m{text}\x1b[0m"
-        ))))
+        )))
     });
 
-    // --- Spinner functions ---
 
     // (term/spinner-start "message") -> spinner-id
     register_fn(env, "term/spinner-start", |args| {

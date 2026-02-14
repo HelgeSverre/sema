@@ -63,7 +63,7 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let content = std::fs::read_to_string(path)
             .map_err(|e| SemaError::Io(format!("file/read {path}: {e}")))?;
-        Ok(Value::String(Rc::new(content)))
+        Ok(Value::string(&content))
     });
 
     register_fn(env, "file/write", |args| {
@@ -106,7 +106,7 @@ pub fn register(env: &sema_core::Env) {
                 input.pop();
             }
         }
-        Ok(Value::String(Rc::new(input)))
+        Ok(Value::string(&input))
     });
 
     register_fn(env, "read", |args| {
@@ -141,7 +141,6 @@ pub fn register(env: &sema_core::Env) {
         Err(SemaError::eval(msg))
     });
 
-    // --- File operations ---
 
     register_fn(env, "file/append", |args| {
         if args.len() != 2 {
@@ -275,7 +274,6 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Map(Rc::new(map)))
     });
 
-    // --- Path operations ---
 
     register_fn(env, "path/join", |args| {
         if args.is_empty() {
@@ -367,7 +365,14 @@ pub fn register(env: &sema_core::Env) {
             .map_err(|e| SemaError::Io(format!("file/for-each-line {path}: {e}")))?;
         let mut reader = std::io::BufReader::new(file);
 
-        // Fast path: reuse env for Lambda calls
+        // Performance: when the callback is a simple lambda (1 param, no rest args), we bypass
+        // the normal function dispatch path and instead:
+        //   - Create a single Env once and reuse it for every line (avoids per-line allocation)
+        //   - Intern the param name once and use update() to overwrite the binding in-place
+        //   - Read into a reusable line buffer instead of allocating per line
+        //   - Evaluate via the mini-eval (sema_eval_value) which is ~4x faster than the full
+        //     trampoline evaluator for tight loops
+        // This was critical for the 1BRC benchmark: processing 1M rows dropped from ~6.2s to ~1.6s.
         if let Value::Lambda(ref lambda) = func {
             if lambda.params.len() == 1 && lambda.rest_param.is_none() {
                 let lambda_env = Env::with_parent(Rc::new(lambda.env.clone()));
@@ -388,7 +393,7 @@ pub fn register(env: &sema_core::Env) {
                             line_buf.pop();
                         }
                     }
-                    lambda_env.update(param0_spur, Value::String(Rc::new(line_buf.clone())));
+                    lambda_env.update(param0_spur, Value::string(&line_buf));
                     for expr in &lambda.body {
                         sema_eval_value(expr, &lambda_env)?;
                     }
@@ -412,7 +417,7 @@ pub fn register(env: &sema_core::Env) {
                     line_buf.pop();
                 }
             }
-            call_function(&func, &[Value::String(Rc::new(line_buf.clone()))])?;
+            call_function(&func, &[Value::string(&line_buf)])?;
         }
         Ok(Value::Nil)
     });
@@ -428,9 +433,15 @@ pub fn register(env: &sema_core::Env) {
         let mut acc = args[2].clone();
         let file = std::fs::File::open(path)
             .map_err(|e| SemaError::Io(format!("file/fold-lines {path}: {e}")))?;
+        // 256KB buffer (vs default 8KB) improves throughput for large file reads.
         let mut reader = std::io::BufReader::with_capacity(256 * 1024, file);
 
-        // Fast path: reuse env for Lambda calls, move acc instead of cloning
+        // Performance: same env-reuse strategy as file/for-each-line, plus the accumulator
+        // is moved (not cloned) into the env on each iteration. Combined with Env::take()
+        // at the call site (in user code like 1BRC), this enables COW map mutation — when
+        // the accumulator's Rc refcount is 1, assoc/hashmap-assoc can mutate in place instead
+        // of cloning the entire map. For 1BRC with ~400 weather stations, this eliminated an
+        // O(stations) clone per row.
         if let Value::Lambda(ref lambda) = func {
             if lambda.params.len() == 2 && lambda.rest_param.is_none() {
                 let lambda_env = Env::with_parent(Rc::new(lambda.env.clone()));
@@ -455,7 +466,7 @@ pub fn register(env: &sema_core::Env) {
                         }
                     }
                     lambda_env.update(param0_spur, acc);
-                    lambda_env.update(param1_spur, Value::String(Rc::new(line_buf.clone())));
+                    lambda_env.update(param1_spur, Value::string(&line_buf));
                     let mut result = Value::Nil;
                     for expr in &lambda.body {
                         result = sema_eval_value(expr, &lambda_env)?;
@@ -481,7 +492,7 @@ pub fn register(env: &sema_core::Env) {
                     line_buf.pop();
                 }
             }
-            acc = call_function(&func, &[acc, Value::String(Rc::new(line_buf.clone()))])?;
+            acc = call_function(&func, &[acc, Value::string(&line_buf)])?;
         }
         Ok(acc)
     });
@@ -562,7 +573,7 @@ pub fn register(env: &sema_core::Env) {
         std::io::stdin()
             .read_to_string(&mut buf)
             .map_err(|e| SemaError::Io(format!("read-stdin: {e}")))?;
-        Ok(Value::String(Rc::new(buf)))
+        Ok(Value::string(&buf))
     });
 
     register_fn(env, "load", |args| {

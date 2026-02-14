@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use hmac::{Hmac, Mac};
 use sema_core::{SemaError, Value};
 use sha2::{Digest, Sha256};
@@ -13,7 +11,7 @@ pub fn register(env: &sema_core::Env) {
         if !args.is_empty() {
             return Err(SemaError::arity("uuid/v4", "0", args.len()));
         }
-        Ok(Value::String(Rc::new(uuid::Uuid::new_v4().to_string())))
+        Ok(Value::string(&uuid::Uuid::new_v4().to_string()))
     });
 
     register_fn(env, "base64/encode", |args| {
@@ -25,7 +23,7 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         use base64::Engine;
         let encoded = base64::engine::general_purpose::STANDARD.encode(s.as_bytes());
-        Ok(Value::String(Rc::new(encoded)))
+        Ok(Value::string(&encoded))
     });
 
     register_fn(env, "base64/decode", |args| {
@@ -41,7 +39,7 @@ pub fn register(env: &sema_core::Env) {
             .map_err(|e| SemaError::eval(format!("base64/decode: {e}")))?;
         let decoded = String::from_utf8(bytes)
             .map_err(|e| SemaError::eval(format!("base64/decode: invalid UTF-8: {e}")))?;
-        Ok(Value::String(Rc::new(decoded)))
+        Ok(Value::string(&decoded))
     });
 
     register_fn(env, "hash/md5", |args| {
@@ -52,7 +50,7 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let digest = md5::compute(s.as_bytes());
-        Ok(Value::String(Rc::new(format!("{:x}", digest))))
+        Ok(Value::string(&format!("{:x}", digest)))
     });
 
     register_fn(env, "hash/hmac-sha256", |args| {
@@ -68,7 +66,7 @@ pub fn register(env: &sema_core::Env) {
         let mut mac = HmacSha256::new_from_slice(key.as_bytes()).unwrap();
         mac.update(message.as_bytes());
         let result = mac.finalize();
-        Ok(Value::String(Rc::new(hex::encode(result.into_bytes()))))
+        Ok(Value::string(&hex::encode(result.into_bytes())))
     });
 
     register_fn(env, "hash/sha256", |args| {
@@ -80,6 +78,6 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let hash = Sha256::digest(s.as_bytes());
         let hex: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
-        Ok(Value::String(Rc::new(hex)))
+        Ok(Value::string(&hex))
     });
 }

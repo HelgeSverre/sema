@@ -13,7 +13,7 @@ pub fn register(env: &sema_core::Env) {
         let json = value_to_json(&args[0])?;
         let s = serde_json::to_string(&json)
             .map_err(|e| SemaError::eval(format!("json/encode: {e}")))?;
-        Ok(Value::String(Rc::new(s)))
+        Ok(Value::string(&s))
     });
 
     register_fn(env, "json/encode-pretty", |args| {
@@ -23,7 +23,7 @@ pub fn register(env: &sema_core::Env) {
         let json = value_to_json(&args[0])?;
         let s = serde_json::to_string_pretty(&json)
             .map_err(|e| SemaError::eval(format!("json/encode-pretty: {e}")))?;
-        Ok(Value::String(Rc::new(s)))
+        Ok(Value::string(&s))
     });
 
     register_fn(env, "json/decode", |args| {
@@ -100,7 +100,7 @@ pub fn json_to_value(json: &serde_json::Value) -> Value {
                 Value::Nil
             }
         }
-        serde_json::Value::String(s) => Value::String(Rc::new(s.clone())),
+        serde_json::Value::String(s) => Value::string(s),
         serde_json::Value::Array(arr) => Value::list(arr.iter().map(json_to_value).collect()),
         serde_json::Value::Object(obj) => {
             let mut map = BTreeMap::new();

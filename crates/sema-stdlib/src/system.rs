@@ -14,7 +14,7 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         match std::env::var(name) {
-            Ok(val) => Ok(Value::String(Rc::new(val))),
+            Ok(val) => Ok(Value::string(&val)),
             Err(_) => Ok(Value::Nil),
         }
     });
@@ -49,8 +49,8 @@ pub fn register(env: &sema_core::Env) {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         let mut result = std::collections::BTreeMap::new();
-        result.insert(Value::keyword("stdout"), Value::String(Rc::new(stdout)));
-        result.insert(Value::keyword("stderr"), Value::String(Rc::new(stderr)));
+        result.insert(Value::keyword("stdout"), Value::string(&stdout));
+        result.insert(Value::keyword("stderr"), Value::string(&stderr));
         result.insert(
             Value::keyword("exit-code"),
             Value::Int(output.status.code().unwrap_or(-1) as i64),
@@ -94,7 +94,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("sys/args", "0", args.len()));
         }
         let args_list: Vec<Value> = std::env::args()
-            .map(|a| Value::String(Rc::new(a)))
+            .map(|a| Value::string(&a))
             .collect();
         Ok(Value::list(args_list))
     });
@@ -104,7 +104,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("sys/cwd", "0", args.len()));
         }
         let cwd = std::env::current_dir().map_err(|e| SemaError::Io(format!("sys/cwd: {e}")))?;
-        Ok(Value::String(Rc::new(cwd.to_string_lossy().to_string())))
+        Ok(Value::string(&cwd.to_string_lossy()))
     });
 
     register_fn(env, "sys/platform", |args| {
@@ -120,7 +120,7 @@ pub fn register(env: &sema_core::Env) {
         } else {
             "unknown"
         };
-        Ok(Value::String(Rc::new(platform.to_string())))
+        Ok(Value::string(platform))
     });
 
     register_fn(env, "sys/set-env", |args| {
@@ -145,7 +145,7 @@ pub fn register(env: &sema_core::Env) {
         }
         let mut map = std::collections::BTreeMap::new();
         for (key, val) in std::env::vars() {
-            map.insert(Value::keyword(&key), Value::String(Rc::new(val)));
+            map.insert(Value::keyword(&key), Value::string(&val));
         }
         Ok(Value::Map(Rc::new(map)))
     });
@@ -155,7 +155,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("sys/home-dir", "0", args.len()));
         }
         match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
-            Ok(home) => Ok(Value::String(Rc::new(home))),
+            Ok(home) => Ok(Value::string(&home)),
             Err(_) => Ok(Value::Nil),
         }
     });
@@ -164,9 +164,7 @@ pub fn register(env: &sema_core::Env) {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/temp-dir", "0", args.len()));
         }
-        Ok(Value::String(Rc::new(
-            std::env::temp_dir().to_string_lossy().to_string(),
-        )))
+        Ok(Value::string(&std::env::temp_dir().to_string_lossy()))
     });
 
     register_fn(env, "sys/hostname", |args| {
@@ -174,7 +172,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("sys/hostname", "0", args.len()));
         }
         match hostname::get() {
-            Ok(name) => Ok(Value::String(Rc::new(name.to_string_lossy().to_string()))),
+            Ok(name) => Ok(Value::string(&name.to_string_lossy())),
             Err(_) => Ok(Value::Nil),
         }
     });
@@ -184,7 +182,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("sys/user", "0", args.len()));
         }
         match std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
-            Ok(user) => Ok(Value::String(Rc::new(user))),
+            Ok(user) => Ok(Value::string(&user)),
             Err(_) => Ok(Value::Nil),
         }
     });
@@ -213,7 +211,7 @@ pub fn register(env: &sema_core::Env) {
                     Ok(Value::Nil)
                 } else {
                     let s = std::ffi::CStr::from_ptr(name).to_string_lossy().to_string();
-                    Ok(Value::String(Rc::new(s)))
+                    Ok(Value::string(&s))
                 }
             }
         }
@@ -234,14 +232,14 @@ pub fn register(env: &sema_core::Env) {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/arch", "0", args.len()));
         }
-        Ok(Value::String(Rc::new(std::env::consts::ARCH.to_string())))
+        Ok(Value::string(std::env::consts::ARCH))
     });
 
     register_fn(env, "sys/os", |args| {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/os", "0", args.len()));
         }
-        Ok(Value::String(Rc::new(std::env::consts::OS.to_string())))
+        Ok(Value::string(std::env::consts::OS))
     });
 
     register_fn(env, "sys/which", |args| {
@@ -256,9 +254,7 @@ pub fn register(env: &sema_core::Env) {
         for dir in path_var.split(sep) {
             let candidate = std::path::Path::new(dir).join(name);
             if candidate.is_file() {
-                return Ok(Value::String(Rc::new(
-                    candidate.to_string_lossy().to_string(),
-                )));
+                return Ok(Value::string(&candidate.to_string_lossy()));
             }
         }
         Ok(Value::Nil)

@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use sema_core::{SemaError, Value};
 
 use crate::register_fn;
@@ -13,7 +11,7 @@ pub fn register(env: &sema_core::Env) {
                 other => result.push_str(&other.to_string()),
             }
         }
-        Ok(Value::String(Rc::new(result)))
+        Ok(Value::string(&result))
     });
 
     register_fn(env, "string-length", |args| {
@@ -65,7 +63,7 @@ pub fn register(env: &sema_core::Env) {
         if start > s.len() || end > s.len() || start > end {
             return Err(SemaError::eval("substring: index out of bounds"));
         }
-        Ok(Value::String(Rc::new(s[start..end].to_string())))
+        Ok(Value::string(&s[start..end]))
     });
 
     register_fn(env, "string/split", |args| {
@@ -89,7 +87,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(s.trim().to_string())))
+        Ok(Value::string(s.trim()))
     });
 
     register_fn(env, "string/contains?", |args| {
@@ -138,7 +136,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(s.to_uppercase())))
+        Ok(Value::string(&s.to_uppercase()))
     });
 
     register_fn(env, "string/lower", |args| {
@@ -148,7 +146,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(s.to_lowercase())))
+        Ok(Value::string(&s.to_lowercase()))
     });
 
     register_fn(env, "string/replace", |args| {
@@ -164,7 +162,7 @@ pub fn register(env: &sema_core::Env) {
         let to = args[2]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?;
-        Ok(Value::String(Rc::new(s.replace(from, to))))
+        Ok(Value::string(&s.replace(from, to)))
     });
 
     register_fn(env, "string/join", |args| {
@@ -186,7 +184,7 @@ pub fn register(env: &sema_core::Env) {
                 other => other.to_string(),
             })
             .collect();
-        Ok(Value::String(Rc::new(strs.join(sep))))
+        Ok(Value::string(&strs.join(sep)))
     });
 
     register_fn(env, "format", |args| {
@@ -231,7 +229,7 @@ pub fn register(env: &sema_core::Env) {
                 result.push(ch);
             }
         }
-        Ok(Value::String(Rc::new(result)))
+        Ok(Value::string(&result))
     });
 
     register_fn(env, "string->symbol", |args| {
@@ -251,7 +249,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_symbol()
             .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(s)))
+        Ok(Value::string(&s))
     });
 
     register_fn(env, "string->keyword", |args| {
@@ -269,7 +267,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("keyword->string", "1", args.len()));
         }
         match &args[0] {
-            Value::Keyword(s) => Ok(Value::String(Rc::new(sema_core::resolve(*s)))),
+            Value::Keyword(s) => Ok(Value::string(&sema_core::resolve(*s))),
             other => Err(SemaError::type_error("keyword", other.type_name())),
         }
     });
@@ -282,7 +280,7 @@ pub fn register(env: &sema_core::Env) {
                 other => result.push_str(&other.to_string()),
             }
         }
-        Ok(Value::String(Rc::new(result)))
+        Ok(Value::string(&result))
     });
 
     register_fn(env, "number->string", |args| {
@@ -290,8 +288,8 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("number->string", "1", args.len()));
         }
         match &args[0] {
-            Value::Int(n) => Ok(Value::String(Rc::new(n.to_string()))),
-            Value::Float(f) => Ok(Value::String(Rc::new(f.to_string()))),
+            Value::Int(n) => Ok(Value::string(&n.to_string())),
+            Value::Float(f) => Ok(Value::string(&f.to_string())),
             _ => Err(SemaError::type_error("number", args[0].type_name())),
         }
     });
@@ -350,7 +348,7 @@ pub fn register(env: &sema_core::Env) {
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
             as usize;
-        Ok(Value::String(Rc::new(s.repeat(n))))
+        Ok(Value::string(&s.repeat(n)))
     });
 
     register_fn(env, "string/trim-left", |args| {
@@ -360,7 +358,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(s.trim_start().to_string())))
+        Ok(Value::string(s.trim_start()))
     });
 
     register_fn(env, "string/trim-right", |args| {
@@ -370,7 +368,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(s.trim_end().to_string())))
+        Ok(Value::string(s.trim_end()))
     });
 
     register_fn(env, "string/number?", |args| {
@@ -404,10 +402,10 @@ pub fn register(env: &sema_core::Env) {
             ' '
         };
         if s.len() >= width {
-            Ok(Value::String(Rc::new(s.to_string())))
+            Ok(Value::string(s))
         } else {
             let padding: String = std::iter::repeat_n(pad_char, width - s.len()).collect();
-            Ok(Value::String(Rc::new(format!("{}{}", padding, s))))
+            Ok(Value::string(&format!("{}{}", padding, s)))
         }
     });
 
@@ -431,10 +429,10 @@ pub fn register(env: &sema_core::Env) {
             ' '
         };
         if s.len() >= width {
-            Ok(Value::String(Rc::new(s.to_string())))
+            Ok(Value::string(s))
         } else {
             let padding: String = std::iter::repeat_n(pad_char, width - s.len()).collect();
-            Ok(Value::String(Rc::new(format!("{}{}", s, padding))))
+            Ok(Value::string(&format!("{}{}", s, padding)))
         }
     });
 
@@ -461,7 +459,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(s.chars().rev().collect::<String>())))
+        Ok(Value::string(&s.chars().rev().collect::<String>()))
     });
 
     register_fn(env, "string/empty?", |args| {
@@ -492,7 +490,7 @@ pub fn register(env: &sema_core::Env) {
             }
             None => String::new(),
         };
-        Ok(Value::String(Rc::new(result)))
+        Ok(Value::string(&result))
     });
 
     register_fn(env, "string/title-case", |args| {
@@ -518,7 +516,7 @@ pub fn register(env: &sema_core::Env) {
                 }
             })
             .collect();
-        Ok(Value::String(Rc::new(result.join(" "))))
+        Ok(Value::string(&result.join(" ")))
     });
 
     // Character functions
@@ -622,7 +620,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::String(Rc::new(c.to_string())))
+        Ok(Value::string(&c.to_string()))
     });
 
     register_fn(env, "string->char", |args| {
@@ -732,7 +730,7 @@ pub fn register(env: &sema_core::Env) {
                 .ok_or_else(|| SemaError::type_error("char", item.type_name()))?;
             s.push(c);
         }
-        Ok(Value::String(Rc::new(s)))
+        Ok(Value::string(&s))
     });
 
     register_fn(env, "string/map", |args| {
@@ -751,6 +749,6 @@ pub fn register(env: &sema_core::Env) {
                 _ => return Err(SemaError::type_error("char or string", mapped.type_name())),
             }
         }
-        Ok(Value::String(Rc::new(result)))
+        Ok(Value::string(&result))
     });
 }

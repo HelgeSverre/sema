@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use sema_core::{SemaError, Value};
 
 use crate::register_fn;
@@ -192,7 +190,7 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
         let s = String::from_utf8((**bv).clone())
             .map_err(|e| SemaError::eval(format!("utf8->string: invalid UTF-8: {e}")))?;
-        Ok(Value::String(Rc::new(s)))
+        Ok(Value::string(&s))
     });
 
     register_fn(env, "string->utf8", |args| {

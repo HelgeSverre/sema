@@ -21,7 +21,7 @@ pub fn register(env: &sema_core::Env) {
             let record = result.map_err(|e| SemaError::eval(format!("csv/parse: {e}")))?;
             let row: Vec<Value> = record
                 .iter()
-                .map(|field| Value::String(Rc::new(field.to_string())))
+                .map(|field| Value::string(field))
                 .collect();
             rows.push(Value::list(row));
         }
@@ -52,7 +52,7 @@ pub fn register(env: &sema_core::Env) {
                 if let Some(header) = headers.get(i) {
                     map.insert(
                         Value::keyword(header),
-                        Value::String(Rc::new(field.to_string())),
+                        Value::string(field),
                     );
                 }
             }
@@ -96,6 +96,6 @@ pub fn register(env: &sema_core::Env) {
             .map_err(|e| SemaError::eval(format!("csv/encode: {e}")))?;
         let s =
             String::from_utf8(bytes).map_err(|e| SemaError::eval(format!("csv/encode: {e}")))?;
-        Ok(Value::String(Rc::new(s)))
+        Ok(Value::string(&s))
     });
 }
