@@ -178,3 +178,10 @@ Sema's stdlib follows consistent naming patterns:
 | `define-record-type` | Define a record type |
 | `record?` | Record predicate |
 | `type` | Get record type tag |
+
+### [Playground & WASM](./playground)
+
+| Function | Description |
+|---|---|
+| `web/user-agent` | Browser user agent string (WASM only) |
+| `web/user-agent-data` | Structured browser info map (Chromium only, WASM only) |
