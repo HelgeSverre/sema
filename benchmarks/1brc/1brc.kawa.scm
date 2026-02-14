@@ -42,11 +42,12 @@
         (lambda (a b) (merge (merge-sort a less?) (merge-sort b less?))))))
 
 (define (main)
-  ;; (command-line) returns (java kawa.jar --script file.scm arg...)
-  ;; The user arg is the last element
-  (let* ((cl (command-line))
-         (file-path (car (last-pair cl))))
-    (when (or (not file-path) (string=? file-path (cadr cl)))
+  ;; Kawa collapses command-line into 2 elements; extract the file path
+  ;; from the full argument string (last space-delimited token)
+  (let* ((cl-str :: String (cadr (command-line)))
+         (parts :: String[] (cl-str:split " "))
+         (file-path (parts (- (length parts) 1))))
+    (when (not file-path)
       (display "Usage: kawa --script 1brc.kawa.scm <file>\n"
                (current-error-port))
       (exit 1))

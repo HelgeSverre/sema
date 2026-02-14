@@ -197,6 +197,12 @@ pub const PRICING_URL: &str = "https://www.llm-prices.com/current-v1.json";
 /// Returns Ok(json_string) on success, Err on any failure.
 /// Uses blocking HTTP to avoid tokio runtime nesting issues.
 pub fn fetch_pricing_from_remote() -> Result<String, String> {
+    // reqwest::blocking panics if called from within a tokio runtime.
+    // Skip network fetch in that case (cache/hardcoded fallback still works).
+    if tokio::runtime::Handle::try_current().is_ok() {
+        return Err("skipping fetch: already inside async runtime".to_string());
+    }
+
     let client = reqwest::blocking::Client::builder()
         .connect_timeout(std::time::Duration::from_millis(500))
         .timeout(std::time::Duration::from_secs(2))

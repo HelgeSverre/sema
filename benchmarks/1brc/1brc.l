@@ -26,26 +26,25 @@
       (unless File
          (prinl "Usage: picolisp 1brc.l <file>")
          (bye 1) )
-
       # Read file and accumulate
       (in File
          (while (line T)
-            (let (Parts (split (chop @) ";")
-                  Name (pack (car Parts))
-                  Temp (parse-temp (pack (cadr Parts))) )
-               (let Entry (lup Tree Name)
-                  (if (and Entry (= (car Entry) Name))
-                     (let V (cdr Entry)
-                        (set V (min (car V) Temp))
-                        (con V
-                           (cons (max (cadr V) Temp)
-                              (cons (+ (caddr V) Temp)
-                                 (+ (cadddr V) 1) ) ) ) )
-                     (idx 'Tree
-                        (cons Name (list Temp Temp Temp 1))
-                        T ) ) ) ) )
-
-      # Collect sorted results (idx tree is already sorted)
+            (let L @
+               (let Parts (split (chop L) ";")
+                  (let (Name (pack (car Parts))
+                        Temp (parse-temp (pack (cadr Parts))) )
+                     (let Entry (lup Tree Name)
+                        (if (and Entry (= (car Entry) Name))
+                           (let V (cdr Entry)
+                              (set V (min (car V) Temp))
+                              (con V
+                                 (list (max (cadr V) Temp)
+                                    (+ (caddr V) Temp)
+                                    (+ (cadddr V) 1) ) ) )
+                           (idx 'Tree
+                              (cons Name (list Temp Temp Temp 1))
+                              T ) ) ) ) ) ) )
+      # Collect sorted results
       (let Results (idx 'Tree)
          # Format output
          (let Parts
@@ -61,7 +60,6 @@
                      (pack Name "=" (format-1dp Mn) "/" (format-1dp Mean) "/" (format-1dp Mx)) ) )
                Results )
             (prinl "{" (glue ", " Parts) "}") )
-
          (let Elapsed (/ (- (usec) Start) 1000)
             (out 2 (prinl "Elapsed: " Elapsed " ms")) ) ) ) ) )
 
