@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
@@ -24,6 +25,10 @@ thread_local! {
     static SESSION_COST: RefCell<f64> = const { RefCell::new(0.0) };
     static BUDGET_LIMIT: RefCell<Option<f64>> = const { RefCell::new(None) };
     static BUDGET_SPENT: RefCell<f64> = const { RefCell::new(0.0) };
+}
+
+thread_local! {
+    static PRICING_WARNING_SHOWN: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Register a full evaluator for use by tool handlers and other LLM builtins.
@@ -121,6 +126,21 @@ fn track_usage(usage: &Usage) -> Result<(), SemaError> {
                 Ok(())
             }
         })?;
+    } else {
+        // Cost unknown — warn once if budget is active
+        BUDGET_LIMIT.with(|limit| {
+            if limit.borrow().is_some() {
+                PRICING_WARNING_SHOWN.with(|shown| {
+                    if !shown.get() {
+                        shown.set(true);
+                        eprintln!(
+                            "Warning: pricing unknown for model '{}'; budget enforcement is best-effort",
+                            usage.model
+                        );
+                    }
+                });
+            }
+        });
     }
 
     Ok(())
