@@ -42,6 +42,11 @@
   padding-top: 0 !important;
 }
 
+/* Prevent navbar from clipping doc page content */
+.VPDoc .content {
+  padding-top: 3rem !important;
+}
+
 /* VitePress wraps page content in a div with position:relative */
 .VPPage > div {
   max-width: none !important;

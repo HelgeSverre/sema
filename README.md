@@ -51,7 +51,7 @@ sema> (:name person)
 - **LLMs as language primitives** — prompts, messages, conversations, tools, and agents are first-class data types, not string templates bolted on
 - **Multi-provider** — Anthropic, OpenAI, Gemini, Groq, xAI, Mistral, Ollama, and more, all auto-configured from environment variables
 - **Practical Lisp** — closures, tail-call optimization, macros, modules, error handling, HTTP, file I/O, regex, JSON — everything you need to build real programs
-- **Embeddable** — clean Rust crate structure, sync interface, no global state leaks
+- **Embeddable** — clean Rust crate structure, builder API, sync interface
 
 ### Why Not Sema?
 

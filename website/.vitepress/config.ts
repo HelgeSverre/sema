@@ -30,6 +30,7 @@ export default defineConfig({
           items: [
             { text: 'Introduction', link: '/docs/' },
             { text: 'CLI Reference', link: '/docs/cli' },
+            { text: 'Embedding in Rust', link: '/docs/embedding' },
           ],
         },
         {

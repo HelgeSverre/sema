@@ -11,7 +11,7 @@ Sema is a Scheme-like Lisp where prompts are s-expressions, conversations are pe
 - **LLMs as language primitives** — prompts, messages, conversations, tools, and agents are first-class data types, not string templates bolted on
 - **Multi-provider** — Anthropic, OpenAI, Gemini, Groq, xAI, Mistral, Ollama, and more, all auto-configured from environment variables
 - **Practical Lisp** — closures, tail-call optimization, macros, modules, error handling, HTTP, file I/O, regex, JSON — everything you need to build real programs
-- **Embeddable** — clean Rust crate structure, sync interface, no global state leaks
+- **Embeddable** — clean Rust crate structure, builder API, sync interface ([learn more](./embedding.md))
 
 ## Installation
 
@@ -96,6 +96,7 @@ sema> (:name person)
 ## What's Next?
 
 - [CLI Reference](./cli.md) — all flags, subcommands, and environment variables
+- [Embedding in Rust](./embedding.md) — use Sema as a scripting engine in your app
 - [Data Types](./language/data-types.md) — the 20 built-in types
 - [Special Forms](./language/special-forms.md) — control flow, bindings, and iteration
 - [Macros & Modules](./language/macros-modules.md) — metaprogramming and code organization

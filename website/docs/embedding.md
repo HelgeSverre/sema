@@ -1,0 +1,212 @@
+---
+outline: [2, 3]
+---
+
+# Embedding Sema
+
+## Overview
+
+Sema can be embedded as a Rust library, letting you use it as a scripting or configuration language inside your own applications. The crate exposes a builder API for creating interpreters, registering native functions, and evaluating Sema code from Rust.
+
+## Quick Start
+
+Add Sema to your project:
+
+```toml
+[dependencies]
+sema = { git = "https://github.com/HelgeSverre/sema" }
+```
+
+Evaluate an expression in three lines:
+
+```rust
+use sema::{Interpreter, Value};
+
+fn main() -> sema::Result<()> {
+    let interp = Interpreter::builder()
+        .with_stdlib(true)
+        .with_llm(false)
+        .build();
+
+    let result = interp.eval_str("(+ 1 2 3)")?;
+    println!("{result}"); // 6
+    Ok(())
+}
+```
+
+## The Builder
+
+`Interpreter::builder()` returns an `InterpreterBuilder` with two toggles:
+
+| Method             | Default | Description                            |
+| ------------------ | ------- | -------------------------------------- |
+| `.with_stdlib(b)`  | `true`  | Register the full standard library     |
+| `.with_llm(b)`     | `false` | Enable LLM functions and auto-config   |
+
+### Minimal Interpreter
+
+No stdlib, no LLM — only special forms and core evaluation:
+
+```rust
+let interp = Interpreter::builder()
+    .with_stdlib(false)
+    .with_llm(false)
+    .build();
+```
+
+### Full-Featured Interpreter
+
+Everything enabled, including LLM primitives:
+
+```rust
+let interp = Interpreter::builder()
+    .with_stdlib(true)
+    .with_llm(true)
+    .build();
+```
+
+## Registering Native Functions
+
+Use `register_fn` to expose Rust functions to Sema scripts. The closure receives `&[Value]` and returns `Result<Value, SemaError>`.
+
+### Basic Example
+
+```rust
+interp.register_fn("add1", |args| {
+    let n = args[0]
+        .as_int()
+        .ok_or_else(|| sema::SemaError::type_error("int", args[0].type_name()))?;
+    Ok(Value::Int(n + 1))
+});
+```
+
+```scheme
+(add1 41) ; => 42
+```
+
+### Capturing State
+
+Use `Rc<RefCell<T>>` to share mutable state between Rust and Sema:
+
+```rust
+use std::rc::Rc;
+use std::cell::RefCell;
+
+let counter = Rc::new(RefCell::new(0_i64));
+let c = counter.clone();
+interp.register_fn("inc!", move |_| {
+    *c.borrow_mut() += 1;
+    Ok(Value::Int(*c.borrow()))
+});
+```
+
+```scheme
+(inc!) ; => 1
+(inc!) ; => 2
+(inc!) ; => 3
+```
+
+## Real-World Example: Data Pipeline
+
+A Rust CLI tool that uses Sema as a scripting language for user-defined data transformations. The host app provides utility functions and loads a user-written `.sema` script that defines the transform logic.
+
+### Rust Host
+
+```rust
+use sema::{Interpreter, Value, SemaError};
+use std::rc::Rc;
+use std::collections::BTreeMap;
+
+fn main() -> sema::Result<()> {
+    let interp = Interpreter::builder()
+        .with_stdlib(true)
+        .with_llm(false)
+        .build();
+
+    // Provide a logging function
+    interp.register_fn("log", |args| {
+        for a in args {
+            eprintln!("[script] {a}");
+        }
+        Ok(Value::Nil)
+    });
+
+    // Load user transform script
+    let script = std::fs::read_to_string("transform.sema")
+        .map_err(|e| SemaError::eval(format!("failed to read script: {e}")))?;
+    interp.eval_str(&script)?;
+
+    // Process records through the user's transform function
+    let records = vec![
+        make_record("Alice", 34, "engineering"),
+        make_record("Bob", 28, "marketing"),
+        make_record("Carol", 45, "engineering"),
+    ];
+
+    for record in records {
+        interp.env().set_str("__record", record);
+        let result = interp.eval_str("(transform __record)")?;
+        println!("{result}");
+    }
+
+    Ok(())
+}
+
+fn make_record(name: &str, age: i64, dept: &str) -> Value {
+    let mut map = BTreeMap::new();
+    map.insert(
+        Value::Keyword(sema::intern("name")),
+        Value::String(Rc::new(name.to_string())),
+    );
+    map.insert(
+        Value::Keyword(sema::intern("age")),
+        Value::Int(age),
+    );
+    map.insert(
+        Value::Keyword(sema::intern("dept")),
+        Value::String(Rc::new(dept.to_string())),
+    );
+    Value::Map(Rc::new(map))
+}
+```
+
+### User Script (`transform.sema`)
+
+```scheme
+(define (transform record)
+  (log (format "Processing: ~a" (:name record)))
+  (if (> (:age record) 30)
+      (assoc record :senior #t)
+      record))
+```
+
+### Output
+
+```
+[script] Processing: Alice
+{:age 34 :dept "engineering" :name "Alice" :senior #t}
+[script] Processing: Bob
+{:age 28 :dept "marketing" :name "Bob"}
+[script] Processing: Carol
+{:age 45 :dept "engineering" :name "Carol" :senior #t}
+```
+
+## Threading Model
+
+Sema is **single-threaded by design**. It uses `Rc` (not `Arc`) for reference counting and a thread-local string interner for keywords and symbols.
+
+- Create **one interpreter per thread** if you need concurrency.
+- Do **not** send `Value` instances across thread boundaries — they are not `Send` or `Sync`.
+- The string interner is per-thread, so interned keys from one thread are not valid in another.
+
+## API Reference
+
+| Type                 | Description                                             |
+| -------------------- | ------------------------------------------------------- |
+| `Interpreter`        | Holds the global environment; evaluates code            |
+| `InterpreterBuilder` | Configures and builds an `Interpreter`                  |
+| `Value`              | Core value enum — Int, Float, String, List, Map, etc.   |
+| `SemaError`          | Error type with `eval()`, `type_error()`, `arity()` constructors |
+| `Env`                | Environment (scope chain backed by `Rc<RefCell<BTreeMap>>`) |
+| `intern(s)`          | Intern a string, returning a `Spur` handle              |
+| `resolve(spur)`      | Resolve a `Spur` back to a `&str`                       |
