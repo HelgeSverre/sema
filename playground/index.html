@@ -441,17 +441,19 @@ const examples = [
 (unless (= 1 2)
   (println "Math still works!"))
 
-;; A threading macro
-(defmacro -> (val . forms)
-  (if (null? forms)
-      val
-      \`(-> (,(caar forms) ,val ,@(cdar forms))
-           ,@(cdr forms))))
+;; A "when-let" macro
+(defmacro when-let (binding . body)
+  \`(let ((,(car binding) ,(cadr binding)))
+     (when ,(car binding) ,@body)))
 
-(-> [3 1 4 1 5 9 2 6]
-    (sort <)
-    (map (fn (x) (* x x)))
-    (filter (fn (x) (> x 4))))` },
+(when-let (x (get {:name "Sema"} :name))
+  (println "Found:" x))
+
+;; Pipeline with let
+(let ((data [3 1 4 1 5 9 2 6]))
+  (filter (fn (x) (> x 4))
+    (map (fn (x) (* x x))
+      (sort data <))))` },
   { name: 'Quicksort', code: `;; Quicksort
 (define (qsort lst)
   (if (or (null? lst) (null? (cdr lst)))

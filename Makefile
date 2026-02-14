@@ -103,7 +103,7 @@ playground-build:
 	cd playground/crate && wasm-pack build --target web --out-dir ../pkg
 
 playground-dev: playground-build
-	cd playground && python3 -m http.server 8787
+	cd playground && npx serve -l 8787
 
 playground-deploy: playground-build
 	cd playground && npx vercel --prod
