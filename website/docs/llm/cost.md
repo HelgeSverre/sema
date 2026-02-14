@@ -30,7 +30,30 @@ Reset session usage counters.
 (llm/reset-usage)
 ```
 
+## Pricing Sources
+
+Sema tracks LLM costs using pricing data from multiple sources, checked in this order:
+
+1. **Custom pricing** — set via `(llm/set-pricing "model" input output)`, always wins
+2. **Dynamic pricing** — fetched from [llm-prices.com](https://www.llm-prices.com) during `(llm/auto-configure)`, cached locally at `~/.sema/pricing-cache.json`
+3. **Built-in estimates** — hardcoded fallback table (may be outdated)
+4. **Unknown** — if no source matches, cost tracking returns `nil` and budget enforcement is best-effort
+
+Dynamic pricing is fetched with a short timeout (2s) and failures are silently ignored. The language works fully offline — the cache persists between sessions.
+
+### `llm/pricing-status`
+
+Check which pricing source is active and when it was last updated.
+
+```scheme
+(llm/pricing-status)
+; => {:source fetched :updated-at "2025-10-10"}
+; or {:source hardcoded} if no dynamic pricing is available
+```
+
 ## Budget Enforcement
+
+> **Note:** If pricing is unknown for a model (not in any source), budget enforcement operates in best-effort mode — the call proceeds with a one-time warning. Use `(llm/set-pricing)` to set pricing for unlisted models.
 
 ### `llm/set-budget`
 
@@ -58,10 +81,10 @@ Remove the spending limit.
 
 ### `llm/set-pricing`
 
-Set custom pricing for unlisted models (input/output cost per million tokens).
+Set custom pricing for a model (overrides both dynamic and built-in pricing). Costs are per million tokens.
 
 ```scheme
-(llm/set-pricing "my-model" 1.0 3.0)
+(llm/set-pricing "my-model" 1.0 3.0)   ; $1.00/M input, $3.00/M output
 ```
 
 ## Batch & Parallel
