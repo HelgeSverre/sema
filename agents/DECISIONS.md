@@ -405,3 +405,39 @@ crates/sema/src/
 - `memchr` crate used in inlined `string/split` for single-byte separator search
 - Replaces `bytes.iter().position()` with `memchr::memchr()` (SIMD-optimized)
 - Minimal impact on short strings but beneficial for longer string processing
+
+## WASM Playground Decisions
+
+### 46. WASM `sys/*` returns `"web"` not host OS detection
+
+- `sys/platform` → `"web"`, `sys/arch` → `"wasm32"`, `sys/os` → `"web"`
+- Rejected parsing `navigator.userAgent` — UA strings increasingly unreliable (reduction, masquerading, privacy)
+- Rejected `navigator.platform` — deprecated API
+- Rationale: code runs in WASM sandbox, not natively. Reporting `"macos"` would be misleading since OS-specific APIs (filesystem paths, processes, signals) don't exist
+- Matches Go (`GOOS=js`), Rust (`wasm32-unknown-unknown`), Pyodide (`sys.platform="emscripten"`)
+- Future: add `web/user-agent` as a separate WASM-only function for host hints
+
+### 47. In-memory VFS for WASM playground (session-only)
+
+- `thread_local! BTreeMap<String, String>` for files, `BTreeSet<String>` for directories
+- Enables file I/O examples (turtle-svg, modules-demo, streaming-io) without async bridges
+- Session-only — data lost on reload; acceptable for a playground
+- Evaluated alternatives: IndexedDB (async sync overhead), OPFS (requires Web Worker for sync access)
+- OPFS identified as the ideal future upgrade path — 10-100x faster than IDB, persistent, sync access via `FileSystemSyncAccessHandle` in Workers
+- See `docs/plans/2026-02-14-wasm-shims-design.md` for full comparison and roadmap
+
+### 48. HTTP stubs over async bridge for WASM MVP
+
+- `http/*` functions return clear error messages instead of implementing async fetch
+- Fundamental constraint: `NativeFn` is synchronous, browser `fetch()` is async (Promise-based)
+- Cannot synchronously wait for a Promise on the main thread without deadlocking the event loop
+- Future path: `eval_async` entry point + `Value::Promise` variant or suspend/resume effect system
+- Worker + Atomics.wait approach rejected for MVP due to cross-origin isolation header requirement
+- See `docs/plans/2026-02-14-wasm-shims-design.md` for detailed HTTP roadmap
+
+### 49. Terminal styling as pass-through in WASM
+
+- All `term/*` functions return text unchanged (ANSI codes useless in browser)
+- 15 color/modifier functions + `term/style`, `term/strip`, `term/rgb`
+- Enables examples using terminal colors to run without error, just without visual styling
+- Future: could map to HTML `<span>` elements with CSS classes if playground supports rich output
