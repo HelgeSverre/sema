@@ -6,6 +6,15 @@ export default defineConfig({
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:title', content: 'Sema — A Lisp with LLM Primitives' }],
+    ['meta', { property: 'og:description', content: 'A Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. Implemented in Rust.' }],
+    ['meta', { property: 'og:url', content: 'https://sema-lang.com' }],
+    ['meta', { property: 'og:site_name', content: 'Sema' }],
+    ['meta', { name: 'twitter:card', content: 'summary' }],
+    ['meta', { name: 'twitter:title', content: 'Sema — A Lisp with LLM Primitives' }],
+    ['meta', { name: 'twitter:description', content: 'A Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation.' }],
+    ['meta', { name: 'theme-color', content: '#c8a855' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.googleapis.com' }],
     ['link', { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: '' }],
     ['link', { href: 'https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap', rel: 'stylesheet' }],
