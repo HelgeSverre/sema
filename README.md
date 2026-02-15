@@ -6,6 +6,13 @@
   A Lisp with first-class LLM primitives, implemented in Rust.
 </p>
 
+<p align="center">
+  <a href="https://sema.run"><img src="https://img.shields.io/badge/try_it-sema.run-c8a855?style=flat" alt="Playground"></a>
+  <a href="https://sema-lang.com/docs/"><img src="https://img.shields.io/badge/docs-sema--lang.com-c8a855?style=flat" alt="Docs"></a>
+  <a href="https://github.com/HelgeSverre/sema/releases/latest"><img src="https://img.shields.io/github/v/tag/HelgeSverre/sema?label=version&color=c8a855&style=flat" alt="Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-c8a855?style=flat" alt="License"></a>
+</p>
+
 Sema is a Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. It combines a Scheme core with Clojure-style keywords (`:foo`), map literals (`{:key val}`), and vector literals (`[1 2 3]`).
 
 ## Installation
