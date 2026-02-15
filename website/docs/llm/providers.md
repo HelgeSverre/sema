@@ -110,7 +110,7 @@ The `:usage` map can contain `:prompt-tokens` and `:completion-tokens` (both int
 ```scheme
 (llm/define-provider :echo
   {:complete (fn (req)
-    (string-append "Echo: " (:content (first (:messages req)))))
+    (string-append "Echo: " (:content (last (:messages req)))))
    :default-model "echo-v1"})
 
 (llm/complete "hello")  ;; => "Echo: hello"
@@ -232,7 +232,9 @@ All providers are auto-configured from environment variables. Use `(llm/configur
 | **Voyage**        | Embedding-only | —    | —      | —     | ✅         |
 | **Cohere**        | Embedding-only | —    | —      | —     | ✅         |
 | *Any OpenAI-compat* | `llm/configure`  | ✅ | ✅   | ✅    | —          |
-| *Custom Lisp*     | `llm/define-provider` | ✅ | — | —   | —          |
+| *Custom Lisp*     | `llm/define-provider` | ✅ | ¹ | ✅  | —          |
+
+¹ Streaming falls back to non-streaming (sends complete response as a single chunk).
 
 ## Environment Variables
 

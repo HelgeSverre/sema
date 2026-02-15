@@ -6627,3 +6627,89 @@ fn test_configure_unknown_provider_without_api_key_errors() {
         "error should mention api-key: {err}"
     );
 }
+
+#[test]
+fn test_define_provider_error_propagation() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+          (llm/define-provider :err-prov
+            {:complete (fn (req) (error "provider failed"))
+             :default-model "e1"})
+          (try (llm/complete "test") (catch e "caught")))"#,
+    );
+    // Should catch the error, not panic
+    assert_eq!(result.unwrap(), Value::string("caught"));
+}
+
+#[test]
+fn test_define_provider_nil_return_errors() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+          (llm/define-provider :nil-prov
+            {:complete (fn (req) nil)
+             :default-model "n1"})
+          (llm/complete "test"))"#,
+    );
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_define_provider_redefine_uses_latest() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :redef
+            {:complete (fn (req) "first") :default-model "r1"})
+          (llm/define-provider :redef
+            {:complete (fn (req) "second") :default-model "r2"})
+          (llm/complete "test"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("second"));
+}
+
+#[test]
+fn test_define_provider_temperature_passthrough() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :temp-check
+            {:complete (fn (req)
+              (number->string (:temperature req)))
+             :default-model "t1"})
+          (llm/complete "test" {:temperature 0.7}))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("0.7"));
+}
+
+#[test]
+fn test_define_provider_default_model_fallback() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :nomodel
+            {:complete (fn (req) (:model req))})
+          (llm/complete "test"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("default"));
+}
+
+#[test]
+fn test_define_provider_integer_return_errors() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+          (llm/define-provider :int-prov
+            {:complete (fn (req) 42)
+             :default-model "i1"})
+          (llm/complete "test"))"#,
+    );
+    assert!(result.is_err());
+}

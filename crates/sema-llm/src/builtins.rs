@@ -265,6 +265,7 @@ impl LlmProvider for LispProvider {
             let request_map = chat_request_to_value(&request);
 
             let ctx = EvalContext::new();
+            ctx.eval_step_limit.set(1_000_000);
             let result = call_value_fn(&ctx, &complete_fn, &[request_map]);
 
             match result {
@@ -321,6 +322,15 @@ fn chat_request_to_value(request: &ChatRequest) -> Value {
             })
             .collect();
         map.insert(Value::keyword("tools"), Value::list(tools));
+    }
+
+    if !request.stop_sequences.is_empty() {
+        let seqs: Vec<Value> = request
+            .stop_sequences
+            .iter()
+            .map(|s| Value::string(s))
+            .collect();
+        map.insert(Value::keyword("stop-sequences"), Value::list(seqs));
     }
 
     Value::Map(Rc::new(map))
