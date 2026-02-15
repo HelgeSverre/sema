@@ -31,6 +31,7 @@ export default defineConfig({
       { text: 'Docs', link: '/docs/' },
       { text: 'Stdlib', link: '/docs/stdlib/' },
       { text: 'LLM', link: '/docs/llm/' },
+      { text: 'Playground', link: 'https://sema.run' },
     ],
 
     sidebar: {
