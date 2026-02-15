@@ -1,0 +1,280 @@
+;; stdlib-math.sema — Exercises all math functions
+;; Functions: abs, min, max, floor, ceil, ceiling, round, truncate,
+;;   sqrt, pow, math/pow, log, sin, cos, pi, e, int, float,
+;;   math/quotient, math/remainder, math/gcd, math/lcm,
+;;   math/tan, math/asin, math/acos, math/atan, math/atan2,
+;;   math/exp, math/log10, math/log2, math/random, math/random-int,
+;;   math/clamp, math/sign, math/sinh, math/cosh, math/tanh,
+;;   math/degrees->radians, math/radians->degrees,
+;;   math/lerp, math/map-range,
+;;   math/nan?, math/infinite?, math/infinity, math/nan,
+;;   even?, odd?
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== Math Functions ===")
+(println)
+
+;; --- abs ---
+(println "abs:")
+(println "  (abs 5)       => " (abs 5))                  ;; => 5
+(println "  (abs -5)      => " (abs -5))                 ;; => 5
+(println "  (abs -3.7)    => " (abs -3.7))               ;; => 3.7
+(assert-eq (abs -5) 5 "(abs -5) = 5")
+(println)
+
+;; --- min / max ---
+(println "min / max:")
+(println "  (min 3 1 4 1 5) => " (min 3 1 4 1 5))       ;; => 1
+(println "  (max 3 1 4 1 5) => " (max 3 1 4 1 5))       ;; => 5
+(println "  (min 2.5 1.0)   => " (min 2.5 1.0))         ;; => 1.0
+(println "  (max -1 0 1)    => " (max -1 0 1))           ;; => 1
+(assert-eq (min 3 1 4 1 5) 1 "(min 3 1 4 1 5) = 1")
+(assert-eq (max 3 1 4 1 5) 5 "(max 3 1 4 1 5) = 5")
+(println)
+
+;; --- floor / ceil / ceiling / round / truncate ---
+(println "floor / ceil / ceiling / round / truncate:")
+(println "  (floor 3.7)    => " (floor 3.7))             ;; => 3
+(println "  (floor -3.7)   => " (floor -3.7))            ;; => -4
+(println "  (ceil 3.2)     => " (ceil 3.2))              ;; => 4
+(println "  (ceil -3.2)    => " (ceil -3.2))             ;; => -3
+(println "  (ceiling 3.2)  => " (ceiling 3.2))           ;; => 4 (alias for ceil)
+(println "  (round 3.5)    => " (round 3.5))             ;; => 4
+(println "  (round 3.4)    => " (round 3.4))             ;; => 3
+(println "  (round -2.5)   => " (round -2.5))            ;; => -2 or -3
+(println "  (truncate 3.9) => " (truncate 3.9))          ;; => 3
+(println "  (truncate -3.9) => " (truncate -3.9))        ;; => -3
+(println "  (floor 5)      => " (floor 5))               ;; => 5 (int passthrough)
+(assert-eq (floor 3.7) 3 "(floor 3.7) = 3")
+(assert-eq (ceil 3.2) 4 "(ceil 3.2) = 4")
+(assert-eq (ceiling 3.2) 4 "(ceiling 3.2) = 4")
+(assert-eq (truncate 3.9) 3 "(truncate 3.9) = 3")
+(assert-eq (truncate -3.9) -3 "(truncate -3.9) = -3")
+(println)
+
+;; --- sqrt ---
+(println "sqrt:")
+(println "  (sqrt 4)      => " (sqrt 4))                ;; => 2.0
+(println "  (sqrt 2)      => " (sqrt 2))                ;; => ~1.414
+(println "  (sqrt 0)      => " (sqrt 0))                ;; => 0.0
+(println)
+
+;; --- pow / math/pow ---
+(println "pow / math/pow:")
+(println "  (pow 2 10)     => " (pow 2 10))              ;; => 1024
+(println "  (pow 3 3)      => " (pow 3 3))               ;; => 27
+(println "  (pow 2.0 0.5)  => " (pow 2.0 0.5))           ;; => ~1.414
+(println "  (math/pow 2 8) => " (math/pow 2 8))          ;; => 256
+(assert-eq (pow 2 10) 1024 "(pow 2 10) = 1024")
+(assert-eq (math/pow 2 8) 256 "(math/pow 2 8) = 256")
+(println)
+
+;; --- log ---
+(println "log  (natural logarithm):")
+(println "  (log 1)        => " (log 1))                 ;; => 0.0
+(println "  (log e)        => " (log e))                 ;; => 1.0
+(println "  (log 10)       => " (log 10))                ;; => ~2.302
+(println)
+
+;; --- sin / cos ---
+(println "sin / cos:")
+(println "  (sin 0)        => " (sin 0))                 ;; => 0.0
+(println "  (sin pi)       => " (sin pi))                ;; => ~0.0
+(println "  (cos 0)        => " (cos 0))                 ;; => 1.0
+(println "  (cos pi)       => " (cos pi))                ;; => -1.0
+(println)
+
+;; --- pi / e (constants) ---
+(println "pi / e  (constants):")
+(println "  pi             => " pi)                      ;; => 3.141592653589793
+(println "  e              => " e)                       ;; => 2.718281828459045
+(println)
+
+;; --- int / float (type conversion) ---
+(println "int / float  (type conversion):")
+(println "  (int 3.7)      => " (int 3.7))               ;; => 3
+(println "  (int \"42\")     => " (int "42"))              ;; => 42
+(println "  (int 5)        => " (int 5))                 ;; => 5
+(println "  (float 5)      => " (float 5))               ;; => 5.0
+(println "  (float \"3.14\") => " (float "3.14"))          ;; => 3.14
+(assert-eq (int 3.7) 3 "(int 3.7) = 3")
+(assert-eq (int "42") 42 "(int \"42\") = 42")
+(println)
+
+;; --- math/quotient / math/remainder ---
+(println "math/quotient / math/remainder:")
+(println "  (math/quotient 17 5)  => " (math/quotient 17 5))    ;; => 3
+(println "  (math/remainder 17 5) => " (math/remainder 17 5))   ;; => 2
+(println "  (math/quotient -7 2)  => " (math/quotient -7 2))    ;; => -3
+(println "  (math/remainder -7 2) => " (math/remainder -7 2))   ;; => -1
+(assert-eq (math/quotient 17 5) 3 "(math/quotient 17 5) = 3")
+(assert-eq (math/remainder 17 5) 2 "(math/remainder 17 5) = 2")
+(println)
+
+;; --- math/gcd / math/lcm ---
+(println "math/gcd / math/lcm:")
+(println "  (math/gcd 12 8)  => " (math/gcd 12 8))      ;; => 4
+(println "  (math/gcd 15 25) => " (math/gcd 15 25))     ;; => 5
+(println "  (math/lcm 4 6)   => " (math/lcm 4 6))       ;; => 12
+(println "  (math/lcm 3 7)   => " (math/lcm 3 7))       ;; => 21
+(assert-eq (math/gcd 12 8) 4 "(math/gcd 12 8) = 4")
+(assert-eq (math/lcm 4 6) 12 "(math/lcm 4 6) = 12")
+(println)
+
+;; --- math/tan ---
+(println "math/tan:")
+(println "  (math/tan 0)    => " (math/tan 0))           ;; => 0.0
+(println "  (math/tan 0.785) => " (math/tan 0.785))      ;; => ~1.0 (approx pi/4)
+(println)
+
+;; --- math/asin / math/acos / math/atan ---
+(println "math/asin / math/acos / math/atan:")
+(println "  (math/asin 0)   => " (math/asin 0))          ;; => 0.0
+(println "  (math/asin 1)   => " (math/asin 1))          ;; => ~1.5707 (pi/2)
+(println "  (math/acos 1)   => " (math/acos 1))          ;; => 0.0
+(println "  (math/acos 0)   => " (math/acos 0))          ;; => ~1.5707 (pi/2)
+(println "  (math/atan 1)   => " (math/atan 1))          ;; => ~0.7854 (pi/4)
+(println "  (math/atan 0)   => " (math/atan 0))          ;; => 0.0
+(println)
+
+;; --- math/atan2 ---
+(println "math/atan2:")
+(println "  (math/atan2 1.0 1.0) => " (math/atan2 1.0 1.0))   ;; => ~0.7854 (pi/4)
+(println "  (math/atan2 0.0 1.0) => " (math/atan2 0.0 1.0))   ;; => 0.0
+(println "  (math/atan2 1.0 0.0) => " (math/atan2 1.0 0.0))   ;; => ~1.5707 (pi/2)
+(println)
+
+;; --- math/exp ---
+(println "math/exp:")
+(println "  (math/exp 0)    => " (math/exp 0))           ;; => 1.0
+(println "  (math/exp 1)    => " (math/exp 1))           ;; => ~2.718 (e)
+(println "  (math/exp 2)    => " (math/exp 2))           ;; => ~7.389
+(println)
+
+;; --- math/log10 / math/log2 ---
+(println "math/log10 / math/log2:")
+(println "  (math/log10 10)   => " (math/log10 10))       ;; => 1.0
+(println "  (math/log10 100)  => " (math/log10 100))      ;; => 2.0
+(println "  (math/log10 1000) => " (math/log10 1000))     ;; => 3.0
+(println "  (math/log2 2)     => " (math/log2 2))         ;; => 1.0
+(println "  (math/log2 8)     => " (math/log2 8))         ;; => 3.0
+(println "  (math/log2 1024)  => " (math/log2 1024))      ;; => 10.0
+(println)
+
+;; --- math/random ---
+(println "math/random  (random float in [0, 1)):")
+(define r1 (math/random))
+(define r2 (math/random))
+(println "  (math/random)  => " r1)
+(println "  (math/random)  => " r2)
+(println "  in range [0,1)? " (and (>= r1 0.0) (< r1 1.0)) " / " (and (>= r2 0.0) (< r2 1.0)))
+(println)
+
+;; --- math/random-int ---
+(println "math/random-int  (random int in [lo, hi]):")
+(define ri1 (math/random-int 1 10))
+(define ri2 (math/random-int 1 10))
+(println "  (math/random-int 1 10) => " ri1)
+(println "  (math/random-int 1 10) => " ri2)
+(println "  in range [1,10]? " (and (>= ri1 1) (<= ri1 10)) " / " (and (>= ri2 1) (<= ri2 10)))
+(println)
+
+;; --- math/clamp ---
+(println "math/clamp:")
+(println "  (math/clamp 5 0 10)    => " (math/clamp 5 0 10))     ;; => 5
+(println "  (math/clamp -5 0 10)   => " (math/clamp -5 0 10))    ;; => 0
+(println "  (math/clamp 15 0 10)   => " (math/clamp 15 0 10))    ;; => 10
+(println "  (math/clamp 3.5 0.0 1.0) => " (math/clamp 3.5 0.0 1.0)) ;; => 1.0
+(assert-eq (math/clamp 5 0 10) 5 "(math/clamp 5 0 10) = 5")
+(assert-eq (math/clamp -5 0 10) 0 "(math/clamp -5 0 10) = 0")
+(assert-eq (math/clamp 15 0 10) 10 "(math/clamp 15 0 10) = 10")
+(println)
+
+;; --- math/sign ---
+(println "math/sign:")
+(println "  (math/sign 42)   => " (math/sign 42))        ;; => 1
+(println "  (math/sign -7)   => " (math/sign -7))        ;; => -1
+(println "  (math/sign 0)    => " (math/sign 0))         ;; => 0
+(println "  (math/sign 3.14) => " (math/sign 3.14))      ;; => 1
+(assert-eq (math/sign 42) 1 "(math/sign 42) = 1")
+(assert-eq (math/sign -7) -1 "(math/sign -7) = -1")
+(assert-eq (math/sign 0) 0 "(math/sign 0) = 0")
+(println)
+
+;; --- math/sinh / math/cosh / math/tanh ---
+(println "math/sinh / math/cosh / math/tanh:")
+(println "  (math/sinh 0)   => " (math/sinh 0))          ;; => 0.0
+(println "  (math/sinh 1)   => " (math/sinh 1))          ;; => ~1.175
+(println "  (math/cosh 0)   => " (math/cosh 0))          ;; => 1.0
+(println "  (math/cosh 1)   => " (math/cosh 1))          ;; => ~1.543
+(println "  (math/tanh 0)   => " (math/tanh 0))          ;; => 0.0
+(println "  (math/tanh 1)   => " (math/tanh 1))          ;; => ~0.762
+(println)
+
+;; --- math/degrees->radians / math/radians->degrees ---
+(println "math/degrees->radians / math/radians->degrees:")
+(println "  (math/degrees->radians 180.0) => " (math/degrees->radians 180.0))  ;; => pi
+(println "  (math/degrees->radians 90.0)  => " (math/degrees->radians 90.0))   ;; => pi/2
+(println "  (math/radians->degrees pi)    => " (math/radians->degrees pi))      ;; => 180.0
+(println "  Roundtrip 45°: " (math/radians->degrees (math/degrees->radians 45.0))) ;; => 45.0
+(println)
+
+;; --- math/lerp ---
+(println "math/lerp  (linear interpolation):")
+(println "  (math/lerp 0.0 10.0 0.0) => " (math/lerp 0.0 10.0 0.0))  ;; => 0.0
+(println "  (math/lerp 0.0 10.0 0.5) => " (math/lerp 0.0 10.0 0.5))  ;; => 5.0
+(println "  (math/lerp 0.0 10.0 1.0) => " (math/lerp 0.0 10.0 1.0))  ;; => 10.0
+(println "  (math/lerp 10.0 20.0 0.25) => " (math/lerp 10.0 20.0 0.25)) ;; => 12.5
+(println)
+
+;; --- math/map-range ---
+(println "math/map-range  (remap value between ranges):")
+(println "  (math/map-range 5.0 0.0 10.0 0.0 100.0) => " (math/map-range 5.0 0.0 10.0 0.0 100.0))  ;; => 50.0
+(println "  (math/map-range 0.0 0.0 10.0 0.0 100.0) => " (math/map-range 0.0 0.0 10.0 0.0 100.0))  ;; => 0.0
+(println "  (math/map-range 10.0 0.0 10.0 0.0 100.0) => " (math/map-range 10.0 0.0 10.0 0.0 100.0)) ;; => 100.0
+(println "  (math/map-range 32.0 32.0 212.0 0.0 100.0) => " (math/map-range 32.0 32.0 212.0 0.0 100.0)) ;; => 0.0 (F->C: freezing)
+(println)
+
+;; --- math/nan? / math/infinite? ---
+(println "math/nan? / math/infinite?:")
+(println "  (math/nan? math/nan)       => " (math/nan? math/nan))        ;; => #t
+(println "  (math/nan? 42)             => " (math/nan? 42))              ;; => #f
+(println "  (math/nan? 3.14)           => " (math/nan? 3.14))            ;; => #f
+(println "  (math/infinite? math/infinity) => " (math/infinite? math/infinity)) ;; => #t
+(println "  (math/infinite? 42)        => " (math/infinite? 42))         ;; => #f
+(println "  (math/infinite? 1.0)       => " (math/infinite? 1.0))        ;; => #f
+(assert-eq (math/nan? math/nan) #t "(math/nan? math/nan) = #t")
+(assert-eq (math/nan? 42) #f "(math/nan? 42) = #f")
+(assert-eq (math/infinite? math/infinity) #t "(math/infinite? math/infinity) = #t")
+(assert-eq (math/infinite? 42) #f "(math/infinite? 42) = #f")
+(println)
+
+;; --- math/infinity / math/nan (constants) ---
+(println "math/infinity / math/nan  (special constants):")
+(println "  math/infinity   => " math/infinity)           ;; => inf
+(println "  math/nan        => " math/nan)                ;; => NaN
+(println)
+
+;; --- even? / odd? ---
+(println "even? / odd?:")
+(println "  (even? 4)      => " (even? 4))               ;; => #t
+(println "  (even? 7)      => " (even? 7))               ;; => #f
+(println "  (odd? 7)       => " (odd? 7))                ;; => #t
+(println "  (odd? 4)       => " (odd? 4))                ;; => #f
+(assert-eq (even? 4) #t "(even? 4) = #t")
+(assert-eq (odd? 7) #t "(odd? 7) = #t")
+(println)
+
+;; --- modulo / expt ---
+(println "modulo / expt:")
+(println "  (modulo 10 3)  => " (modulo 10 3))           ;; => 1
+(println "  (expt 2 10)    => " (expt 2 10))             ;; => 1024
+(assert-eq (modulo 10 3) 1 "(modulo 10 3) = 1")
+(assert-eq (expt 2 10) 1024 "(expt 2 10) = 1024")
+(println)
+
+(println "Done!")

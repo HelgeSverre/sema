@@ -1,6 +1,17 @@
 #!/bin/bash
 set -euo pipefail
 
+# Run simple benchmarks if --simple or --all is passed
+if [ "${1:-}" = "--simple" ]; then
+    shift
+    exec /bench/simple/run-benchmarks.sh "$@"
+elif [ "${1:-}" = "--all" ]; then
+    shift
+    /bench/run-benchmarks.sh "$@"
+    /bench/simple/run-benchmarks.sh "$@"
+    exit 0
+fi
+
 DATA_FILE="${1:-/data/measurements.txt}"
 RESULTS_FILE="/results/results.json"
 

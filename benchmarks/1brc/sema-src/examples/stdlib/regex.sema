@@ -1,0 +1,68 @@
+;;; stdlib-regex.sema — Exercise all regex stdlib functions
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== Regex Operations ===")
+(newline)
+
+;; --- regex/match? ---
+(println "-- regex/match? --")
+(assert-eq (regex/match? "\\d+" "abc123def") #t "regex/match? finds digits")
+(assert-eq (regex/match? "^\\d+$" "abc123") #f "regex/match? anchored no match")
+(assert-eq (regex/match? "^\\d+$" "12345") #t "regex/match? anchored match")
+(assert-eq (regex/match? "hello" "say hello world") #t "regex/match? literal pattern")
+
+;; --- regex/match ---
+(println "-- regex/match --")
+(define m (regex/match "(\\d{4})-(\\d{2})-(\\d{2})" "Date: 2025-01-15 is today"))
+(assert-eq (get m :match) "2025-01-15" "regex/match full match")
+(assert-eq (car (get m :groups)) "2025" "regex/match group 1 (year)")
+(assert-eq (cadr (get m :groups)) "01" "regex/match group 2 (month)")
+(assert-eq (caddr (get m :groups)) "15" "regex/match group 3 (day)")
+(assert-eq (get m :start) 6 "regex/match start index")
+(assert-eq (get m :end) 16 "regex/match end index")
+
+;; No match returns nil
+(define no-match (regex/match "xyz" "hello world"))
+(assert-eq no-match nil "regex/match returns nil on no match")
+
+;; --- regex/find-all ---
+(println "-- regex/find-all --")
+(define words (regex/find-all "\\w+" "hello, world! foo"))
+(assert-eq (length words) 3 "regex/find-all finds 3 words")
+(assert-eq (car words) "hello" "regex/find-all first word")
+(assert-eq (cadr words) "world" "regex/find-all second word")
+(assert-eq (caddr words) "foo" "regex/find-all third word")
+
+(define nums (regex/find-all "\\d+" "a1b22c333"))
+(assert-eq nums (list "1" "22" "333") "regex/find-all extracts numbers")
+
+;; --- regex/replace ---
+(println "-- regex/replace --")
+(define r1 (regex/replace "\\d+" "NUM" "abc123def456"))
+(assert-eq r1 "abcNUMdef456" "regex/replace replaces first match only")
+
+;; --- regex/replace-all ---
+(println "-- regex/replace-all --")
+(define r2 (regex/replace-all "\\d+" "NUM" "abc123def456"))
+(assert-eq r2 "abcNUMdefNUM" "regex/replace-all replaces all matches")
+
+(define r3 (regex/replace-all "\\s+" "-" "hello   world   foo"))
+(assert-eq r3 "hello-world-foo" "regex/replace-all collapses whitespace")
+
+;; --- regex/split ---
+(println "-- regex/split --")
+(define parts (regex/split "[,;]\\s*" "a, b; c,d"))
+(assert-eq (length parts) 4 "regex/split produces 4 parts")
+(assert-eq (car parts) "a" "regex/split first part")
+(assert-eq (cadr parts) "b" "regex/split second part")
+(assert-eq (caddr parts) "c" "regex/split third part")
+
+(define by-whitespace (regex/split "\\s+" "one two  three"))
+(assert-eq by-whitespace (list "one" "two" "three") "regex/split on whitespace")
+
+(println "")
+(println "=== All Regex tests passed! ===")

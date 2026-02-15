@@ -1,0 +1,137 @@
+;; scheme-basics.sema — Demonstrates 5 standard Scheme features
+;; Car/cdr compositions, association lists, do loops, characters, promises
+
+;; ============================================================
+;; 1. Car/Cdr Compositions
+;; ============================================================
+
+(define nested '((1 2 3) (4 5 6) (7 8 9)))
+
+(println "=== Car/Cdr Compositions ===")
+(println (format "nested:  ~s" nested))
+(println (format "caar:    ~a  (first of first)" (caar nested)))
+(println (format "cadr:    ~s  (second element)" (cadr nested)))
+(println (format "caddr:   ~s  (third element)" (caddr nested)))
+(println (format "cadar:   ~a  (second of first)" (cadar nested)))
+(println (format "cddr:    ~s  (drop two)" (cddr nested)))
+
+;; ============================================================
+;; 2. Association Lists
+;; ============================================================
+
+(define phonebook
+  '(("Alice"   "555-1234")
+    ("Bob"     "555-5678")
+    ("Charlie" "555-9012")))
+
+(println "\n=== Association Lists ===")
+(println (format "Phonebook: ~s" phonebook))
+
+(define entry (assoc "Bob" phonebook))
+(println (format "assoc \"Bob\":     ~s" entry))
+(println (format "Bob's number:   ~a" (cadr entry)))
+
+(define missing (assoc "Dave" phonebook))
+(println (format "assoc \"Dave\":    ~a" missing))
+
+;; Keyword alist with assq
+(define config '((:host "localhost") (:port 8080) (:debug #t)))
+(println (format "assq :port:     ~s" (assq :port config)))
+
+;; ============================================================
+;; 3. Do Loops
+;; ============================================================
+
+(println "\n=== Do Loops ===")
+
+;; Sum 1..10
+(define sum
+  (do ((i 1 (+ i 1))
+       (acc 0 (+ acc i)))
+    ((> i 10) acc)))
+(println (format "Sum 1..10:   ~a" sum))
+
+;; Factorial
+(define fact
+  (do ((n 10 (- n 1))
+       (acc 1 (* acc n)))
+    ((= n 0) acc)))
+(println (format "10!:         ~a" fact))
+
+;; FizzBuzz 1..15
+(println "FizzBuzz 1..15:")
+(do ((i 1 (+ i 1)))
+  ((> i 15))
+  (println (format "  ~a: ~a" i
+    (cond
+      ((= 0 (math/remainder i 15)) "FizzBuzz")
+      ((= 0 (math/remainder i 3))  "Fizz")
+      ((= 0 (math/remainder i 5))  "Buzz")
+      (else                         i)))))
+
+;; ============================================================
+;; 4. Characters
+;; ============================================================
+
+(println "\n=== Characters ===")
+
+;; Literals
+(println (format "Char literal:  ~s" #\a))
+(println (format "Space:         ~s" #\space))
+(println (format "Newline:       ~s" #\newline))
+
+;; Predicates
+(println (format "alphabetic? #\\A: ~a" (char-alphabetic? #\A)))
+(println (format "numeric? #\\5:    ~a" (char-numeric? #\5)))
+(println (format "whitespace? ' ': ~a" (char-whitespace? #\space)))
+(println (format "upper-case? #\\A: ~a" (char-upper-case? #\A)))
+(println (format "lower-case? #\\a: ~a" (char-lower-case? #\a)))
+
+;; Case conversion
+(println (format "upcase #\\a:   ~s" (char-upcase #\a)))
+(println (format "downcase #\\Z: ~s" (char-downcase #\Z)))
+
+;; String <-> Char conversions
+(define chars (string->list "Hello"))
+(println (format "string->list \"Hello\": ~s" chars))
+(println (format "list->string back:    ~a" (list->string chars)))
+
+;; char->integer / integer->char
+(println (format "char->integer #\\A: ~a" (char->integer #\A)))
+(println (format "integer->char 65:  ~s" (integer->char 65)))
+
+;; ============================================================
+;; 5. Promises (Lazy Evaluation)
+;; ============================================================
+
+(println "\n=== Promises (delay/force) ===")
+
+;; Basic
+(define p (delay (begin (println "  Computing...") (* 6 7))))
+(println (format "promise? p:        ~a" (promise? p)))
+(println (format "promise-forced? p: ~a" (promise-forced? p)))
+(println "Forcing p:")
+(define result (force p))
+(println (format "Result:            ~a" result))
+(println (format "promise-forced? p: ~a" (promise-forced? p)))
+
+;; Memoization: body runs only once
+(define counter 0)
+(define memo-p (delay (begin (set! counter (+ counter 1)) counter)))
+(println (format "\nFirst force:  ~a" (force memo-p)))
+(println (format "Second force: ~a" (force memo-p)))
+(println (format "Counter:      ~a (only incremented once)" counter))
+
+;; Force on non-promise passes through (R7RS)
+(println (format "\n(force 42):   ~a" (force 42)))
+
+;; Lazy fibonacci sequence element
+(define (lazy-add a b) (delay (+ (force a) (force b))))
+(define fib-a (delay 0))
+(define fib-b (delay 1))
+(define fib-c (lazy-add fib-a fib-b))
+(define fib-d (lazy-add fib-b fib-c))
+(define fib-e (lazy-add fib-c fib-d))
+(println (format "Lazy fib(4):  ~a" (force fib-e)))
+
+(println "\nDone!")

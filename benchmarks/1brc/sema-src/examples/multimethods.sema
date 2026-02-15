@@ -1,0 +1,199 @@
+;;; multimethods.sema — Type-dispatched polymorphism
+;;;
+;;; Multimethods dispatch on a value derived from arguments,
+;;; allowing open extension without modifying existing code.
+;;; Uses maps as dispatch tables and closures for encapsulation.
+;;;
+;;; Demonstrates: closures as objects, maps as dispatch tables,
+;;;               type, dynamic dispatch, keyword dispatch
+
+;;; --- Threading macro (needed for builder chains) ---
+
+(defmacro -> (val . forms)
+  (if (null? forms)
+    val
+    (let ((form (car forms))
+          (rest (cdr forms)))
+      (if (list? form)
+        `(-> (,(car form) ,val ,@(cdr form)) ,@rest)
+        `(-> (,form ,val) ,@rest)))))
+
+;;; --- Multimethod infrastructure ---
+
+;; A multimethod is a map:
+;;   {:dispatch-fn fn :methods {dispatch-val -> impl-fn} :default fn-or-nil}
+
+(define (make-multi dispatch-fn)
+  {:dispatch-fn dispatch-fn :methods {} :default nil})
+
+(define (add-method multi dispatch-val impl)
+  (assoc multi :methods (assoc (get multi :methods) dispatch-val impl)))
+
+(define (set-default-method multi impl)
+  (assoc multi :default impl))
+
+(define (invoke multi . args)
+  (let* ((dispatch-fn (get multi :dispatch-fn))
+         (dispatch-val (apply dispatch-fn args))
+         (methods (get multi :methods))
+         (method (get methods dispatch-val)))
+    (if (nil? method)
+      (if (nil? (get multi :default))
+        (error (format "No method for dispatch value: ~a" dispatch-val))
+        (apply (get multi :default) args))
+      (apply method args))))
+
+;;; --- Demo 1: Shape area (dispatch on type keyword) ---
+
+(println "=== Multimethods ===\n")
+(println "--- Shape area (dispatch on :type) ---")
+
+;; Constructors
+(define (make-circle r) {:type :circle :radius r})
+(define (make-rect w h) {:type :rect :width w :height h})
+(define (make-triangle b h) {:type :triangle :base b :height h})
+
+;; Create the multimethod — dispatches on :type keyword
+(define area
+  (-> (make-multi (fn (shape) (get shape :type)))
+      (add-method :circle (fn (s) (* pi (get s :radius) (get s :radius))))
+      (add-method :rect (fn (s) (* (get s :width) (get s :height))))
+      (add-method :triangle (fn (s) (* 0.5 (get s :base) (get s :height))))))
+
+(define shapes
+  (list (make-circle 5)
+        (make-rect 4 6)
+        (make-triangle 8 3)
+        (make-circle 10)))
+
+(for-each
+  (fn (s)
+    (println (format "  ~a area = ~a" (get s :type) (round (* 100 (invoke area s))))))
+  shapes)
+
+;; Add a new shape without modifying existing code!
+(define area (add-method area :ellipse
+  (fn (s) (* pi (get s :a) (get s :b)))))
+(println (format "  ~a area = ~a" :ellipse
+  (round (* 100 (invoke area {:type :ellipse :a 3 :b 5})))))
+
+;;; --- Demo 2: Serialization (dispatch on type) ---
+
+(println "\n--- Serialize (dispatch on runtime type) ---")
+
+(define serialize
+  (-> (make-multi (fn (val) (type val)))
+      (add-method :int (fn (v) (str v)))
+      (add-method :float (fn (v) (str v)))
+      (add-method :string (fn (v) (str "\"" v "\"")))
+      (add-method :bool (fn (v) (if v "true" "false")))
+      (add-method :nil (fn (v) "null"))
+      (add-method :keyword (fn (v) (str "\"" v "\"")))
+      (add-method :list
+        (fn (v) (str "[" (string/join (map (fn (x) (invoke serialize x)) v) ", ") "]")))
+      (add-method :map
+        (fn (v)
+          (str "{"
+            (string/join
+              (map (fn (e)
+                     (str (invoke serialize (car e)) ": " (invoke serialize (cadr e))))
+                   (map/entries v))
+              ", ")
+            "}")))))
+
+(define data {:name "Alice" :age 30 :active #t :scores (list 95 87 92) :notes nil})
+
+(println (format "  Input:  ~a" data))
+(println (format "  Output: ~a" (invoke serialize data)))
+
+;;; --- Demo 3: Expression evaluator (dispatch on operator) ---
+
+(println "\n--- Expression evaluator (dispatch on operator) ---")
+
+;; Simple arithmetic expression evaluator
+;; Expressions: number | (:op left right)
+
+(define eval-expr
+  (-> (make-multi (fn (expr)
+        (if (number? expr) :literal (get expr :op))))
+      (add-method :literal (fn (expr) expr))
+      (add-method :add (fn (e) (+ (invoke eval-expr (get e :left))
+                                   (invoke eval-expr (get e :right)))))
+      (add-method :sub (fn (e) (- (invoke eval-expr (get e :left))
+                                   (invoke eval-expr (get e :right)))))
+      (add-method :mul (fn (e) (* (invoke eval-expr (get e :left))
+                                   (invoke eval-expr (get e :right)))))
+      (add-method :div (fn (e) (/ (invoke eval-expr (get e :left))
+                                   (invoke eval-expr (get e :right)))))))
+
+;; (3 + 4) * (10 - 2) = 56
+(define expr
+  {:op :mul
+   :left {:op :add :left 3 :right 4}
+   :right {:op :sub :left 10 :right 2}})
+
+(println (format "  (3 + 4) * (10 - 2) = ~a" (invoke eval-expr expr)))
+
+;; Add a new operation: power
+(define eval-expr
+  (add-method eval-expr :pow
+    (fn (e) (pow (invoke eval-expr (get e :left))
+                      (invoke eval-expr (get e :right))))))
+
+(println (format "  2 ^ 10 = ~a"
+  (invoke eval-expr {:op :pow :left 2 :right 10})))
+
+;;; --- Demo 4: Animal sounds (classic OOP example) ---
+
+(println "\n--- Animal sounds ---")
+
+(define speak
+  (-> (make-multi (fn (animal) (get animal :species)))
+      (add-method :dog (fn (a) (format "~a says: Woof!" (get a :name))))
+      (add-method :cat (fn (a) (format "~a says: Meow!" (get a :name))))
+      (add-method :duck (fn (a) (format "~a says: Quack!" (get a :name))))
+      (set-default-method (fn (a) (format "~a says: ..." (get a :name))))))
+
+(define animals
+  (list {:species :dog :name "Rex"}
+        {:species :cat :name "Whiskers"}
+        {:species :duck :name "Donald"}
+        {:species :fish :name "Nemo"}))
+
+(for-each
+  (fn (a) (println (format "  ~a" (invoke speak a))))
+  animals)
+
+;;; --- Demo 5: Multi-argument dispatch ---
+
+(println "\n--- Collision detection (dispatch on type pair) ---")
+
+(define collide
+  (-> (make-multi (fn (a b) (list (get a :type) (get b :type))))
+      (add-method (list :circle :circle)
+        (fn (a b)
+          (let* ((dx (- (get a :x) (get b :x)))
+                 (dy (- (get a :y) (get b :y)))
+                 (dist (sqrt (+ (* dx dx) (* dy dy)))))
+            (<= dist (+ (get a :r) (get b :r))))))
+      (add-method (list :rect :rect)
+        (fn (a b)
+          (and (< (get a :x) (+ (get b :x) (get b :w)))
+               (< (get b :x) (+ (get a :x) (get a :w)))
+               (< (get a :y) (+ (get b :y) (get b :h)))
+               (< (get b :y) (+ (get a :y) (get a :h))))))
+      (set-default-method (fn (a b) (format "No collision check for ~a vs ~a"
+                                            (get a :type) (get b :type))))))
+
+(define c1 {:type :circle :x 0 :y 0 :r 5})
+(define c2 {:type :circle :x 3 :y 4 :r 3})
+(define c3 {:type :circle :x 20 :y 20 :r 2})
+
+(println (format "  circle@(0,0)r5 vs circle@(3,4)r3: ~a" (invoke collide c1 c2)))
+(println (format "  circle@(0,0)r5 vs circle@(20,20)r2: ~a" (invoke collide c1 c3)))
+
+(define r1 {:type :rect :x 0 :y 0 :w 10 :h 10})
+(define r2 {:type :rect :x 5 :y 5 :w 10 :h 10})
+(println (format "  rect(0,0,10,10) vs rect(5,5,10,10): ~a" (invoke collide r1 r2)))
+
+(println "\nDone!")

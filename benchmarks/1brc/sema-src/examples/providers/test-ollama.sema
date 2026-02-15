@@ -1,0 +1,12 @@
+;; Test Ollama provider (local, NDJSON streaming)
+;; Requires: ollama running locally with a model pulled
+(llm/configure :ollama {:default-model "qwen3:8b"})
+
+(define result (llm/complete "Say 'hello from Ollama' and nothing else. Do not include any thinking." {:max-tokens 20}))
+(println "Ollama complete:" result)
+
+(print "Ollama stream: ")
+(llm/stream "Count from 1 to 5, one number per word, nothing else. Do not include any thinking." {:max-tokens 30})
+(newline)
+
+(println "Ollama: OK")

@@ -1,0 +1,132 @@
+;;; comprehensions.sema — List and map comprehensions via macros
+;;;
+;;; Implements Python/Haskell-style comprehensions:
+;;;   (for/list ((x xs) (y ys)) body)
+;;;   (for/list ((x xs) (:when pred)) body)
+;;;
+;;; Demonstrates: nested macros, map/filter composition, quasiquote
+
+;;; --- Comprehension Macros ---
+
+;; Simple list comprehension: (for/list ((var seq) ...) body)
+;; Supports (:when pred) clauses for filtering
+;;
+;; All bindings are expanded at macro time (no runtime macro calls),
+;; so the generated code works with the stdlib's HOF mini-evaluator.
+(defmacro for/list (bindings body)
+  (define (expand bs)
+    (if (null? bs)
+      `(list ,body)
+      (let ((clause (car bs))
+            (rest (cdr bs)))
+        (if (and (list? clause) (= (car clause) :when))
+          ;; Filter clause: (:when pred)
+          `(let ((__result ,(expand rest)))
+             (if ,(cadr clause) __result '()))
+          ;; Binding clause: (var seq)
+          (let ((var (car clause))
+                (seq (cadr clause)))
+            `(apply append
+               (map (fn (,var) ,(expand rest)) ,seq)))))))
+  (expand bindings))
+
+;; for/map: build a map from key-value pairs
+;; (for/map ((x xs)) (list key-expr val-expr))
+(defmacro for/map (bindings kv-body)
+  `(foldl (fn (m pair) (assoc m (car pair) (cadr pair)))
+          {}
+          (for/list ,bindings ,kv-body)))
+
+;; for/sum: sum over a comprehension
+(defmacro for/sum (bindings body)
+  `(foldl + 0 (for/list ,bindings ,body)))
+
+;; for/string: build a string from a comprehension
+(defmacro for/string (bindings body)
+  `(string/join (for/list ,bindings ,body) ""))
+
+;; for/any?: does any element satisfy the body?
+(defmacro for/any? (bindings body)
+  `(not (null? (filter (fn (x) x) (for/list ,bindings ,body)))))
+
+;; for/every?: do all elements satisfy the body?
+(defmacro for/every? (bindings body)
+  `(null? (filter (fn (x) (not x)) (for/list ,bindings ,body))))
+
+;;; --- Demos ---
+
+(println "=== Comprehensions ===\n")
+
+;; Basic: squares of 1..10
+(println (format "Squares: ~a"
+  (for/list ((x (range 1 11))) (* x x))))
+
+;; Nested: cartesian product
+(println (format "Pairs: ~a"
+  (for/list ((x (list 1 2 3))
+             (y (list "a" "b")))
+    (list x y))))
+
+;; With filter: even squares
+(define even-squares
+  (for/list ((x (range 1 21))
+             (:when (even? x)))
+    (* x x)))
+(println (format "Even squares: ~a" even-squares))
+
+;; Pythagorean triples
+(define triples
+  (for/list ((a (range 1 21))
+             (b (range a 21))
+             (:when (let ((c (sqrt (+ (* a a) (* b b)))))
+                      (= c (floor c)))))
+    (list a b (int (sqrt (+ (* a a) (* b b)))))))
+(println (format "\nPythagorean triples (a,b < 20): ~a" triples))
+
+;; FizzBuzz via comprehension
+(println (format "\nFizzBuzz 1-20: ~a"
+  (for/list ((n (range 1 21)))
+    (cond
+      ((= 0 (math/remainder n 15)) "FizzBuzz")
+      ((= 0 (math/remainder n 3)) "Fizz")
+      ((= 0 (math/remainder n 5)) "Buzz")
+      (else (str n))))))
+
+;; for/map: build a lookup table
+(define squares-map
+  (for/map ((n (range 1 11)))
+    (list (string->keyword (str n)) (* n n))))
+(println (format "\nSquares map: ~a" squares-map))
+
+;; for/sum: sum of cubes
+(println (format "\nSum of cubes 1..10: ~a"
+  (for/sum ((n (range 1 11))) (* n n n))))
+
+;; for/string: build formatted output
+(println (format "\nRepeated pattern: ~a"
+  (for/string ((c (list ">" "-" "=" "-")))
+    (string/repeat c 3))))
+
+;; for/any? and for/every?
+(println (format "\nAny primes in (4 6 8 9 10)? ~a"
+  (for/any? ((n (list 4 6 8 9 10)))
+    (let loop ((i 2))
+      (cond ((> (* i i) n) #t)
+            ((= 0 (math/remainder n i)) #f)
+            (else (loop (+ i 1))))))))
+
+(println (format "All positive in (1 2 3 4)? ~a"
+  (for/every? ((n (list 1 2 3 4))) (> n 0))))
+
+(println (format "All positive in (1 -2 3)? ~a"
+  (for/every? ((n (list 1 -2 3))) (> n 0))))
+
+;; Matrix transpose using comprehension + map
+(define matrix (list (list 1 2 3) (list 4 5 6) (list 7 8 9)))
+(define transposed
+  (for/list ((col (range 3)))
+    (map (fn (row) (nth row col)) matrix)))
+(println (format "\nMatrix:     ~a" matrix))
+(println (format "Transposed: ~a" transposed))
+
+(println "\nDone!")

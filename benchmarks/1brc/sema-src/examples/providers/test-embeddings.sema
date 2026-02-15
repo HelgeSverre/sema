@@ -1,0 +1,25 @@
+;; Test embedding providers
+;; Requires: JINA_API_KEY and/or VOYAGE_API_KEY env vars
+
+;; Test with Jina
+(when (env "JINA_API_KEY")
+  (llm/configure :jina {:api-key (env "JINA_API_KEY")})
+  (define vecs (llm/embed "Hello world" {:model "jina-embeddings-v3"}))
+  (println "Jina embedding dimensions:" (embedding/length vecs))
+  (println "Jina: OK"))
+
+;; Test with Voyage
+(when (env "VOYAGE_API_KEY")
+  (llm/configure :voyage {:api-key (env "VOYAGE_API_KEY")})
+  (define vecs (llm/embed "Hello world" {:model "voyage-3-lite"}))
+  (println "Voyage embedding dimensions:" (embedding/length vecs))
+  (println "Voyage: OK"))
+
+;; Test with Cohere
+(when (env "COHERE_API_KEY")
+  (llm/configure :cohere {:api-key (env "COHERE_API_KEY")})
+  (define vecs (llm/embed "Hello world"))
+  (println "Cohere embedding dimensions:" (embedding/length vecs))
+  (println "Cohere: OK"))
+
+(println "Embeddings: OK")

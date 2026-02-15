@@ -1,6 +1,8 @@
-# Stage 1: Install Sema from GitHub
+# Stage 1: Build Sema from local source
 FROM rust:bookworm AS sema-builder
-RUN cargo install --git https://github.com/HelgeSverre/sema sema
+COPY sema-src /sema-src
+WORKDIR /sema-src
+RUN cargo install --path crates/sema
 
 # Stage 2: Benchmark image
 FROM debian:bookworm-slim
@@ -64,16 +66,19 @@ COPY . .
 
 # Compile benchmarks for dialects that have compilers
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential libssl-dev && \
-    # Chicken Scheme: compile to native binary via C
+    # Optimized versions
     csc -O3 -o /bench/1brc-chicken /bench/1brc.chicken.scm && \
-    # Gambit Scheme: compile to native binary via C
     cd /bench && gsc -exe -o 1brc-gambit 1brc.gambit.scm && \
-    # ECL: compile to native FASL
     ecl --eval '(compile-file "/bench/1brc.ecl.lisp")' --eval '(ext:quit 0)' && \
-    # Emacs Lisp: byte-compile
     emacs --batch -f batch-byte-compile /bench/1brc.el && \
+    # Simple versions
+    csc -O3 -o /bench/1brc-chicken-simple /bench/simple/1brc.chicken.scm && \
+    cd /bench && gsc -exe -o 1brc-gambit-simple simple/1brc.gambit.scm && \
+    ecl --eval '(compile-file "/bench/simple/1brc.ecl.lisp" :output-file "/bench/1brc-simple-ecl.fas")' --eval '(ext:quit 0)' && \
+    emacs --batch -f batch-byte-compile /bench/simple/1brc.el && \
+    cp /bench/simple/1brc.elc /bench/1brc-simple.elc && \
     # Cleanup
     apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
-RUN chmod +x run-benchmarks.sh
+RUN chmod +x run-benchmarks.sh simple/run-benchmarks.sh
 ENTRYPOINT ["/bench/run-benchmarks.sh"]

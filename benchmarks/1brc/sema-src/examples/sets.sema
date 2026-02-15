@@ -1,0 +1,200 @@
+;;; sets.sema — Set data structure built on maps
+;;;
+;;; Sets are represented as maps where keys are elements
+;;; and all values are #t. This gives O(log n) membership test,
+;;; insert, and delete via the underlying BTreeMap.
+;;;
+;;; Demonstrates: maps as backing store, higher-order functions,
+;;;               variadic helpers, operator overloading via naming
+
+;;; --- Set constructors ---
+
+;; Create a set from elements
+(define (set . elems)
+  (foldl (fn (s e) (assoc s e #t)) {} elems))
+
+;; Convert a list to a set
+(define (list->set lst)
+  (foldl (fn (s e) (assoc s e #t)) {} lst))
+
+;; Convert a set to a sorted list
+(define (set->list s)
+  (keys s))
+
+;; Empty set
+(define empty-set {})
+
+;; Set size
+(define (set/size s)
+  (length (keys s)))
+
+;; Is the set empty?
+(define (set/empty? s)
+  (= (set/size s) 0))
+
+;;; --- Set operations ---
+
+;; Membership test
+(define (set/member? s elem)
+  (not (nil? (get s elem))))
+
+;; Add an element
+(define (set/add s elem)
+  (assoc s elem #t))
+
+;; Remove an element
+(define (set/remove s elem)
+  (dissoc s elem))
+
+;; Union of two sets
+(define (set/union s1 s2)
+  (foldl (fn (s e) (assoc s e #t)) s1 (keys s2)))
+
+;; Intersection of two sets
+(define (set/intersection s1 s2)
+  (foldl (fn (s e)
+           (if (set/member? s2 e) (assoc s e #t) s))
+         {} (keys s1)))
+
+;; Difference: elements in s1 but not in s2
+(define (set/difference s1 s2)
+  (foldl (fn (s e)
+           (if (set/member? s2 e) s (assoc s e #t)))
+         {} (keys s1)))
+
+;; Symmetric difference: elements in either but not both
+(define (set/symmetric-difference s1 s2)
+  (set/union (set/difference s1 s2) (set/difference s2 s1)))
+
+;; Subset test
+(define (set/subset? s1 s2)
+  (foldl (fn (acc e) (and acc (set/member? s2 e)))
+         #t (keys s1)))
+
+;; Proper subset
+(define (set/proper-subset? s1 s2)
+  (and (set/subset? s1 s2) (not (= (set/size s1) (set/size s2)))))
+
+;; Equality
+(define (set/equal? s1 s2)
+  (and (set/subset? s1 s2) (set/subset? s2 s1)))
+
+;; Map over set elements, return a new set
+(define (set/map f s)
+  (list->set (map f (keys s))))
+
+;; Filter set elements
+(define (set/filter pred s)
+  (foldl (fn (acc e) (if (pred e) (assoc acc e #t) acc))
+         {} (keys s)))
+
+;; Fold over set elements
+(define (set/fold f init s)
+  (foldl f init (keys s)))
+
+;; Power set (all subsets)
+(define (set/power-set s)
+  (let ((elems (set->list s)))
+    (foldl (fn (subsets elem)
+             (append subsets
+                     (map (fn (sub) (set/add sub elem)) subsets)))
+           (list empty-set)
+           elems)))
+
+;; Pretty-print a set
+(define (set/display s)
+  (str "#{" (string/join (map str (set->list s)) " ") "}"))
+
+;;; --- Demos ---
+
+(println "=== Sets ===\n")
+
+;; Construction
+(define s1 (set 1 2 3 4 5))
+(define s2 (set 3 4 5 6 7))
+(define s3 (set 1 2 3))
+
+(println (format "s1 = ~a" (set/display s1)))
+(println (format "s2 = ~a" (set/display s2)))
+(println (format "s3 = ~a" (set/display s3)))
+
+;; Basic operations
+(println (format "\nMembership:"))
+(println (format "  3 in s1? ~a" (set/member? s1 3)))
+(println (format "  9 in s1? ~a" (set/member? s1 9)))
+(println (format "  size(s1) = ~a" (set/size s1)))
+
+;; Set algebra
+(println (format "\nSet algebra:"))
+(println (format "  s1 ∪ s2  = ~a" (set/display (set/union s1 s2))))
+(println (format "  s1 ∩ s2  = ~a" (set/display (set/intersection s1 s2))))
+(println (format "  s1 \\ s2  = ~a" (set/display (set/difference s1 s2))))
+(println (format "  s1 △ s2  = ~a" (set/display (set/symmetric-difference s1 s2))))
+
+;; Subset relations
+(println (format "\nSubset relations:"))
+(println (format "  s3 ⊆ s1? ~a" (set/subset? s3 s1)))
+(println (format "  s3 ⊂ s1? ~a" (set/proper-subset? s3 s1)))
+(println (format "  s1 ⊆ s1? ~a" (set/subset? s1 s1)))
+(println (format "  s1 ⊂ s1? ~a" (set/proper-subset? s1 s1)))
+(println (format "  s1 = s2? ~a" (set/equal? s1 s2)))
+
+;; Higher-order operations
+(println (format "\nHigher-order:"))
+(println (format "  evens in s1: ~a" (set/display (set/filter even? s1))))
+(println (format "  doubled s1:  ~a" (set/display (set/map (fn (x) (* x 2)) s1))))
+(println (format "  sum of s1:   ~a" (set/fold + 0 s1)))
+
+;; Power set
+(define tiny (set 1 2 3))
+(println (format "\nPower set of ~a:" (set/display tiny)))
+(for-each
+  (fn (sub) (println (format "  ~a" (set/display sub))))
+  (set/power-set tiny))
+
+;; Practical: find common tags between items
+(println "\n--- Practical: tag intersection ---")
+(define item-tags
+  (list (list "post-1" (set :rust :lisp :programming))
+        (list "post-2" (set :lisp :ai :programming))
+        (list "post-3" (set :rust :systems :programming))
+        (list "post-4" (set :ai :ml :python))))
+
+(for-each
+  (fn (pair)
+    (println (format "  ~a: ~a" (car pair) (set/display (cadr pair)))))
+  item-tags)
+
+(define common-all
+  (foldl (fn (acc pair) (set/intersection acc (cadr pair)))
+         (cadr (car item-tags))
+         (cdr item-tags)))
+(println (format "\n  Tags in ALL posts: ~a" (set/display common-all)))
+
+(define union-all
+  (foldl (fn (acc pair) (set/union acc (cadr pair)))
+         empty-set
+         item-tags))
+(println (format "  Tags in ANY post: ~a" (set/display union-all)))
+
+;; Jaccard similarity
+(define (jaccard s1 s2)
+  (let ((inter (set/size (set/intersection s1 s2)))
+        (uni (set/size (set/union s1 s2))))
+    (if (= uni 0) 1.0 (/ (float inter) (float uni)))))
+
+(println "\n  Pairwise Jaccard similarity:")
+(for-each
+  (fn (i)
+    (for-each
+      (fn (j)
+        (when (< i j)
+          (let ((a (nth item-tags i))
+                (b (nth item-tags j)))
+            (println (format "    ~a vs ~a: ~a"
+              (car a) (car b)
+              (round (* 100 (jaccard (cadr a) (cadr b)))))))))
+      (range (length item-tags))))
+  (range (length item-tags)))
+
+(println "\nDone!")

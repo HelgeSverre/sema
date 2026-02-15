@@ -1,0 +1,71 @@
+;; Run all provider tests (skips providers without API keys)
+;; Uses try/catch so one provider failure doesn't stop the suite
+
+(define (test-provider name configure-fn)
+  (try
+    (configure-fn)
+    (define result (llm/complete "Say exactly: PASS" {:max-tokens 10}))
+    (println "  " name ":" result)
+    (catch e
+      (println "  " name ": FAIL -" (get e :message)))))
+
+(println "=== Sema Provider Test Suite ===")
+(println "")
+
+;; Chat providers
+(when (env "ANTHROPIC_API_KEY")
+  (test-provider "Anthropic"
+    (lambda () (llm/configure :anthropic {:api-key (env "ANTHROPIC_API_KEY")}))))
+
+(when (env "OPENAI_API_KEY")
+  (test-provider "OpenAI"
+    (lambda () (llm/configure :openai {:api-key (env "OPENAI_API_KEY")}))))
+
+(when (env "GROQ_API_KEY")
+  (test-provider "Groq"
+    (lambda () (llm/configure :groq {:api-key (env "GROQ_API_KEY")}))))
+
+(when (env "XAI_API_KEY")
+  (test-provider "xAI"
+    (lambda () (llm/configure :xai {:api-key (env "XAI_API_KEY")}))))
+
+(when (env "MISTRAL_API_KEY")
+  (test-provider "Mistral"
+    (lambda () (llm/configure :mistral {:api-key (env "MISTRAL_API_KEY")}))))
+
+(when (env "MOONSHOT_API_KEY")
+  (test-provider "Moonshot"
+    (lambda () (llm/configure :moonshot {:api-key (env "MOONSHOT_API_KEY")}))))
+
+(when (env "GOOGLE_API_KEY")
+  (test-provider "Gemini"
+    (lambda () (llm/configure :gemini {:api-key (env "GOOGLE_API_KEY")}))))
+
+;; Embedding providers
+(println "")
+(when (env "JINA_API_KEY")
+  (try
+    (llm/configure :jina {:api-key (env "JINA_API_KEY")})
+    (define vecs (llm/embed "test" {:model "jina-embeddings-v3"}))
+    (println "  Jina:      OK (" (embedding/length vecs) "dims)")
+    (catch e
+      (println "  Jina:      FAIL -" (get e :message)))))
+
+(when (env "VOYAGE_API_KEY")
+  (try
+    (llm/configure :voyage {:api-key (env "VOYAGE_API_KEY")})
+    (define vecs (llm/embed "test" {:model "voyage-3-lite"}))
+    (println "  Voyage:    OK (" (embedding/length vecs) "dims)")
+    (catch e
+      (println "  Voyage:    FAIL -" (get e :message)))))
+
+(when (env "COHERE_API_KEY")
+  (try
+    (llm/configure :cohere {:api-key (env "COHERE_API_KEY")})
+    (define vecs (llm/embed "test"))
+    (println "  Cohere:    OK (" (embedding/length vecs) "dims)")
+    (catch e
+      (println "  Cohere:    FAIL -" (get e :message)))))
+
+(println "")
+(println "=== Done ===")

@@ -1,0 +1,168 @@
+;;; lazy.sema — Lazy sequences (streams) via closures
+;;;
+;;; Infinite data structures using thunks (zero-argument closures)
+;;; as delayed evaluation. Classic SICP-style streams.
+;;;
+;;; Demonstrates: closures as data, TCO named-let, higher-order functions
+
+;;; --- Stream primitives ---
+
+;; A stream is a 2-element list: (value thunk)
+;; where thunk is a fn that returns the next stream (or nil for end)
+(define stream-empty nil)
+(define (stream-empty? s) (nil? s))
+
+(define (stream-cons head tail-thunk)
+  (list head tail-thunk))
+
+(define (stream-car s) (car s))
+
+(define (stream-cdr s)
+  ((cadr s)))  ;; force the thunk
+
+;; Take n elements from a stream, return as a list
+(define (stream-take n s)
+  (let loop ((i n) (s s) (acc '()))
+    (if (or (= i 0) (stream-empty? s))
+      (reverse acc)
+      (loop (- i 1) (stream-cdr s) (cons (stream-car s) acc)))))
+
+;; Drop n elements from a stream
+(define (stream-drop n s)
+  (let loop ((i n) (s s))
+    (if (or (= i 0) (stream-empty? s))
+      s
+      (loop (- i 1) (stream-cdr s)))))
+
+;; Get the nth element (0-indexed)
+(define (stream-ref s n)
+  (stream-car (stream-drop n s)))
+
+;; Map over a stream
+(define (stream-map f s)
+  (if (stream-empty? s)
+    stream-empty
+    (stream-cons (f (stream-car s))
+                 (fn () (stream-map f (stream-cdr s))))))
+
+;; Filter a stream
+(define (stream-filter pred s)
+  (cond
+    ((stream-empty? s) stream-empty)
+    ((pred (stream-car s))
+     (stream-cons (stream-car s)
+                  (fn () (stream-filter pred (stream-cdr s)))))
+    (else (stream-filter pred (stream-cdr s)))))
+
+;; Zip two streams with a function
+(define (stream-zip-with f s1 s2)
+  (if (or (stream-empty? s1) (stream-empty? s2))
+    stream-empty
+    (stream-cons (f (stream-car s1) (stream-car s2))
+                 (fn () (stream-zip-with f (stream-cdr s1) (stream-cdr s2))))))
+
+;; Fold/reduce a finite portion of a stream
+(define (stream-fold f init n s)
+  (let loop ((i n) (acc init) (s s))
+    (if (or (= i 0) (stream-empty? s))
+      acc
+      (loop (- i 1) (f acc (stream-car s)) (stream-cdr s)))))
+
+;;; --- Stream constructors ---
+
+;; Infinite stream of a repeated value
+(define (stream-repeat x)
+  (stream-cons x (fn () (stream-repeat x))))
+
+;; Infinite stream from a seed and step function
+(define (stream-iterate f seed)
+  (stream-cons seed (fn () (stream-iterate f (f seed)))))
+
+;; Stream of integers from n
+(define (stream-from n)
+  (stream-cons n (fn () (stream-from (+ n 1)))))
+
+;; Finite stream from a list
+(define (list->stream lst)
+  (if (null? lst)
+    stream-empty
+    (stream-cons (car lst) (fn () (list->stream (cdr lst))))))
+
+;; Interleave two streams
+(define (stream-interleave s1 s2)
+  (if (stream-empty? s1)
+    s2
+    (stream-cons (stream-car s1)
+                 (fn () (stream-interleave s2 (stream-cdr s1))))))
+
+;;; --- Demos ---
+
+(println "=== Lazy Sequences (Streams) ===\n")
+
+;; Natural numbers
+(define naturals (stream-from 1))
+(println (format "First 15 naturals: ~a" (stream-take 15 naturals)))
+
+;; Squares
+(define squares (stream-map (fn (x) (* x x)) naturals))
+(println (format "First 10 squares:  ~a" (stream-take 10 squares)))
+
+;; Even numbers via filter
+(define evens (stream-filter even? naturals))
+(println (format "First 10 evens:    ~a" (stream-take 10 evens)))
+
+;; Powers of 2
+(define powers-of-2 (stream-iterate (fn (x) (* x 2)) 1))
+(println (format "First 12 powers of 2: ~a" (stream-take 12 powers-of-2)))
+
+;; Fibonacci sequence (classic SICP approach)
+(define fibs
+  (let ()
+    (define (fib-gen a b)
+      (stream-cons a (fn () (fib-gen b (+ a b)))))
+    (fib-gen 0 1)))
+(println (format "\nFirst 20 Fibonacci: ~a" (stream-take 20 fibs)))
+(println (format "50th Fibonacci: ~a" (stream-ref fibs 50)))
+
+;; Sieve of Eratosthenes
+(define (sieve s)
+  (let ((p (stream-car s)))
+    (stream-cons p
+      (fn () (sieve (stream-filter
+                      (fn (n) (not (= 0 (math/remainder n p))))
+                      (stream-cdr s)))))))
+
+(define primes (sieve (stream-from 2)))
+(println (format "\nFirst 25 primes: ~a" (stream-take 25 primes)))
+(println (format "100th prime: ~a" (stream-ref primes 99)))
+
+;; Collatz streams
+(define (collatz-stream n)
+  (stream-cons n
+    (fn ()
+      (if (= n 1)
+        stream-empty
+        (collatz-stream (if (even? n) (/ n 2) (+ (* 3 n) 1)))))))
+
+(println (format "\nCollatz(27): ~a" (stream-take 30 (collatz-stream 27))))
+
+;; Zipping: running sum
+(define running-sum
+  (let ()
+    (define (go s acc)
+      (let ((new-acc (+ acc (stream-car s))))
+        (stream-cons new-acc (fn () (go (stream-cdr s) new-acc)))))
+    (go naturals 0)))
+(println (format "\nRunning sum 1..10: ~a (triangular numbers)"
+  (stream-take 10 running-sum)))
+
+;; Interleaving
+(define odds (stream-filter odd? naturals))
+(println (format "\nInterleaved odds/evens: ~a"
+  (stream-take 12 (stream-interleave odds evens))))
+
+;; Practical: first 10 primes > 1000
+(define big-primes (stream-filter (fn (p) (> p 1000)) primes))
+(println (format "\nFirst 10 primes > 1000: ~a" (stream-take 10 big-primes)))
+
+(println "\nDone!")

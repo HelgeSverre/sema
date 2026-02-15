@@ -1,0 +1,21 @@
+
+Error: (sprintf) illegal format-string character: #\,
+
+	Call history:
+
+	/bench/simple/1brc.chicken.scm:34: scheme#substring	  
+	/bench/simple/1brc.chicken.scm:34: scheme#string->number	  
+	/bench/simple/1brc.chicken.scm:35: srfi-69#hash-table-ref/default	  
+	/bench/simple/1brc.chicken.scm:38: scheme#min	  
+	/bench/simple/1brc.chicken.scm:40: scheme#max	  
+	/bench/simple/1brc.chicken.scm:43: chicken.io#read-line	  
+	/bench/simple/1brc.chicken.scm:43: loop	  
+	/bench/simple/1brc.chicken.scm:45: scheme#close-input-port	  
+	/bench/simple/1brc.chicken.scm:47: srfi-69#hash-table-keys	  
+	/bench/simple/1brc.chicken.scm:47: chicken.sort#sort	  
+	/bench/simple/1brc.chicken.scm:48: g62	  
+	/bench/simple/1brc.chicken.scm:49: srfi-69#hash-table-ref	  
+	##sys#/-2	  
+	/bench/simple/1brc.chicken.scm:54: scheme#round	  
+	##sys#/-2	  
+	/bench/simple/1brc.chicken.scm:56: chicken.format#sprintf	  	<--

@@ -1,0 +1,17 @@
+[
+{"name": "sbcl", "best_ms": 7415, "rows": 10000000},
+{"name": "chez", "best_ms": 4399, "rows": 10000000},
+{"name": "chicken", "best_ms": null, "error": "failed"},
+{"name": "gambit", "best_ms": 5590, "rows": 10000000},
+{"name": "fennel", "best_ms": 3455, "rows": 10000000},
+{"name": "clojure", "best_ms": 5838, "rows": 10000000},
+{"name": "kawa", "best_ms": 16564, "rows": 10000000},
+{"name": "sema", "best_ms": 16591, "rows": 10000000},
+{"name": "guile", "best_ms": 16820, "rows": 10000000},
+{"name": "gauche", "best_ms": null, "error": "failed"},
+{"name": "janet", "best_ms": null, "error": "failed"},
+{"name": "ecl", "best_ms": 22523, "rows": 10000000},
+{"name": "emacs", "best_ms": 22031, "rows": 10000000},
+{"name": "newlisp", "best_ms": 12001, "rows": 10000000},
+{"name": "picolisp", "best_ms": null, "error": "failed"}
+]

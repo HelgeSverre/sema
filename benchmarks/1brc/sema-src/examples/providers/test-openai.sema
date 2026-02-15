@@ -1,0 +1,13 @@
+;; Test OpenAI provider
+(llm/configure :openai {:api-key (env "OPENAI_API_KEY")})
+
+;; Basic completion
+(define result (llm/complete "Say 'hello from OpenAI' and nothing else." {:max-tokens 20}))
+(println "OpenAI complete:" result)
+
+;; Streaming test
+(print "OpenAI stream: ")
+(llm/stream "Count from 1 to 5, one number per word, nothing else." {:max-tokens 30})
+(newline)
+
+(println "OpenAI: OK")

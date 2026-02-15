@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.1
+
+### Added
+
+- **`string->float`** — new builtin for direct string-to-float conversion, avoiding the `(float (string->number ...))` roundtrip.
+
+### Performance
+
+- **`vector` in mini-eval** — `(vector ...)` calls now bypass the full trampoline evaluator in hot paths.
+- **`string->float` in mini-eval** — fast-path evaluation for `string->float` in the mini-evaluator.
+- **`let*` flattening** — using `let*` instead of nested `let` reduces environment allocations (3 per iteration → 1 in the 1BRC benchmark).
+- **1BRC benchmark: 12.6s → 9.6s native** (24% faster), 17.9s → 15.4s under Docker emulation (14% faster).
+
 ## 0.9.0
 
 ### Added

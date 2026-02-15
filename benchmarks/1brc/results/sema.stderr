@@ -1,0 +1,2 @@
+Error: Unbound variable: string->float
+  at file/fold-lines (/bench/1brc.sema:35:3)

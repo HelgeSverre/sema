@@ -1,6 +1,5 @@
 results/
 test.txt
-sema-src/
 **/target/
 **/corpus/
 **/artifacts/

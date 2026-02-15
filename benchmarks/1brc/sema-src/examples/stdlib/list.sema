@@ -1,0 +1,203 @@
+;; Sema Stdlib: List Functions
+;; Tests all list/vector/sequence functions
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== List Functions ===")
+(println)
+
+;; list
+(assert-eq (list 1 2 3) (list 1 2 3) "list")
+(assert-eq (list) (list) "list empty")
+
+;; vector
+(assert-eq (vector 1 2 3) [1 2 3] "vector")
+
+;; cons
+(assert-eq (cons 1 (list 2 3)) (list 1 2 3) "cons to list")
+(assert-eq (cons 1 nil) (list 1) "cons to nil")
+
+;; car / first
+(assert-eq (car (list 1 2 3)) 1 "car")
+(assert-eq (first (list 10 20)) 10 "first")
+
+;; cdr / rest
+(assert-eq (cdr (list 1 2 3)) (list 2 3) "cdr")
+(assert-eq (rest (list 10 20)) (list 20) "rest")
+
+;; length
+(assert-eq (length (list 1 2 3)) 3 "length list")
+(assert-eq (length [1 2]) 2 "length vector")
+(assert-eq (length "hello") 5 "length string")
+
+;; append
+(assert-eq (append (list 1 2) (list 3 4)) (list 1 2 3 4) "append")
+
+;; reverse
+(assert-eq (reverse (list 1 2 3)) (list 3 2 1) "reverse")
+
+;; nth
+(assert-eq (nth (list 10 20 30) 1) 20 "nth")
+
+;; map
+(assert-eq (map (fn (x) (* x 2)) (list 1 2 3)) (list 2 4 6) "map")
+
+;; filter
+(assert-eq (filter (fn (x) (> x 2)) (list 1 2 3 4 5)) (list 3 4 5) "filter")
+
+;; foldl
+(assert-eq (foldl + 0 (list 1 2 3 4)) 10 "foldl")
+
+;; foldr
+(assert-eq (foldr cons (list) (list 1 2 3)) (list 1 2 3) "foldr")
+
+;; for-each
+(define for-each-sum 0)
+(for-each (fn (x) (set! for-each-sum (+ for-each-sum x))) (list 1 2 3))
+(assert-eq for-each-sum 6 "for-each")
+
+;; range
+(assert-eq (range 5) (list 0 1 2 3 4) "range 1-arg")
+(assert-eq (range 2 5) (list 2 3 4) "range 2-arg")
+(assert-eq (range 0 10 3) (list 0 3 6 9) "range 3-arg")
+
+;; apply
+(assert-eq (apply + (list 1 2 3)) 6 "apply")
+
+;; take
+(assert-eq (take 2 (list 1 2 3 4)) (list 1 2) "take")
+
+;; drop
+(assert-eq (drop 2 (list 1 2 3 4)) (list 3 4) "drop")
+
+;; last
+(assert-eq (last (list 1 2 3)) 3 "last")
+
+;; zip
+(assert-eq (zip (list 1 2 3) (list "a" "b" "c")) (list (list 1 "a") (list 2 "b") (list 3 "c")) "zip")
+
+;; flatten
+(assert-eq (flatten (list (list 1 2) (list 3 4) 5)) (list 1 2 3 4 5) "flatten")
+
+;; member
+(assert-eq (member 3 (list 1 2 3 4)) (list 3 4) "member found")
+(assert-eq (member 9 (list 1 2 3)) #f "member not found")
+
+;; any
+(assert-eq (any (fn (x) (> x 3)) (list 1 2 3 4)) #t "any true")
+(assert-eq (any (fn (x) (> x 10)) (list 1 2 3)) #f "any false")
+
+;; every
+(assert-eq (every (fn (x) (> x 0)) (list 1 2 3)) #t "every true")
+(assert-eq (every (fn (x) (> x 2)) (list 1 2 3)) #f "every false")
+
+;; reduce
+(assert-eq (reduce + (list 1 2 3 4)) 10 "reduce")
+
+;; partition
+(assert-eq (partition (fn (x) (> x 2)) (list 1 2 3 4 5)) (list (list 3 4 5) (list 1 2)) "partition")
+
+;; sort
+(assert-eq (sort (list 3 1 4 1 5)) (list 1 1 3 4 5) "sort")
+
+;; sort-by
+(assert-eq (sort-by (fn (x) (- 0 x)) (list 3 1 2)) (list 3 2 1) "sort-by descending")
+
+;; take-while
+(assert-eq (take-while (fn (x) (< x 4)) (list 1 2 3 4 5)) (list 1 2 3) "take-while")
+
+;; drop-while
+(assert-eq (drop-while (fn (x) (< x 4)) (list 1 2 3 4 5)) (list 4 5) "drop-while")
+
+;; list/index-of
+(assert-eq (list/index-of (list 10 20 30) 20) 1 "list/index-of found")
+(assert-eq (list/index-of (list 10 20 30) 99) nil "list/index-of not found")
+
+;; list/unique
+(assert-eq (list/unique (list 1 2 2 3 3 3)) (list 1 2 3) "list/unique")
+
+;; list/group-by
+(define grouped (list/group-by (fn (x) (if (> x 2) "big" "small")) (list 1 2 3 4)))
+(assert-eq (get grouped "small") (list 1 2) "list/group-by small")
+(assert-eq (get grouped "big") (list 3 4) "list/group-by big")
+
+;; list/interleave
+(assert-eq (list/interleave (list 1 2 3) (list "a" "b" "c")) (list 1 "a" 2 "b" 3 "c") "list/interleave")
+
+;; list/chunk
+(assert-eq (list/chunk 2 (list 1 2 3 4 5)) (list (list 1 2) (list 3 4) (list 5)) "list/chunk")
+
+;; list/dedupe
+(assert-eq (list/dedupe (list 1 1 2 2 2 3 1 1)) (list 1 2 3 1) "list/dedupe")
+
+;; flat-map
+(assert-eq (flat-map (fn (x) (list x (* x 10))) (list 1 2 3)) (list 1 10 2 20 3 30) "flat-map")
+
+;; flatten-deep
+(assert-eq (flatten-deep (list (list 1 (list 2 (list 3))) 4)) (list 1 2 3 4) "flatten-deep")
+
+;; interpose
+(assert-eq (interpose 0 (list 1 2 3)) (list 1 0 2 0 3) "interpose")
+
+;; frequencies
+(assert-eq (frequencies (list "a" "b" "a" "c" "b" "a")) (hash-map "a" 3 "b" 2 "c" 1) "frequencies")
+
+;; list->vector
+(assert-eq (list->vector (list 1 2 3)) [1 2 3] "list->vector")
+
+;; vector->list
+(assert-eq (vector->list [1 2 3]) (list 1 2 3) "vector->list")
+
+;; car/cdr compositions
+(assert-eq (cadr (list 1 2 3)) 2 "cadr")
+(assert-eq (caddr (list 1 2 3)) 3 "caddr")
+(assert-eq (cdar (list (list 1 2) 3)) (list 2) "cdar")
+(assert-eq (cddr (list 1 2 3)) (list 3) "cddr")
+(assert-eq (caar (list (list 10 20) 30)) 10 "caar")
+
+;; assq
+(define alist (list (list "a" 1) (list "b" 2) (list "c" 3)))
+(assert-eq (assq "b" alist) (list "b" 2) "assq found")
+(assert-eq (assq "z" alist) #f "assq not found")
+
+;; assv
+(assert-eq (assv "a" alist) (list "a" 1) "assv found")
+
+;; list/shuffle
+(assert-eq (length (list/shuffle (list 1 2 3 4 5))) 5 "list/shuffle preserves length")
+
+;; list/split-at
+(assert-eq (list/split-at (list 1 2 3 4 5) 3) (list (list 1 2 3) (list 4 5)) "list/split-at")
+
+;; list/take-while
+(assert-eq (list/take-while (fn (x) (< x 4)) (list 1 2 3 4 5)) (list 1 2 3) "list/take-while")
+
+;; list/drop-while
+(assert-eq (list/drop-while (fn (x) (< x 4)) (list 1 2 3 4 5)) (list 4 5) "list/drop-while")
+
+;; list/sum
+(assert-eq (list/sum (list 1 2 3 4 5)) 15 "list/sum")
+(assert-eq (list/sum (list)) 0 "list/sum empty")
+
+;; list/min / list/max
+(assert-eq (list/min (list 3 1 4 1 5)) 1 "list/min")
+(assert-eq (list/max (list 3 1 4 1 5)) 5 "list/max")
+
+;; list/pick
+(define picked (list/pick (list 1 2 3 4 5)))
+(assert-eq (number? picked) #t "list/pick returns number")
+
+;; list/repeat / make-list
+(assert-eq (list/repeat 3 0) (list 0 0 0) "list/repeat")
+(assert-eq (make-list 3 0) (list 0 0 0) "make-list")
+
+;; iota
+(assert-eq (iota 5) (list 0 1 2 3 4) "iota 1-arg")
+(assert-eq (iota 3 10) (list 10 11 12) "iota 2-arg")
+(assert-eq (iota 4 0 2) (list 0 2 4 6) "iota 3-arg")
+
+(println)
+(println "All list tests passed!")

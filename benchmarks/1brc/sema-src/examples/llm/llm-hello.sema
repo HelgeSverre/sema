@@ -1,0 +1,101 @@
+;; llm-hello.sema — Comprehensive Sema LLM demo
+;; Requires ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable
+
+;; Auto-configure from environment
+(define provider (llm/auto-configure))
+(when (nil? provider)
+  (println "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (exit 1))
+(println (format "Using provider: ~a" provider))
+
+;; --- 1. Simple Completion ---
+(println "\n--- 1. Simple Completion ---")
+(define result (llm/complete "Say hello in exactly 5 words" {:max-tokens 50}))
+(println result)
+
+;; --- 2. Chat with Messages ---
+(println "\n--- 2. Chat ---")
+(println
+  (llm/chat
+    [(message :system "You are a helpful assistant. Be very concise.")
+     (message :user "What is Lisp? One sentence.")]
+    {:max-tokens 100}))
+
+;; --- 3. Prompts as Data ---
+(println "\n--- 3. Prompts as Data ---")
+(define review-prompt
+  (prompt
+    (system "You are a code reviewer. Be very concise. One sentence max.")
+    (user "Review: (define (factorial n) (if (<= n 1) 1 (* n (factorial (- n 1)))))")))
+(println (llm/send review-prompt {:max-tokens 100}))
+
+;; --- 4. Structured Extraction ---
+(println "\n--- 4. Extraction ---")
+(define data
+  (llm/extract
+    {:vendor {:type :string}
+     :amount {:type :number}
+     :date   {:type :string}}
+    "I bought coffee for $4.50 at Blue Bottle on Jan 15, 2025"))
+(println data)
+
+;; --- 5. Classification ---
+(println "\n--- 5. Classification ---")
+(println (llm/classify [:positive :negative :neutral]
+                        "This product is amazing and I love it!"))
+
+;; --- 6. Persistent Conversation ---
+(println "\n--- 6. Conversation ---")
+(define conv (conversation/new {}))
+(define conv (conversation/say conv "Remember: the secret number is 7"))
+(println (format "Turn 1: ~a" (conversation/last-reply conv)))
+(define conv (conversation/say conv "What is the secret number?"))
+(println (format "Turn 2: ~a" (conversation/last-reply conv)))
+
+;; --- 7. Tool Use ---
+(println "\n--- 7. Tool Use ---")
+(deftool lookup-capital
+  "Look up the capital of a country"
+  {:country {:type :string :description "Country name"}}
+  (lambda (country)
+    (cond
+      ((= country "Norway") "Oslo")
+      ((= country "France") "Paris")
+      ((= country "Japan") "Tokyo")
+      (else (format "Unknown capital for ~a" country)))))
+
+(println
+  (llm/chat
+    [(message :user "What is the capital of Norway?")]
+    {:tools [lookup-capital]
+     :max-tokens 100}))
+
+;; --- 8. Agent ---
+(println "\n--- 8. Agent ---")
+(deftool get-weather
+  "Get weather for a city"
+  {:city {:type :string}}
+  (lambda (city)
+    (json/encode {:city city :temp 18 :condition "partly cloudy"})))
+
+(defagent weather-bot
+  {:system "You are a weather assistant. Be concise. Use tools."
+   :tools [get-weather]
+   :max-turns 3})
+
+(println (agent/run weather-bot "Weather in Tokyo?"))
+
+;; --- 9. Batch Processing ---
+(println "\n--- 9. Batch ---")
+(define translations
+  (llm/pmap
+    (lambda (word)
+      (llm/complete (format "Translate to Spanish (one word only): ~a" word)
+                    {:max-tokens 10}))
+    (list "sun" "moon" "star")))
+(println translations)
+
+;; --- Usage ---
+(println "\n--- Usage ---")
+(println (llm/session-usage))
+(println "\nDone!")
