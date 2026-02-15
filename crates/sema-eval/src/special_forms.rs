@@ -1329,7 +1329,7 @@ fn eval_with_budget(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Tram
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (args, env);
+        let _ = (args, env, ctx);
         Err(SemaError::eval("with-budget is not available in WASM"))
     }
 }
