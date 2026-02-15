@@ -52,7 +52,7 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | Crate | Role | Key types |
 |-------|------|-----------|
 | **sema-core** | Shared types | `Value` (23 variants), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types |
-| **sema-reader** | Parsing | Hand-written `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap` |
+| **sema-reader** | Parsing | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap` |
 | **sema-eval** | Evaluation | Trampoline-based evaluator, 33 special forms, module system, call stack + span table |
 | **sema-stdlib** | Standard library | ~350 native functions across 17 modules, plus mini-evaluator for hot paths |
 | **sema-llm** | LLM integration | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |

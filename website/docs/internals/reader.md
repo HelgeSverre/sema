@@ -1,12 +1,12 @@
 # Reader Internals
 
-Sema's reader is a two-phase pipeline: a hand-written lexer tokenizes source text into `SpannedToken`s, then a recursive descent parser produces `Value` nodes directly — there is no intermediate AST. Source locations are tracked per-token and attached to compound values via an `Rc::as_ptr` trick that avoids bloating the `Value` enum.
+Sema's reader is a two-phase pipeline: a lexer tokenizes source text into `SpannedToken`s, then a recursive descent parser produces `Value` nodes directly — there is no intermediate AST. Source locations are tracked per-token and attached to compound values via an `Rc::as_ptr` trick that avoids bloating the `Value` enum.
 
 This page documents the lexer, parser, token types, quote desugaring, span tracking, and how the evaluator recovers source positions for error reporting.
 
 ## The Lexer
 
-The lexer in `crates/sema-reader/src/lexer.rs` is a single-pass, hand-written tokenizer. No lexer generator (flex, logos) is involved — it walks a `Vec<char>` with a manual index `i` and tracks `line`/`col` for span information.
+The lexer in `crates/sema-reader/src/lexer.rs` is a single-pass tokenizer that walks a `Vec<char>` with a manual index `i` and tracks `line`/`col` for span information.
 
 Character-level dispatch drives the lexer. Each iteration inspects the current character and branches:
 
@@ -246,7 +246,7 @@ Source text
   │
   ▼
 tokenize()          crates/sema-reader/src/lexer.rs
-  │                 "hand-written, single-pass"
+  │                 "single-pass"
   │                 "produces Vec<SpannedToken>"
   ▼
 Parser::parse()     crates/sema-reader/src/reader.rs
