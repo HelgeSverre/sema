@@ -15,7 +15,7 @@ use crate::openai::OpenAiProvider;
 use crate::pricing;
 use crate::provider::{LlmProvider, ProviderRegistry};
 use crate::types::{
-    ChatMessage, ChatRequest, ChatResponse, EmbedRequest, LlmError, ToolSchema, Usage,
+    ChatMessage, ChatRequest, ChatResponse, EmbedRequest, LlmError, ToolCall, ToolSchema, Usage,
 };
 
 /// Type for a full evaluator callback: (ctx, expr, env) -> Result<Value, SemaError>
@@ -39,8 +39,6 @@ thread_local! {
 
 struct LispProviderCallbacks {
     complete_fn: Value,
-    #[allow(dead_code)]
-    stream_fn: Option<Value>,
 }
 
 /// Register a full evaluator for use by tool handlers and other LLM builtins.
@@ -233,16 +231,12 @@ fn get_opt_u32(opts: &BTreeMap<Value, Value>, key: &str) -> Option<u32> {
 }
 
 /// A provider defined in Sema code via lambdas.
+/// Only stores String fields (Send+Sync); callbacks live in the
+/// LISP_PROVIDERS thread-local, accessed only from the same thread.
 struct LispProvider {
     name: String,
     default_model: String,
 }
-
-// Safety: Sema is single-threaded. Value uses Rc which isn't Send+Sync,
-// but LispProvider only stores String fields. The callbacks are in the
-// LISP_PROVIDERS thread-local, accessed only from the same thread.
-unsafe impl Send for LispProvider {}
-unsafe impl Sync for LispProvider {}
 
 impl LlmProvider for LispProvider {
     fn name(&self) -> &str {
@@ -390,11 +384,46 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
                 }
             };
 
+            let tool_calls = if let Some(Value::List(tcs)) = map.get(&Value::keyword("tool-calls"))
+            {
+                tcs.iter()
+                    .filter_map(|tc| {
+                        if let Value::Map(tc_map) = tc {
+                            let id = tc_map
+                                .get(&Value::keyword("id"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .unwrap_or_default();
+                            let name = tc_map
+                                .get(&Value::keyword("name"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())?;
+                            let arguments = tc_map
+                                .get(&Value::keyword("arguments"))
+                                .map(|v| match sema_value_to_json(v) {
+                                    Ok(j) => j,
+                                    Err(_) => serde_json::Value::Object(serde_json::Map::new()),
+                                })
+                                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                            Some(ToolCall {
+                                id,
+                                name,
+                                arguments,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            } else {
+                vec![]
+            };
+
             Ok(ChatResponse {
                 content,
                 role,
                 model: resp_model,
-                tool_calls: vec![],
+                tool_calls,
                 usage,
                 stop_reason,
             })
@@ -627,26 +656,14 @@ pub fn register_llm_builtins(env: &Env) {
             _ => return Err(SemaError::type_error("function", complete_fn.type_name())),
         }
 
-        let stream_fn = opts.get(&Value::keyword("stream")).cloned();
-        if let Some(ref sf) = stream_fn {
-            match sf {
-                Value::Lambda(_) | Value::NativeFn(_) => {}
-                _ => return Err(SemaError::type_error("function", sf.type_name())),
-            }
-        }
-
         let default_model =
             get_opt_string(&opts, "default-model").unwrap_or_else(|| "default".to_string());
 
         let name_for_callbacks = provider_name.clone();
         LISP_PROVIDERS.with(|providers| {
-            providers.borrow_mut().insert(
-                name_for_callbacks,
-                LispProviderCallbacks {
-                    complete_fn,
-                    stream_fn,
-                },
-            );
+            providers
+                .borrow_mut()
+                .insert(name_for_callbacks, LispProviderCallbacks { complete_fn });
         });
 
         let name_for_registry = provider_name.clone();

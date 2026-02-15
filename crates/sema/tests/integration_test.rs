@@ -6713,3 +6713,36 @@ fn test_define_provider_integer_return_errors() {
     );
     assert!(result.is_err());
 }
+
+#[test]
+fn test_define_provider_tool_calls_response() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :tool-prov
+            {:complete (fn (req)
+              {:content "I'll use a tool"
+               :stop-reason "tool_use"
+               :tool-calls [{:id "tc_1" :name "read-file" :arguments {:path "test.txt"}}]})
+             :default-model "t1"})
+          (llm/complete "test"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("I'll use a tool"));
+}
+
+#[test]
+fn test_define_provider_stream_fallback() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :stream-prov
+            {:complete (fn (req) "streamed response")
+             :default-model "s1"})
+          (llm/stream "test"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("streamed response"));
+}
