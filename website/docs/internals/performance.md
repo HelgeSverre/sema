@@ -1,6 +1,6 @@
 # Performance Internals
 
-Sema is a tree-walking interpreter — there's no bytecode compiler or JIT. Despite that, targeted optimizations brought the [1 Billion Row Challenge](https://github.com/gunnarmorling/1brc) benchmark from **~25s to ~13s** on 10M rows (~1.9x speedup). This page documents each optimization, why it was chosen, and its measured impact.
+Sema is a tree-walking interpreter — there's no bytecode compiler or JIT. Despite that, targeted optimizations brought the [1 Billion Row Challenge](https://github.com/gunnarmorling/1brc) benchmark from **~25s to ~9.6s** on 10M rows (~2.6x speedup). This page documents each optimization, why it was chosen, and its measured impact.
 
 All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset (semicolon-delimited weather station readings, one per line).
 

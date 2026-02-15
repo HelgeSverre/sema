@@ -90,7 +90,7 @@ run_bench "guile"    guile /bench/1brc.scm "$DATA_FILE"
 run_bench "gauche"   gosh /bench/1brc.gauche.scm "$DATA_FILE"
 run_bench "janet"    janet /bench/1brc.janet "$DATA_FILE"
 run_bench "ecl"      ecl --load /bench/1brc.ecl.fas -- "$DATA_FILE"
-run_bench "emacs"    emacs --batch --script /bench/1brc.el "$DATA_FILE"
+run_bench "emacs"    emacs --batch -l /bench/1brc.elc "$DATA_FILE"
 run_bench "newlisp"  newlisp /bench/1brc.lsp "$DATA_FILE"
 run_bench "picolisp" picolisp /bench/1brc.l "$DATA_FILE"
 

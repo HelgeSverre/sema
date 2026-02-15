@@ -1,8 +1,33 @@
 ;;; 1 Billion Row Challenge — ECL (Embeddable Common Lisp) implementation
 ;;; Usage: ecl --shell 1brc.ecl.lisp /path/to/measurements.txt
 
-(defun format-1dp (x)
-  (format nil "~,1F" x))
+(defun parse-temp-int10 (line start)
+  "Parse a temperature string like \"-12.3\" starting at position START in LINE.
+   Returns an integer × 10 (e.g. \"-12.3\" → -123)."
+  (let ((neg nil)
+        (acc 0)
+        (i start)
+        (len (length line)))
+    (when (and (< i len) (char= (char line i) #\-))
+      (setf neg t)
+      (incf i))
+    (loop while (< i len)
+          for ch = (char line i)
+          do (cond
+               ((char= ch #\.) (incf i))
+               (t (setf acc (+ (* acc 10) (- (char-code ch) 48)))
+                  (incf i))))
+    (if neg (- acc) acc)))
+
+(defun format-int10 (val)
+  "Format an integer × 10 as a 1dp string (e.g. 123 → \"12.3\", -51 → \"-5.1\")."
+  (let* ((neg (< val 0))
+         (abs-val (abs val))
+         (whole (floor abs-val 10))
+         (frac (mod abs-val 10)))
+    (if neg
+        (format nil "-~D.~D" whole frac)
+        (format nil "~D.~D" whole frac))))
 
 (defun main ()
   (let* ((args (ext:command-args))
@@ -15,17 +40,17 @@
             while line
             do (let* ((semi (position #\; line))
                       (name (subseq line 0 semi))
-                      (temp (read-from-string (subseq line (1+ semi))))
-                      (temp-f (coerce temp 'double-float))
+                      (temp (parse-temp-int10 line (1+ semi)))
                       (entry (gethash name table)))
                  (if entry
                      (progn
-                       (when (< temp-f (aref entry 0)) (setf (aref entry 0) temp-f))
-                       (when (> temp-f (aref entry 1)) (setf (aref entry 1) temp-f))
-                       (incf (aref entry 2) temp-f)
+                       (when (< temp (aref entry 0)) (setf (aref entry 0) temp))
+                       (when (> temp (aref entry 1)) (setf (aref entry 1) temp))
+                       (incf (aref entry 2) temp)
                        (incf (aref entry 3)))
-                     (let ((v (make-array 4 :initial-contents
-                                          (list temp-f temp-f temp-f 1))))
+                     (let ((v (make-array 4 :element-type 'fixnum
+                                            :initial-contents
+                                            (list temp temp temp 1))))
                        (setf (gethash name table) v))))))
 
     (let ((results '()))
@@ -36,13 +61,12 @@
 
       (format t "{")
       (loop for ((name . entry) . rest) on results
-            do (let ((mean (/ (aref entry 2)
-                              (coerce (aref entry 3) 'double-float))))
+            do (let ((mean (round (/ (float (aref entry 2)) (aref entry 3)))))
                  (format t "~A=~A/~A/~A"
                          name
-                         (format-1dp (aref entry 0))
-                         (format-1dp mean)
-                         (format-1dp (aref entry 1))))
+                         (format-int10 (aref entry 0))
+                         (format-int10 mean)
+                         (format-int10 (aref entry 1))))
                (when rest (format t ", ")))
       (format t "}~%"))
 

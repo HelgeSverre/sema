@@ -70,6 +70,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
     cd /bench && gsc -exe -o 1brc-gambit 1brc.gambit.scm && \
     # ECL: compile to native FASL
     ecl --eval '(compile-file "/bench/1brc.ecl.lisp")' --eval '(ext:quit 0)' && \
+    # Emacs Lisp: byte-compile
+    emacs --batch -f batch-byte-compile /bench/1brc.el && \
     # Cleanup
     apt-get purge -y build-essential && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 

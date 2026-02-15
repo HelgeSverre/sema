@@ -18,13 +18,6 @@
         (if (null? rest) acc
             (loop (cdr rest) (string-append acc sep (car rest)))))))
 
-(define (find-semicolon line)
-  (let loop ((i 0))
-    (cond
-      ((= i (string-length line)) #f)
-      ((char=? (string-ref line i) #\;) i)
-      (else (loop (+ i 1))))))
-
 (define (merge-sort lst less?)
   (define (merge a b)
     (cond ((null? a) b)
@@ -61,9 +54,9 @@
 
       (let loop ((line (reader:readLine)))
         (when (not (eq? line #!null))
-          (let* ((semi (find-semicolon line))
+          (let* ((semi ((as String line):indexOf (as int (char->integer #\;))))
                  (name (substring line 0 semi))
-                 (temp (string->number (substring line (+ semi 1)
+                 (temp (java.lang.Double:parseDouble (substring line (+ semi 1)
                                                   (string-length line))))
                  (entry (table:get name)))
             (if (not (eq? entry #!null))

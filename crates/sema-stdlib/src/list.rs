@@ -34,8 +34,10 @@ struct SpecialFormSpurs {
     float: Spur,
     string_split: Spur,
     string_to_number: Spur,
+    string_to_float: Spur,
     else_: Spur,
     dot: Spur,
+    vector: Spur,
 }
 
 impl SpecialFormSpurs {
@@ -67,8 +69,10 @@ impl SpecialFormSpurs {
             float: sema_core::intern("float"),
             string_split: sema_core::intern("string/split"),
             string_to_number: sema_core::intern("string->number"),
+            string_to_float: sema_core::intern("string->float"),
             else_: sema_core::intern("else"),
             dot: sema_core::intern("."),
+            vector: sema_core::intern("vector"),
         }
     }
 }
@@ -1777,6 +1781,19 @@ pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                         }
                         return Err(SemaError::type_error("string", sep_val.type_name()));
                     }
+                } else if head_spur == sf.string_to_float && items.len() == 2 {
+                    let val = sema_eval_value(&items[1], env)?;
+                    if let Some(s) = val.as_str() {
+                        return s
+                            .parse::<f64>()
+                            .map(Value::Float)
+                            .map_err(|_| SemaError::eval(format!("cannot parse '{s}' as float")));
+                    }
+                    return match val {
+                        Value::Int(n) => Ok(Value::Float(n as f64)),
+                        Value::Float(_) => Ok(val),
+                        _ => Err(SemaError::type_error("string or number", val.type_name())),
+                    };
                 } else if head_spur == sf.string_to_number && items.len() == 2 {
                     let val = sema_eval_value(&items[1], env)?;
                     if let Some(s) = val.as_str() {
@@ -1793,6 +1810,12 @@ pub fn sema_eval_value(expr: &Value, env: &Env) -> Result<Value, SemaError> {
                         }
                     }
                     return Err(SemaError::type_error("string", val.type_name()));
+                } else if head_spur == sf.vector {
+                    let mut vals = Vec::with_capacity(items.len() - 1);
+                    for item in &items[1..] {
+                        vals.push(sema_eval_value(item, env)?);
+                    }
+                    return Ok(Value::vector(vals));
                 }
             }
             // Keywords in function position: (:key map)

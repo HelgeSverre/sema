@@ -322,6 +322,24 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
+    register_fn(env, "string->float", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string->float", "1", args.len()));
+        }
+        match &args[0] {
+            Value::String(s) => s
+                .parse::<f64>()
+                .map(Value::Float)
+                .map_err(|_| SemaError::eval(format!("cannot parse '{s}' as float"))),
+            Value::Int(n) => Ok(Value::Float(*n as f64)),
+            Value::Float(_) => Ok(args[0].clone()),
+            _ => Err(SemaError::type_error(
+                "string or number",
+                args[0].type_name(),
+            )),
+        }
+    });
+
     register_fn(env, "string/index-of", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("string/index-of", "2", args.len()));
