@@ -244,6 +244,7 @@
   .hl-keyword { color: var(--gold); }
   .hl-number { color: #d19a66; }
   .hl-boolean { color: #d19a66; }
+  .hl-keyword-lit { color: #7aacb8; }
   .hl-paren { color: #6a6258; }
 
   /* ── Run button ── */
@@ -2906,20 +2907,25 @@ document.getElementById('clear-btn').addEventListener('click', () => {
 // ── Syntax highlighting (overlay technique) ──
 
 const SEMA_KEYWORDS = new Set([
-  'define', 'lambda', 'fn', 'if', 'cond', 'case', 'when', 'unless',
+  // Special forms
+  'define', 'defun', 'lambda', 'fn', 'if', 'cond', 'case', 'when', 'unless',
   'let', 'let*', 'letrec', 'begin', 'do', 'and', 'or', 'not',
   'set!', 'quote', 'quasiquote', 'unquote', 'unquote-splicing',
   'define-record-type', 'defmacro', 'defagent', 'deftool',
   'try', 'catch', 'throw', 'error',
-  'import', 'module', 'export', 'require',
-  'delay', 'force',
+  'import', 'module', 'export', 'load', 'require',
+  'delay', 'force', 'eval', 'macroexpand', 'with-budget',
+  'else',
+  // Threading macros
+  '->', '->>', 'as->', 'some->',
+  // Higher-order & LLM
   'map', 'filter', 'foldl', 'foldr', 'reduce', 'for-each', 'apply',
   'prompt', 'message', 'conversation/new', 'conversation/say',
   'llm/complete', 'llm/chat', 'llm/stream', 'llm/send',
   'llm/extract', 'llm/classify', 'llm/batch', 'llm/pmap',
   'llm/embed', 'llm/auto-configure', 'llm/configure',
   'llm/set-budget', 'llm/budget-remaining',
-  'agent/run', 'else',
+  'agent/run',
 ]);
 
 function tokenizeSema(code) {
@@ -2963,6 +2969,8 @@ function tokenizeSema(code) {
         tokens.push({ type: 'boolean', text: word });
       } else if (/^-?\d+(\.\d+)?$/.test(word)) {
         tokens.push({ type: 'number', text: word });
+      } else if (word.startsWith(':') && word.length > 1) {
+        tokens.push({ type: 'keyword-lit', text: word });
       } else if (SEMA_KEYWORDS.has(word)) {
         tokens.push({ type: 'keyword', text: word });
       } else {
