@@ -20,7 +20,7 @@ Manually trigger auto-configuration (runs automatically on startup unless `--no-
 
 ### `llm/configure`
 
-Manually configure a provider with specific options.
+Manually configure a known provider with specific options.
 
 ```scheme
 (llm/configure :anthropic {:api-key "sk-..."})
@@ -28,6 +28,164 @@ Manually configure a provider with specific options.
 ;; Ollama with custom host
 (llm/configure :ollama {:host "http://localhost:11434"
                          :default-model "llama3"})
+```
+
+### OpenAI-Compatible Providers
+
+Any provider with an OpenAI-compatible API can be registered by passing `:api-key` and `:base-url` with any provider name. No Rust code required.
+
+```scheme
+;; Together AI
+(llm/configure :together
+  {:api-key (env "TOGETHER_API_KEY")
+   :base-url "https://api.together.xyz/v1"
+   :default-model "meta-llama/Llama-3-70b-chat-hf"})
+
+;; Azure OpenAI
+(llm/configure :azure
+  {:api-key (env "AZURE_OPENAI_KEY")
+   :base-url "https://my-resource.openai.azure.com/openai/deployments/gpt-4/v1"
+   :default-model "gpt-4"})
+
+;; Local vLLM / LiteLLM / text-generation-inference
+(llm/configure :local
+  {:api-key "not-needed"
+   :base-url "http://localhost:8000/v1"
+   :default-model "my-model"})
+
+;; Once configured, use like any other provider
+(llm/complete "Hello from Together!" {:model "meta-llama/Llama-3-70b-chat-hf"})
+```
+
+This works for any service that implements the OpenAI chat completions API: Together, Fireworks, Perplexity, Azure OpenAI, Anyscale, vLLM, LiteLLM, text-generation-inference, and others.
+
+## Lisp-Defined Providers
+
+For full control over request/response handling, you can define providers entirely in Sema using `llm/define-provider`. The provider's `:complete` function receives the request as a map and returns either a string or a response map.
+
+### `llm/define-provider`
+
+```scheme
+(llm/define-provider :name {:complete fn :default-model "..."})
+```
+
+**Parameters:**
+- `:complete` — **(required)** A function that takes a request map and returns a response
+- `:default-model` — Model name used when none is specified (default: `"default"`)
+
+### Request Map
+
+The `:complete` function receives a map with these keys:
+
+| Key             | Type            | Description                        |
+| --------------- | --------------- | ---------------------------------- |
+| `:model`        | string          | Model name                         |
+| `:messages`     | list of maps    | Each has `:role` and `:content`    |
+| `:max-tokens`   | integer or nil  | Token limit                        |
+| `:temperature`  | float or nil    | Sampling temperature               |
+| `:system`       | string or nil   | System prompt                      |
+| `:tools`        | list or nil     | Tool schemas (if tools are in use) |
+
+### Response Format
+
+The function can return either:
+
+- **A string** — used as the assistant's response content
+- **A map** with optional keys:
+
+| Key               | Type   | Default       |
+| ----------------- | ------ | ------------- |
+| `:content`        | string | `""`          |
+| `:role`           | string | `"assistant"` |
+| `:model`          | string | request model |
+| `:stop-reason`    | string | `"end_turn"`  |
+| `:usage`          | map    | zero tokens   |
+
+The `:usage` map can contain `:prompt-tokens` and `:completion-tokens` (both integers).
+
+### Examples
+
+**Echo provider** — returns the user's message back:
+
+```scheme
+(llm/define-provider :echo
+  {:complete (fn (req)
+    (string-append "Echo: " (:content (first (:messages req)))))
+   :default-model "echo-v1"})
+
+(llm/complete "hello")  ;; => "Echo: hello"
+```
+
+**HTTP proxy** — forward to a custom API:
+
+```scheme
+(llm/define-provider :my-api
+  {:complete (fn (req)
+    (define resp (json/decode
+      (http/post "https://my-api.example.com/chat"
+        {:headers {"Authorization" (string-append "Bearer " (env "MY_API_KEY"))
+                   "Content-Type" "application/json"}
+         :body (json/encode {:model (:model req)
+                             :prompt (:content (last (:messages req)))})})))
+    {:content (:text resp)
+     :usage {:prompt-tokens (:input-tokens resp)
+             :completion-tokens (:output-tokens resp)}})
+   :default-model "my-model-v2"})
+```
+
+**Mock provider for testing** — deterministic responses without API calls:
+
+```scheme
+(define responses (list "First response" "Second response" "Third response"))
+(define call-count (atom 0))
+
+(llm/define-provider :mock
+  {:complete (fn (req)
+    (let ((i (deref call-count)))
+      (swap! call-count (fn (n) (+ n 1)))
+      (nth responses (mod i (length responses)))))
+   :default-model "mock-v1"})
+
+;; Now all llm/complete calls return deterministic values
+(llm/complete "anything")  ;; => "First response"
+(llm/complete "anything")  ;; => "Second response"
+```
+
+**Routing provider** — dispatch to different backends by model name:
+
+```scheme
+(llm/configure :anthropic {:api-key (env "ANTHROPIC_API_KEY")})
+(llm/configure :openai {:api-key (env "OPENAI_API_KEY")})
+
+(llm/define-provider :router
+  {:complete (fn (req)
+    (let ((model (:model req)))
+      (cond
+        ((string/starts-with? model "claude")
+         (begin (llm/set-default :anthropic)
+                (llm/complete (:content (last (:messages req))) {:model model})))
+        ((string/starts-with? model "gpt")
+         (begin (llm/set-default :openai)
+                (llm/complete (:content (last (:messages req))) {:model model})))
+        (else (error (string-append "Unknown model: " model))))))
+   :default-model "claude-sonnet-4-20250514"})
+```
+
+### Switching Between Providers
+
+Lisp-defined providers integrate with the standard provider management functions:
+
+```scheme
+(llm/define-provider :mock
+  {:complete (fn (req) "mock response") :default-model "m1"})
+
+(llm/configure :anthropic {:api-key (env "ANTHROPIC_API_KEY")})
+
+(llm/set-default :mock)      ;; use mock
+(llm/complete "test")         ;; => "mock response"
+
+(llm/set-default :anthropic)  ;; switch to real API
+(llm/complete "test")         ;; => real API response
 ```
 
 ## Runtime Provider Switching
@@ -73,6 +231,8 @@ All providers are auto-configured from environment variables. Use `(llm/configur
 | **Jina**          | Embedding-only | —    | —      | —     | ✅         |
 | **Voyage**        | Embedding-only | —    | —      | —     | ✅         |
 | **Cohere**        | Embedding-only | —    | —      | —     | ✅         |
+| *Any OpenAI-compat* | `llm/configure`  | ✅ | ✅   | ✅    | —          |
+| *Custom Lisp*     | `llm/define-provider` | ✅ | — | —   | —          |
 
 ## Environment Variables
 

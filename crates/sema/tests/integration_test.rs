@@ -6411,3 +6411,219 @@ fn test_budget_with_unknown_model_does_not_error() {
         _ => panic!("expected map, got {result}"),
     }
 }
+
+// --- Lisp-defined providers ---
+
+#[test]
+fn test_define_provider_registers_and_sets_default() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :mock
+            {:complete (fn (req) "hello from mock")
+             :default-model "mock-v1"})
+          (llm/current-provider))"#,
+        )
+        .unwrap();
+    match &result {
+        Value::Map(m) => {
+            assert_eq!(
+                m.get(&Value::keyword("name")),
+                Some(&Value::keyword("mock"))
+            );
+            assert_eq!(
+                m.get(&Value::keyword("model")),
+                Some(&Value::string("mock-v1"))
+            );
+        }
+        _ => panic!("expected map, got {result}"),
+    }
+}
+
+#[test]
+fn test_define_provider_appears_in_list() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :test-prov
+            {:complete (fn (req) "ok")
+             :default-model "t1"})
+          (> (length (llm/list-providers)) 0))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::Bool(true));
+}
+
+#[test]
+fn test_define_provider_complete_returns_string() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :echo
+            {:complete (fn (req)
+              (string-append "echo: " (:content (first (:messages req)))))
+             :default-model "echo-1"})
+          (llm/complete "hello world"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("echo: hello world"));
+}
+
+#[test]
+fn test_define_provider_complete_returns_map() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :map-prov
+            {:complete (fn (req)
+              {:content "map response"
+               :role "assistant"
+               :usage {:prompt-tokens 10 :completion-tokens 5}})
+             :default-model "map-1"})
+          (llm/complete "test"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("map response"));
+}
+
+#[test]
+fn test_define_provider_receives_model() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :model-check
+            {:complete (fn (req) (:model req))
+             :default-model "default-model"})
+          (llm/complete "test" {:model "custom-model"}))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("custom-model"));
+}
+
+#[test]
+fn test_define_provider_receives_system_prompt() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :sys-check
+            {:complete (fn (req)
+              (if (nil? (:system req)) "no system" (:system req)))
+             :default-model "s1"})
+          (llm/complete "test" {:system "be helpful"}))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("be helpful"));
+}
+
+#[test]
+fn test_define_provider_uses_default_model() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :defmodel
+            {:complete (fn (req) (:model req))
+             :default-model "my-default"})
+          (llm/complete "test"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("my-default"));
+}
+
+#[test]
+fn test_define_provider_requires_complete() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(llm/define-provider :bad {:default-model "x"})"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_define_provider_validates_complete_is_function() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(r#"(llm/define-provider :bad {:complete "not a function" :default-model "x"})"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_define_provider_with_closure() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (define prefix "PREFIX")
+          (llm/define-provider :closure-prov
+            {:complete (fn (req)
+              (string-append prefix ": " (:content (first (:messages req)))))
+             :default-model "c1"})
+          (llm/complete "hi"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("PREFIX: hi"));
+}
+
+#[test]
+fn test_define_provider_receives_max_tokens() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :tok-check
+            {:complete (fn (req)
+              (number->string (:max-tokens req)))
+             :default-model "t1"})
+          (llm/complete "test" {:max-tokens 42}))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("42"));
+}
+
+#[test]
+fn test_define_provider_switch_back() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+          (llm/define-provider :prov-a
+            {:complete (fn (req) "from A") :default-model "a1"})
+          (llm/define-provider :prov-b
+            {:complete (fn (req) "from B") :default-model "b1"})
+          (llm/set-default :prov-a)
+          (llm/complete "test"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("from A"));
+}
+
+// --- OpenAI-compatible fallback ---
+
+#[test]
+fn test_configure_unknown_provider_without_base_url_errors() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(llm/configure :unknown-provider {:api-key "test"})"#);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("base-url"),
+        "error should mention base-url: {err}"
+    );
+}
+
+#[test]
+fn test_configure_unknown_provider_without_api_key_errors() {
+    let interp = Interpreter::new();
+    let result =
+        interp.eval_str(r#"(llm/configure :unknown-provider {:base-url "http://example.com/v1"})"#);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("api-key"),
+        "error should mention api-key: {err}"
+    );
+}

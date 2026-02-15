@@ -14,7 +14,9 @@ use crate::ollama::OllamaProvider;
 use crate::openai::OpenAiProvider;
 use crate::pricing;
 use crate::provider::{LlmProvider, ProviderRegistry};
-use crate::types::{ChatMessage, ChatRequest, ChatResponse, EmbedRequest, ToolSchema, Usage};
+use crate::types::{
+    ChatMessage, ChatRequest, ChatResponse, EmbedRequest, LlmError, ToolSchema, Usage,
+};
 
 /// Type for a full evaluator callback: (ctx, expr, env) -> Result<Value, SemaError>
 pub type EvalCallback = Box<dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>>;
@@ -32,6 +34,13 @@ thread_local! {
 
 thread_local! {
     static PRICING_WARNING_SHOWN: Cell<bool> = const { Cell::new(false) };
+    static LISP_PROVIDERS: RefCell<std::collections::HashMap<String, LispProviderCallbacks>> = RefCell::new(std::collections::HashMap::new());
+}
+
+struct LispProviderCallbacks {
+    complete_fn: Value,
+    #[allow(dead_code)]
+    stream_fn: Option<Value>,
 }
 
 /// Register a full evaluator for use by tool handlers and other LLM builtins.
@@ -55,6 +64,7 @@ pub fn reset_runtime_state() {
     BUDGET_SPENT.with(|s| *s.borrow_mut() = 0.0);
     BUDGET_STACK.with(|s| s.borrow_mut().clear());
     PRICING_WARNING_SHOWN.with(|shown| shown.set(false));
+    LISP_PROVIDERS.with(|p| p.borrow_mut().clear());
     pricing::clear_fetched_pricing();
 }
 
@@ -220,6 +230,169 @@ fn get_opt_u32(opts: &BTreeMap<Value, Value>, key: &str) -> Option<u32> {
     opts.get(&Value::keyword(key))
         .and_then(|v| v.as_int())
         .map(|n| n as u32)
+}
+
+/// A provider defined in Sema code via lambdas.
+struct LispProvider {
+    name: String,
+    default_model: String,
+}
+
+// Safety: Sema is single-threaded. Value uses Rc which isn't Send+Sync,
+// but LispProvider only stores String fields. The callbacks are in the
+// LISP_PROVIDERS thread-local, accessed only from the same thread.
+unsafe impl Send for LispProvider {}
+unsafe impl Sync for LispProvider {}
+
+impl LlmProvider for LispProvider {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn default_model(&self) -> &str {
+        &self.default_model
+    }
+
+    fn complete(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        let name = self.name.clone();
+        LISP_PROVIDERS.with(|providers| {
+            let providers = providers.borrow();
+            let callbacks = providers.get(&name).ok_or_else(|| {
+                LlmError::Config(format!("lisp provider '{}' callbacks not found", name))
+            })?;
+            let complete_fn = callbacks.complete_fn.clone();
+
+            let request_map = chat_request_to_value(&request);
+
+            let ctx = EvalContext::new();
+            let result = call_value_fn(&ctx, &complete_fn, &[request_map]);
+
+            match result {
+                Ok(response_val) => parse_lisp_provider_response(&response_val, &request.model),
+                Err(e) => Err(LlmError::Api {
+                    status: 0,
+                    message: e.to_string(),
+                }),
+            }
+        })
+    }
+}
+
+/// Convert a ChatRequest into a Sema Value::Map for passing to Lisp provider callbacks.
+fn chat_request_to_value(request: &ChatRequest) -> Value {
+    let mut map = BTreeMap::new();
+    map.insert(Value::keyword("model"), Value::string(&request.model));
+
+    let msgs: Vec<Value> = request
+        .messages
+        .iter()
+        .map(|m| {
+            let mut msg_map = BTreeMap::new();
+            msg_map.insert(Value::keyword("role"), Value::string(&m.role));
+            msg_map.insert(Value::keyword("content"), Value::string(&m.content));
+            Value::Map(Rc::new(msg_map))
+        })
+        .collect();
+    map.insert(Value::keyword("messages"), Value::list(msgs));
+
+    if let Some(max_tokens) = request.max_tokens {
+        map.insert(Value::keyword("max-tokens"), Value::Int(max_tokens as i64));
+    }
+    if let Some(temp) = request.temperature {
+        map.insert(Value::keyword("temperature"), Value::Float(temp));
+    }
+    if let Some(ref system) = request.system {
+        map.insert(Value::keyword("system"), Value::string(system));
+    }
+
+    if !request.tools.is_empty() {
+        let tools: Vec<Value> = request
+            .tools
+            .iter()
+            .map(|t| {
+                let mut tool_map = BTreeMap::new();
+                tool_map.insert(Value::keyword("name"), Value::string(&t.name));
+                tool_map.insert(Value::keyword("description"), Value::string(&t.description));
+                tool_map.insert(
+                    Value::keyword("parameters"),
+                    json_to_sema_value(&t.parameters),
+                );
+                Value::Map(Rc::new(tool_map))
+            })
+            .collect();
+        map.insert(Value::keyword("tools"), Value::list(tools));
+    }
+
+    Value::Map(Rc::new(map))
+}
+
+/// Parse a Sema Value returned by a Lisp provider callback into a ChatResponse.
+fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse, LlmError> {
+    match val {
+        Value::String(s) => Ok(ChatResponse {
+            content: s.to_string(),
+            role: "assistant".to_string(),
+            model: model.to_string(),
+            tool_calls: vec![],
+            usage: Usage::default(),
+            stop_reason: Some("end_turn".to_string()),
+        }),
+        Value::Map(map) => {
+            let content = map
+                .get(&Value::keyword("content"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            let role = map
+                .get(&Value::keyword("role"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "assistant".to_string());
+            let resp_model = map
+                .get(&Value::keyword("model"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| model.to_string());
+            let stop_reason = map
+                .get(&Value::keyword("stop-reason"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or(Some("end_turn".to_string()));
+
+            let usage = if let Some(Value::Map(usage_map)) = map.get(&Value::keyword("usage")) {
+                let prompt_tokens = usage_map
+                    .get(&Value::keyword("prompt-tokens"))
+                    .and_then(|v| v.as_int())
+                    .unwrap_or(0) as u32;
+                let completion_tokens = usage_map
+                    .get(&Value::keyword("completion-tokens"))
+                    .and_then(|v| v.as_int())
+                    .unwrap_or(0) as u32;
+                Usage {
+                    prompt_tokens,
+                    completion_tokens,
+                    model: resp_model.clone(),
+                }
+            } else {
+                Usage {
+                    model: resp_model.clone(),
+                    ..Default::default()
+                }
+            };
+
+            Ok(ChatResponse {
+                content,
+                role,
+                model: resp_model,
+                tool_calls: vec![],
+                usage,
+                stop_reason,
+            })
+        }
+        _ => Err(LlmError::Parse(
+            "lisp provider must return a string or map with :content".to_string(),
+        )),
+    }
 }
 
 pub fn register_llm_builtins(env: &Env) {
@@ -392,11 +565,92 @@ pub fn register_llm_builtins(env: &Env) {
                     reg.set_embedding_provider("cohere");
                 }
                 other => {
-                    return Err(SemaError::Llm(format!("unknown provider: {other}")));
+                    // Treat unknown providers as OpenAI-compatible if base-url and api-key are provided
+                    let api_key = api_key.clone().ok_or_else(|| {
+                        SemaError::Llm(format!(
+                            "unknown provider '{other}': provide :api-key and :base-url to register as OpenAI-compatible"
+                        ))
+                    })?;
+                    let base_url = get_opt_string(&opts, "base-url").ok_or_else(|| {
+                        SemaError::Llm(format!(
+                            "unknown provider '{other}': provide :base-url to register as OpenAI-compatible"
+                        ))
+                    })?;
+                    let model = get_opt_string(&opts, "default-model")
+                        .unwrap_or_else(|| "default".to_string());
+                    let provider = OpenAiProvider::named(
+                        other.to_string(),
+                        api_key,
+                        base_url,
+                        model,
+                        false,
+                    )
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
+                    reg.register(Box::new(provider));
+                    reg.set_default(other);
                 }
             }
             Ok(Value::Nil)
         })
+    });
+
+    // (llm/define-provider :name {:complete fn :default-model "..." :stream fn})
+    register_fn(env, "llm/define-provider", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("llm/define-provider", "2", args.len()));
+        }
+        let provider_name = args[0]
+            .as_keyword()
+            .ok_or_else(|| SemaError::type_error("keyword", args[0].type_name()))?;
+        let opts = match &args[1] {
+            Value::Map(m) => m.as_ref().clone(),
+            _ => return Err(SemaError::type_error("map", args[1].type_name())),
+        };
+
+        let complete_fn = opts
+            .get(&Value::keyword("complete"))
+            .cloned()
+            .ok_or_else(|| SemaError::eval("llm/define-provider requires :complete function"))?;
+
+        match &complete_fn {
+            Value::Lambda(_) | Value::NativeFn(_) => {}
+            _ => return Err(SemaError::type_error("function", complete_fn.type_name())),
+        }
+
+        let stream_fn = opts.get(&Value::keyword("stream")).cloned();
+        if let Some(ref sf) = stream_fn {
+            match sf {
+                Value::Lambda(_) | Value::NativeFn(_) => {}
+                _ => return Err(SemaError::type_error("function", sf.type_name())),
+            }
+        }
+
+        let default_model =
+            get_opt_string(&opts, "default-model").unwrap_or_else(|| "default".to_string());
+
+        let name_for_callbacks = provider_name.clone();
+        LISP_PROVIDERS.with(|providers| {
+            providers.borrow_mut().insert(
+                name_for_callbacks,
+                LispProviderCallbacks {
+                    complete_fn,
+                    stream_fn,
+                },
+            );
+        });
+
+        let name_for_registry = provider_name.clone();
+        let model_clone = default_model.clone();
+        PROVIDER_REGISTRY.with(|reg| {
+            let mut reg = reg.borrow_mut();
+            reg.register(Box::new(LispProvider {
+                name: name_for_registry,
+                default_model: model_clone,
+            }));
+            reg.set_default(&provider_name);
+        });
+
+        Ok(Value::keyword(&provider_name))
     });
 
     // Auto-configure from environment variables
