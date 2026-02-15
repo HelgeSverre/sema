@@ -406,25 +406,65 @@
    (range-helper 0 5 '())")
 
 ;; ============================================================
-;; 12. Known limitations — things that SHOULD fail
+;; 12. Previously missing features — now implemented
 ;; ============================================================
 (println)
-(println "--- Known Limitations (expected failures) ---")
-
-;; Named let — not supported
-(test "named let (expect fail)" 55
+(println "--- Named Let ---")
+(test "named let sum" 55
   "(let loop ((i 10) (acc 0))
      (if (= i 0) acc (loop (- i 1) (+ acc i))))")
 
-;; set! — not supported
-(test "set! (expect fail)" 42
+(test "named let fibonacci" 55
+  "(let fib ((n 10) (a 0) (b 1))
+     (if (= n 0) a (fib (- n 1) b (+ a b))))")
+
+(test "named let one-to-n" '(1 2 3 4 5)
+  "(let loop ((i 5) (acc '()))
+     (if (= i 0) acc (loop (- i 1) (cons i acc))))")
+
+(println)
+(println "--- Set! ---")
+(test "set! simple" 42
   "(define x 0)
    (set! x 42)
    x")
 
-;; Variadic lambda — not supported
-(test "variadic lambda (expect fail)" '(1 2 3)
+(test "set! counter" 3
+  "(define counter 0)
+   (set! counter (+ counter 1))
+   (set! counter (+ counter 1))
+   (set! counter (+ counter 1))
+   counter")
+
+(test "set! in closure" 3
+  "(define (make-counter)
+     (define n 0)
+     (lambda () (set! n (+ n 1)) n))
+   (define c (make-counter))
+   (c) (c) (c)")
+
+(println)
+(println "--- Variadic Lambda ---")
+(test "variadic all rest" '(1 2 3)
   "((fn (. args) args) 1 2 3)")
+
+(test "variadic with fixed" '(1 (2 3 4))
+  "(define (f x . rest) (list x rest))
+   (f 1 2 3 4)")
+
+(test "variadic apply-like" 10
+  "(define (sum . nums)
+     (if (null? nums) 0
+       (+ (car nums)
+          (let ((rest (cdr nums)))
+            (if (null? rest) 0
+              (+ (car rest)
+                 (let ((rest2 (cdr rest)))
+                   (if (null? rest2) 0
+                     (+ (car rest2)
+                        (let ((rest3 (cdr rest2)))
+                          (if (null? rest3) 0 (car rest3))))))))))))
+   (sum 1 2 3 4)")
 
 ;; ============================================================
 ;; Summary

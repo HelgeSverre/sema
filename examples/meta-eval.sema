@@ -189,6 +189,7 @@
 ;; Each env is a closure (message-passing object) that responds to:
 ;;   (env :lookup name)     → value or error
 ;;   (env :define name val) → mutates bindings in place via set!
+;;   (env :set! name val)   → update existing binding (walks parent chain)
 
 (define (make-env parent)
   (define bindings {})
@@ -208,6 +209,18 @@
              (value (nth args 1)))
          (set! bindings (assoc bindings (string->keyword name) value))
          value))
+
+      ((equal? msg :set!)
+       (let ((name (car args))
+             (value (nth args 1)))
+         (let ((key (string->keyword name)))
+           (if (contains? bindings key)
+             (begin
+               (set! bindings (assoc bindings key value))
+               value)
+             (if (nil? parent)
+               (error (format "set!: unbound variable: ~a" name))
+               (parent :set! name value))))))
 
       (else (error (format "unknown env message: ~a" msg))))))
 
@@ -232,6 +245,23 @@
     (if (null? items)
       (reverse result)
       (loop (cdr items) (cons (get (car items) :name) result)))))
+
+;; Parse parameter list, handling rest params: (a b . rest)
+;; Returns {:params ("a" "b") :rest "rest"} or {:params ("a" "b") :rest nil}
+(define (parse-params param-items)
+  (let loop ((items param-items) (params '()))
+    (cond
+      ((null? items)
+       {:params (reverse params) :rest nil})
+      ;; Check for dot: (a b . rest)
+      ((and (map? (car items))
+            (equal? (get (car items) :ast) :symbol)
+            (equal? (get (car items) :name) "."))
+       {:params (reverse params)
+        :rest (get (car (cdr items)) :name)})
+      (else
+       (loop (cdr items)
+             (cons (get (car items) :name) params))))))
 
 ;; Helper: evaluate a list of expressions, returning list of values
 (define (eval-list exprs env)
@@ -282,12 +312,17 @@
              ((sym-named? head "define")
               (let ((target (car args)))
                 (if (and (map? target) (equal? (get target :ast) :list))
-                  ;; Function shorthand: (define (f x y) body)
+                  ;; Function shorthand: (define (f x y) body...)
                   (let ((fname (get (car (get target :items)) :name))
-                        (params (extract-param-names (cdr (get target :items))))
-                        (body (nth args 1)))
+                        (parsed (parse-params (cdr (get target :items))))
+                        (body-exprs (cdr args))
+                        (body (if (null? (cdr (cdr args)))
+                                (nth args 1)
+                                {:ast :list :items (cons {:ast :symbol :name "begin"}
+                                                         (cdr args))})))
                     (let ((closure {:type :closure
-                                    :params params
+                                    :params (get parsed :params)
+                                    :rest-param (get parsed :rest)
                                     :body body
                                     :env env}))
                       (env :define fname closure)
@@ -298,11 +333,29 @@
                     (env :define name val)
                     val))))
 
-             ;; (lambda (params...) body) or (fn (params...) body)
+             ;; (set! <name> <expr>)
+             ((sym-named? head "set!")
+              (let ((name (get (car args) :name))
+                    (val (meta-eval (nth args 1) env)))
+                (env :set! name val)
+                val))
+
+             ;; (lambda (params...) body...) or (fn (params...) body...)
+             ;; Supports rest params: (lambda (a b . rest) body)
+             ;; Supports multi-expression body (implicit begin)
              ((or (sym-named? head "lambda") (sym-named? head "fn"))
-              (let ((params (extract-param-names (get (car args) :items)))
-                    (body (nth args 1)))
-                {:type :closure :params params :body body :env env}))
+              (let ((raw-params (get (car args) :items))
+                    (body-exprs (cdr args)))
+                (let ((parsed (parse-params raw-params))
+                      (body (if (null? (cdr body-exprs))
+                              (car body-exprs)
+                              {:ast :list :items (cons {:ast :symbol :name "begin"}
+                                                       body-exprs)})))
+                  {:type :closure
+                   :params (get parsed :params)
+                   :rest-param (get parsed :rest)
+                   :body body
+                   :env env})))
 
              ;; (begin <expr>...)
              ((sym-named? head "begin")
@@ -326,19 +379,42 @@
                             (meta-eval (nth clause 1) env)
                             (loop (cdr clauses))))))))))
 
-             ;; (let ((name val)...) body)
+             ;; (let ((name val)...) body) or (let name ((name val)...) body)
              ((sym-named? head "let")
-              (let ((binding-list (get (car args) :items))
-                    (body (nth args 1)))
-                (let ((let-env (make-env env)))
-                  (let bind-loop ((bs binding-list))
-                    (when (not (null? bs))
-                      (let ((pair (get (car bs) :items)))
-                        (let-env :define
-                          (get (car pair) :name)
-                          (meta-eval (nth pair 1) env)))
-                      (bind-loop (cdr bs))))
-                  (meta-eval body let-env))))
+              (let ((first-arg (car args)))
+                (if (and (map? first-arg) (equal? (get first-arg :ast) :symbol))
+                  ;; Named let: (let loop ((i 0) ...) body)
+                  (let ((loop-name (get first-arg :name))
+                        (binding-list (get (nth args 1) :items))
+                        (body (nth args 2)))
+                    (let ((let-env (make-env env)))
+                      ;; Extract param names and initial values
+                      (let extract ((bs binding-list) (pnames '()) (inits '()))
+                        (if (null? bs)
+                          (let ((params (reverse pnames))
+                                (init-vals (reverse inits)))
+                            ;; Define the loop function
+                            (let-env :define loop-name
+                              {:type :closure :params params :rest-param nil
+                               :body body :env let-env})
+                            ;; Call it with initial values
+                            (meta-apply (let-env :lookup loop-name) init-vals))
+                          (let ((pair (get (car bs) :items)))
+                            (extract (cdr bs)
+                                     (cons (get (car pair) :name) pnames)
+                                     (cons (meta-eval (nth pair 1) env) inits)))))))
+                  ;; Regular let: (let ((x 1) (y 2)) body)
+                  (let ((binding-list (get first-arg :items))
+                        (body (nth args 1)))
+                    (let ((let-env (make-env env)))
+                      (let bind-loop ((bs binding-list))
+                        (when (not (null? bs))
+                          (let ((pair (get (car bs) :items)))
+                            (let-env :define
+                              (get (car pair) :name)
+                              (meta-eval (nth pair 1) env)))
+                          (bind-loop (cdr bs))))
+                      (meta-eval body let-env))))))
 
              ;; (and <expr>...) — variadic, short-circuit
              ((sym-named? head "and")
@@ -393,14 +469,21 @@
     ;; User-defined closure
     ((and (map? fn-val) (equal? (get fn-val :type) :closure))
      (let ((params (get fn-val :params))
+           (rest-param (get fn-val :rest-param))
            (body (get fn-val :body))
            (closure-env (get fn-val :env)))
        ;; Create a child env and bind parameters
        (let ((call-env (make-env closure-env)))
+         ;; Bind regular params
          (let bind-loop ((ps params) (as args))
            (when (not (null? ps))
              (call-env :define (car ps) (car as))
              (bind-loop (cdr ps) (cdr as))))
+         ;; Bind rest param if present
+         (when (and rest-param (not (null? rest-param)))
+           (let ((rest-args (let drop-loop ((n (length params)) (as args))
+                              (if (= n 0) as (drop-loop (- n 1) (cdr as))))))
+             (call-env :define rest-param rest-args)))
          (meta-eval body call-env))))
 
     (else (error (format "not a function: ~a" fn-val)))))
