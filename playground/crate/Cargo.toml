@@ -1,6 +1,6 @@
 [package]
 name = "sema-wasm"
-version = "0.9.1"
+version = "1.0.1"
 edition = "2021"
 
 [lib]
