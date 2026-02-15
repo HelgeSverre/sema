@@ -242,6 +242,7 @@
     scrollbar-color: var(--border) transparent;
   }
   textarea#editor::placeholder { color: var(--text-dim); -webkit-text-fill-color: var(--text-dim); }
+  textarea#editor::selection { background: var(--gold); color: var(--bg); -webkit-text-fill-color: var(--bg); }
   .editor-highlight.focused { background: #0b0b0b; }
   .hl-comment { color: var(--text-dim); font-style: italic; }
   .hl-string { color: #a8c47a; }
@@ -3024,25 +3025,147 @@ function syncScroll() {
   hlEl.scrollLeft = editorEl.scrollLeft;
 }
 
+// ── Custom undo/redo stack ──
+class TextareaUndo {
+  constructor(textarea, { max = 200, mergeDelay = 600, onChange = null } = {}) {
+    this.ta = textarea;
+    this.max = max;
+    this.mergeDelay = mergeDelay;
+    this.onChange = onChange;
+    this.stack = [this._read()];
+    this.index = 0;
+    this._applying = false;
+    this._inTransaction = 0;
+    this._suppress = false;
+    this._lastInputType = null;
+    this._lastPushAt = 0;
+    this._lastKind = null;
+    this._composing = false;
+    this._forceNew = false;
+
+    textarea.addEventListener('beforeinput', (e) => { this._lastInputType = e.inputType || null; });
+    textarea.addEventListener('compositionstart', () => { this._composing = true; });
+    textarea.addEventListener('compositionend', () => { this._composing = false; this._forceNew = true; });
+    textarea.addEventListener('input', () => {
+      if (this._applying || this._suppress || this._inTransaction || this._composing) return;
+      this._record();
+    });
+    textarea.addEventListener('keydown', (e) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && !e.altKey && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        e.shiftKey ? this.redo() : this.undo();
+      } else if (mod && !e.altKey && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        this.redo();
+      }
+    });
+  }
+
+  _read() { return { value: this.ta.value, start: this.ta.selectionStart ?? 0, end: this.ta.selectionEnd ?? 0 }; }
+
+  undo() { if (this.index > 0) { this.index--; this._apply(this.stack[this.index]); } }
+  redo() { if (this.index < this.stack.length - 1) { this.index++; this._apply(this.stack[this.index]); } }
+
+  transact(fn) {
+    this._inTransaction++;
+    try { fn(); } finally {
+      this._inTransaction--;
+      if (this._inTransaction === 0) this._record(true);
+    }
+  }
+
+  reset() { this.stack = [this._read()]; this.index = 0; this._lastPushAt = 0; this._lastKind = null; }
+
+  _record(forceNew = false) {
+    const next = this._read();
+    const cur = this.stack[this.index];
+    if (cur.value === next.value && cur.start === next.start && cur.end === next.end) return;
+
+    const now = performance.now();
+    const it = this._lastInputType;
+    const kind = it?.startsWith('insert') ? 'insert' : it?.startsWith('delete') ? 'delete' : 'other';
+    const forcedByType = it === 'insertFromPaste' || it === 'insertFromDrop' || it === 'deleteByCut';
+
+    let merge = false;
+    if (!forceNew && !this._forceNew && !forcedByType) {
+      merge = (now - this._lastPushAt) <= this.mergeDelay
+        && kind === this._lastKind
+        && cur.start === cur.end && next.start === next.end
+        && (kind === 'insert' || kind === 'delete');
+    }
+    this._forceNew = false;
+
+    if (merge) {
+      this.stack[this.index] = next;
+    } else {
+      this.stack.splice(this.index + 1);
+      this.stack.push(next);
+      this.index++;
+      if (this.stack.length > this.max) {
+        const overflow = this.stack.length - this.max;
+        this.stack.splice(0, overflow);
+        this.index = Math.max(0, this.index - overflow);
+      }
+    }
+    this._lastPushAt = now;
+    this._lastKind = kind;
+  }
+
+  _apply(state) {
+    this._applying = true;
+    this.ta.value = state.value;
+    this.ta.setSelectionRange(state.start, state.end);
+    if (this.onChange) this.onChange();
+    else { this._suppress = true; this.ta.dispatchEvent(new Event('input', { bubbles: true })); this._suppress = false; }
+    this._applying = false;
+  }
+}
+
+const editorUndo = new TextareaUndo(editorEl, { onChange: scheduleHighlight });
+
 editorEl.addEventListener('input', scheduleHighlight);
 editorEl.addEventListener('scroll', syncScroll);
 editorEl.addEventListener('focus', () => hlEl.classList.add('focused'));
 editorEl.addEventListener('blur', () => hlEl.classList.remove('focused'));
 
-// Keyboard shortcut: Cmd/Ctrl+Enter
+// Keyboard shortcut: Cmd/Ctrl+Enter and Tab/Shift+Tab
 editorEl.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
     run();
   }
-  // Tab key inserts spaces
   if (e.key === 'Tab') {
     e.preventDefault();
-    const ta = e.target;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
-    ta.selectionStart = ta.selectionEnd = start + 2;
+    editorUndo.transact(() => {
+      const ta = editorEl;
+      const v = ta.value;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const isDedent = e.shiftKey;
+      const ls = v.lastIndexOf('\n', start - 1) + 1;
+
+      if (start === end) {
+        if (!isDedent) {
+          ta.setRangeText('  ', start, end, 'end');
+        } else {
+          let rm = v.startsWith('  ', ls) ? 2 : v.charAt(ls) === ' ' ? 1 : 0;
+          if (rm) {
+            ta.setRangeText('', ls, ls + rm, 'preserve');
+            ta.setSelectionRange(Math.max(ls, start - rm), Math.max(ls, start - rm));
+          }
+        }
+      } else {
+        const endAdj = (end > start && v[end - 1] === '\n') ? end - 1 : end;
+        const le = v.indexOf('\n', endAdj);
+        const blockEnd = le === -1 ? v.length : le;
+        const block = v.slice(ls, blockEnd);
+        const replacement = isDedent
+          ? block.replace(/^ {1,2}/gm, '')
+          : block.replace(/^/gm, '  ');
+        ta.setRangeText(replacement, ls, blockEnd, 'select');
+      }
+    });
     scheduleHighlight();
   }
 });
@@ -3053,6 +3176,7 @@ function patchFileLoads() {
     const orig = btn.onclick;
     btn.onclick = function() {
       orig?.call(this);
+      editorUndo.reset();
       scheduleHighlight();
     };
   });
