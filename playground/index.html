@@ -198,22 +198,53 @@
 
   .editor-pane { border-right: 1px solid var(--border); }
 
-  textarea#editor {
+  .editor-wrap {
     flex: 1;
+    position: relative;
+    overflow: hidden;
+    min-height: 0;
+  }
+  .editor-highlight,
+  textarea#editor {
+    position: absolute;
+    top: 0; left: 0;
     width: 100%;
-    background: var(--bg-editor);
-    color: var(--text-bright);
-    border: none;
-    outline: none;
+    height: 100%;
     padding: 1.25rem;
     font-family: var(--mono);
     font-size: 13px;
     line-height: 1.65;
-    resize: none;
     tab-size: 2;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    border: none;
+    margin: 0;
   }
-  textarea#editor::placeholder { color: var(--text-dim); }
-  textarea#editor:focus { background: #0b0b0b; }
+  .editor-highlight {
+    pointer-events: none;
+    color: var(--text-bright);
+    background: var(--bg-editor);
+    z-index: 0;
+    overflow: auto;
+  }
+  textarea#editor {
+    color: transparent;
+    caret-color: var(--gold);
+    background: transparent;
+    outline: none;
+    resize: none;
+    z-index: 1;
+    -webkit-text-fill-color: transparent;
+  }
+  textarea#editor::placeholder { color: var(--text-dim); -webkit-text-fill-color: var(--text-dim); }
+  .editor-highlight.focused { background: #0b0b0b; }
+  .hl-comment { color: var(--text-dim); font-style: italic; }
+  .hl-string { color: #a8c47a; }
+  .hl-keyword { color: var(--gold); }
+  .hl-number { color: #d19a66; }
+  .hl-boolean { color: #d19a66; }
+  .hl-paren { color: #6a6258; }
 
   /* ── Run button ── */
   .run-btn {
@@ -379,13 +410,16 @@
         Run<span class="shortcut">⌘↵</span>
       </button>
     </div>
-    <textarea id="editor" spellcheck="false" placeholder=";; Write Sema code here…
+    <div class="editor-wrap">
+      <textarea id="editor" spellcheck="false" placeholder=";; Write Sema code here…
 ;; Press ⌘+Enter or click Run to evaluate
 
 (define (greet name)
   (format &quot;Hello, ~a!&quot; name))
 
 (greet &quot;world&quot;)"></textarea>
+      <pre class="editor-highlight" id="editor-highlight" aria-hidden="true"></pre>
+    </div>
   </div>
   <div class="pane output-pane">
     <div class="pane-header">
@@ -2869,8 +2903,120 @@ document.getElementById('clear-btn').addEventListener('click', () => {
   document.getElementById('output').innerHTML = '';
 });
 
+// ── Syntax highlighting (overlay technique) ──
+
+const SEMA_KEYWORDS = new Set([
+  'define', 'lambda', 'fn', 'if', 'cond', 'case', 'when', 'unless',
+  'let', 'let*', 'letrec', 'begin', 'do', 'and', 'or', 'not',
+  'set!', 'quote', 'quasiquote', 'unquote', 'unquote-splicing',
+  'define-record-type', 'defmacro', 'defagent', 'deftool',
+  'try', 'catch', 'throw', 'error',
+  'import', 'module', 'export', 'require',
+  'delay', 'force',
+  'map', 'filter', 'foldl', 'foldr', 'reduce', 'for-each', 'apply',
+  'prompt', 'message', 'conversation/new', 'conversation/say',
+  'llm/complete', 'llm/chat', 'llm/stream', 'llm/send',
+  'llm/extract', 'llm/classify', 'llm/batch', 'llm/pmap',
+  'llm/embed', 'llm/auto-configure', 'llm/configure',
+  'llm/set-budget', 'llm/budget-remaining',
+  'agent/run', 'else',
+]);
+
+function tokenizeSema(code) {
+  const tokens = [];
+  let i = 0;
+  while (i < code.length) {
+    // Comments
+    if (code[i] === ';') {
+      const start = i;
+      while (i < code.length && code[i] !== '\n') i++;
+      tokens.push({ type: 'comment', text: code.slice(start, i) });
+    }
+    // Strings
+    else if (code[i] === '"') {
+      const start = i;
+      i++;
+      while (i < code.length && code[i] !== '"') {
+        if (code[i] === '\\' && i + 1 < code.length) i++;
+        i++;
+      }
+      if (i < code.length) i++; // closing quote
+      tokens.push({ type: 'string', text: code.slice(start, i) });
+    }
+    // Parens
+    else if ('()[]{}\'`,'.includes(code[i])) {
+      tokens.push({ type: 'paren', text: code[i] });
+      i++;
+    }
+    // Whitespace
+    else if (/\s/.test(code[i])) {
+      const start = i;
+      while (i < code.length && /\s/.test(code[i])) i++;
+      tokens.push({ type: 'ws', text: code.slice(start, i) });
+    }
+    // Words (symbols, keywords, numbers, booleans)
+    else {
+      const start = i;
+      while (i < code.length && !/[\s()[\]{}"`;,]/.test(code[i])) i++;
+      const word = code.slice(start, i);
+      if (word === '#t' || word === '#f' || word === 'true' || word === 'false' || word === 'nil') {
+        tokens.push({ type: 'boolean', text: word });
+      } else if (/^-?\d+(\.\d+)?$/.test(word)) {
+        tokens.push({ type: 'number', text: word });
+      } else if (SEMA_KEYWORDS.has(word)) {
+        tokens.push({ type: 'keyword', text: word });
+      } else {
+        tokens.push({ type: 'plain', text: word });
+      }
+    }
+  }
+  return tokens;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function highlightSema(code) {
+  if (!code) return '\n';
+  const tokens = tokenizeSema(code);
+  let html = '';
+  for (const t of tokens) {
+    const escaped = escapeHtml(t.text);
+    if (t.type === 'ws' || t.type === 'plain') {
+      html += escaped;
+    } else {
+      html += `<span class="hl-${t.type}">${escaped}</span>`;
+    }
+  }
+  // Trailing newline fix: pre won't render a final empty line
+  if (code.endsWith('\n')) html += ' ';
+  return html;
+}
+
+const editorEl = document.getElementById('editor');
+const hlEl = document.getElementById('editor-highlight');
+let hlRaf = 0;
+
+function scheduleHighlight() {
+  cancelAnimationFrame(hlRaf);
+  hlRaf = requestAnimationFrame(() => {
+    hlEl.innerHTML = highlightSema(editorEl.value);
+  });
+}
+
+function syncScroll() {
+  hlEl.scrollTop = editorEl.scrollTop;
+  hlEl.scrollLeft = editorEl.scrollLeft;
+}
+
+editorEl.addEventListener('input', scheduleHighlight);
+editorEl.addEventListener('scroll', syncScroll);
+editorEl.addEventListener('focus', () => hlEl.classList.add('focused'));
+editorEl.addEventListener('blur', () => hlEl.classList.remove('focused'));
+
 // Keyboard shortcut: Cmd/Ctrl+Enter
-document.getElementById('editor').addEventListener('keydown', (e) => {
+editorEl.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
     run();
@@ -2883,10 +3029,25 @@ document.getElementById('editor').addEventListener('keydown', (e) => {
     const end = ta.selectionEnd;
     ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
     ta.selectionStart = ta.selectionEnd = start + 2;
+    scheduleHighlight();
   }
 });
 
-main();
+// Re-highlight when loading a file from sidebar
+function patchFileLoads() {
+  document.querySelectorAll('.tree-file').forEach(btn => {
+    const orig = btn.onclick;
+    btn.onclick = function() {
+      orig?.call(this);
+      scheduleHighlight();
+    };
+  });
+}
+
+// Highlight initial content
+scheduleHighlight();
+
+main().then(() => { patchFileLoads(); scheduleHighlight(); });
 </script>
 </body>
 </html>
