@@ -24,6 +24,13 @@
 - Native fns: `NativeFn` takes `&[Value]` → `Result<Value, SemaError>`. Special forms return `Trampoline`.
 - Sema naming: slash-namespaced (`string/trim`, `file/read`), predicates end `?`, arrows for conversions (`string->symbol`). Legacy Scheme names kept (`string-append`, `substring`).
 
+## Website
+
+- Hosted at **sema-lang.com**, deployed via `cd website && vercel --prod`
+- VitePress site, URLs require `.html` suffix: e.g. `https://sema-lang.com/docs/internals/lisp-comparison.html`
+- All docs pages are under `/docs/`: `https://sema-lang.com/docs/...`
+- Playground at **sema.run** (WASM)
+
 ## Adding Functionality
 
 - **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in `register()`, add integration test.

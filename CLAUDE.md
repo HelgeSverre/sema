@@ -103,6 +103,13 @@ To release a new version (e.g., `0.7.0`):
 9. **GitHub release**: `gh release create v0.X.0 --title "v0.X.0: <summary>" --notes "<changelog entry>"`
 10. **Deploy website**: `cd website && vc --prod`
 
+## Website
+
+- Hosted at **sema-lang.com**, deployed via `cd website && vercel --prod`
+- VitePress site, URLs require `.html` suffix: e.g. `https://sema-lang.com/docs/internals/lisp-comparison.html`
+- All docs pages are under `/docs/`: `https://sema-lang.com/docs/...`
+- Playground at **sema.run** (WASM)
+
 ## Design Docs
 
 - `agents/DECISIONS.md` — 33 numbered design decisions with rationale
