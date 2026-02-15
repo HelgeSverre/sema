@@ -227,6 +227,8 @@
     background: var(--bg-editor);
     z-index: 0;
     overflow: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
   textarea#editor {
     color: transparent;
@@ -236,6 +238,8 @@
     resize: none;
     z-index: 1;
     -webkit-text-fill-color: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
   textarea#editor::placeholder { color: var(--text-dim); -webkit-text-fill-color: var(--text-dim); }
   .editor-highlight.focused { background: #0b0b0b; }
@@ -281,6 +285,8 @@
     font-family: var(--mono);
     font-size: 13px;
     line-height: 1.65;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
   }
 
   .output-line { color: var(--text); white-space: pre; }
