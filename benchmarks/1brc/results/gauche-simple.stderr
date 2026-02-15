@@ -1,11 +1,1 @@
-*** ERROR: wrong number of arguments for #<subr (substring str start end)> (required 3, got 2)
-Stack Trace:
-_______________________________________
-  0  (report-error e)
-  1  (substring line (+ semi 1))
-        at "/bench/simple/1brc.gauche.scm":38
-  2  (string->number (substring line (+ semi 1)))
-        at "/bench/simple/1brc.gauche.scm":38
-  3  (open-input-file file-path)
-        at "/bench/simple/1brc.gauche.scm":32
-  4  (main args)
+Elapsed: 22504 ms

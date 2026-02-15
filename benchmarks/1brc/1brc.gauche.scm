@@ -10,28 +10,16 @@
     (+ (* (time-second t) 1000)
        (quotient (time-nanosecond t) 1000000))))
 
-(define (parse-temp-int10 line start)
-  (let* ((len (string-length line))
-         (neg? (char=? (string-ref line start) #\-))
-         (i (if neg? (+ start 1) start)))
-    (let loop ((i i) (acc 0))
-      (if (>= i len)
-          (if neg? (- acc) acc)
-          (let ((c (string-ref line i)))
-            (if (char=? c #\.)
-                (loop (+ i 1) acc)
-                (loop (+ i 1) (+ (* acc 10) (- (char->integer c) 48)))))))))
-
-(define (format-1dp n)
-  (let* ((neg (< n 0))
-         (abs-n (abs n))
-         (whole (quotient abs-n 10))
-         (frac (remainder abs-n 10)))
-    (if (and neg (= whole 0))
+(define (format-1dp x)
+  (let* ((v (/ (round (* x 10.0)) 10.0))
+         (whole (inexact->exact (truncate v)))
+         (frac (inexact->exact (abs (round (* (- v whole) 10))))))
+    (when (= frac 10)
+      (set! whole (+ whole (if (>= v 0) 1 -1)))
+      (set! frac 0))
+    (if (and (< v 0) (= whole 0))
         (format #f "-0.~a" frac)
-        (if neg
-            (format #f "-~a.~a" whole frac)
-            (format #f "~a.~a" whole frac)))))
+        (format #f "~a.~a" whole frac))))
 
 (define (main args)
   (when (< (length args) 2)
@@ -47,7 +35,7 @@
       (unless (eof-object? line)
         (let* ((semi (string-index line #\;))
                (name (substring line 0 semi))
-               (temp (parse-temp-int10 line (+ semi 1)))
+               (temp (string->number (substring line (+ semi 1) (string-length line))))
                (entry (hash-table-get table name #f)))
           (if entry
               (begin
@@ -67,7 +55,7 @@
                                 (sum (vector-ref entry 1))
                                 (mx (vector-ref entry 2))
                                 (cnt (vector-ref entry 3))
-                                (mean (inexact->exact (round (/ (* sum 1.0) cnt)))))
+                                (mean (/ sum cnt)))
                            (string-append name "="
                                           (format-1dp mn) "/"
                                           (format-1dp mean) "/"
