@@ -1111,6 +1111,12 @@ impl WasmInterpreter {
                 if let Some(trace) = e.stack_trace() {
                     err_str.push_str(&format!("\n{trace}"));
                 }
+                if let Some(hint) = e.hint() {
+                    err_str.push_str(&format!("\n  hint: {hint}"));
+                }
+                if let Some(note) = e.note() {
+                    err_str.push_str(&format!("\n  note: {note}"));
+                }
                 format!(
                     "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
                     output
@@ -1152,6 +1158,12 @@ impl WasmInterpreter {
                 let mut err_str = format!("{}", e.inner());
                 if let Some(trace) = e.stack_trace() {
                     err_str.push_str(&format!("\n{trace}"));
+                }
+                if let Some(hint) = e.hint() {
+                    err_str.push_str(&format!("\n  hint: {hint}"));
+                }
+                if let Some(note) = e.note() {
+                    err_str.push_str(&format!("\n  note: {note}"));
                 }
                 format!(
                     "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",

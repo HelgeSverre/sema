@@ -317,7 +317,7 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
                     "not callable: {} ({})",
                     other,
                     other.type_name()
-                ))),
+                )).with_hint("the first element of a list must be a function or macro")),
             }
         }
 

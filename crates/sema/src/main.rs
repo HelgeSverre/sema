@@ -423,6 +423,12 @@ fn print_error(e: &SemaError) {
     if let Some(trace) = e.stack_trace() {
         eprint!("{trace}");
     }
+    if let Some(hint) = e.hint() {
+        eprintln!("  hint: {hint}");
+    }
+    if let Some(note) = e.note() {
+        eprintln!("  note: {note}");
+    }
 }
 
 fn repl(interpreter: Interpreter, quiet: bool) {

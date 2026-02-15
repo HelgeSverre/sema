@@ -979,6 +979,7 @@ fn error_to_value(err: &SemaError) -> Value {
             map.insert(Value::keyword("value"), val.clone());
         }
         SemaError::WithTrace { .. } => unreachable!("inner() already unwraps WithTrace"),
+        SemaError::WithContext { .. } => unreachable!("inner() already unwraps WithContext"),
     }
 
     // Add stack trace as list of maps

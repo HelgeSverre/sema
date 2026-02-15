@@ -80,6 +80,13 @@ pub enum SemaError {
         inner: Box<SemaError>,
         trace: StackTrace,
     },
+
+    #[error("{inner}")]
+    WithContext {
+        inner: Box<SemaError>,
+        hint: Option<String>,
+        note: Option<String>,
+    },
 }
 
 impl SemaError {
@@ -102,6 +109,56 @@ impl SemaError {
         }
     }
 
+    /// Attach a hint (actionable suggestion) to this error.
+    pub fn with_hint(self, hint: impl Into<String>) -> Self {
+        match self {
+            SemaError::WithContext { inner, note, .. } => SemaError::WithContext {
+                inner,
+                hint: Some(hint.into()),
+                note,
+            },
+            other => SemaError::WithContext {
+                inner: Box::new(other),
+                hint: Some(hint.into()),
+                note: None,
+            },
+        }
+    }
+
+    /// Attach a note (extra context) to this error.
+    pub fn with_note(self, note: impl Into<String>) -> Self {
+        match self {
+            SemaError::WithContext { inner, hint, .. } => SemaError::WithContext {
+                inner,
+                hint,
+                note: Some(note.into()),
+            },
+            other => SemaError::WithContext {
+                inner: Box::new(other),
+                hint: None,
+                note: Some(note.into()),
+            },
+        }
+    }
+
+    /// Get the hint from this error, if any.
+    pub fn hint(&self) -> Option<&str> {
+        match self {
+            SemaError::WithContext { hint, .. } => hint.as_deref(),
+            SemaError::WithTrace { inner, .. } => inner.hint(),
+            _ => None,
+        }
+    }
+
+    /// Get the note from this error, if any.
+    pub fn note(&self) -> Option<&str> {
+        match self {
+            SemaError::WithContext { note, .. } => note.as_deref(),
+            SemaError::WithTrace { inner, .. } => inner.note(),
+            _ => None,
+        }
+    }
+
     /// Wrap this error with a stack trace (no-op if already wrapped).
     pub fn with_stack_trace(self, trace: StackTrace) -> Self {
         if trace.0.is_empty() {
@@ -109,6 +166,11 @@ impl SemaError {
         }
         match self {
             SemaError::WithTrace { .. } => self,
+            SemaError::WithContext { inner, hint, note } => SemaError::WithContext {
+                inner: Box::new(inner.with_stack_trace(trace)),
+                hint,
+                note,
+            },
             other => SemaError::WithTrace {
                 inner: Box::new(other),
                 trace,
@@ -119,13 +181,15 @@ impl SemaError {
     pub fn stack_trace(&self) -> Option<&StackTrace> {
         match self {
             SemaError::WithTrace { trace, .. } => Some(trace),
+            SemaError::WithContext { inner, .. } => inner.stack_trace(),
             _ => None,
         }
     }
 
     pub fn inner(&self) -> &SemaError {
         match self {
-            SemaError::WithTrace { inner, .. } => inner,
+            SemaError::WithTrace { inner, .. } => inner.inner(),
+            SemaError::WithContext { inner, .. } => inner.inner(),
             other => other,
         }
     }
