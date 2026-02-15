@@ -313,11 +313,12 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
                         _ => Err(SemaError::type_error("map", map_val.type_name())),
                     }
                 }
-                other => Err(SemaError::eval(format!(
-                    "not callable: {} ({})",
-                    other,
-                    other.type_name()
-                )).with_hint("the first element of a list must be a function or macro")),
+                other => {
+                    Err(
+                        SemaError::eval(format!("not callable: {} ({})", other, other.type_name()))
+                            .with_hint("the first element of a list must be a function or macro"),
+                    )
+                }
             }
         }
 

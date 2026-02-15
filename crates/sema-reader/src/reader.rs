@@ -44,7 +44,11 @@ impl Parser {
         match self.advance() {
             Some(t) if &t.token == expected => Ok(()),
             Some(t) => Err(SemaError::Reader {
-                message: format!("expected `{}`, got `{}`", token_display(expected), token_display(&t.token)),
+                message: format!(
+                    "expected `{}`, got `{}`",
+                    token_display(expected),
+                    token_display(&t.token)
+                ),
                 span,
             }),
             None => Err(SemaError::Reader {
@@ -66,34 +70,47 @@ impl Parser {
             Some(Token::LBrace) => self.parse_map(),
             Some(Token::Quote) => {
                 self.advance();
-                let inner = self.parse_expr().map_err(|_| SemaError::Reader {
-                    message: "quote (') requires an expression after it".to_string(),
-                    span,
-                }.with_hint("e.g. '(1 2 3) or 'foo"))?;
+                let inner = self.parse_expr().map_err(|_| {
+                    SemaError::Reader {
+                        message: "quote (') requires an expression after it".to_string(),
+                        span,
+                    }
+                    .with_hint("e.g. '(1 2 3) or 'foo")
+                })?;
                 self.make_list_with_span(vec![Value::symbol("quote"), inner], span)
             }
             Some(Token::Quasiquote) => {
                 self.advance();
-                let inner = self.parse_expr().map_err(|_| SemaError::Reader {
-                    message: "quasiquote (`) requires an expression after it".to_string(),
-                    span,
-                }.with_hint("e.g. `(list ,x)"))?;
+                let inner = self.parse_expr().map_err(|_| {
+                    SemaError::Reader {
+                        message: "quasiquote (`) requires an expression after it".to_string(),
+                        span,
+                    }
+                    .with_hint("e.g. `(list ,x)")
+                })?;
                 self.make_list_with_span(vec![Value::symbol("quasiquote"), inner], span)
             }
             Some(Token::Unquote) => {
                 self.advance();
-                let inner = self.parse_expr().map_err(|_| SemaError::Reader {
-                    message: "unquote (,) requires an expression after it".to_string(),
-                    span,
-                }.with_hint("use inside quasiquote, e.g. `(list ,x)"))?;
+                let inner = self.parse_expr().map_err(|_| {
+                    SemaError::Reader {
+                        message: "unquote (,) requires an expression after it".to_string(),
+                        span,
+                    }
+                    .with_hint("use inside quasiquote, e.g. `(list ,x)")
+                })?;
                 self.make_list_with_span(vec![Value::symbol("unquote"), inner], span)
             }
             Some(Token::UnquoteSplice) => {
                 self.advance();
-                let inner = self.parse_expr().map_err(|_| SemaError::Reader {
-                    message: "unquote-splicing (,@) requires an expression after it".to_string(),
-                    span,
-                }.with_hint("use inside quasiquote, e.g. `(list ,@xs)"))?;
+                let inner = self.parse_expr().map_err(|_| {
+                    SemaError::Reader {
+                        message: "unquote-splicing (,@) requires an expression after it"
+                            .to_string(),
+                        span,
+                    }
+                    .with_hint("use inside quasiquote, e.g. `(list ,@xs)")
+                })?;
                 self.make_list_with_span(vec![Value::symbol("unquote-splicing"), inner], span)
             }
             Some(Token::BytevectorStart) => self.parse_bytevector(),
@@ -117,7 +134,8 @@ impl Parser {
                 return Err(SemaError::Reader {
                     message: "unterminated list".to_string(),
                     span: open_span,
-                }.with_hint("add a closing `)`"));
+                }
+                .with_hint("add a closing `)`"));
             }
             // Handle dotted pairs: (a . b)
             if self.peek() == Some(&Token::Dot) {
@@ -143,7 +161,8 @@ impl Parser {
                 return Err(SemaError::Reader {
                     message: "unterminated vector".to_string(),
                     span: open_span,
-                }.with_hint("add a closing `]`"));
+                }
+                .with_hint("add a closing `]`"));
             }
             items.push(self.parse_expr()?);
         }
@@ -163,7 +182,8 @@ impl Parser {
                 return Err(SemaError::Reader {
                     message: "unterminated map".to_string(),
                     span: open_span,
-                }.with_hint("add a closing `}`"));
+                }
+                .with_hint("add a closing `}`"));
             }
             let key = self.parse_expr()?;
             if self.peek() == Some(&Token::RBrace) || self.peek().is_none() {
@@ -188,7 +208,8 @@ impl Parser {
                 return Err(SemaError::Reader {
                     message: "unterminated bytevector".to_string(),
                     span: open_span,
-                }.with_hint("add a closing `)`"));
+                }
+                .with_hint("add a closing `)`"));
             }
             let span = self.span();
             match self.peek() {
@@ -254,17 +275,30 @@ impl Parser {
             }) => Ok(Value::Char(*c)),
             Some(t) => {
                 let (name, hint) = match &t.token {
-                    Token::RParen => ("unexpected closing `)`", Some("no matching opening parenthesis")),
-                    Token::RBracket => ("unexpected closing `]`", Some("no matching opening bracket")),
+                    Token::RParen => (
+                        "unexpected closing `)`",
+                        Some("no matching opening parenthesis"),
+                    ),
+                    Token::RBracket => (
+                        "unexpected closing `]`",
+                        Some("no matching opening bracket"),
+                    ),
                     Token::RBrace => ("unexpected closing `}`", Some("no matching opening brace")),
-                    Token::Dot => ("unexpected `.`", Some("dots are used in pair notation, e.g. (a . b)")),
+                    Token::Dot => (
+                        "unexpected `.`",
+                        Some("dots are used in pair notation, e.g. (a . b)"),
+                    ),
                     _ => ("unexpected token", None),
                 };
                 let err = SemaError::Reader {
                     message: name.to_string(),
                     span,
                 };
-                Err(if let Some(h) = hint { err.with_hint(h) } else { err })
+                Err(if let Some(h) = hint {
+                    err.with_hint(h)
+                } else {
+                    err
+                })
             }
             None => Err(SemaError::Reader {
                 message: "unexpected end of input".to_string(),

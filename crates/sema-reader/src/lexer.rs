@@ -367,7 +367,8 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                     return Err(SemaError::Reader {
                         message: "unexpected end of input after `#`".to_string(),
                         span,
-                    }.with_hint("# starts a special form: #t, #f, #\\char, #u8(...)"));
+                    }
+                    .with_hint("# starts a special form: #t, #f, #\\char, #u8(...)"));
                 }
             }
 

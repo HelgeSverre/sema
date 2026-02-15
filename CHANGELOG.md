@@ -1,5 +1,45 @@
 # Changelog
 
+## 1.0.1
+
+### Improved
+
+- **Structured error messages** — errors now support `.with_hint()` and `.with_note()` for actionable suggestions and context. Reader errors show human-readable token names instead of Rust debug format (e.g. `expected \`)\`, got \`]\`` instead of `RParen`/`RBracket`).
+- **Better error spans** — unterminated lists/vectors/maps now point to the opening delimiter instead of `0:0`.
+- **Contextual hints on common errors** — unmatched delimiters, prefix operators without expressions (`'`, `` ` ``, `,`, `,@`), "not callable" errors, and bare `#` all include actionable hints.
+
+### Changed
+
+- **README rewritten** — leads with LLM features (coding agent example) instead of generic Lisp reference. Slimmed from ~1000 lines to ~220, deferring full reference to [sema-lang.com/docs](https://sema-lang.com/docs/).
+
+### Added
+
+- **Favicon** — SVG favicon for both the website and playground.
+- **SEO meta tags** — Open Graph and Twitter card tags on both the website and playground.
+- **Playground link** — added to website navbar.
+- **Playground syntax highlighting** — state-machine tokenizer highlighting keywords, `:keyword` literals, strings, comments, numbers, booleans, and parentheses. Covers all 36 special forms, threading macros, and LLM primitives.
+
+### Fixed
+
+- Suppressed unused `ctx` warning in WASM `with-budget` path.
+
+## 1.0.0
+
+### Changed
+
+- **Explicit `EvalContext`** — all thread-local eval state replaced with an `EvalContext` struct threaded through the evaluator. Multiple independent `Interpreter` instances per thread are now possible.
+- **`NativeFn` signature** — now takes `(&EvalContext, &[Value])` with `simple`/`with_ctx` constructors.
+- **`EvalCallback` in sema-llm** — updated to accept `&EvalContext`.
+
+### Added
+
+- `EvalContext` defined in `sema-core/src/context.rs`, owned by `Interpreter`.
+- `InterpreterBuilder` defaults: `stdlib=true`, `llm=true`.
+
+### Fixed
+
+- Stale counts in docs: 39 special forms (was 33), 19 modules (was 17).
+
 ## 0.9.1
 
 ### Added
