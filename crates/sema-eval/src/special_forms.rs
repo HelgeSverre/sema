@@ -1086,30 +1086,37 @@ fn eval_import(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         return Ok(Trampoline::Value(Value::Nil));
     }
 
-    // Load and evaluate the module
-    let content = std::fs::read_to_string(&canonical)
-        .map_err(|e| SemaError::Io(format!("import {path_str}: {e}")))?;
-    let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-    eval::merge_span_table(spans);
+    eval::begin_module_load(&canonical)?;
 
-    let module_env = eval::create_module_env(env);
-    eval::push_file_path(canonical.clone());
-    eval::clear_module_exports();
+    let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> = (|| {
+        // Load and evaluate the module
+        let content = std::fs::read_to_string(&canonical)
+            .map_err(|e| SemaError::Io(format!("import {path_str}: {e}")))?;
+        let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
+        eval::merge_span_table(spans);
 
-    let eval_result = (|| {
-        for expr in &exprs {
-            eval::eval_value(expr, &module_env)?;
-        }
-        Ok(())
+        let module_env = eval::create_module_env(env);
+        eval::push_file_path(canonical.clone());
+        eval::clear_module_exports();
+
+        let eval_result = (|| {
+            for expr in &exprs {
+                eval::eval_value(expr, &module_env)?;
+            }
+            Ok(())
+        })();
+
+        eval::pop_file_path();
+
+        // Always pop export scope, even if module evaluation fails.
+        let declared = eval::take_module_exports();
+        eval_result?;
+
+        Ok(collect_module_exports(&module_env, declared.as_deref()))
     })();
 
-    eval::pop_file_path();
-
-    eval_result?;
-
-    // Collect exports
-    let declared = eval::take_module_exports();
-    let exports = collect_module_exports(&module_env, declared.as_deref());
+    eval::end_module_load(&canonical);
+    let exports = load_result?;
 
     // Cache
     eval::cache_module(canonical, exports.clone());
@@ -1193,8 +1200,9 @@ fn eval_load(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     eval::merge_span_table(spans);
 
     // Push the file path so nested load/import resolves correctly
-    if let Ok(canonical) = resolved.canonicalize() {
-        eval::push_file_path(canonical);
+    let canonical = resolved.canonicalize().ok();
+    if let Some(path) = canonical.clone() {
+        eval::push_file_path(path);
     }
 
     let mut result = Value::Nil;
@@ -1206,7 +1214,7 @@ fn eval_load(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     })();
 
     // Pop regardless of success/failure
-    if resolved.canonicalize().is_ok() {
+    if canonical.is_some() {
         eval::pop_file_path();
     }
 
@@ -1303,7 +1311,7 @@ fn eval_with_budget(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> 
             _ => return Err(SemaError::type_error("map", opts.type_name())),
         };
 
-        sema_llm::builtins::set_budget(max_cost);
+        sema_llm::builtins::push_budget_scope(max_cost);
 
         let mut result = Value::Nil;
         let body_result = (|| {
@@ -1313,7 +1321,7 @@ fn eval_with_budget(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> 
             Ok(result.clone())
         })();
 
-        sema_llm::builtins::clear_budget();
+        sema_llm::builtins::pop_budget_scope();
 
         body_result?;
         Ok(Trampoline::Value(result))

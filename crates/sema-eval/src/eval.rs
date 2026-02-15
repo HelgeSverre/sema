@@ -20,8 +20,10 @@ thread_local! {
     static MODULE_CACHE: RefCell<BTreeMap<PathBuf, BTreeMap<String, Value>>> = const { RefCell::new(BTreeMap::new()) };
     /// Stack of file paths being executed (for relative path resolution)
     static CURRENT_FILE: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
-    /// Export names declared by the currently-loading module
-    static MODULE_EXPORTS: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+    /// Export scopes for currently-loading modules (stack depth tracks nested imports)
+    static MODULE_EXPORTS: RefCell<Vec<Option<Vec<String>>>> = const { RefCell::new(Vec::new()) };
+    /// Stack of modules currently being loaded (for cyclic import detection)
+    static MODULE_LOAD_STACK: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
     /// Call stack for error traces
     static CALL_STACK: RefCell<Vec<CallFrame>> = const { RefCell::new(Vec::new()) };
     /// Span table: Rc pointer address → source span
@@ -60,15 +62,64 @@ pub fn cache_module(path: PathBuf, exports: BTreeMap<String, Value>) {
 }
 
 pub fn set_module_exports(names: Vec<String>) {
-    MODULE_EXPORTS.with(|e| *e.borrow_mut() = Some(names));
+    MODULE_EXPORTS.with(|e| {
+        let mut stack = e.borrow_mut();
+        if let Some(top) = stack.last_mut() {
+            *top = Some(names);
+        }
+    });
 }
 
 pub fn clear_module_exports() {
-    MODULE_EXPORTS.with(|e| *e.borrow_mut() = None);
+    MODULE_EXPORTS.with(|e| e.borrow_mut().push(None));
 }
 
 pub fn take_module_exports() -> Option<Vec<String>> {
-    MODULE_EXPORTS.with(|e| e.borrow_mut().take())
+    MODULE_EXPORTS.with(|e| e.borrow_mut().pop().flatten())
+}
+
+pub fn begin_module_load(path: &PathBuf) -> Result<(), SemaError> {
+    MODULE_LOAD_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if let Some(pos) = stack.iter().position(|p| p == path) {
+            let mut cycle: Vec<String> = stack[pos..]
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
+            cycle.push(path.display().to_string());
+            return Err(SemaError::eval(format!(
+                "cyclic import detected: {}",
+                cycle.join(" -> ")
+            )));
+        }
+        stack.push(path.clone());
+        Ok(())
+    })
+}
+
+pub fn end_module_load(path: &PathBuf) {
+    MODULE_LOAD_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if matches!(stack.last(), Some(last) if last == path) {
+            stack.pop();
+        } else if let Some(pos) = stack.iter().rposition(|p| p == path) {
+            stack.remove(pos);
+        }
+    });
+}
+
+/// Reset evaluator thread-local state.
+/// Used to isolate interpreter instances in long-running embedding processes.
+pub fn reset_runtime_state() {
+    MODULE_CACHE.with(|c| c.borrow_mut().clear());
+    CURRENT_FILE.with(|f| f.borrow_mut().clear());
+    MODULE_EXPORTS.with(|e| e.borrow_mut().clear());
+    MODULE_LOAD_STACK.with(|s| s.borrow_mut().clear());
+    CALL_STACK.with(|s| s.borrow_mut().clear());
+    SPAN_TABLE.with(|t| t.borrow_mut().clear());
+    EVAL_DEPTH.with(|d| d.set(0));
+    EVAL_STEP_LIMIT.with(|l| l.set(0));
+    EVAL_STEPS.with(|s| s.set(0));
 }
 
 /// Create an isolated module env: child of root (global/stdlib) env
@@ -107,8 +158,16 @@ pub fn capture_stack_trace() -> StackTrace {
     })
 }
 
+const MAX_SPAN_TABLE_ENTRIES: usize = 200_000;
+
 pub fn merge_span_table(spans: SpanMap) {
-    SPAN_TABLE.with(|t| t.borrow_mut().extend(spans));
+    SPAN_TABLE.with(|t| {
+        let mut table = t.borrow_mut();
+        if table.len().saturating_add(spans.len()) > MAX_SPAN_TABLE_ENTRIES {
+            table.clear();
+        }
+        table.extend(spans);
+    });
 }
 
 pub fn lookup_span(ptr: usize) -> Option<Span> {
@@ -160,12 +219,14 @@ impl Default for Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
+        reset_runtime_state();
         let env = Env::new();
         // Register stdlib
         sema_stdlib::register_stdlib(&env);
         // Register LLM builtins
         #[cfg(not(target_arch = "wasm32"))]
         {
+            sema_llm::builtins::reset_runtime_state();
             sema_llm::builtins::register_llm_builtins(&env);
             sema_llm::builtins::set_eval_callback(eval_value);
         }

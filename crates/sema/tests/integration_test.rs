@@ -545,6 +545,22 @@ fn eval_err(input: &str) -> SemaError {
     interp.eval_str(input).unwrap_err()
 }
 
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!("sema-{prefix}-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("failed to create temp dir");
+    dir
+}
+
+fn lisp_path(path: &std::path::Path) -> String {
+    path.to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+}
+
 #[test]
 fn test_module_import() {
     // Write a module file
@@ -623,6 +639,155 @@ fn test_module_cache() {
         "#
         ),
         Value::Int(99)
+    );
+}
+
+#[test]
+fn test_nested_import_does_not_leak_non_exported_bindings() {
+    let dir = unique_temp_dir("nested-import-exports");
+    let module_b = dir.join("b.sema");
+    let module_a = dir.join("a.sema");
+
+    std::fs::write(
+        &module_b,
+        "(module b (export z) (define z 3) (define hidden-b 99))",
+    )
+    .unwrap();
+    std::fs::write(
+        &module_a,
+        format!(
+            "(module a (export x) (define x 1) (define y 2) (import \"{}\"))",
+            lisp_path(&module_b)
+        ),
+    )
+    .unwrap();
+
+    let err = eval_err(&format!(
+        r#"
+        (begin
+          (import "{}")
+          y)
+    "#,
+        lisp_path(&module_a)
+    ));
+    assert!(
+        matches!(err.inner(), SemaError::Unbound(_)),
+        "expected unbound y, got: {}",
+        err.inner()
+    );
+
+    assert_eq!(
+        eval(&format!(
+            r#"
+            (begin
+              (import "{}")
+              x)
+        "#,
+            lisp_path(&module_a)
+        )),
+        Value::Int(1)
+    );
+
+    let err = eval_err(&format!(
+        r#"
+        (begin
+          (import "{}")
+          z)
+    "#,
+        lisp_path(&module_a)
+    ));
+    assert!(
+        matches!(err.inner(), SemaError::Unbound(_)),
+        "expected unbound z, got: {}",
+        err.inner()
+    );
+}
+
+#[test]
+fn test_cyclic_import_returns_error_instead_of_stack_overflow() {
+    let dir = unique_temp_dir("cyclic-import");
+    let module_a = dir.join("a.sema");
+    let module_b = dir.join("b.sema");
+
+    std::fs::write(
+        &module_a,
+        format!(
+            "(module a (export x) (define x 1) (import \"{}\"))",
+            lisp_path(&module_b)
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        &module_b,
+        format!(
+            "(module b (export y) (define y 2) (import \"{}\"))",
+            lisp_path(&module_a)
+        ),
+    )
+    .unwrap();
+
+    let err = eval_err(&format!(r#"(import "{}")"#, lisp_path(&module_a)));
+    let msg = format!("{}", err.inner());
+    assert!(
+        msg.contains("cyclic import detected"),
+        "expected cyclic import error, got: {msg}"
+    );
+}
+
+#[test]
+fn test_module_cache_isolation_between_interpreters() {
+    let dir = unique_temp_dir("module-cache-isolation");
+    let module_path = dir.join("cache.sema");
+
+    std::fs::write(&module_path, "(module c (export val) (define val 1))").unwrap();
+
+    let interp1 = Interpreter::new();
+    assert_eq!(
+        interp1
+            .eval_str(&format!(
+                r#"(begin (import "{}") val)"#,
+                lisp_path(&module_path)
+            ))
+            .unwrap(),
+        Value::Int(1)
+    );
+
+    std::fs::write(&module_path, "(module c (export val) (define val 2))").unwrap();
+
+    let interp2 = Interpreter::new();
+    assert_eq!(
+        interp2
+            .eval_str(&format!(
+                r#"(begin (import "{}") val)"#,
+                lisp_path(&module_path)
+            ))
+            .unwrap(),
+        Value::Int(2)
+    );
+}
+
+#[test]
+fn test_load_pops_file_context_even_if_file_disappears() {
+    let dir = unique_temp_dir("load-pop-context");
+    let script = dir.join("self-delete.sema");
+    let script_path = lisp_path(&script);
+
+    std::fs::write(
+        &script,
+        format!(r#"(begin (file/delete "{}") 1)"#, script_path),
+    )
+    .unwrap();
+
+    let interp = Interpreter::new();
+    assert_eq!(
+        interp
+            .eval_str(&format!(r#"(load "{}")"#, script_path))
+            .unwrap(),
+        Value::Int(1)
+    );
+    assert!(
+        sema_eval::current_file_path().is_none(),
+        "current file context should be cleared after load"
     );
 }
 
@@ -4625,6 +4790,45 @@ fn test_llm_clear_budget() {
 }
 
 #[test]
+fn test_with_budget_restores_outer_scope() {
+    let result = eval(
+        r#"
+        (begin
+          (llm/set-budget 10.0)
+          (with-budget {:max-cost-usd 1.0}
+            (llm/budget-remaining))
+          (llm/budget-remaining))
+    "#,
+    );
+
+    if let Value::Map(map) = result {
+        assert_eq!(
+            map.get(&Value::keyword("limit")),
+            Some(&Value::Float(10.0)),
+            "outer budget limit should be restored"
+        );
+        assert_eq!(
+            map.get(&Value::keyword("remaining")),
+            Some(&Value::Float(10.0))
+        );
+    } else {
+        panic!("expected map");
+    }
+}
+
+#[test]
+fn test_llm_state_isolation_between_interpreters() {
+    let interp1 = Interpreter::new();
+    interp1.eval_str("(llm/set-budget 5.0)").unwrap();
+
+    let interp2 = Interpreter::new();
+    assert_eq!(
+        interp2.eval_str("(llm/budget-remaining)").unwrap(),
+        Value::Nil
+    );
+}
+
+#[test]
 fn test_llm_set_default_no_provider() {
     // Should error when provider not configured
     let err = eval_err(r#"(llm/set-default :anthropic)"#);
@@ -4636,6 +4840,51 @@ fn test_llm_set_default_no_provider() {
 
 fn sema_cmd() -> std::process::Command {
     std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+}
+
+#[test]
+fn test_cli_provider_flag_sets_default_provider() {
+    let output = sema_cmd()
+        .env("ANTHROPIC_API_KEY", "dummy")
+        .env("OPENAI_API_KEY", "dummy")
+        .args(["--provider", "openai", "-p", "(llm/current-provider)"])
+        .output()
+        .expect("failed to run sema");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(":name :openai"),
+        "expected openai provider, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_cli_model_flag_sets_default_model() {
+    let output = sema_cmd()
+        .env_remove("ANTHROPIC_API_KEY")
+        .env("OPENAI_API_KEY", "dummy")
+        .args([
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-4o-mini",
+            "-p",
+            "(llm/current-provider)",
+        ])
+        .output()
+        .expect("failed to run sema");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(":name :openai"),
+        "expected openai provider, got: {stdout}"
+    );
+    assert!(
+        stdout.contains(":model \"gpt-4o-mini\""),
+        "expected model override, got: {stdout}"
+    );
 }
 
 #[test]

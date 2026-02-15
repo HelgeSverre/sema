@@ -98,7 +98,12 @@ fn main() {
 
     // Auto-configure LLM unless --no-init or --no-llm
     if !cli.no_init && !cli.no_llm {
-        let _ = interpreter.eval_str("(llm/auto-configure)");
+        if let Err(e) = interpreter.eval_str("(llm/auto-configure)") {
+            if cli.provider.is_some() || cli.model.is_some() {
+                print_error(&e);
+                std::process::exit(1);
+            }
+        }
     }
 
     // Load files first (in order)
