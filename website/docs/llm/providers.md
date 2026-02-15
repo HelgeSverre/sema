@@ -85,6 +85,7 @@ The `:complete` function receives a map with these keys:
 | `:temperature`  | float or nil    | Sampling temperature               |
 | `:system`       | string or nil   | System prompt                      |
 | `:tools`        | list or nil     | Tool schemas (if tools are in use) |
+| `:stop-sequences` | list or nil     | Stop sequences for generation       |
 
 ### Response Format
 
@@ -100,8 +101,11 @@ The function can return either:
 | `:model`          | string | request model |
 | `:stop-reason`    | string | `"end_turn"`  |
 | `:usage`          | map    | zero tokens   |
+| `:tool-calls`     | list    | empty list  |
 
 The `:usage` map can contain `:prompt-tokens` and `:completion-tokens` (both integers).
+
+The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and `:arguments` (map). This enables Lisp-defined providers to work with tool-calling agents.
 
 ### Examples
 

@@ -106,6 +106,8 @@ All providers are auto-configured from environment variables — just set the AP
 | **Jina**          | —    | —      | —     | ✅         |
 | **Voyage**        | —    | —      | —     | ✅         |
 | **Cohere**        | —    | —      | —     | ✅         |
+| **Any OpenAI-compat** | ✅   | ✅     | ✅    | —          |
+| **Custom (Lisp)**  | ✅   | —      | ✅    | —          |
 
 ## It's Also a Real Lisp
 
@@ -189,7 +191,7 @@ The [`examples/`](examples/) directory has 50+ programs:
 ## Why Sema?
 
 - **LLMs as language primitives** — prompts, messages, conversations, tools, and agents are first-class data types, not string templates bolted on
-- **Multi-provider** — swap between Anthropic, OpenAI, Gemini, Ollama, and more with a single config change
+- **Multi-provider** — swap between Anthropic, OpenAI, Gemini, Ollama, any OpenAI-compatible endpoint, or define your own provider in Sema
 - **Cost-aware** — built-in budget tracking with dynamic pricing from [llm-prices.com](https://www.llm-prices.com)
 - **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and 350+ stdlib functions
 - **Embeddable** — clean Rust crate structure with a builder API

@@ -48,7 +48,7 @@ Extract structured data from text and classify inputs.
 
 ### [Provider Management](./providers.md)
 
-Auto-configuration, runtime provider switching, and supported provider table.
+Auto-configuration, runtime provider switching, custom providers, and OpenAI-compatible endpoints.
 
 ### [Cost Tracking & Budgets](./cost.md)
 

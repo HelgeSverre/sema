@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+### Added
+
+- **`llm/define-provider`** — define LLM providers entirely in Sema code. The `:complete` function receives a request map (`:model`, `:messages`, `:max-tokens`, `:temperature`, `:system`, `:tools`, `:stop-sequences`) and returns a string or a response map with `:content`, `:usage`, `:tool-calls`, and `:stop-reason`. Supports closures, error propagation via `try`/`catch`, and tool-calling agents.
+- **OpenAI-compatible provider fallback** — `llm/configure` with any unknown provider name plus `:api-key` and `:base-url` now registers it as an OpenAI-compatible endpoint. Works with Together AI, Azure OpenAI, Fireworks, vLLM, LiteLLM, and any other OpenAI-compatible service.
+- **Tool-call responses from Lisp providers** — Lisp-defined providers can return `:tool-calls` in their response maps, enabling tool-calling agents to work with custom providers.
+
 ## 1.0.1
 
 ### Improved
