@@ -25,6 +25,7 @@ thread_local! {
     static SESSION_COST: RefCell<f64> = const { RefCell::new(0.0) };
     static BUDGET_LIMIT: RefCell<Option<f64>> = const { RefCell::new(None) };
     static BUDGET_SPENT: RefCell<f64> = const { RefCell::new(0.0) };
+    static BUDGET_STACK: RefCell<Vec<(Option<f64>, f64)>> = RefCell::new(Vec::new());
 }
 
 thread_local! {
@@ -36,6 +37,21 @@ pub fn set_eval_callback(f: impl Fn(&Value, &Env) -> Result<Value, SemaError> + 
     EVAL_FN.with(|eval| {
         *eval.borrow_mut() = Some(Box::new(f));
     });
+}
+
+/// Reset LLM runtime state used by builtins.
+/// Called by interpreter construction to avoid cross-instance leakage.
+pub fn reset_runtime_state() {
+    PROVIDER_REGISTRY.with(|r| *r.borrow_mut() = ProviderRegistry::new());
+    SESSION_USAGE.with(|u| *u.borrow_mut() = Usage::default());
+    LAST_USAGE.with(|u| *u.borrow_mut() = None);
+    EVAL_FN.with(|e| *e.borrow_mut() = None);
+    SESSION_COST.with(|c| *c.borrow_mut() = 0.0);
+    BUDGET_LIMIT.with(|l| *l.borrow_mut() = None);
+    BUDGET_SPENT.with(|s| *s.borrow_mut() = 0.0);
+    BUDGET_STACK.with(|s| s.borrow_mut().clear());
+    PRICING_WARNING_SHOWN.with(|shown| shown.set(false));
+    pricing::clear_fetched_pricing();
 }
 
 /// Evaluate an expression using the registered full evaluator.
@@ -155,6 +171,26 @@ pub fn set_budget(max_cost_usd: f64) {
 /// Clear the budget limit.
 pub fn clear_budget() {
     BUDGET_LIMIT.with(|l| *l.borrow_mut() = None);
+}
+
+/// Push a scoped budget and reset spent for the new scope.
+pub fn push_budget_scope(max_cost_usd: f64) {
+    let prev_limit = BUDGET_LIMIT.with(|l| *l.borrow());
+    let prev_spent = BUDGET_SPENT.with(|s| *s.borrow());
+    BUDGET_STACK.with(|stack| stack.borrow_mut().push((prev_limit, prev_spent)));
+    set_budget(max_cost_usd);
+}
+
+/// Pop a scoped budget and restore the previous budget state.
+pub fn pop_budget_scope() {
+    let prev = BUDGET_STACK.with(|stack| stack.borrow_mut().pop());
+    if let Some((limit, spent)) = prev {
+        BUDGET_LIMIT.with(|l| *l.borrow_mut() = limit);
+        BUDGET_SPENT.with(|s| *s.borrow_mut() = spent);
+    } else {
+        clear_budget();
+        BUDGET_SPENT.with(|s| *s.borrow_mut() = 0.0);
+    }
 }
 
 fn get_opt_string(opts: &BTreeMap<Value, Value>, key: &str) -> Option<String> {
@@ -353,126 +389,146 @@ pub fn register_llm_builtins(env: &Env) {
 
     // Auto-configure from environment variables
     register_fn(env, "llm/auto-configure", |_args| {
+        let forced_model = std::env::var("SEMA_DEFAULT_MODEL")
+            .ok()
+            .filter(|m| !m.is_empty());
+        let forced_provider = std::env::var("SEMA_LLM_PROVIDER")
+            .ok()
+            .map(|p| p.trim().to_ascii_lowercase())
+            .filter(|p| !p.is_empty());
+
         let result = PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
-            let mut first_configured: Option<&str> = None;
+            let mut first_configured: Option<String> = None;
 
             // Try Anthropic first (preferred)
             if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
                 if !key.is_empty() {
-                    let provider = AnthropicProvider::new(key, None)
+                    let provider = AnthropicProvider::new(key, forced_model.clone())
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
                         reg.set_default("anthropic");
-                        first_configured = Some("anthropic");
+                        first_configured = Some("anthropic".to_string());
                     }
                 }
             }
             // Try OpenAI
             if let Ok(key) = std::env::var("OPENAI_API_KEY") {
                 if !key.is_empty() {
-                    let provider = OpenAiProvider::new(key, None, None)
+                    let provider = OpenAiProvider::new(key, None, forced_model.clone())
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
                         reg.set_default("openai");
-                        first_configured = Some("openai");
+                        first_configured = Some("openai".to_string());
                     }
                 }
             }
             // Try Groq
             if let Ok(key) = std::env::var("GROQ_API_KEY") {
                 if !key.is_empty() {
+                    let model = forced_model
+                        .clone()
+                        .unwrap_or_else(|| "llama-3.3-70b-versatile".to_string());
                     let provider = OpenAiProvider::named(
                         "groq".to_string(),
                         key,
                         "https://api.groq.com/openai/v1".to_string(),
-                        "llama-3.3-70b-versatile".to_string(),
+                        model,
                         true,
                     )
                     .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
                         reg.set_default("groq");
-                        first_configured = Some("groq");
+                        first_configured = Some("groq".to_string());
                     }
                 }
             }
             // Try xAI
             if let Ok(key) = std::env::var("XAI_API_KEY") {
                 if !key.is_empty() {
+                    let model = forced_model
+                        .clone()
+                        .unwrap_or_else(|| "grok-3-mini-fast".to_string());
                     let provider = OpenAiProvider::named(
                         "xai".to_string(),
                         key,
                         "https://api.x.ai/v1".to_string(),
-                        "grok-3-mini-fast".to_string(),
+                        model,
                         true,
                     )
                     .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
                         reg.set_default("xai");
-                        first_configured = Some("xai");
+                        first_configured = Some("xai".to_string());
                     }
                 }
             }
             // Try Mistral
             if let Ok(key) = std::env::var("MISTRAL_API_KEY") {
                 if !key.is_empty() {
+                    let model = forced_model
+                        .clone()
+                        .unwrap_or_else(|| "mistral-small-latest".to_string());
                     let provider = OpenAiProvider::named(
                         "mistral".to_string(),
                         key,
                         "https://api.mistral.ai/v1".to_string(),
-                        "mistral-small-latest".to_string(),
+                        model,
                         false,
                     )
                     .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
                         reg.set_default("mistral");
-                        first_configured = Some("mistral");
+                        first_configured = Some("mistral".to_string());
                     }
                 }
             }
             // Try Moonshot
             if let Ok(key) = std::env::var("MOONSHOT_API_KEY") {
                 if !key.is_empty() {
+                    let model = forced_model
+                        .clone()
+                        .unwrap_or_else(|| "moonshot-v1-8k".to_string());
                     let provider = OpenAiProvider::named(
                         "moonshot".to_string(),
                         key,
                         "https://api.moonshot.ai/v1".to_string(),
-                        "moonshot-v1-8k".to_string(),
+                        model,
                         false,
                     )
                     .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
                         reg.set_default("moonshot");
-                        first_configured = Some("moonshot");
+                        first_configured = Some("moonshot".to_string());
                     }
                 }
             }
             // Try Google Gemini
             if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
                 if !key.is_empty() {
-                    let provider = GeminiProvider::new(key, None)
+                    let provider = GeminiProvider::new(key, forced_model.clone())
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
                         reg.set_default("gemini");
-                        first_configured = Some("gemini");
+                        first_configured = Some("gemini".to_string());
                     }
                 }
             }
             // Try Ollama (local, no auth)
             if std::env::var("OLLAMA_HOST").is_ok() {
-                let provider =
-                    OllamaProvider::new(None, None).map_err(|e| SemaError::Llm(e.to_string()))?;
+                let provider = OllamaProvider::new(None, forced_model.clone())
+                    .map_err(|e| SemaError::Llm(e.to_string()))?;
                 reg.register(Box::new(provider));
                 if first_configured.is_none() {
                     reg.set_default("ollama");
-                    first_configured = Some("ollama");
+                    first_configured = Some("ollama".to_string());
                 }
             }
 
@@ -517,8 +573,19 @@ pub fn register_llm_builtins(env: &Env) {
                 }
             }
 
+            if let Some(requested_provider) = forced_provider.as_deref() {
+                if reg.get(requested_provider).is_some() {
+                    reg.set_default(requested_provider);
+                    first_configured = Some(requested_provider.to_string());
+                } else {
+                    return Err(SemaError::Llm(format!(
+                        "requested provider is not configured: {requested_provider}"
+                    )));
+                }
+            }
+
             match first_configured {
-                Some(name) => Ok(Value::keyword(name)),
+                Some(name) => Ok(Value::keyword(&name)),
                 None => Ok(Value::Nil),
             }
         })?;

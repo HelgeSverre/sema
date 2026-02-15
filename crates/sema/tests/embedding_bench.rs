@@ -107,6 +107,7 @@ fn bench<F: Fn() -> R, R>(name: &str, iterations: usize, f: F) -> std::time::Dur
 }
 
 #[test]
+#[ignore = "expensive benchmark test; run with `make test-embedding-bench`"]
 fn bench_embedding_representations() {
     println!("\n=== EMBEDDING REPRESENTATION BENCHMARK ===\n");
 

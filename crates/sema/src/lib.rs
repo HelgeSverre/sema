@@ -68,6 +68,9 @@ impl InterpreterBuilder {
 
     /// Build the [`Interpreter`] with the configured options.
     pub fn build(self) -> Interpreter {
+        sema_eval::reset_runtime_state();
+        sema_llm::builtins::reset_runtime_state();
+
         let env = Env::new();
 
         if self.stdlib {

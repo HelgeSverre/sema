@@ -191,11 +191,13 @@
       (else (loop (+ (* 3 x) 1) (+ steps 1))))))
 
 (println (format "\nCollatz sequence lengths:"))
-(for-each
-  (fn (n)
-    (println (format "  ~a → ~a steps"
-      (string/pad-left (str n) 4)
-      (collatz n))))
-  (list 1 7 27 97 871 6171))
+(let loop ((nums (list 1 7 27 97 871 6171)))
+  (if (null? nums)
+    nil
+    (let ((n (first nums)))
+      (println (format "  ~a → ~a steps"
+        (string/pad-left (str n) 4)
+        (collatz n)))
+      (loop (rest nums)))))
 
 (println "\nDone!")
