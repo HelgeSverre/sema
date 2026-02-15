@@ -53,8 +53,8 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 |-------|------|-----------|
 | **sema-core** | Shared types | `Value` (23 variants), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types |
 | **sema-reader** | Parsing | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap` |
-| **sema-eval** | Evaluation | Trampoline-based evaluator, 33 special forms, module system, call stack + span table |
-| **sema-stdlib** | Standard library | ~350 native functions across 17 modules, plus mini-evaluator for hot paths |
+| **sema-eval** | Evaluation | Trampoline-based evaluator, 39 special forms, module system, call stack + span table |
+| **sema-stdlib** | Standard library | ~350 native functions across 19 modules, plus mini-evaluator for hot paths |
 | **sema-llm** | LLM integration | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
 | **sema** | Binary | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API |
 
@@ -229,7 +229,7 @@ SemaError::type_error("int", val.type_name())
 SemaError::arity("map", "2", args.len())
 ```
 
-This keeps error construction concise across ~350 native functions and 33 special forms.
+This keeps error construction concise across ~350 native functions and 39 special forms.
 
 ### Lazy Stack Traces
 
@@ -252,25 +252,33 @@ pub fn with_stack_trace(self, trace: StackTrace) -> Self {
 
 This avoids the cost of capturing a stack trace for errors that are caught by `try`/`catch` — only errors that propagate to the top level pay the trace cost. The idempotence check (`WithTrace { .. } => self`) prevents double-wrapping when an error passes through multiple call frames.
 
-## Thread-Local State
+## Interpreter State
 
-Sema uses thread-local storage extensively. This is a direct consequence of the single-threaded architecture — thread-locals are faster than `Arc<Mutex<_>>` and don't require `Send`/`Sync` bounds.
+Sema's evaluator state is held in an explicit `EvalContext` struct, defined in `sema-core/src/context.rs` and threaded through the evaluator as `ctx: &EvalContext`. Each `Interpreter` instance owns its own `EvalContext`, enabling multiple independent interpreters per thread with fully isolated state.
 
-### Inventory
+### EvalContext Fields
+
+| Field | Type | Purpose |
+|-------|------|---------|
+| `module_cache` | `RefCell<BTreeMap<PathBuf, ...>>` | Loaded modules (path → exports) |
+| `current_file` | `RefCell<Vec<PathBuf>>` | Stack of file paths being executed |
+| `module_exports` | `RefCell<Vec<Option<Vec<String>>>>` | Exports declared by currently-loading module |
+| `module_load_stack` | `RefCell<Vec<PathBuf>>` | Cycle detection during module loading |
+| `call_stack` | `RefCell<Vec<CallFrame>>` | Call frames for error traces |
+| `span_table` | `RefCell<HashMap<usize, Span>>` | Rc pointer address → source span |
+| `eval_depth` | `Cell<usize>` | Recursion depth counter |
+| `eval_step_limit` | `Cell<usize>` | Step limit for fuzz targets |
+| `eval_steps` | `Cell<usize>` | Current step counter |
+
+### Remaining Thread-Locals
+
+Some state remains in thread-local storage — either because it's a pure performance cache or because it belongs to a subsystem that hasn't been refactored yet:
 
 | Location | Thread-local | Purpose |
 |----------|-------------|---------|
 | `sema-core/value.rs` | `INTERNER` | String interner (`lasso::Rodeo`) |
-| `sema-eval/eval.rs` | `MODULE_CACHE` | Loaded modules (path → exports) |
-| `sema-eval/eval.rs` | `CURRENT_FILE` | Stack of file paths being executed |
-| `sema-eval/eval.rs` | `MODULE_EXPORTS` | Exports declared by currently-loading module |
-| `sema-eval/eval.rs` | `CALL_STACK` | Call frames for error traces |
-| `sema-eval/eval.rs` | `SPAN_TABLE` | Rc pointer address → source span |
-| `sema-eval/eval.rs` | `EVAL_DEPTH` | Recursion depth counter |
-| `sema-eval/eval.rs` | `EVAL_STEP_LIMIT` | Step limit for fuzz targets |
-| `sema-eval/eval.rs` | `EVAL_STEPS` | Current step counter |
-| `sema-eval/special_forms.rs` | `SF` | Cached `SpecialFormSpurs` |
-| `sema-stdlib/list.rs` | `SF` | Cached mini-eval `SpecialFormSpurs` |
+| `sema-eval/special_forms.rs` | `SF` | Cached `SpecialFormSpurs` (performance cache) |
+| `sema-stdlib/list.rs` | `SF` | Cached mini-eval `SpecialFormSpurs` (performance cache) |
 | `sema-llm/builtins.rs` | `PROVIDER_REGISTRY` | Registered LLM providers |
 | `sema-llm/builtins.rs` | `SESSION_USAGE` | Cumulative token usage |
 | `sema-llm/builtins.rs` | `LAST_USAGE` | Most recent completion's usage |
@@ -282,7 +290,9 @@ Sema uses thread-local storage extensively. This is a direct consequence of the 
 
 ### Implications for Embedding
 
-Thread-local state means **one interpreter per thread**. If you embed Sema via `InterpreterBuilder` and spawn multiple threads, each thread gets its own interner, module cache, provider registry, etc. There's no sharing between threads, which is both a limitation (no shared state) and a feature (no synchronization overhead, no data races).
+Multiple `Interpreter` instances can coexist on the same thread with fully isolated evaluator state — each has its own module cache, call stack, span table, and depth counters. The string interner (`INTERNER`) remains shared per-thread, which is correct since `Spur` handles must be consistent within a thread. LLM state (provider registry, usage tracking, budgets) is also per-thread, meaning all interpreters on the same thread share provider configuration and cost tracking.
+
+`Value` instances are not `Send` or `Sync` (they use `Rc`, not `Arc`), so interpreters cannot be moved across threads.
 
 ## WASM Support
 
@@ -393,16 +403,16 @@ The cost: any special form or builtin not handled by the mini-eval is invisible 
 
 ### Solution 2: Eval Callback (sema-llm)
 
-`sema-llm` takes a different approach. It stores a function pointer in a thread-local:
+`sema-llm` takes a different approach. It stores a function pointer in a thread-local that bridges the dependency gap:
 
 ```rust
-pub type EvalCallback = Box<dyn Fn(&Value, &Env) -> Result<Value, SemaError>>;
+pub type EvalCallback = Box<dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>>;
 
 thread_local! {
     static EVAL_FN: RefCell<Option<EvalCallback>> = RefCell::new(None);
 }
 
-pub fn set_eval_callback(f: impl Fn(&Value, &Env) -> Result<Value, SemaError> + 'static) {
+pub fn set_eval_callback(f: impl Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError> + 'static) {
     EVAL_FN.with(|eval| {
         *eval.borrow_mut() = Some(Box::new(f));
     });
@@ -412,17 +422,17 @@ pub fn set_eval_callback(f: impl Fn(&Value, &Env) -> Result<Value, SemaError> + 
 At startup, the binary crate registers the full evaluator:
 
 ```rust
-sema_llm::set_eval_callback(|expr, env| sema_eval::eval_value(expr, env));
+sema_llm::builtins::set_eval_callback(sema_eval::eval_value);
 ```
 
 When a tool handler needs to evaluate Sema code, it calls through this indirection:
 
 ```rust
-fn full_eval(expr: &Value, env: &Env) -> Result<Value, SemaError> {
+fn full_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
     EVAL_FN.with(|eval_fn| {
         let eval_fn = eval_fn.borrow();
         match &*eval_fn {
-            Some(f) => f(expr, env),
+            Some(f) => f(ctx, expr, env),
             None => simple_eval(expr, env),  // fallback if no callback registered
         }
     })

@@ -1,7 +1,9 @@
 #![allow(clippy::mutable_key_type)]
+pub mod context;
 pub mod error;
 pub mod value;
 
+pub use context::EvalContext;
 pub use error::{CallFrame, SemaError, Span, SpanMap, StackTrace};
 pub use lasso::Spur;
 pub use value::{

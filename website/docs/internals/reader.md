@@ -189,15 +189,15 @@ The `SpanMap` is a `HashMap<usize, Span>` — it maps `Rc::as_ptr()` cast to `us
 
 ### Span Recovery in the Evaluator
 
-The span table is thread-local (`SPAN_TABLE`), populated when source is parsed via `merge_span_table(spans)`:
+The span table is a field in `EvalContext`, populated when source is parsed via `ctx.merge_span_table(spans)`:
 
 ```rust
 // crates/sema-eval/src/eval.rs
-fn span_of_expr(expr: &Value) -> Option<Span> {
+fn span_of_expr(ctx: &EvalContext, expr: &Value) -> Option<Span> {
     match expr {
         Value::List(items) => {
             let ptr = Rc::as_ptr(items) as usize;
-            lookup_span(ptr)
+            ctx.lookup_span(ptr)
         }
         _ => None,
     }
@@ -237,7 +237,7 @@ pub fn read_many(input: &str) -> Result<Vec<Value>, SemaError>
 pub fn read_many_with_spans(input: &str) -> Result<(Vec<Value>, SpanMap), SemaError>
 ```
 
-`read_many_with_spans` is what the evaluator uses — it needs the span map to populate the thread-local `SPAN_TABLE`. The simpler `read` and `read_many` are convenience wrappers for contexts where error positions aren't needed (tests, REPL one-liners).
+`read_many_with_spans` is what the evaluator uses — it needs the span map to populate the `EvalContext`'s span table. The simpler `read` and `read_many` are convenience wrappers for contexts where error positions aren't needed (tests, REPL one-liners).
 
 ## Pipeline Summary
 
@@ -253,8 +253,8 @@ Parser::parse()     crates/sema-reader/src/reader.rs
   │                 "recursive descent"
   │                 "produces Vec<Value> + SpanMap"
   ▼
-merge_span_table()  crates/sema-eval/src/eval.rs
-  │                 "populates thread-local SPAN_TABLE"
+ctx.merge_span_table()  crates/sema-eval/src/eval.rs
+  │                 "populates EvalContext span table"
   ▼
 eval()              crates/sema-eval/src/eval.rs
   │                 "trampoline-based TCO evaluator"

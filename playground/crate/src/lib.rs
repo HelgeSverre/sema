@@ -57,10 +57,7 @@ fn register_wasm_io(env: &Env) {
     let register = |name: &str, f: Box<dyn Fn(&[Value]) -> Result<Value, SemaError>>| {
         env.set(
             sema_core::intern(name),
-            Value::NativeFn(Rc::new(NativeFn {
-                name: name.to_string(),
-                func: f,
-            })),
+            Value::NativeFn(Rc::new(NativeFn::simple(name, move |args| f(args)))),
         );
     };
 
@@ -1090,7 +1087,7 @@ impl WasmInterpreter {
         LINE_BUF.with(|b| b.borrow_mut().clear());
 
         let env = sema_core::Env::with_parent(self.inner.global_env.clone());
-        match sema_eval::eval_string(code, &env) {
+        match sema_eval::eval_string(&self.inner.ctx, code, &env) {
             Ok(val) => {
                 let output = take_output();
                 let val_str = if matches!(val, Value::Nil) {
@@ -1132,7 +1129,7 @@ impl WasmInterpreter {
         OUTPUT.with(|o| o.borrow_mut().clear());
         LINE_BUF.with(|b| b.borrow_mut().clear());
 
-        match sema_eval::eval_string(code, &self.inner.global_env) {
+        match sema_eval::eval_string(&self.inner.ctx, code, &self.inner.global_env) {
             Ok(val) => {
                 let output = take_output();
                 let val_str = if matches!(val, Value::Nil) {

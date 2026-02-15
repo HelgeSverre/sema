@@ -18,9 +18,10 @@
 |----------|--------------|-----------|-----------|
 | `MODULE_CACHE` | Per-thread | Per-interpreter | Each interpreter should have independent modules |
 | `CURRENT_FILE` | Per-thread | Per-context (stack) | Scoped to eval invocation chain |
-| `MODULE_EXPORTS` | Per-thread | Per-context (stack) | Scoped to current module load |
+| `MODULE_EXPORTS` | Per-thread | Per-context (stack of `Option<Vec<String>>`) | Already a stack for nested import reentrancy |
+| `MODULE_LOAD_STACK` | Per-thread | Per-context (stack) | Cyclic import detection |
 | `CALL_STACK` | Per-thread | Per-context | Scoped to eval invocation chain |
-| `SPAN_TABLE` | Per-thread | Per-interpreter | Spans persist across eval calls |
+| `SPAN_TABLE` | Per-thread | Per-interpreter | Spans persist across eval calls (with 200K cap) |
 | `EVAL_DEPTH` | Per-thread | Per-context | Tracks nesting depth |
 | `EVAL_STEP_LIMIT` | Per-thread | Per-context | Set once, read per eval |
 | `EVAL_STEPS` | Per-thread | Per-context | Reset at top-level eval |
@@ -42,7 +43,7 @@ impl NativeFn {
 }
 ```
 
-### Interior mutability: `Rc<RefCell<...>>` inside EvalContext
+### Interior mutability: `RefCell`/`Cell` inside EvalContext
 
 The eval loop needs to hold `&EvalContext` while also mutating the call stack (via RAII guards). Using `RefCell` inside the struct avoids borrow-checker fights with `&mut`:
 
@@ -50,7 +51,8 @@ The eval loop needs to hold `&EvalContext` while also mutating the call stack (v
 pub struct EvalContext {
     pub module_cache: RefCell<BTreeMap<PathBuf, BTreeMap<String, Value>>>,
     pub current_file: RefCell<Vec<PathBuf>>,
-    pub module_exports: RefCell<Option<Vec<String>>>,
+    pub module_exports: RefCell<Vec<Option<Vec<String>>>>,
+    pub module_load_stack: RefCell<Vec<PathBuf>>,
     pub call_stack: RefCell<Vec<CallFrame>>,
     pub span_table: RefCell<HashMap<usize, Span>>,
     pub eval_depth: Cell<usize>,
@@ -77,7 +79,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use crate::{CallFrame, Span, Value};
+use crate::{CallFrame, SemaError, Span, SpanMap, StackTrace, Value};
+
+const MAX_SPAN_TABLE_ENTRIES: usize = 200_000;
 
 /// Evaluation context — holds all mutable interpreter state.
 ///
@@ -86,7 +90,8 @@ use crate::{CallFrame, Span, Value};
 pub struct EvalContext {
     pub module_cache: RefCell<BTreeMap<PathBuf, BTreeMap<String, Value>>>,
     pub current_file: RefCell<Vec<PathBuf>>,
-    pub module_exports: RefCell<Option<Vec<String>>>,
+    pub module_exports: RefCell<Vec<Option<Vec<String>>>>,
+    pub module_load_stack: RefCell<Vec<PathBuf>>,
     pub call_stack: RefCell<Vec<CallFrame>>,
     pub span_table: RefCell<HashMap<usize, Span>>,
     pub eval_depth: Cell<usize>,
@@ -99,13 +104,135 @@ impl EvalContext {
         Self {
             module_cache: RefCell::new(BTreeMap::new()),
             current_file: RefCell::new(Vec::new()),
-            module_exports: RefCell::new(None),
+            module_exports: RefCell::new(Vec::new()),
+            module_load_stack: RefCell::new(Vec::new()),
             call_stack: RefCell::new(Vec::new()),
             span_table: RefCell::new(HashMap::new()),
             eval_depth: Cell::new(0),
             eval_step_limit: Cell::new(0),
             eval_steps: Cell::new(0),
         }
+    }
+
+    // --- File path stack ---
+
+    pub fn push_file_path(&self, path: PathBuf) {
+        self.current_file.borrow_mut().push(path);
+    }
+
+    pub fn pop_file_path(&self) {
+        self.current_file.borrow_mut().pop();
+    }
+
+    pub fn current_file_dir(&self) -> Option<PathBuf> {
+        self.current_file
+            .borrow()
+            .last()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+    }
+
+    pub fn current_file_path(&self) -> Option<PathBuf> {
+        self.current_file.borrow().last().cloned()
+    }
+
+    // --- Module cache ---
+
+    pub fn get_cached_module(&self, path: &PathBuf) -> Option<BTreeMap<String, Value>> {
+        self.module_cache.borrow().get(path).cloned()
+    }
+
+    pub fn cache_module(&self, path: PathBuf, exports: BTreeMap<String, Value>) {
+        self.module_cache.borrow_mut().insert(path, exports);
+    }
+
+    // --- Module exports (stack for nested imports) ---
+
+    pub fn set_module_exports(&self, names: Vec<String>) {
+        let mut stack = self.module_exports.borrow_mut();
+        if let Some(top) = stack.last_mut() {
+            *top = Some(names);
+        }
+    }
+
+    pub fn clear_module_exports(&self) {
+        self.module_exports.borrow_mut().push(None);
+    }
+
+    pub fn take_module_exports(&self) -> Option<Vec<String>> {
+        self.module_exports.borrow_mut().pop().flatten()
+    }
+
+    // --- Module load stack (cyclic import detection) ---
+
+    pub fn begin_module_load(&self, path: &PathBuf) -> Result<(), SemaError> {
+        let mut stack = self.module_load_stack.borrow_mut();
+        if let Some(pos) = stack.iter().position(|p| p == path) {
+            let mut cycle: Vec<String> = stack[pos..]
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect();
+            cycle.push(path.display().to_string());
+            return Err(SemaError::eval(format!(
+                "cyclic import detected: {}",
+                cycle.join(" -> ")
+            )));
+        }
+        stack.push(path.clone());
+        Ok(())
+    }
+
+    pub fn end_module_load(&self, path: &PathBuf) {
+        let mut stack = self.module_load_stack.borrow_mut();
+        if matches!(stack.last(), Some(last) if last == path) {
+            stack.pop();
+        } else if let Some(pos) = stack.iter().rposition(|p| p == path) {
+            stack.remove(pos);
+        }
+    }
+
+    // --- Call stack ---
+
+    pub fn push_call_frame(&self, frame: CallFrame) {
+        self.call_stack.borrow_mut().push(frame);
+    }
+
+    pub fn call_stack_depth(&self) -> usize {
+        self.call_stack.borrow().len()
+    }
+
+    pub fn truncate_call_stack(&self, depth: usize) {
+        self.call_stack.borrow_mut().truncate(depth);
+    }
+
+    pub fn capture_stack_trace(&self) -> StackTrace {
+        StackTrace(
+            self.call_stack
+                .borrow()
+                .iter()
+                .rev()
+                .cloned()
+                .collect(),
+        )
+    }
+
+    // --- Span table ---
+
+    pub fn merge_span_table(&self, spans: SpanMap) {
+        let mut table = self.span_table.borrow_mut();
+        if table.len().saturating_add(spans.len()) > MAX_SPAN_TABLE_ENTRIES {
+            table.clear();
+        }
+        table.extend(spans);
+    }
+
+    pub fn lookup_span(&self, ptr: usize) -> Option<Span> {
+        self.span_table.borrow().get(&ptr).cloned()
+    }
+
+    // --- Eval step tracking ---
+
+    pub fn set_eval_step_limit(&self, limit: usize) {
+        self.eval_step_limit.set(limit);
     }
 }
 
@@ -231,15 +358,15 @@ pub struct Interpreter {
 }
 ```
 
-Update `Interpreter::new()` to create the context:
+Update `Interpreter::new()` to create the context. Remove the `reset_runtime_state()` call — a fresh `EvalContext` replaces it:
 ```rust
 pub fn new() -> Self {
     let env = Env::new();
     sema_stdlib::register_stdlib(&env);
     #[cfg(not(target_arch = "wasm32"))]
     {
+        sema_llm::builtins::reset_runtime_state();
         sema_llm::builtins::register_llm_builtins(&env);
-        // eval callback setup deferred to after ctx exists
     }
     let ctx = EvalContext::new();
     Interpreter {
@@ -248,6 +375,8 @@ pub fn new() -> Self {
     }
 }
 ```
+
+Note: `sema_llm::builtins::reset_runtime_state()` is kept for now since LLM thread-locals remain.
 
 **Step 2: Change eval_value / eval_value_inner / eval_step signatures**
 
@@ -258,67 +387,9 @@ Add `ctx: &EvalContext` parameter to:
 - `pub fn eval_string(input: &str, env: &Env, ctx: &EvalContext) -> EvalResult`
 - `pub fn eval(expr: &Value, env: &Env, ctx: &EvalContext) -> EvalResult`
 
-Replace all `THREAD_LOCAL.with(...)` accesses with `ctx.field` accesses.
+Replace all `THREAD_LOCAL.with(...)` accesses with `ctx.field` / `ctx.method()` accesses.
 
-**Step 3: Update helper functions to take &EvalContext instead of using thread-locals**
-
-Convert the free functions (push_file_path, pop_file_path, etc.) to methods on EvalContext or to functions that take `&EvalContext`:
-
-```rust
-// These become methods on EvalContext (in sema-core/src/context.rs):
-impl EvalContext {
-    pub fn push_file_path(&self, path: PathBuf) {
-        self.current_file.borrow_mut().push(path);
-    }
-    pub fn pop_file_path(&self) {
-        self.current_file.borrow_mut().pop();
-    }
-    pub fn current_file_dir(&self) -> Option<PathBuf> {
-        self.current_file.borrow().last().and_then(|p| p.parent().map(|d| d.to_path_buf()))
-    }
-    pub fn current_file_path(&self) -> Option<PathBuf> {
-        self.current_file.borrow().last().cloned()
-    }
-    pub fn get_cached_module(&self, path: &PathBuf) -> Option<BTreeMap<String, Value>> {
-        self.module_cache.borrow().get(path).cloned()
-    }
-    pub fn cache_module(&self, path: PathBuf, exports: BTreeMap<String, Value>) {
-        self.module_cache.borrow_mut().insert(path, exports);
-    }
-    pub fn set_module_exports(&self, names: Vec<String>) {
-        *self.module_exports.borrow_mut() = Some(names);
-    }
-    pub fn clear_module_exports(&self) {
-        *self.module_exports.borrow_mut() = None;
-    }
-    pub fn take_module_exports(&self) -> Option<Vec<String>> {
-        self.module_exports.borrow_mut().take()
-    }
-    pub fn push_call_frame(&self, frame: CallFrame) {
-        self.call_stack.borrow_mut().push(frame);
-    }
-    pub fn call_stack_depth(&self) -> usize {
-        self.call_stack.borrow().len()
-    }
-    pub fn truncate_call_stack(&self, depth: usize) {
-        self.call_stack.borrow_mut().truncate(depth);
-    }
-    pub fn capture_stack_trace(&self) -> StackTrace {
-        StackTrace(self.call_stack.borrow().iter().rev().cloned().collect())
-    }
-    pub fn merge_span_table(&self, spans: SpanMap) {
-        self.span_table.borrow_mut().extend(spans);
-    }
-    pub fn lookup_span(&self, ptr: usize) -> Option<Span> {
-        self.span_table.borrow().get(&ptr).cloned()
-    }
-    pub fn set_eval_step_limit(&self, limit: usize) {
-        self.eval_step_limit.set(limit);
-    }
-}
-```
-
-**Step 4: Update CallStackGuard to hold &EvalContext**
+**Step 3: Update CallStackGuard to hold &EvalContext**
 
 ```rust
 struct CallStackGuard<'a> {
@@ -333,13 +404,21 @@ impl Drop for CallStackGuard<'_> {
 }
 ```
 
-**Step 5: Keep old free functions as thin wrappers (temporary)**
+**Step 4: Update span_of_expr to take &EvalContext**
 
-To avoid breaking all callers at once, keep the old free functions in `eval.rs` but have them panic with a clear message or delegate to a temporary thread-local that will be removed later. Alternatively, remove them from `lib.rs` exports and fix all call sites immediately.
+```rust
+fn span_of_expr(expr: &Value, ctx: &EvalContext) -> Option<Span> {
+    match expr {
+        Value::List(items) => {
+            let ptr = Rc::as_ptr(items) as usize;
+            ctx.lookup_span(ptr)
+        }
+        _ => None,
+    }
+}
+```
 
-Recommended: **remove them from exports** and fix callers in Tasks 4-7.
-
-**Step 6: Update Interpreter methods**
+**Step 5: Update Interpreter methods**
 
 ```rust
 impl Interpreter {
@@ -358,12 +437,26 @@ impl Interpreter {
 }
 ```
 
-**Step 7: Verify sema-eval compiles**
+**Step 6: Update set_eval_callback to pass ctx**
+
+The LLM eval callback must pass the context through. Update the callback setup:
+```rust
+// In Interpreter::new(), after ctx is created, we need the callback to
+// capture a reference. Since ctx lives on the Interpreter, the callback
+// must receive ctx at call time, not capture it.
+// This means EvalCallback signature must change (see Task 6).
+```
+
+**Step 7: Delete `reset_runtime_state()` from eval.rs**
+
+This function manually cleared all thread-locals. With `EvalContext`, creating a new `Interpreter` gives fresh state automatically. Delete `reset_runtime_state` and remove it from `lib.rs` exports.
+
+**Step 8: Verify sema-eval compiles**
 
 Run: `cargo build -p sema-eval`
-Expected: compilation errors in special_forms.rs (next task).
+Expected: compilation errors in special_forms.rs (next task) and downstream crates (expected).
 
-**Step 8: Commit (WIP)**
+**Step 9: Commit (WIP)**
 ```
 git add -A && git commit -m "wip(eval): thread EvalContext through eval functions"
 ```
@@ -387,18 +480,68 @@ pub fn try_eval_special(
 ) -> Option<Result<Trampoline, SemaError>>
 ```
 
-And propagate to every `eval_*` function in special_forms.rs. Each one that calls `eval::eval_value` now passes `ctx`.
+And propagate `ctx` to every `eval_*` function in special_forms.rs (~34 functions). Each one that calls `eval::eval_value` now passes `ctx`.
 
-Functions that call `eval::` helper functions (push_file_path, etc.) now call `ctx.` methods instead.
+**Step 2: Update eval_import to use ctx methods**
 
-Key functions to update:
-- `eval_import` — uses push_file_path, pop_file_path, current_file_dir, get_cached_module, cache_module, merge_span_table, create_module_env, set_module_exports, clear_module_exports, take_module_exports
-- `eval_load` — uses push_file_path, pop_file_path, current_file_dir, merge_span_table
-- `eval_module` — uses set_module_exports
-- `eval_with_budget` — calls sema_llm budget functions (unchanged for now)
-- All others — just forward ctx to `eval::eval_value(expr, env, ctx)`
+This is the most complex special form. Replace all `eval::` free function calls with `ctx.` method calls:
+```rust
+fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    // ...
+    let resolved = if std::path::Path::new(path_str).is_absolute() {
+        std::path::PathBuf::from(path_str)
+    } else if let Some(dir) = ctx.current_file_dir() {  // was: eval::current_file_dir()
+        dir.join(path_str)
+    } else {
+        std::path::PathBuf::from(path_str)
+    };
+    // ...
+    if let Some(cached) = ctx.get_cached_module(&canonical) {  // was: eval::get_cached_module
+        // ...
+    }
 
-**Step 2: Update call site in eval.rs**
+    ctx.begin_module_load(&canonical)?;  // was: eval::begin_module_load
+
+    let load_result = (|| {
+        // ...
+        ctx.merge_span_table(spans);  // was: eval::merge_span_table
+        let module_env = eval::create_module_env(env);
+        ctx.push_file_path(canonical.clone());  // was: eval::push_file_path
+        ctx.clear_module_exports();  // was: eval::clear_module_exports
+
+        let eval_result = (|| {
+            for expr in &exprs {
+                eval::eval_value(expr, &module_env, ctx)?;  // added ctx
+            }
+            Ok(())
+        })();
+
+        ctx.pop_file_path();  // was: eval::pop_file_path
+        let declared = ctx.take_module_exports();  // was: eval::take_module_exports
+        eval_result?;
+        Ok(collect_module_exports(&module_env, declared.as_deref()))
+    })();
+
+    ctx.end_module_load(&canonical);  // was: eval::end_module_load
+    let exports = load_result?;
+    ctx.cache_module(canonical, exports.clone());  // was: eval::cache_module
+    // ...
+}
+```
+
+**Step 3: Update eval_load similarly**
+
+Replace `eval::push_file_path`, `eval::pop_file_path`, `eval::current_file_dir`, `eval::merge_span_table` with `ctx.` calls.
+
+**Step 4: Update eval_module**
+
+Replace `eval::set_module_exports(export_names)` with `ctx.set_module_exports(export_names)`.
+
+**Step 5: Update all other special forms**
+
+For the remaining ~30 functions, the only change is adding `, ctx` to `eval::eval_value(expr, env)` calls. This is mechanical.
+
+**Step 6: Update call site in eval.rs**
 
 In `eval_step`, update:
 ```rust
@@ -407,57 +550,68 @@ if let Some(result) = special_forms::try_eval_special(*spur, args, env, ctx) {
 }
 ```
 
-**Step 3: Update native function calls in eval_step**
+**Step 7: Update native function calls in eval_step**
 
 Where native functions are called:
 ```rust
-match (native.func)(&ctx, &eval_args) { ... }
+match (native.func)(ctx, &eval_args) { ... }
 ```
 
-**Step 4: Verify sema-eval compiles and tests pass**
+And update `CallFrame` construction:
+```rust
+let frame = CallFrame {
+    name: native.name.to_string(),
+    file: ctx.current_file_path(),  // was: current_file_path()
+    span: call_span,
+};
+```
+
+**Step 8: Verify sema-eval compiles and tests pass**
 
 Run: `cargo test -p sema-eval`
 Expected: should compile; tests in sema-eval should pass.
 
-**Step 5: Commit**
+**Step 9: Commit**
 ```
 git add -A && git commit -m "feat(eval): thread EvalContext through special forms"
 ```
 
 ---
 
-## Phase 3: Update stdlib native function registrations
+## Phase 3: Update stdlib and LLM native function registrations
 
 ### Task 5: Update sema-stdlib to use NativeFn::simple()
 
 **Files:**
-- Modify: All files in `crates/sema-stdlib/src/` (arithmetic.rs, list.rs, string.rs, etc.)
+- Modify: `crates/sema-stdlib/src/lib.rs` (the `register_fn` helper)
+- Potentially: other files if they construct `NativeFn` directly
 
-**Step 1: Find-and-replace NativeFn construction pattern**
+**Step 1: Update the register_fn helper**
 
-Current pattern in stdlib registration:
+The stdlib has a centralized `register_fn` helper in `lib.rs`:
 ```rust
+// Current:
 Value::NativeFn(Rc::new(NativeFn {
     name: name.to_string(),
     func: Box::new(f),
 }))
-```
 
-Replace with:
-```rust
+// Change to:
 Value::NativeFn(Rc::new(NativeFn::simple(name, f)))
 ```
 
-This is a mechanical transformation. A regex replacement should handle most cases. The `register_fn` helper patterns in each module's `register()` function typically wrap the construction.
+Since stdlib does NOT depend on sema-eval (no circular dep), **all stdlib functions use `NativeFn::simple()`**. No function needs `with_ctx`.
 
-Check for any stdlib functions that use `current_file_dir()`, `current_file_path()`, or other eval-state accessors — these would need `NativeFn::with_ctx()` instead. Based on investigation, stdlib does NOT call any sema-eval functions (it has no dependency on sema-eval), so **all stdlib functions can use `NativeFn::simple()`**.
+**Step 2: Also update define-record-type in special_forms.rs**
 
-**Step 2: Verify it compiles**
+The `eval_define_record_type` special form constructs `NativeFn` directly for record constructors, predicates, and accessors. Update those 3 sites to use `NativeFn::simple()`.
+
+**Step 3: Verify it compiles**
 
 Run: `cargo build -p sema-stdlib`
 Expected: compiles.
 
-**Step 3: Commit**
+**Step 4: Commit**
 ```
 git add -A && git commit -m "refactor(stdlib): use NativeFn::simple() constructor"
 ```
@@ -471,38 +625,54 @@ git add -A && git commit -m "refactor(stdlib): use NativeFn::simple() constructo
 
 **Step 1: Update NativeFn construction in sema-llm**
 
-The `register_fn` helper in builtins.rs currently does:
-```rust
-fn register_fn(env: &Env, name: &str, f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static) {
-    env.set(sema_core::intern(name), Value::NativeFn(Rc::new(NativeFn {
-        name: name.to_string(),
-        func: Box::new(f),
-    })));
-}
-```
+The `register_fn` helper in builtins.rs constructs NativeFn directly. Change to use `NativeFn::simple()`.
 
-Change to use `NativeFn::simple()`.
+Also update the direct `NativeFn { ... }` construction for tool handler (~line 2693) to use `NativeFn::simple()`.
 
-**Step 2: Update the EvalCallback and thread-local strategy**
+**Step 2: Update the EvalCallback signature**
 
-The LLM builtins have their own thread-locals (PROVIDER_REGISTRY, SESSION_USAGE, etc.). These are **separate from the eval thread-locals** and are LLM-specific. Options:
-
-**Option A (recommended for this PR):** Keep LLM thread-locals as-is. They're self-contained within sema-llm and don't affect the eval architecture. Tackle them in a follow-up if/when needed.
-
-**Option B (future):** Move LLM state into a separate `LlmContext` and capture it via `Rc<RefCell<...>>` in the builtins closures.
-
-For now, only update the `EvalCallback` signature:
+Change the callback to accept `&EvalContext`:
 ```rust
 pub type EvalCallback = Box<dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>>;
 ```
 
-And update `full_eval` and `set_eval_callback` accordingly. Any LLM builtin that calls `full_eval` will need to receive `ctx` — use `NativeFn::with_ctx()` for those.
+Update `set_eval_callback`:
+```rust
+pub fn set_eval_callback(f: impl Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError> + 'static) {
+    EVAL_FN.with(|eval| {
+        *eval.borrow_mut() = Some(Box::new(f));
+    });
+}
+```
 
-**Step 3: Verify it compiles**
+Update `full_eval` to accept `&EvalContext`:
+```rust
+fn full_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
+    EVAL_FN.with(|eval_fn| {
+        let eval_fn = eval_fn.borrow();
+        match &*eval_fn {
+            Some(f) => f(ctx, expr, env),
+            None => simple_eval(expr, env),
+        }
+    })
+}
+```
+
+**Step 3: Update LLM builtins that call full_eval to use NativeFn::with_ctx()**
+
+Any builtin that calls `full_eval` needs the context. These use `NativeFn::with_ctx()` or receive ctx through a `register_fn_ctx` helper. Check which builtins call `full_eval` and update them.
+
+**Step 4: Keep LLM-specific thread-locals as-is**
+
+`PROVIDER_REGISTRY`, `SESSION_USAGE`, `LAST_USAGE`, `SESSION_COST`, `BUDGET_LIMIT`, `BUDGET_SPENT`, `BUDGET_STACK`, `PRICING_WARNING_SHOWN` all remain as thread-locals. They are self-contained within sema-llm.
+
+`reset_runtime_state()` in sema-llm remains unchanged — it resets LLM thread-locals only.
+
+**Step 5: Verify it compiles**
 
 Run: `cargo build -p sema-llm`
 
-**Step 4: Commit**
+**Step 6: Commit**
 ```
 git add -A && git commit -m "refactor(llm): update NativeFn construction and EvalCallback signature"
 ```
@@ -519,9 +689,17 @@ git add -A && git commit -m "refactor(llm): update NativeFn construction and Eva
 
 **Step 1: Update lib.rs (InterpreterBuilder / Interpreter)**
 
-The public `sema::Interpreter` wraps `sema_eval::Interpreter`. Update:
-- `InterpreterBuilder::build()` — set_eval_callback now needs to capture/pass ctx
-- `Interpreter::register_fn()` — use `NativeFn::simple()`
+In `InterpreterBuilder::build()`:
+- Remove `sema_eval::reset_runtime_state()` — fresh `EvalContext` replaces it
+- Keep `sema_llm::builtins::reset_runtime_state()` — LLM thread-locals still need it
+- Update `set_eval_callback` to pass the new signature:
+  ```rust
+  sema_llm::builtins::set_eval_callback(sema_eval::eval_value);
+  // eval_value now takes (&EvalContext, &Value, &Env) which matches the new EvalCallback
+  ```
+  Note: `eval_value` signature is `(expr: &Value, env: &Env, ctx: &EvalContext)` but `EvalCallback` expects `(&EvalContext, &Value, &Env)`. Decide parameter order to match, or use a closure wrapper.
+
+- Update `Interpreter::register_fn()` to use `NativeFn::simple()`.
 
 **Step 2: Update main.rs**
 
@@ -529,11 +707,14 @@ Replace calls to free functions:
 ```rust
 // Before:
 sema_eval::push_file_path(canonical);
+sema_eval::pop_file_path();
+
 // After:
 interpreter.ctx.push_file_path(canonical);
+interpreter.ctx.pop_file_path();
 ```
 
-The `Interpreter` struct in sema-eval now has `pub ctx: EvalContext`, so main.rs accesses it via `interpreter.ctx`.
+There are ~6 call sites in main.rs that use `sema_eval::push_file_path` / `sema_eval::pop_file_path` (in the load loop and file execution). Access ctx through the `sema_eval::Interpreter` which is `interpreter` in main.rs (note: main.rs uses `sema_eval::Interpreter` directly, not the public `sema::Interpreter` wrapper).
 
 **Step 3: Verify CLI works**
 
@@ -555,16 +736,38 @@ git add -A && git commit -m "refactor(sema): update main.rs and lib.rs for EvalC
 **Files:**
 - Modify: `playground/crate/src/lib.rs`
 
-**Step 1: Update WasmInterpreter to pass ctx**
+**Step 1: Update WasmInterpreter**
 
-The WASM crate calls `sema_eval::eval_string(code, &env)` directly. Update to:
+The WASM crate calls `sema_eval::eval_string(code, &env)` in two places (`eval` and `eval_global` methods). Update both to pass ctx:
 ```rust
+// In eval():
 sema_eval::eval_string(code, &env, &self.inner.ctx)
+
+// In eval_global():
+sema_eval::eval_string(code, &self.inner.global_env, &self.inner.ctx)
 ```
+
+Also update `NativeFn` construction in `register_wasm_io()` (line 60):
+```rust
+// Current:
+Value::NativeFn(Rc::new(NativeFn {
+    name: name.to_string(),
+    func: f,
+}))
+
+// Change to:
+Value::NativeFn(Rc::new(NativeFn::simple(name, f)))
+```
+
+Note: The `register` closure in `register_wasm_io` takes `Box<dyn Fn(&[Value]) -> Result<Value, SemaError>>` — update to use `NativeFn::simple()` which wraps it. The `Box` is already the right inner type.
 
 **Step 2: Verify it compiles**
 
-Run: `cargo build -p sema-wasm` (may need wasm target, skip if not set up)
+Run: `cargo build -p sema-wasm` (requires wasm32 target; skip if not set up locally)
+
+Alternatively verify with: `cargo check -p sema-wasm --target wasm32-unknown-unknown`
+
+If wasm target is not installed, at minimum verify the Rust code is correct by reading through the changes.
 
 **Step 3: Commit**
 ```
@@ -573,7 +776,7 @@ git add -A && git commit -m "refactor(wasm): update playground for EvalContext"
 
 ---
 
-## Phase 5: Remove thread-locals and clean up
+## Phase 5: Clean up and verify
 
 ### Task 9: Remove thread_local! block and old free functions from eval.rs
 
@@ -583,17 +786,33 @@ git add -A && git commit -m "refactor(wasm): update playground for EvalContext"
 
 **Step 1: Delete the thread_local! block**
 
-Remove lines 18-36 from eval.rs (the entire `thread_local!` macro invocation).
+Remove the entire `thread_local! { ... }` macro invocation from eval.rs (currently lines 18-36, containing `MODULE_CACHE`, `CURRENT_FILE`, `MODULE_EXPORTS`, `MODULE_LOAD_STACK`, `CALL_STACK`, `SPAN_TABLE`, `EVAL_DEPTH`, `EVAL_STEP_LIMIT`, `EVAL_STEPS`).
 
 **Step 2: Delete the old free functions**
 
-Remove: `push_file_path`, `pop_file_path`, `current_file_dir`, `current_file_path`, `get_cached_module`, `cache_module`, `set_module_exports`, `clear_module_exports`, `take_module_exports`, `push_call_frame`, `call_stack_depth`, `truncate_call_stack`, `capture_stack_trace`, `merge_span_table`, `lookup_span`, `set_eval_step_limit`, `create_module_env`, `span_of_expr`.
+Remove all free functions that were wrappers around thread-local access:
+- `push_file_path`, `pop_file_path`, `current_file_dir`, `current_file_path`
+- `get_cached_module`, `cache_module`
+- `set_module_exports`, `clear_module_exports`, `take_module_exports`
+- `begin_module_load`, `end_module_load`
+- `push_call_frame`, `call_stack_depth`, `truncate_call_stack`, `capture_stack_trace`
+- `merge_span_table`, `lookup_span`
+- `set_eval_step_limit`
+- `reset_runtime_state`
+- `span_of_expr` (now takes `&EvalContext`, either moved to a method or kept as local fn with ctx param)
 
-Keep `create_module_env` as a method on EvalContext or as a standalone fn (it doesn't use thread-locals, just walks env parents).
+Keep `create_module_env` — it doesn't use thread-locals, just walks env parents.
 
 **Step 3: Update lib.rs exports**
 
-Remove all the deleted function names from the `pub use eval::{...}` line. Export `EvalContext` (re-exported from sema-core).
+Slim down `pub use eval::{...}` to only export what's still needed:
+```rust
+pub use eval::{
+    create_module_env, eval, eval_string, eval_value, Interpreter, EvalResult, Trampoline,
+};
+// Re-export EvalContext from sema-core for convenience:
+pub use sema_core::EvalContext;
+```
 
 **Step 4: Verify everything compiles and all tests pass**
 
@@ -607,15 +826,19 @@ git add -A && git commit -m "refactor(eval): remove thread_local! state, all sta
 
 ---
 
-### Task 10: Run full test suite and fix any remaining issues
+### Task 10: Run full test suite, lint, and manual verification
 
 **Files:**
 - Modify: `crates/sema/tests/integration_test.rs` (if needed)
+- Modify: `crates/sema/tests/embedding_bench.rs` (if needed)
 
 **Step 1: Run full test suite**
 
 Run: `cargo test`
-Expected: all tests pass.
+Expected: all tests pass. Pay special attention to:
+- Module import/export tests (the nested import and cyclic detection logic changed)
+- Tests that create multiple `Interpreter` instances (they now get independent state)
+- The embedding bench test
 
 **Step 2: Run clippy**
 
@@ -624,24 +847,36 @@ Expected: no warnings.
 
 **Step 3: Test module loading (import/load)**
 
-Run: `cargo run -- examples/` (pick an example that uses `import` or `load`)
-Verify modules resolve correctly.
+Run: `cargo run -- examples/meta-eval.sema`
+This exercises nested evaluation heavily. Verify it runs without error.
 
 **Step 4: Test REPL**
 
-Run: `cargo run` and try a few expressions, verify define persistence works.
-
-**Step 5: Commit**
+Run: `cargo run` and try:
 ```
-git add -A && git commit -m "chore: fix remaining issues after EvalContext migration"
+sema> (define x 42)
+sema> x
+42
+sema> (+ x 1)
+43
+```
+Verify define persistence works.
+
+**Step 5: Test the meta-eval stress test**
+
+Run: `cargo run -- examples/meta-eval-stress.sema`
+This is a new test added in the recent bugfix PR that exercises nested module loading and evaluation.
+
+**Step 6: Commit**
+```
+git add -A && git commit -m "chore: verify EvalContext migration passes all tests"
 ```
 
 ---
 
 ## Out of scope (follow-up tasks)
 
-- **LLM thread-locals**: PROVIDER_REGISTRY, SESSION_USAGE, etc. in sema-llm — keep as thread-locals for now, migrate later.
-- **SPAN_TABLE unbounded growth**: Consider clearing spans at safe points or scoping per-parse.
-- **MODULE_EXPORTS reentrancy**: Consider making it a stack (`Vec<Option<Vec<String>>>`) to handle nested imports safely. (May already be a stack based on recent changes.)
+- **LLM thread-locals**: `PROVIDER_REGISTRY`, `SESSION_USAGE`, `SESSION_COST`, `BUDGET_LIMIT`, `BUDGET_SPENT`, `BUDGET_STACK`, `PRICING_WARNING_SHOWN` in sema-llm — keep as thread-locals for now, migrate to `LlmContext` later if needed.
 - **`Send + Sync` for Interpreter**: Would require switching from `Rc` to `Arc` — much larger change.
-- **Mini-evaluator in list.rs**: Currently doesn't use EvalContext. If it ever needs context access, it would need to accept `&EvalContext`. For now it's fine since it only handles simple expressions.
+- **Mini-evaluator in list.rs**: Currently doesn't use EvalContext. If it ever needs context access, it would need to accept `&EvalContext`. For now it's fine since it only handles simple expressions (quote, if, begin, let, lambda application).
+- **Parameter order consistency**: Decide whether `eval_value` takes `(expr, env, ctx)` or `(ctx, expr, env)` — the latter matches the `NativeFnInner` signature and may be cleaner. Decide during implementation.

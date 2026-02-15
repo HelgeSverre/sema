@@ -1016,7 +1016,7 @@ sema --model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
 ```
 crates/
   sema-core/     Value types, errors, environment (Rc, BTreeMap, lasso, hashbrown, thiserror)
-  sema-reader/   Hand-written lexer and s-expression parser
+  sema-reader/   Lexer and s-expression parser
   sema-eval/     Trampoline-based evaluator, special forms, module system
   sema-stdlib/   Standard library builtins (memchr, hashbrown)
   sema-llm/      LLM provider trait + multi-provider API clients

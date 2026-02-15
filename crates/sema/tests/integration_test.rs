@@ -786,7 +786,7 @@ fn test_load_pops_file_context_even_if_file_disappears() {
         Value::Int(1)
     );
     assert!(
-        sema_eval::current_file_path().is_none(),
+        interp.ctx.current_file_path().is_none(),
         "current file context should be cleared after load"
     );
 }
@@ -3253,9 +3253,9 @@ fn test_file_write_lines() {
 
 #[test]
 fn test_file_for_each_line() {
-    let dir = "/tmp/sema-test-foreach-line";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("foreach-line");
+    let dir = dir.display().to_string();
+    let dir = dir.as_str();
     eval(&format!(
         r#"(file/write "{dir}/data.txt" "alpha\nbeta\ngamma")"#
     ));
@@ -3337,9 +3337,9 @@ fn test_file_for_each_line() {
 
 #[test]
 fn test_file_fold_lines() {
-    let dir = "/tmp/sema-test-fold-lines";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("fold-lines");
+    let dir = dir.display().to_string();
+    let dir = dir.as_str();
     eval(&format!(r#"(file/write "{dir}/nums.txt" "10\n20\n30")"#));
 
     // Sum numbers using fold-lines

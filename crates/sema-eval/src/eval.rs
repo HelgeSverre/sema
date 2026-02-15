@@ -1,9 +1,6 @@
-use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
 use std::rc::Rc;
 
-use sema_core::{resolve, CallFrame, Env, Lambda, SemaError, Span, SpanMap, StackTrace, Value};
+use sema_core::{resolve, CallFrame, Env, EvalContext, Lambda, SemaError, Span, Value};
 
 use crate::special_forms;
 
@@ -14,113 +11,6 @@ pub enum Trampoline {
 }
 
 pub type EvalResult = Result<Value, SemaError>;
-
-thread_local! {
-    /// Cache of already-loaded modules: canonical path → exported bindings
-    static MODULE_CACHE: RefCell<BTreeMap<PathBuf, BTreeMap<String, Value>>> = const { RefCell::new(BTreeMap::new()) };
-    /// Stack of file paths being executed (for relative path resolution)
-    static CURRENT_FILE: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
-    /// Export scopes for currently-loading modules (stack depth tracks nested imports)
-    static MODULE_EXPORTS: RefCell<Vec<Option<Vec<String>>>> = const { RefCell::new(Vec::new()) };
-    /// Stack of modules currently being loaded (for cyclic import detection)
-    static MODULE_LOAD_STACK: RefCell<Vec<PathBuf>> = const { RefCell::new(Vec::new()) };
-    /// Call stack for error traces
-    static CALL_STACK: RefCell<Vec<CallFrame>> = const { RefCell::new(Vec::new()) };
-    /// Span table: Rc pointer address → source span
-    static SPAN_TABLE: RefCell<HashMap<usize, Span>> = RefCell::new(HashMap::new());
-    /// Eval nesting depth — tracks recursive eval_value calls (special forms + function calls)
-    static EVAL_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// Optional step limit for the trampoline loop (0 = unlimited).
-    /// Used by fuzz targets to terminate infinite loops.
-    static EVAL_STEP_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    /// Current step counter (reset per top-level eval).
-    static EVAL_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-pub fn push_file_path(path: PathBuf) {
-    CURRENT_FILE.with(|f| f.borrow_mut().push(path));
-}
-
-pub fn pop_file_path() {
-    CURRENT_FILE.with(|f| f.borrow_mut().pop());
-}
-
-pub fn current_file_dir() -> Option<PathBuf> {
-    CURRENT_FILE.with(|f| {
-        f.borrow()
-            .last()
-            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
-    })
-}
-
-pub fn get_cached_module(path: &PathBuf) -> Option<BTreeMap<String, Value>> {
-    MODULE_CACHE.with(|c| c.borrow().get(path).cloned())
-}
-
-pub fn cache_module(path: PathBuf, exports: BTreeMap<String, Value>) {
-    MODULE_CACHE.with(|c| c.borrow_mut().insert(path, exports));
-}
-
-pub fn set_module_exports(names: Vec<String>) {
-    MODULE_EXPORTS.with(|e| {
-        let mut stack = e.borrow_mut();
-        if let Some(top) = stack.last_mut() {
-            *top = Some(names);
-        }
-    });
-}
-
-pub fn clear_module_exports() {
-    MODULE_EXPORTS.with(|e| e.borrow_mut().push(None));
-}
-
-pub fn take_module_exports() -> Option<Vec<String>> {
-    MODULE_EXPORTS.with(|e| e.borrow_mut().pop().flatten())
-}
-
-pub fn begin_module_load(path: &PathBuf) -> Result<(), SemaError> {
-    MODULE_LOAD_STACK.with(|stack| {
-        let mut stack = stack.borrow_mut();
-        if let Some(pos) = stack.iter().position(|p| p == path) {
-            let mut cycle: Vec<String> = stack[pos..]
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect();
-            cycle.push(path.display().to_string());
-            return Err(SemaError::eval(format!(
-                "cyclic import detected: {}",
-                cycle.join(" -> ")
-            )));
-        }
-        stack.push(path.clone());
-        Ok(())
-    })
-}
-
-pub fn end_module_load(path: &PathBuf) {
-    MODULE_LOAD_STACK.with(|stack| {
-        let mut stack = stack.borrow_mut();
-        if matches!(stack.last(), Some(last) if last == path) {
-            stack.pop();
-        } else if let Some(pos) = stack.iter().rposition(|p| p == path) {
-            stack.remove(pos);
-        }
-    });
-}
-
-/// Reset evaluator thread-local state.
-/// Used to isolate interpreter instances in long-running embedding processes.
-pub fn reset_runtime_state() {
-    MODULE_CACHE.with(|c| c.borrow_mut().clear());
-    CURRENT_FILE.with(|f| f.borrow_mut().clear());
-    MODULE_EXPORTS.with(|e| e.borrow_mut().clear());
-    MODULE_LOAD_STACK.with(|s| s.borrow_mut().clear());
-    CALL_STACK.with(|s| s.borrow_mut().clear());
-    SPAN_TABLE.with(|t| t.borrow_mut().clear());
-    EVAL_DEPTH.with(|d| d.set(0));
-    EVAL_STEP_LIMIT.with(|l| l.set(0));
-    EVAL_STEPS.with(|s| s.set(0));
-}
 
 /// Create an isolated module env: child of root (global/stdlib) env
 pub fn create_module_env(env: &Env) -> Env {
@@ -136,79 +26,33 @@ pub fn create_module_env(env: &Env) -> Env {
     Env::with_parent(Rc::new(current))
 }
 
-pub fn push_call_frame(frame: CallFrame) {
-    CALL_STACK.with(|s| s.borrow_mut().push(frame));
-}
-
-pub fn call_stack_depth() -> usize {
-    CALL_STACK.with(|s| s.borrow().len())
-}
-
-pub fn truncate_call_stack(depth: usize) {
-    CALL_STACK.with(|s| {
-        let mut stack = s.borrow_mut();
-        stack.truncate(depth);
-    });
-}
-
-pub fn capture_stack_trace() -> StackTrace {
-    CALL_STACK.with(|s| {
-        let stack = s.borrow();
-        StackTrace(stack.iter().rev().cloned().collect())
-    })
-}
-
-const MAX_SPAN_TABLE_ENTRIES: usize = 200_000;
-
-pub fn merge_span_table(spans: SpanMap) {
-    SPAN_TABLE.with(|t| {
-        let mut table = t.borrow_mut();
-        if table.len().saturating_add(spans.len()) > MAX_SPAN_TABLE_ENTRIES {
-            table.clear();
-        }
-        table.extend(spans);
-    });
-}
-
-pub fn lookup_span(ptr: usize) -> Option<Span> {
-    SPAN_TABLE.with(|t| t.borrow().get(&ptr).cloned())
-}
-
-/// Set an optional limit on total eval steps (0 = unlimited).
-/// When the limit is reached, eval returns an error instead of continuing.
-pub fn set_eval_step_limit(limit: usize) {
-    EVAL_STEP_LIMIT.with(|l| l.set(limit));
-}
-
-pub fn current_file_path() -> Option<PathBuf> {
-    CURRENT_FILE.with(|f| f.borrow().last().cloned())
-}
-
-/// Look up a span for an expression via the SPAN_TABLE.
-fn span_of_expr(expr: &Value) -> Option<Span> {
+/// Look up a span for an expression via the span table in the context.
+fn span_of_expr(ctx: &EvalContext, expr: &Value) -> Option<Span> {
     match expr {
         Value::List(items) => {
             let ptr = Rc::as_ptr(items) as usize;
-            lookup_span(ptr)
+            ctx.lookup_span(ptr)
         }
         _ => None,
     }
 }
 
 /// RAII guard that truncates the call stack on drop.
-struct CallStackGuard {
+struct CallStackGuard<'a> {
+    ctx: &'a EvalContext,
     entry_depth: usize,
 }
 
-impl Drop for CallStackGuard {
+impl Drop for CallStackGuard<'_> {
     fn drop(&mut self) {
-        truncate_call_stack(self.entry_depth);
+        self.ctx.truncate_call_stack(self.entry_depth);
     }
 }
 
 /// The interpreter holds the global environment and state.
 pub struct Interpreter {
     pub global_env: Rc<Env>,
+    pub ctx: EvalContext,
 }
 
 impl Default for Interpreter {
@@ -219,8 +63,8 @@ impl Default for Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
-        reset_runtime_state();
         let env = Env::new();
+        let ctx = EvalContext::new();
         // Register stdlib
         sema_stdlib::register_stdlib(&env);
         // Register LLM builtins
@@ -232,42 +76,43 @@ impl Interpreter {
         }
         Interpreter {
             global_env: Rc::new(env),
+            ctx,
         }
     }
 
     pub fn eval(&self, expr: &Value) -> EvalResult {
-        eval_value(expr, &Env::with_parent(self.global_env.clone()))
+        eval_value(&self.ctx, expr, &Env::with_parent(self.global_env.clone()))
     }
 
     pub fn eval_str(&self, input: &str) -> EvalResult {
-        eval_string(input, &Env::with_parent(self.global_env.clone()))
+        eval_string(&self.ctx, input, &Env::with_parent(self.global_env.clone()))
     }
 
     /// Evaluate in the global environment so that `define` persists across calls.
     pub fn eval_in_global(&self, expr: &Value) -> EvalResult {
-        eval_value(expr, &self.global_env)
+        eval_value(&self.ctx, expr, &self.global_env)
     }
 
     /// Parse and evaluate in the global environment so that `define` persists across calls.
     pub fn eval_str_in_global(&self, input: &str) -> EvalResult {
-        eval_string(input, &self.global_env)
+        eval_string(&self.ctx, input, &self.global_env)
     }
 }
 
 /// Evaluate a string containing one or more expressions.
-pub fn eval_string(input: &str, env: &Env) -> EvalResult {
+pub fn eval_string(ctx: &EvalContext, input: &str, env: &Env) -> EvalResult {
     let (exprs, spans) = sema_reader::read_many_with_spans(input)?;
-    merge_span_table(spans);
+    ctx.merge_span_table(spans);
     let mut result = Value::Nil;
     for expr in &exprs {
-        result = eval_value(expr, env)?;
+        result = eval_value(ctx, expr, env)?;
     }
     Ok(result)
 }
 
 /// The core eval function: evaluate a Value in an environment.
-pub fn eval(expr: &Value, env: &Env) -> EvalResult {
-    eval_value(expr, env)
+pub fn eval(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
+    eval_value(ctx, expr, env)
 }
 
 /// Maximum eval nesting depth before we bail with an error.
@@ -275,49 +120,43 @@ pub fn eval(expr: &Value, env: &Env) -> EvalResult {
 /// (both function calls and special form nesting like deeply nested if/let/begin).
 const MAX_EVAL_DEPTH: usize = 1024;
 
-pub fn eval_value(expr: &Value, env: &Env) -> EvalResult {
-    let depth = EVAL_DEPTH.with(|d| {
-        let v = d.get();
-        d.set(v + 1);
-        v
-    });
+pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
+    let depth = ctx.eval_depth.get();
+    ctx.eval_depth.set(depth + 1);
     // Reset step counter at the top-level eval entry
     if depth == 0 {
-        EVAL_STEPS.with(|s| s.set(0));
+        ctx.eval_steps.set(0);
     }
     if depth > MAX_EVAL_DEPTH {
-        EVAL_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+        ctx.eval_depth.set(ctx.eval_depth.get().saturating_sub(1));
         return Err(SemaError::eval(format!(
             "maximum eval depth exceeded ({MAX_EVAL_DEPTH})"
         )));
     }
 
-    let result = eval_value_inner(expr, env);
+    let result = eval_value_inner(ctx, expr, env);
 
-    EVAL_DEPTH.with(|d| d.set(d.get().saturating_sub(1)));
+    ctx.eval_depth.set(ctx.eval_depth.get().saturating_sub(1));
     result
 }
 
-fn eval_value_inner(expr: &Value, env: &Env) -> EvalResult {
+fn eval_value_inner(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
     let mut current_expr = expr.clone();
     let mut current_env = env.clone();
-    let entry_depth = call_stack_depth();
-    let guard = CallStackGuard { entry_depth };
-    let limit = EVAL_STEP_LIMIT.with(|l| l.get());
+    let entry_depth = ctx.call_stack_depth();
+    let guard = CallStackGuard { ctx, entry_depth };
+    let limit = ctx.eval_step_limit.get();
 
     loop {
         if limit > 0 {
-            let steps = EVAL_STEPS.with(|s| {
-                let v = s.get() + 1;
-                s.set(v);
-                v
-            });
-            if steps > limit {
+            let v = ctx.eval_steps.get() + 1;
+            ctx.eval_steps.set(v);
+            if v > limit {
                 return Err(SemaError::eval("eval step limit exceeded".to_string()));
             }
         }
 
-        match eval_step(&current_expr, &current_env) {
+        match eval_step(ctx, &current_expr, &current_env) {
             Ok(Trampoline::Value(v)) => {
                 drop(guard);
                 return Ok(v);
@@ -326,8 +165,8 @@ fn eval_value_inner(expr: &Value, env: &Env) -> EvalResult {
                 // Tail call: replace accumulated frames with just the most recent one.
                 // This keeps one frame for the current function (TCO frame replacement)
                 // while preventing unbounded growth in tail-recursive loops.
-                CALL_STACK.with(|s| {
-                    let mut stack = s.borrow_mut();
+                {
+                    let mut stack = ctx.call_stack.borrow_mut();
                     if stack.len() > entry_depth + 1 {
                         let top = stack.last().cloned();
                         stack.truncate(entry_depth);
@@ -335,13 +174,13 @@ fn eval_value_inner(expr: &Value, env: &Env) -> EvalResult {
                             stack.push(frame);
                         }
                     }
-                });
+                }
                 current_expr = next_expr;
                 current_env = next_env;
             }
             Err(e) => {
                 if e.stack_trace().is_none() {
-                    let trace = capture_stack_trace();
+                    let trace = ctx.capture_stack_trace();
                     drop(guard);
                     return Err(e.with_stack_trace(trace));
                 }
@@ -352,7 +191,7 @@ fn eval_value_inner(expr: &Value, env: &Env) -> EvalResult {
     }
 }
 
-fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
     match expr {
         // Self-evaluating forms
         Value::Nil
@@ -367,15 +206,15 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
         Value::Vector(items) => {
             let mut result = Vec::with_capacity(items.len());
             for item in items.iter() {
-                result.push(eval_value(item, env)?);
+                result.push(eval_value(ctx, item, env)?);
             }
             Ok(Trampoline::Value(Value::vector(result)))
         }
         Value::Map(map) => {
             let mut result = std::collections::BTreeMap::new();
             for (k, v) in map.iter() {
-                let ek = eval_value(k, env)?;
-                let ev = eval_value(v, env)?;
+                let ek = eval_value(ctx, k, env)?;
+                let ev = eval_value(ctx, v, env)?;
                 result.insert(ek, ev);
             }
             Ok(Trampoline::Value(Value::Map(Rc::new(result))))
@@ -400,35 +239,35 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
             // O(1) special form dispatch: compare the symbol's Spur (u32 interned handle)
             // against cached constants, avoiding string resolution entirely.
             if let Value::Symbol(spur) = head {
-                if let Some(result) = special_forms::try_eval_special(*spur, args, env) {
+                if let Some(result) = special_forms::try_eval_special(*spur, args, env, ctx) {
                     return result;
                 }
             }
 
             // Evaluate the head to get the callable
-            let func = eval_value(head, env)?;
+            let func = eval_value(ctx, head, env)?;
 
             // Look up the span of the call site expression
-            let call_span = span_of_expr(expr);
+            let call_span = span_of_expr(ctx, expr);
 
             match &func {
                 Value::NativeFn(native) => {
                     // Evaluate arguments
                     let mut eval_args = Vec::with_capacity(args.len());
                     for arg in args {
-                        eval_args.push(eval_value(arg, env)?);
+                        eval_args.push(eval_value(ctx, arg, env)?);
                     }
                     // Push frame, call native fn
                     let frame = CallFrame {
                         name: native.name.to_string(),
-                        file: current_file_path(),
+                        file: ctx.current_file_path(),
                         span: call_span,
                     };
-                    push_call_frame(frame);
-                    match (native.func)(&eval_args) {
+                    ctx.push_call_frame(frame);
+                    match (native.func)(ctx, &eval_args) {
                         Ok(v) => {
                             // Pop on success (native fns don't trampoline)
-                            truncate_call_stack(call_stack_depth().saturating_sub(1));
+                            ctx.truncate_call_stack(ctx.call_stack_depth().saturating_sub(1));
                             Ok(Trampoline::Value(v))
                         }
                         // On error, leave frame for stack trace capture
@@ -439,20 +278,20 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
                     // Evaluate arguments
                     let mut eval_args = Vec::with_capacity(args.len());
                     for arg in args {
-                        eval_args.push(eval_value(arg, env)?);
+                        eval_args.push(eval_value(ctx, arg, env)?);
                     }
                     // Push frame — trampoline continues, eval_value guard handles cleanup
                     let frame = CallFrame {
                         name: lambda.name.as_deref().unwrap_or("<lambda>").to_string(),
-                        file: current_file_path(),
+                        file: ctx.current_file_path(),
                         span: call_span,
                     };
-                    push_call_frame(frame);
-                    apply_lambda(lambda, &eval_args)
+                    ctx.push_call_frame(frame);
+                    apply_lambda(ctx, lambda, &eval_args)
                 }
                 Value::Macro(mac) => {
                     // Macros receive unevaluated arguments
-                    let expanded = apply_macro(mac, args, env)?;
+                    let expanded = apply_macro(ctx, mac, args, env)?;
                     // Evaluate the expansion in the current env (TCO)
                     Ok(Trampoline::Eval(expanded, env.clone()))
                 }
@@ -462,7 +301,7 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
                         let name = resolve(*spur);
                         return Err(SemaError::arity(format!(":{name}"), "1", args.len()));
                     }
-                    let map_val = eval_value(&args[0], env)?;
+                    let map_val = eval_value(ctx, &args[0], env)?;
                     let key = Value::Keyword(*spur);
                     match &map_val {
                         Value::Map(map) => Ok(Trampoline::Value(
@@ -487,7 +326,11 @@ fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// Apply a lambda to evaluated arguments with TCO.
-fn apply_lambda(lambda: &Rc<Lambda>, args: &[Value]) -> Result<Trampoline, SemaError> {
+fn apply_lambda(
+    ctx: &EvalContext,
+    lambda: &Rc<Lambda>,
+    args: &[Value],
+) -> Result<Trampoline, SemaError> {
     let new_env = Env::with_parent(Rc::new(lambda.env.clone()));
 
     // Bind parameters
@@ -527,7 +370,7 @@ fn apply_lambda(lambda: &Rc<Lambda>, args: &[Value]) -> Result<Trampoline, SemaE
         return Ok(Trampoline::Value(Value::Nil));
     }
     for expr in &lambda.body[..lambda.body.len() - 1] {
-        eval_value(expr, &new_env)?;
+        eval_value(ctx, expr, &new_env)?;
     }
     Ok(Trampoline::Eval(
         lambda.body.last().unwrap().clone(),
@@ -537,6 +380,7 @@ fn apply_lambda(lambda: &Rc<Lambda>, args: &[Value]) -> Result<Trampoline, SemaE
 
 /// Apply a macro: bind unevaluated args, evaluate body to produce expansion.
 pub fn apply_macro(
+    ctx: &EvalContext,
     mac: &sema_core::Macro,
     args: &[Value],
     caller_env: &Env,
@@ -573,7 +417,7 @@ pub fn apply_macro(
     // Evaluate the macro body to get the expansion
     let mut result = Value::Nil;
     for expr in &mac.body {
-        result = eval_value(expr, &env)?;
+        result = eval_value(ctx, expr, &env)?;
     }
     Ok(result)
 }

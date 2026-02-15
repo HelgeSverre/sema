@@ -20,14 +20,14 @@ Every evaluation step returns a `Trampoline` instead of a `Value`. When a functi
 
 ```rust
 // crates/sema-eval/src/eval.rs — eval_value_inner
-fn eval_value_inner(expr: &Value, env: &Env) -> EvalResult {
+fn eval_value_inner(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
     let mut current_expr = expr.clone();
     let mut current_env = env.clone();
-    let entry_depth = call_stack_depth();
-    let guard = CallStackGuard { entry_depth };
+    let entry_depth = ctx.call_stack_depth();
+    let guard = CallStackGuard { ctx, entry_depth };
 
     loop {
-        match eval_step(&current_expr, &current_env) {
+        match eval_step(ctx, &current_expr, &current_env) {
             Ok(Trampoline::Value(v)) => return Ok(v),
             Ok(Trampoline::Eval(next_expr, next_env)) => {
                 // TCO: replace expr and env, continue loop
@@ -77,7 +77,7 @@ The key insight: `if` is a special form that returns `Trampoline::Eval` for its 
 
 ```rust
 // crates/sema-eval/src/eval.rs
-fn eval_step(expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, SemaError> {
     match expr {
         // Self-evaluating forms
         Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_)
@@ -136,7 +136,7 @@ Note: the head is checked for special forms *before* it's evaluated. This is ess
 
 ## Special Form Dispatch
 
-Special form dispatch is the hottest path in the evaluator. Every list expression checks whether its head symbol is one of ~33 special forms. Sema optimizes this with pre-interned `Spur` constants:
+Special form dispatch is the hottest path in the evaluator. Every list expression checks whether its head symbol is one of ~39 special forms. Sema optimizes this with pre-interned `Spur` constants:
 
 ```rust
 // crates/sema-eval/src/special_forms.rs
@@ -146,7 +146,7 @@ struct SpecialFormSpurs {
     cond: Spur,
     define: Spur,
     lambda: Spur,
-    // ... 28 more
+    // ... 34 more
 }
 ```
 
@@ -185,7 +185,7 @@ pub fn try_eval_special(
     } else if head_spur == sf.define {
         Some(eval_define(args, env))
     }
-    // ... 30 more branches
+    // ... 36 more branches
     else {
         None  // not a special form
     }
@@ -208,12 +208,12 @@ Native functions are Rust closures wrapped in `Value::NativeFn`. They receive ev
 Value::NativeFn(native) => {
     let mut eval_args = Vec::with_capacity(args.len());
     for arg in args {
-        eval_args.push(eval_value(arg, env)?);
+        eval_args.push(eval_value(ctx, arg, env)?);
     }
-    push_call_frame(CallFrame { name: native.name.to_string(), ... });
-    match (native.func)(&eval_args) {
+    ctx.push_call_frame(CallFrame { name: native.name.to_string(), ... });
+    match (native.func)(ctx, &eval_args) {
         Ok(v) => {
-            truncate_call_stack(call_stack_depth().saturating_sub(1));
+            ctx.truncate_call_stack(ctx.call_stack_depth().saturating_sub(1));
             Ok(Trampoline::Value(v))
         }
         Err(e) => Err(e),  // leave frame for stack trace
@@ -229,7 +229,7 @@ Lambdas are the heart of TCO. After evaluating arguments, `apply_lambda` binds p
 
 ```rust
 // crates/sema-eval/src/eval.rs
-fn apply_lambda(lambda: &Lambda, args: &[Value]) -> Result<Trampoline, SemaError> {
+fn apply_lambda(ctx: &EvalContext, lambda: &Lambda, args: &[Value]) -> Result<Trampoline, SemaError> {
     let new_env = Env::with_parent(Rc::new(lambda.env.clone()));
 
     // Bind parameters (with rest-param support)
@@ -244,7 +244,7 @@ fn apply_lambda(lambda: &Lambda, args: &[Value]) -> Result<Trampoline, SemaError
 
     // Evaluate all body exprs except the last
     for expr in &lambda.body[..lambda.body.len() - 1] {
-        eval_value(expr, &new_env)?;
+        eval_value(ctx, expr, &new_env)?;
     }
 
     // TCO: return the last body expr for the trampoline to handle
@@ -275,12 +275,14 @@ Keywords can be used as functions for map lookup: `(:name person)` is equivalent
 
 ## Stack Traces
 
-Sema maintains a thread-local call stack for error reporting:
+Sema maintains a call stack in the `EvalContext` for error reporting:
 
 ```rust
-// crates/sema-eval/src/eval.rs
-thread_local! {
-    static CALL_STACK: RefCell<Vec<CallFrame>> = const { RefCell::new(Vec::new()) };
+// crates/sema-core/src/context.rs
+pub struct EvalContext {
+    // ... other fields
+    pub call_stack: RefCell<Vec<CallFrame>>,
+    // ...
 }
 ```
 
@@ -300,11 +302,11 @@ pub struct CallFrame {
 Source spans are tracked using a pointer-identity trick. The reader stores `Span` information in a `HashMap<usize, Span>` keyed by the `Rc::as_ptr` address of each list's backing `Vec`:
 
 ```rust
-fn span_of_expr(expr: &Value) -> Option<Span> {
+fn span_of_expr(ctx: &EvalContext, expr: &Value) -> Option<Span> {
     match expr {
         Value::List(items) => {
             let ptr = Rc::as_ptr(items) as usize;
-            lookup_span(ptr)
+            ctx.lookup_span(ptr)
         }
         _ => None,
     }
@@ -318,13 +320,14 @@ This avoids storing spans inside `Value` (which would increase the size of every
 The call stack is managed with a guard struct that truncates on drop:
 
 ```rust
-struct CallStackGuard {
+struct CallStackGuard<'a> {
+    ctx: &'a EvalContext,
     entry_depth: usize,
 }
 
-impl Drop for CallStackGuard {
+impl Drop for CallStackGuard<'_> {
     fn drop(&mut self) {
-        truncate_call_stack(self.entry_depth);
+        self.ctx.truncate_call_stack(self.entry_depth);
     }
 }
 ```
@@ -337,8 +340,8 @@ When the trampoline handles a tail call (`Trampoline::Eval`), it trims accumulat
 
 ```rust
 Ok(Trampoline::Eval(next_expr, next_env)) => {
-    CALL_STACK.with(|s| {
-        let mut stack = s.borrow_mut();
+    {
+        let mut stack = ctx.call_stack.borrow_mut();
         if stack.len() > entry_depth + 1 {
             let top = stack.last().cloned();
             stack.truncate(entry_depth);
@@ -346,7 +349,7 @@ Ok(Trampoline::Eval(next_expr, next_env)) => {
                 stack.push(frame);
             }
         }
-    });
+    }
     current_expr = next_expr;
     current_env = next_env;
 }
@@ -358,18 +361,16 @@ Without this trimming, a tail-recursive loop of 1M iterations would accumulate 1
 
 ### MAX_EVAL_DEPTH (1024)
 
-The evaluator tracks nesting depth via the thread-local `EVAL_DEPTH` counter, incremented on every `eval_value` call and decremented on return:
+The evaluator tracks nesting depth via the `eval_depth` field in `EvalContext`, incremented on every `eval_value` call and decremented on return:
 
 ```rust
 const MAX_EVAL_DEPTH: usize = 1024;
 
-pub fn eval_value(expr: &Value, env: &Env) -> EvalResult {
-    let depth = EVAL_DEPTH.with(|d| {
-        let v = d.get();
-        d.set(v + 1);
-        v
-    });
+pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
+    let depth = ctx.eval_depth.get();
+    ctx.eval_depth.set(depth + 1);
     if depth > MAX_EVAL_DEPTH {
+        ctx.eval_depth.set(ctx.eval_depth.get().saturating_sub(1));
         return Err(SemaError::eval("maximum eval depth exceeded (1024)"));
     }
     // ...
@@ -385,13 +386,12 @@ Note that tail-recursive loops do *not* increase the depth counter, because each
 For fuzz testing, an optional step counter limits the total number of trampoline iterations:
 
 ```rust
-thread_local! {
-    static EVAL_STEP_LIMIT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    static EVAL_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
+// Fields in EvalContext (crates/sema-core/src/context.rs)
+pub eval_step_limit: Cell<usize>,
+pub eval_steps: Cell<usize>,
 ```
 
-When the limit is non-zero, every trampoline step increments `EVAL_STEPS` and checks against the limit. This catches infinite loops that the depth limit can't — a tail-recursive `(define (f) (f))` uses O(1) stack depth but infinite steps. The step counter is reset at each top-level `eval_value` call (when `EVAL_DEPTH` is 0).
+When the limit is non-zero, every trampoline step increments `ctx.eval_steps` and checks against the limit. This catches infinite loops that the depth limit can't — a tail-recursive `(define (f) (f))` uses O(1) stack depth but infinite steps. The step counter is reset at each top-level `eval_value` call (when `ctx.eval_depth` is 0).
 
 ## Environment Model
 
@@ -428,7 +428,7 @@ If you need to add a new special form to Sema:
 
 1. **Add a `Spur` field** to `SpecialFormSpurs` in `crates/sema-eval/src/special_forms.rs` and initialize it in `init()` with `intern("your-form-name")`
 2. **Add a match arm** in `try_eval_special()` — return `Some(eval_your_form(args, env))`
-3. **Implement `eval_your_form`** — it receives `args: &[Value]` (unevaluated) and `env: &Env`, and must return `Result<Trampoline, SemaError>`. If the form has a natural tail position (like `if`'s branches), return `Trampoline::Eval` for TCO; otherwise return `Trampoline::Value`
+3. **Implement `eval_your_form`** — it receives `args: &[Value]` (unevaluated), `env: &Env`, and `ctx: &EvalContext`, and must return `Result<Trampoline, SemaError>`. If the form has a natural tail position (like `if`'s branches), return `Trampoline::Eval` for TCO; otherwise return `Trampoline::Value`
 4. **Add an integration test** in `crates/sema/tests/integration_test.rs`
 5. **Document the form** in `website/docs/language/special-forms.md`
 

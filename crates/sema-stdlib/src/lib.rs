@@ -59,9 +59,6 @@ fn register_fn(
 ) {
     env.set(
         sema_core::intern(name),
-        Value::NativeFn(Rc::new(sema_core::NativeFn {
-            name: name.to_string(),
-            func: Box::new(f),
-        })),
+        Value::NativeFn(Rc::new(sema_core::NativeFn::simple(name, f))),
     );
 }

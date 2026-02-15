@@ -110,15 +110,15 @@ fn main() {
     for load_file in &cli.load {
         let path = std::path::Path::new(load_file);
         if let Ok(canonical) = path.canonicalize() {
-            sema_eval::push_file_path(canonical);
+            interpreter.ctx.push_file_path(canonical);
         }
         match std::fs::read_to_string(load_file) {
             Ok(content) => match interpreter.eval_str(&content) {
                 Ok(_) => {
-                    sema_eval::pop_file_path();
+                    interpreter.ctx.pop_file_path();
                 }
                 Err(e) => {
-                    sema_eval::pop_file_path();
+                    interpreter.ctx.pop_file_path();
                     eprint!("Error loading {load_file}: ");
                     print_error(&e);
                     std::process::exit(1);
@@ -169,15 +169,15 @@ fn main() {
     if let Some(file) = &cli.file {
         let path = std::path::Path::new(file);
         if let Ok(canonical) = path.canonicalize() {
-            sema_eval::push_file_path(canonical);
+            interpreter.ctx.push_file_path(canonical);
         }
         match std::fs::read_to_string(file) {
             Ok(content) => match interpreter.eval_str(&content) {
                 Ok(_) => {
-                    sema_eval::pop_file_path();
+                    interpreter.ctx.pop_file_path();
                 }
                 Err(e) => {
-                    sema_eval::pop_file_path();
+                    interpreter.ctx.pop_file_path();
                     print_error(&e);
                     std::process::exit(1);
                 }

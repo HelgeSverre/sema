@@ -23,10 +23,7 @@ Evaluate an expression in three lines:
 use sema::{Interpreter, Value};
 
 fn main() -> sema::Result<()> {
-    let interp = Interpreter::builder()
-        .with_stdlib(true)
-        .with_llm(false)
-        .build();
+    let interp = Interpreter::new();
 
     let result = interp.eval_str("(+ 1 2 3)")?;
     println!("{result}"); // 6
@@ -41,7 +38,18 @@ fn main() -> sema::Result<()> {
 | Method             | Default | Description                            |
 | ------------------ | ------- | -------------------------------------- |
 | `.with_stdlib(b)`  | `true`  | Register the full standard library     |
-| `.with_llm(b)`     | `false` | Enable LLM functions and auto-config   |
+| `.with_llm(b)`     | `true`  | Enable LLM functions and auto-config   |
+| `.without_stdlib()` | —      | Shorthand for `.with_stdlib(false)`    |
+| `.without_llm()`   | —      | Shorthand for `.with_llm(false)`       |
+
+### Default Interpreter
+
+`Interpreter::new()` gives you everything — stdlib and LLM builtins enabled:
+
+```rust
+let interp = Interpreter::new();
+interp.eval_str("(+ 1 2)")?; // => 3
+```
 
 ### Minimal Interpreter
 
@@ -49,20 +57,35 @@ No stdlib, no LLM — only special forms and core evaluation:
 
 ```rust
 let interp = Interpreter::builder()
-    .with_stdlib(false)
-    .with_llm(false)
+    .without_stdlib()
+    .without_llm()
     .build();
 ```
 
-### Full-Featured Interpreter
+### Stdlib Only (No LLM)
 
-Everything enabled, including LLM primitives:
+Disable LLM builtins for faster startup when you don't need them:
 
 ```rust
 let interp = Interpreter::builder()
-    .with_stdlib(true)
-    .with_llm(true)
+    .without_llm()
     .build();
+```
+
+### Multiple Interpreters
+
+Each `Interpreter` has its own `EvalContext` with fully isolated state — module cache, call stack, span table, and depth counters are not shared:
+
+```rust
+let interp_a = Interpreter::new();
+let interp_b = Interpreter::new();
+
+interp_a.eval_str("(define x 1)")?;
+interp_b.eval_str("(define x 2)")?;
+
+// Each interpreter has its own bindings
+assert_eq!(interp_a.eval_str("x")?, Value::Int(1));
+assert_eq!(interp_b.eval_str("x")?, Value::Int(2));
 ```
 
 ## Registering Native Functions
@@ -119,8 +142,7 @@ use std::collections::BTreeMap;
 
 fn main() -> sema::Result<()> {
     let interp = Interpreter::builder()
-        .with_stdlib(true)
-        .with_llm(false)
+        .without_llm()
         .build();
 
     // Provide a logging function
@@ -195,9 +217,10 @@ fn make_record(name: &str, age: i64, dept: &str) -> Value {
 
 Sema is **single-threaded by design**. It uses `Rc` (not `Arc`) for reference counting and a thread-local string interner for keywords and symbols.
 
-- Create **one interpreter per thread** if you need concurrency.
+- Multiple `Interpreter` instances can coexist on the same thread with **fully isolated evaluator state** — each has its own module cache, call stack, span table, and depth counters.
 - Do **not** send `Value` instances across thread boundaries — they are not `Send` or `Sync`.
 - The string interner is per-thread, so interned keys from one thread are not valid in another.
+- LLM state (provider registry, usage tracking, budgets) is per-thread and shared across all interpreters on the same thread.
 
 ## API Reference
 

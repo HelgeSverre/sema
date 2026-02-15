@@ -2,8 +2,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use sema_core::{
-    intern, resolve, Agent, Env, Lambda, Macro, Record, SemaError, Spur, Thunk, ToolDefinition,
-    Value,
+    intern, resolve, Agent, Env, EvalContext, Lambda, Macro, Record, SemaError, Spur, Thunk,
+    ToolDefinition, Value,
 };
 
 use crate::eval::{self, Trampoline};
@@ -120,74 +120,75 @@ pub fn try_eval_special(
     head_spur: Spur,
     args: &[Value],
     env: &Env,
+    ctx: &EvalContext,
 ) -> Option<Result<Trampoline, SemaError>> {
     let sf = special_forms();
     if head_spur == sf.quote {
         Some(eval_quote(args))
     } else if head_spur == sf.if_ {
-        Some(eval_if(args, env))
+        Some(eval_if(args, env, ctx))
     } else if head_spur == sf.cond {
-        Some(eval_cond(args, env))
+        Some(eval_cond(args, env, ctx))
     } else if head_spur == sf.define {
-        Some(eval_define(args, env))
+        Some(eval_define(args, env, ctx))
     } else if head_spur == sf.defun {
-        Some(eval_defun(args, env))
+        Some(eval_defun(args, env, ctx))
     } else if head_spur == sf.set_bang {
-        Some(eval_set(args, env))
+        Some(eval_set(args, env, ctx))
     } else if head_spur == sf.lambda || head_spur == sf.fn_ {
         Some(eval_lambda(args, env, None))
     } else if head_spur == sf.let_ {
-        Some(eval_let(args, env))
+        Some(eval_let(args, env, ctx))
     } else if head_spur == sf.let_star {
-        Some(eval_let_star(args, env))
+        Some(eval_let_star(args, env, ctx))
     } else if head_spur == sf.letrec {
-        Some(eval_letrec(args, env))
+        Some(eval_letrec(args, env, ctx))
     } else if head_spur == sf.begin {
-        Some(eval_begin(args, env))
+        Some(eval_begin(args, env, ctx))
     } else if head_spur == sf.do_ {
-        Some(eval_do(args, env))
+        Some(eval_do(args, env, ctx))
     } else if head_spur == sf.and {
-        Some(eval_and(args, env))
+        Some(eval_and(args, env, ctx))
     } else if head_spur == sf.or {
-        Some(eval_or(args, env))
+        Some(eval_or(args, env, ctx))
     } else if head_spur == sf.when {
-        Some(eval_when(args, env))
+        Some(eval_when(args, env, ctx))
     } else if head_spur == sf.unless {
-        Some(eval_unless(args, env))
+        Some(eval_unless(args, env, ctx))
     } else if head_spur == sf.defmacro {
         Some(eval_defmacro(args, env))
     } else if head_spur == sf.quasiquote {
-        Some(eval_quasiquote(args, env))
+        Some(eval_quasiquote(args, env, ctx))
     } else if head_spur == sf.prompt {
-        Some(eval_prompt(args, env))
+        Some(eval_prompt(args, env, ctx))
     } else if head_spur == sf.message {
-        Some(eval_message(args, env))
+        Some(eval_message(args, env, ctx))
     } else if head_spur == sf.deftool {
-        Some(eval_deftool(args, env))
+        Some(eval_deftool(args, env, ctx))
     } else if head_spur == sf.defagent {
-        Some(eval_defagent(args, env))
+        Some(eval_defagent(args, env, ctx))
     } else if head_spur == sf.throw {
-        Some(eval_throw(args, env))
+        Some(eval_throw(args, env, ctx))
     } else if head_spur == sf.try_ {
-        Some(eval_try(args, env))
+        Some(eval_try(args, env, ctx))
     } else if head_spur == sf.module {
-        Some(eval_module(args, env))
+        Some(eval_module(args, env, ctx))
     } else if head_spur == sf.import {
-        Some(eval_import(args, env))
+        Some(eval_import(args, env, ctx))
     } else if head_spur == sf.load {
-        Some(eval_load(args, env))
+        Some(eval_load(args, env, ctx))
     } else if head_spur == sf.case {
-        Some(eval_case(args, env))
+        Some(eval_case(args, env, ctx))
     } else if head_spur == sf.eval {
-        Some(eval_eval(args, env))
+        Some(eval_eval(args, env, ctx))
     } else if head_spur == sf.macroexpand {
-        Some(eval_macroexpand(args, env))
+        Some(eval_macroexpand(args, env, ctx))
     } else if head_spur == sf.with_budget {
-        Some(eval_with_budget(args, env))
+        Some(eval_with_budget(args, env, ctx))
     } else if head_spur == sf.delay {
         Some(eval_delay(args, env))
     } else if head_spur == sf.force {
-        Some(eval_force(args, env))
+        Some(eval_force(args, env, ctx))
     } else if head_spur == sf.define_record_type {
         Some(eval_define_record_type(args, env))
     } else {
@@ -202,11 +203,11 @@ fn eval_quote(args: &[Value]) -> Result<Trampoline, SemaError> {
     Ok(Trampoline::Value(args[0].clone()))
 }
 
-fn eval_if(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_if(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 2 || args.len() > 3 {
         return Err(SemaError::arity("if", "2 or 3", args.len()));
     }
-    let cond = eval::eval_value(&args[0], env)?;
+    let cond = eval::eval_value(ctx, &args[0], env)?;
     if cond.is_truthy() {
         Ok(Trampoline::Eval(args[1].clone(), env.clone()))
     } else if args.len() == 3 {
@@ -216,7 +217,7 @@ fn eval_if(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     }
 }
 
-fn eval_cond(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_cond(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     let sf = special_forms();
     for clause in args {
         let items = clause
@@ -227,13 +228,13 @@ fn eval_cond(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         }
         // (else body...) or (test body...)
         let is_else = matches!(&items[0], Value::Symbol(s) if *s == sf.else_);
-        if is_else || eval::eval_value(&items[0], env)?.is_truthy() {
+        if is_else || eval::eval_value(ctx, &items[0], env)?.is_truthy() {
             if items.len() == 1 {
                 return Ok(Trampoline::Value(Value::Bool(true)));
             }
             // Eval all but last, tail-call last
             for expr in &items[1..items.len() - 1] {
-                eval::eval_value(expr, env)?;
+                eval::eval_value(ctx, expr, env)?;
             }
             return Ok(Trampoline::Eval(items.last().unwrap().clone(), env.clone()));
         }
@@ -241,7 +242,7 @@ fn eval_cond(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     Ok(Trampoline::Value(Value::Nil))
 }
 
-fn eval_define(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
         return Err(SemaError::arity("define", "2+", 0));
     }
@@ -251,7 +252,7 @@ fn eval_define(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             if args.len() != 2 {
                 return Err(SemaError::arity("define", "2", args.len()));
             }
-            let val = eval::eval_value(&args[1], env)?;
+            let val = eval::eval_value(ctx, &args[1], env)?;
             env.set(*spur, val);
             Ok(Trampoline::Value(Value::Nil))
         }
@@ -292,7 +293,7 @@ fn eval_define(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// (defun name (params...) body...) => (define (name params...) body...)
-fn eval_defun(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_defun(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 3 {
         return Err(SemaError::arity("defun", "3+", args.len()));
     }
@@ -310,17 +311,17 @@ fn eval_defun(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     // Build transformed args: [(name params...), body...]
     let mut define_args = vec![Value::List(sig.into())];
     define_args.extend_from_slice(&args[2..]);
-    eval_define(&define_args, env)
+    eval_define(&define_args, env, ctx)
 }
 
-fn eval_set(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_set(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 2 {
         return Err(SemaError::arity("set!", "2", args.len()));
     }
     let spur = args[0]
         .as_symbol_spur()
         .ok_or_else(|| SemaError::eval("set!: first argument must be a symbol"))?;
-    let val = eval::eval_value(&args[1], env)?;
+    let val = eval::eval_value(ctx, &args[1], env)?;
     if !env.set_existing(spur, val) {
         return Err(SemaError::Unbound(resolve(spur)));
     }
@@ -355,7 +356,7 @@ fn eval_lambda(args: &[Value], env: &Env, name: Option<String>) -> Result<Trampo
     }))))
 }
 
-fn eval_let(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("let", "2+", args.len()));
     }
@@ -384,7 +385,7 @@ fn eval_let(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
                 .as_symbol()
                 .ok_or_else(|| SemaError::eval("named let: binding name must be a symbol"))?
                 .to_string();
-            let val = eval::eval_value(&pair[1], env)?;
+            let val = eval::eval_value(ctx, &pair[1], env)?;
             params.push(pname);
             init_vals.push(val);
         }
@@ -417,7 +418,7 @@ fn eval_let(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         // Tail-call on last body expr
         let body_ref = &args[2..];
         for expr in &body_ref[..body_ref.len() - 1] {
-            eval::eval_value(expr, &new_env)?;
+            eval::eval_value(ctx, expr, &new_env)?;
         }
         return Ok(Trampoline::Eval(body_ref.last().unwrap().clone(), new_env));
     }
@@ -440,18 +441,18 @@ fn eval_let(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             .as_symbol_spur()
             .ok_or_else(|| SemaError::eval("let: binding name must be a symbol"))?;
         // Evaluate in the OUTER env for let (not let*)
-        let val = eval::eval_value(&pair[1], env)?;
+        let val = eval::eval_value(ctx, &pair[1], env)?;
         new_env.set(name_spur, val);
     }
 
     // Eval body with tail call on last expr
     for expr in &args[1..args.len() - 1] {
-        eval::eval_value(expr, &new_env)?;
+        eval::eval_value(ctx, expr, &new_env)?;
     }
     Ok(Trampoline::Eval(args.last().unwrap().clone(), new_env))
 }
 
-fn eval_let_star(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_let_star(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("let*", "2+", args.len()));
     }
@@ -472,17 +473,17 @@ fn eval_let_star(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             .as_symbol_spur()
             .ok_or_else(|| SemaError::eval("let*: binding name must be a symbol"))?;
         // Evaluate in the NEW env (sequential binding)
-        let val = eval::eval_value(&pair[1], &new_env)?;
+        let val = eval::eval_value(ctx, &pair[1], &new_env)?;
         new_env.set(name_spur, val);
     }
 
     for expr in &args[1..args.len() - 1] {
-        eval::eval_value(expr, &new_env)?;
+        eval::eval_value(ctx, expr, &new_env)?;
     }
     Ok(Trampoline::Eval(args.last().unwrap().clone(), new_env))
 }
 
-fn eval_letrec(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_letrec(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("letrec", "2+", args.len()));
     }
@@ -511,33 +512,33 @@ fn eval_letrec(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     // Pass 2: evaluate init exprs in new env, update bindings
     for (i, binding) in bindings.iter().enumerate() {
         let pair = binding.as_list().unwrap();
-        let val = eval::eval_value(&pair[1], &new_env)?;
+        let val = eval::eval_value(ctx, &pair[1], &new_env)?;
         new_env.set(name_spurs[i], val);
     }
 
     // Eval body with tail call on last expr
     for expr in &args[1..args.len() - 1] {
-        eval::eval_value(expr, &new_env)?;
+        eval::eval_value(ctx, expr, &new_env)?;
     }
     Ok(Trampoline::Eval(args.last().unwrap().clone(), new_env))
 }
 
-fn eval_begin(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_begin(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
         return Ok(Trampoline::Value(Value::Nil));
     }
     for expr in &args[..args.len() - 1] {
-        eval::eval_value(expr, env)?;
+        eval::eval_value(ctx, expr, env)?;
     }
     Ok(Trampoline::Eval(args.last().unwrap().clone(), env.clone()))
 }
 
-fn eval_and(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_and(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
         return Ok(Trampoline::Value(Value::Bool(true)));
     }
     for expr in &args[..args.len() - 1] {
-        let val = eval::eval_value(expr, env)?;
+        let val = eval::eval_value(ctx, expr, env)?;
         if !val.is_truthy() {
             return Ok(Trampoline::Value(val));
         }
@@ -545,12 +546,12 @@ fn eval_and(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     Ok(Trampoline::Eval(args.last().unwrap().clone(), env.clone()))
 }
 
-fn eval_or(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_or(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
         return Ok(Trampoline::Value(Value::Bool(false)));
     }
     for expr in &args[..args.len() - 1] {
-        let val = eval::eval_value(expr, env)?;
+        let val = eval::eval_value(ctx, expr, env)?;
         if val.is_truthy() {
             return Ok(Trampoline::Value(val));
         }
@@ -558,14 +559,14 @@ fn eval_or(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     Ok(Trampoline::Eval(args.last().unwrap().clone(), env.clone()))
 }
 
-fn eval_when(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_when(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("when", "2+", args.len()));
     }
-    let cond = eval::eval_value(&args[0], env)?;
+    let cond = eval::eval_value(ctx, &args[0], env)?;
     if cond.is_truthy() {
         for expr in &args[1..args.len() - 1] {
-            eval::eval_value(expr, env)?;
+            eval::eval_value(ctx, expr, env)?;
         }
         Ok(Trampoline::Eval(args.last().unwrap().clone(), env.clone()))
     } else {
@@ -573,14 +574,14 @@ fn eval_when(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     }
 }
 
-fn eval_unless(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_unless(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("unless", "2+", args.len()));
     }
-    let cond = eval::eval_value(&args[0], env)?;
+    let cond = eval::eval_value(ctx, &args[0], env)?;
     if !cond.is_truthy() {
         for expr in &args[1..args.len() - 1] {
-            eval::eval_value(expr, env)?;
+            eval::eval_value(ctx, expr, env)?;
         }
         Ok(Trampoline::Eval(args.last().unwrap().clone(), env.clone()))
     } else {
@@ -620,15 +621,15 @@ fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     Ok(Trampoline::Value(Value::Nil))
 }
 
-fn eval_quasiquote(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_quasiquote(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("quasiquote", "1", args.len()));
     }
-    let result = expand_quasiquote(&args[0], env)?;
+    let result = expand_quasiquote(&args[0], env, ctx)?;
     Ok(Trampoline::Value(result))
 }
 
-fn expand_quasiquote(val: &Value, env: &Env) -> Result<Value, SemaError> {
+fn expand_quasiquote(val: &Value, env: &Env, ctx: &EvalContext) -> Result<Value, SemaError> {
     match val {
         Value::List(items) => {
             if items.is_empty() {
@@ -640,7 +641,7 @@ fn expand_quasiquote(val: &Value, env: &Env) -> Result<Value, SemaError> {
                     if items.len() != 2 {
                         return Err(SemaError::arity("unquote", "1", items.len() - 1));
                     }
-                    return eval::eval_value(&items[1], env);
+                    return eval::eval_value(ctx, &items[1], env);
                 }
             }
             // Expand each element, handling splicing
@@ -657,7 +658,7 @@ fn expand_quasiquote(val: &Value, env: &Env) -> Result<Value, SemaError> {
                                         inner.len() - 1,
                                     ));
                                 }
-                                let splice_val = eval::eval_value(&inner[1], env)?;
+                                let splice_val = eval::eval_value(ctx, &inner[1], env)?;
                                 if let Value::List(splice_items) = splice_val {
                                     result.extend(splice_items.iter().cloned());
                                 } else {
@@ -671,14 +672,14 @@ fn expand_quasiquote(val: &Value, env: &Env) -> Result<Value, SemaError> {
                         }
                     }
                 }
-                result.push(expand_quasiquote(item, env)?);
+                result.push(expand_quasiquote(item, env, ctx)?);
             }
             Ok(Value::list(result))
         }
         Value::Vector(items) => {
             let mut result = Vec::new();
             for item in items.iter() {
-                result.push(expand_quasiquote(item, env)?);
+                result.push(expand_quasiquote(item, env, ctx)?);
             }
             Ok(Value::vector(result))
         }
@@ -686,7 +687,7 @@ fn expand_quasiquote(val: &Value, env: &Env) -> Result<Value, SemaError> {
     }
 }
 
-fn eval_prompt(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_prompt(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     use sema_core::{Message, Prompt, Role};
 
     let role_names = ["system", "user", "assistant", "tool"];
@@ -708,7 +709,7 @@ fn eval_prompt(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
                         // Evaluate and concatenate the content parts
                         let mut content = String::new();
                         for part in &items[1..] {
-                            let part_val = eval::eval_value(part, env)?;
+                            let part_val = eval::eval_value(ctx, part, env)?;
                             match &part_val {
                                 Value::String(s) => content.push_str(s),
                                 other => content.push_str(&other.to_string()),
@@ -721,7 +722,7 @@ fn eval_prompt(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             }
         }
         // Not a role form — evaluate it and check if it's a Message value
-        let val = eval::eval_value(arg, env)?;
+        let val = eval::eval_value(ctx, arg, env)?;
         match &val {
             Value::Message(msg) => messages.push((**msg).clone()),
             _ => {
@@ -736,13 +737,13 @@ fn eval_prompt(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     }))))
 }
 
-fn eval_message(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_message(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     use sema_core::{Message, Role};
 
     if args.len() < 2 {
         return Err(SemaError::arity("message", "2+", args.len()));
     }
-    let role_val = eval::eval_value(&args[0], env)?;
+    let role_val = eval::eval_value(ctx, &args[0], env)?;
     let role = match &role_val {
         Value::Keyword(spur) => {
             let s = resolve(*spur);
@@ -758,7 +759,7 @@ fn eval_message(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     };
     let mut content = String::new();
     for part in &args[1..] {
-        let val = eval::eval_value(part, env)?;
+        let val = eval::eval_value(ctx, part, env)?;
         match &val {
             Value::String(s) => content.push_str(s),
             other => content.push_str(&other.to_string()),
@@ -771,7 +772,7 @@ fn eval_message(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// (deftool name "description" {:param {:type :string :description "..."}} handler-expr)
-fn eval_deftool(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_deftool(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 4 {
         return Err(SemaError::arity("deftool", "4", args.len()));
     }
@@ -779,13 +780,13 @@ fn eval_deftool(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         .as_symbol()
         .ok_or_else(|| SemaError::eval("deftool: name must be a symbol"))?
         .to_string();
-    let description = eval::eval_value(&args[1], env)?;
+    let description = eval::eval_value(ctx, &args[1], env)?;
     let description = match &description {
         Value::String(s) => s.to_string(),
         other => return Err(SemaError::type_error("string", other.type_name())),
     };
-    let parameters = eval::eval_value(&args[2], env)?;
-    let handler = eval::eval_value(&args[3], env)?;
+    let parameters = eval::eval_value(ctx, &args[2], env)?;
+    let handler = eval::eval_value(ctx, &args[3], env)?;
 
     let tool = Value::ToolDef(Rc::new(ToolDefinition {
         name: name.clone(),
@@ -798,7 +799,7 @@ fn eval_deftool(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// (defagent name {:system "..." :tools [...] :max-turns N :model "..."})
-fn eval_defagent(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_defagent(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 2 {
         return Err(SemaError::arity("defagent", "2", args.len()));
     }
@@ -806,7 +807,7 @@ fn eval_defagent(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         .as_symbol()
         .ok_or_else(|| SemaError::eval("defagent: name must be a symbol"))?
         .to_string();
-    let opts = eval::eval_value(&args[1], env)?;
+    let opts = eval::eval_value(ctx, &args[1], env)?;
     let opts_map = match &opts {
         Value::Map(m) => m.as_ref(),
         _ => return Err(SemaError::type_error("map", opts.type_name())),
@@ -848,16 +849,16 @@ fn eval_defagent(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// (throw value) — raise a user exception
-fn eval_throw(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_throw(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("throw", "1", args.len()));
     }
-    let val = eval::eval_value(&args[0], env)?;
+    let val = eval::eval_value(ctx, &args[0], env)?;
     Err(SemaError::UserException(val))
 }
 
 /// (try body... (catch e handler-body...))
-fn eval_try(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_try(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     let sf = special_forms();
     if args.is_empty() {
         return Err(SemaError::arity("try", "1+", 0));
@@ -891,7 +892,7 @@ fn eval_try(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     let body_result: Result<Value, SemaError> = (|| {
         let mut result = Value::Nil;
         for expr in body {
-            result = eval::eval_value(expr, env)?;
+            result = eval::eval_value(ctx, expr, env)?;
         }
         Ok(result)
     })();
@@ -905,7 +906,7 @@ fn eval_try(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
             catch_env.set(intern(&catch_var), err_val);
             // Eval handler with TCO on last expr
             for expr in &handler_body[..handler_body.len() - 1] {
-                eval::eval_value(expr, &catch_env)?;
+                eval::eval_value(ctx, expr, &catch_env)?;
             }
             Ok(Trampoline::Eval(
                 handler_body.last().unwrap().clone(),
@@ -1007,7 +1008,7 @@ fn error_to_value(err: &SemaError) -> Value {
 }
 
 /// (module name (export sym1 sym2 ...) body...)
-fn eval_module(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_module(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     let sf = special_forms();
     if args.len() < 2 {
         return Err(SemaError::arity("module", "2+", args.len()));
@@ -1035,7 +1036,7 @@ fn eval_module(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         })
         .collect::<Result<_, _>>()?;
 
-    eval::set_module_exports(export_names);
+    ctx.set_module_exports(export_names);
 
     // Evaluate body
     let body = &args[2..];
@@ -1043,17 +1044,17 @@ fn eval_module(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         return Ok(Trampoline::Value(Value::Nil));
     }
     for expr in &body[..body.len() - 1] {
-        eval::eval_value(expr, env)?;
+        eval::eval_value(ctx, expr, env)?;
     }
     Ok(Trampoline::Eval(body.last().unwrap().clone(), env.clone()))
 }
 
 /// (import "path.sema") or (import "path.sema" sym1 sym2)
-fn eval_import(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
         return Err(SemaError::arity("import", "1+", 0));
     }
-    let path_val = eval::eval_value(&args[0], env)?;
+    let path_val = eval::eval_value(ctx, &args[0], env)?;
     let path_str = path_val
         .as_str()
         .ok_or_else(|| SemaError::type_error("string", path_val.type_name()))?;
@@ -1061,7 +1062,7 @@ fn eval_import(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     // Resolve path relative to current file
     let resolved = if std::path::Path::new(path_str).is_absolute() {
         std::path::PathBuf::from(path_str)
-    } else if let Some(dir) = eval::current_file_dir() {
+    } else if let Some(dir) = ctx.current_file_dir() {
         dir.join(path_str)
     } else {
         std::path::PathBuf::from(path_str)
@@ -1081,45 +1082,45 @@ fn eval_import(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         .collect::<Result<_, _>>()?;
 
     // Check cache
-    if let Some(cached) = eval::get_cached_module(&canonical) {
+    if let Some(cached) = ctx.get_cached_module(&canonical) {
         copy_exports_to_env(&cached, &selective, env)?;
         return Ok(Trampoline::Value(Value::Nil));
     }
 
-    eval::begin_module_load(&canonical)?;
+    ctx.begin_module_load(&canonical)?;
 
     let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> = (|| {
         // Load and evaluate the module
         let content = std::fs::read_to_string(&canonical)
             .map_err(|e| SemaError::Io(format!("import {path_str}: {e}")))?;
         let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-        eval::merge_span_table(spans);
+        ctx.merge_span_table(spans);
 
         let module_env = eval::create_module_env(env);
-        eval::push_file_path(canonical.clone());
-        eval::clear_module_exports();
+        ctx.push_file_path(canonical.clone());
+        ctx.clear_module_exports();
 
         let eval_result = (|| {
             for expr in &exprs {
-                eval::eval_value(expr, &module_env)?;
+                eval::eval_value(ctx, expr, &module_env)?;
             }
             Ok(())
         })();
 
-        eval::pop_file_path();
+        ctx.pop_file_path();
 
         // Always pop export scope, even if module evaluation fails.
-        let declared = eval::take_module_exports();
+        let declared = ctx.take_module_exports();
         eval_result?;
 
         Ok(collect_module_exports(&module_env, declared.as_deref()))
     })();
 
-    eval::end_module_load(&canonical);
+    ctx.end_module_load(&canonical);
     let exports = load_result?;
 
     // Cache
-    eval::cache_module(canonical, exports.clone());
+    ctx.cache_module(canonical, exports.clone());
 
     // Copy to caller env
     copy_exports_to_env(&exports, &selective, env)?;
@@ -1176,11 +1177,11 @@ fn copy_exports_to_env(
 }
 
 /// (load "file.sema") — read and evaluate a file in the current environment
-fn eval_load(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("load", "1", args.len()));
     }
-    let path_val = eval::eval_value(&args[0], env)?;
+    let path_val = eval::eval_value(ctx, &args[0], env)?;
     let path_str = path_val
         .as_str()
         .ok_or_else(|| SemaError::type_error("string", path_val.type_name()))?;
@@ -1188,7 +1189,7 @@ fn eval_load(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     // Resolve path relative to current file
     let resolved = if std::path::Path::new(path_str).is_absolute() {
         std::path::PathBuf::from(path_str)
-    } else if let Some(dir) = eval::current_file_dir() {
+    } else if let Some(dir) = ctx.current_file_dir() {
         dir.join(path_str)
     } else {
         std::path::PathBuf::from(path_str)
@@ -1197,25 +1198,25 @@ fn eval_load(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     let content = std::fs::read_to_string(&resolved)
         .map_err(|e| SemaError::Io(format!("load {}: {e}", resolved.display())))?;
     let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-    eval::merge_span_table(spans);
+    ctx.merge_span_table(spans);
 
     // Push the file path so nested load/import resolves correctly
     let canonical = resolved.canonicalize().ok();
     if let Some(path) = canonical.clone() {
-        eval::push_file_path(path);
+        ctx.push_file_path(path);
     }
 
     let mut result = Value::Nil;
     let eval_result = (|| {
         for expr in &exprs {
-            result = eval::eval_value(expr, env)?;
+            result = eval::eval_value(ctx, expr, env)?;
         }
         Ok(result.clone())
     })();
 
     // Pop regardless of success/failure
     if canonical.is_some() {
-        eval::pop_file_path();
+        ctx.pop_file_path();
     }
 
     eval_result?;
@@ -1223,12 +1224,12 @@ fn eval_load(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// (case key-expr ((datum ...) body ...) ... (else body ...))
-fn eval_case(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_case(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     let sf = special_forms();
     if args.len() < 2 {
         return Err(SemaError::arity("case", "2+", args.len()));
     }
-    let key = eval::eval_value(&args[0], env)?;
+    let key = eval::eval_value(ctx, &args[0], env)?;
 
     for clause in &args[1..] {
         let items = clause
@@ -1244,7 +1245,7 @@ fn eval_case(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
                 return Ok(Trampoline::Value(Value::Nil));
             }
             for expr in &items[1..items.len() - 1] {
-                eval::eval_value(expr, env)?;
+                eval::eval_value(ctx, expr, env)?;
             }
             return Ok(Trampoline::Eval(items.last().unwrap().clone(), env.clone()));
         }
@@ -1257,7 +1258,7 @@ fn eval_case(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
                 return Ok(Trampoline::Value(Value::Nil));
             }
             for expr in &items[1..items.len() - 1] {
-                eval::eval_value(expr, env)?;
+                eval::eval_value(ctx, expr, env)?;
             }
             return Ok(Trampoline::Eval(items.last().unwrap().clone(), env.clone()));
         }
@@ -1266,26 +1267,26 @@ fn eval_case(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// (eval expr) — evaluate a quoted expression
-fn eval_eval(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_eval(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("eval", "1", args.len()));
     }
-    let expr = eval::eval_value(&args[0], env)?;
+    let expr = eval::eval_value(ctx, &args[0], env)?;
     Ok(Trampoline::Eval(expr, env.clone()))
 }
 
 /// (macroexpand '(macro-call args...)) — expand a macro once without evaluating
-fn eval_macroexpand(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_macroexpand(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("macroexpand", "1", args.len()));
     }
-    let form = eval::eval_value(&args[0], env)?;
+    let form = eval::eval_value(ctx, &args[0], env)?;
     // Check if it's a list starting with a macro name
     if let Value::List(items) = &form {
         if !items.is_empty() {
             if let Value::Symbol(spur) = &items[0] {
                 if let Some(Value::Macro(mac)) = env.get(*spur) {
-                    let expanded = eval::apply_macro(&mac, &items[1..], env)?;
+                    let expanded = eval::apply_macro(ctx, &mac, &items[1..], env)?;
                     return Ok(Trampoline::Value(expanded));
                 }
             }
@@ -1296,13 +1297,13 @@ fn eval_macroexpand(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> 
 }
 
 /// (with-budget {:max-cost-usd 0.50} body...)
-fn eval_with_budget(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_with_budget(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("with-budget", "2+", args.len()));
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let opts = eval::eval_value(&args[0], env)?;
+        let opts = eval::eval_value(ctx, &args[0], env)?;
         let max_cost = match &opts {
             Value::Map(m) => m
                 .get(&Value::keyword("max-cost-usd"))
@@ -1316,7 +1317,7 @@ fn eval_with_budget(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> 
         let mut result = Value::Nil;
         let body_result = (|| {
             for expr in &args[1..] {
-                result = eval::eval_value(expr, env)?;
+                result = eval::eval_value(ctx, expr, env)?;
             }
             Ok(result.clone())
         })();
@@ -1334,7 +1335,7 @@ fn eval_with_budget(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> 
 }
 
 /// (do ((var init step) ...) (test result ...) body ...)
-fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_do(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("do", "2+", args.len()));
     }
@@ -1367,7 +1368,7 @@ fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         let name_spur = parts[0]
             .as_symbol_spur()
             .ok_or_else(|| SemaError::eval("do: variable name must be a symbol"))?;
-        let init_val = eval::eval_value(&parts[1], env)?;
+        let init_val = eval::eval_value(ctx, &parts[1], env)?;
         let step = if parts.len() == 3 {
             Some(parts[2].clone())
         } else {
@@ -1380,13 +1381,13 @@ fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 
     let mut new_vals: Vec<Option<Value>> = vec![None; var_names.len()];
     loop {
-        let test_result = eval::eval_value(&test_clause[0], &loop_env)?;
+        let test_result = eval::eval_value(ctx, &test_clause[0], &loop_env)?;
         if test_result.is_truthy() {
             if test_clause.len() == 1 {
                 return Ok(Trampoline::Value(Value::Nil));
             }
             for expr in &test_clause[1..test_clause.len() - 1] {
-                eval::eval_value(expr, &loop_env)?;
+                eval::eval_value(ctx, expr, &loop_env)?;
             }
             return Ok(Trampoline::Eval(
                 test_clause.last().unwrap().clone(),
@@ -1395,13 +1396,13 @@ fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         }
 
         for expr in body {
-            eval::eval_value(expr, &loop_env)?;
+            eval::eval_value(ctx, expr, &loop_env)?;
         }
 
         // Compute all step values before updating (parallel assignment)
         for (i, step) in step_exprs.iter().enumerate() {
             new_vals[i] = match step {
-                Some(expr) => Some(eval::eval_value(expr, &loop_env)?),
+                Some(expr) => Some(eval::eval_value(ctx, expr, &loop_env)?),
                 None => None,
             };
         }
@@ -1434,11 +1435,11 @@ fn eval_delay(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 }
 
 /// (force promise) — evaluate a promise, memoizing the result
-fn eval_force(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_force(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("force", "1", args.len()));
     }
-    let val = eval::eval_value(&args[0], env)?;
+    let val = eval::eval_value(ctx, &args[0], env)?;
     match &val {
         Value::Thunk(thunk) => {
             if let Some(cached) = &*thunk.forced.borrow() {
@@ -1449,11 +1450,11 @@ fn eval_force(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
                     let thunk_env = Env::with_parent(Rc::new(lambda.env.clone()));
                     let mut res = Value::Nil;
                     for expr in &lambda.body {
-                        res = eval::eval_value(expr, &thunk_env)?;
+                        res = eval::eval_value(ctx, expr, &thunk_env)?;
                     }
                     res
                 }
-                other => eval::eval_value(other, env)?,
+                other => eval::eval_value(ctx, other, env)?,
             };
             *thunk.forced.borrow_mut() = Some(result.clone());
             Ok(Trampoline::Value(result))
@@ -1502,9 +1503,9 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
     let ctor_name_clone = ctor_name.clone();
     env.set_str(
         &ctor_name,
-        Value::NativeFn(Rc::new(sema_core::NativeFn {
-            name: ctor_name.clone(),
-            func: Box::new(move |args: &[Value]| {
+        Value::NativeFn(Rc::new(sema_core::NativeFn::simple(
+            ctor_name.clone(),
+            move |args: &[Value]| {
                 if args.len() != field_count {
                     return Err(SemaError::arity(
                         &ctor_name_clone,
@@ -1516,25 +1517,25 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
                     type_tag,
                     fields: args.to_vec(),
                 })))
-            }),
-        })),
+            },
+        ))),
     );
 
     let pred_name_for_closure = pred_name.clone();
     let pred_name_for_set = pred_name.clone();
     env.set_str(
         &pred_name_for_set,
-        Value::NativeFn(Rc::new(sema_core::NativeFn {
-            name: pred_name,
-            func: Box::new(move |args: &[Value]| {
+        Value::NativeFn(Rc::new(sema_core::NativeFn::simple(
+            pred_name,
+            move |args: &[Value]| {
                 if args.len() != 1 {
                     return Err(SemaError::arity(&pred_name_for_closure, "1", args.len()));
                 }
                 Ok(Value::Bool(
                     matches!(&args[0], Value::Record(r) if r.type_tag == type_tag),
                 ))
-            }),
-        })),
+            },
+        ))),
     );
 
     for field_spec_val in &args[3..] {
@@ -1569,9 +1570,9 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
         let type_name_for_err = type_name.clone();
         env.set_str(
             &accessor_name_for_set,
-            Value::NativeFn(Rc::new(sema_core::NativeFn {
-                name: accessor_name,
-                func: Box::new(move |args: &[Value]| {
+            Value::NativeFn(Rc::new(sema_core::NativeFn::simple(
+                accessor_name,
+                move |args: &[Value]| {
                     if args.len() != 1 {
                         return Err(SemaError::arity(
                             &accessor_name_for_closure,
@@ -1588,8 +1589,8 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
                             args[0].type_name(),
                         )),
                     }
-                }),
-            })),
+                },
+            ))),
         );
     }
 

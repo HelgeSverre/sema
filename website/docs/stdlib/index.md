@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Standard Library
 
-Sema ships with **350+ built-in functions** across **17 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
+Sema ships with **350+ built-in functions** across **19 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
 
 ## Naming Conventions
 

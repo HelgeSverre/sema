@@ -1154,7 +1154,10 @@ fn symbol_appears_in(name: &str, exprs: &[Value]) -> bool {
 /// Call a Sema function (lambda or native) with given args.
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     match func {
-        Value::NativeFn(native) => (native.func)(args),
+        Value::NativeFn(native) => {
+            let ctx = sema_core::EvalContext::new();
+            (native.func)(&ctx, args)
+        }
         Value::Lambda(lambda) => {
             let env = Env::with_parent(Rc::new(lambda.env.clone()));
             // Bind params

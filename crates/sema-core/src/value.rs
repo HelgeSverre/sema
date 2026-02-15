@@ -8,6 +8,7 @@ use hashbrown::HashMap as SpurMap;
 use lasso::{Rodeo, Spur};
 
 use crate::error::SemaError;
+use crate::EvalContext;
 
 thread_local! {
     static INTERNER: RefCell<Rodeo> = RefCell::new(Rodeo::default());
@@ -46,11 +47,33 @@ pub fn compare_spurs(a: Spur, b: Spur) -> std::cmp::Ordering {
 }
 
 /// A native function callable from Sema.
-pub type NativeFnInner = dyn Fn(&[Value]) -> Result<Value, SemaError>;
+pub type NativeFnInner = dyn Fn(&EvalContext, &[Value]) -> Result<Value, SemaError>;
 
 pub struct NativeFn {
     pub name: String,
     pub func: Box<NativeFnInner>,
+}
+
+impl NativeFn {
+    pub fn simple(
+        name: impl Into<String>,
+        f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            func: Box::new(move |_ctx, args| f(args)),
+        }
+    }
+
+    pub fn with_ctx(
+        name: impl Into<String>,
+        f: impl Fn(&EvalContext, &[Value]) -> Result<Value, SemaError> + 'static,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            func: Box::new(f),
+        }
+    }
 }
 
 impl fmt::Debug for NativeFn {
@@ -653,5 +676,27 @@ impl Env {
 impl Default for Env {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::EvalContext;
+
+    #[test]
+    fn test_native_fn_simple() {
+        let f = NativeFn::simple("add1", |args| Ok(args[0].clone()));
+        let ctx = EvalContext::new();
+        assert!((f.func)(&ctx, &[Value::Int(42)]).is_ok());
+    }
+
+    #[test]
+    fn test_native_fn_with_ctx() {
+        let f = NativeFn::with_ctx("get-depth", |ctx, _args| {
+            Ok(Value::Int(ctx.eval_depth.get() as i64))
+        });
+        let ctx = EvalContext::new();
+        assert_eq!((f.func)(&ctx, &[]).unwrap(), Value::Int(0));
     }
 }

@@ -11,8 +11,8 @@
 
 - **sema-core** → `Value` enum, `Env` (Rc+RefCell+HashMap), `SemaError` (thiserror)
 - **sema-reader** → Lexer + s-expression parser → `Value` AST
-- **sema-eval** → Trampoline-based TCO evaluator, special forms, module system (thread-local `MODULE_CACHE`/`CURRENT_FILE`)
-- **sema-stdlib** → 350+ native functions across 17 modules registered into `Env`
+- **sema-eval** → Trampoline-based TCO evaluator, special forms, module system (`EvalContext` holds module cache, call stack, spans)
+- **sema-stdlib** → 350+ native functions across 19 modules registered into `Env`
 - **sema-llm** → LLM provider trait + Anthropic/OpenAI clients (tokio `block_on`), dynamic pricing from llm-prices.com with disk cache fallback
 - **sema** → Binary (clap CLI + rustyline REPL) + integration tests
 - Dep flow: `sema-core ← sema-reader ← sema-eval ← sema-stdlib/sema-llm ← sema`. **Critical**: stdlib/llm depend on core, NOT eval.

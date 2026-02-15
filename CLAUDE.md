@@ -35,11 +35,11 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
     └── sema-llm ────────────────┘
 ```
 
-- **sema-core** — `Value` enum (18 variants), `Env` (Rc + RefCell + hashbrown::HashMap), `SemaError`
+- **sema-core** — `Value` enum (23 variants), `Env` (Rc + RefCell + BTreeMap), `SemaError`, `EvalContext`
 - **sema-reader** — Lexer + parser producing `Value` AST
-- **sema-eval** — Trampoline-based tree-walking evaluator, 29 special forms, module system
-- **sema-stdlib** — 350+ native functions across 17 modules registered into `Env`
-- **sema-llm** — LLM provider trait + Anthropic/OpenAI clients (tokio `block_on` for sync)
+- **sema-eval** — Trampoline-based tree-walking evaluator, 39 special forms, module system
+- **sema-stdlib** — 350+ native functions across 19 modules registered into `Env`
+- **sema-llm** — LLM provider trait + Anthropic/OpenAI/Gemini/Ollama clients (tokio `block_on` for sync)
 - **sema** — Binary: CLI (clap) + REPL (rustyline) + integration tests
 
 **Critical**: `sema-stdlib` and `sema-llm` depend on `sema-core` but NOT on `sema-eval` (avoids circular deps).
@@ -55,9 +55,9 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 - **stdlib HOFs** (map, filter, foldl): `list.rs` has its own mini-eval/`call_function` that handles symbol lookup + function application without depending on sema-eval
 - **LLM tool execution**: Thread-local `EvalCallback` set by `Interpreter::new()` gives sema-llm access to the full evaluator
 
-### Module System (Thread-Local State)
+### Module System (EvalContext)
 
-`MODULE_CACHE`, `CURRENT_FILE` (stack), `MODULE_EXPORTS` are thread-local. Modules identified by canonical file path. Module env is child of root env (gets builtins, not caller bindings). Paths resolve relative to current file.
+`module_cache`, `current_file` (stack), `module_exports` are fields in `EvalContext` (defined in `sema-core/src/context.rs`), threaded through the evaluator as `ctx: &EvalContext`. Modules identified by canonical file path. Module env is child of root env (gets builtins, not caller bindings). Paths resolve relative to current file.
 
 ### Keywords as Functions
 
@@ -68,7 +68,7 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 ### Rust
 
 - Errors: use `SemaError::eval()`, `::type_error()`, `::arity()` constructors — never raw enum variants
-- Native fns: `NativeFn` takes `&[Value]`, returns `Result<Value, SemaError>`
+- Native fns: `NativeFn` takes `(&EvalContext, &[Value])`, returns `Result<Value, SemaError>`. Use `NativeFn::simple()` for fns that don't need context, `NativeFn::with_ctx()` for those that do
 - Single-threaded: `Rc` everywhere, not `Arc`. `hashbrown::HashMap` for `Env` bindings, `BTreeMap` for user-facing sorted maps.
 
 ### Sema Language Naming (Decision #24)

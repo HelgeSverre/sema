@@ -3,7 +3,9 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use sema_core::{resolve, Conversation, Env, Message, NativeFn, Prompt, Role, SemaError, Value};
+use sema_core::{
+    resolve, Conversation, Env, EvalContext, Message, NativeFn, Prompt, Role, SemaError, Value,
+};
 
 use crate::anthropic::AnthropicProvider;
 use crate::embeddings::{CohereEmbeddingProvider, OpenAiCompatEmbeddingProvider};
@@ -14,8 +16,8 @@ use crate::pricing;
 use crate::provider::{LlmProvider, ProviderRegistry};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, EmbedRequest, ToolSchema, Usage};
 
-/// Type for a full evaluator callback: (expr, env) -> Result<Value, SemaError>
-pub type EvalCallback = Box<dyn Fn(&Value, &Env) -> Result<Value, SemaError>>;
+/// Type for a full evaluator callback: (ctx, expr, env) -> Result<Value, SemaError>
+pub type EvalCallback = Box<dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>>;
 
 thread_local! {
     static PROVIDER_REGISTRY: RefCell<ProviderRegistry> = RefCell::new(ProviderRegistry::new());
@@ -25,7 +27,7 @@ thread_local! {
     static SESSION_COST: RefCell<f64> = const { RefCell::new(0.0) };
     static BUDGET_LIMIT: RefCell<Option<f64>> = const { RefCell::new(None) };
     static BUDGET_SPENT: RefCell<f64> = const { RefCell::new(0.0) };
-    static BUDGET_STACK: RefCell<Vec<(Option<f64>, f64)>> = RefCell::new(Vec::new());
+    static BUDGET_STACK: RefCell<Vec<(Option<f64>, f64)>> = const { RefCell::new(Vec::new()) };
 }
 
 thread_local! {
@@ -33,7 +35,9 @@ thread_local! {
 }
 
 /// Register a full evaluator for use by tool handlers and other LLM builtins.
-pub fn set_eval_callback(f: impl Fn(&Value, &Env) -> Result<Value, SemaError> + 'static) {
+pub fn set_eval_callback(
+    f: impl Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError> + 'static,
+) {
     EVAL_FN.with(|eval| {
         *eval.borrow_mut() = Some(Box::new(f));
     });
@@ -55,12 +59,12 @@ pub fn reset_runtime_state() {
 }
 
 /// Evaluate an expression using the registered full evaluator.
-fn full_eval(expr: &Value, env: &Env) -> Result<Value, SemaError> {
+fn full_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
     EVAL_FN.with(|eval_fn| {
         let eval_fn = eval_fn.borrow();
         match &*eval_fn {
-            Some(f) => f(expr, env),
-            None => simple_eval(expr, env),
+            Some(f) => f(ctx, expr, env),
+            None => simple_eval(ctx, expr, env),
         }
     })
 }
@@ -68,10 +72,18 @@ fn full_eval(expr: &Value, env: &Env) -> Result<Value, SemaError> {
 fn register_fn(env: &Env, name: &str, f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static) {
     env.set(
         sema_core::intern(name),
-        Value::NativeFn(Rc::new(NativeFn {
-            name: name.to_string(),
-            func: Box::new(f),
-        })),
+        Value::NativeFn(Rc::new(NativeFn::simple(name, f))),
+    );
+}
+
+fn register_fn_ctx(
+    env: &Env,
+    name: &str,
+    f: impl Fn(&EvalContext, &[Value]) -> Result<Value, SemaError> + 'static,
+) {
+    env.set(
+        sema_core::intern(name),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(name, f))),
     );
 }
 
@@ -645,7 +657,7 @@ pub fn register_llm_builtins(env: &Env) {
     });
 
     // (llm/chat messages {:model "..." :tools [...] :tool-mode :auto ...})
-    register_fn(env, "llm/chat", |args| {
+    register_fn_ctx(env, "llm/chat", |ctx, args| {
         if args.is_empty() || args.len() > 2 {
             return Err(SemaError::arity("llm/chat", "1-2", args.len()));
         }
@@ -697,6 +709,7 @@ pub fn register_llm_builtins(env: &Env) {
             // Chat with tool execution loop
             let tool_schemas = build_tool_schemas(&tools)?;
             let (result, _msgs) = run_tool_loop(
+                ctx,
                 messages,
                 model,
                 max_tokens,
@@ -725,7 +738,7 @@ pub fn register_llm_builtins(env: &Env) {
 
     // (llm/stream "prompt" callback {:max-tokens 200})
     // (llm/stream "prompt" {:max-tokens 200})  — prints to stdout
-    register_fn(env, "llm/stream", |args| {
+    register_fn_ctx(env, "llm/stream", |ctx, args| {
         if args.is_empty() || args.len() > 3 {
             return Err(SemaError::arity("llm/stream", "1-3", args.len()));
         }
@@ -788,7 +801,7 @@ pub fn register_llm_builtins(env: &Env) {
                 req.model = p.default_model().to_string();
                 let mut chunk_cb = |chunk: &str| -> Result<(), crate::types::LlmError> {
                     if let Some(ref cb) = callback {
-                        call_value_fn(cb, &[Value::String(Rc::new(chunk.to_string()))])
+                        call_value_fn(ctx, cb, &[Value::String(Rc::new(chunk.to_string()))])
                             .map_err(|e| crate::types::LlmError::Config(e.to_string()))?;
                     } else {
                         print!("{}", chunk);
@@ -802,7 +815,7 @@ pub fn register_llm_builtins(env: &Env) {
             } else {
                 let mut chunk_cb = |chunk: &str| -> Result<(), crate::types::LlmError> {
                     if let Some(ref cb) = callback {
-                        call_value_fn(cb, &[Value::String(Rc::new(chunk.to_string()))])
+                        call_value_fn(ctx, cb, &[Value::String(Rc::new(chunk.to_string()))])
                             .map_err(|e| crate::types::LlmError::Config(e.to_string()))?;
                     } else {
                         print!("{}", chunk);
@@ -1226,7 +1239,7 @@ pub fn register_llm_builtins(env: &Env) {
 
     // (agent/run agent "msg") returns string
     // (agent/run agent "msg" {:on-tool-call cb :messages history}) returns {:response "..." :messages [...]}
-    register_fn(env, "agent/run", |args| {
+    register_fn_ctx(env, "agent/run", |ctx, args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("agent/run", "2-3", args.len()));
         }
@@ -1273,6 +1286,7 @@ pub fn register_llm_builtins(env: &Env) {
         };
 
         let (result, final_messages) = run_tool_loop(
+            ctx,
             messages,
             agent.model.clone(),
             Some(4096),
@@ -1301,7 +1315,7 @@ pub fn register_llm_builtins(env: &Env) {
 
     // (llm/pmap fn collection {:max-tokens N ...})
     // Maps fn over collection to produce prompts, then sends all prompts in parallel via batch_complete
-    register_fn(env, "llm/pmap", |args| {
+    register_fn_ctx(env, "llm/pmap", |ctx, args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("llm/pmap", "2-3", args.len()));
         }
@@ -1329,7 +1343,7 @@ pub fn register_llm_builtins(env: &Env) {
         // Step 1: Map fn over items to produce prompt strings (sequentially, since Rc)
         let mut prompts = Vec::with_capacity(items.len());
         for item in &items {
-            let result = call_value_fn(func, &[item.clone()])?;
+            let result = call_value_fn(ctx, func, &[item.clone()])?;
             let prompt_str = match &result {
                 Value::String(s) => s.to_string(),
                 other => other.to_string(),
@@ -2349,6 +2363,7 @@ fn chat_messages_to_sema_list(messages: &[ChatMessage]) -> Value {
 
 /// The tool execution loop: send -> check for tool_calls -> execute -> send results -> repeat.
 fn run_tool_loop(
+    ctx: &EvalContext,
     initial_messages: Vec<ChatMessage>,
     model: String,
     max_tokens: Option<u32>,
@@ -2409,11 +2424,11 @@ fn run_tool_loop(
                     Value::String(Rc::new(tc.name.clone())),
                 );
                 event_map.insert(Value::keyword("args"), args_value.clone());
-                let _ = call_value_fn(callback, &[Value::Map(Rc::new(event_map))]);
+                let _ = call_value_fn(ctx, callback, &[Value::Map(Rc::new(event_map))]);
             }
 
             let start_time = std::time::Instant::now();
-            let result = execute_tool_call(tools, &tc.name, &tc.arguments)?;
+            let result = execute_tool_call(ctx, tools, &tc.name, &tc.arguments)?;
             let duration_ms = start_time.elapsed().as_millis() as i64;
 
             // Fire "end" event
@@ -2439,7 +2454,7 @@ fn run_tool_loop(
                     Value::String(Rc::new(result_preview)),
                 );
                 event_map.insert(Value::keyword("duration-ms"), Value::Int(duration_ms));
-                let _ = call_value_fn(callback, &[Value::Map(Rc::new(event_map))]);
+                let _ = call_value_fn(ctx, callback, &[Value::Map(Rc::new(event_map))]);
             }
 
             messages.push(ChatMessage {
@@ -2461,6 +2476,7 @@ fn run_tool_loop(
 
 /// Execute a tool call by finding the handler and invoking it.
 fn execute_tool_call(
+    ctx: &EvalContext,
     tools: &[Value],
     name: &str,
     arguments: &serde_json::Value,
@@ -2476,7 +2492,7 @@ fn execute_tool_call(
 
     // Convert JSON arguments to Sema values and call the handler
     let sema_args = json_args_to_sema(&tool_def.parameters, arguments, &tool_def.handler);
-    let result = call_value_fn(&tool_def.handler, &sema_args)?;
+    let result = call_value_fn(ctx, &tool_def.handler, &sema_args)?;
 
     // Convert result to string for sending back to LLM
     match &result {
@@ -2531,9 +2547,9 @@ fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Va
 }
 
 /// Call a Sema value as a function (lambda or native).
-fn call_value_fn(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
+fn call_value_fn(ctx: &EvalContext, func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     match func {
-        Value::NativeFn(native) => (native.func)(args),
+        Value::NativeFn(native) => (native.func)(ctx, args),
         Value::Lambda(lambda) => {
             let env = Env::with_parent(Rc::new(lambda.env.clone()));
             // Bind params
@@ -2578,7 +2594,7 @@ fn call_value_fn(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
             // Eval body using the full evaluator (supports let, if, cond, etc.)
             let mut result = Value::Nil;
             for expr in &lambda.body {
-                result = full_eval(expr, &env)?;
+                result = full_eval(ctx, expr, &env)?;
             }
             Ok(result)
         }
@@ -2591,18 +2607,18 @@ fn call_value_fn(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
 }
 
 /// Minimal evaluator for use within LLM builtins (avoids circular dep with sema-eval).
-fn simple_eval(expr: &Value, env: &Env) -> Result<Value, SemaError> {
+fn simple_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
     match expr {
         Value::Symbol(spur) => env
             .get(*spur)
             .ok_or_else(|| SemaError::Unbound(resolve(*spur))),
         Value::List(items) if !items.is_empty() => {
-            let func_val = simple_eval(&items[0], env)?;
+            let func_val = simple_eval(ctx, &items[0], env)?;
             let mut args = Vec::new();
             for arg in &items[1..] {
-                args.push(simple_eval(arg, env)?);
+                args.push(simple_eval(ctx, arg, env)?);
             }
-            call_value_fn(&func_val, &args)
+            call_value_fn(ctx, &func_val, &args)
         }
         _ => Ok(expr.clone()),
     }
@@ -2757,10 +2773,7 @@ mod tests {
     #[test]
     fn test_json_args_to_sema_non_lambda_falls_back_to_btreemap() {
         // With a NativeFn handler, should fall back to param_map key order (alphabetical).
-        let handler = Value::NativeFn(Rc::new(NativeFn {
-            name: "test".to_string(),
-            func: Box::new(|_args| Ok(Value::Nil)),
-        }));
+        let handler = Value::NativeFn(Rc::new(NativeFn::simple("test", |_args| Ok(Value::Nil))));
         let params = make_param_map(&["zebra", "apple"]);
         let args = json!({"zebra": "Z", "apple": "A"});
 
@@ -2825,7 +2838,8 @@ mod tests {
         }));
 
         let args = json!({"path": "/tmp/test.txt", "content": "file body here"});
-        let result = execute_tool_call(&[tool], "write-file", &args).unwrap();
+        let ctx = EvalContext::new();
+        let result = execute_tool_call(&ctx, &[tool], "write-file", &args).unwrap();
 
         // If ordering is wrong (alphabetical), content would be bound to `path`
         // and we'd get "file body here" instead of the actual path.
@@ -2851,7 +2865,8 @@ mod tests {
         }));
 
         let args = json!({"z_last": "ZLAST", "a_first": "AFIRST"});
-        let result = execute_tool_call(&[tool], "test-tool", &args).unwrap();
+        let ctx = EvalContext::new();
+        let result = execute_tool_call(&ctx, &[tool], "test-tool", &args).unwrap();
 
         // Lambda body returns z_last — must be "ZLAST", not "AFIRST"
         assert_eq!(result, "ZLAST");

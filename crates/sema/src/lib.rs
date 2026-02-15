@@ -7,7 +7,7 @@
 //! ```no_run
 //! use sema::{Interpreter, InterpreterBuilder, Value};
 //!
-//! let interp = InterpreterBuilder::new().with_llm(true).build();
+//! let interp = InterpreterBuilder::new().build();
 //! let result = interp.eval_str("(+ 1 2)").unwrap();
 //! assert_eq!(result, Value::Int(3));
 //! ```
@@ -23,7 +23,7 @@ pub type Result<T> = std::result::Result<T, SemaError>;
 
 /// Builder for configuring and constructing an [`Interpreter`].
 ///
-/// By default, the standard library is enabled and LLM builtins are disabled.
+/// By default, both the standard library and LLM builtins are enabled.
 pub struct InterpreterBuilder {
     stdlib: bool,
     llm: bool,
@@ -40,7 +40,7 @@ impl InterpreterBuilder {
     pub fn new() -> Self {
         Self {
             stdlib: true,
-            llm: false,
+            llm: true,
         }
     }
 
@@ -50,7 +50,7 @@ impl InterpreterBuilder {
         self
     }
 
-    /// Enable or disable the LLM builtins (default: `false`).
+    /// Enable or disable the LLM builtins (default: `true`).
     pub fn with_llm(mut self, enable: bool) -> Self {
         self.llm = enable;
         self
@@ -68,10 +68,10 @@ impl InterpreterBuilder {
 
     /// Build the [`Interpreter`] with the configured options.
     pub fn build(self) -> Interpreter {
-        sema_eval::reset_runtime_state();
         sema_llm::builtins::reset_runtime_state();
 
         let env = Env::new();
+        let ctx = sema_eval::EvalContext::new();
 
         if self.stdlib {
             sema_stdlib::register_stdlib(&env);
@@ -85,6 +85,7 @@ impl InterpreterBuilder {
         Interpreter {
             inner: sema_eval::Interpreter {
                 global_env: Rc::new(env),
+                ctx,
             },
         }
     }
@@ -150,10 +151,7 @@ impl Interpreter {
     {
         use sema_core::NativeFn;
 
-        let native = NativeFn {
-            name: name.to_string(),
-            func: Box::new(f),
-        };
+        let native = NativeFn::simple(name, f);
         self.inner
             .global_env
             .set_str(name, Value::NativeFn(Rc::new(native)));
