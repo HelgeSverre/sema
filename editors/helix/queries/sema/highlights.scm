@@ -52,7 +52,7 @@
 ; --- Operators ---
 
 ((symbol) @operator
-  (#any-of? @operator "+" "-" "*" "/" "=" ">" "<" ">=" "<=" "!=" "eq?" "equal?"))
+  (#any-of? @operator "+" "-" "*" "/" "=" ">" "<" ">=" "<=" "eq?" "equal?"))
 
 ; --- Keyword literals :foo ---
 
@@ -95,7 +95,7 @@
   .
   (list
     (symbol) @variable.parameter)
-  (#any-of? @_f "lambda" "fn" "define-values"))
+  (#any-of? @_f "lambda" "fn"))
 
 ; --- let-binding variables ---
 
@@ -219,7 +219,6 @@
     "agent?" "conversation?" "message?" "prompt?" "tool?" "promise-forced?"
     ; Conversions
     "string->number" "number->string" "string->symbol" "symbol->string"
-    "string->keyword" "keyword->string"
     ; File I/O
     "file/read" "file/write" "file/exists?"
     "file/append" "file/delete" "file/list" "file/rename"

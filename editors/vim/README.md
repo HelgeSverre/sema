@@ -91,5 +91,10 @@ programs.neovim.extraConfig = ''
 | `semaConstant`     | `nil`                                                  |
 | `semaCharacter`    | Character literals (`#\a`, `#\space`…)                 |
 | `semaComment`      | Line comments (`;`)                                    |
+| `semaTodo`         | TODO/FIXME/XXX/HACK/NOTE in comments                  |
+| `semaStringEscape` | Escape sequences in strings                            |
+| `semaQuote`        | Quote (`'`) and quasiquote (`` ` ``) prefixes          |
+| `semaUnquote`      | Unquote (`,`) and unquote-splicing (`,@`)              |
+| `semaParens`       | Parentheses, brackets, and braces                      |
 
 Override any group in your colorscheme to customise appearance.

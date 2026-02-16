@@ -197,7 +197,6 @@
     "type"
     ;; Type conversions
     "string->number" "number->string" "string->symbol" "symbol->string"
-    "string->keyword" "keyword->string"
     ;; File I/O
     "file/read" "file/write" "file/append" "file/exists?"
     "file/delete" "file/list"

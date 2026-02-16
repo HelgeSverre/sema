@@ -155,7 +155,7 @@
         },
         {
           "comment": "String conversions",
-          "match": "(?<=[\\s(\\[{])(?:string->char|string->float|string->list|string->utf8|string->keyword|keyword->string)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:string->char|string->float|string->list|string->utf8)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {

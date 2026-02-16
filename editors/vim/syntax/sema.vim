@@ -105,7 +105,7 @@ syn match semaBuiltin /\v<message\/role>/
 syn match semaBuiltin /\v<message\/content>/
 
 " Embedding functions
-syn match semaBuiltin /\v<embedding\/[>]list>/
+syn match semaBuiltin /\v<embedding\/-[>]list>/
 syn match semaBuiltin /\v<embedding\/length>/
 syn match semaBuiltin /\v<embedding\/list-[>]embedding>/
 syn match semaBuiltin /\v<embedding\/ref>/
@@ -188,8 +188,6 @@ syn match semaBuiltin /\v<string-length>/
 syn match semaBuiltin /\v<string-ref>/
 syn match semaBuiltin /\v<string\/pad-left>/
 syn match semaBuiltin /\v<string\/pad-right>/
-syn match semaBuiltin /string-[>]keyword/
-syn match semaBuiltin /keyword-[>]string/
 syn match semaBuiltin /\v<string\/byte-length>/
 syn match semaBuiltin /\v<string\/chars>/
 syn match semaBuiltin /\v<string\/codepoints>/
