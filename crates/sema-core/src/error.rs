@@ -72,6 +72,12 @@ pub enum SemaError {
     #[error("IO error: {0}")]
     Io(String),
 
+    #[error("Permission denied: {function} requires '{capability}' capability")]
+    PermissionDenied {
+        function: String,
+        capability: String,
+    },
+
     #[error("User exception: {0}")]
     UserException(Value),
 

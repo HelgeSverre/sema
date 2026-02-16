@@ -23,10 +23,10 @@ mod system;
 #[cfg(not(target_arch = "wasm32"))]
 mod terminal;
 
-use sema_core::{Env, Value};
+use sema_core::{Caps, Env, Sandbox, Value};
 use std::rc::Rc;
 
-pub fn register_stdlib(env: &Env) {
+pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     arithmetic::register(env);
     comparison::register(env);
     list::register(env);
@@ -34,15 +34,15 @@ pub fn register_stdlib(env: &Env) {
     predicates::register(env);
     map::register(env);
     #[cfg(not(target_arch = "wasm32"))]
-    io::register(env);
+    io::register(env, sandbox);
     math::register(env);
     #[cfg(not(target_arch = "wasm32"))]
-    system::register(env);
+    system::register(env, sandbox);
     json::register(env);
     meta::register(env);
     regex_ops::register(env);
     #[cfg(not(target_arch = "wasm32"))]
-    http::register(env);
+    http::register(env, sandbox);
     bitwise::register(env);
     crypto::register(env);
     datetime::register(env);
@@ -50,6 +50,25 @@ pub fn register_stdlib(env: &Env) {
     bytevector::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     terminal::register(env);
+}
+
+fn register_fn_gated(
+    env: &Env,
+    sandbox: &Sandbox,
+    cap: Caps,
+    name: &str,
+    f: impl Fn(&[Value]) -> Result<Value, sema_core::SemaError> + 'static,
+) {
+    if sandbox.is_unrestricted() {
+        register_fn(env, name, f);
+    } else {
+        let sandbox = sandbox.clone();
+        let fn_name = name.to_string();
+        register_fn(env, name, move |args| {
+            sandbox.check(cap, &fn_name)?;
+            f(args)
+        });
+    }
 }
 
 fn register_fn(

@@ -4,6 +4,8 @@
 
 **Goal:** Integrate three performance crates (memchr, lasso, hashbrown+ahash) into Sema's interpreter to reduce the 1BRC benchmark from ~1580ms → ~1000ms for 1M rows.
 
+**Status:** Implemented
+
 **Architecture:** Three independent crate integrations, ordered by difficulty: (1) memchr for SIMD byte search in string/split, (2) lasso for string interning of symbols/keywords, (3) hashbrown for fast HashMap in the hot-path accumulator. Each is committed independently and benchmarked.
 
 **Tech Stack:** Rust, `memchr` 2.x, `lasso` 0.7, `hashbrown` 0.15 (includes ahash by default)

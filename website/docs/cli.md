@@ -21,6 +21,7 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 | `--no-llm`           | Disable LLM features (same as `--no-init`)   |
 | `--model <NAME>`     | Set default LLM model                        |
 | `--provider <NAME>`  | Set LLM provider                             |
+| `--sandbox <MODE>`   | Restrict dangerous operations (see below)    |
 | `-V, --version`      | Print version                                |
 | `-h, --help`         | Print help                                   |
 
@@ -78,7 +79,46 @@ sema --model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
 
 # Shebang support in scripts
 #!/usr/bin/env sema
+
+# Run with shell commands disabled
+sema --sandbox=no-shell script.sema
+
+# Deny multiple capabilities
+sema --sandbox=no-shell,no-network,no-fs-write script.sema
+
+# Strict mode (no shell, fs-write, network, env-write, process, llm)
+sema --sandbox=strict script.sema
+
+# Maximum restriction (deny all dangerous operations)
+sema --sandbox=all script.sema
 ```
+
+## Sandbox
+
+The `--sandbox` flag restricts access to dangerous operations. Functions remain callable but return a `PermissionDenied` error when invoked.
+
+### Modes
+
+| Mode | Description |
+| --- | --- |
+| `strict` | Deny shell, fs-write, network, env-write, process, llm (reads allowed) |
+| `all` | Deny all capabilities |
+| Comma-separated | e.g. `no-shell,no-network` — deny specific capabilities |
+
+### Capabilities
+
+| Capability | Functions affected |
+| --- | --- |
+| `shell` | `shell` |
+| `fs-read` | `file/read`, `file/exists?`, `file/list`, `file/info`, `load`, ... |
+| `fs-write` | `file/write`, `file/append`, `file/delete`, `file/mkdir`, `file/copy`, ... |
+| `network` | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request` |
+| `env-read` | `env`, `sys/env-all` |
+| `env-write` | `sys/set-env` |
+| `process` | `exit`, `sys/pid`, `sys/args`, `sys/which` |
+| `llm` | `llm/complete`, `llm/chat`, `llm/send` |
+
+Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, etc.) are never restricted.
 
 ## Environment Variables
 

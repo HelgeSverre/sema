@@ -6,66 +6,6 @@ outline: [2, 3]
 
 ## Core String Operations
 
-### `string-append`
-
-Concatenate strings together.
-
-```scheme
-(string-append "hello" " " "world")   ; => "hello world"
-(string-append "a" "b" "c")           ; => "abc"
-```
-
-### `string-length`
-
-Return the number of characters in a string.
-
-```scheme
-(string-length "hello")   ; => 5
-(string-length "")        ; => 0
-(string-length "héllo")   ; => 5
-(string-length "日本語")   ; => 3
-```
-
-### `string-ref`
-
-Return the character at a given index.
-
-```scheme
-(string-ref "hello" 0)    ; => #\h
-(string-ref "hello" 4)    ; => #\o
-```
-
-### `substring`
-
-Extract a substring by start and end character index.
-
-```scheme
-(substring "hello" 1 3)   ; => "el"
-(substring "hello" 0 5)   ; => "hello"
-(substring "héllo" 1 2)   ; => "é"
-```
-
-### `str`
-
-Convert any value to its string representation.
-
-```scheme
-(str 42)           ; => "42"
-(str #t)           ; => "#t"
-(str '(1 2 3))    ; => "(1 2 3)"
-```
-
-### `format`
-
-Format a string with `~a` placeholders.
-
-```scheme
-(format "~a is ~a" "Sema" "great")   ; => "Sema is great"
-(format "~a + ~a = ~a" 1 2 3)        ; => "1 + 2 = 3"
-```
-
-## Slash-Namespaced String Operations
-
 ### `string/split`
 
 Split a string by a delimiter.
@@ -367,6 +307,68 @@ Case-insensitive string equality comparison. Compares two strings after applying
 (string-ci=? "ABC" "abc")       ; => #t
 (string-ci=? "CAFÉ" "café")     ; => #t
 (string-ci=? "hello" "world")   ; => #f
+```
+
+## Scheme Compatibility Aliases
+
+These functions use legacy Scheme/R7RS naming conventions. They work identically to their modern equivalents and are kept for compatibility. Prefer the `string/` namespaced variants in new code.
+
+### `string-append`
+
+Concatenate strings together.
+
+```scheme
+(string-append "hello" " " "world")   ; => "hello world"
+(string-append "a" "b" "c")           ; => "abc"
+```
+
+### `string-length`
+
+Return the number of characters in a string.
+
+```scheme
+(string-length "hello")   ; => 5
+(string-length "")        ; => 0
+(string-length "héllo")   ; => 5
+(string-length "日本語")   ; => 3
+```
+
+### `string-ref`
+
+Return the character at a given index.
+
+```scheme
+(string-ref "hello" 0)    ; => #\h
+(string-ref "hello" 4)    ; => #\o
+```
+
+### `substring`
+
+Extract a substring by start and end character index.
+
+```scheme
+(substring "hello" 1 3)   ; => "el"
+(substring "hello" 0 5)   ; => "hello"
+(substring "héllo" 1 2)   ; => "é"
+```
+
+### `str`
+
+Convert any value to its string representation.
+
+```scheme
+(str 42)           ; => "42"
+(str #t)           ; => "#t"
+(str '(1 2 3))    ; => "(1 2 3)"
+```
+
+### `format`
+
+Format a string with `~a` placeholders.
+
+```scheme
+(format "~a is ~a" "Sema" "great")   ; => "Sema is great"
+(format "~a + ~a = ~a" 1 2 3)        ; => "1 + 2 = 3"
 ```
 
 ## Characters

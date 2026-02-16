@@ -58,9 +58,7 @@ const SPECIAL_FORMS: &[&str] = &[
     "map",
 ];
 
-const REPL_COMMANDS: &[&str] = &[
-    ",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins",
-];
+const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins"];
 
 struct SemaCompleter {
     env: Rc<Env>,
@@ -175,6 +173,12 @@ struct Cli {
     #[arg(long, conflicts_with = "no_init")]
     no_llm: bool,
 
+    /// Sandbox mode: restrict dangerous operations.
+    /// Values: "strict", "all", or comma-separated list like "no-shell,no-network,no-fs-write"
+    /// Available capabilities: shell, fs-read, fs-write, network, env-read, env-write, process, llm
+    #[arg(long)]
+    sandbox: Option<String>,
+
     /// Set default LLM model
     #[arg(long)]
     model: Option<String>,
@@ -213,6 +217,14 @@ enum Commands {
 fn main() {
     let cli = Cli::parse();
 
+    let sandbox = match &cli.sandbox {
+        Some(value) => sema_core::Sandbox::parse_cli(value).unwrap_or_else(|e| {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }),
+        None => sema_core::Sandbox::allow_all(),
+    };
+
     // Handle subcommands
     if let Some(command) = cli.command {
         match command {
@@ -226,7 +238,7 @@ fn main() {
         return;
     }
 
-    let interpreter = Interpreter::new();
+    let interpreter = Interpreter::new_with_sandbox(&sandbox);
 
     // Set LLM env vars before auto-configure
     if let Some(model) = &cli.model {
@@ -285,7 +297,7 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet);
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref());
         }
         return;
     }
@@ -300,7 +312,7 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet);
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref());
         }
         return;
     }
@@ -328,13 +340,13 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet);
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref());
         }
         return;
     }
 
     // REPL mode
-    repl(interpreter, cli.quiet);
+    repl(interpreter, cli.quiet, cli.sandbox.as_deref());
 }
 
 fn run_ast(file: Option<String>, eval: Option<String>, json: bool) {
@@ -571,7 +583,7 @@ fn print_error(e: &SemaError) {
     }
 }
 
-fn repl(interpreter: Interpreter, quiet: bool) {
+fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>) {
     let env = interpreter.global_env.clone();
     let mut rl = Editor::new().expect("failed to create editor");
     rl.set_helper(Some(SemaCompleter { env: env.clone() }));
@@ -583,6 +595,9 @@ fn repl(interpreter: Interpreter, quiet: bool) {
             "Sema v{} — A Lisp with LLM primitives",
             env!("CARGO_PKG_VERSION")
         );
+        if let Some(mode) = sandbox_mode {
+            println!("Sandbox: {mode}");
+        }
         println!("Type ,help for help, ,quit to exit\n");
     }
 

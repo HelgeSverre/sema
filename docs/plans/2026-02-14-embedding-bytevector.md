@@ -4,6 +4,8 @@
 
 **Goal:** Change `llm/embed` to return bytevector-encoded f64 vectors instead of `List<Float>`, achieving 2x memory reduction and 4x faster similarity computation.
 
+**Status:** Implemented
+
 **Architecture:** `llm/embed` returns `Value::Bytevector` with IEEE 754 LE-encoded f64s. `llm/similarity` gains a fast path for bytevectors (fused single-pass cosine) while maintaining backward compatibility with lists. New accessor functions (`embedding/length`, `embedding/ref`, `embedding/->list`) provide typed access.
 
 **Tech Stack:** Rust, sema-core (Value::Bytevector), sema-llm (builtins), sema-stdlib (length support)

@@ -23,6 +23,52 @@ Extract structured data from text according to a schema. The schema defines the 
 
 The schema map specifies field names as keys and type descriptors as values. Supported types include `:string`, `:number`, and `:boolean`.
 
+### Options
+
+`llm/extract` accepts an optional third argument — an options map:
+
+```scheme
+(llm/extract schema text {:model "claude-haiku-4-5-20251001"})
+```
+
+| Option       | Type     | Default | Description                                       |
+| ------------ | -------- | ------- | ------------------------------------------------- |
+| `:model`     | string   | —       | Override the default model                         |
+| `:validate`  | boolean  | `false` | Validate response against the schema              |
+| `:retries`   | integer  | `0`     | Retry on validation failure (requires `:validate`) |
+
+### Schema Validation
+
+With `:validate true`, the extracted result is checked against the schema:
+- All schema keys must be present in the result
+- Types must match: `:string` → string, `:number` → integer or float, `:boolean` → boolean, `:list`/`:array` → list or vector
+
+```scheme
+;; Strict extraction with validation
+(llm/extract
+  {:name {:type :string}
+   :age  {:type :number}}
+  "Alice is 30 years old"
+  {:validate true})
+; => {:age 30 :name "Alice"}
+```
+
+If validation fails, an error is raised with details about which fields didn't match.
+
+### Retry on Mismatch
+
+Combine `:validate` with `:retries` to automatically re-send the request when the LLM returns data that doesn't match the schema:
+
+```scheme
+(llm/extract
+  {:items {:type :list}
+   :total {:type :number}}
+  "3 apples, 2 oranges, total 5 items"
+  {:validate true :retries 2})
+```
+
+On each retry, the validation errors are fed back to the LLM to improve the next attempt. After exhausting retries, the final validation error is raised.
+
 ## Classification
 
 ### `llm/classify`

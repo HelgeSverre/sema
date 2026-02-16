@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 ### Added
 
+- **`--sandbox` CLI flag** — restrict dangerous operations at runtime. Supports capability groups (`shell`, `fs-read`, `fs-write`, `network`, `env-read`, `env-write`, `process`, `llm`), presets (`--sandbox=strict`, `--sandbox=all`), and comma-separated denylists (`--sandbox=no-shell,no-network`). Sandboxed functions remain registered but return `PermissionDenied` errors when invoked.
+- **`Sandbox` / `Caps` embedding API** — `InterpreterBuilder::with_sandbox(Sandbox::deny(Caps::SHELL.union(Caps::NETWORK)))` for fine-grained control when embedding Sema in Rust applications.
+- **`PermissionDenied` error variant** — new structured error type for sandbox violations, catchable with `try`/`catch`.
 - **REPL tab completion** — tab-complete built-in function names, special forms, user-defined bindings, and REPL commands. Powered by rustyline's `Completer` trait.
 - **`,builtins` REPL command** — list all built-in function names, sorted alphabetically.
 - **`llm/extract` schema validation** — new `:validate true` option checks that extracted data matches the schema (key presence and type matching).
@@ -19,9 +22,10 @@
 
 ### Documentation
 
+- **Sandbox docs** — new [CLI sandbox reference](https://sema-lang.com/docs/cli.html#sandbox) and updated [embedding guide](https://sema-lang.com/docs/embedding.html) with sandbox examples.
 - **Editor support page** — new [sema-lang.com/docs/editors](https://sema-lang.com/docs/editors.html) with installation instructions for all four editors.
 - **Shell completions page** — new [sema-lang.com/docs/shell-completions](https://sema-lang.com/docs/shell-completions.html) with setup instructions for bash, zsh, fish, elvish, and PowerShell.
-- **Architecture decisions** — new `docs/decisions.md` documenting naming conventions, Rc cycle behavior, sandbox plans, mini-evaluator design, package system plans, and LSP roadmap.
+- **Architecture decisions** — new `docs/decisions.md` documenting naming conventions, Rc cycle behavior, sandbox system, mini-evaluator design, package system plans, and LSP roadmap.
 - **LSP server design** — new `docs/plans/2026-02-16-lsp-server.md` with 4-phase implementation plan using `tower-lsp`.
 - **String docs reorganized** — `string/` namespaced functions now lead; legacy Scheme names grouped under "Scheme Compatibility Aliases".
 

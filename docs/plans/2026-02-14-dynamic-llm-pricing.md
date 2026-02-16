@@ -4,6 +4,8 @@
 
 **Goal:** Replace stale hardcoded LLM pricing with dynamic pricing fetched from llm-prices.com, with offline-safe fallback chain.
 
+**Status:** Implemented
+
 **Architecture:** On `llm/auto-configure`, load cached pricing from `~/.sema/pricing-cache.json` (fast, sync), then attempt a best-effort HTTP fetch (1s timeout) to refresh it. Pricing lookup follows a fallback chain: user custom → fetched → hardcoded → None. All failures are silent — pricing never breaks the interpreter.
 
 **Tech Stack:** Rust, serde_json, reqwest (already in sema-llm), chrono (already in workspace)

@@ -1,12 +1,12 @@
 use std::io::IsTerminal;
 use std::rc::Rc;
 
-use sema_core::{SemaError, Value};
+use sema_core::{Caps, SemaError, Value};
 
 use crate::register_fn;
 
-pub fn register(env: &sema_core::Env) {
-    register_fn(env, "env", |args| {
+pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
+    crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "env", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("env", "1", args.len()));
         }
@@ -19,7 +19,7 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
-    register_fn(env, "shell", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::SHELL, "shell", |args| {
         if args.is_empty() {
             return Err(SemaError::arity("shell", "1+", 0));
         }
@@ -58,7 +58,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Map(Rc::new(result)))
     });
 
-    register_fn(env, "exit", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::PROCESS, "exit", |args| {
         let code = if args.is_empty() {
             0
         } else {
@@ -89,7 +89,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "sys/args", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::PROCESS, "sys/args", |args| {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/args", "0", args.len()));
         }
@@ -121,7 +121,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::string(platform))
     });
 
-    register_fn(env, "sys/set-env", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::ENV_WRITE, "sys/set-env", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("sys/set-env", "2", args.len()));
         }
@@ -137,7 +137,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "sys/env-all", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "sys/env-all", |args| {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/env-all", "0", args.len()));
         }
@@ -219,7 +219,7 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
-    register_fn(env, "sys/pid", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::PROCESS, "sys/pid", |args| {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/pid", "0", args.len()));
         }
@@ -240,7 +240,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::string(std::env::consts::OS))
     });
 
-    register_fn(env, "sys/which", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::PROCESS, "sys/which", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("sys/which", "1", args.len()));
         }

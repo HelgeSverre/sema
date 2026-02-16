@@ -4,6 +4,8 @@
 
 **Goal:** Cherry-pick the 5 Scheme features from PR #2 (car/cdr compositions, alist lookup, do loop, char type, delay/force) into the current v0.3.0 codebase which has breaking changes (Spur-based symbols, HashMap variant, memchr).
 
+**Status:** Implemented
+
 **Architecture:** PR #2 was written against v0.2.0 (pre-interning). It cannot be merged directly — there are 5 conflicting files. Instead, we manually port each feature, adapting code to use `Spur`-based symbols/keywords, the new `Value::HashMap` variant in match arms, and the current crate structure.
 
 **Tech Stack:** Rust 2021, lasso (Spur interning), hashbrown, sema workspace crates

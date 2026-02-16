@@ -66,12 +66,28 @@ impl Interpreter {
         let env = Env::new();
         let ctx = EvalContext::new();
         // Register stdlib
-        sema_stdlib::register_stdlib(&env);
+        sema_stdlib::register_stdlib(&env, &sema_core::Sandbox::allow_all());
         // Register LLM builtins
         #[cfg(not(target_arch = "wasm32"))]
         {
             sema_llm::builtins::reset_runtime_state();
-            sema_llm::builtins::register_llm_builtins(&env);
+            sema_llm::builtins::register_llm_builtins(&env, &sema_core::Sandbox::allow_all());
+            sema_llm::builtins::set_eval_callback(eval_value);
+        }
+        Interpreter {
+            global_env: Rc::new(env),
+            ctx,
+        }
+    }
+
+    pub fn new_with_sandbox(sandbox: &sema_core::Sandbox) -> Self {
+        let env = Env::new();
+        let ctx = EvalContext::new_with_sandbox(sandbox.clone());
+        sema_stdlib::register_stdlib(&env, sandbox);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            sema_llm::builtins::reset_runtime_state();
+            sema_llm::builtins::register_llm_builtins(&env, sandbox);
             sema_llm::builtins::set_eval_callback(eval_value);
         }
         Interpreter {

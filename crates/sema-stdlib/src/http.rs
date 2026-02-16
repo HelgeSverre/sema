@@ -2,9 +2,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 use std::time::Duration;
 
-use sema_core::{SemaError, Value};
-
-use crate::register_fn;
+use sema_core::{Caps, SemaError, Value};
 
 thread_local! {
     static HTTP_RUNTIME: tokio::runtime::Runtime = tokio::runtime::Runtime::new()
@@ -101,8 +99,8 @@ fn http_request(
     })
 }
 
-pub fn register(env: &sema_core::Env) {
-    register_fn(env, "http/get", |args| {
+pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
+    crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/get", |args| {
         if args.is_empty() || args.len() > 2 {
             return Err(SemaError::arity("http/get", "1 or 2", args.len()));
         }
@@ -113,7 +111,7 @@ pub fn register(env: &sema_core::Env) {
         http_request("GET", url, None, opts)
     });
 
-    register_fn(env, "http/post", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/post", |args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("http/post", "2 or 3", args.len()));
         }
@@ -125,7 +123,7 @@ pub fn register(env: &sema_core::Env) {
         http_request("POST", url, Some(body), opts)
     });
 
-    register_fn(env, "http/put", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/put", |args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("http/put", "2 or 3", args.len()));
         }
@@ -137,7 +135,7 @@ pub fn register(env: &sema_core::Env) {
         http_request("PUT", url, Some(body), opts)
     });
 
-    register_fn(env, "http/delete", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/delete", |args| {
         if args.is_empty() || args.len() > 2 {
             return Err(SemaError::arity("http/delete", "1 or 2", args.len()));
         }
@@ -148,7 +146,7 @@ pub fn register(env: &sema_core::Env) {
         http_request("DELETE", url, None, opts)
     });
 
-    register_fn(env, "http/request", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/request", |args| {
         if args.len() < 2 || args.len() > 4 {
             return Err(SemaError::arity("http/request", "2-4", args.len()));
         }

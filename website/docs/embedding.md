@@ -33,7 +33,7 @@ fn main() -> sema::Result<()> {
 
 ## The Builder
 
-`Interpreter::builder()` returns an `InterpreterBuilder` with two toggles:
+`Interpreter::builder()` returns an `InterpreterBuilder` with these options:
 
 | Method             | Default | Description                            |
 | ------------------ | ------- | -------------------------------------- |
@@ -41,6 +41,7 @@ fn main() -> sema::Result<()> {
 | `.with_llm(b)`     | `true`  | Enable LLM functions and auto-config   |
 | `.without_stdlib()` | —      | Shorthand for `.with_stdlib(false)`    |
 | `.without_llm()`   | —      | Shorthand for `.with_llm(false)`       |
+| `.with_sandbox(sb)` | `allow_all()` | Set sandbox to restrict capabilities |
 
 ### Default Interpreter
 
@@ -70,6 +71,25 @@ Disable LLM builtins for faster startup when you don't need them:
 let interp = Interpreter::builder()
     .without_llm()
     .build();
+```
+
+### Sandboxed Interpreter
+
+Restrict specific capabilities while keeping the full stdlib available:
+
+```rust
+use sema::{Interpreter, Sandbox, Caps};
+
+// Allow computation but deny shell and network access
+let interp = Interpreter::builder()
+    .with_sandbox(Sandbox::deny(
+        Caps::SHELL.union(Caps::NETWORK)
+    ))
+    .build();
+
+interp.eval_str("(+ 1 2)")?;             // => 3 (always works)
+interp.eval_str(r#"(shell "ls")"#)?;      // => PermissionDenied error
+interp.eval_str(r#"(http/get "...")"#)?;  // => PermissionDenied error
 ```
 
 ### Multiple Interpreters
@@ -222,6 +242,34 @@ Sema is **single-threaded by design**. It uses `Rc` (not `Arc`) for reference co
 - The string interner is per-thread, so interned keys from one thread are not valid in another.
 - LLM state (provider registry, usage tracking, budgets) is per-thread and shared across all interpreters on the same thread.
 
+## Security Considerations
+
+By default, Sema scripts have full access to the filesystem, shell, network, and environment. For untrusted code, you have two options:
+
+**Option 1: Sandbox (recommended)** — Keep the full stdlib but deny dangerous capabilities:
+
+```rust
+use sema::{Interpreter, Sandbox, Caps};
+
+let interp = Interpreter::builder()
+    .with_sandbox(Sandbox::deny(Caps::STRICT))  // deny shell, fs-write, network, env-write, process, llm
+    .build();
+```
+
+Sandboxed functions remain callable (tab-completable, discoverable) but return a `PermissionDenied` error when invoked.
+
+**Option 2: Minimal** — No stdlib at all, register only what you need:
+
+```rust
+let interp = Interpreter::builder()
+    .without_stdlib()
+    .without_llm()
+    .build();
+// Register only safe functions manually
+```
+
+See [CLI Sandbox docs](./cli.md#sandbox) for the full list of capabilities and affected functions.
+
 ## API Reference
 
 | Type                 | Description                                             |
@@ -230,6 +278,8 @@ Sema is **single-threaded by design**. It uses `Rc` (not `Arc`) for reference co
 | `InterpreterBuilder` | Configures and builds an `Interpreter`                  |
 | `Value`              | Core value enum — Int, Float, String, List, Map, etc.   |
 | `SemaError`          | Error type with `eval()`, `type_error()`, `arity()` constructors |
+| `Sandbox`            | Configures which capabilities are denied                |
+| `Caps`               | Capability bitflags (FS_READ, SHELL, NETWORK, etc.)     |
 | `Env`                | Environment (scope chain backed by `Rc<RefCell<BTreeMap>>`) |
 | `intern(s)`          | Intern a string, returning a `Spur` handle              |
 | `resolve(spur)`      | Resolve a `Spur` back to a `&str`                       |

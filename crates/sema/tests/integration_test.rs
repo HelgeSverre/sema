@@ -6746,3 +6746,470 @@ fn test_define_provider_stream_fallback() {
         .unwrap();
     assert_eq!(result, Value::string("streamed response"));
 }
+
+#[test]
+fn test_sandbox_shell_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::SHELL);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(shell "echo hi")"#);
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("Permission denied"),
+        "Expected permission denied, got: {err}"
+    );
+}
+
+#[test]
+fn test_sandbox_shell_allowed_when_other_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::NETWORK);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(shell "echo hi")"#);
+    assert!(
+        result.is_ok(),
+        "shell should be allowed when only network is denied"
+    );
+}
+
+#[test]
+fn test_sandbox_fs_write_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_WRITE);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(file/write "/tmp/sema-sandbox-test.txt" "hi")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+#[test]
+fn test_sandbox_fs_read_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(file/exists? "/tmp")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+#[test]
+fn test_sandbox_env_read_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ENV_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(env "HOME")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+#[test]
+fn test_sandbox_env_write_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ENV_WRITE);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(sys/set-env "SEMA_TEST_SANDBOX" "val")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+#[test]
+fn test_sandbox_process_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::PROCESS);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(sys/pid)"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+#[test]
+fn test_sandbox_network_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::NETWORK);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(http/get "https://example.com")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+#[test]
+fn test_sandbox_safe_functions_always_work() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ALL);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    assert_eq!(interp.eval_str("(+ 1 2)").unwrap(), Value::Int(3));
+    assert_eq!(
+        interp.eval_str(r#"(string-append "a" "b")"#).unwrap(),
+        Value::string("ab")
+    );
+}
+
+#[test]
+fn test_sandbox_println_always_works() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ALL);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(println "hello")"#);
+    assert!(result.is_ok(), "println should never be sandboxed");
+}
+
+#[test]
+fn test_sandbox_strict_preset() {
+    let sandbox = sema_core::Sandbox::parse_cli("strict").unwrap();
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(shell "echo hi")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+#[test]
+fn test_sandbox_parse_cli_multiple() {
+    let sandbox = sema_core::Sandbox::parse_cli("no-shell,no-network").unwrap();
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    // shell denied
+    assert!(interp.eval_str(r#"(shell "echo hi")"#).is_err());
+    // fs-read still allowed
+    assert!(interp.eval_str(r#"(file/exists? "/tmp")"#).is_ok());
+}
+
+#[test]
+fn test_sandbox_unrestricted_by_default() {
+    let sandbox = sema_core::Sandbox::allow_all();
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    // Everything should work
+    assert!(interp.eval_str(r#"(shell "echo hi")"#).is_ok());
+    assert!(interp.eval_str(r#"(file/exists? "/tmp")"#).is_ok());
+    assert!(interp.eval_str(r#"(env "HOME")"#).is_ok());
+}
+
+// === Sandbox: comprehensive fs-read gating ===
+
+#[test]
+fn test_sandbox_fs_read_all_functions_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+
+    let fs_read_fns = [
+        r#"(file/read "/tmp/test.txt")"#,
+        r#"(file/exists? "/tmp")"#,
+        r#"(file/is-directory? "/tmp")"#,
+        r#"(file/is-file? "/tmp/test.txt")"#,
+        r#"(file/is-symlink? "/tmp/test.txt")"#,
+        r#"(file/list "/tmp")"#,
+        r#"(file/read-lines "/tmp/test.txt")"#,
+        r#"(file/info "/tmp")"#,
+        r#"(path/absolute ".")"#,
+    ];
+
+    for expr in &fs_read_fns {
+        let result = interp.eval_str(expr);
+        assert!(
+            result.is_err(),
+            "Expected {expr} to be denied, but it succeeded"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Permission denied"),
+            "Expected permission denied for {expr}"
+        );
+    }
+}
+
+// === Sandbox: comprehensive fs-write gating ===
+
+#[test]
+fn test_sandbox_fs_write_all_functions_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_WRITE);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+
+    let fs_write_fns = [
+        r#"(file/write "/tmp/sema-sandbox-test.txt" "hi")"#,
+        r#"(file/append "/tmp/sema-sandbox-test.txt" "more")"#,
+        r#"(file/delete "/tmp/sema-sandbox-test.txt")"#,
+        r#"(file/rename "/tmp/sema-sandbox-a.txt" "/tmp/sema-sandbox-b.txt")"#,
+        r#"(file/mkdir "/tmp/sema-sandbox-dir")"#,
+        r#"(file/write-lines "/tmp/sema-sandbox-test.txt" '("a" "b"))"#,
+        r#"(file/copy "/tmp/sema-sandbox-a.txt" "/tmp/sema-sandbox-b.txt")"#,
+    ];
+
+    for expr in &fs_write_fns {
+        let result = interp.eval_str(expr);
+        assert!(
+            result.is_err(),
+            "Expected {expr} to be denied, but it succeeded"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Permission denied"),
+            "Expected permission denied for {expr}"
+        );
+    }
+}
+
+#[test]
+fn test_sandbox_fs_write_allows_read() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_WRITE);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    // fs-read should still work when only fs-write is denied
+    assert!(interp.eval_str(r#"(file/exists? "/tmp")"#).is_ok());
+    assert!(interp.eval_str(r#"(file/is-directory? "/tmp")"#).is_ok());
+}
+
+// === Sandbox: comprehensive system/process gating ===
+
+#[test]
+fn test_sandbox_process_all_functions_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::PROCESS);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+
+    let process_fns = [
+        "(exit 0)", // would exit, but sandbox catches it first
+        "(sys/pid)",
+        "(sys/args)",
+        r#"(sys/which "ls")"#,
+    ];
+
+    for expr in &process_fns {
+        let result = interp.eval_str(expr);
+        assert!(
+            result.is_err(),
+            "Expected {expr} to be denied, but it succeeded"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Permission denied"),
+            "Expected permission denied for {expr}"
+        );
+    }
+}
+
+#[test]
+fn test_sandbox_process_allows_safe_sys_functions() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::PROCESS);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    // These sys functions should NOT be gated by PROCESS
+    assert!(interp.eval_str("(sys/platform)").is_ok());
+    assert!(interp.eval_str("(sys/arch)").is_ok());
+    assert!(interp.eval_str("(sys/os)").is_ok());
+    assert!(interp.eval_str("(sys/cwd)").is_ok());
+    assert!(interp.eval_str("(time-ms)").is_ok());
+}
+
+// === Sandbox: comprehensive env gating ===
+
+#[test]
+fn test_sandbox_env_read_all_functions_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ENV_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+
+    assert!(interp.eval_str(r#"(env "HOME")"#).is_err());
+    assert!(interp.eval_str("(sys/env-all)").is_err());
+}
+
+#[test]
+fn test_sandbox_env_write_allows_read() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ENV_WRITE);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    // env read should still work
+    assert!(interp.eval_str(r#"(env "HOME")"#).is_ok());
+    // env write should be denied
+    assert!(interp
+        .eval_str(r#"(sys/set-env "SEMA_TEST_X" "v")"#)
+        .is_err());
+}
+
+// === Sandbox: comprehensive network gating ===
+
+#[test]
+fn test_sandbox_network_all_functions_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::NETWORK);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+
+    let net_fns = [
+        r#"(http/get "https://example.com")"#,
+        r#"(http/post "https://example.com" "body")"#,
+        r#"(http/put "https://example.com" "body")"#,
+        r#"(http/delete "https://example.com")"#,
+        r#"(http/request "GET" "https://example.com")"#,
+    ];
+
+    for expr in &net_fns {
+        let result = interp.eval_str(expr);
+        assert!(
+            result.is_err(),
+            "Expected {expr} to be denied, but it succeeded"
+        );
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Permission denied"),
+            "Expected permission denied for {expr}"
+        );
+    }
+}
+
+// === Sandbox: try/catch interaction ===
+
+#[test]
+fn test_sandbox_error_catchable_with_try() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::SHELL);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(
+        r#"
+        (try
+          (shell "echo hi")
+          (catch e "caught"))
+    "#,
+    );
+    assert_eq!(result.unwrap(), Value::string("caught"));
+}
+
+#[test]
+fn test_sandbox_error_message_accessible_in_catch() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::SHELL);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp
+        .eval_str(
+            r#"
+        (try
+          (shell "echo hi")
+          (catch e e))
+    "#,
+        )
+        .unwrap();
+    let msg = result.to_string();
+    assert!(
+        msg.contains("Permission denied") || msg.contains("permission-denied"),
+        "Error value should contain permission info: {msg}"
+    );
+}
+
+// === Sandbox: combined capabilities ===
+
+#[test]
+fn test_sandbox_deny_multiple_caps_union() {
+    let denied = sema_core::Caps::SHELL
+        .union(sema_core::Caps::NETWORK)
+        .union(sema_core::Caps::FS_WRITE);
+    let sandbox = sema_core::Sandbox::deny(denied);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+
+    // all three denied
+    assert!(interp.eval_str(r#"(shell "echo hi")"#).is_err());
+    assert!(interp
+        .eval_str(r#"(http/get "https://example.com")"#)
+        .is_err());
+    assert!(interp.eval_str(r#"(file/write "/tmp/x" "y")"#).is_err());
+
+    // these should still work
+    assert!(interp.eval_str(r#"(file/exists? "/tmp")"#).is_ok());
+    assert!(interp.eval_str(r#"(env "HOME")"#).is_ok());
+    assert!(interp.eval_str("(+ 1 2)").is_ok());
+}
+
+// === Sandbox: safe functions under maximum restriction ===
+
+#[test]
+fn test_sandbox_all_denied_safe_functions_comprehensive() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ALL);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+
+    // arithmetic
+    assert_eq!(interp.eval_str("(+ 1 2)").unwrap(), Value::Int(3));
+    // strings
+    assert_eq!(
+        interp.eval_str(r#"(string-length "hello")"#).unwrap(),
+        Value::Int(5)
+    );
+    // lists
+    assert_eq!(interp.eval_str("(length '(1 2 3))").unwrap(), Value::Int(3));
+    // maps
+    assert_eq!(
+        interp.eval_str(r#"(get {:a 1} :a)"#).unwrap(),
+        Value::Int(1)
+    );
+    // predicates
+    assert_eq!(interp.eval_str("(number? 42)").unwrap(), Value::Bool(true));
+    // display/print (I/O but ungated)
+    assert!(interp.eval_str(r#"(println "test")"#).is_ok());
+    assert!(interp.eval_str(r#"(display "test")"#).is_ok());
+    assert!(interp.eval_str("(newline)").is_ok());
+    // read/parse (not file I/O)
+    assert!(interp.eval_str(r#"(read "(+ 1 2)")"#).is_ok());
+    // path pure operations (no filesystem access)
+    assert_eq!(
+        interp.eval_str(r#"(path/join "a" "b" "c")"#).unwrap(),
+        Value::string("a/b/c")
+    );
+    assert_eq!(
+        interp
+            .eval_str(r#"(path/basename "/foo/bar.txt")"#)
+            .unwrap(),
+        Value::string("bar.txt")
+    );
+    assert_eq!(
+        interp.eval_str(r#"(path/dirname "/foo/bar.txt")"#).unwrap(),
+        Value::string("/foo")
+    );
+    assert_eq!(
+        interp
+            .eval_str(r#"(path/extension "/foo/bar.txt")"#)
+            .unwrap(),
+        Value::string("txt")
+    );
+    // time (ungated)
+    assert!(interp.eval_str("(time-ms)").is_ok());
+    // sys info (ungated)
+    assert!(interp.eval_str("(sys/platform)").is_ok());
+    assert!(interp.eval_str("(sys/arch)").is_ok());
+    assert!(interp.eval_str("(sys/os)").is_ok());
+    assert!(interp.eval_str("(sys/cwd)").is_ok());
+    // regex
+    assert!(interp.eval_str(r#"(regex/match "\\d+" "abc123")"#).is_ok());
+    // json
+    assert!(interp.eval_str(r#"(json/decode "{\"a\":1}")"#).is_ok());
+    // math
+    assert!(interp.eval_str("(sqrt 4)").is_ok());
+    // crypto
+    assert!(interp.eval_str(r#"(hash/sha256 "hello")"#).is_ok());
+    // error throwing (ungated)
+    assert!(interp
+        .eval_str(r#"(try (error "boom") (catch e "ok"))"#)
+        .is_ok());
+}
+
+// === Sandbox: load is gated by fs-read ===
+
+#[test]
+fn test_sandbox_load_denied_by_fs_read() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(load "nonexistent.sema")"#);
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Permission denied"),
+        "load should be denied by fs-read sandbox"
+    );
+}

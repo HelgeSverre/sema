@@ -15,7 +15,7 @@
 use std::rc::Rc;
 
 // Re-export core types.
-pub use sema_core::{intern, resolve, with_resolved, Env, SemaError, Value};
+pub use sema_core::{intern, resolve, with_resolved, Caps, Env, Sandbox, SemaError, Value};
 /// Result of evaluating a Sema expression.
 pub type EvalResult = Result<Value>;
 
@@ -27,6 +27,7 @@ pub type Result<T> = std::result::Result<T, SemaError>;
 pub struct InterpreterBuilder {
     stdlib: bool,
     llm: bool,
+    sandbox: Sandbox,
 }
 
 impl Default for InterpreterBuilder {
@@ -41,6 +42,7 @@ impl InterpreterBuilder {
         Self {
             stdlib: true,
             llm: true,
+            sandbox: Sandbox::allow_all(),
         }
     }
 
@@ -53,6 +55,12 @@ impl InterpreterBuilder {
     /// Enable or disable the LLM builtins (default: `true`).
     pub fn with_llm(mut self, enable: bool) -> Self {
         self.llm = enable;
+        self
+    }
+
+    /// Set the sandbox configuration to restrict dangerous operations.
+    pub fn with_sandbox(mut self, sandbox: Sandbox) -> Self {
+        self.sandbox = sandbox;
         self
     }
 
@@ -74,11 +82,11 @@ impl InterpreterBuilder {
         let ctx = sema_eval::EvalContext::new();
 
         if self.stdlib {
-            sema_stdlib::register_stdlib(&env);
+            sema_stdlib::register_stdlib(&env, &self.sandbox);
         }
 
         if self.llm {
-            sema_llm::builtins::register_llm_builtins(&env);
+            sema_llm::builtins::register_llm_builtins(&env, &self.sandbox);
             sema_llm::builtins::set_eval_callback(sema_eval::eval_value);
         }
 

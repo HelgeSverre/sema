@@ -973,6 +973,20 @@ fn error_to_value(err: &SemaError) -> Value {
             map.insert(Value::keyword("type"), Value::keyword("io"));
             map.insert(Value::keyword("message"), Value::string(msg));
         }
+        SemaError::PermissionDenied {
+            function,
+            capability,
+        } => {
+            map.insert(Value::keyword("type"), Value::keyword("permission-denied"));
+            map.insert(
+                Value::keyword("message"),
+                Value::string(&format!(
+                    "Permission denied: {function} requires '{capability}' capability"
+                )),
+            );
+            map.insert(Value::keyword("function"), Value::string(function));
+            map.insert(Value::keyword("capability"), Value::string(capability));
+        }
         SemaError::UserException(val) => {
             map.insert(Value::keyword("type"), Value::keyword("user"));
             map.insert(Value::keyword("message"), Value::string(&val.to_string()));
@@ -1182,6 +1196,7 @@ fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
     if args.len() != 1 {
         return Err(SemaError::arity("load", "1", args.len()));
     }
+    ctx.sandbox.check(sema_core::Caps::FS_READ, "load")?;
     let path_val = eval::eval_value(ctx, &args[0], env)?;
     let path_str = path_val
         .as_str()

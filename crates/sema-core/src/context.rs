@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use crate::{CallFrame, SemaError, Span, SpanMap, StackTrace, Value};
+use crate::{CallFrame, Sandbox, SemaError, Span, SpanMap, StackTrace, Value};
 
 const MAX_SPAN_TABLE_ENTRIES: usize = 200_000;
 
@@ -16,6 +16,7 @@ pub struct EvalContext {
     pub eval_depth: Cell<usize>,
     pub eval_step_limit: Cell<usize>,
     pub eval_steps: Cell<usize>,
+    pub sandbox: Sandbox,
 }
 
 impl EvalContext {
@@ -30,6 +31,22 @@ impl EvalContext {
             eval_depth: Cell::new(0),
             eval_step_limit: Cell::new(0),
             eval_steps: Cell::new(0),
+            sandbox: Sandbox::allow_all(),
+        }
+    }
+
+    pub fn new_with_sandbox(sandbox: Sandbox) -> Self {
+        EvalContext {
+            module_cache: RefCell::new(BTreeMap::new()),
+            current_file: RefCell::new(Vec::new()),
+            module_exports: RefCell::new(Vec::new()),
+            module_load_stack: RefCell::new(Vec::new()),
+            call_stack: RefCell::new(Vec::new()),
+            span_table: RefCell::new(HashMap::new()),
+            eval_depth: Cell::new(0),
+            eval_step_limit: Cell::new(0),
+            eval_steps: Cell::new(0),
+            sandbox,
         }
     }
 

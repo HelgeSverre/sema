@@ -434,7 +434,45 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
     }
 }
 
-pub fn register_llm_builtins(env: &Env) {
+fn register_fn_gated(
+    env: &Env,
+    sandbox: &sema_core::Sandbox,
+    cap: sema_core::Caps,
+    name: &str,
+    f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static,
+) {
+    if sandbox.is_unrestricted() {
+        register_fn(env, name, f);
+    } else {
+        let sandbox = sandbox.clone();
+        let fn_name = name.to_string();
+        register_fn(env, name, move |args| {
+            sandbox.check(cap, &fn_name)?;
+            f(args)
+        });
+    }
+}
+
+fn register_fn_ctx_gated(
+    env: &Env,
+    sandbox: &sema_core::Sandbox,
+    cap: sema_core::Caps,
+    name: &str,
+    f: impl Fn(&sema_core::EvalContext, &[Value]) -> Result<Value, SemaError> + 'static,
+) {
+    if sandbox.is_unrestricted() {
+        register_fn_ctx(env, name, f);
+    } else {
+        let sandbox = sandbox.clone();
+        let fn_name = name.to_string();
+        register_fn_ctx(env, name, move |ctx, args| {
+            sandbox.check(cap, &fn_name)?;
+            f(ctx, args)
+        });
+    }
+}
+
+pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
     // (llm/configure :anthropic {:api-key "..." :default-model "..."})
     // (llm/configure :openai {:api-key "..." :base-url "..." :default-model "..."})
     register_fn(env, "llm/configure", |args| {
@@ -890,7 +928,7 @@ pub fn register_llm_builtins(env: &Env) {
     });
 
     // (llm/complete "prompt text" {:model "..." :max-tokens 200 :temperature 0.5})
-    register_fn(env, "llm/complete", |args| {
+    register_fn_gated(env, sandbox, sema_core::Caps::LLM, "llm/complete", |args| {
         if args.is_empty() || args.len() > 2 {
             return Err(SemaError::arity("llm/complete", "1-2", args.len()));
         }
@@ -938,75 +976,81 @@ pub fn register_llm_builtins(env: &Env) {
     });
 
     // (llm/chat messages {:model "..." :tools [...] :tool-mode :auto ...})
-    register_fn_ctx(env, "llm/chat", |ctx, args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("llm/chat", "1-2", args.len()));
-        }
+    register_fn_ctx_gated(
+        env,
+        sandbox,
+        sema_core::Caps::LLM,
+        "llm/chat",
+        |ctx, args| {
+            if args.is_empty() || args.len() > 2 {
+                return Err(SemaError::arity("llm/chat", "1-2", args.len()));
+            }
 
-        let messages = extract_messages(&args[0])?;
+            let messages = extract_messages(&args[0])?;
 
-        let mut model = String::new();
-        let mut max_tokens = None;
-        let mut temperature = None;
-        let mut system = None;
-        let mut tools: Vec<Value> = Vec::new();
-        let mut tool_mode = "auto".to_string();
-        let mut max_tool_rounds = 10usize;
+            let mut model = String::new();
+            let mut max_tokens = None;
+            let mut temperature = None;
+            let mut system = None;
+            let mut tools: Vec<Value> = Vec::new();
+            let mut tool_mode = "auto".to_string();
+            let mut max_tool_rounds = 10usize;
 
-        if let Some(opts_val) = args.get(1) {
-            if let Value::Map(opts) = opts_val {
-                model = get_opt_string(opts, "model").unwrap_or_default();
-                max_tokens = get_opt_u32(opts, "max-tokens");
-                temperature = get_opt_f64(opts, "temperature");
-                system = get_opt_string(opts, "system");
-                if let Some(Value::List(t)) = opts.get(&Value::keyword("tools")) {
-                    tools = t.as_ref().clone();
-                } else if let Some(Value::Vector(t)) = opts.get(&Value::keyword("tools")) {
-                    tools = t.as_ref().clone();
-                }
-                if let Some(mode) = opts.get(&Value::keyword("tool-mode")) {
-                    if let Some(s) = mode.as_keyword() {
-                        tool_mode = s;
+            if let Some(opts_val) = args.get(1) {
+                if let Value::Map(opts) = opts_val {
+                    model = get_opt_string(opts, "model").unwrap_or_default();
+                    max_tokens = get_opt_u32(opts, "max-tokens");
+                    temperature = get_opt_f64(opts, "temperature");
+                    system = get_opt_string(opts, "system");
+                    if let Some(Value::List(t)) = opts.get(&Value::keyword("tools")) {
+                        tools = t.as_ref().clone();
+                    } else if let Some(Value::Vector(t)) = opts.get(&Value::keyword("tools")) {
+                        tools = t.as_ref().clone();
                     }
-                }
-                if let Some(rounds) = opts.get(&Value::keyword("max-tool-rounds")) {
-                    if let Some(n) = rounds.as_int() {
-                        max_tool_rounds = n as usize;
+                    if let Some(mode) = opts.get(&Value::keyword("tool-mode")) {
+                        if let Some(s) = mode.as_keyword() {
+                            tool_mode = s;
+                        }
+                    }
+                    if let Some(rounds) = opts.get(&Value::keyword("max-tool-rounds")) {
+                        if let Some(n) = rounds.as_int() {
+                            max_tool_rounds = n as usize;
+                        }
                     }
                 }
             }
-        }
 
-        if tools.is_empty() || tool_mode == "none" {
-            // Simple chat without tools
-            let mut request = ChatRequest::new(model, messages);
-            request.max_tokens = max_tokens.or(Some(4096));
-            request.temperature = temperature;
-            request.system = system;
-            let response = do_complete(request)?;
-            track_usage(&response.usage)?;
-            Ok(Value::String(Rc::new(response.content)))
-        } else {
-            // Chat with tool execution loop
-            let tool_schemas = build_tool_schemas(&tools)?;
-            let (result, _msgs) = run_tool_loop(
-                ctx,
-                messages,
-                model,
-                max_tokens,
-                temperature,
-                system,
-                &tools,
-                &tool_schemas,
-                max_tool_rounds,
-                None,
-            )?;
-            Ok(Value::String(Rc::new(result)))
-        }
-    });
+            if tools.is_empty() || tool_mode == "none" {
+                // Simple chat without tools
+                let mut request = ChatRequest::new(model, messages);
+                request.max_tokens = max_tokens.or(Some(4096));
+                request.temperature = temperature;
+                request.system = system;
+                let response = do_complete(request)?;
+                track_usage(&response.usage)?;
+                Ok(Value::String(Rc::new(response.content)))
+            } else {
+                // Chat with tool execution loop
+                let tool_schemas = build_tool_schemas(&tools)?;
+                let (result, _msgs) = run_tool_loop(
+                    ctx,
+                    messages,
+                    model,
+                    max_tokens,
+                    temperature,
+                    system,
+                    &tools,
+                    &tool_schemas,
+                    max_tool_rounds,
+                    None,
+                )?;
+                Ok(Value::String(Rc::new(result)))
+            }
+        },
+    );
 
     // (llm/send prompt {:model "..." ...})
-    register_fn(env, "llm/send", |args| {
+    register_fn_gated(env, sandbox, sema_core::Caps::LLM, "llm/send", |args| {
         if args.is_empty() || args.len() > 2 {
             return Err(SemaError::arity("llm/send", "1-2", args.len()));
         }
@@ -1119,7 +1163,7 @@ pub fn register_llm_builtins(env: &Env) {
         Ok(Value::String(Rc::new(response.content)))
     });
 
-    // (llm/extract schema text {:model "..."})
+    // (llm/extract schema text {:model "..." :validate true :retries 2})
     register_fn(env, "llm/extract", |args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("llm/extract", "2-3", args.len()));
@@ -1140,37 +1184,75 @@ pub fn register_llm_builtins(env: &Env) {
         }];
 
         let mut model = String::new();
+        let mut validate = false;
+        let mut max_retries: u32 = 0;
         if let Some(opts_val) = args.get(2) {
             if let Value::Map(opts) = opts_val {
                 model = get_opt_string(opts, "model").unwrap_or_default();
+                validate = opts
+                    .get(&Value::keyword("validate"))
+                    .map(|v| v.is_truthy())
+                    .unwrap_or(false);
+                max_retries = get_opt_u32(opts, "retries").unwrap_or(0);
             }
         }
 
-        let mut request = ChatRequest::new(model, messages);
-        request.system = Some(system);
+        let mut last_validation_error = String::new();
 
-        let response = do_complete(request)?;
-        track_usage(&response.usage)?;
+        for attempt in 0..=max_retries {
+            let mut request = ChatRequest::new(model.clone(), messages.clone());
+            if attempt == 0 {
+                request.system = Some(system.clone());
+            } else {
+                request.system = Some(format!(
+                    "{}\n\nYour previous response had validation errors: {}. Please fix these issues.",
+                    system, last_validation_error
+                ));
+            }
 
-        // Parse JSON response back to Sema value
-        let content = response.content.trim();
-        // Strip markdown code fences if present
-        let json_str = if content.starts_with("```") {
-            let inner = content
-                .trim_start_matches("```json")
-                .trim_start_matches("```")
-                .trim_end_matches("```")
-                .trim();
-            inner
-        } else {
-            content
-        };
-        let json: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
-            SemaError::Llm(format!(
-                "failed to parse LLM JSON response: {e}\nResponse was: {content}"
-            ))
-        })?;
-        Ok(json_to_sema_value(&json))
+            let response = do_complete(request)?;
+            track_usage(&response.usage)?;
+
+            // Parse JSON response back to Sema value
+            let content = response.content.trim();
+            // Strip markdown code fences if present
+            let json_str = if content.starts_with("```") {
+                let inner = content
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim();
+                inner
+            } else {
+                content
+            };
+            let json: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
+                SemaError::Llm(format!(
+                    "failed to parse LLM JSON response: {e}\nResponse was: {content}"
+                ))
+            })?;
+            let result = json_to_sema_value(&json);
+
+            if validate {
+                match validate_extraction(&result, schema) {
+                    Ok(()) => return Ok(result),
+                    Err(err) => {
+                        last_validation_error = err;
+                        if attempt == max_retries {
+                            return Err(SemaError::Llm(format!(
+                                "extraction validation failed after {} attempt(s): {}",
+                                max_retries + 1,
+                                last_validation_error
+                            )));
+                        }
+                    }
+                }
+            } else {
+                return Ok(result);
+            }
+        }
+
+        unreachable!()
     });
 
     // (llm/classify categories text {:model "..."})
@@ -2465,6 +2547,69 @@ fn format_schema(val: &Value) -> String {
             format!("{{\n{}\n}}", fields.join(",\n"))
         }
         _ => val.to_string(),
+    }
+}
+
+/// Validate that an extracted Sema value matches the expected schema.
+/// The schema is a map of keyword keys to field descriptors (maps with `:type`).
+/// Returns Ok(()) if valid, or Err with a description of mismatches.
+fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
+    let schema_map = match schema {
+        Value::Map(m) => m,
+        _ => return Ok(()),
+    };
+    let result_map = match result {
+        Value::Map(m) => m,
+        _ => return Err(format!("expected map result, got {}", result.type_name())),
+    };
+
+    let mut errors = Vec::new();
+
+    for (key, field_spec) in schema_map.iter() {
+        let key_name = match key {
+            Value::Keyword(s) => resolve(*s),
+            Value::String(s) => s.to_string(),
+            other => other.to_string(),
+        };
+
+        let result_val = result_map.get(key);
+        match result_val {
+            None => {
+                errors.push(format!("missing key: {key_name}"));
+            }
+            Some(val) => {
+                if let Value::Map(spec) = field_spec {
+                    if let Some(type_val) = spec.get(&Value::keyword("type")) {
+                        let type_name = match type_val {
+                            Value::Keyword(s) => resolve(*s),
+                            Value::String(s) => s.to_string(),
+                            other => other.to_string(),
+                        };
+                        let ok = match type_name.as_str() {
+                            "string" => matches!(val, Value::String(_)),
+                            "number" => matches!(val, Value::Int(_) | Value::Float(_)),
+                            "boolean" | "bool" => matches!(val, Value::Bool(_)),
+                            "list" | "array" => {
+                                matches!(val, Value::List(_) | Value::Vector(_))
+                            }
+                            _ => true,
+                        };
+                        if !ok {
+                            errors.push(format!(
+                                "key {key_name}: expected {type_name}, got {}",
+                                val.type_name()
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
     }
 }
 

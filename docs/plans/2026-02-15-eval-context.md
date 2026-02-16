@@ -4,6 +4,8 @@
 
 **Goal:** Replace all `thread_local!` state in `sema-eval` with an explicit `EvalContext` struct threaded through the evaluator, enabling multiple independent interpreter instances per thread.
 
+**Status:** Implemented
+
 **Architecture:** Define `EvalContext` in `sema-core` so all crates can reference it. Use a dual-constructor strategy for `NativeFn` so the ~330 builtins that don't need context remain unchanged, while the ~20 that do get context access. Thread `&EvalContext` through the eval loop, special forms, and into native function calls. LLM state stays in `sema-llm` but captures `Rc<RefCell<...>>` in closures instead of using thread-locals.
 
 **Tech Stack:** Rust 2021, `Rc<RefCell<...>>` for interior mutability (single-threaded), existing crate layering preserved.

@@ -3,12 +3,12 @@ use std::io::Read as _;
 use std::io::Write as _;
 use std::rc::Rc;
 
-use sema_core::{Env, SemaError, Value};
+use sema_core::{Caps, Env, SemaError, Value};
 
 use crate::list::{call_function, sema_eval_value};
 use crate::register_fn;
 
-pub fn register(env: &sema_core::Env) {
+pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     register_fn(env, "display", |args| {
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
@@ -54,7 +54,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file/read", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/read", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/read", "1", args.len()));
         }
@@ -66,7 +66,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::string(&content))
     });
 
-    register_fn(env, "file/write", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/write", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("file/write", "2", args.len()));
         }
@@ -81,7 +81,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file/exists?", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/exists?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/exists?", "1", args.len()));
         }
@@ -141,7 +141,7 @@ pub fn register(env: &sema_core::Env) {
         Err(SemaError::eval(msg))
     });
 
-    register_fn(env, "file/append", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/append", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("file/append", "2", args.len()));
         }
@@ -162,7 +162,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file/delete", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/delete", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/delete", "1", args.len()));
         }
@@ -174,7 +174,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file/rename", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/rename", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("file/rename", "2", args.len()));
         }
@@ -189,7 +189,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file/list", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/list", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/list", "1", args.len()));
         }
@@ -207,7 +207,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::list(entries))
     });
 
-    register_fn(env, "file/mkdir", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/mkdir", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/mkdir", "1", args.len()));
         }
@@ -219,7 +219,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file/is-directory?", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-directory?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/is-directory?", "1", args.len()));
         }
@@ -229,7 +229,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Bool(std::path::Path::new(path).is_dir()))
     });
 
-    register_fn(env, "file/is-file?", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-file?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/is-file?", "1", args.len()));
         }
@@ -239,7 +239,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Bool(std::path::Path::new(path).is_file()))
     });
 
-    register_fn(env, "file/is-symlink?", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-symlink?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/is-symlink?", "1", args.len()));
         }
@@ -249,7 +249,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Bool(std::path::Path::new(path).is_symlink()))
     });
 
-    register_fn(env, "file/info", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/info", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/info", "1", args.len()));
         }
@@ -326,7 +326,7 @@ pub fn register(env: &sema_core::Env) {
         }
     });
 
-    register_fn(env, "path/absolute", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "path/absolute", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("path/absolute", "1", args.len()));
         }
@@ -338,7 +338,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::string(&abs.to_string_lossy()))
     });
 
-    register_fn(env, "file/read-lines", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/read-lines", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/read-lines", "1", args.len()));
         }
@@ -351,7 +351,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::list(lines))
     });
 
-    register_fn(env, "file/for-each-line", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/for-each-line", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("file/for-each-line", "2", args.len()));
         }
@@ -420,7 +420,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file/fold-lines", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/fold-lines", |args| {
         if args.len() != 3 {
             return Err(SemaError::arity("file/fold-lines", "3", args.len()));
         }
@@ -495,7 +495,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(acc)
     });
 
-    register_fn(env, "file/write-lines", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/write-lines", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("file/write-lines", "2", args.len()));
         }
@@ -520,7 +520,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::Nil)
     });
 
-    register_fn(env, "file/copy", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/copy", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("file/copy", "2", args.len()));
         }
@@ -574,7 +574,7 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::string(&buf))
     });
 
-    register_fn(env, "load", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "load", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("load", "1", args.len()));
         }
