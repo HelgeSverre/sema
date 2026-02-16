@@ -83,12 +83,13 @@ programs.neovim.extraConfig = ''
 |--------------------|--------------------------------------------------------|
 | `semaSpecial`      | Special forms (`define`, `lambda`, `if`, `defagent`…)  |
 | `semaBuiltin`      | Builtin functions (`map`, `llm/chat`, `file/read`…)    |
-| `semaThreading`    | Threading macros (`->`, `->>`, `as->`, `some->`)       |
+| `semaThreading`    | Threading macros (`->`, `->>`, `as->`)                 |
 | `semaKeyword`      | Keyword literals (`:model`, `:temperature`…)           |
 | `semaString`       | String literals                                        |
 | `semaNumber`       | Integer and float literals                             |
 | `semaBoolean`      | `#t`, `#f`, `true`, `false`                            |
 | `semaConstant`     | `nil`                                                  |
+| `semaCharacter`    | Character literals (`#\a`, `#\space`…)                 |
 | `semaComment`      | Line comments (`;`)                                    |
 
 Override any group in your colorscheme to customise appearance.

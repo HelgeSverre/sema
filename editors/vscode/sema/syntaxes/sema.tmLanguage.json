@@ -119,23 +119,58 @@
           "name": "support.function.sema"
         },
         {
+          "comment": "ca*r/cd*r variants",
+          "match": "(?<=[\\s(\\[{])(?:caar|cadr|cdar|cddr|caaar|caadr|cadar|caddr|cdaar|cdadr|cddar|cdddr)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "list/* namespaced functions",
+          "match": "(?<=[\\s(\\[{])(?:list/chunk|list/dedupe|list/drop-while|list/group-by|list/index-of|list/interleave|list/max|list/min|list/pick|list/repeat|list/shuffle|list/split-at|list/sum|list/take-while|list/unique|list->bytevector|list->string|list->vector)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "Additional list functions",
+          "match": "(?<=[\\s(\\[{])(?:assq|assv|flatten-deep|frequencies|interpose|vector->list)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
           "comment": "Map functions",
           "match": "(?<=[\\s(\\[{])(?:hash-map|get|assoc|dissoc|merge|keys|vals|contains\\?|count|empty\\?)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {
+          "comment": "map/* namespaced functions",
+          "match": "(?<=[\\s(\\[{])(?:map/entries|map/filter|map/from-entries|map/map-keys|map/map-vals|map/select-keys|map/update)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "hashmap/* functions",
+          "match": "(?<=[\\s(\\[{])(?:hashmap/new|hashmap/get|hashmap/assoc|hashmap/keys|hashmap/contains\\?|hashmap/to-map)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
           "comment": "String functions",
-          "match": "(?<=[\\s(\\[{])(?:string-append|string/join|string/split|string/trim|string/upper|string/lower|string/replace|string/contains\\?|string/starts-with\\?|string/ends-with\\?|string/capitalize|string/empty\\?|string/index-of|string/reverse|string/repeat|string/pad-left|string/pad-right|str|substring|string-length|string-ref)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:string-append|string/join|string/split|string/trim|string/upper|string/lower|string/replace|string/contains\\?|string/starts-with\\?|string/ends-with\\?|string/capitalize|string/empty\\?|string/index-of|string/reverse|string/repeat|string/pad-left|string/pad-right|str|substring|string-length|string-ref|string/byte-length|string/chars|string/codepoints|string/foldcase|string/from-codepoints|string/last-index-of|string/map|string/normalize|string/number\\?|string/title-case|string/trim-left|string/trim-right|string-ci=\\?)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "String conversions",
+          "match": "(?<=[\\s(\\[{])(?:string->char|string->float|string->list|string->utf8|string->keyword|keyword->string)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "Char functions",
+          "match": "(?<=[\\s(\\[{])(?:char->integer|char->string|integer->char|char-alphabetic\\?|char-ci<\\?|char-ci<=\\?|char-ci=\\?|char-ci>\\?|char-ci>=\\?|char-downcase|char-lower-case\\?|char-numeric\\?|char-upcase|char-upper-case\\?|char-whitespace\\?|char<\\?|char<=\\?|char=\\?|char>\\?|char>=\\?)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {
           "comment": "IO and display",
-          "match": "(?<=[\\s(\\[{])(?:display|print|println|newline|format|read|read-line|read-many)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:display|print|println|newline|format|read|read-line|read-many|print-error|println-error|read-stdin)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {
           "comment": "Type predicates",
-          "match": "(?<=[\\s(\\[{])(?:number\\?|string\\?|symbol\\?|pair\\?|boolean\\?|procedure\\?|integer\\?|float\\?|keyword\\?|nil\\?|fn\\?|map\\?|record\\?|equal\\?|eq\\?|zero\\?|positive\\?|negative\\?|even\\?|odd\\?|type)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:number\\?|string\\?|symbol\\?|pair\\?|boolean\\?|procedure\\?|integer\\?|float\\?|keyword\\?|nil\\?|fn\\?|map\\?|record\\?|equal\\?|eq\\?|zero\\?|positive\\?|negative\\?|even\\?|odd\\?|type|bool\\?|bytevector\\?|char\\?|vector\\?|promise\\?|agent\\?|conversation\\?|message\\?|prompt\\?|tool\\?|promise-forced\\?)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {
@@ -145,17 +180,22 @@
         },
         {
           "comment": "Math functions",
-          "match": "(?<=[\\s(\\[{])(?:abs|min|max|round|floor|ceiling|sqrt|expt|pow|log|sin|cos|ceil|int|float|truncate|mod|modulo|math/remainder|math/gcd|math/lcm|math/pow|math/tan|math/random|math/random-int|math/clamp|math/sign|math/exp|math/log10|math/log2)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:abs|min|max|round|floor|ceiling|sqrt|expt|pow|log|sin|cos|ceil|int|float|truncate|mod|modulo|math/remainder|math/gcd|math/lcm|math/pow|math/tan|math/random|math/random-int|math/clamp|math/sign|math/exp|math/log10|math/log2|math/acos|math/asin|math/atan|math/atan2|math/cosh|math/degrees->radians|math/infinite\\?|math/lerp|math/map-range|math/nan\\?|math/quotient|math/radians->degrees|math/sinh|math/tanh)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {
           "comment": "File functions",
-          "match": "(?<=[\\s(\\[{])(?:file/read|file/write|file/exists\\?|file/delete|file/list|file/append|file/rename|file/mkdir|file/info|file/read-lines|file/write-lines|file/is-directory\\?|file/is-file\\?|file/copy)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:file/read|file/write|file/exists\\?|file/delete|file/list|file/append|file/rename|file/mkdir|file/info|file/read-lines|file/write-lines|file/is-directory\\?|file/is-file\\?|file/copy|file/fold-lines|file/for-each-line|file/is-symlink\\?)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "Path functions",
+          "match": "(?<=[\\s(\\[{])(?:path/absolute|path/basename|path/dirname|path/extension|path/join)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {
           "comment": "JSON functions",
-          "match": "(?<=[\\s(\\[{])(?:json/decode|json/encode)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:json/decode|json/encode|json/encode-pretty)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {
@@ -189,13 +229,33 @@
           "name": "support.function.sema"
         },
         {
+          "comment": "Terminal functions",
+          "match": "(?<=[\\s(\\[{])(?:term/style|term/strip|term/rgb|term/spinner-start|term/spinner-stop|term/spinner-update)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "Bytevector functions",
+          "match": "(?<=[\\s(\\[{])(?:bytevector|make-bytevector|bytevector-length|bytevector-u8-ref|bytevector-u8-set!|bytevector-copy|bytevector-append|bytevector->list|utf8->string)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
           "comment": "System functions",
-          "match": "(?<=[\\s(\\[{])(?:env|shell|exit|time-ms|sleep|sys/args|sys/cwd|sys/platform|sys/set-env|sys/env-all)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:env|shell|exit|time-ms|sleep|sys/args|sys/cwd|sys/platform|sys/set-env|sys/env-all|sys/arch|sys/elapsed|sys/home-dir|sys/hostname|sys/interactive\\?|sys/os|sys/pid|sys/temp-dir|sys/tty|sys/user|sys/which)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         },
         {
           "comment": "LLM functions",
-          "match": "(?<=[\\s(\\[{])(?:conversation/new|conversation/say|conversation/messages|conversation/last-reply|conversation/fork|llm/complete|llm/chat|llm/stream|llm/send|llm/extract|llm/classify|llm/batch|llm/pmap|llm/embed|llm/auto-configure|llm/configure|llm/set-budget|llm/budget-remaining|llm/define-provider|llm/last-usage|llm/session-usage|llm/similarity|llm/clear-budget|prompt/append|prompt/messages|prompt/set-system|message/role|message/content|agent/run)(?=[\\s)\\]}]|$)",
+          "match": "(?<=[\\s(\\[{])(?:conversation/new|conversation/say|conversation/messages|conversation/last-reply|conversation/fork|conversation/add-message|conversation/model|llm/complete|llm/chat|llm/stream|llm/send|llm/extract|llm/classify|llm/batch|llm/pmap|llm/embed|llm/auto-configure|llm/configure|llm/set-budget|llm/budget-remaining|llm/define-provider|llm/last-usage|llm/session-usage|llm/similarity|llm/clear-budget|llm/configure-embeddings|llm/current-provider|llm/list-providers|llm/pricing-status|llm/reset-usage|llm/set-default|llm/set-pricing|prompt/append|prompt/messages|prompt/set-system|message/role|message/content|agent/run|agent/max-turns|agent/model|agent/name|agent/system|agent/tools)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "Embedding functions",
+          "match": "(?<=[\\s(\\[{])(?:embedding/->list|embedding/length|embedding/list->embedding|embedding/ref)(?=[\\s)\\]}]|$)",
+          "name": "support.function.sema"
+        },
+        {
+          "comment": "Tool query functions",
+          "match": "(?<=[\\s(\\[{])(?:tool/name|tool/description|tool/parameters)(?=[\\s)\\]}]|$)",
           "name": "support.function.sema"
         }
       ]

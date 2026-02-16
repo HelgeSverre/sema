@@ -107,18 +107,28 @@
     ;; LLM / Agent
     "conversation/new" "conversation/say"
     "conversation/messages" "conversation/last-reply" "conversation/fork"
+    "conversation/add-message" "conversation/model"
     "llm/complete" "llm/chat" "llm/stream" "llm/send"
     "llm/extract" "llm/classify" "llm/batch" "llm/pmap"
     "llm/embed" "llm/auto-configure" "llm/configure"
     "llm/set-budget" "llm/budget-remaining"
     "llm/define-provider" "llm/last-usage" "llm/session-usage"
     "llm/similarity" "llm/clear-budget"
+    "llm/configure-embeddings" "llm/current-provider" "llm/list-providers"
+    "llm/pricing-status" "llm/reset-usage" "llm/set-default" "llm/set-pricing"
     "prompt/append" "prompt/messages" "prompt/set-system"
     "message/role" "message/content"
-    "agent/run"
+    "agent/run" "agent/max-turns" "agent/model"
+    "agent/name" "agent/system" "agent/tools"
+    ;; Embedding functions
+    "embedding/->list" "embedding/length"
+    "embedding/list->embedding" "embedding/ref"
+    ;; Tool query functions
+    "tool/name" "tool/description" "tool/parameters"
     ;; I/O
     "display" "print" "println" "newline" "format"
     "read" "read-line" "read-many"
+    "print-error" "println-error" "read-stdin"
     "not" "error"
     ;; Lists
     "list" "cons" "car" "cdr" "first" "rest" "nth"
@@ -126,6 +136,17 @@
     "vector" "sort" "sort-by" "take" "drop" "zip" "flatten"
     "range" "make-list" "flat-map" "take-while" "drop-while"
     "every" "any" "partition" "iota" "last"
+    ;; ca*r/cd*r variants
+    "caar" "cadr" "cdar" "cddr"
+    "caaar" "caadr" "cadar" "caddr" "cdaar" "cdadr" "cddar" "cdddr"
+    ;; list/* namespaced functions
+    "list/chunk" "list/dedupe" "list/drop-while" "list/group-by"
+    "list/index-of" "list/interleave" "list/max" "list/min"
+    "list/pick" "list/repeat" "list/shuffle" "list/split-at"
+    "list/sum" "list/take-while" "list/unique"
+    "list->bytevector" "list->string" "list->vector"
+    ;; Additional list functions
+    "assq" "assv" "flatten-deep" "frequencies" "interpose" "vector->list"
     ;; Strings
     "string-append" "string/join" "string/split"
     "string/trim" "string/upper" "string/lower"
@@ -135,31 +156,60 @@
     "string/reverse" "string/repeat"
     "string/pad-left" "string/pad-right"
     "str" "string->keyword" "keyword->string"
+    "string->char" "string->float" "string->list" "string->utf8"
+    "string-ci=?"
+    "string/byte-length" "string/chars" "string/codepoints"
+    "string/foldcase" "string/from-codepoints" "string/last-index-of"
+    "string/map" "string/normalize" "string/number?"
+    "string/title-case" "string/trim-left" "string/trim-right"
+    ;; Char functions
+    "char->integer" "char->string" "integer->char"
+    "char-alphabetic?" "char-ci<?" "char-ci<=?" "char-ci=?"
+    "char-ci>?" "char-ci>=?" "char-downcase" "char-lower-case?"
+    "char-numeric?" "char-upcase" "char-upper-case?"
+    "char-whitespace?" "char<?" "char<=?" "char=?" "char>?" "char>=?"
     ;; Math
     "abs" "min" "max" "round" "floor" "ceiling"
     "sqrt" "expt" "math/remainder" "modulo" "math/gcd" "math/lcm"
     "pow" "log" "sin" "cos" "ceil" "int" "float" "truncate" "mod"
     "math/pow" "math/tan" "math/random" "math/random-int"
     "math/clamp" "math/sign" "math/exp" "math/log10" "math/log2"
+    "math/acos" "math/asin" "math/atan" "math/atan2"
+    "math/cosh" "math/degrees->radians" "math/infinite?" "math/lerp"
+    "math/map-range" "math/nan?" "math/quotient"
+    "math/radians->degrees" "math/sinh" "math/tanh"
     ;; Hash maps
     "hash-map" "get" "assoc" "dissoc" "keys" "vals"
     "contains?" "merge" "count" "empty?"
+    ;; map/* functions
+    "map/entries" "map/filter" "map/from-entries"
+    "map/map-keys" "map/map-vals" "map/select-keys" "map/update"
+    ;; hashmap/* functions
+    "hashmap/new" "hashmap/get" "hashmap/assoc"
+    "hashmap/keys" "hashmap/contains?" "hashmap/to-map"
     ;; Predicates
     "number?" "string?" "symbol?" "pair?" "boolean?"
     "procedure?" "char?" "vector?" "map?" "zero?"
     "positive?" "negative?" "equal?" "eq?"
     "integer?" "float?" "keyword?" "nil?" "fn?" "record?" "promise?"
+    "bool?" "bytevector?" "even?" "odd?"
+    "agent?" "conversation?" "message?" "prompt?" "tool?" "promise-forced?"
     "type"
     ;; Type conversions
     "string->number" "number->string" "string->symbol" "symbol->string"
+    "string->keyword" "keyword->string"
     ;; File I/O
     "file/read" "file/write" "file/append" "file/exists?"
     "file/delete" "file/list"
     "file/rename" "file/copy" "file/info" "file/mkdir"
     "file/is-directory?" "file/is-file?"
     "file/read-lines" "file/write-lines"
+    "file/fold-lines" "file/for-each-line" "file/is-symlink?"
+    ;; Path functions
+    "path/absolute" "path/basename" "path/dirname"
+    "path/extension" "path/join"
     ;; JSON
-    "json/decode" "json/encode"
+    "json/decode" "json/encode" "json/encode-pretty"
     ;; HTTP
     "http/get" "http/post" "http/put" "http/delete"
     "http/request"
@@ -177,9 +227,19 @@
     ;; Bitwise
     "bit/and" "bit/or" "bit/xor" "bit/not"
     "bit/shift-left" "bit/shift-right"
+    ;; Terminal functions
+    "term/style" "term/strip" "term/rgb"
+    "term/spinner-start" "term/spinner-stop" "term/spinner-update"
+    ;; Bytevector functions
+    "bytevector" "make-bytevector" "bytevector-length"
+    "bytevector-u8-ref" "bytevector-u8-set!" "bytevector-copy"
+    "bytevector-append" "bytevector->list" "utf8->string"
     ;; System
     "env" "shell" "exit" "time-ms" "sleep"
-    "sys/args" "sys/cwd" "sys/platform"
+    "sys/args" "sys/cwd" "sys/platform" "sys/set-env" "sys/env-all"
+    "sys/arch" "sys/elapsed" "sys/home-dir" "sys/hostname"
+    "sys/interactive?" "sys/os" "sys/pid" "sys/temp-dir"
+    "sys/tty" "sys/user" "sys/which"
     ;; Meta
     "gensym")
   "Sema built-in standard library functions.")
@@ -321,6 +381,7 @@ See https://sema-lang.com for documentation.
                                      (?\" . ?\")))
   (setq-local imenu-generic-expression
               '(("Functions" "^\\s-*(defun\\s-+\\(\\(?:\\sw\\|\\s_\\)+\\)" 1)
+                ("Functions" "^\\s-*(define\\s-+(\\(\\(?:\\sw\\|\\s_\\)+\\)" 1)
                 ("Variables" "^\\s-*(define\\s-+\\(\\(?:\\sw\\|\\s_\\)+\\)" 1)
                 ("Macros" "^\\s-*(defmacro\\s-+\\(\\(?:\\sw\\|\\s_\\)+\\)" 1)
                 ("Agents" "^\\s-*(defagent\\s-+\\(\\(?:\\sw\\|\\s_\\)+\\)" 1)

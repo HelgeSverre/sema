@@ -12,7 +12,7 @@ This configuration reuses the built-in **Scheme tree-sitter grammar** (since Sem
 
 - **Syntax highlighting** — special forms, LLM primitives (`llm/chat`, `defagent`, etc.), builtins, keyword literals (`:foo`), booleans (`#t`/`#f`), `nil`, strings, comments
 - **Smart auto-pairs** — `()`, `[]`, `{}`, `""`
-- **Comment support** — `;` line comments, `#| |#` block comments
+- **Comment support** — `;` line comments
 - **2-space indentation**
 
 ## Installation

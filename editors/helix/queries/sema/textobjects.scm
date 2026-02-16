@@ -4,6 +4,8 @@
 (list
   .
   (symbol) @_f
+  .
+  (_) @function.inside
   (#any-of? @_f "define" "defun" "lambda" "fn" "defmacro")
 ) @function.around
 
@@ -11,6 +13,8 @@
 (list
   .
   (symbol) @_f
+  .
+  (_) @class.inside
   (#any-of? @_f "defagent" "deftool")
 ) @class.around
 
