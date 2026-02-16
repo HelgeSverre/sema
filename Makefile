@@ -25,7 +25,7 @@ check:
 	cargo check
 
 clippy:
-	cargo clippy -p sema-core -p sema-reader -p sema-eval -p sema-llm -p sema-stdlib -p sema -- -D warnings
+	cargo clippy -p sema-core -p sema-reader -p sema-eval -p sema-llm -p sema-stdlib -p sema-vm -p sema -- -D warnings
 
 fmt:
 	cargo fmt

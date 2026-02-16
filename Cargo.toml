@@ -5,6 +5,7 @@ members = [
     "crates/sema-eval",
     "crates/sema-llm",
     "crates/sema-stdlib",
+    "crates/sema-vm",
     "crates/sema",
     "playground/crate",
 ]
@@ -16,6 +17,7 @@ sema-reader = { path = "crates/sema-reader" }
 sema-eval = { path = "crates/sema-eval" }
 sema-llm = { path = "crates/sema-llm" }
 sema-stdlib = { path = "crates/sema-stdlib" }
+sema-vm = { path = "crates/sema-vm" }
 
 regex = "1"
 thiserror = "2"

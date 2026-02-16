@@ -1739,6 +1739,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sema-vm"
+version = "1.2.2"
+dependencies = [
+ "hashbrown 0.15.5",
+ "lasso",
+ "sema-core",
+ "sema-reader",
+]
+
+[[package]]
 name = "sema-wasm"
 version = "1.2.2"
 dependencies = [

@@ -1,0 +1,10 @@
+[package]
+name = "sema-vm"
+version = "1.2.2"
+edition = "2021"
+
+[dependencies]
+sema-core.workspace = true
+sema-reader.workspace = true
+hashbrown.workspace = true
+lasso.workspace = true
