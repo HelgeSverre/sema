@@ -255,3 +255,28 @@ cargo run --release -- --no-llm examples/benchmarks/1brc.sema -- bench-10m.txt
 ```
 
 Source code for all implementations is in [`benchmarks/1brc/`](https://github.com/HelgeSverre/sema/tree/main/benchmarks/1brc) (optimized) and [`benchmarks/1brc/simple/`](https://github.com/HelgeSverre/sema/tree/main/benchmarks/1brc/simple) (simple/idiomatic).
+
+<script setup>
+import { onMounted } from 'vue'
+
+onMounted(() => {
+  document.querySelectorAll('table tr').forEach(row => {
+    const firstCell = row.querySelector('td:first-child')
+    if (firstCell && firstCell.textContent.trim() === 'Sema') {
+      row.classList.add('sema-row')
+    }
+  })
+})
+</script>
+
+<style>
+.sema-row {
+  background: linear-gradient(90deg, rgba(245, 158, 11, 0.18), rgba(245, 158, 11, 0.06)) !important;
+}
+.sema-row td {
+  font-weight: 600;
+}
+.sema-row td:first-child {
+  border-left: 3px solid #f59e0b !important;
+}
+</style>
