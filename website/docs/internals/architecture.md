@@ -1,6 +1,6 @@
 # Architecture Overview
 
-Sema is a Lisp with first-class LLM primitives, implemented in Rust. The primary execution path is a tree-walking interpreter — the evaluator walks the AST directly via a trampoline loop for tail-call optimization. A [bytecode VM](./bytecode-vm.md) is under development to provide faster execution for compute-heavy workloads. The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
+Sema is a Lisp with first-class LLM primitives, implemented in Rust. The primary execution path is a tree-walking interpreter — the evaluator walks the AST directly via a trampoline loop for tail-call optimization. A [bytecode VM](./bytecode-vm.md) is available as an opt-in execution path (via `--vm`) for faster execution of compute-heavy workloads. The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
 
 The entire implementation is ~15k lines of Rust spread across 7 crates, each with a clear responsibility and strict dependency ordering.
 
@@ -29,7 +29,7 @@ The entire implementation is ~15k lines of Rust spread across 7 crates, each wit
               ┌────────▼───────┐
               │    sema-vm     │
               │  bytecode VM   │
-              │  (in progress) │
+              │  (opt-in)      │
               └────────┬───────┘
                        │
               ┌────────▼───────┐
@@ -59,7 +59,7 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 |-------|------|-----------|
 | **sema-core** | Shared types | `Value` (23 variants), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types |
 | **sema-reader** | Parsing | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap` |
-| **sema-vm** | Bytecode VM (WIP) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch |
+| **sema-vm** | Bytecode VM (opt-in via `--vm`) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch |
 | **sema-eval** | Evaluation | Trampoline-based evaluator, 39 special forms, module system, call stack + span table |
 | **sema-stdlib** | Standard library | ~350 native functions across 19 modules |
 | **sema-llm** | LLM integration | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
@@ -477,4 +477,4 @@ An alternative would be to define an `Evaluator` trait in `sema-core` and have `
 
 ### Architectural Lesson
 
-The circular dependency constraint forced a callback architecture that turned out to be a better design than having direct access to the evaluator would have been. The dependency inversion through `sema-core` callbacks gives a single, canonical evaluator used everywhere — stdlib HOFs, LLM tool handlers, and the main interpreter all run the same code paths with full feature support. This also provides a clean seam for future work: if Sema moves to a bytecode VM, only the callback registrations need to change — all call sites in stdlib and llm remain untouched. Sometimes constraints lead to better designs than unconstrained freedom would have.
+The circular dependency constraint forced a callback architecture that turned out to be a better design than having direct access to the evaluator would have been. The dependency inversion through `sema-core` callbacks gives a single, canonical evaluator used everywhere — stdlib HOFs, LLM tool handlers, and the main interpreter all run the same code paths with full feature support. This also provides a clean seam for future work: with the bytecode VM now available via `--vm`, only the callback registrations needed to change — all call sites in stdlib and llm remained untouched, validating this design. Sometimes constraints lead to better designs than unconstrained freedom would have.

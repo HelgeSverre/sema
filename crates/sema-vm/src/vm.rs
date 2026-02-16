@@ -28,6 +28,13 @@ pub struct Closure {
     pub upvalues: Vec<Rc<UpvalueCell>>,
 }
 
+/// Payload stored in NativeFn for VM closures.
+/// Carries both the closure and the function table from its compilation context.
+struct VmClosurePayload {
+    closure: Rc<Closure>,
+    functions: Vec<Rc<Function>>,
+}
+
 /// A call frame in the VM's call stack.
 struct CallFrame {
     closure: Rc<Closure>,
@@ -82,7 +89,8 @@ impl VM {
                 return Err(SemaError::eval("VM: pc out of bounds"));
             }
 
-            let op = unsafe { std::mem::transmute::<u8, Op>(code[pc]) };
+            let op = Op::from_u8(code[pc])
+                .ok_or_else(|| SemaError::eval(format!("VM: invalid opcode {}", code[pc])))?;
 
             match op {
                 Op::Const => {
@@ -105,11 +113,11 @@ impl VM {
                 }
                 Op::Pop => {
                     self.advance_pc(1);
-                    self.stack.pop();
+                    self.pop()?;
                 }
                 Op::Dup => {
                     self.advance_pc(1);
-                    let val = self.stack.last().unwrap().clone();
+                    let val = self.peek()?.clone();
                     self.stack.push(val);
                 }
 
@@ -126,7 +134,7 @@ impl VM {
                 }
                 Op::StoreLocal => {
                     let slot = self.read_u16() as usize;
-                    let val = self.stack.pop().unwrap();
+                    let val = self.pop()?;
                     let frame = self.frames.last().unwrap();
                     let base = frame.base;
                     self.stack[base + slot] = val.clone();
@@ -145,7 +153,7 @@ impl VM {
                 }
                 Op::StoreUpvalue => {
                     let idx = self.read_u16() as usize;
-                    let val = self.stack.pop().unwrap();
+                    let val = self.pop()?;
                     let frame = self.frames.last().unwrap();
                     *frame.closure.upvalues[idx].value.borrow_mut() = val;
                 }
@@ -153,22 +161,27 @@ impl VM {
                 // --- Globals ---
                 Op::LoadGlobal => {
                     let spur = self.read_spur();
-                    let val = self
-                        .globals
-                        .get(spur)
-                        .ok_or_else(|| SemaError::Unbound(resolve_spur(spur)))?;
-                    self.stack.push(val);
+                    match self.globals.get(spur) {
+                        Some(val) => self.stack.push(val),
+                        None => {
+                            let err = SemaError::Unbound(resolve_spur(spur));
+                            match self.handle_exception(err, pc)? {
+                                ExceptionAction::Handled => {}
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            }
+                        }
+                    }
                 }
                 Op::StoreGlobal => {
                     let spur = self.read_spur();
-                    let val = self.stack.pop().unwrap();
+                    let val = self.pop()?;
                     if !self.globals.set_existing(spur, val.clone()) {
                         self.globals.set(spur, val);
                     }
                 }
                 Op::DefineGlobal => {
                     let spur = self.read_spur();
-                    let val = self.stack.pop().unwrap();
+                    let val = self.pop()?;
                     self.globals.set(spur, val);
                 }
 
@@ -180,7 +193,7 @@ impl VM {
                 }
                 Op::JumpIfFalse => {
                     let offset = self.read_i32();
-                    let val = self.stack.pop().unwrap();
+                    let val = self.pop()?;
                     if !val.is_truthy() {
                         let frame = self.frames.last_mut().unwrap();
                         frame.pc = (frame.pc as i64 + offset as i64) as usize;
@@ -188,7 +201,7 @@ impl VM {
                 }
                 Op::JumpIfTrue => {
                     let offset = self.read_i32();
-                    let val = self.stack.pop().unwrap();
+                    let val = self.pop()?;
                     if val.is_truthy() {
                         let frame = self.frames.last_mut().unwrap();
                         frame.pc = (frame.pc as i64 + offset as i64) as usize;
@@ -198,11 +211,21 @@ impl VM {
                 // --- Function calls ---
                 Op::Call => {
                     let argc = self.read_u16() as usize;
-                    self.call_value(argc, ctx)?;
+                    if let Err(err) = self.call_value(argc, ctx) {
+                        match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        }
+                    }
                 }
                 Op::TailCall => {
                     let argc = self.read_u16() as usize;
-                    self.tail_call_value(argc, ctx)?;
+                    if let Err(err) = self.tail_call_value(argc, ctx) {
+                        match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        }
+                    }
                 }
                 Op::Return => {
                     let result = self.stack.pop().unwrap_or(Value::Nil);
@@ -263,10 +286,10 @@ impl VM {
                 // --- Exceptions ---
                 Op::Throw => {
                     self.advance_pc(1);
-                    let val = self.stack.pop().unwrap();
+                    let val = self.pop()?;
                     let err = SemaError::UserException(val);
                     // Try to find an exception handler in the current or enclosing frames
-                    match self.handle_exception(err)? {
+                    match self.handle_exception(err, pc)? {
                         ExceptionAction::Handled => {}
                         ExceptionAction::Propagate(e) => return Err(e),
                     }
@@ -274,112 +297,201 @@ impl VM {
 
                 // --- Arithmetic ---
                 Op::Add => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(vm_add(&a, &b)?);
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match vm_add(&a, &b) {
+                        Ok(v) => self.stack.push(v),
+                        Err(err) => match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        },
+                    }
                 }
                 Op::Sub => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(vm_sub(&a, &b)?);
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match vm_sub(&a, &b) {
+                        Ok(v) => self.stack.push(v),
+                        Err(err) => match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        },
+                    }
                 }
                 Op::Mul => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(vm_mul(&a, &b)?);
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match vm_mul(&a, &b) {
+                        Ok(v) => self.stack.push(v),
+                        Err(err) => match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        },
+                    }
                 }
                 Op::Div => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(vm_div(&a, &b)?);
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match vm_div(&a, &b) {
+                        Ok(v) => self.stack.push(v),
+                        Err(err) => match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        },
+                    }
                 }
                 Op::Negate => {
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(match a {
-                        Value::Int(n) => Value::Int(-n),
-                        Value::Float(f) => Value::Float(-f),
-                        _ => return Err(SemaError::type_error("number", a.type_name())),
-                    });
+                    self.advance_pc(1);
+                    let a = self.pop()?;
+                    match a {
+                        Value::Int(n) => self.stack.push(Value::Int(-n)),
+                        Value::Float(f) => self.stack.push(Value::Float(-f)),
+                        _ => {
+                            let err = SemaError::type_error("number", a.type_name());
+                            match self.handle_exception(err, pc)? {
+                                ExceptionAction::Handled => {}
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            }
+                        }
+                    }
                 }
                 Op::Not => {
-                    let a = self.stack.pop().unwrap();
+                    self.advance_pc(1);
+                    let a = self.pop()?;
                     self.stack.push(Value::Bool(!a.is_truthy()));
                 }
                 Op::Eq => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
                     self.stack.push(Value::Bool(a == b));
                 }
                 Op::Lt => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(Value::Bool(vm_lt(&a, &b)?));
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match vm_lt(&a, &b) {
+                        Ok(v) => self.stack.push(Value::Bool(v)),
+                        Err(err) => match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        },
+                    }
                 }
                 Op::Gt => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(Value::Bool(vm_lt(&b, &a)?));
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match vm_lt(&b, &a) {
+                        Ok(v) => self.stack.push(Value::Bool(v)),
+                        Err(err) => match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        },
+                    }
                 }
                 Op::Le => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(Value::Bool(!vm_lt(&b, &a)?));
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match vm_lt(&b, &a) {
+                        Ok(v) => self.stack.push(Value::Bool(!v)),
+                        Err(err) => match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        },
+                    }
                 }
                 Op::Ge => {
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(Value::Bool(!vm_lt(&a, &b)?));
+                    self.advance_pc(1);
+                    let b = self.pop()?;
+                    let a = self.pop()?;
+                    match vm_lt(&a, &b) {
+                        Ok(v) => self.stack.push(Value::Bool(!v)),
+                        Err(err) => match self.handle_exception(err, pc)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
+                        },
+                    }
                 }
 
                 // --- Specialized int fast paths ---
                 Op::AddInt => {
                     self.advance_pc(1);
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let b = self.pop()?;
+                    let a = self.pop()?;
                     match (&a, &b) {
                         (Value::Int(x), Value::Int(y)) => {
                             self.stack.push(Value::Int(x.wrapping_add(*y)));
                         }
-                        _ => self.stack.push(vm_add(&a, &b)?),
+                        _ => match vm_add(&a, &b) {
+                            Ok(v) => self.stack.push(v),
+                            Err(err) => match self.handle_exception(err, pc)? {
+                                ExceptionAction::Handled => {}
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            },
+                        },
                     }
                 }
                 Op::SubInt => {
                     self.advance_pc(1);
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let b = self.pop()?;
+                    let a = self.pop()?;
                     match (&a, &b) {
                         (Value::Int(x), Value::Int(y)) => {
                             self.stack.push(Value::Int(x.wrapping_sub(*y)));
                         }
-                        _ => self.stack.push(vm_sub(&a, &b)?),
+                        _ => match vm_sub(&a, &b) {
+                            Ok(v) => self.stack.push(v),
+                            Err(err) => match self.handle_exception(err, pc)? {
+                                ExceptionAction::Handled => {}
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            },
+                        },
                     }
                 }
                 Op::MulInt => {
                     self.advance_pc(1);
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let b = self.pop()?;
+                    let a = self.pop()?;
                     match (&a, &b) {
                         (Value::Int(x), Value::Int(y)) => {
                             self.stack.push(Value::Int(x.wrapping_mul(*y)));
                         }
-                        _ => self.stack.push(vm_mul(&a, &b)?),
+                        _ => match vm_mul(&a, &b) {
+                            Ok(v) => self.stack.push(v),
+                            Err(err) => match self.handle_exception(err, pc)? {
+                                ExceptionAction::Handled => {}
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            },
+                        },
                     }
                 }
                 Op::LtInt => {
                     self.advance_pc(1);
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let b = self.pop()?;
+                    let a = self.pop()?;
                     match (&a, &b) {
                         (Value::Int(x), Value::Int(y)) => {
                             self.stack.push(Value::Bool(x < y));
                         }
-                        _ => self.stack.push(Value::Bool(vm_lt(&a, &b)?)),
+                        _ => match vm_lt(&a, &b) {
+                            Ok(v) => self.stack.push(Value::Bool(v)),
+                            Err(err) => match self.handle_exception(err, pc)? {
+                                ExceptionAction::Handled => {}
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            },
+                        },
                     }
                 }
                 Op::EqInt => {
                     self.advance_pc(1);
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
+                    let b = self.pop()?;
+                    let a = self.pop()?;
                     match (&a, &b) {
                         (Value::Int(x), Value::Int(y)) => {
                             self.stack.push(Value::Bool(x == y));
@@ -395,6 +507,18 @@ impl VM {
 
     fn advance_pc(&mut self, n: usize) {
         self.frames.last_mut().unwrap().pc += n;
+    }
+
+    fn pop(&mut self) -> Result<Value, SemaError> {
+        self.stack
+            .pop()
+            .ok_or_else(|| SemaError::eval("VM: stack underflow"))
+    }
+
+    fn peek(&self) -> Result<&Value, SemaError> {
+        self.stack
+            .last()
+            .ok_or_else(|| SemaError::eval("VM: stack underflow"))
     }
 
     /// Read a u16 operand and advance PC past the opcode + operand.
@@ -441,6 +565,12 @@ impl VM {
 
         match func_val {
             Value::NativeFn(ref native) => {
+                // Check for VM closure payload — call via frame push, not Rust recursion
+                if let Some(payload) = &native.payload {
+                    if let Some(vmc) = payload.downcast_ref::<VmClosurePayload>() {
+                        return self.call_vm_closure(vmc, argc);
+                    }
+                }
                 let args_start = func_idx + 1;
                 let args: Vec<Value> = self.stack[args_start..].to_vec();
                 self.stack.truncate(func_idx);
@@ -475,8 +605,6 @@ impl VM {
                 Ok(())
             }
             _ => {
-                // Check if it's a VM closure (stored as Value from MakeClosure)
-                // For now, any other callable goes through call_callback
                 let args_start = func_idx + 1;
                 let args: Vec<Value> = self.stack[args_start..].to_vec();
                 self.stack.truncate(func_idx);
@@ -491,17 +619,149 @@ impl VM {
         let func_idx = self.stack.len() - 1 - argc;
         let func_val = self.stack[func_idx].clone();
 
-        match &func_val {
-            Value::NativeFn(_) | Value::Lambda(_) | Value::Keyword(_) => {
-                // Native/Lambda/Keyword: can't reuse frame, just do a regular call
-                self.call_value(argc, ctx)
-            }
-            _ => {
-                // For VM closures: we'd reuse the frame.
-                // For now, fall back to regular call
-                self.call_value(argc, ctx)
+        // Check for VM closure — reuse current frame for TCO
+        if let Value::NativeFn(ref native) = func_val {
+            if let Some(payload) = &native.payload {
+                if let Some(vmc) = payload.downcast_ref::<VmClosurePayload>() {
+                    return self.tail_call_vm_closure(vmc, argc);
+                }
             }
         }
+
+        // Non-VM callables: regular call (no TCO possible)
+        self.call_value(argc, ctx)
+    }
+
+    /// Push a new CallFrame for a VM closure (no Rust recursion).
+    fn call_vm_closure(&mut self, vmc: &VmClosurePayload, argc: usize) -> Result<(), SemaError> {
+        let closure = vmc.closure.clone();
+        self.functions = vmc.functions.clone();
+        let func = &closure.func;
+        let arity = func.arity as usize;
+        let has_rest = func.has_rest;
+        let n_locals = func.chunk.n_locals as usize;
+
+        // Arity check
+        if has_rest {
+            if argc < arity {
+                return Err(SemaError::arity(
+                    func.name
+                        .map(resolve_spur)
+                        .unwrap_or_else(|| "<lambda>".to_string()),
+                    format!("{}+", arity),
+                    argc,
+                ));
+            }
+        } else if argc != arity {
+            return Err(SemaError::arity(
+                func.name
+                    .map(resolve_spur)
+                    .unwrap_or_else(|| "<lambda>".to_string()),
+                arity.to_string(),
+                argc,
+            ));
+        }
+
+        // Collect args from stack
+        let func_idx = self.stack.len() - 1 - argc;
+        let args: Vec<Value> = self.stack[func_idx + 1..].to_vec();
+        self.stack.truncate(func_idx);
+
+        // Set up locals
+        let base = self.stack.len();
+        self.stack.resize(base + n_locals, Value::Nil);
+
+        // Write params into local slots
+        if has_rest {
+            for i in 0..arity {
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::Nil);
+            }
+            let rest: Vec<Value> = args[arity..].to_vec();
+            self.stack[base + arity] = Value::List(Rc::new(rest));
+        } else {
+            for i in 0..arity {
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::Nil);
+            }
+        }
+
+        // Push frame
+        self.frames.push(CallFrame {
+            closure,
+            pc: 0,
+            base,
+            open_upvalues: vec![None; n_locals],
+        });
+
+        Ok(())
+    }
+
+    /// Tail-call a VM closure: reuse the current frame's stack space.
+    fn tail_call_vm_closure(
+        &mut self,
+        vmc: &VmClosurePayload,
+        argc: usize,
+    ) -> Result<(), SemaError> {
+        let closure = vmc.closure.clone();
+        self.functions = vmc.functions.clone();
+        let func = &closure.func;
+        let arity = func.arity as usize;
+        let has_rest = func.has_rest;
+        let n_locals = func.chunk.n_locals as usize;
+
+        // Arity check
+        if has_rest {
+            if argc < arity {
+                return Err(SemaError::arity(
+                    func.name
+                        .map(resolve_spur)
+                        .unwrap_or_else(|| "<lambda>".to_string()),
+                    format!("{}+", arity),
+                    argc,
+                ));
+            }
+        } else if argc != arity {
+            return Err(SemaError::arity(
+                func.name
+                    .map(resolve_spur)
+                    .unwrap_or_else(|| "<lambda>".to_string()),
+                arity.to_string(),
+                argc,
+            ));
+        }
+
+        // Collect args
+        let func_idx = self.stack.len() - 1 - argc;
+        let args: Vec<Value> = self.stack[func_idx + 1..].to_vec();
+
+        // Reuse current frame's base
+        let frame = self.frames.last().unwrap();
+        let base = frame.base;
+
+        // Truncate stack back to current frame's base
+        self.stack.truncate(base);
+        self.stack.resize(base + n_locals, Value::Nil);
+
+        // Write params
+        if has_rest {
+            for i in 0..arity {
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::Nil);
+            }
+            let rest: Vec<Value> = args[arity..].to_vec();
+            self.stack[base + arity] = Value::List(Rc::new(rest));
+        } else {
+            for i in 0..arity {
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::Nil);
+            }
+        }
+
+        // Replace current frame (reuse slot)
+        let frame = self.frames.last_mut().unwrap();
+        frame.closure = closure;
+        frame.pc = 0;
+        // base stays the same
+        frame.open_upvalues = vec![None; n_locals];
+
+        Ok(())
     }
 
     // --- MakeClosure ---
@@ -556,27 +816,50 @@ impl VM {
         self.frames.last_mut().unwrap().pc = uv_pc;
 
         let closure = Rc::new(Closure { func, upvalues });
-        let closure_for_call = closure.clone();
+        let payload: Rc<dyn std::any::Any> = Rc::new(VmClosurePayload {
+            closure: closure.clone(),
+            functions: self.functions.clone(),
+        });
+        let closure_for_fallback = closure.clone();
         let functions = self.functions.clone();
         let globals = self.globals.clone();
 
-        // We use Rc<RefCell> to allow the closure to store a reference to its own NativeFn value
-        // for self-recursive calls (e.g., named-let loop functions).
-        let self_ref: Rc<RefCell<Option<Value>>> = Rc::new(RefCell::new(None));
-        let self_ref_inner = self_ref.clone();
-
-        let native = Value::NativeFn(Rc::new(sema_core::NativeFn::with_ctx(
-            closure_for_call
+        // The NativeFn wrapper is used as a fallback when called from outside the VM
+        // (e.g., from stdlib HOFs like map/filter). Inside the VM, call_value detects
+        // the payload and pushes a CallFrame instead — no Rust recursion.
+        let native = Value::NativeFn(Rc::new(sema_core::NativeFn::with_payload(
+            closure_for_fallback
                 .func
                 .name
                 .map(resolve_spur)
                 .unwrap_or_else(|| "<vm-closure>".to_string()),
+            payload,
             move |ctx, args| {
                 let mut vm = VM::new(globals.clone(), functions.clone());
-                let func = &closure_for_call.func;
-                let n_locals = func.chunk.n_locals as usize;
+                let func = &closure_for_fallback.func;
                 let arity = func.arity as usize;
                 let has_rest = func.has_rest;
+                let n_locals = func.chunk.n_locals as usize;
+
+                if has_rest {
+                    if args.len() < arity {
+                        return Err(SemaError::arity(
+                            func.name
+                                .map(resolve_spur)
+                                .unwrap_or_else(|| "<lambda>".to_string()),
+                            format!("{}+", arity),
+                            args.len(),
+                        ));
+                    }
+                } else if args.len() != arity {
+                    return Err(SemaError::arity(
+                        func.name
+                            .map(resolve_spur)
+                            .unwrap_or_else(|| "<lambda>".to_string()),
+                        arity.to_string(),
+                        args.len(),
+                    ));
+                }
 
                 for _ in 0..n_locals {
                     vm.stack.push(Value::Nil);
@@ -594,19 +877,8 @@ impl VM {
                     }
                 }
 
-                // If this is a named-let loop function, store ourselves in the loop name slot
-                // (which is at slot `arity` since params are at 0..arity-1)
-                if func.name.is_some() && arity < n_locals {
-                    if let Some(self_val) = self_ref_inner.borrow().as_ref() {
-                        vm.stack[arity] = self_val.clone();
-                    }
-                }
-
                 vm.frames.push(CallFrame {
-                    closure: Rc::new(Closure {
-                        func: closure_for_call.func.clone(),
-                        upvalues: closure_for_call.upvalues.clone(),
-                    }),
+                    closure: closure_for_fallback.clone(),
                     pc: 0,
                     base: 0,
                     open_upvalues: vec![None; n_locals],
@@ -615,25 +887,26 @@ impl VM {
             },
         )));
 
-        // Store self-reference for recursive calls
-        *self_ref.borrow_mut() = Some(native.clone());
-
         self.stack.push(native);
         Ok(())
     }
 
     // --- Exception handling ---
 
-    fn handle_exception(&mut self, err: SemaError) -> Result<ExceptionAction, SemaError> {
+    fn handle_exception(
+        &mut self,
+        err: SemaError,
+        failing_pc: usize,
+    ) -> Result<ExceptionAction, SemaError> {
+        let mut pc_for_lookup = failing_pc as u32;
         // Walk frames from top looking for a handler
         while let Some(frame) = self.frames.last() {
-            let pc = frame.pc as u32 - 1; // pc already advanced past the Throw
             let chunk = &frame.closure.func.chunk;
 
             // Check exception table for this frame
             let mut found = None;
             for entry in &chunk.exception_table {
-                if pc >= entry.try_start && pc < entry.try_end {
+                if pc_for_lookup >= entry.try_start && pc_for_lookup < entry.try_end {
                     found = Some(entry.clone());
                     break;
                 }
@@ -644,11 +917,8 @@ impl VM {
                 let base = frame.base;
                 self.stack.truncate(base + entry.stack_depth as usize);
 
-                // Push error value onto the stack for the handler's StoreLocal to consume
-                let error_val = match &err {
-                    SemaError::UserException(v) => v.clone(),
-                    other => Value::String(Rc::new(other.to_string())),
-                };
+                // Push error value as a map matching the tree-walker's error_to_value format
+                let error_val = error_to_value(&err);
                 self.stack.push(error_val);
 
                 // Jump to handler
@@ -660,6 +930,10 @@ impl VM {
             // No handler in this frame, pop it and try parent
             let frame = self.frames.pop().unwrap();
             self.stack.truncate(frame.base);
+            // Parent frames use their own pc for lookup
+            if let Some(parent) = self.frames.last() {
+                pc_for_lookup = parent.pc as u32;
+            }
         }
 
         // No handler found anywhere
@@ -670,6 +944,84 @@ impl VM {
 enum ExceptionAction {
     Handled,
     Propagate(SemaError),
+}
+
+/// Convert a SemaError into a Sema map value, matching the tree-walker's format.
+fn error_to_value(err: &SemaError) -> Value {
+    let inner = err.inner();
+    let mut map = BTreeMap::new();
+    match inner {
+        SemaError::Eval(msg) => {
+            map.insert(Value::keyword("type"), Value::keyword("eval"));
+            map.insert(Value::keyword("message"), Value::string(msg));
+        }
+        SemaError::Type { expected, got } => {
+            map.insert(Value::keyword("type"), Value::keyword("type-error"));
+            map.insert(
+                Value::keyword("message"),
+                Value::string(&format!("expected {expected}, got {got}")),
+            );
+            map.insert(Value::keyword("expected"), Value::string(expected));
+            map.insert(Value::keyword("got"), Value::string(got));
+        }
+        SemaError::Arity {
+            name,
+            expected,
+            got,
+        } => {
+            map.insert(Value::keyword("type"), Value::keyword("arity"));
+            map.insert(
+                Value::keyword("message"),
+                Value::string(&format!("{name} expects {expected} args, got {got}")),
+            );
+        }
+        SemaError::Unbound(name) => {
+            map.insert(Value::keyword("type"), Value::keyword("unbound"));
+            map.insert(
+                Value::keyword("message"),
+                Value::string(&format!("Unbound variable: {name}")),
+            );
+            map.insert(Value::keyword("name"), Value::string(name));
+        }
+        SemaError::UserException(val) => {
+            map.insert(Value::keyword("type"), Value::keyword("user"));
+            map.insert(Value::keyword("message"), Value::string(&val.to_string()));
+            map.insert(Value::keyword("value"), val.clone());
+        }
+        SemaError::Io(msg) => {
+            map.insert(Value::keyword("type"), Value::keyword("io"));
+            map.insert(Value::keyword("message"), Value::string(msg));
+        }
+        SemaError::Llm(msg) => {
+            map.insert(Value::keyword("type"), Value::keyword("llm"));
+            map.insert(Value::keyword("message"), Value::string(msg));
+        }
+        SemaError::Reader { message, span } => {
+            map.insert(Value::keyword("type"), Value::keyword("reader"));
+            map.insert(
+                Value::keyword("message"),
+                Value::string(&format!("{message} at {span}")),
+            );
+        }
+        SemaError::PermissionDenied {
+            function,
+            capability,
+        } => {
+            map.insert(Value::keyword("type"), Value::keyword("permission-denied"));
+            map.insert(
+                Value::keyword("message"),
+                Value::string(&format!(
+                    "Permission denied: {function} requires '{capability}' capability"
+                )),
+            );
+            map.insert(Value::keyword("function"), Value::string(function));
+            map.insert(Value::keyword("capability"), Value::string(capability));
+        }
+        SemaError::WithTrace { .. } | SemaError::WithContext { .. } => {
+            unreachable!("inner() already unwraps these")
+        }
+    }
+    Value::Map(Rc::new(map))
 }
 
 // --- Arithmetic helpers ---
@@ -746,13 +1098,12 @@ fn vm_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
     }
 }
 
-/// Convenience: compile and run a string expression in the VM.
-pub fn eval_str(input: &str, globals: &Rc<Env>, ctx: &EvalContext) -> Result<Value, SemaError> {
-    let vals =
-        sema_reader::read_many(input).map_err(|e| SemaError::eval(format!("parse error: {e}")))?;
+/// Compile a sequence of Value ASTs through the full pipeline and produce
+/// the entry closure + function table ready for VM execution.
+pub fn compile_program(vals: &[Value]) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
-    for val in &vals {
+    for val in vals {
         let core = crate::lower::lower(val)?;
         let (res, n) = crate::resolve::resolve_with_locals(&core)?;
         total_locals = total_locals.max(n);
@@ -773,6 +1124,14 @@ pub fn eval_str(input: &str, globals: &Rc<Env>, ctx: &EvalContext) -> Result<Val
         upvalues: Vec::new(),
     });
 
+    Ok((closure, functions))
+}
+
+/// Convenience: compile and run a string expression in the VM.
+pub fn eval_str(input: &str, globals: &Rc<Env>, ctx: &EvalContext) -> Result<Value, SemaError> {
+    let vals =
+        sema_reader::read_many(input).map_err(|e| SemaError::eval(format!("parse error: {e}")))?;
+    let (closure, functions) = compile_program(&vals)?;
     let mut vm = VM::new(globals.clone(), functions);
     vm.execute(closure, ctx)
 }
@@ -963,13 +1322,42 @@ mod tests {
 
     #[test]
     fn test_vm_throw_catch() {
-        let result = eval("(try (throw \"boom\") (catch e e))").unwrap();
+        // Caught value is now a map with :type, :message, :value keys
+        let result = eval("(try (throw \"boom\") (catch e (:value e)))").unwrap();
         assert_eq!(result, Value::String(Rc::new("boom".to_string())));
+    }
+
+    #[test]
+    fn test_vm_throw_catch_type() {
+        let result = eval("(try (throw \"boom\") (catch e (:type e)))").unwrap();
+        assert_eq!(result, Value::keyword("user"));
     }
 
     #[test]
     fn test_vm_try_no_throw() {
         assert_eq!(eval("(try 42 (catch e 99))").unwrap(), Value::Int(42));
+    }
+
+    #[test]
+    fn test_vm_try_catch_native_error() {
+        // Division by zero from NativeFn should be caught
+        let result = eval("(try (/ 1 0) (catch e \"caught\"))").unwrap();
+        assert_eq!(result, Value::String(Rc::new("caught".to_string())));
+    }
+
+    #[test]
+    fn test_vm_try_catch_native_error_message() {
+        let result = eval("(try (/ 1 0) (catch e (:message e)))").unwrap();
+        match result {
+            Value::String(s) => assert!(s.contains("division by zero"), "got: {s}"),
+            other => panic!("Expected string, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_vm_try_catch_type_error() {
+        let result = eval("(try (+ 1 \"a\") (catch e (:type e)))").unwrap();
+        assert_eq!(result, Value::keyword("type-error"));
     }
 
     #[test]
@@ -1041,5 +1429,130 @@ mod tests {
             }
             _ => panic!("Expected list, got {:?}", result),
         }
+    }
+
+    // --- Task 8: Mutable upvalue tests ---
+
+    #[test]
+    fn test_vm_counter_closure() {
+        // make-counter pattern: closure that mutates a captured variable
+        let result =
+            eval("(let ((n 0)) (let ((inc (lambda () (set! n (+ n 1)) n))) (inc) (inc) (inc)))")
+                .unwrap();
+        assert_eq!(result, Value::Int(3));
+    }
+
+    #[test]
+    fn test_vm_shared_mutable_upvalue() {
+        // Two closures sharing the same mutable upvalue
+        let result = eval(
+            "(let ((n 0)) (let ((inc (lambda () (set! n (+ n 1)))) (get (lambda () n))) (inc) (inc) (get)))",
+        )
+        .unwrap();
+        assert_eq!(result, Value::Int(2));
+    }
+
+    #[test]
+    fn test_vm_set_local_in_let() {
+        // set! on a local variable (not captured)
+        let result = eval("(let ((x 1)) (set! x 42) x)").unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_vm_closure_captures_after_mutation() {
+        // Closure captures value after mutation
+        let result = eval("(let ((x 1)) (set! x 10) ((lambda () x)))").unwrap();
+        assert_eq!(result, Value::Int(10));
+    }
+
+    #[test]
+    fn test_vm_closure_returns_closure() {
+        // A closure that returns another closure
+        let result = eval("(let ((f (lambda () (lambda (x) x)))) ((f) 42))").unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_vm_make_adder() {
+        // Classic make-adder pattern: closure captures upvalue
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str(
+            "(define (make-adder n) (lambda (x) (+ n x)))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        eval_str("(define add5 (make-adder 5))", &globals, &ctx).unwrap();
+        let result = eval_str("(add5 3)", &globals, &ctx).unwrap();
+        assert_eq!(result, Value::Int(8));
+    }
+
+    #[test]
+    fn test_vm_compose() {
+        // compose: closure returns closure that captures two upvalues
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str(
+            "(define (compose f g) (lambda (x) (f (g x))))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        eval_str("(define inc (lambda (x) (+ x 1)))", &globals, &ctx).unwrap();
+        eval_str("(define dbl (lambda (x) (* x 2)))", &globals, &ctx).unwrap();
+        let result = eval_str("((compose dbl inc) 5)", &globals, &ctx).unwrap();
+        assert_eq!(result, Value::Int(12));
+    }
+
+    #[test]
+    fn test_vm_nested_make_closure() {
+        // Three levels deep
+        let result = eval("((((lambda () (lambda () (lambda () 42))))))").unwrap();
+        assert_eq!(result, Value::Int(42));
+    }
+
+    #[test]
+    fn test_vm_named_fn_rest_params() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str("(define (f . args) args)", &globals, &ctx).unwrap();
+        let result = eval_str("(f 1 2 3)", &globals, &ctx).unwrap();
+        match result {
+            Value::List(items) => {
+                assert_eq!(items.len(), 3);
+                assert_eq!(items[0], Value::Int(1));
+            }
+            other => panic!("Expected list, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_vm_named_let_still_works_with_fix() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str(
+            "(let loop ((n 5) (acc 1)) (if (= n 0) acc (loop (- n 1) (* acc n))))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::Int(120));
+    }
+
+    #[test]
+    fn test_vm_curry() {
+        // Curry pattern
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str(
+            "(define (curry f) (lambda (x) (lambda (y) (f x y))))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        let result = eval_str("(((curry +) 3) 4)", &globals, &ctx).unwrap();
+        assert_eq!(result, Value::Int(7));
     }
 }

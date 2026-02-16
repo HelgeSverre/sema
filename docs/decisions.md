@@ -131,6 +131,24 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 - In the VM, self-reference becomes: `Closure → upvalues → UpvalueCell → Value::Closure → ...`
 - These are bounded leaks (closure + its captured environment), not growing leaks.
 
+### 4. VM Closure Execution: NativeFn with Payload (implemented)
+
+**Decision:** VM closures are wrapped as `Value::NativeFn` but carry an opaque `payload: Option<Rc<dyn Any>>` containing a `VmClosurePayload` (the compiled closure + function table). Inside the VM, `call_value` detects the payload, downcasts to `VmClosurePayload`, and pushes a `CallFrame` on the **same VM** — no Rust recursion and no native stack growth.
+
+**Why not `Value::VmClosure`:** The originally planned approach was to add a new `Value::VmClosure(Rc<Closure>)` variant. Instead, the `NativeFn` payload field was used, which avoids adding a new Value variant and keeps the Value enum unchanged.
+
+**NativeFn fallback:** The NativeFn wrapper function is kept as a fallback for closures that cross the VM/tree-walker boundary (e.g., closures passed to stdlib HOFs like `map`, `filter`, `fold`). In that case the NativeFn callback fires, which spins up a fresh VM.
+
+**TCO:** True tail-call optimization is implemented via `tail_call_vm_closure`: the current frame's stack space is reused for the tail call, enabling 100K+ depth tail recursion without stack growth.
+
+### 5. Named-Let: Desugar to Letrec (implemented)
+
+**Decision:** Named-let is desugared in `lower.rs`: `(let loop ((n init)) body)` → `(letrec ((loop (lambda (n) body))) (loop init))`. This replaces the special `compile_named_let` path in the VM compiler.
+
+**Rationale:** The special `compile_named_let` path duplicated `compile_lambda` logic but missed critical parts (func_id patching, upvalue support), causing bugs 1 and 3 from the original vm-status.md. Desugaring reuses the correct and tested `compile_letrec` + `compile_lambda` paths.
+
+**Note:** The `NamedLet` CoreExpr variant still exists, but the lowering pass converts named-let forms before they reach the resolver/compiler, so `compile_named_let` is no longer used for the actual implementation.
+
 ## Package System
 
 - Currently no package manager. `import` resolves local files only (relative to the importing file).

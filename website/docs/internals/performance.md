@@ -1,6 +1,6 @@
 # Performance Internals
 
-Sema is a tree-walking interpreter — there's no bytecode compiler or JIT. Early optimizations brought the [1 Billion Row Challenge](https://github.com/gunnarmorling/1brc) benchmark from **~25s to ~9.6s** on 10M rows using a "mini-eval" — a minimal evaluator inlined in the stdlib that bypassed the full trampoline. The mini-eval was later **removed** for architectural reasons (semantic drift from the real evaluator, and blocking the path to a bytecode VM). Fast-path optimizations in the real evaluator partially recovered performance, bringing the current benchmark to **~2,600ms on 1M rows** (vs ~960ms with the mini-eval). This page documents each optimization, its history, and measured impact.
+Sema's default execution path is a tree-walking interpreter. A bytecode VM is available via `--vm` (see [Bytecode VM](./bytecode-vm.md)) but has not yet been benchmarked against the tree-walker on 1BRC. Early optimizations brought the [1 Billion Row Challenge](https://github.com/gunnarmorling/1brc) benchmark from **~25s to ~9.6s** on 10M rows using a "mini-eval" — a minimal evaluator inlined in the stdlib that bypassed the full trampoline. The mini-eval was later **removed** for architectural reasons (semantic drift from the real evaluator, and blocking the path to a bytecode VM). Fast-path optimizations in the real evaluator partially recovered performance, bringing the current benchmark to **~2,600ms on 1M rows** (vs ~960ms with the mini-eval). This page documents each optimization, its history, and measured impact.
 
 All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset (semicolon-delimited weather station readings, one per line).
 
@@ -16,7 +16,7 @@ All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset
 | + hashbrown | — | — | Amortized O(1) accumulator | ✅ Active |
 | **Post-removal** | **~2,600 ms** | — | Callback architecture + fast paths | ✅ Current |
 
-> **Note:** The mini-eval and its associated optimizations (env reuse, inlined builtins, custom number parser, SIMD split fast path) were removed to unblock the bytecode VM. The current architecture uses `sema_core::call_callback` to route stdlib → real evaluator. Fast-path optimizations (self-evaluating short-circuit, inline NativeFn dispatch, thread-local EvalContext, deferred cloning) partially recovered performance.
+> **Note:** The mini-eval and its associated optimizations (env reuse, inlined builtins, custom number parser, SIMD split fast path) were removed to unblock the bytecode VM, which is now implemented and available via `--vm`. The current architecture uses `sema_core::call_callback` to route stdlib → real evaluator. Fast-path optimizations (self-evaluating short-circuit, inline NativeFn dispatch, thread-local EvalContext, deferred cloning) partially recovered performance.
 
 ## 1. Copy-on-Write Map Mutation
 
@@ -98,12 +98,12 @@ sema_core::with_stdlib_ctx(|ctx| {
 3. **Thread-local shared EvalContext:** `with_stdlib_ctx` reuses a single `EvalContext` across all stdlib → evaluator callbacks, avoiding per-call allocation of `RefCell`/`Cell` fields.
 4. **Deferred cloning:** `eval_value_inner` avoids cloning the expression and environment on the first trampoline iteration, only cloning if a tail call (`Trampoline::Eval`) is returned.
 
-**Remaining gap:** The ~2.7× regression cannot be fully closed within the tree-walking architecture. A bytecode VM — the reason the mini-eval was removed — is the planned path to recover and exceed the original performance.
+**Remaining gap:** The ~2.7× regression cannot be fully closed within the tree-walking architecture. A bytecode VM — the reason the mini-eval was removed — is available via `--vm` and is the path to recover and exceed the original performance.
 
 **Literature:**
 - Inline caching, pioneered by Smalltalk-80 and refined in V8's hidden classes, solves the same dispatch overhead problem but at a different architectural level
 - Most production Lisps (SBCL, Chez Scheme) compile to native code, making dispatch overhead negligible — Sema's callback overhead is inherent to tree-walking interpreters
-- Lua 5.x's bytecode VM inlines common operations (`OP_ADD`, `OP_GETTABLE`) into the dispatch loop — this is the approach Sema's planned VM will take
+- Lua 5.x's bytecode VM inlines common operations (`OP_ADD`, `OP_GETTABLE`) into the dispatch loop — this is the approach Sema's bytecode VM (`sema-vm`) takes
 
 ## 4. String Interning (lasso)
 
@@ -217,7 +217,7 @@ Not everything we tried worked:
 | **bumpalo / typed-arena** | Incompatible | Values need to escape the arena (returned from functions, stored in environments). Arena allocation only works for temporaries. |
 | **compact_str / smol_str** | Redundant | Once symbols/keywords are interned as `Spur`, small-string optimization for them is pointless. String *values* are still `Rc<String>` but they're not in the hot path for dispatch. |
 
-> **Note:** "Full evaluator callback" was previously listed here as rejected (4x slower than mini-eval). It is now the **current architecture** — the ~2.7× overhead vs the mini-eval is accepted as the cost of architectural correctness. A bytecode VM is planned to eliminate this overhead entirely.
+> **Note:** "Full evaluator callback" was previously listed here as rejected (4x slower than mini-eval). It is now the **current architecture** — the ~2.7× overhead vs the mini-eval is accepted as the cost of architectural correctness. The bytecode VM (`--vm`) is the path to eliminate this overhead entirely.
 
 ## Architecture Diagram
 

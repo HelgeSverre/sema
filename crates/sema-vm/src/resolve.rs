@@ -934,36 +934,20 @@ mod tests {
 
     #[test]
     fn test_resolve_named_let() {
+        // Named let desugars to letrec+lambda, so we get Letrec with a Lambda binding
         let expr = resolve_str("(lambda () (let loop ((n 10)) (if (= n 0) n (loop (- n 1)))))");
         match expr {
             ResolvedExpr::Lambda(def) => match &def.body[0] {
-                ResolvedExpr::NamedLet {
-                    name,
-                    bindings,
-                    body,
-                } => {
-                    // n is local slot 0 (params come first)
-                    assert_eq!(bindings[0].0.resolution, VarResolution::Local { slot: 0 });
-                    // loop itself is local slot 1 (after params)
-                    assert_eq!(name.resolution, VarResolution::Local { slot: 1 });
-                    // Recursive call to loop in body should resolve to slot 1
-                    match &body[0] {
-                        ResolvedExpr::If { else_, .. } => match else_.as_ref() {
-                            ResolvedExpr::Call { func, tail, .. } => {
-                                assert!(*tail); // should be tail position
-                                match func.as_ref() {
-                                    ResolvedExpr::Var(vr) => {
-                                        assert_eq!(vr.resolution, VarResolution::Local { slot: 1 });
-                                    }
-                                    other => panic!("expected Var for loop, got {other:?}"),
-                                }
-                            }
-                            other => panic!("expected Call, got {other:?}"),
-                        },
-                        other => panic!("expected If, got {other:?}"),
-                    }
+                ResolvedExpr::Letrec { bindings, body } => {
+                    // loop is the letrec binding
+                    assert_eq!(bindings.len(), 1);
+                    // The binding value should be a Lambda
+                    assert!(matches!(&bindings[0].1, ResolvedExpr::Lambda(_)));
+                    // The letrec body should be a call to loop with initial values
+                    assert_eq!(body.len(), 1);
+                    assert!(matches!(&body[0], ResolvedExpr::Call { .. }));
                 }
-                other => panic!("expected NamedLet, got {other:?}"),
+                other => panic!("expected Letrec, got {other:?}"),
             },
             other => panic!("expected Lambda, got {other:?}"),
         }
@@ -1301,19 +1285,26 @@ mod tests {
 
     #[test]
     fn test_resolve_named_let_capture() {
-        // Named let loop var captured by inner lambda
+        // Named let desugars to letrec+lambda; inner lambda captures n via upvalue chain
         let expr = resolve_str("(lambda () (let loop ((n 3)) (lambda () n)))");
         match expr {
             ResolvedExpr::Lambda(outer) => match &outer.body[0] {
-                ResolvedExpr::NamedLet { body, .. } => match &body[0] {
-                    ResolvedExpr::Lambda(inner) => {
-                        assert_eq!(inner.upvalues.len(), 1);
-                        // n is local slot 0 in the outer function (n=0, loop=1)
-                        assert!(matches!(inner.upvalues[0], UpvalueDesc::ParentLocal(0)));
+                ResolvedExpr::Letrec { bindings, .. } => {
+                    // The letrec binding should be a Lambda (the loop function)
+                    match &bindings[0].1 {
+                        ResolvedExpr::Lambda(loop_fn) => {
+                            // The loop body contains (lambda () n) which captures n
+                            match &loop_fn.body[0] {
+                                ResolvedExpr::Lambda(inner) => {
+                                    assert_eq!(inner.upvalues.len(), 1);
+                                }
+                                other => panic!("expected inner Lambda, got {other:?}"),
+                            }
+                        }
+                        other => panic!("expected loop Lambda, got {other:?}"),
                     }
-                    other => panic!("expected Lambda, got {other:?}"),
-                },
-                other => panic!("expected NamedLet, got {other:?}"),
+                }
+                other => panic!("expected Letrec, got {other:?}"),
             },
             other => panic!("expected Lambda, got {other:?}"),
         }

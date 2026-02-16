@@ -1,6 +1,6 @@
 # Evaluator Internals
 
-Sema is a tree-walking interpreter. There is no bytecode compiler, no JIT, no CPS transform — just an AST represented as `Value` nodes that get recursively evaluated. The key trick is a **trampoline** that turns tail calls into a loop, giving us tail-call optimization without growing the native Rust stack. This page documents how the evaluator works, from the top-level entry point down to function application and stack traces.
+Sema's primary execution path is a tree-walking interpreter. A [bytecode VM](./bytecode-vm.md) is available as an alternative execution path (via the `--vm` CLI flag), but the tree-walker remains the default and serves as the macro expansion engine and `eval` fallback. This page documents the tree-walking evaluator. There is no JIT, no CPS transform — just an AST represented as `Value` nodes that get recursively evaluated. The key trick is a **trampoline** that turns tail calls into a loop, giving us tail-call optimization without growing the native Rust stack.
 
 If you're familiar with the metacircular evaluator from [SICP](https://mitpress.mit.edu/9780262510875/structure-and-interpretation-of-computer-programs/) (Abelson & Sussman, 1996), Sema's evaluator is structurally similar — `eval` dispatches on expression type, `apply` handles function calls — but with two critical differences: the trampoline for TCO, and a mutable environment model instead of substitution.
 
@@ -79,7 +79,7 @@ The key insight: `if` is a special form that returns `Trampoline::Eval` for its 
 ### How This Differs From Other Approaches
 
 - **CPS (Continuation-Passing Style):** Some Scheme compilers (such as earlier versions of Orbit and Rabbit) use CPS as an intermediate representation, making every call a tail call. This supports `call/cc` naturally but requires a whole-program transformation. Modern compilers like Chez Scheme use other strategies (nanopass compilation with explicit stack frames). Sema doesn't do CPS; only calls in tail position are optimized.
-- **Bytecode VM:** CPython and Lua compile to bytecode and run a `switch`-dispatch loop. The VM's instruction pointer replaces the trampoline. Bytecode is faster (smaller dispatch overhead, better cache behavior) but more complex to implement.
+- **Bytecode VM:** CPython and Lua compile to bytecode and run a `switch`-dispatch loop. The VM's instruction pointer replaces the trampoline. Bytecode is faster (smaller dispatch overhead, better cache behavior) but more complex to implement. Sema now has its own bytecode VM in `sema-vm`, available via `--vm` — see [Bytecode VM](./bytecode-vm.md) for details.
 - **Direct recursion:** The metacircular evaluator in SICP chapter 4 just calls `eval` recursively. Simple, but blows the stack on deep tail recursion. Sema started this way and migrated to the trampoline.
 
 ## eval_step: A Single Step

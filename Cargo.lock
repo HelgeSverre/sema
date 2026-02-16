@@ -1688,6 +1688,7 @@ dependencies = [
  "sema-llm",
  "sema-reader",
  "sema-stdlib",
+ "sema-vm",
 ]
 
 [[package]]

@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use sema_core::{intern, SemaError, Spur, Value};
 
 use crate::core_expr::{CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry};
@@ -396,10 +398,22 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             bindings.push((name, init));
         }
         let body = lower_body(&args[2..], tail)?;
-        return Ok(CoreExpr::NamedLet {
-            name: *loop_name,
-            bindings,
-            body,
+        let (params, inits): (Vec<Spur>, Vec<CoreExpr>) = bindings.into_iter().unzip();
+        return Ok(CoreExpr::Letrec {
+            bindings: vec![(
+                *loop_name,
+                CoreExpr::Lambda(LambdaDef {
+                    name: Some(*loop_name),
+                    params,
+                    rest: None,
+                    body,
+                }),
+            )],
+            body: vec![CoreExpr::Call {
+                func: Box::new(CoreExpr::Var(*loop_name)),
+                args: inits,
+                tail,
+            }],
         });
     }
 
@@ -503,16 +517,14 @@ fn lower_defmacro(args: &[Value]) -> Result<CoreExpr, SemaError> {
     if args.len() < 3 {
         return Err(SemaError::arity("defmacro", "3+", args.len()));
     }
-    let name = require_symbol(&args[0], "defmacro")?;
-    let param_list = require_list(&args[1], "defmacro")?;
-    let param_spurs = extract_param_spurs(param_list, "defmacro")?;
-    let (params, rest) = parse_params(&param_spurs);
-    let body = lower_body(&args[2..], false)?;
-    Ok(CoreExpr::Defmacro {
-        name,
-        params,
-        rest,
-        body,
+    // Delegate defmacro entirely to the tree-walker: reconstruct the original
+    // form and pass it quoted to __vm-defmacro-form so the body stays unevaluated.
+    let mut form = vec![Value::Symbol(intern("defmacro"))];
+    form.extend(args.iter().cloned());
+    Ok(CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(intern("__vm-defmacro-form"))),
+        args: vec![CoreExpr::Const(Value::List(Rc::new(form)))],
+        tail: false,
     })
 }
 
@@ -921,14 +933,27 @@ fn lower_delay(args: &[Value]) -> Result<CoreExpr, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("delay", "1", args.len()));
     }
-    Ok(CoreExpr::Delay(Box::new(lower_expr(&args[0], false)?)))
+    // Store the original unevaluated body as a quoted constant for __vm-delay.
+    // This preserves laziness: the body is NOT evaluated at definition time.
+    let body_val = args[0].clone();
+    Ok(CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(intern("__vm-delay"))),
+        args: vec![CoreExpr::Const(body_val)],
+        tail: false,
+    })
 }
 
 fn lower_force(args: &[Value]) -> Result<CoreExpr, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("force", "1", args.len()));
     }
-    Ok(CoreExpr::Force(Box::new(lower_expr(&args[0], false)?)))
+    // Force evaluates its argument (to get the thunk), then calls __vm-force
+    let expr = lower_expr(&args[0], false)?;
+    Ok(CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(intern("__vm-force"))),
+        args: vec![expr],
+        tail: false,
+    })
 }
 
 fn lower_define_record_type(args: &[Value]) -> Result<CoreExpr, SemaError> {
@@ -1156,12 +1181,15 @@ mod tests {
 
     #[test]
     fn test_lower_named_let() {
+        // Named let desugars to letrec + lambda
         match lower_str("(let loop ((n 10)) (if (= n 0) 0 (loop (- n 1))))") {
-            CoreExpr::NamedLet { bindings, body, .. } => {
+            CoreExpr::Letrec { bindings, body } => {
                 assert_eq!(bindings.len(), 1);
-                assert!(!body.is_empty());
+                assert!(matches!(&bindings[0].1, CoreExpr::Lambda(_)));
+                assert_eq!(body.len(), 1);
+                assert!(matches!(&body[0], CoreExpr::Call { .. }));
             }
-            other => panic!("expected NamedLet, got {other:?}"),
+            other => panic!("expected Letrec, got {other:?}"),
         }
     }
 
@@ -1401,21 +1429,33 @@ mod tests {
 
     #[test]
     fn test_lower_delay() {
-        assert!(matches!(lower_str("(delay (+ 1 2))"), CoreExpr::Delay(_)));
+        // delay now lowers to a Call to __vm-delay with the body as a constant
+        match lower_str("(delay (+ 1 2))") {
+            CoreExpr::Call { func, args, .. } => {
+                assert!(matches!(*func, CoreExpr::Var(_)));
+                assert_eq!(args.len(), 1);
+                assert!(matches!(&args[0], CoreExpr::Const(_)));
+            }
+            other => panic!("expected Call, got {other:?}"),
+        }
     }
 
     #[test]
     fn test_lower_force() {
-        assert!(matches!(lower_str("(force p)"), CoreExpr::Force(_)));
+        // force now lowers to a Call to __vm-force
+        assert!(matches!(lower_str("(force p)"), CoreExpr::Call { .. }));
     }
 
     #[test]
     fn test_lower_defmacro() {
+        // defmacro now lowers to a Call to __vm-defmacro-form with the full form as a constant
         match lower_str("(defmacro my-if (test then else) (list 'if test then else))") {
-            CoreExpr::Defmacro { params, .. } => {
-                assert_eq!(params.len(), 3);
+            CoreExpr::Call { func, args, .. } => {
+                assert!(matches!(*func, CoreExpr::Var(_)));
+                assert_eq!(args.len(), 1);
+                assert!(matches!(&args[0], CoreExpr::Const(Value::List(_))));
             }
-            other => panic!("expected Defmacro, got {other:?}"),
+            other => panic!("expected Call, got {other:?}"),
         }
     }
 

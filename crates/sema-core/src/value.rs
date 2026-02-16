@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::fmt;
@@ -52,6 +53,9 @@ pub type NativeFnInner = dyn Fn(&EvalContext, &[Value]) -> Result<Value, SemaErr
 pub struct NativeFn {
     pub name: String,
     pub func: Box<NativeFnInner>,
+    /// Opaque payload for VM closure data. Used by sema-vm to attach
+    /// compiled closure info so the VM can push frames instead of recursing.
+    pub payload: Option<Rc<dyn Any>>,
 }
 
 impl NativeFn {
@@ -62,6 +66,7 @@ impl NativeFn {
         Self {
             name: name.into(),
             func: Box::new(move |_ctx, args| f(args)),
+            payload: None,
         }
     }
 
@@ -72,6 +77,19 @@ impl NativeFn {
         Self {
             name: name.into(),
             func: Box::new(f),
+            payload: None,
+        }
+    }
+
+    pub fn with_payload(
+        name: impl Into<String>,
+        payload: Rc<dyn Any>,
+        f: impl Fn(&EvalContext, &[Value]) -> Result<Value, SemaError> + 'static,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            func: Box::new(f),
+            payload: Some(payload),
         }
     }
 }

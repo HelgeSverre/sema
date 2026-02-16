@@ -22,4 +22,4 @@ pub use emit::Emitter;
 pub use lower::lower;
 pub use opcodes::Op;
 pub use resolve::{resolve, resolve_with_locals};
-pub use vm::{Closure, UpvalueCell, VM};
+pub use vm::{compile_program, Closure, UpvalueCell, VM};

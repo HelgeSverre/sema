@@ -1,4 +1,4 @@
-.PHONY: all build release install uninstall test test-embedding-bench test-http check clippy fmt fmt-check clean run lint examples test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy
+.PHONY: all build release install uninstall test test-embedding-bench test-http check clippy fmt fmt-check clean run lint examples examples-vm test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy coverage coverage-html
 
 build:
 	cargo build
@@ -52,6 +52,32 @@ examples: build
 		echo "--- $$f ---"; \
 		cargo run --quiet -- --no-llm "$$f" || true; \
 	done
+
+examples-vm: build
+	@echo "=== Running examples (--vm) ==="
+	@failed=""; \
+	for f in examples/*.sema; do \
+		echo "--- $$f ---"; \
+		if ! cargo run --quiet -- --vm --no-llm "$$f"; then \
+			failed="$$failed $$f"; \
+		fi; \
+	done; \
+	echo "=== Running stdlib examples (--vm) ==="; \
+	for f in examples/stdlib/*.sema; do \
+		echo "--- $$f ---"; \
+		if ! cargo run --quiet -- --vm --no-llm "$$f"; then \
+			failed="$$failed $$f"; \
+		fi; \
+	done; \
+	if [ -n "$$failed" ]; then \
+		echo ""; \
+		echo "=== FAILED (--vm) ==="; \
+		for f in $$failed; do echo "  $$f"; done; \
+		echo ""; \
+	else \
+		echo ""; \
+		echo "=== ALL PASSED (--vm) ==="; \
+	fi
 
 test-providers: build
 	@echo "=== Testing all LLM providers ==="
@@ -110,3 +136,11 @@ playground-dev: playground-build
 
 playground-deploy: playground-build
 	cd playground && npx vercel --prod
+
+# Coverage
+coverage:
+	cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+coverage-html:
+	cargo llvm-cov --workspace --html
+	@echo "Coverage report: target/llvm-cov/html/index.html"

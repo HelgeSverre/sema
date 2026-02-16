@@ -56,6 +56,58 @@ pub fn compile_many_with_locals(
     Ok(CompileResult { chunk, functions })
 }
 
+/// Walk bytecode and add `offset` to all MakeClosure func_id operands.
+fn patch_closure_func_ids(chunk: &mut Chunk, offset: u16) {
+    let code = &mut chunk.code;
+    let mut pc = 0;
+    while pc < code.len() {
+        let Some(op) = Op::from_u8(code[pc]) else {
+            break;
+        };
+        match op {
+            Op::MakeClosure => {
+                // func_id is at pc+1..pc+3 (u16 LE)
+                let old = u16::from_le_bytes([code[pc + 1], code[pc + 2]]);
+                let new = old + offset;
+                let bytes = new.to_le_bytes();
+                code[pc + 1] = bytes[0];
+                code[pc + 2] = bytes[1];
+                // n_upvalues at pc+3..pc+5
+                let n_upvalues = u16::from_le_bytes([code[pc + 3], code[pc + 4]]) as usize;
+                // Skip: op(1) + func_id(2) + n_upvalues(2) + n_upvalues * (is_local(2) + idx(2))
+                pc += 1 + 2 + 2 + n_upvalues * 4;
+            }
+            // Variable-length instructions: skip op + operands
+            Op::Const
+            | Op::LoadLocal
+            | Op::StoreLocal
+            | Op::LoadUpvalue
+            | Op::StoreUpvalue
+            | Op::Call
+            | Op::TailCall
+            | Op::MakeList
+            | Op::MakeVector
+            | Op::MakeMap
+            | Op::MakeHashMap => {
+                pc += 1 + 2; // op + u16
+            }
+            Op::CallNative => {
+                pc += 1 + 2 + 2; // op + u16 native_id + u16 argc
+            }
+            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => {
+                pc += 1 + 4; // op + u32
+            }
+            Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => {
+                pc += 1 + 4; // op + i32
+            }
+            // Single-byte instructions
+            _ => {
+                pc += 1;
+            }
+        }
+    }
+}
+
 struct Compiler {
     emit: Emitter,
     functions: Vec<Function>,
@@ -273,7 +325,18 @@ impl Compiler {
         inner.emit.emit_op(Op::Return);
 
         let func_id = self.functions.len() as u16;
-        let (chunk, child_functions) = inner.finish();
+        let (mut chunk, mut child_functions) = inner.finish();
+
+        // The inner compiler assigned func_ids starting from 0, but child functions
+        // will be placed starting at func_id + 1 in our functions vec.
+        // Patch all MakeClosure func_id operands in the inner chunk and child functions.
+        let offset = func_id + 1;
+        if offset > 0 && !child_functions.is_empty() {
+            patch_closure_func_ids(&mut chunk, offset);
+            for f in &mut child_functions {
+                patch_closure_func_ids(&mut f.chunk, offset);
+            }
+        }
 
         let func = Function {
             name: def.name,
@@ -722,6 +785,8 @@ impl Compiler {
         // Defmacro at compile time — emit as a call to __vm-defmacro
         // For now, compile the body as a lambda and register it
         let param_vals: Vec<Value> = params.iter().map(|s| Value::Symbol(*s)).collect();
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-defmacro")));
         self.emit.emit_const(Value::Symbol(name));
         self.emit.emit_const(Value::List(param_vals.into()));
         if let Some(r) = rest {
@@ -731,8 +796,6 @@ impl Compiler {
         }
         // Compile body as a begin
         self.compile_begin(body)?;
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-defmacro")));
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(4);
         Ok(())
@@ -747,6 +810,10 @@ impl Compiler {
         field_specs: &[(Spur, Spur)],
     ) -> Result<(), SemaError> {
         // Emit as a call to __vm-define-record-type with all info as constants
+        // Function must be pushed first (before args) to match VM calling convention
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit
+            .emit_u32(spur_to_u32(intern("__vm-define-record-type")));
         self.emit.emit_const(Value::Symbol(type_name));
         self.emit.emit_const(Value::Symbol(ctor_name));
         self.emit.emit_const(Value::Symbol(pred_name));
@@ -757,15 +824,15 @@ impl Compiler {
             .map(|(f, a)| Value::List(vec![Value::Symbol(*f), Value::Symbol(*a)].into()))
             .collect();
         self.emit.emit_const(Value::List(specs.into()));
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit
-            .emit_u32(spur_to_u32(intern("__vm-define-record-type")));
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(5);
         Ok(())
     }
 
     fn compile_prompt(&mut self, entries: &[ResolvedPromptEntry]) -> Result<(), SemaError> {
+        // Function must be pushed first (before args) to match VM calling convention
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-prompt")));
         // Compile each prompt entry and build a list
         for entry in entries {
             match entry {
@@ -787,8 +854,6 @@ impl Compiler {
         }
         self.emit.emit_op(Op::MakeList);
         self.emit.emit_u16(entries.len() as u16);
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-prompt")));
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
         Ok(())
@@ -799,14 +864,14 @@ impl Compiler {
         role: &ResolvedExpr,
         parts: &[ResolvedExpr],
     ) -> Result<(), SemaError> {
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-message")));
         self.compile_expr(role)?;
         for part in parts {
             self.compile_expr(part)?;
         }
         self.emit.emit_op(Op::MakeList);
         self.emit.emit_u16(parts.len() as u16);
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-message")));
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(2);
         Ok(())
@@ -819,22 +884,22 @@ impl Compiler {
         parameters: &ResolvedExpr,
         handler: &ResolvedExpr,
     ) -> Result<(), SemaError> {
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-deftool")));
         self.emit.emit_const(Value::Symbol(name));
         self.compile_expr(description)?;
         self.compile_expr(parameters)?;
         self.compile_expr(handler)?;
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-deftool")));
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(4);
         Ok(())
     }
 
     fn compile_defagent(&mut self, name: Spur, options: &ResolvedExpr) -> Result<(), SemaError> {
-        self.emit.emit_const(Value::Symbol(name));
-        self.compile_expr(options)?;
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-defagent")));
+        self.emit.emit_const(Value::Symbol(name));
+        self.compile_expr(options)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(2);
         Ok(())
@@ -844,18 +909,18 @@ impl Compiler {
         // Delay wraps expr in a zero-arg lambda (thunk)
         // The resolver already handles this if lowered as a lambda,
         // but if it comes through as Delay, compile as a call to __vm-delay
-        self.compile_expr(expr)?;
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-delay")));
+        self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
         Ok(())
     }
 
     fn compile_force(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
-        self.compile_expr(expr)?;
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-force")));
+        self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
         Ok(())
@@ -866,19 +931,19 @@ impl Compiler {
         options: &ResolvedExpr,
         body: &[ResolvedExpr],
     ) -> Result<(), SemaError> {
-        self.compile_expr(options)?;
-        self.compile_begin(body)?;
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-with-budget")));
+        self.compile_expr(options)?;
+        self.compile_begin(body)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(2);
         Ok(())
     }
 
     fn compile_macroexpand(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
-        self.compile_expr(expr)?;
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-macroexpand")));
+        self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
         Ok(())
@@ -1433,14 +1498,15 @@ mod tests {
 
     #[test]
     fn test_compile_named_let() {
+        // Named let desugars to letrec+lambda, compiled as letrec with a closure
         let result = compile_str("(lambda () (let loop ((n 10)) (if (= n 0) n (loop (- n 1)))))");
-        // Named let creates a function for the loop body
-        assert!(result.functions.len() >= 2); // outer + loop function
-                                              // The outer function should contain MakeClosure + Call
+        // Should have at least 2 functions: outer lambda + loop lambda
+        assert!(result.functions.len() >= 2);
+        // The outer function should contain MakeClosure (for the loop) + TailCall (initial invocation in tail position)
         let outer = &result.functions[0];
         let outer_ops = extract_ops(&outer.chunk);
         assert!(outer_ops.contains(&Op::MakeClosure));
-        assert!(outer_ops.contains(&Op::Call));
+        assert!(outer_ops.contains(&Op::TailCall) || outer_ops.contains(&Op::Call));
     }
 
     // --- compile_many ---

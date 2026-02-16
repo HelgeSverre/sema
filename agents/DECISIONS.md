@@ -441,3 +441,28 @@ crates/sema/src/
 - 15 color/modifier functions + `term/style`, `term/strip`, `term/rgb`
 - Enables examples using terminal colors to run without error, just without visual styling
 - Future: could map to HTML `<span>` elements with CSS classes if playground supports rich output
+
+### 50. Same-VM closure execution via NativeFn payload
+
+- VM closures are wrapped as `Value::NativeFn` with an opaque `payload: Option<Rc<dyn Any>>` field on `NativeFn`
+- `VmClosurePayload` stores `Rc<Closure>` + `Vec<Rc<Function>>` (function table from compilation context)
+- Inside the VM, `call_value` checks `native.payload`, downcasts to `VmClosurePayload`, and calls `call_vm_closure` which pushes a `CallFrame` on the **same VM** — zero Rust stack growth
+- Outside the VM (stdlib HOFs like `map`, `filter`), the `NativeFn::func` fallback creates a fresh VM — this is the interop bridge
+- This approach avoids adding a new `Value::VmClosure` variant, keeping the `Value` enum unchanged
+- Trade-off: the NativeFn fallback still recurses in Rust for stdlib HOF calls, but this is bounded (stdlib doesn't do deep recursion)
+
+### 51. True TCO for VM closures via frame reuse
+
+- `tail_call_vm_closure` reuses the current `CallFrame`'s stack base instead of pushing a new frame
+- Truncates stack to current frame's base, writes new params, replaces `closure` and resets `pc` to 0
+- Enables constant-stack-space tail recursion: tested at 100,000+ depth
+- `Op::TailCall` bytecode instruction emitted by compiler for calls in tail position
+- Mutual recursion at 1,000+ depth also works (each call pushes a frame, but no Rust recursion)
+
+### 52. Named-let desugared to letrec+lambda in lowering
+
+- `(let loop ((n init) ...) body...)` lowered to `(letrec ((loop (lambda (n ...) body...))) (loop init ...))`
+- Eliminates `compile_named_let` in the compiler — reuses existing `compile_letrec` + `compile_lambda` paths
+- Fixed two classes of bugs: self-reference slot corruption (Bug 1) and missing upvalue/func_id support (Bug 3)
+- The `NamedLet` variant still exists in `CoreExpr` but is never produced by the lowering pass
+- Tail position flag propagated correctly to the initial `(loop init ...)` call

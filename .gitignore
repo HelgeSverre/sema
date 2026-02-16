@@ -21,6 +21,9 @@
 .idea/
 .vscode/
 
+# Coverage
+lcov.info
+
 # Misc
 wip/
 bench-*.txt

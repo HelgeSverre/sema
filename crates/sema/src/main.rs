@@ -187,6 +187,10 @@ struct Cli {
     #[arg(long)]
     provider: Option<String>,
 
+    /// Use bytecode VM instead of tree-walker
+    #[arg(long)]
+    vm: bool,
+
     /// Arguments passed to the script (after --)
     #[arg(last = true)]
     script_args: Vec<String>,
@@ -265,7 +269,7 @@ fn main() {
             interpreter.ctx.push_file_path(canonical);
         }
         match std::fs::read_to_string(load_file) {
-            Ok(content) => match interpreter.eval_str(&content) {
+            Ok(content) => match eval_with_mode(&interpreter, &content, cli.vm) {
                 Ok(_) => {
                     interpreter.ctx.pop_file_path();
                 }
@@ -285,7 +289,7 @@ fn main() {
 
     // Handle --eval
     if let Some(expr) = &cli.eval {
-        match interpreter.eval_str(expr) {
+        match eval_with_mode(&interpreter, expr, cli.vm) {
             Ok(val) => {
                 if !matches!(val, sema_core::Value::Nil) {
                     println!("{val}");
@@ -297,14 +301,14 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref());
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
         }
         return;
     }
 
     // Handle --print
     if let Some(expr) = &cli.print {
-        match interpreter.eval_str(expr) {
+        match eval_with_mode(&interpreter, expr, cli.vm) {
             Ok(val) => println!("{val}"),
             Err(e) => {
                 print_error(&e);
@@ -312,7 +316,7 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref());
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
         }
         return;
     }
@@ -324,7 +328,7 @@ fn main() {
             interpreter.ctx.push_file_path(canonical);
         }
         match std::fs::read_to_string(file) {
-            Ok(content) => match interpreter.eval_str(&content) {
+            Ok(content) => match eval_with_mode(&interpreter, &content, cli.vm) {
                 Ok(_) => {
                     interpreter.ctx.pop_file_path();
                 }
@@ -340,13 +344,25 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref());
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
         }
         return;
     }
 
     // REPL mode
-    repl(interpreter, cli.quiet, cli.sandbox.as_deref());
+    repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
+}
+
+fn eval_with_mode(
+    interpreter: &Interpreter,
+    input: &str,
+    use_vm: bool,
+) -> Result<sema_core::Value, sema_core::SemaError> {
+    if use_vm {
+        interpreter.eval_str_compiled(input)
+    } else {
+        interpreter.eval_str(input)
+    }
 }
 
 fn run_ast(file: Option<String>, eval: Option<String>, json: bool) {
@@ -583,7 +599,7 @@ fn print_error(e: &SemaError) {
     }
 }
 
-fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>) {
+fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_vm: bool) {
     let env = interpreter.global_env.clone();
     let mut rl = Editor::new().expect("failed to create editor");
     rl.set_helper(Some(SemaCompleter { env: env.clone() }));
@@ -653,7 +669,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>) {
 
                 let _ = rl.add_history_entry(&input);
 
-                match interpreter.eval_str(&input) {
+                match eval_with_mode(&interpreter, &input, use_vm) {
                     Ok(val) => {
                         if !matches!(val, sema_core::Value::Nil) {
                             println!("{val}");

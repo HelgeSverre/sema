@@ -1,14 +1,14 @@
 # Bytecode VM
 
-::: warning Work in Progress
-The bytecode VM is under active development. The tree-walking interpreter remains the default execution path. This page documents the compilation pipeline and VM architecture as they are being built.
+::: tip Opt-In (Alpha)
+The bytecode VM is functional and available via the `--vm` CLI flag. The tree-walking interpreter remains the default execution path. Both runtimes coexist and share the global environment.
 :::
 
 ## Overview
 
-Sema is adding a bytecode VM alongside the existing tree-walking interpreter. The VM compiles Sema source code into stack-based bytecode for faster execution, targeting **5–15× speedup** over the tree-walker on compute-heavy workloads.
+Sema includes a bytecode VM alongside the existing tree-walking interpreter, enabled with the `--vm` CLI flag. The VM compiles Sema source code into stack-based bytecode for faster execution, targeting **5–15× speedup** over the tree-walker on compute-heavy workloads.
 
-The tree-walking interpreter (`sema-eval`) is preserved as the macro expansion engine and `eval` fallback — the two runtimes coexist, sharing the global environment and `EvalContext`.
+The tree-walking interpreter (`sema-eval`) is preserved as the default execution path, the macro expansion engine, and `eval` fallback — the two runtimes coexist, sharing the global environment and `EvalContext`.
 
 ## Compilation Pipeline
 
@@ -65,17 +65,54 @@ Closures use the Lua/Steel upvalue model. When a lambda references a variable fr
       x)))            ; resolves to Upvalue { index: 0 }
 ```
 
-### Phase 3: Bytecode Compilation
+### Phase 3: Bytecode Compilation (ResolvedExpr → Chunk)
 
-::: info Coming Soon
-The bytecode compiler (ResolvedExpr → Chunk) is the next phase to be implemented.
-:::
+The compiler (`compiler.rs`) transforms `ResolvedExpr` into bytecode `Chunk`s. The `Compiler` struct wraps an `Emitter` (bytecode builder) and collects `Function` templates for inner lambdas.
+
+**Compilation strategies:**
+
+- **Constants**: `Nil`, `True`, `False` get dedicated opcodes. All other constants use `Const` + constant pool.
+- **Variables**: `LoadLocal`/`StoreLocal` for locals, `LoadUpvalue`/`StoreUpvalue` for captures, `LoadGlobal`/`StoreGlobal`/`DefineGlobal` for globals.
+- **Control flow**: `if` uses `JumpIfFalse` + `Jump` for short-circuit. `and`/`or` use `Dup` + conditional jumps to preserve the last truthy/falsy value.
+- **Lambdas**: compiled to separate `Function` templates, referenced by `MakeClosure` instruction with upvalue descriptors.
+- **`do` loops**: compile to backward `Jump` with `JumpIfTrue` for exit test.
+- **`try`/`catch`**: adds entries to the chunk's exception table, no inline opcodes.
+- **Named let**: compiled as `MakeClosure` + `Call` — the loop body becomes a function.
+
+**Runtime-delegated forms** — forms that can't be compiled to pure bytecode are compiled as calls to `__vm-*` global functions registered by `sema-eval`:
+
+| Source Form | Delegate |
+|------------|----------|
+| `eval` | `__vm-eval` |
+| `import` | `__vm-import` |
+| `load` | `__vm-load` |
+| `defmacro` | `__vm-defmacro-form` (passes entire form as quoted constant) |
+| `define-record-type` | `__vm-define-record-type` |
+| `delay` | `__vm-delay` (passes unevaluated body as quoted constant) |
+| `force` | `__vm-force` |
+| `prompt`, `message`, `deftool`, `defagent`, `with-budget`, `macroexpand` | Corresponding `__vm-*` delegates |
+
+**Public API**: `compile()`, `compile_many()`, `compile_with_locals()`, `compile_many_with_locals()` — all return `CompileResult { chunk, functions }`.
 
 ### Phase 4: VM Execution
 
-::: info Coming Soon
-The VM dispatch loop, call frames, and native function registry are planned for implementation after the compiler.
-:::
+The VM (`vm.rs`) is a stack-based dispatch loop.
+
+**Core structs:**
+
+```rust
+VM { stack: Vec<Value>, frames: Vec<CallFrame>, globals: Rc<Env>, functions: Vec<Rc<Function>> }
+CallFrame { closure: Rc<Closure>, pc: usize, base: usize, open_upvalues: Vec<Option<Rc<UpvalueCell>>> }
+```
+
+**Key design points:**
+
+- **Safe operations**: `pop()` and `peek()` return `Result` (no panicking on underflow). `Op::from_u8()` for opcode decoding (no unsafe transmute).
+- **Closure interop**: VM closures are wrapped as `Value::NativeFn` values so the tree-walker can call them. Each NativeFn wrapper creates a fresh VM instance to execute the closure's bytecode.
+- **Upvalue cells**: `UpvalueCell` with `Rc<RefCell<Value>>` for shared mutable state — `StoreLocal` syncs to open upvalue cells, `LoadLocal` reads from cells when present.
+- **Exception handling**: `Throw` opcode triggers handler search via the chunk's exception table. Stack is restored to saved depth, error value pushed, PC jumps to handler.
+
+**Entry points**: `VM::execute()` takes a closure and `EvalContext`. `eval_str()` is a convenience that parses, compiles, and runs. `compile_program()` is the shared pipeline: `Value AST → lower → resolve → compile → (Closure, Vec<Function>)`.
 
 ## Opcode Set
 
@@ -170,6 +207,33 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 | `core_expr.rs` | `CoreExpr` and `ResolvedExpr` IR enums |
 | `lower.rs` | Value AST → CoreExpr lowering pass |
 | `resolve.rs` | Variable resolution (local/upvalue/global analysis) |
+| `compiler.rs` | Bytecode compiler (ResolvedExpr → Chunk) |
+| `vm.rs` | VM dispatch loop, call frames, closures, exception handling |
+
+## Current Limitations
+
+- VM closures create a fresh VM per call (no true TCO across closure boundaries)
+- `try`/`catch` doesn't catch runtime errors from native functions (e.g., division by zero)
+- `try`/`catch` error value format may differ from tree-walker
+- `define-record-type` bindings not visible to subsequent compiled code
+- Generic arithmetic opcodes (`Add`, `Sub`, etc.) are defined but currently dead code — arithmetic goes through `NativeFn` globals
+- `CallNative` opcode is defined but not yet used (no native function registry)
+- `TailCall` falls back to regular `Call` (no frame reuse)
+
+## CLI Usage
+
+The `--vm` flag enables the bytecode compilation path. The tree-walker remains the default.
+
+```bash
+# Run a file with the bytecode VM
+sema --vm examples/hello.sema
+
+# REPL: toggle VM mode with ,vm
+sema
+> ,vm
+```
+
+Both paths share the global `Env` and `EvalContext`.
 
 ## Design Decisions
 

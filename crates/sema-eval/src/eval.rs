@@ -1,6 +1,10 @@
+use std::cell::RefCell;
 use std::rc::Rc;
 
-use sema_core::{resolve, CallFrame, Env, EvalContext, Lambda, SemaError, Span, Value};
+use sema_core::{
+    intern, resolve, CallFrame, Env, EvalContext, Lambda, Macro, NativeFn, SemaError, Span, Thunk,
+    Value,
+};
 
 use crate::special_forms;
 
@@ -77,10 +81,9 @@ impl Interpreter {
             sema_llm::builtins::register_llm_builtins(&env, &sema_core::Sandbox::allow_all());
             sema_llm::builtins::set_eval_callback(eval_value);
         }
-        Interpreter {
-            global_env: Rc::new(env),
-            ctx,
-        }
+        let global_env = Rc::new(env);
+        register_vm_delegates(&global_env);
+        Interpreter { global_env, ctx }
     }
 
     pub fn new_with_sandbox(sandbox: &sema_core::Sandbox) -> Self {
@@ -95,10 +98,9 @@ impl Interpreter {
             sema_llm::builtins::register_llm_builtins(&env, sandbox);
             sema_llm::builtins::set_eval_callback(eval_value);
         }
-        Interpreter {
-            global_env: Rc::new(env),
-            ctx,
-        }
+        let global_env = Rc::new(env);
+        register_vm_delegates(&global_env);
+        Interpreter { global_env, ctx }
     }
 
     pub fn eval(&self, expr: &Value) -> EvalResult {
@@ -117,6 +119,78 @@ impl Interpreter {
     /// Parse and evaluate in the global environment so that `define` persists across calls.
     pub fn eval_str_in_global(&self, input: &str) -> EvalResult {
         eval_string(&self.ctx, input, &self.global_env)
+    }
+
+    /// Parse, compile to bytecode, and execute via the VM.
+    pub fn eval_str_compiled(&self, input: &str) -> EvalResult {
+        let (exprs, spans) = sema_reader::read_many_with_spans(input)?;
+        self.ctx.merge_span_table(spans);
+        if exprs.is_empty() {
+            return Ok(Value::Nil);
+        }
+
+        let mut expanded = Vec::new();
+        for expr in &exprs {
+            let exp = self.expand_for_vm(expr)?;
+            expanded.push(exp);
+        }
+
+        let (closure, functions) = sema_vm::compile_program(&expanded)?;
+        let mut vm = sema_vm::VM::new(self.global_env.clone(), functions);
+        vm.execute(closure, &self.ctx)
+    }
+
+    /// Compile a pre-parsed Value AST to bytecode and execute via the VM.
+    pub fn eval_compiled(&self, expr: &Value) -> EvalResult {
+        let expanded = self.expand_for_vm(expr)?;
+        let (closure, functions) = sema_vm::compile_program(std::slice::from_ref(&expanded))?;
+        let mut vm = sema_vm::VM::new(self.global_env.clone(), functions);
+        vm.execute(closure, &self.ctx)
+    }
+
+    /// Pre-process a top-level expression for VM compilation.
+    /// Evaluates `defmacro` forms via the tree-walker to register macros,
+    /// then expands macro calls in all other forms.
+    fn expand_for_vm(&self, expr: &Value) -> EvalResult {
+        if let Value::List(items) = expr {
+            if let Some(Value::Symbol(s)) = items.first() {
+                let name = resolve(*s);
+                if name == "defmacro" {
+                    eval_value(&self.ctx, expr, &self.global_env)?;
+                    return Ok(Value::Nil);
+                }
+                if name == "begin" {
+                    let mut new_items = vec![Value::Symbol(*s)];
+                    for item in &items[1..] {
+                        new_items.push(self.expand_for_vm(item)?);
+                    }
+                    return Ok(Value::List(Rc::new(new_items)));
+                }
+            }
+        }
+        self.expand_macros(expr)
+    }
+
+    /// Recursively expand macro calls in an expression.
+    fn expand_macros(&self, expr: &Value) -> EvalResult {
+        match expr {
+            Value::List(items) if !items.is_empty() => {
+                if let Some(Value::Symbol(s)) = items.first() {
+                    let name = resolve(*s);
+                    if name == "quote" {
+                        return Ok(expr.clone());
+                    }
+                    if let Some(Value::Macro(mac)) = self.global_env.get(*s) {
+                        let expanded = apply_macro(&self.ctx, &mac, &items[1..], &self.global_env)?;
+                        return self.expand_macros(&expanded);
+                    }
+                }
+                let expanded: Result<Vec<Value>, SemaError> =
+                    items.iter().map(|v| self.expand_macros(v)).collect();
+                Ok(Value::List(Rc::new(expanded?)))
+            }
+            _ => Ok(expr.clone()),
+        }
     }
 }
 
@@ -579,4 +653,321 @@ pub fn apply_macro(
         result = eval_value(ctx, expr, &env)?;
     }
     Ok(result)
+}
+
+/// Register `__vm-*` native functions that the bytecode VM calls back into
+/// the tree-walker for forms that cannot be fully compiled.
+fn register_vm_delegates(env: &Rc<Env>) {
+    // __vm-eval: evaluate an expression via the tree-walker
+    let eval_env = env.clone();
+    env.set(
+        intern("__vm-eval"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-eval",
+            move |ctx, args| {
+                if args.len() != 1 {
+                    return Err(SemaError::arity("eval", "1", args.len()));
+                }
+                sema_core::eval_callback(ctx, &args[0], &eval_env)
+            },
+        ))),
+    );
+
+    // __vm-load: load and evaluate a file via the tree-walker
+    let load_env = env.clone();
+    env.set(
+        intern("__vm-load"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-load",
+            move |ctx, args| {
+                if args.len() != 1 {
+                    return Err(SemaError::arity("load", "1", args.len()));
+                }
+                let path = match &args[0] {
+                    Value::String(s) => s.to_string(),
+                    _ => return Err(SemaError::type_error("string", args[0].type_name())),
+                };
+                let full_path = if let Some(dir) = ctx.current_file_dir() {
+                    dir.join(&path)
+                } else {
+                    std::path::PathBuf::from(&path)
+                };
+                let content = std::fs::read_to_string(&full_path).map_err(|e| {
+                    SemaError::eval(format!("load: cannot read {}: {}", full_path.display(), e))
+                })?;
+                ctx.push_file_path(full_path);
+                let result = eval_string(ctx, &content, &load_env);
+                ctx.pop_file_path();
+                result
+            },
+        ))),
+    );
+
+    // __vm-import: import a module via the tree-walker
+    let import_env = env.clone();
+    env.set(
+        intern("__vm-import"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-import",
+            move |ctx, args| {
+                if args.len() != 2 {
+                    return Err(SemaError::arity("import", "2", args.len()));
+                }
+                let mut form = vec![Value::Symbol(intern("import")), args[0].clone()];
+                if let Value::List(items) = &args[1] {
+                    if !items.is_empty() {
+                        form.push(args[1].clone());
+                    }
+                }
+                let import_expr = Value::List(Rc::new(form));
+                sema_core::eval_callback(ctx, &import_expr, &import_env)
+            },
+        ))),
+    );
+
+    // __vm-defmacro: register a macro in the environment
+    let macro_env = env.clone();
+    env.set(
+        intern("__vm-defmacro"),
+        Value::NativeFn(Rc::new(NativeFn::simple("__vm-defmacro", move |args| {
+            if args.len() != 4 {
+                return Err(SemaError::arity("defmacro", "4", args.len()));
+            }
+            let name = match &args[0] {
+                Value::Symbol(s) => *s,
+                _ => return Err(SemaError::type_error("symbol", args[0].type_name())),
+            };
+            let params = match &args[1] {
+                Value::List(items) => items
+                    .iter()
+                    .map(|v| match v {
+                        Value::Symbol(s) => Ok(*s),
+                        _ => Err(SemaError::type_error("symbol", v.type_name())),
+                    })
+                    .collect::<Result<Vec<_>, _>>()?,
+                _ => return Err(SemaError::type_error("list", args[1].type_name())),
+            };
+            let rest_param = match &args[2] {
+                Value::Symbol(s) => Some(*s),
+                Value::Nil => None,
+                _ => return Err(SemaError::type_error("symbol or nil", args[2].type_name())),
+            };
+            let body = vec![args[3].clone()];
+            macro_env.set(
+                name,
+                Value::Macro(Rc::new(Macro {
+                    params,
+                    rest_param,
+                    body,
+                    name,
+                })),
+            );
+            Ok(Value::Nil)
+        }))),
+    );
+
+    // __vm-defmacro-form: delegate complete defmacro form to the tree-walker
+    let dmf_env = env.clone();
+    env.set(
+        intern("__vm-defmacro-form"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-defmacro-form",
+            move |ctx, args| {
+                if args.len() != 1 {
+                    return Err(SemaError::arity("defmacro-form", "1", args.len()));
+                }
+                sema_core::eval_callback(ctx, &args[0], &dmf_env)
+            },
+        ))),
+    );
+
+    // __vm-define-record-type: delegate to the tree-walker
+    let drt_env = env.clone();
+    env.set(
+        intern("__vm-define-record-type"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-define-record-type",
+            move |ctx, args| {
+                if args.len() != 5 {
+                    return Err(SemaError::arity("define-record-type", "5", args.len()));
+                }
+                let mut ctor_form = vec![args[1].clone()];
+                if let Value::List(fields) = &args[3] {
+                    ctor_form.extend(fields.iter().cloned());
+                }
+                let mut form = vec![
+                    Value::Symbol(intern("define-record-type")),
+                    args[0].clone(),
+                    Value::List(ctor_form.into()),
+                    args[2].clone(),
+                ];
+                if let Value::List(specs) = &args[4] {
+                    for spec in specs.iter() {
+                        form.push(spec.clone());
+                    }
+                }
+                sema_core::eval_callback(ctx, &Value::List(Rc::new(form)), &drt_env)
+            },
+        ))),
+    );
+
+    // __vm-delay: create a thunk with unevaluated body
+    env.set(
+        intern("__vm-delay"),
+        Value::NativeFn(Rc::new(NativeFn::simple("__vm-delay", |args| {
+            if args.len() != 1 {
+                return Err(SemaError::arity("delay", "1", args.len()));
+            }
+            // args[0] is the unevaluated body expression (passed as a quoted constant)
+            Ok(Value::Thunk(Rc::new(Thunk {
+                body: args[0].clone(),
+                forced: RefCell::new(None),
+            })))
+        }))),
+    );
+
+    // __vm-force: force a thunk by evaluating its body via the tree-walker
+    let force_env = env.clone();
+    env.set(
+        intern("__vm-force"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-force",
+            move |ctx, args| {
+                if args.len() != 1 {
+                    return Err(SemaError::arity("force", "1", args.len()));
+                }
+                match &args[0] {
+                    Value::Thunk(thunk) => {
+                        if let Some(val) = thunk.forced.borrow().as_ref() {
+                            return Ok(val.clone());
+                        }
+                        let val = sema_core::eval_callback(ctx, &thunk.body, &force_env)?;
+                        *thunk.forced.borrow_mut() = Some(val.clone());
+                        Ok(val)
+                    }
+                    other => Ok(other.clone()),
+                }
+            },
+        ))),
+    );
+
+    // __vm-macroexpand: expand a macro form via the tree-walker
+    let me_env = env.clone();
+    env.set(
+        intern("__vm-macroexpand"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-macroexpand",
+            move |ctx, args| {
+                if args.len() != 1 {
+                    return Err(SemaError::arity("macroexpand", "1", args.len()));
+                }
+                if let Value::List(items) = &args[0] {
+                    if !items.is_empty() {
+                        if let Value::Symbol(spur) = &items[0] {
+                            if let Some(Value::Macro(mac)) = me_env.get(*spur) {
+                                return apply_macro(ctx, &mac, &items[1..], &me_env);
+                            }
+                        }
+                    }
+                }
+                Ok(args[0].clone())
+            },
+        ))),
+    );
+
+    // __vm-prompt: delegate to tree-walker
+    let prompt_env = env.clone();
+    env.set(
+        intern("__vm-prompt"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-prompt",
+            move |ctx, args| {
+                let mut form = vec![Value::Symbol(intern("prompt"))];
+                form.extend(args.iter().cloned());
+                sema_core::eval_callback(ctx, &Value::List(Rc::new(form)), &prompt_env)
+            },
+        ))),
+    );
+
+    // __vm-message: delegate to tree-walker
+    let msg_env = env.clone();
+    env.set(
+        intern("__vm-message"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-message",
+            move |ctx, args| {
+                if args.len() != 2 {
+                    return Err(SemaError::arity("message", "2", args.len()));
+                }
+                let form = Value::List(Rc::new(vec![
+                    Value::Symbol(intern("message")),
+                    args[0].clone(),
+                    args[1].clone(),
+                ]));
+                sema_core::eval_callback(ctx, &form, &msg_env)
+            },
+        ))),
+    );
+
+    // __vm-deftool: delegate to tree-walker
+    let tool_env = env.clone();
+    env.set(
+        intern("__vm-deftool"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-deftool",
+            move |ctx, args| {
+                if args.len() != 4 {
+                    return Err(SemaError::arity("deftool", "4", args.len()));
+                }
+                let form = Value::List(Rc::new(vec![
+                    Value::Symbol(intern("deftool")),
+                    args[0].clone(),
+                    args[1].clone(),
+                    args[2].clone(),
+                    args[3].clone(),
+                ]));
+                sema_core::eval_callback(ctx, &form, &tool_env)
+            },
+        ))),
+    );
+
+    // __vm-defagent: delegate to tree-walker
+    let agent_env = env.clone();
+    env.set(
+        intern("__vm-defagent"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-defagent",
+            move |ctx, args| {
+                if args.len() != 2 {
+                    return Err(SemaError::arity("defagent", "2", args.len()));
+                }
+                let form = Value::List(Rc::new(vec![
+                    Value::Symbol(intern("defagent")),
+                    args[0].clone(),
+                    args[1].clone(),
+                ]));
+                sema_core::eval_callback(ctx, &form, &agent_env)
+            },
+        ))),
+    );
+
+    // __vm-with-budget: delegate to tree-walker
+    let budget_env = env.clone();
+    env.set(
+        intern("__vm-with-budget"),
+        Value::NativeFn(Rc::new(NativeFn::with_ctx(
+            "__vm-with-budget",
+            move |ctx, args| {
+                if args.len() != 2 {
+                    return Err(SemaError::arity("with-budget", "2", args.len()));
+                }
+                let form = Value::List(Rc::new(vec![
+                    Value::Symbol(intern("with-budget")),
+                    args[0].clone(),
+                    args[1].clone(),
+                ]));
+                sema_core::eval_callback(ctx, &form, &budget_env)
+            },
+        ))),
+    );
 }
