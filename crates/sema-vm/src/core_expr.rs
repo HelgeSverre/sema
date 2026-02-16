@@ -1,5 +1,23 @@
 use sema_core::{Spur, Value};
 
+/// How a variable reference was resolved by the resolver pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VarResolution {
+    /// Local variable in the current function frame.
+    Local { slot: u16 },
+    /// Captured variable from an enclosing function scope.
+    Upvalue { index: u16 },
+    /// Module-level / global binding.
+    Global { spur: Spur },
+}
+
+/// A resolved variable reference (name preserved for debugging).
+#[derive(Debug, Clone, Copy)]
+pub struct VarRef {
+    pub name: Spur,
+    pub resolution: VarResolution,
+}
+
 /// Desugared core language. Variables referenced by name (Spur).
 /// The variable resolver replaces names with slot indices in a later pass.
 #[derive(Debug, Clone)]
@@ -158,4 +176,140 @@ pub struct DoVar {
     pub name: Spur,
     pub init: CoreExpr,
     pub step: Option<CoreExpr>,
+}
+
+// --- Resolved IR (output of variable resolution pass) ---
+
+/// Resolved expression: like CoreExpr but variables are resolved to slots/upvalues/globals.
+#[derive(Debug, Clone)]
+pub enum ResolvedExpr {
+    Const(Value),
+    Var(VarRef),
+    If {
+        test: Box<ResolvedExpr>,
+        then: Box<ResolvedExpr>,
+        else_: Box<ResolvedExpr>,
+    },
+    Begin(Vec<ResolvedExpr>),
+    Set(VarRef, Box<ResolvedExpr>),
+    Lambda(ResolvedLambda),
+    Call {
+        func: Box<ResolvedExpr>,
+        args: Vec<ResolvedExpr>,
+        tail: bool,
+    },
+    Define(Spur, Box<ResolvedExpr>),
+    Let {
+        bindings: Vec<(VarRef, ResolvedExpr)>,
+        body: Vec<ResolvedExpr>,
+    },
+    LetStar {
+        bindings: Vec<(VarRef, ResolvedExpr)>,
+        body: Vec<ResolvedExpr>,
+    },
+    Letrec {
+        bindings: Vec<(VarRef, ResolvedExpr)>,
+        body: Vec<ResolvedExpr>,
+    },
+    NamedLet {
+        name: VarRef,
+        bindings: Vec<(VarRef, ResolvedExpr)>,
+        body: Vec<ResolvedExpr>,
+    },
+    Do(ResolvedDoLoop),
+    Try {
+        body: Vec<ResolvedExpr>,
+        catch_var: VarRef,
+        handler: Vec<ResolvedExpr>,
+    },
+    Throw(Box<ResolvedExpr>),
+    And(Vec<ResolvedExpr>),
+    Or(Vec<ResolvedExpr>),
+    Quote(Value),
+    MakeList(Vec<ResolvedExpr>),
+    MakeVector(Vec<ResolvedExpr>),
+    MakeMap(Vec<(ResolvedExpr, ResolvedExpr)>),
+    Defmacro {
+        name: Spur,
+        params: Vec<Spur>,
+        rest: Option<Spur>,
+        body: Vec<ResolvedExpr>,
+    },
+    DefineRecordType {
+        type_name: Spur,
+        ctor_name: Spur,
+        pred_name: Spur,
+        field_names: Vec<Spur>,
+        field_specs: Vec<(Spur, Spur)>,
+    },
+    Module {
+        name: Spur,
+        exports: Vec<Spur>,
+        body: Vec<ResolvedExpr>,
+    },
+    Import {
+        path: Box<ResolvedExpr>,
+        selective: Vec<Spur>,
+    },
+    Load(Box<ResolvedExpr>),
+    Eval(Box<ResolvedExpr>),
+    Prompt(Vec<ResolvedPromptEntry>),
+    Message {
+        role: Box<ResolvedExpr>,
+        parts: Vec<ResolvedExpr>,
+    },
+    Deftool {
+        name: Spur,
+        description: Box<ResolvedExpr>,
+        parameters: Box<ResolvedExpr>,
+        handler: Box<ResolvedExpr>,
+    },
+    Defagent {
+        name: Spur,
+        options: Box<ResolvedExpr>,
+    },
+    Delay(Box<ResolvedExpr>),
+    Force(Box<ResolvedExpr>),
+    WithBudget {
+        options: Box<ResolvedExpr>,
+        body: Vec<ResolvedExpr>,
+    },
+    Macroexpand(Box<ResolvedExpr>),
+}
+
+#[derive(Debug, Clone)]
+pub enum ResolvedPromptEntry {
+    RoleContent {
+        role: String,
+        parts: Vec<ResolvedExpr>,
+    },
+    Expr(ResolvedExpr),
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedLambda {
+    pub name: Option<Spur>,
+    pub params: Vec<Spur>,
+    pub rest: Option<Spur>,
+    pub body: Vec<ResolvedExpr>,
+    pub upvalues: Vec<UpvalueDesc>,
+    pub n_locals: u16,
+}
+
+// Re-export UpvalueDesc from chunk.rs — used by both ResolvedLambda and Function.
+pub use crate::chunk::UpvalueDesc;
+
+#[derive(Debug, Clone)]
+pub struct ResolvedDoLoop {
+    pub vars: Vec<ResolvedDoVar>,
+    pub test: Box<ResolvedExpr>,
+    pub result: Vec<ResolvedExpr>,
+    pub body: Vec<ResolvedExpr>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedDoVar {
+    pub name: VarRef,
+    pub init: ResolvedExpr,
+    pub step: Option<ResolvedExpr>,
 }

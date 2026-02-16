@@ -50,8 +50,11 @@ pub struct Function {
     pub local_names: Vec<(u16, Spur)>,
 }
 
+/// Describes how an upvalue is captured relative to the immediately enclosing function.
 #[derive(Debug, Clone, Copy)]
 pub enum UpvalueDesc {
-    Local(u16),
-    Upvalue(u16),
+    /// Capture from the parent function's local slot.
+    ParentLocal(u16),
+    /// Capture from the parent function's upvalue slot.
+    ParentUpvalue(u16),
 }

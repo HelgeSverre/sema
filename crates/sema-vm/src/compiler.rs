@@ -1,0 +1,1512 @@
+use sema_core::{intern, SemaError, Spur, Value};
+
+use crate::chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
+use crate::core_expr::{
+    ResolvedDoLoop, ResolvedExpr, ResolvedLambda, ResolvedPromptEntry, VarRef, VarResolution,
+};
+use crate::emit::Emitter;
+use crate::opcodes::Op;
+
+/// Result of compiling a top-level expression.
+pub struct CompileResult {
+    /// The top-level chunk to execute.
+    pub chunk: Chunk,
+    /// All compiled function templates (referenced by MakeClosure func_id).
+    pub functions: Vec<Function>,
+}
+
+/// Compile a resolved expression tree into bytecode.
+pub fn compile(expr: &ResolvedExpr) -> Result<CompileResult, SemaError> {
+    compile_with_locals(expr, 0)
+}
+
+/// Compile a resolved expression tree into bytecode with a known top-level local count.
+pub fn compile_with_locals(expr: &ResolvedExpr, n_locals: u16) -> Result<CompileResult, SemaError> {
+    let mut compiler = Compiler::new();
+    compiler.n_locals = n_locals;
+    compiler.compile_expr(expr)?;
+    compiler.emit.emit_op(Op::Return);
+    let (chunk, functions) = compiler.finish();
+    Ok(CompileResult { chunk, functions })
+}
+
+/// Compile multiple top-level expressions into a single chunk.
+pub fn compile_many(exprs: &[ResolvedExpr]) -> Result<CompileResult, SemaError> {
+    compile_many_with_locals(exprs, 0)
+}
+
+/// Compile multiple top-level expressions with a known top-level local count.
+pub fn compile_many_with_locals(
+    exprs: &[ResolvedExpr],
+    n_locals: u16,
+) -> Result<CompileResult, SemaError> {
+    let mut compiler = Compiler::new();
+    compiler.n_locals = n_locals;
+    for (i, expr) in exprs.iter().enumerate() {
+        compiler.compile_expr(expr)?;
+        if i < exprs.len() - 1 {
+            compiler.emit.emit_op(Op::Pop);
+        }
+    }
+    if exprs.is_empty() {
+        compiler.emit.emit_op(Op::Nil);
+    }
+    compiler.emit.emit_op(Op::Return);
+    let (chunk, functions) = compiler.finish();
+    Ok(CompileResult { chunk, functions })
+}
+
+struct Compiler {
+    emit: Emitter,
+    functions: Vec<Function>,
+    exception_entries: Vec<ExceptionEntry>,
+    n_locals: u16,
+}
+
+impl Compiler {
+    fn new() -> Self {
+        Compiler {
+            emit: Emitter::new(),
+            functions: Vec::new(),
+            exception_entries: Vec::new(),
+            n_locals: 0,
+        }
+    }
+
+    fn finish(self) -> (Chunk, Vec<Function>) {
+        let mut chunk = self.emit.into_chunk();
+        chunk.n_locals = self.n_locals;
+        chunk.exception_table = self.exception_entries;
+        (chunk, self.functions)
+    }
+
+    fn compile_expr(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
+        match expr {
+            ResolvedExpr::Const(val) => self.compile_const(val),
+            ResolvedExpr::Var(vr) => self.compile_var_load(vr),
+            ResolvedExpr::If { test, then, else_ } => self.compile_if(test, then, else_),
+            ResolvedExpr::Begin(exprs) => self.compile_begin(exprs),
+            ResolvedExpr::Set(vr, val) => self.compile_set(vr, val),
+            ResolvedExpr::Lambda(def) => self.compile_lambda(def),
+            ResolvedExpr::Call { func, args, tail } => self.compile_call(func, args, *tail),
+            ResolvedExpr::Define(spur, val) => self.compile_define(*spur, val),
+            ResolvedExpr::Let { bindings, body } => self.compile_let(bindings, body),
+            ResolvedExpr::LetStar { bindings, body } => self.compile_let_star(bindings, body),
+            ResolvedExpr::Letrec { bindings, body } => self.compile_letrec(bindings, body),
+            ResolvedExpr::NamedLet {
+                name,
+                bindings,
+                body,
+            } => self.compile_named_let(name, bindings, body),
+            ResolvedExpr::Do(do_loop) => self.compile_do(do_loop),
+            ResolvedExpr::Try {
+                body,
+                catch_var,
+                handler,
+            } => self.compile_try(body, catch_var, handler),
+            ResolvedExpr::Throw(val) => self.compile_throw(val),
+            ResolvedExpr::And(exprs) => self.compile_and(exprs),
+            ResolvedExpr::Or(exprs) => self.compile_or(exprs),
+            ResolvedExpr::Quote(val) => self.compile_const(val),
+            ResolvedExpr::MakeList(exprs) => self.compile_make_list(exprs),
+            ResolvedExpr::MakeVector(exprs) => self.compile_make_vector(exprs),
+            ResolvedExpr::MakeMap(pairs) => self.compile_make_map(pairs),
+            ResolvedExpr::Defmacro {
+                name,
+                params,
+                rest,
+                body,
+            } => self.compile_defmacro(*name, params, rest, body),
+            ResolvedExpr::DefineRecordType {
+                type_name,
+                ctor_name,
+                pred_name,
+                field_names,
+                field_specs,
+            } => self.compile_define_record_type(
+                *type_name,
+                *ctor_name,
+                *pred_name,
+                field_names,
+                field_specs,
+            ),
+            ResolvedExpr::Module {
+                name,
+                exports,
+                body,
+            } => self.compile_module(*name, exports, body),
+            ResolvedExpr::Import { path, selective } => self.compile_import(path, selective),
+            ResolvedExpr::Load(path) => self.compile_load(path),
+            ResolvedExpr::Eval(expr) => self.compile_eval(expr),
+            ResolvedExpr::Prompt(entries) => self.compile_prompt(entries),
+            ResolvedExpr::Message { role, parts } => self.compile_message(role, parts),
+            ResolvedExpr::Deftool {
+                name,
+                description,
+                parameters,
+                handler,
+            } => self.compile_deftool(*name, description, parameters, handler),
+            ResolvedExpr::Defagent { name, options } => self.compile_defagent(*name, options),
+            ResolvedExpr::Delay(expr) => self.compile_delay(expr),
+            ResolvedExpr::Force(expr) => self.compile_force(expr),
+            ResolvedExpr::WithBudget { options, body } => self.compile_with_budget(options, body),
+            ResolvedExpr::Macroexpand(expr) => self.compile_macroexpand(expr),
+        }
+    }
+
+    // --- Constants ---
+
+    fn compile_const(&mut self, val: &Value) -> Result<(), SemaError> {
+        match val {
+            Value::Nil => self.emit.emit_op(Op::Nil),
+            Value::Bool(true) => self.emit.emit_op(Op::True),
+            Value::Bool(false) => self.emit.emit_op(Op::False),
+            _ => self.emit.emit_const(val.clone()),
+        }
+        Ok(())
+    }
+
+    // --- Variable access ---
+
+    fn compile_var_load(&mut self, vr: &VarRef) -> Result<(), SemaError> {
+        match vr.resolution {
+            VarResolution::Local { slot } => {
+                self.emit.emit_op(Op::LoadLocal);
+                self.emit.emit_u16(slot);
+            }
+            VarResolution::Upvalue { index } => {
+                self.emit.emit_op(Op::LoadUpvalue);
+                self.emit.emit_u16(index);
+            }
+            VarResolution::Global { spur } => {
+                self.emit.emit_op(Op::LoadGlobal);
+                self.emit.emit_u32(spur_to_u32(spur));
+            }
+        }
+        Ok(())
+    }
+
+    fn compile_var_store(&mut self, vr: &VarRef) {
+        match vr.resolution {
+            VarResolution::Local { slot } => {
+                self.emit.emit_op(Op::StoreLocal);
+                self.emit.emit_u16(slot);
+            }
+            VarResolution::Upvalue { index } => {
+                self.emit.emit_op(Op::StoreUpvalue);
+                self.emit.emit_u16(index);
+            }
+            VarResolution::Global { spur } => {
+                self.emit.emit_op(Op::StoreGlobal);
+                self.emit.emit_u32(spur_to_u32(spur));
+            }
+        }
+    }
+
+    // --- Control flow ---
+
+    fn compile_if(
+        &mut self,
+        test: &ResolvedExpr,
+        then: &ResolvedExpr,
+        else_: &ResolvedExpr,
+    ) -> Result<(), SemaError> {
+        self.compile_expr(test)?;
+        let else_jump = self.emit.emit_jump(Op::JumpIfFalse);
+        self.compile_expr(then)?;
+        let end_jump = self.emit.emit_jump(Op::Jump);
+        self.emit.patch_jump(else_jump);
+        self.compile_expr(else_)?;
+        self.emit.patch_jump(end_jump);
+        Ok(())
+    }
+
+    fn compile_begin(&mut self, exprs: &[ResolvedExpr]) -> Result<(), SemaError> {
+        if exprs.is_empty() {
+            self.emit.emit_op(Op::Nil);
+            return Ok(());
+        }
+        for (i, expr) in exprs.iter().enumerate() {
+            self.compile_expr(expr)?;
+            if i < exprs.len() - 1 {
+                self.emit.emit_op(Op::Pop);
+            }
+        }
+        Ok(())
+    }
+
+    // --- Assignment ---
+
+    fn compile_set(&mut self, vr: &VarRef, val: &ResolvedExpr) -> Result<(), SemaError> {
+        self.compile_expr(val)?;
+        self.emit.emit_op(Op::Dup); // set! returns the value
+        self.compile_var_store(vr);
+        Ok(())
+    }
+
+    fn compile_define(&mut self, spur: Spur, val: &ResolvedExpr) -> Result<(), SemaError> {
+        self.compile_expr(val)?;
+        self.emit.emit_op(Op::DefineGlobal);
+        self.emit.emit_u32(spur_to_u32(spur));
+        self.emit.emit_op(Op::Nil); // define returns nil
+        Ok(())
+    }
+
+    // --- Lambda ---
+
+    fn compile_lambda(&mut self, def: &ResolvedLambda) -> Result<(), SemaError> {
+        // Compile the lambda body into a separate function
+        let mut inner = Compiler::new();
+        inner.n_locals = def.n_locals;
+
+        // Compile body
+        if def.body.is_empty() {
+            inner.emit.emit_op(Op::Nil);
+        } else {
+            for (i, expr) in def.body.iter().enumerate() {
+                inner.compile_expr(expr)?;
+                if i < def.body.len() - 1 {
+                    inner.emit.emit_op(Op::Pop);
+                }
+            }
+        }
+        inner.emit.emit_op(Op::Return);
+
+        let func_id = self.functions.len() as u16;
+        let (chunk, child_functions) = inner.finish();
+
+        let func = Function {
+            name: def.name,
+            chunk,
+            upvalue_descs: def.upvalues.clone(),
+            arity: def.params.len() as u16,
+            has_rest: def.rest.is_some(),
+            local_names: Vec::new(),
+        };
+        self.functions.push(func);
+        self.functions.extend(child_functions);
+
+        // Emit MakeClosure instruction
+        let n_upvalues = def.upvalues.len() as u16;
+        self.emit.emit_op(Op::MakeClosure);
+        self.emit.emit_u16(func_id);
+        self.emit.emit_u16(n_upvalues);
+
+        // Emit upvalue descriptors inline
+        for uv in &def.upvalues {
+            match uv {
+                UpvalueDesc::ParentLocal(slot) => {
+                    self.emit.emit_u16(1); // is_local = true (using u16 for alignment)
+                    self.emit.emit_u16(*slot);
+                }
+                UpvalueDesc::ParentUpvalue(idx) => {
+                    self.emit.emit_u16(0); // is_local = false
+                    self.emit.emit_u16(*idx);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // --- Function calls ---
+
+    fn compile_call(
+        &mut self,
+        func: &ResolvedExpr,
+        args: &[ResolvedExpr],
+        tail: bool,
+    ) -> Result<(), SemaError> {
+        // Compile function expression
+        self.compile_expr(func)?;
+        // Compile arguments
+        for arg in args {
+            self.compile_expr(arg)?;
+        }
+        let argc = args.len() as u16;
+        if tail {
+            self.emit.emit_op(Op::TailCall);
+        } else {
+            self.emit.emit_op(Op::Call);
+        }
+        self.emit.emit_u16(argc);
+        Ok(())
+    }
+
+    // --- Let forms ---
+
+    fn compile_let(
+        &mut self,
+        bindings: &[(VarRef, ResolvedExpr)],
+        body: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        // Compile all init expressions first
+        for (_, init) in bindings {
+            self.compile_expr(init)?;
+        }
+        // Store into local slots (in reverse to match stack order)
+        for (vr, _) in bindings.iter().rev() {
+            self.compile_var_store(vr);
+        }
+        // Compile body
+        self.compile_begin(body)
+    }
+
+    fn compile_let_star(
+        &mut self,
+        bindings: &[(VarRef, ResolvedExpr)],
+        body: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        // Sequential: compile init, store, next binding
+        for (vr, init) in bindings {
+            self.compile_expr(init)?;
+            self.compile_var_store(vr);
+        }
+        self.compile_begin(body)
+    }
+
+    fn compile_letrec(
+        &mut self,
+        bindings: &[(VarRef, ResolvedExpr)],
+        body: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        // Initialize all slots to nil first
+        for (vr, _) in bindings {
+            self.emit.emit_op(Op::Nil);
+            self.compile_var_store(vr);
+        }
+        // Then compile and assign each init
+        for (vr, init) in bindings {
+            self.compile_expr(init)?;
+            self.compile_var_store(vr);
+        }
+        self.compile_begin(body)
+    }
+
+    fn compile_named_let(
+        &mut self,
+        name: &VarRef,
+        bindings: &[(VarRef, ResolvedExpr)],
+        body: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        // Named let is compiled as a local recursive function.
+        // The loop variable `name` is bound to a lambda that takes the binding params.
+        // 1. Create the lambda for the loop body
+        // 2. Bind it to `name`
+        // 3. Call it with initial values
+
+        // Build a synthetic ResolvedLambda for the loop body
+        let params: Vec<Spur> = bindings.iter().map(|(vr, _)| vr.name).collect();
+
+        // Compile the lambda body into a separate function
+        let mut inner = Compiler::new();
+        // The lambda needs locals for its params + the loop name
+        // The resolver has already set up the slots
+        let max_slot = bindings
+            .iter()
+            .map(|(vr, _)| match vr.resolution {
+                VarResolution::Local { slot } => slot + 1,
+                _ => 0,
+            })
+            .max()
+            .unwrap_or(0);
+        let name_slot = match name.resolution {
+            VarResolution::Local { slot } => slot + 1,
+            _ => 0,
+        };
+        inner.n_locals = max_slot.max(name_slot);
+
+        // Compile body
+        if body.is_empty() {
+            inner.emit.emit_op(Op::Nil);
+        } else {
+            for (i, expr) in body.iter().enumerate() {
+                inner.compile_expr(expr)?;
+                if i < body.len() - 1 {
+                    inner.emit.emit_op(Op::Pop);
+                }
+            }
+        }
+        inner.emit.emit_op(Op::Return);
+
+        let func_id = self.functions.len() as u16;
+        let (chunk, child_functions) = inner.finish();
+
+        let func = Function {
+            name: Some(name.name),
+            chunk,
+            upvalue_descs: Vec::new(),
+            arity: params.len() as u16,
+            has_rest: false,
+            local_names: Vec::new(),
+        };
+        self.functions.push(func);
+        self.functions.extend(child_functions);
+
+        // Emit MakeClosure for the loop function
+        self.emit.emit_op(Op::MakeClosure);
+        self.emit.emit_u16(func_id);
+        // TODO: named-let doesn't support capturing outer variables yet
+        self.emit.emit_u16(0);
+
+        // Store the closure in the loop name's slot
+        self.compile_var_store(name);
+
+        // Now call it with the initial binding values
+        self.compile_var_load(name)?;
+        for (_, init) in bindings {
+            self.compile_expr(init)?;
+        }
+        let argc = bindings.len() as u16;
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(argc);
+
+        Ok(())
+    }
+
+    // --- Do loop ---
+
+    fn compile_do(&mut self, do_loop: &ResolvedDoLoop) -> Result<(), SemaError> {
+        // 1. Compile init expressions and store to vars
+        for var in &do_loop.vars {
+            self.compile_expr(&var.init)?;
+            self.compile_var_store(&var.name);
+        }
+
+        // 2. Loop top
+        let loop_top = self.emit.current_pc();
+
+        // 3. Compile test
+        self.compile_expr(&do_loop.test)?;
+        let exit_jump = self.emit.emit_jump(Op::JumpIfTrue);
+
+        // 4. Compile loop body
+        for expr in &do_loop.body {
+            self.compile_expr(expr)?;
+            self.emit.emit_op(Op::Pop);
+        }
+
+        // 5. Compile step expressions and update vars
+        // First compile all step values, then store (to avoid using partially-updated vars)
+        let mut step_vars = Vec::new();
+        for var in &do_loop.vars {
+            if let Some(step) = &var.step {
+                self.compile_expr(step)?;
+                step_vars.push(&var.name);
+            }
+        }
+        // Store in reverse order (stack is LIFO)
+        for vr in step_vars.iter().rev() {
+            self.compile_var_store(vr);
+        }
+
+        // 6. Jump back to loop top
+        self.emit.emit_op(Op::Jump);
+        let jump_end_pc = self.emit.current_pc();
+        let offset = loop_top as i32 - (jump_end_pc as i32 + 4);
+        self.emit.emit_i32(offset);
+
+        // 7. Exit: compile result expressions
+        self.emit.patch_jump(exit_jump);
+        if do_loop.result.is_empty() {
+            self.emit.emit_op(Op::Nil);
+        } else {
+            for (i, expr) in do_loop.result.iter().enumerate() {
+                self.compile_expr(expr)?;
+                if i < do_loop.result.len() - 1 {
+                    self.emit.emit_op(Op::Pop);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // --- Exception handling ---
+
+    fn compile_try(
+        &mut self,
+        body: &[ResolvedExpr],
+        catch_var: &VarRef,
+        handler: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        let try_start = self.emit.current_pc();
+
+        // Compile body
+        self.compile_begin(body)?;
+        let try_end = self.emit.current_pc();
+
+        // Jump over handler on success
+        let success_jump = self.emit.emit_jump(Op::Jump);
+
+        let handler_pc = self.emit.current_pc();
+
+        // The VM will push the caught error value onto the stack
+        // Store it in the catch variable slot
+        let catch_slot = match catch_var.resolution {
+            VarResolution::Local { slot } => slot,
+            _ => 0,
+        };
+        self.emit.emit_op(Op::StoreLocal);
+        self.emit.emit_u16(catch_slot);
+
+        // Compile handler body
+        self.compile_begin(handler)?;
+
+        self.emit.patch_jump(success_jump);
+
+        // Add exception table entry
+        // We need to modify the emitter's chunk directly — use a deferred approach
+        // Store the exception entry data and apply after finish
+        // Actually, the Emitter gives us into_chunk which we can modify.
+        // Let's store exception entries separately and merge at finish.
+        // For now, store in the compiler and merge.
+        // We'll need to access the chunk... let's extend Emitter slightly or use a side vec.
+        self.add_exception_entry(ExceptionEntry {
+            try_start,
+            try_end,
+            handler_pc,
+            stack_depth: self.n_locals,
+            catch_slot,
+        });
+
+        Ok(())
+    }
+
+    fn add_exception_entry(&mut self, entry: ExceptionEntry) {
+        // We'll store these and apply when finishing the chunk
+        // For now, emit directly into the emitter's chunk
+        // Since Emitter doesn't expose this, we use a workaround:
+        // Store entries in Compiler and merge in finish_chunk
+        self.exception_entries.push(entry);
+    }
+
+    fn compile_throw(&mut self, val: &ResolvedExpr) -> Result<(), SemaError> {
+        self.compile_expr(val)?;
+        self.emit.emit_op(Op::Throw);
+        Ok(())
+    }
+
+    // --- Short-circuit boolean ---
+
+    fn compile_and(&mut self, exprs: &[ResolvedExpr]) -> Result<(), SemaError> {
+        if exprs.is_empty() {
+            self.emit.emit_op(Op::True);
+            return Ok(());
+        }
+
+        let mut jumps = Vec::new();
+        for (i, expr) in exprs.iter().enumerate() {
+            self.compile_expr(expr)?;
+            if i < exprs.len() - 1 {
+                // Dup so the value is preserved if we short-circuit
+                self.emit.emit_op(Op::Dup);
+                let jump = self.emit.emit_jump(Op::JumpIfFalse);
+                jumps.push(jump);
+                self.emit.emit_op(Op::Pop); // discard the dup'd value (continuing)
+            }
+        }
+        let end_jump = self.emit.emit_jump(Op::Jump);
+        // Short-circuit target: the dup'd falsy value is on the stack
+        for jump in jumps {
+            self.emit.patch_jump(jump);
+        }
+        self.emit.patch_jump(end_jump);
+        Ok(())
+    }
+
+    fn compile_or(&mut self, exprs: &[ResolvedExpr]) -> Result<(), SemaError> {
+        if exprs.is_empty() {
+            self.emit.emit_op(Op::False);
+            return Ok(());
+        }
+
+        let mut jumps = Vec::new();
+        for (i, expr) in exprs.iter().enumerate() {
+            self.compile_expr(expr)?;
+            if i < exprs.len() - 1 {
+                self.emit.emit_op(Op::Dup);
+                let jump = self.emit.emit_jump(Op::JumpIfTrue);
+                jumps.push(jump);
+                self.emit.emit_op(Op::Pop);
+            }
+        }
+        let end_jump = self.emit.emit_jump(Op::Jump);
+        for jump in jumps {
+            self.emit.patch_jump(jump);
+        }
+        self.emit.patch_jump(end_jump);
+        Ok(())
+    }
+
+    // --- Data constructors ---
+
+    fn compile_make_list(&mut self, exprs: &[ResolvedExpr]) -> Result<(), SemaError> {
+        for expr in exprs {
+            self.compile_expr(expr)?;
+        }
+        self.emit.emit_op(Op::MakeList);
+        self.emit.emit_u16(exprs.len() as u16);
+        Ok(())
+    }
+
+    fn compile_make_vector(&mut self, exprs: &[ResolvedExpr]) -> Result<(), SemaError> {
+        for expr in exprs {
+            self.compile_expr(expr)?;
+        }
+        self.emit.emit_op(Op::MakeVector);
+        self.emit.emit_u16(exprs.len() as u16);
+        Ok(())
+    }
+
+    fn compile_make_map(
+        &mut self,
+        pairs: &[(ResolvedExpr, ResolvedExpr)],
+    ) -> Result<(), SemaError> {
+        for (key, val) in pairs {
+            self.compile_expr(key)?;
+            self.compile_expr(val)?;
+        }
+        self.emit.emit_op(Op::MakeMap);
+        self.emit.emit_u16(pairs.len() as u16);
+        Ok(())
+    }
+
+    // --- Forms that delegate to runtime native calls ---
+    // These forms cannot be fully compiled to bytecode because they need
+    // access to the tree-walker (eval, macros, modules) or have complex
+    // runtime semantics. They are compiled as calls to well-known global
+    // functions that the VM/interpreter provides.
+
+    fn compile_eval(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
+        self.emit_runtime_call("__vm-eval", &[expr])
+    }
+
+    fn compile_load(&mut self, path: &ResolvedExpr) -> Result<(), SemaError> {
+        self.emit_runtime_call("__vm-load", &[path])
+    }
+
+    fn compile_import(&mut self, path: &ResolvedExpr, selective: &[Spur]) -> Result<(), SemaError> {
+        let sel_list: Vec<Value> = selective.iter().map(|s| Value::Symbol(*s)).collect();
+        self.emit_runtime_call_with_const("__vm-import", path, &Value::List(sel_list.into()))
+    }
+
+    fn compile_module(
+        &mut self,
+        _name: Spur,
+        _exports: &[Spur],
+        body: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        // Compile module body sequentially
+        for (i, expr) in body.iter().enumerate() {
+            self.compile_expr(expr)?;
+            if i < body.len() - 1 {
+                self.emit.emit_op(Op::Pop);
+            }
+        }
+        if body.is_empty() {
+            self.emit.emit_op(Op::Nil);
+        }
+        // Module result is the last body expression
+        // Module registration is handled by the VM when it sees this was a module
+        Ok(())
+    }
+
+    fn compile_defmacro(
+        &mut self,
+        name: Spur,
+        params: &[Spur],
+        rest: &Option<Spur>,
+        body: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        // Defmacro at compile time — emit as a call to __vm-defmacro
+        // For now, compile the body as a lambda and register it
+        let param_vals: Vec<Value> = params.iter().map(|s| Value::Symbol(*s)).collect();
+        self.emit.emit_const(Value::Symbol(name));
+        self.emit.emit_const(Value::List(param_vals.into()));
+        if let Some(r) = rest {
+            self.emit.emit_const(Value::Symbol(*r));
+        } else {
+            self.emit.emit_op(Op::Nil);
+        }
+        // Compile body as a begin
+        self.compile_begin(body)?;
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-defmacro")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(4);
+        Ok(())
+    }
+
+    fn compile_define_record_type(
+        &mut self,
+        type_name: Spur,
+        ctor_name: Spur,
+        pred_name: Spur,
+        field_names: &[Spur],
+        field_specs: &[(Spur, Spur)],
+    ) -> Result<(), SemaError> {
+        // Emit as a call to __vm-define-record-type with all info as constants
+        self.emit.emit_const(Value::Symbol(type_name));
+        self.emit.emit_const(Value::Symbol(ctor_name));
+        self.emit.emit_const(Value::Symbol(pred_name));
+        let fields: Vec<Value> = field_names.iter().map(|s| Value::Symbol(*s)).collect();
+        self.emit.emit_const(Value::List(fields.into()));
+        let specs: Vec<Value> = field_specs
+            .iter()
+            .map(|(f, a)| Value::List(vec![Value::Symbol(*f), Value::Symbol(*a)].into()))
+            .collect();
+        self.emit.emit_const(Value::List(specs.into()));
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit
+            .emit_u32(spur_to_u32(intern("__vm-define-record-type")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(5);
+        Ok(())
+    }
+
+    fn compile_prompt(&mut self, entries: &[ResolvedPromptEntry]) -> Result<(), SemaError> {
+        // Compile each prompt entry and build a list
+        for entry in entries {
+            match entry {
+                ResolvedPromptEntry::RoleContent { role, parts } => {
+                    self.emit.emit_const(Value::String(role.clone().into()));
+                    for part in parts {
+                        self.compile_expr(part)?;
+                    }
+                    self.emit.emit_op(Op::MakeList);
+                    self.emit.emit_u16(parts.len() as u16);
+                    // Make a (role parts-list) pair
+                    self.emit.emit_op(Op::MakeList);
+                    self.emit.emit_u16(2);
+                }
+                ResolvedPromptEntry::Expr(expr) => {
+                    self.compile_expr(expr)?;
+                }
+            }
+        }
+        self.emit.emit_op(Op::MakeList);
+        self.emit.emit_u16(entries.len() as u16);
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-prompt")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(1);
+        Ok(())
+    }
+
+    fn compile_message(
+        &mut self,
+        role: &ResolvedExpr,
+        parts: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        self.compile_expr(role)?;
+        for part in parts {
+            self.compile_expr(part)?;
+        }
+        self.emit.emit_op(Op::MakeList);
+        self.emit.emit_u16(parts.len() as u16);
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-message")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(2);
+        Ok(())
+    }
+
+    fn compile_deftool(
+        &mut self,
+        name: Spur,
+        description: &ResolvedExpr,
+        parameters: &ResolvedExpr,
+        handler: &ResolvedExpr,
+    ) -> Result<(), SemaError> {
+        self.emit.emit_const(Value::Symbol(name));
+        self.compile_expr(description)?;
+        self.compile_expr(parameters)?;
+        self.compile_expr(handler)?;
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-deftool")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(4);
+        Ok(())
+    }
+
+    fn compile_defagent(&mut self, name: Spur, options: &ResolvedExpr) -> Result<(), SemaError> {
+        self.emit.emit_const(Value::Symbol(name));
+        self.compile_expr(options)?;
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-defagent")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(2);
+        Ok(())
+    }
+
+    fn compile_delay(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
+        // Delay wraps expr in a zero-arg lambda (thunk)
+        // The resolver already handles this if lowered as a lambda,
+        // but if it comes through as Delay, compile as a call to __vm-delay
+        self.compile_expr(expr)?;
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-delay")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(1);
+        Ok(())
+    }
+
+    fn compile_force(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
+        self.compile_expr(expr)?;
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-force")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(1);
+        Ok(())
+    }
+
+    fn compile_with_budget(
+        &mut self,
+        options: &ResolvedExpr,
+        body: &[ResolvedExpr],
+    ) -> Result<(), SemaError> {
+        self.compile_expr(options)?;
+        self.compile_begin(body)?;
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-with-budget")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(2);
+        Ok(())
+    }
+
+    fn compile_macroexpand(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
+        self.compile_expr(expr)?;
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern("__vm-macroexpand")));
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(1);
+        Ok(())
+    }
+
+    // --- Helper: emit a call to a well-known runtime function ---
+
+    fn emit_runtime_call(&mut self, name: &str, args: &[&ResolvedExpr]) -> Result<(), SemaError> {
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern(name)));
+        for arg in args {
+            self.compile_expr(arg)?;
+        }
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(args.len() as u16);
+        Ok(())
+    }
+
+    fn emit_runtime_call_with_const(
+        &mut self,
+        name: &str,
+        arg1: &ResolvedExpr,
+        arg2: &Value,
+    ) -> Result<(), SemaError> {
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(intern(name)));
+        self.compile_expr(arg1)?;
+        self.emit.emit_const(arg2.clone());
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(2);
+        Ok(())
+    }
+}
+
+fn spur_to_u32(spur: Spur) -> u32 {
+    // Safety: Spur is repr(transparent) over a NonZeroU32.
+    // We transmute to get the raw bits for encoding in bytecode.
+    unsafe { std::mem::transmute::<Spur, u32>(spur) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lower::lower;
+    use crate::resolve::resolve;
+
+    fn compile_str(input: &str) -> CompileResult {
+        let val = sema_reader::read(input).unwrap();
+        let core = lower(&val).unwrap();
+        let resolved = resolve(&core).unwrap();
+        compile(&resolved).unwrap()
+    }
+
+    fn compile_many_str(input: &str) -> CompileResult {
+        let vals = sema_reader::read_many(input).unwrap();
+        let mut resolved = Vec::new();
+        for val in &vals {
+            let core = lower(val).unwrap();
+            resolved.push(resolve(&core).unwrap());
+        }
+        compile_many(&resolved).unwrap()
+    }
+
+    /// Extract just the opcode bytes from a chunk, skipping operands.
+    fn extract_ops(chunk: &Chunk) -> Vec<Op> {
+        let code = &chunk.code;
+        let mut ops = Vec::new();
+        let mut pc = 0;
+        while pc < code.len() {
+            let op = unsafe { std::mem::transmute::<u8, Op>(code[pc]) };
+            ops.push(op);
+            pc += 1;
+            // Skip operands based on opcode
+            match op {
+                Op::Const
+                | Op::LoadLocal
+                | Op::StoreLocal
+                | Op::LoadUpvalue
+                | Op::StoreUpvalue
+                | Op::Call
+                | Op::TailCall
+                | Op::MakeList
+                | Op::MakeVector
+                | Op::MakeMap
+                | Op::MakeHashMap => pc += 2,
+                Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => pc += 4,
+                Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => pc += 4,
+                Op::CallNative => pc += 4,
+                Op::MakeClosure => {
+                    let func_id = u16::from_le_bytes([code[pc], code[pc + 1]]);
+                    let n_upvalues = u16::from_le_bytes([code[pc + 2], code[pc + 3]]);
+                    pc += 4;
+                    pc += n_upvalues as usize * 4; // each upvalue is u16 + u16
+                    let _ = func_id;
+                }
+                _ => {} // zero-operand opcodes
+            }
+        }
+        ops
+    }
+
+    /// Read the i32 operand of a Jump/JumpIfFalse/JumpIfTrue at the given opcode PC.
+    fn read_jump_offset(chunk: &Chunk, op_pc: usize) -> i32 {
+        i32::from_le_bytes([
+            chunk.code[op_pc + 1],
+            chunk.code[op_pc + 2],
+            chunk.code[op_pc + 3],
+            chunk.code[op_pc + 4],
+        ])
+    }
+
+    // --- Literal compilation ---
+
+    #[test]
+    fn test_compile_int_literal() {
+        let result = compile_str("42");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Const, Op::Return]);
+        assert_eq!(result.chunk.consts[0], Value::Int(42));
+    }
+
+    #[test]
+    fn test_compile_nil() {
+        let result = compile_str("()");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Nil, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_true_false() {
+        let t = compile_str("#t");
+        assert_eq!(extract_ops(&t.chunk), vec![Op::True, Op::Return]);
+
+        let f = compile_str("#f");
+        assert_eq!(extract_ops(&f.chunk), vec![Op::False, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_string_literal() {
+        let result = compile_str("\"hello\"");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Const, Op::Return]);
+        assert!(matches!(&result.chunk.consts[0], Value::String(s) if s.as_str() == "hello"));
+    }
+
+    // --- Variable access ---
+
+    #[test]
+    fn test_compile_global_var() {
+        let result = compile_str("x");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::LoadGlobal, Op::Return]);
+    }
+
+    // --- Control flow ---
+
+    #[test]
+    fn test_compile_if() {
+        let result = compile_str("(if #t 1 2)");
+        let ops = extract_ops(&result.chunk);
+        // TRUE, JumpIfFalse, CONST(1), Jump, CONST(2), RETURN
+        assert_eq!(
+            ops,
+            vec![
+                Op::True,
+                Op::JumpIfFalse,
+                Op::Const,
+                Op::Jump,
+                Op::Const,
+                Op::Return
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compile_nested_if() {
+        let result = compile_str("(if #t (if #f 1 2) 3)");
+        let ops = extract_ops(&result.chunk);
+        let jif_count = ops.iter().filter(|&&op| op == Op::JumpIfFalse).count();
+        assert_eq!(jif_count, 2);
+    }
+
+    #[test]
+    fn test_compile_begin() {
+        let result = compile_str("(begin 1 2 3)");
+        let ops = extract_ops(&result.chunk);
+        // CONST(1), POP, CONST(2), POP, CONST(3), RETURN
+        assert_eq!(
+            ops,
+            vec![
+                Op::Const,
+                Op::Pop,
+                Op::Const,
+                Op::Pop,
+                Op::Const,
+                Op::Return
+            ]
+        );
+    }
+
+    // --- Define ---
+
+    #[test]
+    fn test_compile_define() {
+        let result = compile_str("(define x 42)");
+        let ops = extract_ops(&result.chunk);
+        // CONST(42), DefineGlobal, Nil, Return
+        assert_eq!(ops, vec![Op::Const, Op::DefineGlobal, Op::Nil, Op::Return]);
+    }
+
+    // --- Lambda ---
+
+    #[test]
+    fn test_compile_lambda() {
+        let result = compile_str("(lambda (x) x)");
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert_eq!(func.arity, 1);
+        assert!(!func.has_rest);
+
+        // Inner function: LoadLocal 0, Return
+        let inner_ops = extract_ops(&func.chunk);
+        assert_eq!(inner_ops, vec![Op::LoadLocal, Op::Return]);
+
+        // Top-level: MakeClosure, Return
+        let top_ops = extract_ops(&result.chunk);
+        assert_eq!(top_ops, vec![Op::MakeClosure, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_lambda_rest_param() {
+        let result = compile_str("(lambda (x . rest) x)");
+        assert_eq!(result.functions.len(), 1);
+        let func = &result.functions[0];
+        assert_eq!(func.arity, 1);
+        assert!(func.has_rest);
+    }
+
+    // --- Calls: non-tail vs tail ---
+
+    #[test]
+    fn test_compile_non_tail_call() {
+        // Top-level call is NOT in tail position of a lambda
+        let result = compile_str("(+ 1 2)");
+        let ops = extract_ops(&result.chunk);
+        // LoadGlobal(+), Const(1), Const(2), Call(2), Return
+        assert_eq!(
+            ops,
+            vec![Op::LoadGlobal, Op::Const, Op::Const, Op::Call, Op::Return]
+        );
+        // Verify it's Call, not TailCall
+        assert!(!ops.contains(&Op::TailCall));
+    }
+
+    #[test]
+    fn test_compile_tail_call() {
+        let result = compile_str("(lambda () (f 1))");
+        assert_eq!(result.functions.len(), 1);
+        let inner_ops = extract_ops(&result.functions[0].chunk);
+        // LoadGlobal(f), Const(1), TailCall(1), Return
+        assert_eq!(
+            inner_ops,
+            vec![Op::LoadGlobal, Op::Const, Op::TailCall, Op::Return]
+        );
+        // Verify it's TailCall, NOT Call
+        assert!(!inner_ops.contains(&Op::Call));
+    }
+
+    #[test]
+    fn test_compile_non_tail_in_begin() {
+        // (lambda () (f 1) (g 2)) — first call is NOT tail, second IS tail
+        let result = compile_str("(lambda () (f 1) (g 2))");
+        let inner_ops = extract_ops(&result.functions[0].chunk);
+        // f call: LoadGlobal, Const, Call, Pop
+        // g call: LoadGlobal, Const, TailCall, Return
+        assert_eq!(
+            inner_ops,
+            vec![
+                Op::LoadGlobal,
+                Op::Const,
+                Op::Call,
+                Op::Pop,
+                Op::LoadGlobal,
+                Op::Const,
+                Op::TailCall,
+                Op::Return
+            ]
+        );
+    }
+
+    // --- Let forms ---
+
+    #[test]
+    fn test_compile_let() {
+        let result = compile_str("(lambda () (let ((x 1) (y 2)) x))");
+        let inner_ops = extract_ops(&result.functions[0].chunk);
+        // CONST(1), CONST(2), StoreLocal(y=1), StoreLocal(x=0), LoadLocal(x=0), Return
+        assert_eq!(
+            inner_ops,
+            vec![
+                Op::Const,
+                Op::Const,
+                Op::StoreLocal,
+                Op::StoreLocal,
+                Op::LoadLocal,
+                Op::Return
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compile_let_star() {
+        // let* stores sequentially so later bindings see earlier ones
+        let result = compile_str("(lambda () (let* ((x 1) (y x)) y))");
+        let inner_ops = extract_ops(&result.functions[0].chunk);
+        // CONST(1), StoreLocal(x), LoadLocal(x), StoreLocal(y), LoadLocal(y), Return
+        assert_eq!(
+            inner_ops,
+            vec![
+                Op::Const,
+                Op::StoreLocal,
+                Op::LoadLocal,
+                Op::StoreLocal,
+                Op::LoadLocal,
+                Op::Return
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compile_letrec() {
+        let result = compile_str("(lambda () (letrec ((x 1)) x))");
+        let inner_ops = extract_ops(&result.functions[0].chunk);
+        // Nil, StoreLocal(x), CONST(1), StoreLocal(x), LoadLocal(x), Return
+        assert_eq!(
+            inner_ops,
+            vec![
+                Op::Nil,
+                Op::StoreLocal,
+                Op::Const,
+                Op::StoreLocal,
+                Op::LoadLocal,
+                Op::Return
+            ]
+        );
+    }
+
+    // --- Set! ---
+
+    #[test]
+    fn test_compile_set_local() {
+        let result = compile_str("(lambda (x) (set! x 42))");
+        let inner_ops = extract_ops(&result.functions[0].chunk);
+        // CONST(42), Dup, StoreLocal(0), Return
+        assert_eq!(
+            inner_ops,
+            vec![Op::Const, Op::Dup, Op::StoreLocal, Op::Return]
+        );
+    }
+
+    #[test]
+    fn test_compile_set_global() {
+        let result = compile_str("(set! x 42)");
+        let ops = extract_ops(&result.chunk);
+        // CONST(42), Dup, StoreGlobal, Return
+        assert_eq!(ops, vec![Op::Const, Op::Dup, Op::StoreGlobal, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_set_upvalue() {
+        // Inner lambda sets outer variable
+        let result = compile_str("(lambda (x) (lambda () (set! x 1)))");
+        assert_eq!(result.functions.len(), 2);
+        let inner_ops = extract_ops(&result.functions[1].chunk);
+        // CONST(1), Dup, StoreUpvalue(0), Return
+        assert_eq!(
+            inner_ops,
+            vec![Op::Const, Op::Dup, Op::StoreUpvalue, Op::Return]
+        );
+    }
+
+    // --- Short-circuit boolean ---
+
+    #[test]
+    fn test_compile_and_empty() {
+        let result = compile_str("(and)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::True, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_or_empty() {
+        let result = compile_str("(or)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::False, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_and_short_circuit() {
+        let result = compile_str("(and 1 2)");
+        let ops = extract_ops(&result.chunk);
+        // CONST(1), Dup, JumpIfFalse, Pop, CONST(2), Jump, Return
+        assert_eq!(
+            ops,
+            vec![
+                Op::Const,
+                Op::Dup,
+                Op::JumpIfFalse,
+                Op::Pop,
+                Op::Const,
+                Op::Jump,
+                Op::Return
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compile_or_short_circuit() {
+        let result = compile_str("(or 1 2)");
+        let ops = extract_ops(&result.chunk);
+        // CONST(1), Dup, JumpIfTrue, Pop, CONST(2), Jump, Return
+        assert_eq!(
+            ops,
+            vec![
+                Op::Const,
+                Op::Dup,
+                Op::JumpIfTrue,
+                Op::Pop,
+                Op::Const,
+                Op::Jump,
+                Op::Return
+            ]
+        );
+    }
+
+    // --- Data constructors ---
+
+    #[test]
+    fn test_compile_vector_literal() {
+        let result = compile_str("[1 2 3]");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(
+            ops,
+            vec![Op::Const, Op::Const, Op::Const, Op::MakeVector, Op::Return]
+        );
+    }
+
+    #[test]
+    fn test_compile_quote() {
+        let result = compile_str("'(1 2 3)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Const, Op::Return]);
+    }
+
+    // --- Exception handling ---
+
+    #[test]
+    fn test_compile_throw() {
+        let result = compile_str("(throw 42)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Const, Op::Throw, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_try_catch() {
+        let result = compile_str("(lambda () (try (/ 1 0) (catch e e)))");
+        let func = &result.functions[0];
+        // Verify exception table
+        assert_eq!(func.chunk.exception_table.len(), 1);
+        let entry = &func.chunk.exception_table[0];
+        assert!(entry.try_start < entry.try_end);
+        assert!(entry.handler_pc > entry.try_end);
+        assert!((entry.handler_pc as usize) < func.chunk.code.len());
+        // Handler should store to catch slot then load it
+        let ops = extract_ops(&func.chunk);
+        assert!(ops.contains(&Op::StoreLocal)); // store caught error
+                                                // The jump-over-handler should be present
+        assert!(ops.contains(&Op::Jump));
+    }
+
+    // --- Closures ---
+
+    #[test]
+    fn test_compile_closure_with_upvalue() {
+        let result = compile_str("(lambda (x) (lambda () x))");
+        assert_eq!(result.functions.len(), 2);
+        // Outer function: MakeClosure for inner, Return
+        let outer = &result.functions[0];
+        let outer_ops = extract_ops(&outer.chunk);
+        assert!(outer_ops.contains(&Op::MakeClosure));
+        // Inner function: LoadUpvalue(0), Return
+        let inner = &result.functions[1];
+        let inner_ops = extract_ops(&inner.chunk);
+        assert_eq!(inner_ops, vec![Op::LoadUpvalue, Op::Return]);
+        // Inner function's upvalue_descs should match
+        assert_eq!(inner.upvalue_descs.len(), 1);
+        assert!(matches!(
+            inner.upvalue_descs[0],
+            UpvalueDesc::ParentLocal(0)
+        ));
+    }
+
+    #[test]
+    fn test_compile_nested_lambda_func_ids() {
+        // (lambda () (lambda () 1) (lambda () 2))
+        // Outer is func 0, inner lambdas are func 1 and func 2
+        let result = compile_str("(lambda () (lambda () 1) (lambda () 2))");
+        assert_eq!(result.functions.len(), 3);
+        // Verify each inner function compiles correctly
+        let f1 = &result.functions[1];
+        let f1_ops = extract_ops(&f1.chunk);
+        assert_eq!(f1_ops, vec![Op::Const, Op::Return]);
+        assert_eq!(f1.chunk.consts[0], Value::Int(1));
+
+        let f2 = &result.functions[2];
+        let f2_ops = extract_ops(&f2.chunk);
+        assert_eq!(f2_ops, vec![Op::Const, Op::Return]);
+        assert_eq!(f2.chunk.consts[0], Value::Int(2));
+
+        // Verify the outer function has two MakeClosure instructions
+        // with func_ids 1 and 2 (checking the raw bytes)
+        let outer = &result.functions[0];
+        let outer_ops = extract_ops(&outer.chunk);
+        let mc_count = outer_ops
+            .iter()
+            .filter(|&&op| op == Op::MakeClosure)
+            .count();
+        assert_eq!(mc_count, 2);
+    }
+
+    // --- Do loop ---
+
+    #[test]
+    fn test_compile_do_loop() {
+        let result = compile_str("(lambda () (do ((i 0 (+ i 1))) ((= i 10) i) (display i)))");
+        let func = &result.functions[0];
+        let ops = extract_ops(&func.chunk);
+        // Must contain a backward Jump (negative offset) for the loop back-edge
+        let jump_pcs: Vec<usize> = (0..func.chunk.code.len())
+            .filter(|&pc| func.chunk.code[pc] == Op::Jump as u8)
+            .collect();
+        // Find the back-edge jump (should have a negative offset)
+        let has_back_edge = jump_pcs
+            .iter()
+            .any(|&pc| read_jump_offset(&func.chunk, pc) < 0);
+        assert!(has_back_edge, "do loop must have a backward jump");
+        // Must have JumpIfTrue for the exit condition
+        assert!(ops.contains(&Op::JumpIfTrue));
+    }
+
+    // --- Named let ---
+
+    #[test]
+    fn test_compile_named_let() {
+        let result = compile_str("(lambda () (let loop ((n 10)) (if (= n 0) n (loop (- n 1)))))");
+        // Named let creates a function for the loop body
+        assert!(result.functions.len() >= 2); // outer + loop function
+                                              // The outer function should contain MakeClosure + Call
+        let outer = &result.functions[0];
+        let outer_ops = extract_ops(&outer.chunk);
+        assert!(outer_ops.contains(&Op::MakeClosure));
+        assert!(outer_ops.contains(&Op::Call));
+    }
+
+    // --- compile_many ---
+
+    #[test]
+    fn test_compile_many_empty() {
+        let result = compile_many(&[]).unwrap();
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Nil, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_many_multiple() {
+        let result = compile_many_str("1 2 3");
+        let ops = extract_ops(&result.chunk);
+        // CONST(1), Pop, CONST(2), Pop, CONST(3), Return
+        assert_eq!(
+            ops,
+            vec![
+                Op::Const,
+                Op::Pop,
+                Op::Const,
+                Op::Pop,
+                Op::Const,
+                Op::Return
+            ]
+        );
+    }
+
+    #[test]
+    fn test_compile_many_single() {
+        let result = compile_many_str("42");
+        let ops = extract_ops(&result.chunk);
+        // CONST(42), Return (no Pop)
+        assert_eq!(ops, vec![Op::Const, Op::Return]);
+    }
+
+    // --- Calling convention: function must be below args ---
+
+    #[test]
+    fn test_calling_convention_runtime_call() {
+        // (eval 42) compiles as: LoadGlobal(__vm-eval), CONST(42), Call(1)
+        let result = compile_str("(eval 42)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::LoadGlobal, Op::Const, Op::Call, Op::Return]);
+        // The first op must be LoadGlobal (function loaded first)
+        assert_eq!(ops[0], Op::LoadGlobal);
+    }
+
+    // --- Map literal ---
+
+    #[test]
+    fn test_compile_map_literal() {
+        let result = compile_str("{:a 1 :b 2}");
+        let ops = extract_ops(&result.chunk);
+        // key, val, key, val, MakeMap, Return
+        assert_eq!(
+            ops,
+            vec![
+                Op::Const,
+                Op::Const,
+                Op::Const,
+                Op::Const,
+                Op::MakeMap,
+                Op::Return
+            ]
+        );
+    }
+}

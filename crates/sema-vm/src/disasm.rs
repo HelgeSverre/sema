@@ -162,11 +162,11 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
                 .unwrap();
                 pc += 5;
                 for _ in 0..n_upvalues {
-                    let is_local = code[pc];
-                    let idx = read_u16(code, pc + 1);
+                    let is_local = read_u16(code, pc);
+                    let idx = read_u16(code, pc + 2);
                     let kind = if is_local != 0 { "local" } else { "upvalue" };
                     writeln!(out, "        | {kind} {idx}").unwrap();
-                    pc += 3;
+                    pc += 4;
                 }
             }
 

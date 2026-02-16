@@ -1,0 +1,1417 @@
+use sema_core::{SemaError, Spur};
+
+use crate::chunk::UpvalueDesc;
+use crate::core_expr::{
+    CoreExpr, DoLoop, LambdaDef, PromptEntry, ResolvedDoLoop, ResolvedDoVar, ResolvedExpr,
+    ResolvedLambda, ResolvedPromptEntry, VarRef, VarResolution,
+};
+
+/// Resolve all variable references in a CoreExpr tree.
+/// Top-level expressions have no enclosing function scope, so all
+/// variables that aren't in explicit let/define bindings become globals.
+pub fn resolve(expr: &CoreExpr) -> Result<ResolvedExpr, SemaError> {
+    let (resolved, _) = resolve_with_locals(expr)?;
+    Ok(resolved)
+}
+
+/// Resolve variables and also return the number of top-level local slots needed.
+pub fn resolve_with_locals(expr: &CoreExpr) -> Result<(ResolvedExpr, u16), SemaError> {
+    let mut resolver = Resolver::new();
+    let resolved = resolve_expr(expr, &mut resolver)?;
+    let n_locals = resolver.scopes.last().unwrap().next_slot;
+    Ok((resolved, n_locals))
+}
+
+/// A local variable in a scope.
+#[derive(Debug, Clone)]
+struct LocalVar {
+    name: Spur,
+    slot: u16,
+    is_captured: bool,
+}
+
+/// A block scope within a function (e.g., let bindings).
+#[derive(Debug)]
+struct BlockScope {
+    locals: Vec<LocalVar>,
+}
+
+/// A function scope (lambda or top-level).
+#[derive(Debug)]
+struct FunctionScope {
+    blocks: Vec<BlockScope>,
+    upvalues: Vec<UpvalueDesc>,
+    next_slot: u16,
+    is_top_level: bool,
+}
+
+impl FunctionScope {
+    fn new(is_top_level: bool) -> Self {
+        FunctionScope {
+            blocks: vec![BlockScope { locals: Vec::new() }],
+            upvalues: Vec::new(),
+            next_slot: 0,
+            is_top_level,
+        }
+    }
+
+    fn define_local(&mut self, name: Spur) -> u16 {
+        let slot = self.next_slot;
+        self.next_slot += 1;
+        self.blocks.last_mut().unwrap().locals.push(LocalVar {
+            name,
+            slot,
+            is_captured: false,
+        });
+        slot
+    }
+
+    fn push_block(&mut self) {
+        self.blocks.push(BlockScope { locals: Vec::new() });
+    }
+
+    fn pop_block(&mut self) {
+        self.blocks.pop();
+    }
+
+    /// Find a local in this function's scope chain (innermost first).
+    fn find_local(&self, name: Spur) -> Option<u16> {
+        for block in self.blocks.iter().rev() {
+            for local in block.locals.iter().rev() {
+                if local.name == name {
+                    return Some(local.slot);
+                }
+            }
+        }
+        None
+    }
+
+    /// Mark a local as captured (needed for upvalue boxing).
+    fn mark_captured(&mut self, slot: u16) {
+        for block in self.blocks.iter_mut() {
+            for local in block.locals.iter_mut() {
+                if local.slot == slot {
+                    local.is_captured = true;
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Add an upvalue, returning its index. Deduplicates.
+    fn add_upvalue(&mut self, info: UpvalueDesc) -> u16 {
+        // Check if we already capture this exact source
+        for (i, existing) in self.upvalues.iter().enumerate() {
+            match (existing, &info) {
+                (UpvalueDesc::ParentLocal(a), UpvalueDesc::ParentLocal(b)) if a == b => {
+                    return i as u16;
+                }
+                (UpvalueDesc::ParentUpvalue(a), UpvalueDesc::ParentUpvalue(b)) if a == b => {
+                    return i as u16;
+                }
+                _ => {}
+            }
+        }
+        let idx = self.upvalues.len() as u16;
+        self.upvalues.push(info);
+        idx
+    }
+}
+
+/// The resolver maintains a stack of function scopes.
+struct Resolver {
+    scopes: Vec<FunctionScope>,
+}
+
+impl Resolver {
+    fn new() -> Self {
+        Resolver {
+            scopes: vec![FunctionScope::new(true)],
+        }
+    }
+
+    fn current(&mut self) -> &mut FunctionScope {
+        self.scopes.last_mut().unwrap()
+    }
+
+    fn define_local(&mut self, name: Spur) -> u16 {
+        self.current().define_local(name)
+    }
+
+    fn push_block(&mut self) {
+        self.current().push_block();
+    }
+
+    fn pop_block(&mut self) {
+        self.current().pop_block();
+    }
+
+    fn push_function(&mut self) {
+        self.scopes.push(FunctionScope::new(false));
+    }
+
+    fn pop_function(&mut self) -> FunctionScope {
+        self.scopes.pop().unwrap()
+    }
+
+    /// Resolve a variable name. Search order:
+    /// 1. Current function's locals (innermost block first)
+    /// 2. Enclosing functions' locals (creating upvalue chain)
+    /// 3. Global
+    fn resolve_var(&mut self, name: Spur) -> VarResolution {
+        let n = self.scopes.len();
+
+        // 1. Check current function's locals
+        if let Some(slot) = self.scopes[n - 1].find_local(name) {
+            return VarResolution::Local { slot };
+        }
+
+        // 2. Walk enclosing scopes to find the variable as an upvalue
+        if n > 1 {
+            if let Some(uv_idx) = self.resolve_upvalue(n - 1, name) {
+                return VarResolution::Upvalue { index: uv_idx };
+            }
+        }
+
+        // 3. Global
+        VarResolution::Global { spur: name }
+    }
+
+    /// Try to resolve `name` as an upvalue for the function at `scope_idx`.
+    /// Standard Lua/Crafting Interpreters algorithm:
+    /// - Check parent's locals → capture as ParentLocal
+    /// - Else recurse into parent's upvalues → capture as ParentUpvalue
+    /// - Top-level (scope 0) cannot be captured from → return None
+    fn resolve_upvalue(&mut self, scope_idx: usize, name: Spur) -> Option<u16> {
+        if scope_idx == 0 {
+            return None; // top-level has no enclosing function to capture from
+        }
+        let parent_idx = scope_idx - 1;
+
+        // Check parent function's locals
+        if let Some(slot) = self.scopes[parent_idx].find_local(name) {
+            self.scopes[parent_idx].mark_captured(slot);
+            return Some(self.scopes[scope_idx].add_upvalue(UpvalueDesc::ParentLocal(slot)));
+        }
+
+        // Recurse: check if parent can resolve it as an upvalue
+        if let Some(parent_uv) = self.resolve_upvalue(parent_idx, name) {
+            return Some(self.scopes[scope_idx].add_upvalue(UpvalueDesc::ParentUpvalue(parent_uv)));
+        }
+
+        None
+    }
+}
+
+fn resolve_expr(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
+    match expr {
+        CoreExpr::Const(v) => Ok(ResolvedExpr::Const(v.clone())),
+
+        CoreExpr::Var(spur) => {
+            let resolution = r.resolve_var(*spur);
+            Ok(ResolvedExpr::Var(VarRef {
+                name: *spur,
+                resolution,
+            }))
+        }
+
+        CoreExpr::If { test, then, else_ } => Ok(ResolvedExpr::If {
+            test: Box::new(resolve_expr(test, r)?),
+            then: Box::new(resolve_expr(then, r)?),
+            else_: Box::new(resolve_expr(else_, r)?),
+        }),
+
+        CoreExpr::Begin(exprs) => Ok(ResolvedExpr::Begin(resolve_exprs(exprs, r)?)),
+
+        CoreExpr::Set(spur, expr) => {
+            let val = resolve_expr(expr, r)?;
+            let resolution = r.resolve_var(*spur);
+            Ok(ResolvedExpr::Set(
+                VarRef {
+                    name: *spur,
+                    resolution,
+                },
+                Box::new(val),
+            ))
+        }
+
+        CoreExpr::Lambda(def) => resolve_lambda(def, r),
+
+        CoreExpr::Call { func, args, tail } => Ok(ResolvedExpr::Call {
+            func: Box::new(resolve_expr(func, r)?),
+            args: resolve_exprs(args, r)?,
+            tail: *tail,
+        }),
+
+        CoreExpr::Define(spur, expr) => {
+            let val = resolve_expr(expr, r)?;
+            // At top level, define is global. Inside a function, define creates a local.
+            if r.current().is_top_level && r.current().blocks.len() == 1 {
+                Ok(ResolvedExpr::Define(*spur, Box::new(val)))
+            } else {
+                // Inside a function or block: create a local binding
+                let slot = r.define_local(*spur);
+                Ok(ResolvedExpr::Set(
+                    VarRef {
+                        name: *spur,
+                        resolution: VarResolution::Local { slot },
+                    },
+                    Box::new(val),
+                ))
+            }
+        }
+
+        CoreExpr::Let { bindings, body } => resolve_let(bindings, body, r),
+        CoreExpr::LetStar { bindings, body } => resolve_let_star(bindings, body, r),
+        CoreExpr::Letrec { bindings, body } => resolve_letrec(bindings, body, r),
+        CoreExpr::NamedLet {
+            name,
+            bindings,
+            body,
+        } => resolve_named_let(*name, bindings, body, r),
+        CoreExpr::Do(do_loop) => resolve_do(do_loop, r),
+
+        CoreExpr::Try {
+            body,
+            catch_var,
+            handler,
+        } => resolve_try(body, *catch_var, handler, r),
+
+        CoreExpr::Throw(expr) => Ok(ResolvedExpr::Throw(Box::new(resolve_expr(expr, r)?))),
+
+        CoreExpr::And(exprs) => Ok(ResolvedExpr::And(resolve_exprs(exprs, r)?)),
+        CoreExpr::Or(exprs) => Ok(ResolvedExpr::Or(resolve_exprs(exprs, r)?)),
+        CoreExpr::Quote(v) => Ok(ResolvedExpr::Quote(v.clone())),
+
+        CoreExpr::MakeList(exprs) => Ok(ResolvedExpr::MakeList(resolve_exprs(exprs, r)?)),
+        CoreExpr::MakeVector(exprs) => Ok(ResolvedExpr::MakeVector(resolve_exprs(exprs, r)?)),
+        CoreExpr::MakeMap(pairs) => {
+            let resolved = pairs
+                .iter()
+                .map(|(k, v)| Ok((resolve_expr(k, r)?, resolve_expr(v, r)?)))
+                .collect::<Result<_, SemaError>>()?;
+            Ok(ResolvedExpr::MakeMap(resolved))
+        }
+
+        CoreExpr::Defmacro {
+            name,
+            params,
+            rest,
+            body,
+        } => {
+            // Defmacro body is resolved in a new function scope (the macro transformer)
+            r.push_function();
+            for p in params {
+                r.define_local(*p);
+            }
+            if let Some(rest_param) = rest {
+                r.define_local(*rest_param);
+            }
+            let resolved_body = resolve_exprs(body, r)?;
+            let _fn_scope = r.pop_function();
+            Ok(ResolvedExpr::Defmacro {
+                name: *name,
+                params: params.clone(),
+                rest: *rest,
+                body: resolved_body,
+            })
+        }
+
+        CoreExpr::DefineRecordType {
+            type_name,
+            ctor_name,
+            pred_name,
+            field_names,
+            field_specs,
+        } => Ok(ResolvedExpr::DefineRecordType {
+            type_name: *type_name,
+            ctor_name: *ctor_name,
+            pred_name: *pred_name,
+            field_names: field_names.clone(),
+            field_specs: field_specs.clone(),
+        }),
+
+        CoreExpr::Module {
+            name,
+            exports,
+            body,
+        } => Ok(ResolvedExpr::Module {
+            name: *name,
+            exports: exports.clone(),
+            body: resolve_exprs(body, r)?,
+        }),
+
+        CoreExpr::Import { path, selective } => Ok(ResolvedExpr::Import {
+            path: Box::new(resolve_expr(path, r)?),
+            selective: selective.clone(),
+        }),
+
+        CoreExpr::Load(expr) => Ok(ResolvedExpr::Load(Box::new(resolve_expr(expr, r)?))),
+        CoreExpr::Eval(expr) => Ok(ResolvedExpr::Eval(Box::new(resolve_expr(expr, r)?))),
+
+        CoreExpr::Prompt(entries) => {
+            let resolved = entries
+                .iter()
+                .map(|e| resolve_prompt_entry(e, r))
+                .collect::<Result<_, _>>()?;
+            Ok(ResolvedExpr::Prompt(resolved))
+        }
+
+        CoreExpr::Message { role, parts } => Ok(ResolvedExpr::Message {
+            role: Box::new(resolve_expr(role, r)?),
+            parts: resolve_exprs(parts, r)?,
+        }),
+
+        CoreExpr::Deftool {
+            name,
+            description,
+            parameters,
+            handler,
+        } => Ok(ResolvedExpr::Deftool {
+            name: *name,
+            description: Box::new(resolve_expr(description, r)?),
+            parameters: Box::new(resolve_expr(parameters, r)?),
+            handler: Box::new(resolve_expr(handler, r)?),
+        }),
+
+        CoreExpr::Defagent { name, options } => Ok(ResolvedExpr::Defagent {
+            name: *name,
+            options: Box::new(resolve_expr(options, r)?),
+        }),
+
+        CoreExpr::Delay(expr) => Ok(ResolvedExpr::Delay(Box::new(resolve_expr(expr, r)?))),
+        CoreExpr::Force(expr) => Ok(ResolvedExpr::Force(Box::new(resolve_expr(expr, r)?))),
+
+        CoreExpr::WithBudget { options, body } => Ok(ResolvedExpr::WithBudget {
+            options: Box::new(resolve_expr(options, r)?),
+            body: resolve_exprs(body, r)?,
+        }),
+
+        CoreExpr::Macroexpand(expr) => {
+            Ok(ResolvedExpr::Macroexpand(Box::new(resolve_expr(expr, r)?)))
+        }
+    }
+}
+
+fn resolve_exprs(exprs: &[CoreExpr], r: &mut Resolver) -> Result<Vec<ResolvedExpr>, SemaError> {
+    exprs.iter().map(|e| resolve_expr(e, r)).collect()
+}
+
+fn resolve_prompt_entry(
+    entry: &PromptEntry,
+    r: &mut Resolver,
+) -> Result<ResolvedPromptEntry, SemaError> {
+    match entry {
+        PromptEntry::RoleContent { role, parts } => Ok(ResolvedPromptEntry::RoleContent {
+            role: role.clone(),
+            parts: resolve_exprs(parts, r)?,
+        }),
+        PromptEntry::Expr(expr) => Ok(ResolvedPromptEntry::Expr(resolve_expr(expr, r)?)),
+    }
+}
+
+fn resolve_lambda(def: &LambdaDef, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
+    r.push_function();
+
+    // Define params as locals
+    for param in &def.params {
+        r.define_local(*param);
+    }
+    if let Some(rest) = def.rest {
+        r.define_local(rest);
+    }
+
+    let body = resolve_exprs(&def.body, r)?;
+    let fn_scope = r.pop_function();
+
+    Ok(ResolvedExpr::Lambda(ResolvedLambda {
+        name: def.name,
+        params: def.params.clone(),
+        rest: def.rest,
+        body,
+        upvalues: fn_scope.upvalues,
+        n_locals: fn_scope.next_slot,
+    }))
+}
+
+fn resolve_let(
+    bindings: &[(Spur, CoreExpr)],
+    body: &[CoreExpr],
+    r: &mut Resolver,
+) -> Result<ResolvedExpr, SemaError> {
+    // Evaluate all inits in the outer scope first
+    let mut inits = Vec::with_capacity(bindings.len());
+    for (_, init_expr) in bindings {
+        inits.push(resolve_expr(init_expr, r)?);
+    }
+
+    // Then define locals in a new block
+    r.push_block();
+    let mut resolved_bindings = Vec::with_capacity(bindings.len());
+    for (name, _) in bindings {
+        let slot = r.define_local(*name);
+        resolved_bindings.push((
+            VarRef {
+                name: *name,
+                resolution: VarResolution::Local { slot },
+            },
+            inits.remove(0),
+        ));
+    }
+
+    let resolved_body = resolve_exprs(body, r)?;
+    r.pop_block();
+
+    Ok(ResolvedExpr::Let {
+        bindings: resolved_bindings,
+        body: resolved_body,
+    })
+}
+
+fn resolve_let_star(
+    bindings: &[(Spur, CoreExpr)],
+    body: &[CoreExpr],
+    r: &mut Resolver,
+) -> Result<ResolvedExpr, SemaError> {
+    r.push_block();
+    let mut resolved_bindings = Vec::with_capacity(bindings.len());
+    for (name, init_expr) in bindings {
+        // Each init can see previous bindings
+        let init = resolve_expr(init_expr, r)?;
+        let slot = r.define_local(*name);
+        resolved_bindings.push((
+            VarRef {
+                name: *name,
+                resolution: VarResolution::Local { slot },
+            },
+            init,
+        ));
+    }
+    let resolved_body = resolve_exprs(body, r)?;
+    r.pop_block();
+
+    Ok(ResolvedExpr::LetStar {
+        bindings: resolved_bindings,
+        body: resolved_body,
+    })
+}
+
+fn resolve_letrec(
+    bindings: &[(Spur, CoreExpr)],
+    body: &[CoreExpr],
+    r: &mut Resolver,
+) -> Result<ResolvedExpr, SemaError> {
+    r.push_block();
+    // Define all names first (they can reference each other)
+    let mut var_refs = Vec::with_capacity(bindings.len());
+    for (name, _) in bindings {
+        let slot = r.define_local(*name);
+        var_refs.push(VarRef {
+            name: *name,
+            resolution: VarResolution::Local { slot },
+        });
+    }
+    // Then resolve inits (all names are in scope)
+    let mut resolved_bindings = Vec::with_capacity(bindings.len());
+    for (i, (_, init_expr)) in bindings.iter().enumerate() {
+        let init = resolve_expr(init_expr, r)?;
+        resolved_bindings.push((var_refs[i], init));
+    }
+    let resolved_body = resolve_exprs(body, r)?;
+    r.pop_block();
+
+    Ok(ResolvedExpr::Letrec {
+        bindings: resolved_bindings,
+        body: resolved_body,
+    })
+}
+
+fn resolve_named_let(
+    name: Spur,
+    bindings: &[(Spur, CoreExpr)],
+    body: &[CoreExpr],
+    r: &mut Resolver,
+) -> Result<ResolvedExpr, SemaError> {
+    // Evaluate inits in outer scope
+    let mut inits = Vec::with_capacity(bindings.len());
+    for (_, init_expr) in bindings {
+        inits.push(resolve_expr(init_expr, r)?);
+    }
+
+    r.push_block();
+    // Define binding variables first so they get slots 0..n
+    // (the compiler creates a function where args map to these slots)
+    let mut resolved_bindings = Vec::with_capacity(bindings.len());
+    for (bname, _) in bindings {
+        let slot = r.define_local(*bname);
+        resolved_bindings.push((
+            VarRef {
+                name: *bname,
+                resolution: VarResolution::Local { slot },
+            },
+            inits.remove(0),
+        ));
+    }
+
+    // Define the loop name after binding variables
+    let loop_slot = r.define_local(name);
+    let name_ref = VarRef {
+        name,
+        resolution: VarResolution::Local { slot: loop_slot },
+    };
+
+    let resolved_body = resolve_exprs(body, r)?;
+    r.pop_block();
+
+    Ok(ResolvedExpr::NamedLet {
+        name: name_ref,
+        bindings: resolved_bindings,
+        body: resolved_body,
+    })
+}
+
+fn resolve_do(do_loop: &DoLoop, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
+    // Evaluate all inits in the outer scope
+    let mut inits = Vec::with_capacity(do_loop.vars.len());
+    for var in &do_loop.vars {
+        inits.push(resolve_expr(&var.init, r)?);
+    }
+
+    r.push_block();
+    // Define loop variables
+    let mut resolved_vars = Vec::with_capacity(do_loop.vars.len());
+    for var in &do_loop.vars {
+        let slot = r.define_local(var.name);
+        resolved_vars.push((
+            VarRef {
+                name: var.name,
+                resolution: VarResolution::Local { slot },
+            },
+            inits.remove(0),
+            var.step.as_ref(),
+        ));
+    }
+
+    let test = resolve_expr(&do_loop.test, r)?;
+    let result = resolve_exprs(&do_loop.result, r)?;
+    let body = resolve_exprs(&do_loop.body, r)?;
+
+    // Resolve step expressions (they can reference loop variables)
+    let mut final_vars = Vec::with_capacity(resolved_vars.len());
+    for (var_ref, init, step) in resolved_vars {
+        let resolved_step = match step {
+            Some(s) => Some(resolve_expr(s, r)?),
+            None => None,
+        };
+        final_vars.push(ResolvedDoVar {
+            name: var_ref,
+            init,
+            step: resolved_step,
+        });
+    }
+
+    r.pop_block();
+
+    Ok(ResolvedExpr::Do(ResolvedDoLoop {
+        vars: final_vars,
+        test: Box::new(test),
+        result,
+        body,
+    }))
+}
+
+fn resolve_try(
+    body: &[CoreExpr],
+    catch_var: Spur,
+    handler: &[CoreExpr],
+    r: &mut Resolver,
+) -> Result<ResolvedExpr, SemaError> {
+    let resolved_body = resolve_exprs(body, r)?;
+
+    r.push_block();
+    let slot = r.define_local(catch_var);
+    let catch_ref = VarRef {
+        name: catch_var,
+        resolution: VarResolution::Local { slot },
+    };
+    let resolved_handler = resolve_exprs(handler, r)?;
+    r.pop_block();
+
+    Ok(ResolvedExpr::Try {
+        body: resolved_body,
+        catch_var: catch_ref,
+        handler: resolved_handler,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use sema_core::intern;
+
+    use super::*;
+    use crate::lower::lower;
+
+    fn lower_str(input: &str) -> CoreExpr {
+        let val = sema_reader::read(input).unwrap();
+        lower(&val).unwrap()
+    }
+
+    fn resolve_str(input: &str) -> ResolvedExpr {
+        let core = lower_str(input);
+        resolve(&core).unwrap()
+    }
+
+    #[test]
+    fn test_resolve_literal() {
+        match resolve_str("42") {
+            ResolvedExpr::Const(_) => {}
+            other => panic!("expected Const, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_global_var() {
+        let expr = resolve_str("x");
+        match expr {
+            ResolvedExpr::Var(vr) => {
+                assert_eq!(vr.resolution, VarResolution::Global { spur: intern("x") });
+            }
+            other => panic!("expected Var, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_lambda_param_is_local() {
+        let expr = resolve_str("(lambda (x) x)");
+        match expr {
+            ResolvedExpr::Lambda(def) => {
+                assert_eq!(def.n_locals, 1);
+                assert!(def.upvalues.is_empty());
+                match &def.body[0] {
+                    ResolvedExpr::Var(vr) => {
+                        assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                    }
+                    other => panic!("expected Var, got {other:?}"),
+                }
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_lambda_multiple_params() {
+        let expr = resolve_str("(lambda (a b c) b)");
+        match expr {
+            ResolvedExpr::Lambda(def) => {
+                assert_eq!(def.n_locals, 3);
+                match &def.body[0] {
+                    ResolvedExpr::Var(vr) => {
+                        assert_eq!(vr.resolution, VarResolution::Local { slot: 1 });
+                    }
+                    other => panic!("expected Var, got {other:?}"),
+                }
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_upvalue_simple() {
+        // (lambda (x) (lambda () x)) — inner x is upvalue
+        let expr = resolve_str("(lambda (x) (lambda () x))");
+        match expr {
+            ResolvedExpr::Lambda(outer) => {
+                assert_eq!(outer.n_locals, 1);
+                match &outer.body[0] {
+                    ResolvedExpr::Lambda(inner) => {
+                        assert_eq!(inner.upvalues.len(), 1);
+                        assert!(matches!(inner.upvalues[0], UpvalueDesc::ParentLocal(0)));
+                        match &inner.body[0] {
+                            ResolvedExpr::Var(vr) => {
+                                assert_eq!(vr.resolution, VarResolution::Upvalue { index: 0 });
+                            }
+                            other => panic!("expected Var, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected inner Lambda, got {other:?}"),
+                }
+            }
+            other => panic!("expected outer Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_upvalue_chain() {
+        // (lambda (x) (lambda () (lambda () x)))
+        // Innermost x captures through two levels
+        let expr = resolve_str("(lambda (x) (lambda () (lambda () x)))");
+        match expr {
+            ResolvedExpr::Lambda(l1) => match &l1.body[0] {
+                ResolvedExpr::Lambda(l2) => {
+                    assert_eq!(l2.upvalues.len(), 1);
+                    assert!(matches!(l2.upvalues[0], UpvalueDesc::ParentLocal(0)));
+                    match &l2.body[0] {
+                        ResolvedExpr::Lambda(l3) => {
+                            assert_eq!(l3.upvalues.len(), 1);
+                            assert!(matches!(l3.upvalues[0], UpvalueDesc::ParentUpvalue(0)));
+                            match &l3.body[0] {
+                                ResolvedExpr::Var(vr) => {
+                                    assert_eq!(vr.resolution, VarResolution::Upvalue { index: 0 });
+                                }
+                                other => panic!("expected Var, got {other:?}"),
+                            }
+                        }
+                        other => panic!("expected l3, got {other:?}"),
+                    }
+                }
+                other => panic!("expected l2, got {other:?}"),
+            },
+            other => panic!("expected l1, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_global_in_call() {
+        // (+ 1 2) → + is global
+        let expr = resolve_str("(+ 1 2)");
+        match expr {
+            ResolvedExpr::Call { func, .. } => match *func {
+                ResolvedExpr::Var(vr) => {
+                    assert_eq!(vr.resolution, VarResolution::Global { spur: intern("+") });
+                }
+                other => panic!("expected Var for func, got {other:?}"),
+            },
+            other => panic!("expected Call, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_let_bindings() {
+        let expr = resolve_str("(lambda () (let ((x 1) (y 2)) (+ x y)))");
+        match expr {
+            ResolvedExpr::Lambda(def) => {
+                match &def.body[0] {
+                    ResolvedExpr::Let { bindings, body } => {
+                        assert_eq!(bindings.len(), 2);
+                        assert_eq!(bindings[0].0.resolution, VarResolution::Local { slot: 0 });
+                        assert_eq!(bindings[1].0.resolution, VarResolution::Local { slot: 1 });
+                        // Body references should be locals
+                        match &body[0] {
+                            ResolvedExpr::Call { args, .. } => match &args[0] {
+                                ResolvedExpr::Var(vr) => {
+                                    assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                                }
+                                other => panic!("expected Var, got {other:?}"),
+                            },
+                            other => panic!("expected Call, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected Let, got {other:?}"),
+                }
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_let_star_sequential() {
+        // In let*, y can reference x
+        let expr = resolve_str("(lambda () (let* ((x 1) (y x)) y))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::LetStar { bindings, .. } => {
+                    // y's init is x which should resolve to local slot 0
+                    match &bindings[1].1 {
+                        ResolvedExpr::Var(vr) => {
+                            assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                        }
+                        other => panic!("expected Var, got {other:?}"),
+                    }
+                }
+                other => panic!("expected LetStar, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_letrec() {
+        // In letrec, bindings can reference each other
+        let expr =
+            resolve_str("(lambda () (letrec ((f (lambda () (g))) (g (lambda () (f)))) (f)))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::Letrec { bindings, .. } => {
+                    assert_eq!(bindings.len(), 2);
+                    // f and g are both locals
+                    assert_eq!(bindings[0].0.resolution, VarResolution::Local { slot: 0 });
+                    assert_eq!(bindings[1].0.resolution, VarResolution::Local { slot: 1 });
+                }
+                other => panic!("expected Letrec, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_set_local() {
+        let expr = resolve_str("(lambda (x) (set! x 42))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::Set(vr, _) => {
+                    assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                }
+                other => panic!("expected Set, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_set_global() {
+        let expr = resolve_str("(set! x 42)");
+        match expr {
+            ResolvedExpr::Set(vr, _) => {
+                assert_eq!(vr.resolution, VarResolution::Global { spur: intern("x") });
+            }
+            other => panic!("expected Set, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_try_catch_var() {
+        let expr = resolve_str("(lambda () (try (/ 1 0) (catch e (list e))))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::Try {
+                    catch_var, handler, ..
+                } => {
+                    assert_eq!(catch_var.resolution, VarResolution::Local { slot: 0 });
+                    // The handler body should reference e as the same slot
+                    match &handler[0] {
+                        ResolvedExpr::Call { args, .. } => match &args[0] {
+                            ResolvedExpr::Var(vr) => {
+                                assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                            }
+                            other => panic!("expected Var, got {other:?}"),
+                        },
+                        other => panic!("expected Call, got {other:?}"),
+                    }
+                }
+                other => panic!("expected Try, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_do_loop() {
+        let expr = resolve_str("(lambda () (do ((i 0 (+ i 1))) ((= i 10) i) (display i)))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::Do(do_loop) => {
+                    assert_eq!(do_loop.vars.len(), 1);
+                    assert!(matches!(
+                        do_loop.vars[0].name.resolution,
+                        VarResolution::Local { slot: 0 }
+                    ));
+                    // Step expression must exist and reference i as local
+                    match do_loop.vars[0].step.as_ref().expect("step must exist") {
+                        ResolvedExpr::Call { args, .. } => match &args[0] {
+                            ResolvedExpr::Var(vr) => {
+                                assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                            }
+                            other => panic!("expected Var in step, got {other:?}"),
+                        },
+                        other => panic!("expected Call in step, got {other:?}"),
+                    }
+                }
+                other => panic!("expected Do, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_named_let() {
+        let expr = resolve_str("(lambda () (let loop ((n 10)) (if (= n 0) n (loop (- n 1)))))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::NamedLet {
+                    name,
+                    bindings,
+                    body,
+                } => {
+                    // n is local slot 0 (params come first)
+                    assert_eq!(bindings[0].0.resolution, VarResolution::Local { slot: 0 });
+                    // loop itself is local slot 1 (after params)
+                    assert_eq!(name.resolution, VarResolution::Local { slot: 1 });
+                    // Recursive call to loop in body should resolve to slot 1
+                    match &body[0] {
+                        ResolvedExpr::If { else_, .. } => match else_.as_ref() {
+                            ResolvedExpr::Call { func, tail, .. } => {
+                                assert!(*tail); // should be tail position
+                                match func.as_ref() {
+                                    ResolvedExpr::Var(vr) => {
+                                        assert_eq!(vr.resolution, VarResolution::Local { slot: 1 });
+                                    }
+                                    other => panic!("expected Var for loop, got {other:?}"),
+                                }
+                            }
+                            other => panic!("expected Call, got {other:?}"),
+                        },
+                        other => panic!("expected If, got {other:?}"),
+                    }
+                }
+                other => panic!("expected NamedLet, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_define_at_top_level() {
+        // Top-level define stays as Define (global)
+        let expr = resolve_str("(define x 42)");
+        match expr {
+            ResolvedExpr::Define(spur, _) => {
+                assert_eq!(spur, intern("x"));
+            }
+            other => panic!("expected Define, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_define_in_function() {
+        // Define inside a function becomes a local Set
+        let expr = resolve_str("(lambda () (define x 42) x)");
+        match expr {
+            ResolvedExpr::Lambda(def) => {
+                // First body expr should be Set to local
+                match &def.body[0] {
+                    ResolvedExpr::Set(vr, _) => {
+                        assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                    }
+                    other => panic!("expected Set for internal define, got {other:?}"),
+                }
+                // Second body expr references x as local
+                match &def.body[1] {
+                    ResolvedExpr::Var(vr) => {
+                        assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                    }
+                    other => panic!("expected Var, got {other:?}"),
+                }
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_rest_param() {
+        let expr = resolve_str("(lambda (x . rest) rest)");
+        match expr {
+            ResolvedExpr::Lambda(def) => {
+                assert_eq!(def.n_locals, 2); // x=0, rest=1
+                match &def.body[0] {
+                    ResolvedExpr::Var(vr) => {
+                        assert_eq!(vr.resolution, VarResolution::Local { slot: 1 });
+                    }
+                    other => panic!("expected Var, got {other:?}"),
+                }
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_shadowing() {
+        // Inner let shadows outer param
+        let expr = resolve_str("(lambda (x) (let ((x 99)) x))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::Let { bindings, body } => {
+                    // Shadowed x gets a new slot
+                    assert_eq!(bindings[0].0.resolution, VarResolution::Local { slot: 1 });
+                    // Body x refers to the shadowed slot
+                    match &body[0] {
+                        ResolvedExpr::Var(vr) => {
+                            assert_eq!(vr.resolution, VarResolution::Local { slot: 1 });
+                        }
+                        other => panic!("expected Var, got {other:?}"),
+                    }
+                }
+                other => panic!("expected Let, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_multiple_upvalues() {
+        // (lambda (a b) (lambda () (+ a b)))
+        let expr = resolve_str("(lambda (a b) (lambda () (+ a b)))");
+        match expr {
+            ResolvedExpr::Lambda(outer) => match &outer.body[0] {
+                ResolvedExpr::Lambda(inner) => {
+                    assert_eq!(inner.upvalues.len(), 2);
+                    assert!(matches!(inner.upvalues[0], UpvalueDesc::ParentLocal(0)));
+                    assert!(matches!(inner.upvalues[1], UpvalueDesc::ParentLocal(1)));
+                }
+                other => panic!("expected inner Lambda, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_upvalue_dedup() {
+        // Same variable referenced twice in inner lambda → same upvalue index
+        let expr = resolve_str("(lambda (x) (lambda () (+ x x)))");
+        match expr {
+            ResolvedExpr::Lambda(outer) => match &outer.body[0] {
+                ResolvedExpr::Lambda(inner) => {
+                    assert_eq!(inner.upvalues.len(), 1); // deduplicated
+                    match &inner.body[0] {
+                        ResolvedExpr::Call { args, .. } => match (&args[0], &args[1]) {
+                            (ResolvedExpr::Var(a), ResolvedExpr::Var(b)) => {
+                                assert_eq!(a.resolution, VarResolution::Upvalue { index: 0 });
+                                assert_eq!(b.resolution, VarResolution::Upvalue { index: 0 });
+                            }
+                            other => panic!("expected Var args, got {other:?}"),
+                        },
+                        other => panic!("expected Call, got {other:?}"),
+                    }
+                }
+                other => panic!("expected inner Lambda, got {other:?}"),
+            },
+            other => panic!("expected outer Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_quote_untouched() {
+        let expr = resolve_str("'(x y z)");
+        match expr {
+            ResolvedExpr::Quote(_) => {}
+            other => panic!("expected Quote, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_and_or() {
+        let expr = resolve_str("(lambda (a b) (and a b))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::And(exprs) => {
+                    assert_eq!(exprs.len(), 2);
+                    match &exprs[0] {
+                        ResolvedExpr::Var(vr) => {
+                            assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                        }
+                        other => panic!("expected Var, got {other:?}"),
+                    }
+                }
+                other => panic!("expected And, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_set_through_upvalue() {
+        // (lambda (x) (lambda () (set! x 1) x)) — set! targets upvalue
+        let expr = resolve_str("(lambda (x) (lambda () (set! x 1) x))");
+        match expr {
+            ResolvedExpr::Lambda(outer) => match &outer.body[0] {
+                ResolvedExpr::Lambda(inner) => {
+                    assert_eq!(inner.upvalues.len(), 1);
+                    assert!(matches!(inner.upvalues[0], UpvalueDesc::ParentLocal(0)));
+                    // set! should target the upvalue
+                    match &inner.body[0] {
+                        ResolvedExpr::Set(vr, _) => {
+                            assert_eq!(vr.resolution, VarResolution::Upvalue { index: 0 });
+                        }
+                        other => panic!("expected Set, got {other:?}"),
+                    }
+                    // var ref should also be upvalue
+                    match &inner.body[1] {
+                        ResolvedExpr::Var(vr) => {
+                            assert_eq!(vr.resolution, VarResolution::Upvalue { index: 0 });
+                        }
+                        other => panic!("expected Var, got {other:?}"),
+                    }
+                }
+                other => panic!("expected inner Lambda, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_deep_upvalue_chain_4_levels() {
+        // 4 levels of nesting: x captured through 3 intermediate lambdas
+        let expr = resolve_str("(lambda (x) (lambda () (lambda () (lambda () x))))");
+        match expr {
+            ResolvedExpr::Lambda(l1) => match &l1.body[0] {
+                ResolvedExpr::Lambda(l2) => {
+                    assert_eq!(l2.upvalues.len(), 1);
+                    assert!(matches!(l2.upvalues[0], UpvalueDesc::ParentLocal(0)));
+                    match &l2.body[0] {
+                        ResolvedExpr::Lambda(l3) => {
+                            assert_eq!(l3.upvalues.len(), 1);
+                            assert!(matches!(l3.upvalues[0], UpvalueDesc::ParentUpvalue(0)));
+                            match &l3.body[0] {
+                                ResolvedExpr::Lambda(l4) => {
+                                    assert_eq!(l4.upvalues.len(), 1);
+                                    assert!(matches!(
+                                        l4.upvalues[0],
+                                        UpvalueDesc::ParentUpvalue(0)
+                                    ));
+                                    match &l4.body[0] {
+                                        ResolvedExpr::Var(vr) => {
+                                            assert_eq!(
+                                                vr.resolution,
+                                                VarResolution::Upvalue { index: 0 }
+                                            );
+                                        }
+                                        other => panic!("expected Var, got {other:?}"),
+                                    }
+                                }
+                                other => panic!("expected l4, got {other:?}"),
+                            }
+                        }
+                        other => panic!("expected l3, got {other:?}"),
+                    }
+                }
+                other => panic!("expected l2, got {other:?}"),
+            },
+            other => panic!("expected l1, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_shadowing_with_capture() {
+        // Inner let shadows param, innermost lambda captures the let-bound x
+        let expr = resolve_str("(lambda (x) (let ((x 2)) (lambda () x)))");
+        match expr {
+            ResolvedExpr::Lambda(outer) => match &outer.body[0] {
+                ResolvedExpr::Let { bindings, body } => {
+                    // let-bound x is slot 1 (param x is slot 0)
+                    assert_eq!(bindings[0].0.resolution, VarResolution::Local { slot: 1 });
+                    match &body[0] {
+                        ResolvedExpr::Lambda(inner) => {
+                            // Should capture the let-bound x (slot 1), not the param (slot 0)
+                            assert_eq!(inner.upvalues.len(), 1);
+                            assert!(matches!(inner.upvalues[0], UpvalueDesc::ParentLocal(1)));
+                        }
+                        other => panic!("expected Lambda, got {other:?}"),
+                    }
+                }
+                other => panic!("expected Let, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_multiple_let_blocks_monotonic_slots() {
+        // Two let blocks in same function — slots are monotonically allocated
+        let expr = resolve_str("(lambda () (let ((x 1)) x) (let ((y 2)) y))");
+        match expr {
+            ResolvedExpr::Lambda(def) => {
+                // x gets slot 0, y gets slot 1 (monotonic, no reuse)
+                match &def.body[0] {
+                    ResolvedExpr::Let { bindings, body } => {
+                        assert_eq!(bindings[0].0.resolution, VarResolution::Local { slot: 0 });
+                        match &body[0] {
+                            ResolvedExpr::Var(vr) => {
+                                assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                            }
+                            other => panic!("expected Var, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected Let, got {other:?}"),
+                }
+                match &def.body[1] {
+                    ResolvedExpr::Let { bindings, body } => {
+                        assert_eq!(bindings[0].0.resolution, VarResolution::Local { slot: 1 });
+                        match &body[0] {
+                            ResolvedExpr::Var(vr) => {
+                                assert_eq!(vr.resolution, VarResolution::Local { slot: 1 });
+                            }
+                            other => panic!("expected Var, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected Let, got {other:?}"),
+                }
+                assert_eq!(def.n_locals, 2);
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_nested_define_then_capture() {
+        // (lambda () (define x 1) (lambda () x))
+        // Internal define creates local, inner lambda captures it
+        let expr = resolve_str("(lambda () (define x 1) (lambda () x))");
+        match expr {
+            ResolvedExpr::Lambda(outer) => {
+                // define creates local slot 0
+                match &outer.body[0] {
+                    ResolvedExpr::Set(vr, _) => {
+                        assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                    }
+                    other => panic!("expected Set for define, got {other:?}"),
+                }
+                // Inner lambda captures x as upvalue
+                match &outer.body[1] {
+                    ResolvedExpr::Lambda(inner) => {
+                        assert_eq!(inner.upvalues.len(), 1);
+                        assert!(matches!(inner.upvalues[0], UpvalueDesc::ParentLocal(0)));
+                        match &inner.body[0] {
+                            ResolvedExpr::Var(vr) => {
+                                assert_eq!(vr.resolution, VarResolution::Upvalue { index: 0 });
+                            }
+                            other => panic!("expected Var, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected Lambda, got {other:?}"),
+                }
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_top_level_var_is_global() {
+        // Variables at top-level that aren't in bindings are global
+        // even if defined with define at top level
+        let expr = resolve_str("(lambda () x)");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::Var(vr) => {
+                    assert_eq!(vr.resolution, VarResolution::Global { spur: intern("x") });
+                }
+                other => panic!("expected Var, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_named_let_capture() {
+        // Named let loop var captured by inner lambda
+        let expr = resolve_str("(lambda () (let loop ((n 3)) (lambda () n)))");
+        match expr {
+            ResolvedExpr::Lambda(outer) => match &outer.body[0] {
+                ResolvedExpr::NamedLet { body, .. } => match &body[0] {
+                    ResolvedExpr::Lambda(inner) => {
+                        assert_eq!(inner.upvalues.len(), 1);
+                        // n is local slot 0 in the outer function (n=0, loop=1)
+                        assert!(matches!(inner.upvalues[0], UpvalueDesc::ParentLocal(0)));
+                    }
+                    other => panic!("expected Lambda, got {other:?}"),
+                },
+                other => panic!("expected NamedLet, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_module_body() {
+        // Module body resolves variables — define is top-level global,
+        // lambda param is local
+        let expr = resolve_str("(module mymod (export f) (define f (lambda (x) x)))");
+        match expr {
+            ResolvedExpr::Module { name, body, .. } => {
+                assert_eq!(name, intern("mymod"));
+                // define f at module top level stays as Define (global)
+                match &body[0] {
+                    ResolvedExpr::Define(spur, val) => {
+                        assert_eq!(*spur, intern("f"));
+                        // The lambda's param x should be local slot 0
+                        match val.as_ref() {
+                            ResolvedExpr::Lambda(def) => {
+                                assert_eq!(def.n_locals, 1);
+                                match &def.body[0] {
+                                    ResolvedExpr::Var(vr) => {
+                                        assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                                    }
+                                    other => panic!("expected Var, got {other:?}"),
+                                }
+                            }
+                            other => panic!("expected Lambda, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected Define, got {other:?}"),
+                }
+            }
+            other => panic!("expected Module, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_call_args() {
+        // (list x x) is a function call — args should resolve to locals
+        let expr = resolve_str("(lambda (x) (list x x))");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::Call { func, args, .. } => {
+                    // list is a global
+                    match func.as_ref() {
+                        ResolvedExpr::Var(vr) => {
+                            assert_eq!(
+                                vr.resolution,
+                                VarResolution::Global {
+                                    spur: intern("list")
+                                }
+                            );
+                        }
+                        other => panic!("expected Var for func, got {other:?}"),
+                    }
+                    // both args are local slot 0
+                    assert_eq!(args.len(), 2);
+                    for arg in args {
+                        match arg {
+                            ResolvedExpr::Var(vr) => {
+                                assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                            }
+                            other => panic!("expected Var, got {other:?}"),
+                        }
+                    }
+                }
+                other => panic!("expected Call, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_make_vector_literal() {
+        // [x y] in source is a vector literal — lowered to MakeVector
+        let expr = resolve_str("(lambda (x y) [x y])");
+        match expr {
+            ResolvedExpr::Lambda(def) => match &def.body[0] {
+                ResolvedExpr::MakeVector(elems) => {
+                    assert_eq!(elems.len(), 2);
+                    match &elems[0] {
+                        ResolvedExpr::Var(vr) => {
+                            assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                        }
+                        other => panic!("expected Var, got {other:?}"),
+                    }
+                    match &elems[1] {
+                        ResolvedExpr::Var(vr) => {
+                            assert_eq!(vr.resolution, VarResolution::Local { slot: 1 });
+                        }
+                        other => panic!("expected Var, got {other:?}"),
+                    }
+                }
+                other => panic!("expected MakeVector, got {other:?}"),
+            },
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+}

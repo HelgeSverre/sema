@@ -190,6 +190,24 @@ fn extract_param_spurs(param_list: &[Value], context: &str) -> Result<Vec<Spur>,
         .collect()
 }
 
+/// Parse a binding list like `((x 1) (y 2))` into `Vec<(Spur, CoreExpr)>`.
+fn parse_bindings(bindings_val: &Value, context: &str) -> Result<Vec<(Spur, CoreExpr)>, SemaError> {
+    let bindings_list = require_list(bindings_val, context)?;
+    let mut bindings = Vec::new();
+    for binding in bindings_list {
+        let pair = require_list(binding, context)?;
+        if pair.len() != 2 {
+            return Err(SemaError::eval(format!(
+                "{context}: each binding must have 2 elements"
+            )));
+        }
+        let name = require_symbol(&pair[0], context)?;
+        let init = lower_expr(&pair[1], false)?;
+        bindings.push((name, init));
+    }
+    Ok(bindings)
+}
+
 // --- Special form lowering ---
 
 fn lower_quote(args: &[Value]) -> Result<CoreExpr, SemaError> {
@@ -386,17 +404,7 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     }
 
     // Regular let
-    let bindings_list = require_list(&args[0], "let")?;
-    let mut bindings = Vec::new();
-    for binding in bindings_list {
-        let pair = require_list(binding, "let")?;
-        if pair.len() != 2 {
-            return Err(SemaError::eval("let: each binding must have 2 elements"));
-        }
-        let name = require_symbol(&pair[0], "let")?;
-        let init = lower_expr(&pair[1], false)?;
-        bindings.push((name, init));
-    }
+    let bindings = parse_bindings(&args[0], "let")?;
     let body = lower_body(&args[1..], tail)?;
     Ok(CoreExpr::Let { bindings, body })
 }
@@ -405,17 +413,7 @@ fn lower_let_star(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("let*", "2+", args.len()));
     }
-    let bindings_list = require_list(&args[0], "let*")?;
-    let mut bindings = Vec::new();
-    for binding in bindings_list {
-        let pair = require_list(binding, "let*")?;
-        if pair.len() != 2 {
-            return Err(SemaError::eval("let*: each binding must have 2 elements"));
-        }
-        let name = require_symbol(&pair[0], "let*")?;
-        let init = lower_expr(&pair[1], false)?;
-        bindings.push((name, init));
-    }
+    let bindings = parse_bindings(&args[0], "let*")?;
     let body = lower_body(&args[1..], tail)?;
     Ok(CoreExpr::LetStar { bindings, body })
 }
@@ -424,17 +422,7 @@ fn lower_letrec(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("letrec", "2+", args.len()));
     }
-    let bindings_list = require_list(&args[0], "letrec")?;
-    let mut bindings = Vec::new();
-    for binding in bindings_list {
-        let pair = require_list(binding, "letrec")?;
-        if pair.len() != 2 {
-            return Err(SemaError::eval("letrec: each binding must have 2 elements"));
-        }
-        let name = require_symbol(&pair[0], "letrec")?;
-        let init = lower_expr(&pair[1], false)?;
-        bindings.push((name, init));
-    }
+    let bindings = parse_bindings(&args[0], "letrec")?;
     let body = lower_body(&args[1..], tail)?;
     Ok(CoreExpr::Letrec { bindings, body })
 }
