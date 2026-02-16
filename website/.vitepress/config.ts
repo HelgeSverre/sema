@@ -42,6 +42,7 @@ export default defineConfig({
             { text: 'Introduction', link: '/docs/' },
             { text: 'CLI Reference', link: '/docs/cli' },
             { text: 'Shell Completions', link: '/docs/shell-completions' },
+            { text: 'Editor Support', link: '/docs/editors' },
             { text: 'Embedding in Rust', link: '/docs/embedding' },
           ],
         },

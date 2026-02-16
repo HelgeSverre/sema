@@ -192,6 +192,19 @@ sema completions fish > ~/.config/fish/completions/sema.fish
 
 > 📖 Full CLI reference, flags, and REPL commands: **[sema-lang.com/docs/cli](https://sema-lang.com/docs/cli.html)**
 
+### Editor Support
+
+| Editor | Install |
+| --- | --- |
+| **VS Code** | `cd editors/vscode/sema && npx @vscode/vsce package` then install `.vsix` |
+| **Vim / Neovim** | `Plug 'helgesverre/sema', { 'rtp': 'editors/vim' }` |
+| **Emacs** | `(require 'sema-mode)` — see [docs](https://sema-lang.com/docs/editors.html) |
+| **Helix** | Copy `languages.toml` + query files — see [docs](https://sema-lang.com/docs/editors.html) |
+
+All editors provide syntax highlighting for 350+ builtins, special forms, keyword literals, character literals, LLM primitives, and more.
+
+> 📖 Full installation instructions: **[sema-lang.com/docs/editors](https://sema-lang.com/docs/editors.html)**
+
 ## Example Programs
 
 The [`examples/`](examples/) directory has 50+ programs:

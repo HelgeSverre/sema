@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **REPL tab completion** — tab-complete built-in function names, special forms, user-defined bindings, and REPL commands. Powered by rustyline's `Completer` trait.
+- **`,builtins` REPL command** — list all built-in function names, sorted alphabetically.
+- **`llm/extract` schema validation** — new `:validate true` option checks that extracted data matches the schema (key presence and type matching).
+- **`llm/extract` retry on mismatch** — new `:retries N` option re-sends the request when validation fails, feeding errors back to the LLM.
+
+### Editor Support
+
+- **VS Code** — TextMate grammar extension with syntax highlighting, bracket matching, comment toggling, and indentation support.
+- **Vim / Neovim** — Vimscript plugin with syntax highlighting, filetype detection, and Lisp-aware indentation (`lispwords`).
+- **Emacs** — `sema-mode` major mode with syntax highlighting, buffer-local indentation, REPL integration, imenu, and electric pairs.
+- **Helix** — tree-sitter highlight queries (on Scheme grammar), text objects, and indentation support.
+- All four editors highlight the full standard library (350+ functions), special forms, keyword literals, character literals, LLM primitives, and threading macros.
+
+### Documentation
+
+- **Editor support page** — new [sema-lang.com/docs/editors](https://sema-lang.com/docs/editors.html) with installation instructions for all four editors.
+- **Shell completions page** — new [sema-lang.com/docs/shell-completions](https://sema-lang.com/docs/shell-completions.html) with setup instructions for bash, zsh, fish, elvish, and PowerShell.
+- **Architecture decisions** — new `docs/decisions.md` documenting naming conventions, Rc cycle behavior, sandbox plans, mini-evaluator design, package system plans, and LSP roadmap.
+- **LSP server design** — new `docs/plans/2026-02-16-lsp-server.md` with 4-phase implementation plan using `tower-lsp`.
+- **String docs reorganized** — `string/` namespaced functions now lead; legacy Scheme names grouped under "Scheme Compatibility Aliases".
+
 ## 1.1.0
 
 ### Added

@@ -96,6 +96,8 @@ sema> (:name person)
 ## What's Next?
 
 - [CLI Reference](./cli.md) — all flags, subcommands, and environment variables
+- [Shell Completions](./shell-completions.md) — tab completions for bash, zsh, fish, and more
+- [Editor Support](./editors.md) — plugins for VS Code, Vim/Neovim, Emacs, and Helix
 - [Embedding in Rust](./embedding.md) — use Sema as a scripting engine in your app
 - [Data Types](./language/data-types.md) — the 20 built-in types
 - [Special Forms](./language/special-forms.md) — control flow, bindings, and iteration
