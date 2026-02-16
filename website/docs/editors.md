@@ -12,22 +12,16 @@ Source code for all editor plugins is in the [`editors/`](https://github.com/Hel
 
 TextMate grammar-based extension with full syntax highlighting, bracket matching, auto-closing pairs, comment toggling, and indentation support.
 
-### Install from VSIX
+### Install
 
 ```bash
-cd editors/vscode/sema
-npx @vscode/vsce package
-code --install-extension sema-0.1.0.vsix
-```
-
-### Manual Install
-
-```bash
-# macOS / Linux
-cp -r editors/vscode/sema ~/.vscode/extensions/helgesverre.sema-0.1.0
-
-# Windows
-xcopy editors\vscode\sema %USERPROFILE%\.vscode\extensions\helgesverre.sema-0.1.0\ /E /I
+EXT_DIR=~/.vscode/extensions/helgesverre.sema-0.1.0
+mkdir -p "$EXT_DIR/syntaxes"
+BASE=https://raw.githubusercontent.com/HelgeSverre/sema/main/editors/vscode/sema
+curl -fsSL "$BASE/package.json" -o "$EXT_DIR/package.json"
+curl -fsSL "$BASE/language-configuration.json" -o "$EXT_DIR/language-configuration.json"
+curl -fsSL "$BASE/syntaxes/sema.tmLanguage.json" -o "$EXT_DIR/syntaxes/sema.tmLanguage.json"
+curl -fsSL "$BASE/icon.png" -o "$EXT_DIR/icon.png"
 ```
 
 Restart VS Code after installing.
@@ -65,18 +59,20 @@ Plug 'helgesverre/sema', { 'rtp': 'editors/vim' }
 
 ```bash
 mkdir -p ~/.vim/syntax ~/.vim/ftdetect ~/.vim/ftplugin
-cp editors/vim/syntax/sema.vim   ~/.vim/syntax/
-cp editors/vim/ftdetect/sema.vim ~/.vim/ftdetect/
-cp editors/vim/ftplugin/sema.vim ~/.vim/ftplugin/
+BASE=https://raw.githubusercontent.com/HelgeSverre/sema/main/editors/vim
+curl -fsSL "$BASE/syntax/sema.vim" -o ~/.vim/syntax/sema.vim
+curl -fsSL "$BASE/ftdetect/sema.vim" -o ~/.vim/ftdetect/sema.vim
+curl -fsSL "$BASE/ftplugin/sema.vim" -o ~/.vim/ftplugin/sema.vim
 ```
 
 ### Manual (Neovim)
 
 ```bash
 mkdir -p ~/.config/nvim/syntax ~/.config/nvim/ftdetect ~/.config/nvim/ftplugin
-cp editors/vim/syntax/sema.vim   ~/.config/nvim/syntax/
-cp editors/vim/ftdetect/sema.vim ~/.config/nvim/ftdetect/
-cp editors/vim/ftplugin/sema.vim ~/.config/nvim/ftplugin/
+BASE=https://raw.githubusercontent.com/HelgeSverre/sema/main/editors/vim
+curl -fsSL "$BASE/syntax/sema.vim" -o ~/.config/nvim/syntax/sema.vim
+curl -fsSL "$BASE/ftdetect/sema.vim" -o ~/.config/nvim/ftdetect/sema.vim
+curl -fsSL "$BASE/ftplugin/sema.vim" -o ~/.config/nvim/ftplugin/sema.vim
 ```
 
 ### Features
@@ -92,8 +88,14 @@ Major mode derived from `prog-mode` with Lisp-aware indentation, REPL integratio
 
 ### Manual
 
+```bash
+mkdir -p ~/.emacs.d/site-lisp
+curl -fsSL https://raw.githubusercontent.com/HelgeSverre/sema/main/editors/emacs/sema-mode.el \
+  -o ~/.emacs.d/site-lisp/sema-mode.el
+```
+
 ```elisp
-(add-to-list 'load-path "/path/to/sema/editors/emacs")
+(add-to-list 'load-path "~/.emacs.d/site-lisp")
 (require 'sema-mode)
 ```
 
@@ -101,7 +103,7 @@ Major mode derived from `prog-mode` with Lisp-aware indentation, REPL integratio
 
 ```elisp
 (use-package sema-mode
-  :load-path "/path/to/sema/editors/emacs"
+  :load-path "~/.emacs.d/site-lisp"
   :mode "\\.sema\\'")
 ```
 
@@ -110,7 +112,7 @@ Major mode derived from `prog-mode` with Lisp-aware indentation, REPL integratio
 In `packages.el`:
 
 ```elisp
-(package! sema-mode :recipe (:local-repo "/path/to/sema/editors/emacs"))
+(package! sema-mode :recipe (:local-repo "~/.emacs.d/site-lisp"))
 ```
 
 In `config.el`:
@@ -151,19 +153,23 @@ Tree-sitter queries layered on top of the built-in Scheme grammar, with Sema-spe
 
 ### Install
 
-1. Append the language config to your Helix configuration:
+1. Download and append the language config to your Helix configuration:
 
    ```bash
-   cat editors/helix/languages.toml >> ~/.config/helix/languages.toml
+   BASE=https://raw.githubusercontent.com/HelgeSverre/sema/main/editors/helix
+   curl -fsSL "$BASE/languages.toml" >> ~/.config/helix/languages.toml
    ```
 
    > If you already have a `languages.toml`, manually merge the `[[language]]` section.
 
-2. Copy the query files:
+2. Download the query files:
 
    ```bash
    mkdir -p ~/.config/helix/runtime/queries/sema
-   cp editors/helix/queries/sema/*.scm ~/.config/helix/runtime/queries/sema/
+   for f in highlights indents textobjects injections; do
+     curl -fsSL "$BASE/queries/sema/$f.scm" \
+       -o ~/.config/helix/runtime/queries/sema/$f.scm
+   done
    ```
 
 3. Ensure the Scheme grammar is installed:

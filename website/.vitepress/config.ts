@@ -78,6 +78,7 @@ export default defineConfig({
           text: 'Internals',
           items: [
             { text: 'Architecture', link: '/docs/internals/architecture' },
+            { text: 'Bytecode VM', link: '/docs/internals/bytecode-vm' },
             { text: 'Evaluator & TCO', link: '/docs/internals/evaluator' },
             { text: 'Reader & Spans', link: '/docs/internals/reader' },
             { text: 'Performance', link: '/docs/internals/performance' },

@@ -1,8 +1,8 @@
 # Architecture Overview
 
-Sema is a Lisp with first-class LLM primitives, implemented as a tree-walking interpreter in Rust. No bytecode, no JIT — the evaluator walks the AST directly via a trampoline loop for tail-call optimization. The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
+Sema is a Lisp with first-class LLM primitives, implemented in Rust. The primary execution path is a tree-walking interpreter — the evaluator walks the AST directly via a trampoline loop for tail-call optimization. A [bytecode VM](./bytecode-vm.md) is under development to provide faster execution for compute-heavy workloads. The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
 
-The entire implementation is ~15k lines of Rust spread across 6 crates, each with a clear responsibility and strict dependency ordering.
+The entire implementation is ~15k lines of Rust spread across 7 crates, each with a clear responsibility and strict dependency ordering.
 
 ## Crate Map
 
@@ -27,6 +27,12 @@ The entire implementation is ~15k lines of Rust spread across 6 crates, each wit
               └────────┬───────┘
                        │
               ┌────────▼───────┐
+              │    sema-vm     │
+              │  bytecode VM   │
+              │  (in progress) │
+              └────────┬───────┘
+                       │
+              ┌────────▼───────┐
               │  sema-reader   │
               │  lexer/parser  │
               └────────┬───────┘
@@ -38,7 +44,7 @@ The entire implementation is ~15k lines of Rust spread across 6 crates, each wit
               └────────────────┘
 ```
 
-**Dependency flow:** `sema-core ← sema-reader ← sema-eval ← sema-stdlib / sema-llm ← sema`
+**Dependency flow:** `sema-core ← sema-reader ← sema-vm ← sema-eval ← sema-stdlib / sema-llm ← sema`
 
 The critical constraint: **sema-stdlib and sema-llm depend on sema-core, not on sema-eval.** This avoids circular dependencies but creates a problem — both crates sometimes need to evaluate user code. They solve it via dependency inversion:
 
@@ -53,6 +59,7 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 |-------|------|-----------|
 | **sema-core** | Shared types | `Value` (23 variants), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types |
 | **sema-reader** | Parsing | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap` |
+| **sema-vm** | Bytecode VM (WIP) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch |
 | **sema-eval** | Evaluation | Trampoline-based evaluator, 39 special forms, module system, call stack + span table |
 | **sema-stdlib** | Standard library | ~350 native functions across 19 modules |
 | **sema-llm** | LLM integration | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
