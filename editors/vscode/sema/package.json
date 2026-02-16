@@ -1,0 +1,56 @@
+{
+  "name": "sema",
+  "displayName": "Sema",
+  "description": "Language support for Sema, a Lisp dialect with first-class LLM primitives",
+  "version": "0.1.0",
+  "publisher": "helgesverre",
+  "author": {
+    "name": "Helge Sverre"
+  },
+  "license": "MIT",
+  "icon": "icon.png",
+  "homepage": "https://sema-lang.com",
+  "bugs": {
+    "url": "https://github.com/helgesverre/sema/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/helgesverre/sema"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "sema",
+    "lisp",
+    "llm",
+    "scheme",
+    "s-expression",
+    "ai"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "sema",
+        "aliases": [
+          "Sema",
+          "sema"
+        ],
+        "extensions": [
+          ".sema"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "sema",
+        "scopeName": "source.sema",
+        "path": "./syntaxes/sema.tmLanguage.json"
+      }
+    ]
+  }
+}

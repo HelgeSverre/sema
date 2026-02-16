@@ -1,0 +1,19 @@
+# Sema language configuration for Helix
+# Reuses the built-in Scheme tree-sitter grammar since Sema is a Scheme-like Lisp dialect.
+
+[[language]]
+name = "sema"
+scope = "source.sema"
+injection-regex = "sema"
+file-types = ["sema"]
+comment-tokens = ";"
+roots = []
+grammar = "scheme"
+indent = { tab-width = 2, unit = "  " }
+auto-format = false
+
+[language.auto-pairs]
+"(" = ")"
+"[" = "]"
+"{" = "}"
+"\"" = "\""
