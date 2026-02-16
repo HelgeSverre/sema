@@ -1,15 +1,32 @@
 {
-  "name": "playground",
+  "name": "sema-playground",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "private": true,
+  "description": "Browser-based playground for the Sema programming language, powered by WebAssembly",
+  "author": {
+    "name": "Helge Sverre",
+    "url": "https://helgesver.re"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
+  "license": "MIT",
+  "homepage": "https://sema.run",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/helgesverre/sema-lisp",
+    "directory": "playground"
+  },
+  "keywords": [
+    "sema",
+    "lisp",
+    "playground",
+    "wasm",
+    "webassembly",
+    "repl"
+  ],
+  "scripts": {
+    "serve": "npx serve -l 8787",
+    "test": "npx playwright test",
+    "test:ui": "npx playwright test --ui"
+  },
   "devDependencies": {
     "@playwright/test": "^1.58.2"
   }

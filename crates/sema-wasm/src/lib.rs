@@ -1178,6 +1178,54 @@ impl WasmInterpreter {
         }
     }
 
+    /// Evaluate code via the bytecode VM, returns same JSON format as eval_global
+    pub fn eval_vm(&self, code: &str) -> String {
+        OUTPUT.with(|o| o.borrow_mut().clear());
+        LINE_BUF.with(|b| b.borrow_mut().clear());
+
+        match self.inner.eval_str_compiled(code) {
+            Ok(val) => {
+                let output = take_output();
+                let val_str = if matches!(val, Value::Nil) {
+                    "null".to_string()
+                } else {
+                    format!("\"{}\"", escape_json(&format!("{val}")))
+                };
+                format!(
+                    "{{\"value\":{},\"output\":[{}],\"error\":null}}",
+                    val_str,
+                    output
+                        .iter()
+                        .map(|s| format!("\"{}\"", escape_json(s)))
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
+            Err(e) => {
+                let output = take_output();
+                let mut err_str = format!("{}", e.inner());
+                if let Some(trace) = e.stack_trace() {
+                    err_str.push_str(&format!("\n{trace}"));
+                }
+                if let Some(hint) = e.hint() {
+                    err_str.push_str(&format!("\n  hint: {hint}"));
+                }
+                if let Some(note) = e.note() {
+                    err_str.push_str(&format!("\n  note: {note}"));
+                }
+                format!(
+                    "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
+                    output
+                        .iter()
+                        .map(|s| format!("\"{}\"", escape_json(s)))
+                        .collect::<Vec<_>>()
+                        .join(","),
+                    escape_json(&err_str)
+                )
+            }
+        }
+    }
+
     /// Get the Sema version
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()

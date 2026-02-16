@@ -1,19 +1,20 @@
 import { test, expect } from '@playwright/test';
 
+// Example file names as they appear in the sidebar tree
 const EXAMPLES = [
-  'Hello',
-  'Fibonacci',
-  'Map & Filter',
-  'FizzBuzz',
-  'Closures',
-  'Strings',
-  'Macros',
-  'Quicksort',
-  'Maze',
-  'Mandelbrot',
-  'Perlin Noise',
-  'Game of Life',
-  'ASCII Art',
+  'hello.sema',
+  'fibonacci.sema',
+  'fizzbuzz.sema',
+  'quicksort.sema',
+  'closures.sema',
+  'map-filter.sema',
+  'strings.sema',
+  'macros.sema',
+  'maze.sema',
+  'mandelbrot.sema',
+  'perlin-noise.sema',
+  'game-of-life.sema',
+  'ascii-art.sema',
 ];
 
 test.beforeEach(async ({ page }) => {
@@ -24,8 +25,8 @@ test.beforeEach(async ({ page }) => {
 
 for (const name of EXAMPLES) {
   test(`example: ${name}`, async ({ page }) => {
-    // Click the example button
-    await page.click(`.example-btn:text("${name}")`);
+    // Click the example button in the sidebar tree
+    await page.click(`.tree-file:text("${name}")`);
 
     // Verify editor has content
     const editorValue = await page.inputValue('#editor');
@@ -53,7 +54,7 @@ for (const name of EXAMPLES) {
 
 test('whitespace preserved in output', async ({ page }) => {
   // Use the Maze example which relies on whitespace alignment
-  await page.click('.example-btn:text("Maze")');
+  await page.click('.tree-file:text("maze.sema")');
   await page.click('#run-btn');
   await page.waitForSelector('#output .output-timing', { timeout: 30000 });
 

@@ -129,7 +129,7 @@ site-deploy: site-build
 .PHONY: playground-build playground-dev playground-deploy
 
 playground-build:
-	cd playground/crate && wasm-pack build --target web --out-dir ../pkg
+	cd crates/sema-wasm && wasm-pack build --target web --out-dir ../../playground/pkg
 
 playground-dev: playground-build
 	cd playground && npx serve -l 8787
