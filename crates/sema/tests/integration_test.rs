@@ -990,7 +990,6 @@ fn test_regex_split() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_get() {
     let result = eval(r#"(http/get "https://httpbin.org/get")"#);
     if let Value::Map(m) = &result {
@@ -1001,7 +1000,6 @@ fn test_http_get() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post() {
     let result = eval(r#"(http/post "https://httpbin.org/post" {:name "sema"})"#);
     if let Value::Map(m) = &result {
@@ -1012,7 +1010,6 @@ fn test_http_post() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_request_generic() {
     let result = eval(r#"(http/request "PATCH" "https://httpbin.org/patch" {} "data")"#);
     if let Value::Map(m) = &result {
@@ -1023,7 +1020,6 @@ fn test_http_request_generic() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_response_has_body() {
     let result = eval(
         r#"
@@ -1043,7 +1039,6 @@ fn test_http_response_has_body() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_response_has_headers() {
     let result = eval(
         r#"
@@ -1063,7 +1058,6 @@ fn test_http_response_has_headers() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_response_body_json_decode() {
     let result = eval(
         r#"
@@ -1076,7 +1070,6 @@ fn test_http_response_body_json_decode() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_put() {
     let result = eval(
         r#"
@@ -1092,7 +1085,6 @@ fn test_http_put() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_delete() {
     let result = eval(
         r#"
@@ -1104,7 +1096,6 @@ fn test_http_delete() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_head() {
     let result = eval(
         r#"
@@ -1120,7 +1111,6 @@ fn test_http_head() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_patch_with_json_body() {
     let result = eval(
         r#"
@@ -1136,7 +1126,6 @@ fn test_http_patch_with_json_body() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_custom_headers() {
     let result = eval(
         r#"
@@ -1150,7 +1139,6 @@ fn test_http_custom_headers() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_multiple_headers() {
     let result = eval(
         r#"
@@ -1167,7 +1155,6 @@ fn test_http_multiple_headers() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_map_body_echoed() {
     let result = eval(
         r#"
@@ -1180,7 +1167,6 @@ fn test_http_post_map_body_echoed() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_string_body() {
     let result = eval(
         r#"
@@ -1194,7 +1180,6 @@ fn test_http_post_string_body() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_nested_map() {
     let result = eval(
         r#"
@@ -1207,7 +1192,6 @@ fn test_http_post_nested_map() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_empty_string_body() {
     let result = eval(
         r#"
@@ -1219,7 +1203,6 @@ fn test_http_post_empty_string_body() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_status_404() {
     let result = eval(
         r#"
@@ -1231,7 +1214,6 @@ fn test_http_status_404() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_status_500() {
     let result = eval(
         r#"
@@ -1243,7 +1225,6 @@ fn test_http_status_500() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_get_with_query_params() {
     let result = eval(
         r#"
@@ -1256,32 +1237,27 @@ fn test_http_get_with_query_params() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_timeout() {
     let _err = eval_err(r#"(http/get "https://httpbin.org/delay/10" {:timeout 1000})"#);
     // Just verifying it errors (timeout after 1s, but server delays 10s)
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_invalid_url() {
     let _err = eval_err(r#"(http/get "http://invalid.invalid.invalid")"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_get_wrong_arity() {
     let _err = eval_err(r#"(http/get)"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_wrong_arity() {
     let _err = eval_err(r#"(http/post "https://httpbin.org/post")"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_unicode_body() {
     let result = eval(
         r#"
@@ -1294,7 +1270,6 @@ fn test_http_unicode_body() {
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_redirect() {
     let result = eval(
         r#"
@@ -1307,70 +1282,59 @@ fn test_http_redirect() {
 
 // Unknown method → error (http.rs line 31)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_request_unknown_method() {
     let _err = eval_err(r#"(http/request "BOGUS" "https://httpbin.org/get")"#);
 }
 
 // Non-string URL → type error (http.rs line 111, 122, etc.)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_get_non_string_url() {
     let _err = eval_err(r#"(http/get 42)"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_non_string_url() {
     let _err = eval_err(r#"(http/post 42 "body")"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_request_non_string_method() {
     let _err = eval_err(r#"(http/request 42 "https://httpbin.org/get")"#);
 }
 
 // Too many args (upper arity bounds)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_get_too_many_args() {
     let _err = eval_err(r#"(http/get "url" {} "extra")"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_too_many_args() {
     let _err = eval_err(r#"(http/post "url" "body" {} "extra")"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_put_wrong_arity() {
     let _err = eval_err(r#"(http/put "url")"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_delete_wrong_arity() {
     let _err = eval_err(r#"(http/delete)"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_request_too_few_args() {
     let _err = eval_err(r#"(http/request "GET")"#);
 }
 
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_request_too_many_args() {
     let _err = eval_err(r#"(http/request "GET" "url" {} "body" "extra")"#);
 }
 
 // http/request minimal 2-arg path (opts and body both None)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_request_minimal_args() {
     let result = eval(
         r#"
@@ -1383,7 +1347,6 @@ fn test_http_request_minimal_args() {
 
 // Non-string/non-map body → to_string() fallback (http.rs line 71-73)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_integer_body() {
     let result = eval(
         r#"
@@ -1397,7 +1360,6 @@ fn test_http_post_integer_body() {
 
 // Map body auto-sets Content-Type: application/json (http.rs line 67-69)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_post_map_sets_content_type_json() {
     let result = eval(
         r#"
@@ -1411,7 +1373,6 @@ fn test_http_post_map_sets_content_type_json() {
 
 // String header keys (http.rs line 39 - Value::String branch)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_headers_with_string_keys() {
     let result = eval(
         r#"
@@ -1426,7 +1387,6 @@ fn test_http_headers_with_string_keys() {
 
 // Opts as non-map → silently ignored (http.rs line 35)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_get_opts_non_map_ignored() {
     let result = eval(
         r#"
@@ -1439,7 +1399,6 @@ fn test_http_get_opts_non_map_ignored() {
 
 // http/delete with opts (exercises the opts path for delete)
 #[test]
-#[ignore] // requires network (httpbin.org)
 fn test_http_delete_with_opts() {
     let result = eval(
         r#"

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+
+- **Bytecode VM (preview)** — full bytecode compiler and virtual machine, opt-in via `--vm` CLI flag. The VM compiles Sema source through macro expansion → CoreExpr lowering → slot resolution → bytecode compilation → VM execution. Passes 173 unit tests, 130 integration tests, and all 44 examples. Key features:
+  - **Same-VM closure execution** — VM closures carry an opaque payload on `NativeFn`; calling a closure pushes a `CallFrame` on the same VM instead of creating a fresh `VM::new()`, eliminating native stack growth.
+  - **True tail-call optimization** — `tail_call_vm_closure` reuses the current frame, enabling 100K+ depth tail recursion.
+  - **Named-let desugaring** — named `let` is desugared to `letrec` + `lambda` in the lowering pass, simplifying the compiler and fixing self-reference injection bugs.
+  - **`delay` lowered to thunk** — `delay` compiles to a zero-arg lambda that captures the lexical environment, ensuring delayed expressions see VM locals.
+  - **NativeFn fallback interop** — closures passed to stdlib higher-order functions (map, filter, etc.) go through a NativeFn wrapper, maintaining compatibility with `sema-stdlib` which depends on `sema-core`, not `sema-vm`.
+- **New crate: `sema-vm`** — bytecode compiler, resolver, and stack-based virtual machine. Dependency flow: `sema-core ← sema-reader ← sema-vm ← sema-eval`.
+
+### Fixed (VM)
+
+- **Self-ref injection corrupting locals** — `make_closure` no longer writes NativeFn self-references into local slots for all named functions; named-let desugaring eliminates the issue entirely.
+- **Missing arity checking** — NativeFn wrapper now performs strict arity validation instead of silently filling missing args with Nil.
+- **Recursive inner define** — resolver allocates local slots before resolving RHS, fixing `(define (f) (define (g) (g)) (g))`.
+- **`delay`/`force` not capturing lexical vars** — `delay` now lowers to a zero-arg lambda thunk that captures the lexical environment.
+- **`__vm-import` selective import** — selective names list symbols are now spread individually in the reconstructed import form.
+
 ## 1.2.2
 
 ### Internal

@@ -933,12 +933,18 @@ fn lower_delay(args: &[Value]) -> Result<CoreExpr, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("delay", "1", args.len()));
     }
-    // Store the original unevaluated body as a quoted constant for __vm-delay.
-    // This preserves laziness: the body is NOT evaluated at definition time.
-    let body_val = args[0].clone();
+    // Wrap body in a zero-arg lambda thunk so it captures lexical variables.
+    // __vm-delay stores the thunk; __vm-force calls it on first access.
+    let body = lower_expr(&args[0], false)?;
+    let thunk = CoreExpr::Lambda(LambdaDef {
+        name: None,
+        params: vec![],
+        rest: None,
+        body: vec![body],
+    });
     Ok(CoreExpr::Call {
         func: Box::new(CoreExpr::Var(intern("__vm-delay"))),
-        args: vec![CoreExpr::Const(body_val)],
+        args: vec![thunk],
         tail: false,
     })
 }
@@ -1429,12 +1435,12 @@ mod tests {
 
     #[test]
     fn test_lower_delay() {
-        // delay now lowers to a Call to __vm-delay with the body as a constant
+        // delay now lowers to a Call to __vm-delay with a zero-arg lambda thunk
         match lower_str("(delay (+ 1 2))") {
             CoreExpr::Call { func, args, .. } => {
                 assert!(matches!(*func, CoreExpr::Var(_)));
                 assert_eq!(args.len(), 1);
-                assert!(matches!(&args[0], CoreExpr::Const(_)));
+                assert!(matches!(&args[0], CoreExpr::Lambda(_)));
             }
             other => panic!("expected Call, got {other:?}"),
         }

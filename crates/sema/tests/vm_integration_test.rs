@@ -737,30 +737,27 @@ fn test_example_pattern_defmacro_with_named_let() {
 }
 
 #[test]
-#[ignore] // import resolves via filesystem; in-memory module+import needs interpreter state sharing
 fn test_example_pattern_modules_import() {
-    let result = eval_vm(
+    // Sema modules are file-path-based (Decision #19)
+    assert_equiv(
         "(begin
-           (module math (export square)
-             (define (square x) (* x x)))
-           (import \"math\")
+           (file/write \"/tmp/sema-vm-test-mod.sema\"
+             \"(module math (export square) (define (square x) (* x x)))\")
+           (import \"/tmp/sema-vm-test-mod.sema\")
            (square 5))",
     );
-    assert_eq!(result, Value::Int(25));
 }
 
 #[test]
-#[ignore] // import resolves via filesystem; in-memory module+import needs interpreter state sharing
 fn test_example_pattern_modules_selective_import() {
-    let result = eval_vm(
+    // Selective import: (import "path" sym1 sym2) with bare symbols
+    assert_equiv(
         "(begin
-           (module math (export square cube)
-             (define (square x) (* x x))
-             (define (cube x) (* x x x)))
-           (import \"math\" :only (square))
+           (file/write \"/tmp/sema-vm-test-sel.sema\"
+             \"(module sel (export square cube) (define (square x) (* x x)) (define (cube x) (* x x x)))\")
+           (import \"/tmp/sema-vm-test-sel.sema\" square)
            (square 5))",
     );
-    assert_eq!(result, Value::Int(25));
 }
 
 // ============================================================================
@@ -1318,22 +1315,24 @@ fn test_complex_cellular_automata_rule90() {
 // --- Lazy streams ---
 
 #[test]
-#[ignore] // delay/force interop: force delegates to tree-walker, creating nested Rust calls
 fn test_complex_lazy_stream_take() {
+    // stream-cons uses explicit thunks (fn () ...) — per SRFI-41, stream-cons
+    // must delay the tail; without a macro, we use explicit thunk functions.
+    // Streams are 2-element lists: (value thunk), matching examples/lazy.sema.
     assert_equiv(
         "(begin
-           (define (stream-cons h t) (cons h (delay t)))
+           (define (stream-cons h t) (list h t))
            (define (stream-car s) (car s))
-           (define (stream-cdr s) (force (cdr s)))
+           (define (stream-cdr s) ((cadr s)))
            (define (stream-take n s)
              (if (or (= n 0) (nil? s)) '()
                (cons (stream-car s) (stream-take (- n 1) (stream-cdr s)))))
-           (define (stream-from n) (stream-cons n (stream-from (+ n 1))))
+           (define (stream-from n) (stream-cons n (fn () (stream-from (+ n 1)))))
            (define (stream-filter pred s)
              (cond
                ((nil? s) nil)
                ((pred (stream-car s))
-                (stream-cons (stream-car s) (stream-filter pred (stream-cdr s))))
+                (stream-cons (stream-car s) (fn () (stream-filter pred (stream-cdr s)))))
                (else (stream-filter pred (stream-cdr s)))))
            (stream-take 5 (stream-filter even? (stream-from 1))))",
     );
@@ -1456,7 +1455,72 @@ fn test_complex_zip_and_unzip() {
     );
 }
 
+// --- Recursive inner defines ---
+
+#[test]
+fn test_recursive_inner_define() {
+    assert_equiv(
+        "(define (sum-to n)
+           (define (loop i acc)
+             (if (> i n) acc (loop (+ i 1) (+ acc i))))
+           (loop 1 0))
+         (sum-to 10)",
+    );
+}
+
+#[test]
+fn test_recursive_inner_define_with_outer_capture() {
+    assert_equiv(
+        r#"(define (int->hex n)
+             (define digits "0123456789ABCDEF")
+             (define (digit k) (substring digits k (+ k 1)))
+             (define (go x acc)
+               (if (= x 0) acc
+                 (go (math/quotient x 16)
+                     (string-append (digit (math/remainder x 16)) acc))))
+             (if (= n 0) "0" (go n "")))
+           (int->hex 255)"#,
+    );
+}
+
+#[test]
+fn test_multiple_inner_defines() {
+    assert_equiv(
+        "(define (f x)
+           (define a 10)
+           (define (add-a y) (+ a y))
+           (add-a x))
+         (f 5)",
+    );
+}
+
 // --- Deep let* chains ---
+
+#[test]
+fn test_delay_captures_lexical_variables() {
+    assert_eq!(
+        eval_vm(
+            "(begin
+               (define (lazy-add a b) (delay (+ (force a) (force b))))
+               (define x (lazy-add (delay 1) (delay 2)))
+               (force x))"
+        ),
+        Value::Int(3)
+    );
+}
+
+#[test]
+fn test_delay_captures_closure_variable() {
+    assert_eq!(
+        eval_vm(
+            "(begin
+               (define (make-lazy x) (delay (* x x)))
+               (define p (make-lazy 7))
+               (force p))"
+        ),
+        Value::Int(49)
+    );
+}
 
 #[test]
 fn test_complex_deep_let_star() {

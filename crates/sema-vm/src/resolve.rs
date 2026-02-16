@@ -244,13 +244,16 @@ fn resolve_expr(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr, SemaE
         }),
 
         CoreExpr::Define(spur, expr) => {
-            let val = resolve_expr(expr, r)?;
             // At top level, define is global. Inside a function, define creates a local.
             if r.current().is_top_level && r.current().blocks.len() == 1 {
+                let val = resolve_expr(expr, r)?;
                 Ok(ResolvedExpr::Define(*spur, Box::new(val)))
             } else {
-                // Inside a function or block: create a local binding
+                // Inside a function or block: create a local binding BEFORE resolving RHS.
+                // This allows recursive internal defines (the lambda body can reference
+                // its own name via upvalue capture).
                 let slot = r.define_local(*spur);
+                let val = resolve_expr(expr, r)?;
                 Ok(ResolvedExpr::Set(
                     VarRef {
                         name: *spur,

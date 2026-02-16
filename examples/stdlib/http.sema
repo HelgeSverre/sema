@@ -1,0 +1,72 @@
+;; http.sema — HTTP client examples
+;; Requires network access. Tests against httpbin.org and wttr.in.
+
+(println "=== HTTP Client Demo ===\n")
+
+;; --- GET request ---
+(println "--- GET ---")
+(define resp (http/get "https://httpbin.org/get"))
+(println (format "Status: ~a" (:status resp)))
+(define body (json/decode (:body resp)))
+(println (format "Origin: ~a" (:origin body)))
+(println (format "URL:    ~a" (:url body)))
+(println)
+
+;; --- GET with headers ---
+(println "--- GET with custom headers ---")
+(define resp2 (http/get "https://httpbin.org/headers"
+                {:headers {:X-Custom "sema-lisp" :Accept "application/json"}}))
+(define headers-body (json/decode (:body resp2)))
+(define recv-headers (:headers headers-body))
+(println (format "X-Custom: ~a" (:X-Custom recv-headers)))
+(println)
+
+;; --- POST with JSON body ---
+(println "--- POST JSON ---")
+(define post-resp (http/post "https://httpbin.org/post" {:name "Sema" :version 1}))
+(define post-body (json/decode (:body post-resp)))
+(println (format "Echoed data: ~a" (:data post-body)))
+(println (format "Content-Type: ~a" (:Content-Type (:headers post-body))))
+(println)
+
+;; --- PUT ---
+(println "--- PUT ---")
+(define put-resp (http/put "https://httpbin.org/put" {:updated #t}))
+(println (format "PUT status: ~a" (:status put-resp)))
+(println)
+
+;; --- DELETE ---
+(println "--- DELETE ---")
+(define del-resp (http/delete "https://httpbin.org/delete"))
+(println (format "DELETE status: ~a" (:status del-resp)))
+(println)
+
+;; --- Status codes ---
+(println "--- Status codes ---")
+(define r404 (http/get "https://httpbin.org/status/404"))
+(println (format "404 status: ~a" (:status r404)))
+(define r201 (http/get "https://httpbin.org/status/201"))
+(println (format "201 status: ~a" (:status r201)))
+(println)
+
+;; --- Query parameters ---
+(println "--- Query params ---")
+(define qresp (http/get "https://httpbin.org/get?lang=sema&type=lisp"))
+(define qbody (json/decode (:body qresp)))
+(define args (:args qbody))
+(println (format "lang=~a type=~a" (:lang args) (:type args)))
+(println)
+
+;; --- Weather (plain text) ---
+(println "--- Weather (text API) ---")
+(define weather (http/get "https://wttr.in/Oslo?format=3"))
+(println (format "Weather: ~a" (string/trim (:body weather))))
+(println)
+
+;; --- JSON API (fetch + parse) ---
+(println "--- JSON API ---")
+(define ip-resp (http/get "https://httpbin.org/ip"))
+(define ip-data (json/decode (:body ip-resp)))
+(println (format "Your IP: ~a" (:origin ip-data)))
+
+(println "\nDone!")

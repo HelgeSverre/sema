@@ -716,7 +716,9 @@ fn register_vm_delegates(env: &Rc<Env>) {
                 let mut form = vec![Value::Symbol(intern("import")), args[0].clone()];
                 if let Value::List(items) = &args[1] {
                     if !items.is_empty() {
-                        form.push(args[1].clone());
+                        for item in items.iter() {
+                            form.push(item.clone());
+                        }
                     }
                 }
                 let import_expr = Value::List(Rc::new(form));
@@ -826,7 +828,7 @@ fn register_vm_delegates(env: &Rc<Env>) {
         }))),
     );
 
-    // __vm-force: force a thunk by evaluating its body via the tree-walker
+    // __vm-force: force a thunk
     let force_env = env.clone();
     env.set(
         intern("__vm-force"),
@@ -841,7 +843,14 @@ fn register_vm_delegates(env: &Rc<Env>) {
                         if let Some(val) = thunk.forced.borrow().as_ref() {
                             return Ok(val.clone());
                         }
-                        let val = sema_core::eval_callback(ctx, &thunk.body, &force_env)?;
+                        let val = match &thunk.body {
+                            Value::NativeFn(_) | Value::Lambda(_) => {
+                                sema_core::call_callback(ctx, &thunk.body, &[])?
+                            }
+                            other => {
+                                sema_core::eval_callback(ctx, other, &force_env)?
+                            }
+                        };
                         *thunk.forced.borrow_mut() = Some(val.clone());
                         Ok(val)
                     }
