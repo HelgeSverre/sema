@@ -21,24 +21,35 @@ Every evaluation step returns a `Trampoline` instead of a `Value`. When a functi
 ```rust
 // crates/sema-eval/src/eval.rs — eval_value_inner
 fn eval_value_inner(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
-    let mut current_expr = expr.clone();
-    let mut current_env = env.clone();
     let entry_depth = ctx.call_stack_depth();
     let guard = CallStackGuard { ctx, entry_depth };
 
-    loop {
-        match eval_step(ctx, &current_expr, &current_env) {
-            Ok(Trampoline::Value(v)) => return Ok(v),
-            Ok(Trampoline::Eval(next_expr, next_env)) => {
-                // TCO: replace expr and env, continue loop
-                current_expr = next_expr;
-                current_env = next_env;
+    // First iteration: use borrowed expr/env to avoid cloning
+    match eval_step(ctx, expr, env) {
+        Ok(Trampoline::Value(v)) => return Ok(v),
+        Ok(Trampoline::Eval(next_expr, next_env)) => {
+            // Need to continue — enter the trampoline loop with owned values
+            let mut current_expr = next_expr;
+            let mut current_env = next_env;
+            // ... trim call stack for TCO ...
+            loop {
+                match eval_step(ctx, &current_expr, &current_env) {
+                    Ok(Trampoline::Value(v)) => return Ok(v),
+                    Ok(Trampoline::Eval(next_expr, next_env)) => {
+                        // TCO: replace expr and env, continue loop
+                        current_expr = next_expr;
+                        current_env = next_env;
+                    }
+                    Err(e) => { /* attach stack trace if missing */ }
+                }
             }
-            Err(e) => { /* attach stack trace if missing */ }
         }
+        Err(e) => { /* attach stack trace if missing */ }
     }
 }
 ```
+
+The key optimization here is that `eval_value_inner` no longer clones `expr` and `env` unconditionally at entry. The first call to `eval_step` uses the borrowed references directly. Owned copies (`current_expr`, `current_env`) are only created when `eval_step` returns `Trampoline::Eval` — meaning a TCO continuation is needed. In the common case where the first `eval_step` returns `Trampoline::Value` (i.e., the expression doesn't involve a tail call), no cloning happens at all.
 
 This is the same technique described in Guy Steele's ["Rabbit" compiler paper](https://dspace.mit.edu/handle/1721.1/6913) (1978), where he showed that tail calls in Scheme can be compiled as jumps. In a native-code compiler (like Chez Scheme), the tail call becomes an actual `jmp` instruction. In a tree-walking interpreter, we can't jump — but we can return a "please evaluate this next" token and loop. The trampoline bounces between returning tokens and evaluating them, hence the name.
 
@@ -273,6 +284,48 @@ This means macro expansion is always in tail position — the expanded code gets
 
 Keywords can be used as functions for map lookup: `(:name person)` is equivalent to `(get person :name)`. This is syntactic sugar evaluated directly in `eval_step`, not a general callable mechanism.
 
+## `call_value`: Calling Functions from Stdlib
+
+The `call_value` function is the public API for calling any callable `Value` with pre-evaluated arguments. It's the entry point used by stdlib higher-order functions (`map`, `filter`, `fold`, etc.) when they need to invoke a user-supplied callback:
+
+```rust
+// crates/sema-eval/src/eval.rs
+pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult {
+    match func {
+        Value::NativeFn(native) => (native.func)(ctx, args),
+        Value::Lambda(lambda) => {
+            // Create env, bind params (with rest-param support), eval body
+            let new_env = Env::with_parent(Rc::new(lambda.env.clone()));
+            // ... parameter binding ...
+            let mut result = Value::Nil;
+            for expr in &lambda.body {
+                result = eval_value(ctx, expr, &new_env)?;
+            }
+            Ok(result)
+        }
+        Value::Keyword(spur) => {
+            // Keyword-as-function: (:key map) => map lookup
+            // ...
+        }
+        other => Err(SemaError::eval("not callable")),
+    }
+}
+```
+
+Unlike `apply_lambda` (used by `eval_step` during normal evaluation), `call_value` does **not** use the trampoline — it evaluates the lambda body directly via `eval_value`, including the last expression. This is intentional: `call_value` is called from Rust code (stdlib native functions) that needs a `Value` result, not a `Trampoline`. The trade-off is that callbacks invoked through `call_value` don't get TCO on their own body — but in practice this doesn't matter, because stdlib HOFs like `map` and `filter` iterate externally rather than recursing.
+
+### Callback Architecture
+
+Stdlib functions live in `sema-stdlib`, which depends on `sema-core` but **not** on `sema-eval`. This means stdlib can't call `eval_value` or `call_value` directly. Instead, `sema-core` provides thread-local callback slots:
+
+```rust
+// sema-core: thread-local function pointers
+sema_core::set_eval_callback(eval_value);   // registered by sema-eval at init
+sema_core::set_call_callback(call_value);   // registered by sema-eval at init
+```
+
+When a stdlib HOF like `map` needs to call a user function, it calls `sema_core::call_callback(ctx, func, args)`, which dispatches to the registered `call_value`. This indirection preserves the dependency invariant (`core ← eval ← stdlib`) while giving stdlib full access to the evaluator.
+
 ## Stack Traces
 
 Sema maintains a call stack in the `EvalContext` for error reporting:
@@ -361,12 +414,28 @@ Without this trimming, a tail-recursive loop of 1M iterations would accumulate 1
 
 ### MAX_EVAL_DEPTH (1024)
 
-The evaluator tracks nesting depth via the `eval_depth` field in `EvalContext`, incremented on every `eval_value` call and decremented on return:
+The evaluator tracks nesting depth via the `eval_depth` field in `EvalContext`, incremented on every `eval_value` call and decremented on return. However, `eval_value` has a **fast path** at the top that short-circuits self-evaluating forms and symbol lookups *before* any depth tracking or step counting:
 
 ```rust
 const MAX_EVAL_DEPTH: usize = 1024;
 
 pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
+    // Fast path: self-evaluating forms skip depth/step tracking entirely.
+    match expr {
+        Value::Nil | Value::Bool(_) | Value::Int(_) | Value::Float(_)
+        | Value::String(_) | Value::Char(_) | Value::Keyword(_)
+        | Value::Thunk(_) | Value::Bytevector(_) | Value::NativeFn(_)
+        | Value::Lambda(_) | Value::HashMap(_) => return Ok(expr.clone()),
+        Value::Symbol(spur) => {
+            if let Some(val) = env.get(*spur) {
+                return Ok(val);
+            }
+            return Err(SemaError::Unbound(resolve(*spur)));
+        }
+        _ => {}
+    }
+
+    // Only non-trivial expressions (lists, vectors, maps) reach here
     let depth = ctx.eval_depth.get();
     ctx.eval_depth.set(depth + 1);
     if depth > MAX_EVAL_DEPTH {
@@ -376,6 +445,8 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
     // ...
 }
 ```
+
+This fast path is a significant optimization: self-evaluating forms (numbers, strings, booleans, nil, keywords, lambdas, native functions, etc.) and symbol lookups are the most common expressions, and they never need depth tracking because they can't recurse. By returning immediately, they avoid the overhead of incrementing/decrementing the depth counter and checking the step limit. Only compound expressions — lists, vectors, and maps — fall through to the depth-tracked path.
 
 This protects against non-tail recursion that the trampoline can't help with — for example, `(f (f (f ...)))` nests `eval_value` calls for each argument evaluation. The limit of 1024 is generous enough for real programs but prevents native stack overflow.
 

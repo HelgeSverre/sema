@@ -40,10 +40,10 @@ The entire implementation is ~15k lines of Rust spread across 6 crates, each wit
 
 **Dependency flow:** `sema-core ← sema-reader ← sema-eval ← sema-stdlib / sema-llm ← sema`
 
-The critical constraint: **sema-stdlib and sema-llm depend on sema-core, not on sema-eval.** This avoids circular dependencies but creates a problem — both crates sometimes need to evaluate user code. They solve it differently:
+The critical constraint: **sema-stdlib and sema-llm depend on sema-core, not on sema-eval.** This avoids circular dependencies but creates a problem — both crates sometimes need to evaluate user code. They solve it via dependency inversion:
 
-- **sema-stdlib** contains its own mini-evaluator (`sema_eval_value`) for hot paths like `file/fold-lines`
-- **sema-llm** uses an eval callback (`set_eval_callback`) injected at startup by the binary crate
+- **sema-stdlib** invokes the real evaluator via thread-local callbacks (`call_callback`/`eval_callback`) registered by `sema-eval` at startup
+- **sema-llm** uses its own eval callback for legacy reasons, plus the core callbacks
 
 This is discussed in detail in [The Circular Dependency Problem](#the-circular-dependency-problem).
 
@@ -54,7 +54,7 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-core** | Shared types | `Value` (23 variants), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types |
 | **sema-reader** | Parsing | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap` |
 | **sema-eval** | Evaluation | Trampoline-based evaluator, 39 special forms, module system, call stack + span table |
-| **sema-stdlib** | Standard library | ~350 native functions across 19 modules, plus mini-evaluator for hot paths |
+| **sema-stdlib** | Standard library | ~350 native functions across 19 modules |
 | **sema-llm** | LLM integration | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
 | **sema** | Binary | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API |
 
@@ -277,8 +277,10 @@ Some state remains in thread-local storage — either because it's a pure perfor
 | Location | Thread-local | Purpose |
 |----------|-------------|---------|
 | `sema-core/value.rs` | `INTERNER` | String interner (`lasso::Rodeo`) |
+| `sema-core/context.rs` | `EVAL_FN` | Evaluator callback |
+| `sema-core/context.rs` | `CALL_FN` | Call-value callback |
+| `sema-core/context.rs` | `STDLIB_CTX` | Shared `EvalContext` for stdlib callbacks |
 | `sema-eval/special_forms.rs` | `SF` | Cached `SpecialFormSpurs` (performance cache) |
-| `sema-stdlib/list.rs` | `SF` | Cached mini-eval `SpecialFormSpurs` (performance cache) |
 | `sema-llm/builtins.rs` | `PROVIDER_REGISTRY` | Registered LLM providers |
 | `sema-llm/builtins.rs` | `SESSION_USAGE` | Cumulative token usage |
 | `sema-llm/builtins.rs` | `LAST_USAGE` | Most recent completion's usage |
@@ -389,21 +391,42 @@ sema-stdlib ──depends-on──► sema-core
 sema-stdlib ──CANNOT depend on──► sema-eval  (would create a cycle)
 ```
 
-### Solution 1: Mini-Evaluator (sema-stdlib)
+### Solution 1: Callback Architecture (sema-core + sema-stdlib)
 
-`sema-stdlib` contains its own minimal evaluator in `list.rs` — the `sema_eval_value` function. It handles the common forms needed in hot loops:
+`sema-core` defines thread-local callback storage in `context.rs` that bridges the dependency gap using dependency inversion:
 
-- `quote`, `if`, `begin`, `let`, `let*`, `cond`, `when`, `unless`, `and`, `or`
-- `define`, `set!`, `lambda`/`fn`
-- Inlined builtins: `+`, `=`, `assoc`, `get`, `min`, `max`, `first`, `nth`, `nil?`, `float`, `string/split`, `string->number`
+```rust
+pub type EvalCallback = fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>;
+pub type CallCallback = fn(&EvalContext, &Value, &[Value], &Env) -> Result<Value, SemaError>;
 
-This is both an architectural necessity and a performance optimization. The mini-eval skips the full evaluator's overhead (trampoline dispatch, call stack tracking, span table lookups), running **~4x faster** for tight inner loops. See [Performance Internals](./performance.md#_3-mini-eval-inlined-hot-path-builtins) for benchmarks.
+thread_local! {
+    static EVAL_FN: Cell<Option<EvalCallback>> = Cell::new(None);
+    static CALL_FN: Cell<Option<CallCallback>> = Cell::new(None);
+    static STDLIB_CTX: RefCell<Option<EvalContext>> = RefCell::new(None);
+}
+```
 
-The cost: any special form or builtin not handled by the mini-eval is invisible to code running inside `file/fold-lines` and similar hot-path builtins. In practice this is rarely a problem — the forms needed in tight loops (arithmetic, conditionals, let bindings, map operations) are all covered.
+At startup, `sema-eval` registers the real evaluator and call dispatch functions:
+
+```rust
+sema_core::set_eval_callback(eval_value);
+sema_core::set_call_callback(call_value);
+```
+
+All stdlib higher-order functions (`map`, `filter`, `fold`, `sort-by`, `for-each`, `file/fold-lines`, etc.) invoke user-provided lambdas through `sema_core::call_callback`, which dispatches to the real evaluator:
+
+```rust
+// In sema-stdlib, e.g. map implementation
+let result = sema_core::call_callback(&func, &[elem], env)?;
+```
+
+The `with_stdlib_ctx` function provides a shared `EvalContext` for stdlib callbacks, avoiding per-call allocation of a new context.
+
+This is a clean dependency inversion — `sema-stdlib` depends only on the callback signature defined in `sema-core`, not on `sema-eval`. The runtime cost is one `Cell::get()` + function pointer dispatch per call, which is negligible. Unlike the previous mini-evaluator approach, this architecture uses the *same* evaluator everywhere — all special forms, builtins, and features are available inside higher-order functions like `map` and `file/fold-lines`.
 
 ### Solution 2: Eval Callback (sema-llm)
 
-`sema-llm` takes a different approach. It stores a function pointer in a thread-local that bridges the dependency gap:
+`sema-llm` predates the core callback architecture and maintains its own eval callback in a thread-local. It stores a function pointer that bridges the dependency gap:
 
 ```rust
 pub type EvalCallback = Box<dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>>;
@@ -447,4 +470,4 @@ An alternative would be to define an `Evaluator` trait in `sema-core` and have `
 
 ### Architectural Lesson
 
-The circular dependency constraint shaped Sema's architecture in a way that turned out to be beneficial. The mini-evaluator exists for correctness (stdlib can't depend on eval) but delivers a 4x performance improvement as a side effect. The eval callback exists for correctness (llm can't depend on eval) but provides clean separation of concerns as a side effect. Sometimes constraints lead to better designs than unconstrained freedom would have.
+The circular dependency constraint forced a callback architecture that turned out to be a better design than having direct access to the evaluator would have been. The dependency inversion through `sema-core` callbacks gives a single, canonical evaluator used everywhere — stdlib HOFs, LLM tool handlers, and the main interpreter all run the same code paths with full feature support. This also provides a clean seam for future work: if Sema moves to a bytecode VM, only the callback registrations need to change — all call sites in stdlib and llm remain untouched. Sometimes constraints lead to better designs than unconstrained freedom would have.

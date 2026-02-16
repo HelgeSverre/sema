@@ -96,6 +96,41 @@ A few ubiquitous primitives are kept without a namespace prefix for Scheme famil
   4. Deferred cloning in `eval_value_inner` avoids `Value::clone()` and `Env::clone()` on the first trampoline iteration (the common non-TCO case).
 - **Remaining gap** (~2630ms vs ~960ms original mini-eval) is dominated by the tree-walker's fundamental per-expression overhead: Env chain lookups, Rc refcounting, call-stack management, and trampoline dispatch. This cannot be closed without a bytecode VM.
 
+## Bytecode VM Design Decisions
+
+Three architectural decisions made before Phase 1 of the bytecode VM:
+
+### 1. `eval` Semantics: Reify (read-only)
+
+**Decision:** `(eval expr)` sees lexical locals from the calling VM frame, but as a **read-only view**. `set!` inside `eval` can only target globals — attempting to mutate a reified local is an error.
+
+**What "reify" means:** When compiled code calls `eval`, the VM must bridge two worlds. The VM stores locals in numbered stack slots (e.g., `x` is slot 0, `y` is slot 1). The tree-walker evaluator that runs `eval`'d expressions expects an `Env` hash map with named bindings. "Reify" means the VM walks its current frame and upvalue cells, builds a temporary `Env` with `{x → slot[0], y → slot[1], ...}`, and passes it to the tree-walker.
+
+**Why read-only:** If `eval` could mutate locals via `set!`, the temporary Env would need to be a *live view* into VM slots — requiring `Env` to become an enum over hash-map storage vs. frame-pointer storage. This is architecturally invasive and adds runtime branching to every `Env::get`/`set` call. The read-only model avoids this entirely: the reified Env is a plain hash map snapshot. `eval` can read locals and mutate globals, which covers all practical use cases.
+
+**Compiler requirement:** The compiler must preserve a name→slot mapping table (`Vec<(Spur, u16)>`) in each function's debug metadata. Without this, reify can't know what names to assign to slot values.
+
+**What reify includes:** Locals in the current frame + captured upvalues from enclosing scopes + module globals. The full lexical environment is visible.
+
+**Performance:** O(n) per `eval` call where n = number of locals + upvalues. Acceptable since `eval` is inherently dynamic and rare in hot paths.
+
+### 2. Macro Phase: Keep Runtime Semantics
+
+**Decision:** Macros remain runtime-expanded, exactly as today. When the VM encounters a `Value::Macro` callable, it delegates to the tree-walker for expansion, then compiles and executes the result.
+
+**Implication:** The tree-walker (`sema-eval`) is NOT deleted — it becomes the macro expansion engine. Both runtimes must coexist and interoperate. The compilation pipeline is: source → reader → macro expand (tree-walker) → lower to CoreExpr → resolve variables → compile to bytecode → VM execution.
+
+**Performance risk:** Macros used in hot loops trigger expand→compile per iteration. Mitigation: per-callsite expansion cache keyed by macro identity + structural arg hash. Not required for v1 but should be designed for.
+
+### 3. GC: Keep Rc for v1
+
+**Decision:** Accept `Rc` cycle limitations for the initial bytecode VM. Document known cycle sources (recursive `define`, self-referencing closures via upvalue cells). Plan tracing mark-sweep GC for v2, using the VM stack as roots.
+
+**Known cycle sources:**
+- Named lambdas bind themselves in their captured env: `Lambda → env → bindings → Lambda`
+- In the VM, self-reference becomes: `Closure → upvalues → UpvalueCell → Value::Closure → ...`
+- These are bounded leaks (closure + its captured environment), not growing leaks.
+
 ## Package System
 
 - Currently no package manager. `import` resolves local files only (relative to the importing file).
