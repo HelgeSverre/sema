@@ -3,6 +3,7 @@ mod eval;
 mod special_forms;
 
 pub use eval::{
-    create_module_env, eval, eval_string, eval_value, EvalResult, Interpreter, Trampoline,
+    call_value, create_module_env, eval, eval_string, eval_value, EvalResult, Interpreter,
+    Trampoline,
 };
 pub use sema_core::EvalContext;

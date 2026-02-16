@@ -65,6 +65,9 @@ impl Interpreter {
     pub fn new() -> Self {
         let env = Env::new();
         let ctx = EvalContext::new();
+        // Register eval/call callbacks so stdlib can invoke the real evaluator
+        sema_core::set_eval_callback(eval_value);
+        sema_core::set_call_callback(call_value);
         // Register stdlib
         sema_stdlib::register_stdlib(&env, &sema_core::Sandbox::allow_all());
         // Register LLM builtins
@@ -83,6 +86,8 @@ impl Interpreter {
     pub fn new_with_sandbox(sandbox: &sema_core::Sandbox) -> Self {
         let env = Env::new();
         let ctx = EvalContext::new_with_sandbox(sandbox.clone());
+        sema_core::set_eval_callback(eval_value);
+        sema_core::set_call_callback(call_value);
         sema_stdlib::register_stdlib(&env, sandbox);
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -137,9 +142,31 @@ pub fn eval(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
 const MAX_EVAL_DEPTH: usize = 1024;
 
 pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
+    // Fast path: self-evaluating forms skip depth/step tracking entirely.
+    match expr {
+        Value::Nil
+        | Value::Bool(_)
+        | Value::Int(_)
+        | Value::Float(_)
+        | Value::String(_)
+        | Value::Char(_)
+        | Value::Keyword(_)
+        | Value::Thunk(_)
+        | Value::Bytevector(_)
+        | Value::NativeFn(_)
+        | Value::Lambda(_)
+        | Value::HashMap(_) => return Ok(expr.clone()),
+        Value::Symbol(spur) => {
+            if let Some(val) = env.get(*spur) {
+                return Ok(val);
+            }
+            return Err(SemaError::Unbound(resolve(*spur)));
+        }
+        _ => {}
+    }
+
     let depth = ctx.eval_depth.get();
     ctx.eval_depth.set(depth + 1);
-    // Reset step counter at the top-level eval entry
     if depth == 0 {
         ctx.eval_steps.set(0);
     }
@@ -156,53 +183,153 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
     result
 }
 
+/// Call a function value with already-evaluated arguments.
+/// This is the public API for stdlib functions that need to invoke callbacks.
+pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult {
+    match func {
+        Value::NativeFn(native) => (native.func)(ctx, args),
+        Value::Lambda(lambda) => {
+            let new_env = Env::with_parent(Rc::new(lambda.env.clone()));
+
+            if let Some(ref rest) = lambda.rest_param {
+                if args.len() < lambda.params.len() {
+                    return Err(SemaError::arity(
+                        lambda.name.as_deref().unwrap_or("lambda"),
+                        format!("{}+", lambda.params.len()),
+                        args.len(),
+                    ));
+                }
+                for (param, arg) in lambda.params.iter().zip(args.iter()) {
+                    new_env.set(sema_core::intern(param), arg.clone());
+                }
+                let rest_args = args[lambda.params.len()..].to_vec();
+                new_env.set(sema_core::intern(rest), Value::list(rest_args));
+            } else {
+                if args.len() != lambda.params.len() {
+                    return Err(SemaError::arity(
+                        lambda.name.as_deref().unwrap_or("lambda"),
+                        lambda.params.len().to_string(),
+                        args.len(),
+                    ));
+                }
+                for (param, arg) in lambda.params.iter().zip(args.iter()) {
+                    new_env.set(sema_core::intern(param), arg.clone());
+                }
+            }
+
+            if let Some(ref name) = lambda.name {
+                new_env.set(sema_core::intern(name), Value::Lambda(Rc::clone(lambda)));
+            }
+
+            let mut result = Value::Nil;
+            for expr in &lambda.body {
+                result = eval_value(ctx, expr, &new_env)?;
+            }
+            Ok(result)
+        }
+        Value::Keyword(spur) => {
+            if args.len() != 1 {
+                let name = resolve(*spur);
+                return Err(SemaError::arity(format!(":{name}"), "1", args.len()));
+            }
+            let key = Value::Keyword(*spur);
+            match &args[0] {
+                Value::Map(map) => Ok(map.get(&key).cloned().unwrap_or(Value::Nil)),
+                Value::HashMap(map) => Ok(map.get(&key).cloned().unwrap_or(Value::Nil)),
+                _ => Err(SemaError::type_error("map", args[0].type_name())),
+            }
+        }
+        other => Err(
+            SemaError::eval(format!("not callable: {} ({})", other, other.type_name()))
+                .with_hint("expected a function, lambda, or keyword"),
+        ),
+    }
+}
+
 fn eval_value_inner(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
-    let mut current_expr = expr.clone();
-    let mut current_env = env.clone();
     let entry_depth = ctx.call_stack_depth();
     let guard = CallStackGuard { ctx, entry_depth };
     let limit = ctx.eval_step_limit.get();
 
-    loop {
-        if limit > 0 {
-            let v = ctx.eval_steps.get() + 1;
-            ctx.eval_steps.set(v);
-            if v > limit {
-                return Err(SemaError::eval("eval step limit exceeded".to_string()));
-            }
+    // First iteration: use borrowed expr/env to avoid cloning
+    if limit > 0 {
+        let v = ctx.eval_steps.get() + 1;
+        ctx.eval_steps.set(v);
+        if v > limit {
+            return Err(SemaError::eval("eval step limit exceeded".to_string()));
         }
+    }
 
-        match eval_step(ctx, &current_expr, &current_env) {
-            Ok(Trampoline::Value(v)) => {
-                drop(guard);
-                return Ok(v);
-            }
-            Ok(Trampoline::Eval(next_expr, next_env)) => {
-                // Tail call: replace accumulated frames with just the most recent one.
-                // This keeps one frame for the current function (TCO frame replacement)
-                // while preventing unbounded growth in tail-recursive loops.
-                {
-                    let mut stack = ctx.call_stack.borrow_mut();
-                    if stack.len() > entry_depth + 1 {
-                        let top = stack.last().cloned();
-                        stack.truncate(entry_depth);
-                        if let Some(frame) = top {
-                            stack.push(frame);
-                        }
+    match eval_step(ctx, expr, env) {
+        Ok(Trampoline::Value(v)) => {
+            drop(guard);
+            Ok(v)
+        }
+        Ok(Trampoline::Eval(next_expr, next_env)) => {
+            // Need to continue — enter the trampoline loop
+            let mut current_expr = next_expr;
+            let mut current_env = next_env;
+
+            // Trim call stack for TCO
+            {
+                let mut stack = ctx.call_stack.borrow_mut();
+                if stack.len() > entry_depth + 1 {
+                    let top = stack.last().cloned();
+                    stack.truncate(entry_depth);
+                    if let Some(frame) = top {
+                        stack.push(frame);
                     }
                 }
-                current_expr = next_expr;
-                current_env = next_env;
             }
-            Err(e) => {
-                if e.stack_trace().is_none() {
-                    let trace = ctx.capture_stack_trace();
-                    drop(guard);
-                    return Err(e.with_stack_trace(trace));
+
+            loop {
+                if limit > 0 {
+                    let v = ctx.eval_steps.get() + 1;
+                    ctx.eval_steps.set(v);
+                    if v > limit {
+                        return Err(SemaError::eval("eval step limit exceeded".to_string()));
+                    }
                 }
-                drop(guard);
-                return Err(e);
+
+                match eval_step(ctx, &current_expr, &current_env) {
+                    Ok(Trampoline::Value(v)) => {
+                        drop(guard);
+                        return Ok(v);
+                    }
+                    Ok(Trampoline::Eval(next_expr, next_env)) => {
+                        {
+                            let mut stack = ctx.call_stack.borrow_mut();
+                            if stack.len() > entry_depth + 1 {
+                                let top = stack.last().cloned();
+                                stack.truncate(entry_depth);
+                                if let Some(frame) = top {
+                                    stack.push(frame);
+                                }
+                            }
+                        }
+                        current_expr = next_expr;
+                        current_env = next_env;
+                    }
+                    Err(e) => {
+                        if e.stack_trace().is_none() {
+                            let trace = ctx.capture_stack_trace();
+                            drop(guard);
+                            return Err(e.with_stack_trace(trace));
+                        }
+                        drop(guard);
+                        return Err(e);
+                    }
+                }
             }
+        }
+        Err(e) => {
+            if e.stack_trace().is_none() {
+                let trace = ctx.capture_stack_trace();
+                drop(guard);
+                return Err(e.with_stack_trace(trace));
+            }
+            drop(guard);
+            Err(e)
         }
     }
 }

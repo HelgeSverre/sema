@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.1
+
+### Internal
+
+- **Eliminated mini-eval** — deleted the 620-line duplicated evaluator from `sema-stdlib/src/list.rs`. All stdlib higher-order functions (`map`, `filter`, `foldl`, `sort-by`, etc.) and file streaming functions (`file/fold-lines`, `file/for-each-line`) now call through the real evaluator via a callback architecture in `sema-core`. Net change: **-751 lines**.
+- **Callback architecture** — `sema-core` provides thread-local `eval_callback` and `call_callback` functions, registered by `sema-eval` during interpreter initialization. This replaces the mini-eval while preserving the dependency constraint (`sema-stdlib` cannot depend on `sema-eval`).
+- **Evaluator fast-path optimizations** — self-evaluating forms (Int, Float, String, Symbol, etc.) now skip depth tracking, step counting, and trampoline setup entirely. Deferred cloning in the trampoline avoids unnecessary `Value::clone()` and `Env::clone()` on non-TCO calls. Thread-local shared `EvalContext` eliminates per-call allocations in stdlib callbacks.
+- **Public `call_value` API** — new function in `sema-eval` for calling any callable `Value` (Lambda, NativeFn, Keyword) with evaluated arguments, used by stdlib and LLM builtins.
+
 ## 1.2.0
 
 ### Added
@@ -25,7 +34,7 @@
 - **Sandbox docs** — new [CLI sandbox reference](https://sema-lang.com/docs/cli.html#sandbox) and updated [embedding guide](https://sema-lang.com/docs/embedding.html) with sandbox examples.
 - **Editor support page** — new [sema-lang.com/docs/editors](https://sema-lang.com/docs/editors.html) with installation instructions for all four editors.
 - **Shell completions page** — new [sema-lang.com/docs/shell-completions](https://sema-lang.com/docs/shell-completions.html) with setup instructions for bash, zsh, fish, elvish, and PowerShell.
-- **Architecture decisions** — new `docs/decisions.md` documenting naming conventions, Rc cycle behavior, sandbox system, mini-evaluator design, package system plans, and LSP roadmap.
+- **Architecture decisions** — new `docs/decisions.md` documenting naming conventions, Rc cycle behavior, sandbox system, evaluator callback architecture, package system plans, and LSP roadmap.
 - **LSP server design** — new `docs/plans/2026-02-16-lsp-server.md` with 4-phase implementation plan using `tower-lsp`.
 - **String docs reorganized** — `string/` namespaced functions now lead; legacy Scheme names grouped under "Scheme Compatibility Aliases".
 

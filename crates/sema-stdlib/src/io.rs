@@ -3,9 +3,8 @@ use std::io::Read as _;
 use std::io::Write as _;
 use std::rc::Rc;
 
-use sema_core::{Caps, Env, SemaError, Value};
+use sema_core::{Caps, SemaError, Value};
 
-use crate::list::{call_function, sema_eval_value};
 use crate::register_fn;
 
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
@@ -363,61 +362,26 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .map_err(|e| SemaError::Io(format!("file/for-each-line {path}: {e}")))?;
         let mut reader = std::io::BufReader::new(file);
 
-        // Performance: when the callback is a simple lambda (1 param, no rest args), we bypass
-        // the normal function dispatch path and instead:
-        //   - Create a single Env once and reuse it for every line (avoids per-line allocation)
-        //   - Intern the param name once and use update() to overwrite the binding in-place
-        //   - Read into a reusable line buffer instead of allocating per line
-        //   - Evaluate via the mini-eval (sema_eval_value) which is ~4x faster than the full
-        //     trampoline evaluator for tight loops
-        // This was critical for the 1BRC benchmark: processing 1M rows dropped from ~6.2s to ~1.6s.
-        if let Value::Lambda(ref lambda) = func {
-            if lambda.params.len() == 1 && lambda.rest_param.is_none() {
-                let lambda_env = Env::with_parent(Rc::new(lambda.env.clone()));
-                let param0_spur = sema_core::intern(&lambda.params[0]);
-                lambda_env.set(param0_spur, Value::Nil);
-                let mut line_buf = String::with_capacity(64);
-                loop {
-                    line_buf.clear();
-                    let n = reader
-                        .read_line(&mut line_buf)
-                        .map_err(|e| SemaError::Io(format!("file/for-each-line {path}: {e}")))?;
-                    if n == 0 {
-                        break;
-                    }
-                    if line_buf.ends_with('\n') {
-                        line_buf.pop();
-                        if line_buf.ends_with('\r') {
-                            line_buf.pop();
-                        }
-                    }
-                    lambda_env.update(param0_spur, Value::string(&line_buf));
-                    for expr in &lambda.body {
-                        sema_eval_value(expr, &lambda_env)?;
-                    }
+        sema_core::with_stdlib_ctx(|ctx| {
+            let mut line_buf = String::with_capacity(64);
+            loop {
+                line_buf.clear();
+                let n = reader
+                    .read_line(&mut line_buf)
+                    .map_err(|e| SemaError::Io(format!("file/for-each-line {path}: {e}")))?;
+                if n == 0 {
+                    break;
                 }
-                return Ok(Value::Nil);
-            }
-        }
-
-        let mut line_buf = String::with_capacity(64);
-        loop {
-            line_buf.clear();
-            let n = reader
-                .read_line(&mut line_buf)
-                .map_err(|e| SemaError::Io(format!("file/for-each-line {path}: {e}")))?;
-            if n == 0 {
-                break;
-            }
-            if line_buf.ends_with('\n') {
-                line_buf.pop();
-                if line_buf.ends_with('\r') {
+                if line_buf.ends_with('\n') {
                     line_buf.pop();
+                    if line_buf.ends_with('\r') {
+                        line_buf.pop();
+                    }
                 }
+                sema_core::call_callback(ctx, &func, &[Value::string(&line_buf)])?;
             }
-            call_function(&func, &[Value::string(&line_buf)])?;
-        }
-        Ok(Value::Nil)
+            Ok(Value::Nil)
+        })
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/fold-lines", |args| {
@@ -434,65 +398,26 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         // 256KB buffer (vs default 8KB) improves throughput for large file reads.
         let mut reader = std::io::BufReader::with_capacity(256 * 1024, file);
 
-        // Performance: same env-reuse strategy as file/for-each-line, plus the accumulator
-        // is moved (not cloned) into the env on each iteration. Combined with Env::take()
-        // at the call site (in user code like 1BRC), this enables COW map mutation — when
-        // the accumulator's Rc refcount is 1, assoc/hashmap-assoc can mutate in place instead
-        // of cloning the entire map. For 1BRC with ~400 weather stations, this eliminated an
-        // O(stations) clone per row.
-        if let Value::Lambda(ref lambda) = func {
-            if lambda.params.len() == 2 && lambda.rest_param.is_none() {
-                let lambda_env = Env::with_parent(Rc::new(lambda.env.clone()));
-                let param0_spur = sema_core::intern(&lambda.params[0]);
-                let param1_spur = sema_core::intern(&lambda.params[1]);
-                // Pre-populate keys so update() can find them
-                lambda_env.set(param0_spur, Value::Nil);
-                lambda_env.set(param1_spur, Value::Nil);
-                let mut line_buf = String::with_capacity(64);
-                loop {
-                    line_buf.clear();
-                    let n = reader
-                        .read_line(&mut line_buf)
-                        .map_err(|e| SemaError::Io(format!("file/fold-lines {path}: {e}")))?;
-                    if n == 0 {
-                        break;
-                    }
-                    if line_buf.ends_with('\n') {
-                        line_buf.pop();
-                        if line_buf.ends_with('\r') {
-                            line_buf.pop();
-                        }
-                    }
-                    lambda_env.update(param0_spur, acc);
-                    lambda_env.update(param1_spur, Value::string(&line_buf));
-                    let mut result = Value::Nil;
-                    for expr in &lambda.body {
-                        result = sema_eval_value(expr, &lambda_env)?;
-                    }
-                    acc = result;
+        sema_core::with_stdlib_ctx(|ctx| {
+            let mut line_buf = String::with_capacity(64);
+            loop {
+                line_buf.clear();
+                let n = reader
+                    .read_line(&mut line_buf)
+                    .map_err(|e| SemaError::Io(format!("file/fold-lines {path}: {e}")))?;
+                if n == 0 {
+                    break;
                 }
-                return Ok(acc);
-            }
-        }
-
-        let mut line_buf = String::with_capacity(64);
-        loop {
-            line_buf.clear();
-            let n = reader
-                .read_line(&mut line_buf)
-                .map_err(|e| SemaError::Io(format!("file/fold-lines {path}: {e}")))?;
-            if n == 0 {
-                break;
-            }
-            if line_buf.ends_with('\n') {
-                line_buf.pop();
-                if line_buf.ends_with('\r') {
+                if line_buf.ends_with('\n') {
                     line_buf.pop();
+                    if line_buf.ends_with('\r') {
+                        line_buf.pop();
+                    }
                 }
+                acc = sema_core::call_callback(ctx, &func, &[acc, Value::string(&line_buf)])?;
             }
-            acc = call_function(&func, &[acc, Value::string(&line_buf)])?;
-        }
-        Ok(acc)
+            Ok(acc)
+        })
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/write-lines", |args| {

@@ -83,15 +83,18 @@ A few ubiquitous primitives are kept without a namespace prefix for Scheme famil
 - Presets: `--sandbox=strict` (deny shell, fs-write, network, env-write, process, llm) and `--sandbox=all` (deny everything).
 - **Not a process sandbox** — this is an in-language permission check. It prevents stdlib natives from doing I/O but does not provide OS-level isolation.
 
-## Mini-Evaluator Synchronization
+## Evaluator Callback Architecture (Mini-Eval Removal)
 
-- `sema_eval_value` in `sema-stdlib/src/list.rs` (~620 lines) is a fast-path evaluator used by `file/fold-lines` and higher-order functions.
-- It duplicates a subset of the main evaluator in `sema-eval/src/eval.rs` to avoid the overhead of the full trampoline-based evaluation loop.
-- This provides ~4x speedup on hot paths but must be manually kept in sync when new special forms or evaluation semantics are added.
-- This is a known maintenance concern — divergence between the two evaluators can cause subtle bugs.
-- **Future options:**
-  - Code generation or a shared trait to reduce drift risk
-  - A bytecode VM would eliminate the need for two evaluators entirely, since the hot loop would be bytecode dispatch rather than AST walking
+- The 620-line mini-evaluator (`sema_eval_value` + `call_function`) that previously lived in `sema-stdlib/src/list.rs` has been **deleted**.
+- It existed because `sema-stdlib` cannot depend on `sema-eval` (circular dependency). It was a hand-optimized fast-path evaluator that provided ~4× speedup on hot loops by skipping the trampoline, call stack, and span tracking.
+- It was replaced with a **callback architecture**: `sema-core` provides thread-local `eval_callback` and `call_callback` functions, registered by `sema-eval` during interpreter initialization. All stdlib functions now call through the real evaluator.
+- **Trade-off:** 1BRC benchmark regressed from ~960ms to ~3050ms (3.2×) on 1M rows. This is acceptable for correctness — the mini-eval diverged from the real evaluator (no `try/catch`, `do`, macros, modules) and was a maintenance blocker for the bytecode VM transition.
+- **Fast-path optimizations** recovered ~14% of the regression (3050ms → ~2630ms on 1M rows):
+  1. Thread-local shared `EvalContext` (`with_stdlib_ctx`) eliminates per-call allocation of 6 RefCells in `call_function` and IO streaming functions.
+  2. Inline `NativeFn` dispatch in `call_function` skips the `call_callback` thread-local indirection for native function calls.
+  3. Self-evaluating fast path in `eval_value` short-circuits Int, Float, String, Bool, Nil, Symbol, Keyword, and other self-evaluating forms before depth/step tracking.
+  4. Deferred cloning in `eval_value_inner` avoids `Value::clone()` and `Env::clone()` on the first trampoline iteration (the common non-TCO case).
+- **Remaining gap** (~2630ms vs ~960ms original mini-eval) is dominated by the tree-walker's fundamental per-expression overhead: Env chain lookups, Rc refcounting, call-stack management, and trampoline dispatch. This cannot be closed without a bytecode VM.
 
 ## Package System
 

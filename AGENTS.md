@@ -9,13 +9,13 @@
 
 ## Architecture (Cargo workspace, 6 crates)
 
-- **sema-core** → `Value` enum, `Env` (Rc+RefCell+HashMap), `SemaError` (thiserror)
+- **sema-core** → `Value` enum, `Env` (Rc+RefCell+HashMap), `SemaError` (thiserror), eval/call callbacks (`set_eval_callback`/`set_call_callback`)
 - **sema-reader** → Lexer + s-expression parser → `Value` AST
-- **sema-eval** → Trampoline-based TCO evaluator, special forms, module system (`EvalContext` holds module cache, call stack, spans)
-- **sema-stdlib** → 350+ native functions across 19 modules registered into `Env`
+- **sema-eval** → Trampoline-based TCO evaluator, special forms, module system (`EvalContext` holds module cache, call stack, spans), `call_value` for stdlib callback dispatch
+- **sema-stdlib** → 350+ native functions across 19 modules registered into `Env`. Higher-order fns (map, filter, fold) call through `sema_core::call_callback` — no mini-eval.
 - **sema-llm** → LLM provider trait + Anthropic/OpenAI clients (tokio `block_on`), dynamic pricing from llm-prices.com with disk cache fallback
 - **sema** → Binary (clap CLI + rustyline REPL) + integration tests
-- Dep flow: `sema-core ← sema-reader ← sema-eval ← sema-stdlib/sema-llm ← sema`. **Critical**: stdlib/llm depend on core, NOT eval.
+- Dep flow: `sema-core ← sema-reader ← sema-eval ← sema-stdlib/sema-llm ← sema`. **Critical**: stdlib/llm depend on core, NOT eval. Stdlib calls eval via thread-local callbacks registered by sema-eval.
 
 ## Code Style
 

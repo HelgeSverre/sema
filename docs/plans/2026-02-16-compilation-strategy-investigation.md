@@ -936,28 +936,18 @@ Compare to tree-walker: allocates `Env::with_parent`, inserts "x" and "y" into a
 | "~350 native functions" | **~380** (321 stdlib + 59 sema-llm builtins) | Low |
 | "~1000ms for 1BRC 1M rows" | **~1,600ms** (codebase comment says "1.6s on 1M rows"; benchmarks/1brc/results.json shows 15,564ms for 10M rows, extrapolating to ~1,556ms for 1M) | **High** — performance projections built on wrong baseline |
 | "`Env.clone()` is expensive" | `Env.clone()` is **2 Rc bumps** (bindings + parent are both `Rc`). The real cost is `Env::with_parent` allocating a new empty HashMap per scope, not cloning | Medium |
-| "EvalContext replaced all thread_locals" | **3 thread_locals remain**: `SpecialFormSpurs` cache in special_forms.rs, interner `INTERNER` in value.rs, mini-eval's own `SpecialFormSpurs` in list.rs | Low |
+| "EvalContext replaced all thread_locals" | **4 thread_locals remain**: `SpecialFormSpurs` cache in special_forms.rs, interner `INTERNER` in value.rs, `EVAL_FN`/`CALL_FN` callbacks in context.rs (mini-eval's `SpecialFormSpurs` in list.rs was deleted) | Low |
 | "Closures capture full Env (clone)" | Env clone is cheap (Rc bump), but both closures from the same scope **share the same bindings HashMap** via `Rc<RefCell>` — this is accidental shared mutability that the upvalue model makes explicit | Medium |
 
-### Critical Issue 1: The Mini-Eval (620 LOC) Is a Blocker
+### ~~Critical Issue 1: The Mini-Eval (620 LOC) Is a Blocker~~ — **RESOLVED**
 
-The document mentions the mini-eval in a single bullet in "Open Questions" and dismisses it as "natural." This is **dangerously wrong**.
+> **Status:** Fixed. The mini-eval has been deleted and replaced with a callback architecture.
 
-`sema_eval_value` in `crates/sema-stdlib/src/list.rs` is a **620-line reimplemented evaluator** inlined in the stdlib for hot-path performance. It handles:
-- 14 inlined special forms (quote, if, begin, let, let*, cond, when, unless, and, or, define, set!, lambda/fn)
-- 10+ inlined native functions (assoc, get, nil?, +, =, min, max, first, nth, float, string/split, string->number)
-- Its own `call_function` (list.rs:1155-1215) that bypasses `EvalContext` entirely
+The 620-line `sema_eval_value` and `call_function` in `sema-stdlib/src/list.rs` have been replaced with thread-local `eval_callback`/`call_callback` in `sema-core`, registered by `sema-eval` during interpreter init. All 18+ callback-accepting stdlib functions now invoke the real evaluator. Net change: **-814 lines**.
 
-**Why it's a blocker for compilation:**
-1. **Crate dependency inversion**: `sema-stdlib` cannot depend on `sema-eval` (circular dependency). If user closures become `Value::Closure` (compiled bytecode), the mini-eval in stdlib cannot execute them — it only understands `Value::Lambda` and `Value::NativeFn`.
-2. **18+ stdlib functions** accept callback lambdas that route through this mini-eval: `map`, `filter`, `foldl`, `foldr`, `for-each`, `apply`, `any`, `every`, `reduce`, `partition`, `sort`, `sort-by`, `list/group-by`, `map/map-vals`, `map/filter`, `file/for-each-line`, `file/fold-lines`, `string/map`.
-3. **The mini-eval has semantic drift**: its `set!` silently creates new bindings (falls back to `env.set`) instead of erroring on unbound variables like the main evaluator. Its `define` with function syntax doesn't parse rest params.
+**Performance trade-off:** 1BRC benchmark regressed from ~960ms → ~3050ms (3.2×) on 1M rows. The full evaluator's per-expression overhead (depth tracking, trampoline setup, Value cloning) is higher than the mini-eval's direct recursive evaluation. This is acceptable — the mini-eval had semantic drift (set! silently created bindings, define didn't parse rest params) and was the primary blocker for the bytecode VM transition.
 
-**Required resolution (before VM work starts):**
-- Add a `CallableFn` trait or callback type to `sema-core` that abstracts over Lambda/NativeFn/CompiledClosure
-- Restructure all 18+ callback-accepting stdlib functions to invoke callbacks through this abstraction
-- Delete the mini-eval or replace it with VM dispatch
-- Estimated effort: **1-2 person-months** (the document doesn't account for this)
+**Future:** The evaluator's fast path can be optimized (skip depth tracking for inner expressions, avoid Value cloning for self-evaluating forms) to recover most of the lost performance.
 
 ### Critical Issue 2: Macro Phase Semantics Are Unsound
 

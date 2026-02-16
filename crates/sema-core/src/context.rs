@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
-use crate::{CallFrame, Sandbox, SemaError, Span, SpanMap, StackTrace, Value};
+use crate::{CallFrame, Env, Sandbox, SemaError, Span, SpanMap, StackTrace, Value};
 
 const MAX_SPAN_TABLE_ENTRIES: usize = 200_000;
 
@@ -156,4 +156,67 @@ impl Default for EvalContext {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Type for a full evaluator callback: (ctx, expr, env) -> Result<Value, SemaError>
+pub type EvalCallback = dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>;
+
+/// Type for calling a function value with evaluated arguments: (ctx, func, args) -> Result<Value, SemaError>
+pub type CallCallback = dyn Fn(&EvalContext, &Value, &[Value]) -> Result<Value, SemaError>;
+
+thread_local! {
+    static EVAL_FN: RefCell<Option<Box<EvalCallback>>> = const { RefCell::new(None) };
+    static CALL_FN: RefCell<Option<Box<CallCallback>>> = const { RefCell::new(None) };
+    static STDLIB_CTX: EvalContext = EvalContext::new();
+}
+
+/// Get a reference to the shared stdlib EvalContext.
+/// Use this for stdlib callback invocations instead of creating throwaway contexts.
+pub fn with_stdlib_ctx<F, R>(f: F) -> R
+where
+    F: FnOnce(&EvalContext) -> R,
+{
+    STDLIB_CTX.with(f)
+}
+
+/// Register the full evaluator callback. Called by `sema-eval` during interpreter init.
+pub fn set_eval_callback(
+    f: impl Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError> + 'static,
+) {
+    EVAL_FN.with(|eval| {
+        *eval.borrow_mut() = Some(Box::new(f));
+    });
+}
+
+/// Register the call-value callback. Called by `sema-eval` during interpreter init.
+pub fn set_call_callback(
+    f: impl Fn(&EvalContext, &Value, &[Value]) -> Result<Value, SemaError> + 'static,
+) {
+    CALL_FN.with(|call| {
+        *call.borrow_mut() = Some(Box::new(f));
+    });
+}
+
+/// Evaluate an expression using the registered evaluator.
+/// Panics if no evaluator has been registered (programming error).
+pub fn eval_callback(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
+    EVAL_FN.with(|eval| {
+        let borrow = eval.borrow();
+        let f = borrow
+            .as_ref()
+            .expect("eval callback not registered — Interpreter::new() must be called first");
+        f(ctx, expr, env)
+    })
+}
+
+/// Call a function value with arguments using the registered callback.
+/// Panics if no callback has been registered (programming error).
+pub fn call_callback(ctx: &EvalContext, func: &Value, args: &[Value]) -> Result<Value, SemaError> {
+    CALL_FN.with(|call| {
+        let borrow = call.borrow();
+        let f = borrow
+            .as_ref()
+            .expect("call callback not registered — Interpreter::new() must be called first");
+        f(ctx, func, args)
+    })
 }
