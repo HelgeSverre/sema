@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.2
+
+### Internal
+
+- **Lambda/Macro params use interned `Spur` handles** — `Lambda.params`, `Lambda.rest_param`, `Lambda.name`, and the corresponding `Macro` fields changed from `String` to `Spur` (interned u32 handles). Parameter names are now interned once at lambda creation time instead of on every function call. This is a structural change in preparation for the bytecode VM, where the compiler needs `Spur` param names for local slot metadata.
+
 ## 1.2.1
 
 ### Internal

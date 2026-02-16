@@ -2945,7 +2945,7 @@ fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Va
                 .iter()
                 .map(|name| {
                     json_obj
-                        .get(name)
+                        .get(&resolve(*name))
                         .map(json_to_sema_value)
                         .unwrap_or(Value::Nil)
                 })
@@ -2982,38 +2982,44 @@ fn call_value_fn(ctx: &EvalContext, func: &Value, args: &[Value]) -> Result<Valu
             if let Some(ref rest) = lambda.rest_param {
                 if args.len() < lambda.params.len() {
                     return Err(SemaError::arity(
-                        lambda.name.as_deref().unwrap_or("lambda"),
+                        lambda
+                            .name
+                            .map(resolve)
+                            .unwrap_or_else(|| "lambda".to_string()),
                         format!("{}+", lambda.params.len()),
                         args.len(),
                     ));
                 }
                 for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    env.set(sema_core::intern(param), arg.clone());
+                    env.set(*param, arg.clone());
                 }
                 let rest_args = args[lambda.params.len()..].to_vec();
-                env.set(sema_core::intern(rest), Value::list(rest_args));
+                env.set(*rest, Value::list(rest_args));
             } else {
                 if args.len() != lambda.params.len() {
                     return Err(SemaError::arity(
-                        lambda.name.as_deref().unwrap_or("lambda"),
+                        lambda
+                            .name
+                            .map(resolve)
+                            .unwrap_or_else(|| "lambda".to_string()),
                         lambda.params.len().to_string(),
                         args.len(),
                     ));
                 }
                 for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    env.set(sema_core::intern(param), arg.clone());
+                    env.set(*param, arg.clone());
                 }
             }
             // Self-reference
-            if let Some(ref name) = lambda.name {
+            if let Some(name) = lambda.name {
                 env.set(
-                    sema_core::intern(name),
+                    name,
                     Value::Lambda(Rc::new(sema_core::Lambda {
                         params: lambda.params.clone(),
-                        rest_param: lambda.rest_param.clone(),
+                        rest_param: lambda.rest_param,
                         body: lambda.body.clone(),
                         env: lambda.env.clone(),
-                        name: lambda.name.clone(),
+                        name: lambda.name,
                     })),
                 );
             }
@@ -3129,7 +3135,7 @@ mod tests {
 
     fn make_lambda(params: &[&str]) -> Value {
         Value::Lambda(Rc::new(Lambda {
-            params: params.iter().map(|s| s.to_string()).collect(),
+            params: params.iter().map(|s| intern(s)).collect(),
             rest_param: None,
             body: vec![Value::Nil],
             env: Env::new(),
@@ -3244,7 +3250,7 @@ mod tests {
         // Tool with params where alphabetical != declaration order.
         // Handler returns "path={path}, content={content}" to verify ordering.
         let handler = Value::Lambda(Rc::new(Lambda {
-            params: vec!["path".to_string(), "content".to_string()],
+            params: vec![intern("path"), intern("content")],
             rest_param: None,
             body: vec![
                 // Body: (string-append path "|" content)
@@ -3253,7 +3259,7 @@ mod tests {
                 Value::Symbol(intern("path")),
             ],
             env: Env::new(),
-            name: Some("write-file-handler".to_string()),
+            name: Some(intern("write-file-handler")),
         }));
 
         let tool = Value::ToolDef(Rc::new(sema_core::ToolDefinition {
@@ -3276,11 +3282,11 @@ mod tests {
     fn test_execute_tool_call_reverse_alpha_order() {
         // Declare params (z_last, a_first) — exact reverse of alphabetical.
         let handler = Value::Lambda(Rc::new(Lambda {
-            params: vec!["z_last".to_string(), "a_first".to_string()],
+            params: vec![intern("z_last"), intern("a_first")],
             rest_param: None,
             body: vec![Value::Symbol(intern("z_last"))],
             env: Env::new(),
-            name: Some("test-handler".to_string()),
+            name: Some(intern("test-handler")),
         }));
 
         let tool = Value::ToolDef(Rc::new(sema_core::ToolDefinition {

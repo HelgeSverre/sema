@@ -1656,7 +1656,7 @@ dependencies = [
 
 [[package]]
 name = "sema"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "clap",
  "clap_complete",
@@ -1671,7 +1671,7 @@ dependencies = [
 
 [[package]]
 name = "sema-core"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "hashbrown 0.15.5",
  "lasso",
@@ -1682,7 +1682,7 @@ dependencies = [
 
 [[package]]
 name = "sema-eval"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "sema-core",
  "sema-llm",
@@ -1692,7 +1692,7 @@ dependencies = [
 
 [[package]]
 name = "sema-llm"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "futures",
  "reqwest",
@@ -1705,7 +1705,7 @@ dependencies = [
 
 [[package]]
 name = "sema-reader"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "proptest",
  "sema-core",
@@ -1713,7 +1713,7 @@ dependencies = [
 
 [[package]]
 name = "sema-stdlib"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "base64",
  "chrono",
@@ -1740,7 +1740,7 @@ dependencies = [
 
 [[package]]
 name = "sema-wasm"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "getrandom 0.4.1",
  "js-sys",

@@ -85,20 +85,20 @@ impl fmt::Debug for NativeFn {
 /// A user-defined lambda.
 #[derive(Debug, Clone)]
 pub struct Lambda {
-    pub params: Vec<String>,
-    pub rest_param: Option<String>,
+    pub params: Vec<Spur>,
+    pub rest_param: Option<Spur>,
     pub body: Vec<Value>,
     pub env: Env,
-    pub name: Option<String>,
+    pub name: Option<Spur>,
 }
 
 /// A macro definition.
 #[derive(Debug, Clone)]
 pub struct Macro {
-    pub params: Vec<String>,
-    pub rest_param: Option<String>,
+    pub params: Vec<Spur>,
+    pub rest_param: Option<Spur>,
     pub body: Vec<Value>,
-    pub name: String,
+    pub name: Spur,
 }
 
 /// A lazy promise: delay/force with memoization.
@@ -534,12 +534,12 @@ impl fmt::Display for Value {
             }
             Value::Lambda(l) => {
                 if let Some(name) = &l.name {
-                    write!(f, "<lambda {name}>")
+                    with_resolved(*name, |n| write!(f, "<lambda {n}>"))
                 } else {
                     write!(f, "<lambda>")
                 }
             }
-            Value::Macro(m) => write!(f, "<macro {}>", m.name),
+            Value::Macro(m) => with_resolved(m.name, |n| write!(f, "<macro {n}>")),
             Value::NativeFn(n) => write!(f, "<native-fn {}>", n.name),
             Value::Prompt(p) => write!(f, "<prompt {} messages>", p.messages.len()),
             Value::Message(m) => write!(f, "<message {} \"{}\">", m.role, truncate(&m.content, 40)),

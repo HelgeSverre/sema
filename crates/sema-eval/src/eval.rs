@@ -191,34 +191,40 @@ pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult
         Value::Lambda(lambda) => {
             let new_env = Env::with_parent(Rc::new(lambda.env.clone()));
 
-            if let Some(ref rest) = lambda.rest_param {
+            if let Some(rest) = lambda.rest_param {
                 if args.len() < lambda.params.len() {
                     return Err(SemaError::arity(
-                        lambda.name.as_deref().unwrap_or("lambda"),
+                        lambda
+                            .name
+                            .map(resolve)
+                            .unwrap_or_else(|| "lambda".to_string()),
                         format!("{}+", lambda.params.len()),
                         args.len(),
                     ));
                 }
                 for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    new_env.set(sema_core::intern(param), arg.clone());
+                    new_env.set(*param, arg.clone());
                 }
                 let rest_args = args[lambda.params.len()..].to_vec();
-                new_env.set(sema_core::intern(rest), Value::list(rest_args));
+                new_env.set(rest, Value::list(rest_args));
             } else {
                 if args.len() != lambda.params.len() {
                     return Err(SemaError::arity(
-                        lambda.name.as_deref().unwrap_or("lambda"),
+                        lambda
+                            .name
+                            .map(resolve)
+                            .unwrap_or_else(|| "lambda".to_string()),
                         lambda.params.len().to_string(),
                         args.len(),
                     ));
                 }
                 for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    new_env.set(sema_core::intern(param), arg.clone());
+                    new_env.set(*param, arg.clone());
                 }
             }
 
-            if let Some(ref name) = lambda.name {
-                new_env.set(sema_core::intern(name), Value::Lambda(Rc::clone(lambda)));
+            if let Some(name) = lambda.name {
+                new_env.set(name, Value::Lambda(Rc::clone(lambda)));
             }
 
             let mut result = Value::Nil;
@@ -425,7 +431,10 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
                     }
                     // Push frame — trampoline continues, eval_value guard handles cleanup
                     let frame = CallFrame {
-                        name: lambda.name.as_deref().unwrap_or("<lambda>").to_string(),
+                        name: lambda
+                            .name
+                            .map(resolve)
+                            .unwrap_or_else(|| "<lambda>".to_string()),
                         file: ctx.current_file_path(),
                         span: call_span,
                     };
@@ -478,35 +487,41 @@ fn apply_lambda(
     let new_env = Env::with_parent(Rc::new(lambda.env.clone()));
 
     // Bind parameters
-    if let Some(ref rest) = lambda.rest_param {
+    if let Some(rest) = lambda.rest_param {
         if args.len() < lambda.params.len() {
             return Err(SemaError::arity(
-                lambda.name.as_deref().unwrap_or("lambda"),
+                lambda
+                    .name
+                    .map(resolve)
+                    .unwrap_or_else(|| "lambda".to_string()),
                 format!("{}+", lambda.params.len()),
                 args.len(),
             ));
         }
         for (param, arg) in lambda.params.iter().zip(args.iter()) {
-            new_env.set(sema_core::intern(param), arg.clone());
+            new_env.set(*param, arg.clone());
         }
         let rest_args = args[lambda.params.len()..].to_vec();
-        new_env.set(sema_core::intern(rest), Value::list(rest_args));
+        new_env.set(rest, Value::list(rest_args));
     } else {
         if args.len() != lambda.params.len() {
             return Err(SemaError::arity(
-                lambda.name.as_deref().unwrap_or("lambda"),
+                lambda
+                    .name
+                    .map(resolve)
+                    .unwrap_or_else(|| "lambda".to_string()),
                 lambda.params.len().to_string(),
                 args.len(),
             ));
         }
         for (param, arg) in lambda.params.iter().zip(args.iter()) {
-            new_env.set(sema_core::intern(param), arg.clone());
+            new_env.set(*param, arg.clone());
         }
     }
 
     // Self-reference for recursion — just clone the Rc pointer
-    if let Some(ref name) = lambda.name {
-        new_env.set(sema_core::intern(name), Value::Lambda(Rc::clone(lambda)));
+    if let Some(name) = lambda.name {
+        new_env.set(name, Value::Lambda(Rc::clone(lambda)));
     }
 
     // Evaluate body with TCO on last expression
@@ -532,29 +547,29 @@ pub fn apply_macro(
     let env = Env::with_parent(Rc::new(caller_env.clone()));
 
     // Bind parameters to unevaluated forms
-    if let Some(ref rest) = mac.rest_param {
+    if let Some(rest) = mac.rest_param {
         if args.len() < mac.params.len() {
             return Err(SemaError::arity(
-                &mac.name,
+                resolve(mac.name),
                 format!("{}+", mac.params.len()),
                 args.len(),
             ));
         }
         for (param, arg) in mac.params.iter().zip(args.iter()) {
-            env.set(sema_core::intern(param), arg.clone());
+            env.set(*param, arg.clone());
         }
         let rest_args = args[mac.params.len()..].to_vec();
-        env.set(sema_core::intern(rest), Value::list(rest_args));
+        env.set(rest, Value::list(rest_args));
     } else {
         if args.len() != mac.params.len() {
             return Err(SemaError::arity(
-                &mac.name,
+                resolve(mac.name),
                 mac.params.len().to_string(),
                 args.len(),
             ));
         }
         for (param, arg) in mac.params.iter().zip(args.iter()) {
-            env.set(sema_core::intern(param), arg.clone());
+            env.set(*param, arg.clone());
         }
     }
 

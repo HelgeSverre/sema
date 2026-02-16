@@ -261,19 +261,18 @@ fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             if sig.is_empty() {
                 return Err(SemaError::eval("define: empty function signature"));
             }
-            let name = sig[0]
-                .as_symbol()
-                .ok_or_else(|| SemaError::eval("define: function name must be a symbol"))?
-                .to_string();
-            let params: Vec<String> = sig[1..]
+            let name_spur = match &sig[0] {
+                Value::Symbol(s) => *s,
+                _ => return Err(SemaError::eval("define: function name must be a symbol")),
+            };
+            let param_names: Vec<Spur> = sig[1..]
                 .iter()
-                .map(|v| {
-                    v.as_symbol()
-                        .map(|s| s.to_string())
-                        .ok_or_else(|| SemaError::eval("define: parameter must be a symbol"))
+                .map(|v| match v {
+                    Value::Symbol(s) => Ok(*s),
+                    _ => Err(SemaError::eval("define: parameter must be a symbol")),
                 })
                 .collect::<Result<_, _>>()?;
-            let (params, rest_param) = parse_params(&params);
+            let (params, rest_param) = parse_params(&param_names);
             let body = args[1..].to_vec();
             if body.is_empty() {
                 return Err(SemaError::eval("define: function body cannot be empty"));
@@ -283,9 +282,9 @@ fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                 rest_param,
                 body,
                 env: env.clone(),
-                name: Some(name.clone()),
+                name: Some(name_spur),
             }));
-            env.set(intern(&name), lambda);
+            env.set(name_spur, lambda);
             Ok(Trampoline::Value(Value::Nil))
         }
         other => Err(SemaError::type_error("symbol or list", other.type_name())),
@@ -328,7 +327,7 @@ fn eval_set(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
     Ok(Trampoline::Value(Value::Nil))
 }
 
-fn eval_lambda(args: &[Value], env: &Env, name: Option<String>) -> Result<Trampoline, SemaError> {
+fn eval_lambda(args: &[Value], env: &Env, name: Option<Spur>) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("lambda", "2+", args.len()));
     }
@@ -337,12 +336,11 @@ fn eval_lambda(args: &[Value], env: &Env, name: Option<String>) -> Result<Trampo
         Value::Vector(params) => params.as_ref().clone(),
         other => return Err(SemaError::type_error("list or vector", other.type_name())),
     };
-    let param_names: Vec<String> = param_list
+    let param_names: Vec<Spur> = param_list
         .iter()
-        .map(|v| {
-            v.as_symbol()
-                .map(|s| s.to_string())
-                .ok_or_else(|| SemaError::eval("lambda: parameter must be a symbol"))
+        .map(|v| match v {
+            Value::Symbol(s) => Ok(*s),
+            _ => Err(SemaError::eval("lambda: parameter must be a symbol")),
         })
         .collect::<Result<_, _>>()?;
     let (params, rest_param) = parse_params(&param_names);
@@ -362,7 +360,8 @@ fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
     }
 
     // Named let: (let name ((var init) ...) body...)
-    if let Some(loop_name) = args[0].as_symbol() {
+    if let Value::Symbol(loop_name_spur) = &args[0] {
+        let loop_name_spur = *loop_name_spur;
         if args.len() < 3 {
             return Err(SemaError::arity("named let", "3+", args.len()));
         }
@@ -370,7 +369,7 @@ fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
             .as_list()
             .ok_or_else(|| SemaError::eval("named let: bindings must be a list"))?;
 
-        let mut params = Vec::new();
+        let mut params: Vec<Spur> = Vec::new();
         let mut init_vals = Vec::new();
         for binding in bindings_list {
             let pair = binding
@@ -381,10 +380,10 @@ fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
                     "named let: each binding must have 2 elements",
                 ));
             }
-            let pname = pair[0]
-                .as_symbol()
-                .ok_or_else(|| SemaError::eval("named let: binding name must be a symbol"))?
-                .to_string();
+            let pname = match &pair[0] {
+                Value::Symbol(s) => *s,
+                _ => return Err(SemaError::eval("named let: binding name must be a symbol")),
+            };
             let val = eval::eval_value(ctx, &pair[1], env)?;
             params.push(pname);
             init_vals.push(val);
@@ -396,22 +395,22 @@ fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
             rest_param: None,
             body,
             env: env.clone(),
-            name: Some(loop_name.to_string()),
+            name: Some(loop_name_spur),
         };
 
         // Build env with params bound + self-reference
         let new_env = Env::with_parent(Rc::new(env.clone()));
         for (p, v) in params.iter().zip(init_vals.iter()) {
-            new_env.set(intern(p), v.clone());
+            new_env.set(*p, v.clone());
         }
         new_env.set(
-            intern(&loop_name),
+            loop_name_spur,
             Value::Lambda(Rc::new(Lambda {
                 params: lambda.params.clone(),
                 rest_param: None,
                 body: lambda.body.clone(),
                 env: env.clone(),
-                name: lambda.name.clone(),
+                name: lambda.name,
             })),
         );
 
@@ -593,19 +592,18 @@ fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if args.len() < 3 {
         return Err(SemaError::arity("defmacro", "3+", args.len()));
     }
-    let name = args[0]
-        .as_symbol()
-        .ok_or_else(|| SemaError::eval("defmacro: name must be a symbol"))?
-        .to_string();
+    let name_spur = match &args[0] {
+        Value::Symbol(s) => *s,
+        _ => return Err(SemaError::eval("defmacro: name must be a symbol")),
+    };
     let param_list = args[1]
         .as_list()
         .ok_or_else(|| SemaError::eval("defmacro: params must be a list"))?;
-    let param_names: Vec<String> = param_list
+    let param_names: Vec<Spur> = param_list
         .iter()
-        .map(|v| {
-            v.as_symbol()
-                .map(|s| s.to_string())
-                .ok_or_else(|| SemaError::eval("defmacro: parameter must be a symbol"))
+        .map(|v| match v {
+            Value::Symbol(s) => Ok(*s),
+            _ => Err(SemaError::eval("defmacro: parameter must be a symbol")),
         })
         .collect::<Result<_, _>>()?;
     let (params, rest_param) = parse_params(&param_names);
@@ -615,9 +613,9 @@ fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         params,
         rest_param,
         body,
-        name: name.clone(),
+        name: name_spur,
     }));
-    env.set(intern(&name), mac);
+    env.set(name_spur, mac);
     Ok(Trampoline::Value(Value::Nil))
 }
 
@@ -1614,11 +1612,12 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
 }
 
 /// Parse parameter list, handling rest params (e.g., `(a b . rest)`)
-fn parse_params(names: &[String]) -> (Vec<String>, Option<String>) {
-    if let Some(pos) = names.iter().position(|s| s == ".") {
+fn parse_params(names: &[Spur]) -> (Vec<Spur>, Option<Spur>) {
+    let dot = intern(".");
+    if let Some(pos) = names.iter().position(|s| *s == dot) {
         let params = names[..pos].to_vec();
         let rest = if pos + 1 < names.len() {
-            Some(names[pos + 1].clone())
+            Some(names[pos + 1])
         } else {
             None
         };
