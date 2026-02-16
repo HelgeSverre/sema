@@ -1,9 +1,134 @@
-use clap::{Parser, Subcommand};
-use rustyline::error::ReadlineError;
-use rustyline::DefaultEditor;
+use std::rc::Rc;
 
-use sema_core::{SemaError, Value};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
+use rustyline::completion::Completer;
+use rustyline::error::ReadlineError;
+use rustyline::Editor;
+
+use sema_core::{Env, SemaError, Value};
 use sema_eval::Interpreter;
+
+const SPECIAL_FORMS: &[&str] = &[
+    "define",
+    "defun",
+    "defmacro",
+    "deftool",
+    "defagent",
+    "lambda",
+    "fn",
+    "if",
+    "cond",
+    "let",
+    "let*",
+    "letrec",
+    "begin",
+    "do",
+    "quote",
+    "quasiquote",
+    "unquote",
+    "unquote-splicing",
+    "set!",
+    "and",
+    "or",
+    "when",
+    "unless",
+    "try",
+    "catch",
+    "throw",
+    "import",
+    "module",
+    "define-record-type",
+    "delay",
+    "force",
+    "case",
+    "match",
+    "->",
+    "->>",
+    "as->",
+    "for-each",
+    "apply",
+    "map",
+];
+
+const REPL_COMMANDS: &[&str] = &[
+    ",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins",
+];
+
+struct SemaCompleter {
+    env: Rc<Env>,
+}
+
+impl SemaCompleter {
+    fn all_completions(&self, prefix: &str) -> Vec<String> {
+        let mut candidates = Vec::new();
+
+        // Collect all env bindings (walk parent chain)
+        self.collect_env_bindings(&self.env, prefix, &mut candidates);
+
+        // Special forms
+        for &sf in SPECIAL_FORMS {
+            if sf.starts_with(prefix) {
+                candidates.push(sf.to_string());
+            }
+        }
+
+        // REPL commands
+        if prefix.starts_with(',') {
+            for &cmd in REPL_COMMANDS {
+                if cmd.starts_with(prefix) {
+                    candidates.push(cmd.to_string());
+                }
+            }
+        }
+
+        candidates.sort();
+        candidates.dedup();
+        candidates
+    }
+
+    fn collect_env_bindings(&self, env: &Env, prefix: &str, candidates: &mut Vec<String>) {
+        let bindings = env.bindings.borrow();
+        for (spur, _) in bindings.iter() {
+            let name = sema_core::resolve(*spur);
+            if name.starts_with(prefix) {
+                candidates.push(name);
+            }
+        }
+        if let Some(parent) = &env.parent {
+            self.collect_env_bindings(parent, prefix, candidates);
+        }
+    }
+}
+
+impl Completer for SemaCompleter {
+    type Candidate = String;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &rustyline::Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<String>)> {
+        let before = &line[..pos];
+        let start = before
+            .rfind(|c: char| c.is_whitespace() || c == '(' || c == '[' || c == '{' || c == '\'')
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let prefix = &before[start..];
+        if prefix.is_empty() {
+            return Ok((start, vec![]));
+        }
+        Ok((start, self.all_completions(prefix)))
+    }
+}
+
+impl rustyline::hint::Hinter for SemaCompleter {
+    type Hint = String;
+}
+impl rustyline::highlight::Highlighter for SemaCompleter {}
+impl rustyline::validate::Validator for SemaCompleter {}
+impl rustyline::Helper for SemaCompleter {}
 
 #[derive(Parser)]
 #[command(name = "sema", about = "Sema: A Lisp with LLM primitives", version)]
@@ -71,6 +196,11 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        shell: Shell,
+    },
 }
 
 fn main() {
@@ -81,6 +211,9 @@ fn main() {
         match command {
             Commands::Ast { file, eval, json } => {
                 run_ast(file, eval, json);
+            }
+            Commands::Completions { shell } => {
+                clap_complete::generate(shell, &mut Cli::command(), "sema", &mut std::io::stdout());
             }
         }
         return;
@@ -432,7 +565,9 @@ fn print_error(e: &SemaError) {
 }
 
 fn repl(interpreter: Interpreter, quiet: bool) {
-    let mut rl = DefaultEditor::new().expect("failed to create editor");
+    let env = interpreter.global_env.clone();
+    let mut rl = Editor::new().expect("failed to create editor");
+    rl.set_helper(Some(SemaCompleter { env: env.clone() }));
     let history_path = dirs_path().join("history.txt");
     let _ = rl.load_history(&history_path);
 
@@ -463,6 +598,10 @@ fn repl(interpreter: Interpreter, quiet: bool) {
                         }
                         ",env" => {
                             print_env(&interpreter);
+                            continue;
+                        }
+                        ",builtins" => {
+                            print_builtins(&interpreter);
                             continue;
                         }
                         _ => {}
@@ -559,6 +698,7 @@ fn print_help() {
     println!("  ,quit / ,q    Exit the REPL");
     println!("  ,help / ,h    Show this help");
     println!("  ,env          Show defined variables");
+    println!("  ,builtins     List all builtin functions");
     println!();
     println!("LLM Quick Start:");
     println!("  Set ANTHROPIC_API_KEY or OPENAI_API_KEY env var, then:");
@@ -585,6 +725,33 @@ fn print_env(interpreter: &Interpreter) {
             println!("  {name} = {val}");
         }
     }
+}
+
+fn print_builtins(interpreter: &Interpreter) {
+    let bindings = interpreter.global_env.bindings.borrow();
+    let mut names: Vec<_> = bindings
+        .iter()
+        .filter(|(_, v)| matches!(v, sema_core::Value::NativeFn(_)))
+        .map(|(spur, _)| sema_core::resolve(*spur))
+        .collect();
+    names.sort();
+
+    if names.is_empty() {
+        println!("(no builtin functions)");
+        return;
+    }
+
+    let max_width = names.iter().map(|n| n.len()).max().unwrap_or(0) + 2;
+    let term_width = 80;
+    let cols = (term_width / max_width).max(1);
+
+    for chunk in names.chunks(cols) {
+        for name in chunk {
+            print!("{name:<max_width$}");
+        }
+        println!();
+    }
+    println!("\n{} builtin functions", names.len());
 }
 
 fn dirs_path() -> std::path::PathBuf {

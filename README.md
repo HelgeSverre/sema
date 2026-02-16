@@ -165,11 +165,30 @@ cd sema && cargo build --release
 ```
 
 ```bash
-sema                          # REPL
+sema                          # REPL (with tab completion)
 sema script.sema              # Run a file
 sema -e '(+ 1 2)'             # Evaluate expression
 sema --no-llm script.sema     # Run without LLM (faster startup)
 ```
+
+### Shell Completions
+
+Generate tab-completion scripts for your shell:
+
+```bash
+# Zsh (macOS / Linux)
+mkdir -p ~/.zsh/completions
+sema completions zsh > ~/.zsh/completions/_sema
+
+# Bash
+mkdir -p ~/.local/share/bash-completion/completions
+sema completions bash > ~/.local/share/bash-completion/completions/sema
+
+# Fish
+sema completions fish > ~/.config/fish/completions/sema.fish
+```
+
+> 📖 Full setup instructions for all shells: **[sema-lang.com/docs/shell-completions](https://sema-lang.com/docs/shell-completions.html)**
 
 > 📖 Full CLI reference, flags, and REPL commands: **[sema-lang.com/docs/cli](https://sema-lang.com/docs/cli.html)**
 
@@ -195,12 +214,15 @@ The [`examples/`](examples/) directory has 50+ programs:
 - **Cost-aware** — built-in budget tracking with dynamic pricing from [llm-prices.com](https://www.llm-prices.com)
 - **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and 350+ stdlib functions
 - **Embeddable** — clean Rust crate structure with a builder API
+- **Developer-friendly** — REPL with tab completion, structured error messages with hints, and 50+ example programs
 
 ### Why Not Sema?
 
 - No full numeric tower (rationals, bignums, complex numbers)
 - No continuations (`call/cc`) or hygienic macros (`syntax-rules`)
-- Single-threaded — concurrency is at the provider level only
+- Single-threaded — `Rc`-based, no cross-thread sharing of values
+- No sandboxing — scripts have full filesystem, network, and shell access
+- No package manager — `import` resolves local files only
 - Young language — solid but not battle-tested at scale
 
 ## Architecture

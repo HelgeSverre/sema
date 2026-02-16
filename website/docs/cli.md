@@ -39,6 +39,16 @@ sema ast [OPTIONS] [FILE]
 | `-e, --eval <EXPR>` | Parse expression instead of file |
 | `--json`            | Output AST as JSON               |
 
+### `sema completions`
+
+Generate shell completion scripts. See [Shell Completions](./shell-completions.md) for installation instructions.
+
+```
+sema completions <SHELL>
+```
+
+Supported shells: `bash`, `zsh`, `fish`, `elvish`, `powershell`.
+
 ## Examples
 
 ```bash
@@ -90,8 +100,36 @@ sema --model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
 
 ## REPL Commands
 
-| Command        | Description                |
-| -------------- | -------------------------- |
-| `,quit` / `,q` | Exit the REPL              |
-| `,help` / `,h` | Show help                  |
-| `,env`         | Show user-defined bindings |
+| Command        | Description                 |
+| -------------- | --------------------------- |
+| `,quit` / `,q` | Exit the REPL               |
+| `,help` / `,h` | Show help                   |
+| `,env`         | Show user-defined bindings  |
+| `,builtins`    | List all built-in functions |
+
+## REPL Features
+
+### Tab Completion
+
+The REPL supports tab completion for:
+- All 350+ built-in function names (e.g., `string/tr` → `string/trim`)
+- Special forms (`def` → `define`, `defun`, `defmacro`, ...)
+- User-defined bindings
+- REPL commands (`,` → `,quit`, `,help`, `,env`, `,builtins`)
+
+### Multiline Input
+
+The REPL automatically detects incomplete expressions (unbalanced parentheses) and continues on the next line:
+
+```
+sema> (define (factorial n)
+  ...   (if (= n 0)
+  ...     1
+  ...     (* n (factorial (- n 1)))))
+sema> (factorial 10)
+3628800
+```
+
+### History
+
+Command history is saved to `~/.sema/history.txt` and persists across sessions.
