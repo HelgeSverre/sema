@@ -11,6 +11,8 @@ use lasso::{Rodeo, Spur};
 use crate::error::SemaError;
 use crate::EvalContext;
 
+// ── String interning ──────────────────────────────────────────────
+
 thread_local! {
     static INTERNER: RefCell<Rodeo> = RefCell::new(Rodeo::default());
 }
@@ -47,14 +49,14 @@ pub fn compare_spurs(a: Spur, b: Spur) -> std::cmp::Ordering {
     })
 }
 
+// ── Supporting types (unchanged public API) ───────────────────────
+
 /// A native function callable from Sema.
 pub type NativeFnInner = dyn Fn(&EvalContext, &[Value]) -> Result<Value, SemaError>;
 
 pub struct NativeFn {
     pub name: String,
     pub func: Box<NativeFnInner>,
-    /// Opaque payload for VM closure data. Used by sema-vm to attach
-    /// compiled closure info so the VM can push frames instead of recursing.
     pub payload: Option<Rc<dyn Any>>,
 }
 
@@ -211,9 +213,102 @@ pub struct Agent {
     pub model: String,
 }
 
-/// The core Value type for all Sema data.
-#[derive(Debug, Clone)]
-pub enum Value {
+// ── NaN-boxing constants ──────────────────────────────────────────
+
+// IEEE 754 double layout:
+//   bit 63:     sign
+//   bits 62-52: exponent (11 bits)
+//   bits 51-0:  mantissa (52 bits), bit 51 = quiet NaN bit
+//
+// Boxed (non-float) values use: sign=1, exp=all 1s, quiet=1
+//   Then bits 50-45 = TAG (6 bits), bits 44-0 = PAYLOAD (45 bits)
+
+/// Mask for checking if a value is boxed (sign + exponent + quiet bit)
+const BOX_MASK: u64 = 0xFFF8_0000_0000_0000;
+
+/// The 45-bit payload mask
+const PAYLOAD_MASK: u64 = (1u64 << 45) - 1; // 0x1FFF_FFFF_FFFF
+
+/// Sign-extension bit for 45-bit signed integers
+const INT_SIGN_BIT: u64 = 1u64 << 44;
+
+/// Canonical quiet NaN (sign=0) — used for NaN float values to avoid collision with boxed
+const CANONICAL_NAN: u64 = 0x7FF8_0000_0000_0000;
+
+// Tags (6 bits, encoded in bits 50-45)
+const TAG_NIL: u64 = 0;
+const TAG_FALSE: u64 = 1;
+const TAG_TRUE: u64 = 2;
+const TAG_INT_SMALL: u64 = 3;
+const TAG_CHAR: u64 = 4;
+const TAG_SYMBOL: u64 = 5;
+const TAG_KEYWORD: u64 = 6;
+const TAG_INT_BIG: u64 = 7;
+const TAG_STRING: u64 = 8;
+const TAG_LIST: u64 = 9;
+const TAG_VECTOR: u64 = 10;
+const TAG_MAP: u64 = 11;
+const TAG_HASHMAP: u64 = 12;
+const TAG_LAMBDA: u64 = 13;
+const TAG_MACRO: u64 = 14;
+const TAG_NATIVE_FN: u64 = 15;
+const TAG_PROMPT: u64 = 16;
+const TAG_MESSAGE: u64 = 17;
+const TAG_CONVERSATION: u64 = 18;
+const TAG_TOOL_DEF: u64 = 19;
+const TAG_AGENT: u64 = 20;
+const TAG_THUNK: u64 = 21;
+const TAG_RECORD: u64 = 22;
+const TAG_BYTEVECTOR: u64 = 23;
+
+/// Small-int range: [-2^44, 2^44 - 1] = [-17_592_186_044_416, +17_592_186_044_415]
+const SMALL_INT_MIN: i64 = -(1i64 << 44);
+const SMALL_INT_MAX: i64 = (1i64 << 44) - 1;
+
+// ── Helpers for encoding/decoding ─────────────────────────────────
+
+#[inline(always)]
+fn make_boxed(tag: u64, payload: u64) -> u64 {
+    BOX_MASK | (tag << 45) | (payload & PAYLOAD_MASK)
+}
+
+#[inline(always)]
+fn is_boxed(bits: u64) -> bool {
+    (bits & BOX_MASK) == BOX_MASK
+}
+
+#[inline(always)]
+fn get_tag(bits: u64) -> u64 {
+    (bits >> 45) & 0x3F
+}
+
+#[inline(always)]
+fn get_payload(bits: u64) -> u64 {
+    bits & PAYLOAD_MASK
+}
+
+#[inline(always)]
+fn ptr_to_payload(ptr: *const u8) -> u64 {
+    let raw = ptr as u64;
+    debug_assert!(raw & 0x7 == 0, "pointer not 8-byte aligned: 0x{:x}", raw);
+    debug_assert!(
+        raw >> 48 == 0,
+        "pointer exceeds 48-bit VA space: 0x{:x}",
+        raw
+    );
+    raw >> 3
+}
+
+#[inline(always)]
+fn payload_to_ptr(payload: u64) -> *const u8 {
+    (payload << 3) as *const u8
+}
+
+// ── ValueView: pattern-matching enum ──────────────────────────────
+
+/// A view of a NaN-boxed Value for pattern matching.
+/// Returned by `Value::view()`. Heap types hold Rc (refcount bumped).
+pub enum ValueView {
     Nil,
     Bool(bool),
     Int(i64),
@@ -239,201 +334,935 @@ pub enum Value {
     Bytevector(Rc<Vec<u8>>),
 }
 
+// ── The NaN-boxed Value type ──────────────────────────────────────
+
+/// The core Value type for all Sema data.
+/// NaN-boxed: stored as 8 bytes. Floats stored directly,
+/// everything else encoded in quiet-NaN payload space.
+#[repr(transparent)]
+pub struct Value(u64);
+
+// ── Constructors ──────────────────────────────────────────────────
+
 impl Value {
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Value::Nil => "nil",
-            Value::Bool(_) => "bool",
-            Value::Int(_) => "int",
-            Value::Float(_) => "float",
-            Value::String(_) => "string",
-            Value::Symbol(_) => "symbol",
-            Value::Keyword(_) => "keyword",
-            Value::Char(_) => "char",
-            Value::List(_) => "list",
-            Value::Vector(_) => "vector",
-            Value::Map(_) => "map",
-            Value::HashMap(_) => "hashmap",
-            Value::Lambda(_) => "lambda",
-            Value::Macro(_) => "macro",
-            Value::NativeFn(_) => "native-fn",
-            Value::Prompt(_) => "prompt",
-            Value::Message(_) => "message",
-            Value::Conversation(_) => "conversation",
-            Value::ToolDef(_) => "tool",
-            Value::Agent(_) => "agent",
-            Value::Thunk(_) => "promise",
-            Value::Record(_) => "record",
-            Value::Bytevector(_) => "bytevector",
+    // -- Immediate constructors --
+
+    pub const NIL: Value = Value(make_boxed_const(TAG_NIL, 0));
+    pub const TRUE: Value = Value(make_boxed_const(TAG_TRUE, 0));
+    pub const FALSE: Value = Value(make_boxed_const(TAG_FALSE, 0));
+
+    #[inline(always)]
+    pub fn nil() -> Value {
+        Value::NIL
+    }
+
+    #[inline(always)]
+    pub fn bool(b: bool) -> Value {
+        if b {
+            Value::TRUE
+        } else {
+            Value::FALSE
         }
     }
 
-    pub fn is_truthy(&self) -> bool {
-        !matches!(self, Value::Nil | Value::Bool(false))
-    }
-
-    pub fn as_int(&self) -> Option<i64> {
-        match self {
-            Value::Int(n) => Some(*n),
-            _ => None,
+    #[inline(always)]
+    pub fn int(n: i64) -> Value {
+        if n >= SMALL_INT_MIN && n <= SMALL_INT_MAX {
+            // Encode as small int (45-bit two's complement)
+            let payload = (n as u64) & PAYLOAD_MASK;
+            Value(make_boxed(TAG_INT_SMALL, payload))
+        } else {
+            // Out of range: heap-allocate
+            let rc = Rc::new(n);
+            let ptr = Rc::into_raw(rc) as *const u8;
+            Value(make_boxed(TAG_INT_BIG, ptr_to_payload(ptr)))
         }
     }
 
-    pub fn as_float(&self) -> Option<f64> {
-        match self {
-            Value::Float(f) => Some(*f),
-            Value::Int(n) => Some(*n as f64),
-            _ => None,
+    #[inline(always)]
+    pub fn float(f: f64) -> Value {
+        let bits = f.to_bits();
+        if f.is_nan() {
+            // Canonicalize NaN to avoid collision with boxed patterns
+            Value(CANONICAL_NAN)
+        } else {
+            // Check: a non-NaN float could still have the BOX_MASK pattern
+            // This happens for negative infinity and some subnormals — but
+            // negative infinity is 0xFFF0_0000_0000_0000 which does NOT match
+            // BOX_MASK (0xFFF8...) because bit 51 (quiet) is 0.
+            // In IEEE 754, the only values with all exponent bits set AND quiet bit set
+            // are quiet NaNs, which we've already canonicalized above.
+            debug_assert!(
+                !is_boxed(bits),
+                "non-NaN float collides with boxed pattern: {:?} = 0x{:016x}",
+                f,
+                bits
+            );
+            Value(bits)
         }
     }
 
-    pub fn as_str(&self) -> Option<&str> {
-        match self {
-            Value::String(s) => Some(s),
-            _ => None,
-        }
+    #[inline(always)]
+    pub fn char(c: char) -> Value {
+        Value(make_boxed(TAG_CHAR, c as u64))
     }
 
-    pub fn as_symbol(&self) -> Option<String> {
-        match self {
-            Value::Symbol(s) => Some(resolve(*s)),
-            _ => None,
-        }
-    }
-
-    pub fn as_keyword(&self) -> Option<String> {
-        match self {
-            Value::Keyword(s) => Some(resolve(*s)),
-            _ => None,
-        }
-    }
-
-    pub fn as_symbol_spur(&self) -> Option<Spur> {
-        match self {
-            Value::Symbol(s) => Some(*s),
-            _ => None,
-        }
-    }
-
-    pub fn as_keyword_spur(&self) -> Option<Spur> {
-        match self {
-            Value::Keyword(s) => Some(*s),
-            _ => None,
-        }
-    }
-
-    pub fn as_char(&self) -> Option<char> {
-        match self {
-            Value::Char(c) => Some(*c),
-            _ => None,
-        }
-    }
-
-    pub fn as_list(&self) -> Option<&[Value]> {
-        match self {
-            Value::List(v) => Some(v),
-            _ => None,
-        }
+    #[inline(always)]
+    pub fn symbol_from_spur(spur: Spur) -> Value {
+        let bits: u32 = unsafe { std::mem::transmute(spur) };
+        Value(make_boxed(TAG_SYMBOL, bits as u64))
     }
 
     pub fn symbol(s: &str) -> Value {
-        Value::Symbol(intern(s))
+        Value::symbol_from_spur(intern(s))
+    }
+
+    #[inline(always)]
+    pub fn keyword_from_spur(spur: Spur) -> Value {
+        let bits: u32 = unsafe { std::mem::transmute(spur) };
+        Value(make_boxed(TAG_KEYWORD, bits as u64))
     }
 
     pub fn keyword(s: &str) -> Value {
-        Value::Keyword(intern(s))
+        Value::keyword_from_spur(intern(s))
     }
 
-    pub fn char(c: char) -> Value {
-        Value::Char(c)
+    // -- Heap constructors --
+
+    fn from_rc_ptr<T>(tag: u64, rc: Rc<T>) -> Value {
+        let ptr = Rc::into_raw(rc) as *const u8;
+        Value(make_boxed(tag, ptr_to_payload(ptr)))
     }
 
     pub fn string(s: &str) -> Value {
-        Value::String(Rc::new(s.to_string()))
+        Value::from_rc_ptr(TAG_STRING, Rc::new(s.to_string()))
+    }
+
+    pub fn string_from_rc(rc: Rc<String>) -> Value {
+        Value::from_rc_ptr(TAG_STRING, rc)
     }
 
     pub fn list(v: Vec<Value>) -> Value {
-        Value::List(Rc::new(v))
+        Value::from_rc_ptr(TAG_LIST, Rc::new(v))
+    }
+
+    pub fn list_from_rc(rc: Rc<Vec<Value>>) -> Value {
+        Value::from_rc_ptr(TAG_LIST, rc)
     }
 
     pub fn vector(v: Vec<Value>) -> Value {
-        Value::Vector(Rc::new(v))
+        Value::from_rc_ptr(TAG_VECTOR, Rc::new(v))
+    }
+
+    pub fn vector_from_rc(rc: Rc<Vec<Value>>) -> Value {
+        Value::from_rc_ptr(TAG_VECTOR, rc)
+    }
+
+    pub fn map(m: BTreeMap<Value, Value>) -> Value {
+        Value::from_rc_ptr(TAG_MAP, Rc::new(m))
+    }
+
+    pub fn map_from_rc(rc: Rc<BTreeMap<Value, Value>>) -> Value {
+        Value::from_rc_ptr(TAG_MAP, rc)
     }
 
     pub fn hashmap(entries: Vec<(Value, Value)>) -> Value {
         let map: hashbrown::HashMap<Value, Value> = entries.into_iter().collect();
-        Value::HashMap(Rc::new(map))
+        Value::from_rc_ptr(TAG_HASHMAP, Rc::new(map))
+    }
+
+    pub fn hashmap_from_rc(rc: Rc<hashbrown::HashMap<Value, Value>>) -> Value {
+        Value::from_rc_ptr(TAG_HASHMAP, rc)
+    }
+
+    pub fn lambda(l: Lambda) -> Value {
+        Value::from_rc_ptr(TAG_LAMBDA, Rc::new(l))
+    }
+
+    pub fn lambda_from_rc(rc: Rc<Lambda>) -> Value {
+        Value::from_rc_ptr(TAG_LAMBDA, rc)
+    }
+
+    pub fn macro_val(m: Macro) -> Value {
+        Value::from_rc_ptr(TAG_MACRO, Rc::new(m))
+    }
+
+    pub fn macro_from_rc(rc: Rc<Macro>) -> Value {
+        Value::from_rc_ptr(TAG_MACRO, rc)
+    }
+
+    pub fn native_fn(f: NativeFn) -> Value {
+        Value::from_rc_ptr(TAG_NATIVE_FN, Rc::new(f))
+    }
+
+    pub fn native_fn_from_rc(rc: Rc<NativeFn>) -> Value {
+        Value::from_rc_ptr(TAG_NATIVE_FN, rc)
+    }
+
+    pub fn prompt(p: Prompt) -> Value {
+        Value::from_rc_ptr(TAG_PROMPT, Rc::new(p))
+    }
+
+    pub fn prompt_from_rc(rc: Rc<Prompt>) -> Value {
+        Value::from_rc_ptr(TAG_PROMPT, rc)
+    }
+
+    pub fn message(m: Message) -> Value {
+        Value::from_rc_ptr(TAG_MESSAGE, Rc::new(m))
+    }
+
+    pub fn message_from_rc(rc: Rc<Message>) -> Value {
+        Value::from_rc_ptr(TAG_MESSAGE, rc)
+    }
+
+    pub fn conversation(c: Conversation) -> Value {
+        Value::from_rc_ptr(TAG_CONVERSATION, Rc::new(c))
+    }
+
+    pub fn conversation_from_rc(rc: Rc<Conversation>) -> Value {
+        Value::from_rc_ptr(TAG_CONVERSATION, rc)
+    }
+
+    pub fn tool_def(t: ToolDefinition) -> Value {
+        Value::from_rc_ptr(TAG_TOOL_DEF, Rc::new(t))
+    }
+
+    pub fn tool_def_from_rc(rc: Rc<ToolDefinition>) -> Value {
+        Value::from_rc_ptr(TAG_TOOL_DEF, rc)
+    }
+
+    pub fn agent(a: Agent) -> Value {
+        Value::from_rc_ptr(TAG_AGENT, Rc::new(a))
+    }
+
+    pub fn agent_from_rc(rc: Rc<Agent>) -> Value {
+        Value::from_rc_ptr(TAG_AGENT, rc)
+    }
+
+    pub fn thunk(t: Thunk) -> Value {
+        Value::from_rc_ptr(TAG_THUNK, Rc::new(t))
+    }
+
+    pub fn thunk_from_rc(rc: Rc<Thunk>) -> Value {
+        Value::from_rc_ptr(TAG_THUNK, rc)
+    }
+
+    pub fn record(r: Record) -> Value {
+        Value::from_rc_ptr(TAG_RECORD, Rc::new(r))
+    }
+
+    pub fn record_from_rc(rc: Rc<Record>) -> Value {
+        Value::from_rc_ptr(TAG_RECORD, rc)
+    }
+
+    pub fn bytevector(bytes: Vec<u8>) -> Value {
+        Value::from_rc_ptr(TAG_BYTEVECTOR, Rc::new(bytes))
+    }
+
+    pub fn bytevector_from_rc(rc: Rc<Vec<u8>>) -> Value {
+        Value::from_rc_ptr(TAG_BYTEVECTOR, rc)
+    }
+}
+
+// Const-compatible boxed encoding (no function calls)
+const fn make_boxed_const(tag: u64, payload: u64) -> u64 {
+    BOX_MASK | (tag << 45) | (payload & PAYLOAD_MASK)
+}
+
+// ── Accessors ─────────────────────────────────────────────────────
+
+impl Value {
+    /// Get the raw bits (for debugging/testing).
+    #[inline(always)]
+    pub fn raw_bits(&self) -> u64 {
+        self.0
+    }
+
+    /// Check if this is a float (non-boxed).
+    #[inline(always)]
+    pub fn is_float(&self) -> bool {
+        !is_boxed(self.0)
+    }
+
+    /// Get the tag for boxed values, or None for floats.
+    #[inline(always)]
+    fn boxed_tag(&self) -> Option<u64> {
+        if is_boxed(self.0) {
+            Some(get_tag(self.0))
+        } else {
+            None
+        }
+    }
+
+    /// Recover an Rc<T> pointer from the payload WITHOUT consuming ownership.
+    /// This increments the refcount (returns a new Rc).
+    #[inline(always)]
+    unsafe fn get_rc<T>(&self) -> Rc<T> {
+        let payload = get_payload(self.0);
+        let ptr = payload_to_ptr(payload) as *const T;
+        Rc::increment_strong_count(ptr);
+        Rc::from_raw(ptr)
+    }
+
+    /// Borrow the underlying T from a heap-tagged Value.
+    /// SAFETY: caller must ensure the tag matches and T is correct.
+    #[inline(always)]
+    unsafe fn borrow_ref<T>(&self) -> &T {
+        let payload = get_payload(self.0);
+        let ptr = payload_to_ptr(payload) as *const T;
+        &*ptr
+    }
+
+    /// Borrow as &Rc<T> — gives access to Rc methods (clone, make_mut, etc.)
+    /// SAFETY: caller must ensure tag matches. The Rc lives in the heap allocation
+    /// and we synthesize a reference to it. We actually need to reconstruct an Rc
+    /// since we only have the raw pointer. Instead, we return a ManuallyDrop<Rc<T>>.
+    #[inline(always)]
+    unsafe fn borrow_rc<T>(&self) -> std::mem::ManuallyDrop<Rc<T>> {
+        let payload = get_payload(self.0);
+        let ptr = payload_to_ptr(payload) as *const T;
+        std::mem::ManuallyDrop::new(Rc::from_raw(ptr))
+    }
+
+    /// Pattern-match friendly view of this value.
+    /// For heap types, this bumps the Rc refcount.
+    pub fn view(&self) -> ValueView {
+        if !is_boxed(self.0) {
+            return ValueView::Float(f64::from_bits(self.0));
+        }
+        let tag = get_tag(self.0);
+        match tag {
+            TAG_NIL => ValueView::Nil,
+            TAG_FALSE => ValueView::Bool(false),
+            TAG_TRUE => ValueView::Bool(true),
+            TAG_INT_SMALL => {
+                let payload = get_payload(self.0);
+                let val = if payload & INT_SIGN_BIT != 0 {
+                    (payload | !PAYLOAD_MASK) as i64
+                } else {
+                    payload as i64
+                };
+                ValueView::Int(val)
+            }
+            TAG_CHAR => {
+                let payload = get_payload(self.0);
+                ValueView::Char(unsafe { char::from_u32_unchecked(payload as u32) })
+            }
+            TAG_SYMBOL => {
+                let payload = get_payload(self.0);
+                let spur: Spur = unsafe { std::mem::transmute(payload as u32) };
+                ValueView::Symbol(spur)
+            }
+            TAG_KEYWORD => {
+                let payload = get_payload(self.0);
+                let spur: Spur = unsafe { std::mem::transmute(payload as u32) };
+                ValueView::Keyword(spur)
+            }
+            TAG_INT_BIG => {
+                let val = unsafe { *self.borrow_ref::<i64>() };
+                ValueView::Int(val)
+            }
+            TAG_STRING => ValueView::String(unsafe { self.get_rc::<String>() }),
+            TAG_LIST => ValueView::List(unsafe { self.get_rc::<Vec<Value>>() }),
+            TAG_VECTOR => ValueView::Vector(unsafe { self.get_rc::<Vec<Value>>() }),
+            TAG_MAP => ValueView::Map(unsafe { self.get_rc::<BTreeMap<Value, Value>>() }),
+            TAG_HASHMAP => {
+                ValueView::HashMap(unsafe {
+                    self.get_rc::<hashbrown::HashMap<Value, Value>>()
+                })
+            }
+            TAG_LAMBDA => ValueView::Lambda(unsafe { self.get_rc::<Lambda>() }),
+            TAG_MACRO => ValueView::Macro(unsafe { self.get_rc::<Macro>() }),
+            TAG_NATIVE_FN => ValueView::NativeFn(unsafe { self.get_rc::<NativeFn>() }),
+            TAG_PROMPT => ValueView::Prompt(unsafe { self.get_rc::<Prompt>() }),
+            TAG_MESSAGE => ValueView::Message(unsafe { self.get_rc::<Message>() }),
+            TAG_CONVERSATION => {
+                ValueView::Conversation(unsafe { self.get_rc::<Conversation>() })
+            }
+            TAG_TOOL_DEF => ValueView::ToolDef(unsafe { self.get_rc::<ToolDefinition>() }),
+            TAG_AGENT => ValueView::Agent(unsafe { self.get_rc::<Agent>() }),
+            TAG_THUNK => ValueView::Thunk(unsafe { self.get_rc::<Thunk>() }),
+            TAG_RECORD => ValueView::Record(unsafe { self.get_rc::<Record>() }),
+            TAG_BYTEVECTOR => ValueView::Bytevector(unsafe { self.get_rc::<Vec<u8>>() }),
+            _ => unreachable!("invalid NaN-boxed tag: {}", tag),
+        }
+    }
+
+    // -- Typed accessors (ergonomic, avoid full view match) --
+
+    pub fn type_name(&self) -> &'static str {
+        if !is_boxed(self.0) {
+            return "float";
+        }
+        match get_tag(self.0) {
+            TAG_NIL => "nil",
+            TAG_FALSE | TAG_TRUE => "bool",
+            TAG_INT_SMALL | TAG_INT_BIG => "int",
+            TAG_CHAR => "char",
+            TAG_SYMBOL => "symbol",
+            TAG_KEYWORD => "keyword",
+            TAG_STRING => "string",
+            TAG_LIST => "list",
+            TAG_VECTOR => "vector",
+            TAG_MAP => "map",
+            TAG_HASHMAP => "hashmap",
+            TAG_LAMBDA => "lambda",
+            TAG_MACRO => "macro",
+            TAG_NATIVE_FN => "native-fn",
+            TAG_PROMPT => "prompt",
+            TAG_MESSAGE => "message",
+            TAG_CONVERSATION => "conversation",
+            TAG_TOOL_DEF => "tool",
+            TAG_AGENT => "agent",
+            TAG_THUNK => "promise",
+            TAG_RECORD => "record",
+            TAG_BYTEVECTOR => "bytevector",
+            _ => "unknown",
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_nil(&self) -> bool {
+        self.0 == Value::NIL.0
+    }
+
+    #[inline(always)]
+    pub fn is_truthy(&self) -> bool {
+        self.0 != Value::NIL.0 && self.0 != Value::FALSE.0
+    }
+
+    #[inline(always)]
+    pub fn is_bool(&self) -> bool {
+        self.0 == Value::TRUE.0 || self.0 == Value::FALSE.0
+    }
+
+    #[inline(always)]
+    pub fn is_int(&self) -> bool {
+        is_boxed(self.0) && matches!(get_tag(self.0), TAG_INT_SMALL | TAG_INT_BIG)
+    }
+
+    #[inline(always)]
+    pub fn is_symbol(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_SYMBOL
+    }
+
+    #[inline(always)]
+    pub fn is_keyword(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_KEYWORD
+    }
+
+    #[inline(always)]
+    pub fn is_string(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_STRING
+    }
+
+    #[inline(always)]
+    pub fn is_list(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_LIST
+    }
+
+    #[inline(always)]
+    pub fn is_pair(&self) -> bool {
+        if let Some(items) = self.as_list() {
+            !items.is_empty()
+        } else {
+            false
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_vector(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_VECTOR
+    }
+
+    #[inline(always)]
+    pub fn is_map(&self) -> bool {
+        is_boxed(self.0) && matches!(get_tag(self.0), TAG_MAP | TAG_HASHMAP)
+    }
+
+    #[inline(always)]
+    pub fn is_lambda(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_LAMBDA
+    }
+
+    #[inline(always)]
+    pub fn is_native_fn(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_NATIVE_FN
+    }
+
+    #[inline(always)]
+    pub fn is_thunk(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_THUNK
+    }
+
+    #[inline(always)]
+    pub fn is_record(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_RECORD
+    }
+
+    #[inline(always)]
+    pub fn as_int(&self) -> Option<i64> {
+        if !is_boxed(self.0) {
+            return None;
+        }
+        match get_tag(self.0) {
+            TAG_INT_SMALL => {
+                let payload = get_payload(self.0);
+                let val = if payload & INT_SIGN_BIT != 0 {
+                    (payload | !PAYLOAD_MASK) as i64
+                } else {
+                    payload as i64
+                };
+                Some(val)
+            }
+            TAG_INT_BIG => Some(unsafe { *self.borrow_ref::<i64>() }),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_float(&self) -> Option<f64> {
+        if !is_boxed(self.0) {
+            return Some(f64::from_bits(self.0));
+        }
+        match get_tag(self.0) {
+            TAG_INT_SMALL => {
+                let payload = get_payload(self.0);
+                let val = if payload & INT_SIGN_BIT != 0 {
+                    (payload | !PAYLOAD_MASK) as i64
+                } else {
+                    payload as i64
+                };
+                Some(val as f64)
+            }
+            TAG_INT_BIG => Some(unsafe { *self.borrow_ref::<i64>() } as f64),
+            _ => None,
+        }
+    }
+
+    #[inline(always)]
+    pub fn as_bool(&self) -> Option<bool> {
+        if self.0 == Value::TRUE.0 {
+            Some(true)
+        } else if self.0 == Value::FALSE.0 {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_STRING {
+            Some(unsafe { self.borrow_ref::<String>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_string_rc(&self) -> Option<Rc<String>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_STRING {
+            Some(unsafe { self.get_rc::<String>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_symbol(&self) -> Option<String> {
+        self.as_symbol_spur().map(resolve)
+    }
+
+    pub fn as_symbol_spur(&self) -> Option<Spur> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_SYMBOL {
+            let payload = get_payload(self.0);
+            Some(unsafe { std::mem::transmute(payload as u32) })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_keyword(&self) -> Option<String> {
+        self.as_keyword_spur().map(resolve)
+    }
+
+    pub fn as_keyword_spur(&self) -> Option<Spur> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_KEYWORD {
+            let payload = get_payload(self.0);
+            Some(unsafe { std::mem::transmute(payload as u32) })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_char(&self) -> Option<char> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_CHAR {
+            let payload = get_payload(self.0);
+            char::from_u32(payload as u32)
+        } else {
+            None
+        }
+    }
+
+    pub fn as_list(&self) -> Option<&[Value]> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_LIST {
+            Some(unsafe { self.borrow_ref::<Vec<Value>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_list_rc(&self) -> Option<Rc<Vec<Value>>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_LIST {
+            Some(unsafe { self.get_rc::<Vec<Value>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_vector(&self) -> Option<&[Value]> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_VECTOR {
+            Some(unsafe { self.borrow_ref::<Vec<Value>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_vector_rc(&self) -> Option<Rc<Vec<Value>>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_VECTOR {
+            Some(unsafe { self.get_rc::<Vec<Value>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_map_rc(&self) -> Option<Rc<BTreeMap<Value, Value>>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_MAP {
+            Some(unsafe { self.get_rc::<BTreeMap<Value, Value>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_hashmap_rc(&self) -> Option<Rc<hashbrown::HashMap<Value, Value>>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_HASHMAP {
+            Some(unsafe { self.get_rc::<hashbrown::HashMap<Value, Value>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_lambda_rc(&self) -> Option<Rc<Lambda>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_LAMBDA {
+            Some(unsafe { self.get_rc::<Lambda>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_macro_rc(&self) -> Option<Rc<Macro>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_MACRO {
+            Some(unsafe { self.get_rc::<Macro>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_native_fn_rc(&self) -> Option<Rc<NativeFn>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_NATIVE_FN {
+            Some(unsafe { self.get_rc::<NativeFn>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_thunk_rc(&self) -> Option<Rc<Thunk>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_THUNK {
+            Some(unsafe { self.get_rc::<Thunk>() })
+        } else {
+            None
+        }
     }
 
     pub fn as_record(&self) -> Option<&Rc<Record>> {
-        match self {
-            Value::Record(r) => Some(r),
-            _ => None,
+        if is_boxed(self.0) && get_tag(self.0) == TAG_RECORD {
+            // Return a reference to the ManuallyDrop<Rc<Record>>, which derefs to &Rc<Record>
+            // SAFETY: the Rc lives as long as self does, and ManuallyDrop is repr(transparent)
+            Some(unsafe { &*(&*self.borrow_rc::<Record>() as *const Rc<Record>) })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_record_rc(&self) -> Option<Rc<Record>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_RECORD {
+            Some(unsafe { self.get_rc::<Record>() })
+        } else {
+            None
         }
     }
 
     pub fn as_bytevector(&self) -> Option<&Rc<Vec<u8>>> {
-        match self {
-            Value::Bytevector(bv) => Some(bv),
-            _ => None,
+        if is_boxed(self.0) && get_tag(self.0) == TAG_BYTEVECTOR {
+            Some(unsafe { &*(&*self.borrow_rc::<Vec<u8>>() as *const Rc<Vec<u8>>) })
+        } else {
+            None
         }
     }
 
-    pub fn bytevector(bytes: Vec<u8>) -> Value {
-        Value::Bytevector(Rc::new(bytes))
+    pub fn as_bytevector_rc(&self) -> Option<Rc<Vec<u8>>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_BYTEVECTOR {
+            Some(unsafe { self.get_rc::<Vec<u8>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_prompt_rc(&self) -> Option<Rc<Prompt>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_PROMPT {
+            Some(unsafe { self.get_rc::<Prompt>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_message_rc(&self) -> Option<Rc<Message>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_MESSAGE {
+            Some(unsafe { self.get_rc::<Message>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_conversation_rc(&self) -> Option<Rc<Conversation>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_CONVERSATION {
+            Some(unsafe { self.get_rc::<Conversation>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_tool_def_rc(&self) -> Option<Rc<ToolDefinition>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_TOOL_DEF {
+            Some(unsafe { self.get_rc::<ToolDefinition>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_agent_rc(&self) -> Option<Rc<Agent>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_AGENT {
+            Some(unsafe { self.get_rc::<Agent>() })
+        } else {
+            None
+        }
     }
 }
 
-impl Hash for Value {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(self).hash(state);
-        match self {
-            Value::Nil => {}
-            Value::Bool(b) => b.hash(state),
-            Value::Int(n) => n.hash(state),
-            Value::Float(f) => f.to_bits().hash(state),
-            Value::String(s) => s.hash(state),
-            Value::Symbol(s) => s.hash(state),
-            Value::Keyword(s) => s.hash(state),
-            Value::Char(c) => c.hash(state),
-            Value::List(l) => l.hash(state),
-            Value::Vector(v) => v.hash(state),
-            Value::Record(r) => {
-                r.type_tag.hash(state);
-                r.fields.hash(state);
+// ── Clone ─────────────────────────────────────────────────────────
+
+impl Clone for Value {
+    #[inline(always)]
+    fn clone(&self) -> Self {
+        if !is_boxed(self.0) {
+            // Float: trivial copy
+            return Value(self.0);
+        }
+        let tag = get_tag(self.0);
+        match tag {
+            // Immediates: trivial copy
+            TAG_NIL | TAG_FALSE | TAG_TRUE | TAG_INT_SMALL | TAG_CHAR | TAG_SYMBOL
+            | TAG_KEYWORD => Value(self.0),
+            // Heap pointers: increment refcount
+            _ => {
+                let payload = get_payload(self.0);
+                let ptr = payload_to_ptr(payload);
+                // Increment refcount based on type
+                unsafe {
+                    match tag {
+                        TAG_INT_BIG => Rc::increment_strong_count(ptr as *const i64),
+                        TAG_STRING => Rc::increment_strong_count(ptr as *const String),
+                        TAG_LIST | TAG_VECTOR => {
+                            Rc::increment_strong_count(ptr as *const Vec<Value>)
+                        }
+                        TAG_MAP => {
+                            Rc::increment_strong_count(ptr as *const BTreeMap<Value, Value>)
+                        }
+                        TAG_HASHMAP => {
+                            Rc::increment_strong_count(
+                                ptr as *const hashbrown::HashMap<Value, Value>,
+                            )
+                        }
+                        TAG_LAMBDA => Rc::increment_strong_count(ptr as *const Lambda),
+                        TAG_MACRO => Rc::increment_strong_count(ptr as *const Macro),
+                        TAG_NATIVE_FN => Rc::increment_strong_count(ptr as *const NativeFn),
+                        TAG_PROMPT => Rc::increment_strong_count(ptr as *const Prompt),
+                        TAG_MESSAGE => Rc::increment_strong_count(ptr as *const Message),
+                        TAG_CONVERSATION => {
+                            Rc::increment_strong_count(ptr as *const Conversation)
+                        }
+                        TAG_TOOL_DEF => Rc::increment_strong_count(ptr as *const ToolDefinition),
+                        TAG_AGENT => Rc::increment_strong_count(ptr as *const Agent),
+                        TAG_THUNK => Rc::increment_strong_count(ptr as *const Thunk),
+                        TAG_RECORD => Rc::increment_strong_count(ptr as *const Record),
+                        TAG_BYTEVECTOR => Rc::increment_strong_count(ptr as *const Vec<u8>),
+                        _ => unreachable!("invalid heap tag in clone: {}", tag),
+                    }
+                }
+                Value(self.0)
             }
-            Value::Bytevector(bv) => bv.hash(state),
-            _ => {}
         }
     }
 }
 
-// Implement Eq/Ord for Value so it can be used as BTreeMap key.
+// ── Drop ──────────────────────────────────────────────────────────
+
+impl Drop for Value {
+    #[inline(always)]
+    fn drop(&mut self) {
+        if !is_boxed(self.0) {
+            return; // Float
+        }
+        let tag = get_tag(self.0);
+        match tag {
+            // Immediates: nothing to free
+            TAG_NIL | TAG_FALSE | TAG_TRUE | TAG_INT_SMALL | TAG_CHAR | TAG_SYMBOL
+            | TAG_KEYWORD => {}
+            // Heap pointers: drop the Rc
+            _ => {
+                let payload = get_payload(self.0);
+                let ptr = payload_to_ptr(payload);
+                unsafe {
+                    match tag {
+                        TAG_INT_BIG => drop(Rc::from_raw(ptr as *const i64)),
+                        TAG_STRING => drop(Rc::from_raw(ptr as *const String)),
+                        TAG_LIST | TAG_VECTOR => {
+                            drop(Rc::from_raw(ptr as *const Vec<Value>))
+                        }
+                        TAG_MAP => drop(Rc::from_raw(ptr as *const BTreeMap<Value, Value>)),
+                        TAG_HASHMAP => {
+                            drop(Rc::from_raw(ptr as *const hashbrown::HashMap<Value, Value>))
+                        }
+                        TAG_LAMBDA => drop(Rc::from_raw(ptr as *const Lambda)),
+                        TAG_MACRO => drop(Rc::from_raw(ptr as *const Macro)),
+                        TAG_NATIVE_FN => drop(Rc::from_raw(ptr as *const NativeFn)),
+                        TAG_PROMPT => drop(Rc::from_raw(ptr as *const Prompt)),
+                        TAG_MESSAGE => drop(Rc::from_raw(ptr as *const Message)),
+                        TAG_CONVERSATION => {
+                            drop(Rc::from_raw(ptr as *const Conversation))
+                        }
+                        TAG_TOOL_DEF => drop(Rc::from_raw(ptr as *const ToolDefinition)),
+                        TAG_AGENT => drop(Rc::from_raw(ptr as *const Agent)),
+                        TAG_THUNK => drop(Rc::from_raw(ptr as *const Thunk)),
+                        TAG_RECORD => drop(Rc::from_raw(ptr as *const Record)),
+                        TAG_BYTEVECTOR => drop(Rc::from_raw(ptr as *const Vec<u8>)),
+                        _ => {} // unreachable, but don't panic in drop
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── PartialEq / Eq ────────────────────────────────────────────────
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Value::Nil, Value::Nil) => true,
-            (Value::Bool(a), Value::Bool(b)) => a == b,
-            (Value::Int(a), Value::Int(b)) => a == b,
-            (Value::Float(a), Value::Float(b)) => a.to_bits() == b.to_bits(),
-            (Value::String(a), Value::String(b)) => a == b,
-            (Value::Symbol(a), Value::Symbol(b)) => a == b,
-            (Value::Keyword(a), Value::Keyword(b)) => a == b,
-            (Value::Char(a), Value::Char(b)) => a == b,
-            (Value::List(a), Value::List(b)) => a == b,
-            (Value::Vector(a), Value::Vector(b)) => a == b,
-            (Value::Map(a), Value::Map(b)) => a == b,
-            (Value::HashMap(a), Value::HashMap(b)) => a == b,
-            (Value::Record(a), Value::Record(b)) => {
+        // Fast path: identical bits
+        if self.0 == other.0 {
+            // For floats, NaN != NaN per IEEE, but our canonical NaN is unique,
+            // so identical bits means equal for all types.
+            // Exception: need to handle -0.0 == +0.0
+            if !is_boxed(self.0) {
+                let f = f64::from_bits(self.0);
+                // NaN check: if both are canonical NaN (same bits), we say not equal
+                if f.is_nan() {
+                    return false;
+                }
+                return true;
+            }
+            return true;
+        }
+        // Different bits: could still be equal for heap types or -0.0/+0.0
+        match (self.view(), other.view()) {
+            (ValueView::Nil, ValueView::Nil) => true,
+            (ValueView::Bool(a), ValueView::Bool(b)) => a == b,
+            (ValueView::Int(a), ValueView::Int(b)) => a == b,
+            (ValueView::Float(a), ValueView::Float(b)) => a.to_bits() == b.to_bits(),
+            (ValueView::String(a), ValueView::String(b)) => a == b,
+            (ValueView::Symbol(a), ValueView::Symbol(b)) => a == b,
+            (ValueView::Keyword(a), ValueView::Keyword(b)) => a == b,
+            (ValueView::Char(a), ValueView::Char(b)) => a == b,
+            (ValueView::List(a), ValueView::List(b)) => a == b,
+            (ValueView::Vector(a), ValueView::Vector(b)) => a == b,
+            (ValueView::Map(a), ValueView::Map(b)) => a == b,
+            (ValueView::HashMap(a), ValueView::HashMap(b)) => a == b,
+            (ValueView::Record(a), ValueView::Record(b)) => {
                 a.type_tag == b.type_tag && a.fields == b.fields
             }
-            (Value::Bytevector(a), Value::Bytevector(b)) => a == b,
+            (ValueView::Bytevector(a), ValueView::Bytevector(b)) => a == b,
             _ => false,
         }
     }
 }
 
 impl Eq for Value {}
+
+// ── Hash ──────────────────────────────────────────────────────────
+
+impl Hash for Value {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match self.view() {
+            ValueView::Nil => 0u8.hash(state),
+            ValueView::Bool(b) => {
+                1u8.hash(state);
+                b.hash(state);
+            }
+            ValueView::Int(n) => {
+                2u8.hash(state);
+                n.hash(state);
+            }
+            ValueView::Float(f) => {
+                3u8.hash(state);
+                f.to_bits().hash(state);
+            }
+            ValueView::String(s) => {
+                4u8.hash(state);
+                s.hash(state);
+            }
+            ValueView::Symbol(s) => {
+                5u8.hash(state);
+                s.hash(state);
+            }
+            ValueView::Keyword(s) => {
+                6u8.hash(state);
+                s.hash(state);
+            }
+            ValueView::Char(c) => {
+                7u8.hash(state);
+                c.hash(state);
+            }
+            ValueView::List(l) => {
+                8u8.hash(state);
+                l.hash(state);
+            }
+            ValueView::Vector(v) => {
+                9u8.hash(state);
+                v.hash(state);
+            }
+            ValueView::Record(r) => {
+                10u8.hash(state);
+                r.type_tag.hash(state);
+                r.fields.hash(state);
+            }
+            ValueView::Bytevector(bv) => {
+                11u8.hash(state);
+                bv.hash(state);
+            }
+            _ => {}
+        }
+    }
+}
+
+// ── Ord ───────────────────────────────────────────────────────────
 
 impl PartialOrd for Value {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
@@ -445,62 +1274,74 @@ impl Ord for Value {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         use std::cmp::Ordering;
         fn type_order(v: &Value) -> u8 {
-            match v {
-                Value::Nil => 0,
-                Value::Bool(_) => 1,
-                Value::Int(_) => 2,
-                Value::Float(_) => 3,
-                Value::Char(_) => 4,
-                Value::String(_) => 5,
-                Value::Symbol(_) => 6,
-                Value::Keyword(_) => 7,
-                Value::List(_) => 8,
-                Value::Vector(_) => 9,
-                Value::Map(_) => 10,
-                Value::HashMap(_) => 11,
-                Value::Record(_) => 12,
-                Value::Bytevector(_) => 13,
+            match v.view() {
+                ValueView::Nil => 0,
+                ValueView::Bool(_) => 1,
+                ValueView::Int(_) => 2,
+                ValueView::Float(_) => 3,
+                ValueView::Char(_) => 4,
+                ValueView::String(_) => 5,
+                ValueView::Symbol(_) => 6,
+                ValueView::Keyword(_) => 7,
+                ValueView::List(_) => 8,
+                ValueView::Vector(_) => 9,
+                ValueView::Map(_) => 10,
+                ValueView::HashMap(_) => 11,
+                ValueView::Record(_) => 12,
+                ValueView::Bytevector(_) => 13,
                 _ => 14,
             }
         }
-        match (self, other) {
-            (Value::Nil, Value::Nil) => Ordering::Equal,
-            (Value::Bool(a), Value::Bool(b)) => a.cmp(b),
-            (Value::Int(a), Value::Int(b)) => a.cmp(b),
-            (Value::Float(a), Value::Float(b)) => a.to_bits().cmp(&b.to_bits()),
-            (Value::String(a), Value::String(b)) => a.cmp(b),
-            (Value::Symbol(a), Value::Symbol(b)) => compare_spurs(*a, *b),
-            (Value::Keyword(a), Value::Keyword(b)) => compare_spurs(*a, *b),
-            (Value::Char(a), Value::Char(b)) => a.cmp(b),
-            (Value::List(a), Value::List(b)) => a.cmp(b),
-            (Value::Vector(a), Value::Vector(b)) => a.cmp(b),
-            (Value::Record(a), Value::Record(b)) => {
+        match (self.view(), other.view()) {
+            (ValueView::Nil, ValueView::Nil) => Ordering::Equal,
+            (ValueView::Bool(a), ValueView::Bool(b)) => a.cmp(&b),
+            (ValueView::Int(a), ValueView::Int(b)) => a.cmp(&b),
+            (ValueView::Float(a), ValueView::Float(b)) => a.to_bits().cmp(&b.to_bits()),
+            (ValueView::String(a), ValueView::String(b)) => a.cmp(&b),
+            (ValueView::Symbol(a), ValueView::Symbol(b)) => compare_spurs(a, b),
+            (ValueView::Keyword(a), ValueView::Keyword(b)) => compare_spurs(a, b),
+            (ValueView::Char(a), ValueView::Char(b)) => a.cmp(&b),
+            (ValueView::List(a), ValueView::List(b)) => a.cmp(&b),
+            (ValueView::Vector(a), ValueView::Vector(b)) => a.cmp(&b),
+            (ValueView::Record(a), ValueView::Record(b)) => {
                 compare_spurs(a.type_tag, b.type_tag).then_with(|| a.fields.cmp(&b.fields))
             }
-            (Value::Bytevector(a), Value::Bytevector(b)) => a.cmp(b),
+            (ValueView::Bytevector(a), ValueView::Bytevector(b)) => a.cmp(&b),
             _ => type_order(self).cmp(&type_order(other)),
         }
     }
 }
 
+// ── Display ───────────────────────────────────────────────────────
+
+fn truncate(s: &str, max: usize) -> String {
+    let mut iter = s.chars();
+    let prefix: String = iter.by_ref().take(max).collect();
+    if iter.next().is_none() {
+        prefix
+    } else {
+        format!("{prefix}...")
+    }
+}
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Nil => write!(f, "nil"),
-            Value::Bool(true) => write!(f, "#t"),
-            Value::Bool(false) => write!(f, "#f"),
-            Value::Int(n) => write!(f, "{n}"),
-            Value::Float(n) => {
+        match self.view() {
+            ValueView::Nil => write!(f, "nil"),
+            ValueView::Bool(true) => write!(f, "#t"),
+            ValueView::Bool(false) => write!(f, "#f"),
+            ValueView::Int(n) => write!(f, "{n}"),
+            ValueView::Float(n) => {
                 if n.fract() == 0.0 {
                     write!(f, "{n:.1}")
                 } else {
                     write!(f, "{n}")
                 }
             }
-            Value::String(s) => write!(f, "\"{s}\""),
-            Value::Symbol(s) => with_resolved(*s, |name| write!(f, "{name}")),
-            Value::Keyword(s) => with_resolved(*s, |name| write!(f, ":{name}")),
-            Value::Char(c) => match c {
+            ValueView::String(s) => write!(f, "\"{s}\""),
+            ValueView::Symbol(s) => with_resolved(s, |name| write!(f, "{name}")),
+            ValueView::Keyword(s) => with_resolved(s, |name| write!(f, ":{name}")),
+            ValueView::Char(c) => match c {
                 ' ' => write!(f, "#\\space"),
                 '\n' => write!(f, "#\\newline"),
                 '\t' => write!(f, "#\\tab"),
@@ -508,7 +1349,7 @@ impl fmt::Display for Value {
                 '\0' => write!(f, "#\\nul"),
                 _ => write!(f, "#\\{c}"),
             },
-            Value::List(items) => {
+            ValueView::List(items) => {
                 write!(f, "(")?;
                 for (i, item) in items.iter().enumerate() {
                     if i > 0 {
@@ -518,7 +1359,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
-            Value::Vector(items) => {
+            ValueView::Vector(items) => {
                 write!(f, "[")?;
                 for (i, item) in items.iter().enumerate() {
                     if i > 0 {
@@ -528,7 +1369,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             }
-            Value::Map(map) => {
+            ValueView::Map(map) => {
                 write!(f, "{{")?;
                 for (i, (k, v)) in map.iter().enumerate() {
                     if i > 0 {
@@ -538,7 +1379,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
-            Value::HashMap(map) => {
+            ValueView::HashMap(map) => {
                 let mut entries: Vec<_> = map.iter().collect();
                 entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
                 write!(f, "{{")?;
@@ -550,37 +1391,39 @@ impl fmt::Display for Value {
                 }
                 write!(f, "}}")
             }
-            Value::Lambda(l) => {
+            ValueView::Lambda(l) => {
                 if let Some(name) = &l.name {
                     with_resolved(*name, |n| write!(f, "<lambda {n}>"))
                 } else {
                     write!(f, "<lambda>")
                 }
             }
-            Value::Macro(m) => with_resolved(m.name, |n| write!(f, "<macro {n}>")),
-            Value::NativeFn(n) => write!(f, "<native-fn {}>", n.name),
-            Value::Prompt(p) => write!(f, "<prompt {} messages>", p.messages.len()),
-            Value::Message(m) => write!(f, "<message {} \"{}\">", m.role, truncate(&m.content, 40)),
-            Value::Conversation(c) => {
+            ValueView::Macro(m) => with_resolved(m.name, |n| write!(f, "<macro {n}>")),
+            ValueView::NativeFn(n) => write!(f, "<native-fn {}>", n.name),
+            ValueView::Prompt(p) => write!(f, "<prompt {} messages>", p.messages.len()),
+            ValueView::Message(m) => {
+                write!(f, "<message {} \"{}\">", m.role, truncate(&m.content, 40))
+            }
+            ValueView::Conversation(c) => {
                 write!(f, "<conversation {} messages>", c.messages.len())
             }
-            Value::ToolDef(t) => write!(f, "<tool {}>", t.name),
-            Value::Agent(a) => write!(f, "<agent {}>", a.name),
-            Value::Thunk(t) => {
+            ValueView::ToolDef(t) => write!(f, "<tool {}>", t.name),
+            ValueView::Agent(a) => write!(f, "<agent {}>", a.name),
+            ValueView::Thunk(t) => {
                 if t.forced.borrow().is_some() {
                     write!(f, "<promise (forced)>")
                 } else {
                     write!(f, "<promise>")
                 }
             }
-            Value::Record(r) => {
+            ValueView::Record(r) => {
                 with_resolved(r.type_tag, |tag| write!(f, "#<record {tag}"))?;
                 for field in &r.fields {
                     write!(f, " {field}")?;
                 }
                 write!(f, ">")
             }
-            Value::Bytevector(bv) => {
+            ValueView::Bytevector(bv) => {
                 write!(f, "#u8(")?;
                 for (i, byte) in bv.iter().enumerate() {
                     if i > 0 {
@@ -594,15 +1437,39 @@ impl fmt::Display for Value {
     }
 }
 
-fn truncate(s: &str, max: usize) -> String {
-    let mut iter = s.chars();
-    let prefix: String = iter.by_ref().take(max).collect();
-    if iter.next().is_none() {
-        prefix
-    } else {
-        format!("{prefix}...")
+// ── Debug ─────────────────────────────────────────────────────────
+
+impl fmt::Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.view() {
+            ValueView::Nil => write!(f, "Nil"),
+            ValueView::Bool(b) => write!(f, "Bool({b})"),
+            ValueView::Int(n) => write!(f, "Int({n})"),
+            ValueView::Float(n) => write!(f, "Float({n})"),
+            ValueView::String(s) => write!(f, "String({:?})", &**s),
+            ValueView::Symbol(s) => write!(f, "Symbol({})", resolve(s)),
+            ValueView::Keyword(s) => write!(f, "Keyword({})", resolve(s)),
+            ValueView::Char(c) => write!(f, "Char({c:?})"),
+            ValueView::List(items) => write!(f, "List({items:?})"),
+            ValueView::Vector(items) => write!(f, "Vector({items:?})"),
+            ValueView::Map(map) => write!(f, "Map({map:?})"),
+            ValueView::HashMap(map) => write!(f, "HashMap({map:?})"),
+            ValueView::Lambda(l) => write!(f, "{l:?}"),
+            ValueView::Macro(m) => write!(f, "{m:?}"),
+            ValueView::NativeFn(n) => write!(f, "{n:?}"),
+            ValueView::Prompt(p) => write!(f, "{p:?}"),
+            ValueView::Message(m) => write!(f, "{m:?}"),
+            ValueView::Conversation(c) => write!(f, "{c:?}"),
+            ValueView::ToolDef(t) => write!(f, "{t:?}"),
+            ValueView::Agent(a) => write!(f, "{a:?}"),
+            ValueView::Thunk(t) => write!(f, "{t:?}"),
+            ValueView::Record(r) => write!(f, "{r:?}"),
+            ValueView::Bytevector(bv) => write!(f, "Bytevector({bv:?})"),
+        }
     }
 }
+
+// ── Env ───────────────────────────────────────────────────────────
 
 /// A Sema environment: a chain of scopes with bindings.
 #[derive(Debug, Clone)]
@@ -648,7 +1515,7 @@ impl Env {
         self.set(intern(name), val);
     }
 
-    /// Update a binding that already exists in the current scope, avoiding key allocation.
+    /// Update a binding that already exists in the current scope.
     pub fn update(&self, name: Spur, val: Value) {
         let mut bindings = self.bindings.borrow_mut();
         if let Some(entry) = bindings.get_mut(&name) {
@@ -658,7 +1525,7 @@ impl Env {
         }
     }
 
-    /// Remove and return a binding from the current scope only (not parents).
+    /// Remove and return a binding from the current scope only.
     pub fn take(&self, name: Spur) -> Option<Value> {
         self.bindings.borrow_mut().remove(&name)
     }
@@ -697,24 +1564,236 @@ impl Default for Env {
     }
 }
 
+// ── Tests ─────────────────────────────────────────────────────────
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::EvalContext;
+
+    #[test]
+    fn test_size_of_value() {
+        assert_eq!(std::mem::size_of::<Value>(), 8);
+    }
+
+    #[test]
+    fn test_nil() {
+        let v = Value::nil();
+        assert!(v.is_nil());
+        assert!(!v.is_truthy());
+        assert_eq!(v.type_name(), "nil");
+        assert_eq!(format!("{v}"), "nil");
+    }
+
+    #[test]
+    fn test_bool() {
+        let t = Value::bool(true);
+        let f = Value::bool(false);
+        assert!(t.is_truthy());
+        assert!(!f.is_truthy());
+        assert_eq!(t.as_bool(), Some(true));
+        assert_eq!(f.as_bool(), Some(false));
+        assert_eq!(format!("{t}"), "#t");
+        assert_eq!(format!("{f}"), "#f");
+    }
+
+    #[test]
+    fn test_small_int() {
+        let v = Value::int(42);
+        assert_eq!(v.as_int(), Some(42));
+        assert_eq!(v.type_name(), "int");
+        assert_eq!(format!("{v}"), "42");
+
+        let neg = Value::int(-100);
+        assert_eq!(neg.as_int(), Some(-100));
+        assert_eq!(format!("{neg}"), "-100");
+
+        let zero = Value::int(0);
+        assert_eq!(zero.as_int(), Some(0));
+    }
+
+    #[test]
+    fn test_small_int_boundaries() {
+        let max = Value::int(SMALL_INT_MAX);
+        assert_eq!(max.as_int(), Some(SMALL_INT_MAX));
+
+        let min = Value::int(SMALL_INT_MIN);
+        assert_eq!(min.as_int(), Some(SMALL_INT_MIN));
+    }
+
+    #[test]
+    fn test_big_int() {
+        let big = Value::int(i64::MAX);
+        assert_eq!(big.as_int(), Some(i64::MAX));
+        assert_eq!(big.type_name(), "int");
+
+        let big_neg = Value::int(i64::MIN);
+        assert_eq!(big_neg.as_int(), Some(i64::MIN));
+
+        // Just outside small range
+        let just_over = Value::int(SMALL_INT_MAX + 1);
+        assert_eq!(just_over.as_int(), Some(SMALL_INT_MAX + 1));
+    }
+
+    #[test]
+    fn test_float() {
+        let v = Value::float(3.14);
+        assert_eq!(v.as_float(), Some(3.14));
+        assert_eq!(v.type_name(), "float");
+
+        let neg = Value::float(-0.5);
+        assert_eq!(neg.as_float(), Some(-0.5));
+
+        let inf = Value::float(f64::INFINITY);
+        assert_eq!(inf.as_float(), Some(f64::INFINITY));
+
+        let neg_inf = Value::float(f64::NEG_INFINITY);
+        assert_eq!(neg_inf.as_float(), Some(f64::NEG_INFINITY));
+    }
+
+    #[test]
+    fn test_float_nan() {
+        let nan = Value::float(f64::NAN);
+        let f = nan.as_float().unwrap();
+        assert!(f.is_nan());
+    }
+
+    #[test]
+    fn test_string() {
+        let v = Value::string("hello");
+        assert_eq!(v.as_str(), Some("hello"));
+        assert_eq!(v.type_name(), "string");
+        assert_eq!(format!("{v}"), "\"hello\"");
+    }
+
+    #[test]
+    fn test_symbol() {
+        let v = Value::symbol("foo");
+        assert!(v.as_symbol_spur().is_some());
+        assert_eq!(v.as_symbol(), Some("foo".to_string()));
+        assert_eq!(v.type_name(), "symbol");
+        assert_eq!(format!("{v}"), "foo");
+    }
+
+    #[test]
+    fn test_keyword() {
+        let v = Value::keyword("bar");
+        assert!(v.as_keyword_spur().is_some());
+        assert_eq!(v.as_keyword(), Some("bar".to_string()));
+        assert_eq!(v.type_name(), "keyword");
+        assert_eq!(format!("{v}"), ":bar");
+    }
+
+    #[test]
+    fn test_char() {
+        let v = Value::char('λ');
+        assert_eq!(v.as_char(), Some('λ'));
+        assert_eq!(v.type_name(), "char");
+    }
+
+    #[test]
+    fn test_list() {
+        let v = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
+        assert_eq!(v.as_list().unwrap().len(), 3);
+        assert_eq!(v.type_name(), "list");
+        assert_eq!(format!("{v}"), "(1 2 3)");
+    }
+
+    #[test]
+    fn test_clone_immediate() {
+        let v = Value::int(42);
+        let v2 = v.clone();
+        assert_eq!(v.as_int(), v2.as_int());
+    }
+
+    #[test]
+    fn test_clone_heap() {
+        let v = Value::string("hello");
+        let v2 = v.clone();
+        assert_eq!(v.as_str(), v2.as_str());
+        // Both should work after clone
+        assert_eq!(format!("{v}"), format!("{v2}"));
+    }
+
+    #[test]
+    fn test_equality() {
+        assert_eq!(Value::int(42), Value::int(42));
+        assert_ne!(Value::int(42), Value::int(43));
+        assert_eq!(Value::nil(), Value::nil());
+        assert_eq!(Value::bool(true), Value::bool(true));
+        assert_ne!(Value::bool(true), Value::bool(false));
+        assert_eq!(Value::string("a"), Value::string("a"));
+        assert_ne!(Value::string("a"), Value::string("b"));
+        assert_eq!(Value::symbol("x"), Value::symbol("x"));
+    }
+
+    #[test]
+    fn test_big_int_equality() {
+        assert_eq!(Value::int(i64::MAX), Value::int(i64::MAX));
+        assert_ne!(Value::int(i64::MAX), Value::int(i64::MIN));
+    }
+
+    #[test]
+    fn test_view_pattern_matching() {
+        let v = Value::int(42);
+        match v.view() {
+            ValueView::Int(n) => assert_eq!(n, 42),
+            _ => panic!("expected int"),
+        }
+
+        let v = Value::string("hello");
+        match v.view() {
+            ValueView::String(s) => assert_eq!(&**s, "hello"),
+            _ => panic!("expected string"),
+        }
+    }
+
+    #[test]
+    fn test_env() {
+        let env = Env::new();
+        env.set_str("x", Value::int(42));
+        assert_eq!(env.get_str("x"), Some(Value::int(42)));
+    }
 
     #[test]
     fn test_native_fn_simple() {
         let f = NativeFn::simple("add1", |args| Ok(args[0].clone()));
         let ctx = EvalContext::new();
-        assert!((f.func)(&ctx, &[Value::Int(42)]).is_ok());
+        assert!((f.func)(&ctx, &[Value::int(42)]).is_ok());
     }
 
     #[test]
     fn test_native_fn_with_ctx() {
         let f = NativeFn::with_ctx("get-depth", |ctx, _args| {
-            Ok(Value::Int(ctx.eval_depth.get() as i64))
+            Ok(Value::int(ctx.eval_depth.get() as i64))
         });
         let ctx = EvalContext::new();
-        assert_eq!((f.func)(&ctx, &[]).unwrap(), Value::Int(0));
+        assert_eq!((f.func)(&ctx, &[]).unwrap(), Value::int(0));
+    }
+
+    #[test]
+    fn test_drop_doesnt_leak() {
+        // Create and drop many heap values to check for leaks
+        for _ in 0..10000 {
+            let _ = Value::string("test");
+            let _ = Value::list(vec![Value::int(1), Value::int(2)]);
+            let _ = Value::int(i64::MAX); // big int
+        }
+    }
+
+    #[test]
+    fn test_is_truthy() {
+        assert!(!Value::nil().is_truthy());
+        assert!(!Value::bool(false).is_truthy());
+        assert!(Value::bool(true).is_truthy());
+        assert!(Value::int(0).is_truthy());
+        assert!(Value::int(1).is_truthy());
+        assert!(Value::string("").is_truthy());
+        assert!(Value::list(vec![]).is_truthy());
+    }
+
+    #[test]
+    fn test_as_float_from_int() {
+        assert_eq!(Value::int(42).as_float(), Some(42.0));
+        assert_eq!(Value::float(3.14).as_float(), Some(3.14));
     }
 }
