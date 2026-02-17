@@ -44,6 +44,14 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::nil())
     });
 
+    register_fn(env, "pprint", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("pprint", "1", args.len()));
+        }
+        println!("{}", sema_core::pretty_print(&args[0], 80));
+        Ok(Value::nil())
+    });
+
     register_fn(env, "newline", |args| {
         if !args.is_empty() {
             return Err(SemaError::arity("newline", "0", args.len()));

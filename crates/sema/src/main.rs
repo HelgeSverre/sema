@@ -6,7 +6,7 @@ use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use sema_core::{Env, SemaError, Value, ValueView};
+use sema_core::{pretty_print, Env, SemaError, Value, ValueView};
 use sema_eval::Interpreter;
 
 const SPECIAL_FORMS: &[&str] = &[
@@ -291,7 +291,7 @@ fn main() {
         match eval_with_mode(&interpreter, expr, cli.vm) {
             Ok(val) => {
                 if !val.is_nil() {
-                    println!("{val}");
+                    println!("{}", pretty_print(&val, 80));
                 }
             }
             Err(e) => {
@@ -671,7 +671,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                 match eval_with_mode(&interpreter, &input, use_vm) {
                     Ok(val) => {
                         if !val.is_nil() {
-                            println!("{val}");
+                            println!("{}", pretty_print(&val, 80));
                         }
                     }
                     Err(e) => {

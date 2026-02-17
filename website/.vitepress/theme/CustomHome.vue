@@ -530,7 +530,7 @@
 <section id="architecture" class="arch-section">
   <h2><span class="paren">(</span>Architecture<span class="paren">)</span></h2>
   <p>
-    Seven Rust crates, one directed dependency graph. No circular dependencies.
+    Eight Rust crates, one directed dependency graph. No circular dependencies.
     Single-threaded with <code class="ic">Rc</code>,
     deterministic ordering with <code class="ic">BTreeMap</code>.
   </p>
@@ -564,16 +564,20 @@
       <h4>sema</h4>
       <p>REPL, CLI, file runner</p>
     </div>
+    <div class="crate-card">
+      <h4>sema-wasm</h4>
+      <p>WebAssembly bindings for the browser playground</p>
+    </div>
   </div>
 
   <div class="arch-diagram">
-<pre><code>            sema-core
-          /    |    \
-  sema-reader  |  sema-stdlib
-      |    \   |   /
-  sema-vm  sema-eval   sema-llm
-         \     |      /
-              sema</code></pre>
+<pre><code>              sema-core
+            /     |     \
+    sema-reader   |   sema-stdlib
+        |     \   |   /
+    sema-vm  sema-eval    sema-llm
+           \     |       /      \
+               sema           sema-wasm</code></pre>
   </div>
 </section>
 

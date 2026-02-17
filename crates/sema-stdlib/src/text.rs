@@ -268,6 +268,72 @@ pub fn register(env: &sema_core::Env) {
 
         Ok(Value::list(result))
     });
+
+    // text/excerpt — extract a snippet around a match with omission markers
+    register_fn(env, "text/excerpt", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("text/excerpt", "2-3", args.len()));
+        }
+        let text = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let query = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+
+        let mut radius: usize = 100;
+        let mut omission = "...".to_string();
+        if let Some(opts) = args.get(2).and_then(|v| v.as_map_rc()) {
+            if let Some(v) = opts.get(&Value::keyword("radius")).and_then(|v| v.as_int()) {
+                radius = v.max(0) as usize;
+            }
+            if let Some(v) = opts
+                .get(&Value::keyword("omission"))
+                .and_then(|v| v.as_str())
+            {
+                omission = v.to_string();
+            }
+        }
+
+        let lower_text = text.to_lowercase();
+        let lower_query = query.to_lowercase();
+        match lower_text.find(&lower_query) {
+            None => Ok(Value::nil()),
+            Some(byte_idx) => {
+                let chars: Vec<char> = text.chars().collect();
+                let char_idx = text[..byte_idx].chars().count();
+                let query_char_len = query.chars().count();
+
+                let start = char_idx.saturating_sub(radius);
+                let end = (char_idx + query_char_len + radius).min(chars.len());
+
+                let snippet: String = chars[start..end].iter().collect();
+
+                let mut result = String::new();
+                if start > 0 {
+                    result.push_str(&omission);
+                }
+                result.push_str(&snippet);
+                if end < chars.len() {
+                    result.push_str(&omission);
+                }
+                Ok(Value::string(&result))
+            }
+        }
+    });
+
+    // text/normalize-newlines — convert \r\n and \r to \n
+    register_fn(env, "text/normalize-newlines", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("text/normalize-newlines", "1", args.len()));
+        }
+        let text = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::string(
+            &text.replace("\r\n", "\n").replace('\r', "\n"),
+        ))
+    });
 }
 
 // --- Chunking helpers ---

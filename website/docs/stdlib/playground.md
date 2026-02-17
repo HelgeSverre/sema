@@ -80,6 +80,25 @@ All `term/*` functions work but return text **without ANSI formatting** (since t
 (term/style "hi" :bold :cyan)  ; => "hi"
 ```
 
+### HTTP Functions
+
+HTTP functions work in the playground via the browser's `fetch()` API. They return the same `{:status :headers :body}` map as the native CLI.
+
+```scheme
+(define resp (http/get "https://httpbin.org/get"))
+(:status resp)    ; => 200
+(:body resp)      ; => "{\"args\": {}, ...}"
+
+(http/post "https://httpbin.org/post" {:name "sema"})
+; => {:status 200 :headers {...} :body "..."}
+```
+
+All HTTP functions are supported: `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`.
+
+::: warning CORS Restrictions
+Browser security rules (CORS) may block requests to servers that don't include `Access-Control-Allow-Origin` headers. Public APIs like httpbin.org work fine. If you get a network error, the target server likely doesn't allow cross-origin requests.
+:::
+
 ### Not Available in WASM
 
 These functions return an error when called in the playground:
@@ -90,9 +109,4 @@ These functions return an error when called in the playground:
 | `exit` | No process to exit |
 | `read-line` | No stdin in browser |
 | `read-stdin` | No stdin in browser |
-| `http/get`, `http/post`, ... | Requires async evaluation (coming soon) |
 | `sleep` | Cannot block the browser main thread (no-op) |
-
-::: info Future: HTTP Support
-HTTP functions (`http/get`, `http/post`, etc.) will be available in a future release via an async evaluation bridge using the browser's `fetch` API.
-:::

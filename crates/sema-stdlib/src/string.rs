@@ -883,4 +883,455 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         Ok(Value::bool(a.to_lowercase() == b.to_lowercase()))
     });
+
+    // string/after — everything after first occurrence of needle
+    register_fn(env, "string/after", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/after", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let needle = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        match s.find(needle) {
+            Some(idx) => Ok(Value::string(&s[idx + needle.len()..])),
+            None => Ok(Value::string(s)),
+        }
+    });
+
+    // string/after-last — everything after last occurrence of needle
+    register_fn(env, "string/after-last", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/after-last", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let needle = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        match s.rfind(needle) {
+            Some(idx) => Ok(Value::string(&s[idx + needle.len()..])),
+            None => Ok(Value::string(s)),
+        }
+    });
+
+    // string/before — everything before first occurrence of needle
+    register_fn(env, "string/before", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/before", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let needle = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        match s.find(needle) {
+            Some(idx) => Ok(Value::string(&s[..idx])),
+            None => Ok(Value::string(s)),
+        }
+    });
+
+    // string/before-last — everything before last occurrence of needle
+    register_fn(env, "string/before-last", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/before-last", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let needle = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        match s.rfind(needle) {
+            Some(idx) => Ok(Value::string(&s[..idx])),
+            None => Ok(Value::string(s)),
+        }
+    });
+
+    // string/between — portion between first occurrence of left and first occurrence of right after it
+    register_fn(env, "string/between", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity("string/between", "3", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let left = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let right = args[2]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?;
+        match s.find(left) {
+            Some(l_idx) => {
+                let after_left = &s[l_idx + left.len()..];
+                match after_left.find(right) {
+                    Some(r_idx) => Ok(Value::string(&after_left[..r_idx])),
+                    None => Ok(Value::string(after_left)),
+                }
+            }
+            None => Ok(Value::string("")),
+        }
+    });
+
+    // string/chop-start — remove prefix if present
+    register_fn(env, "string/chop-start", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/chop-start", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let prefix = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        match s.strip_prefix(prefix) {
+            Some(rest) => Ok(Value::string(rest)),
+            None => Ok(Value::string(s)),
+        }
+    });
+
+    // string/chop-end — remove suffix if present
+    register_fn(env, "string/chop-end", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/chop-end", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let suffix = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        match s.strip_suffix(suffix) {
+            Some(rest) => Ok(Value::string(rest)),
+            None => Ok(Value::string(s)),
+        }
+    });
+
+    // string/ensure-start — ensure string starts with prefix (add if missing)
+    register_fn(env, "string/ensure-start", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/ensure-start", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let prefix = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        if s.starts_with(prefix) {
+            Ok(Value::string(s))
+        } else {
+            Ok(Value::string(&format!("{}{}", prefix, s)))
+        }
+    });
+
+    // string/ensure-end — ensure string ends with suffix (add if missing)
+    register_fn(env, "string/ensure-end", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/ensure-end", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let suffix = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        if s.ends_with(suffix) {
+            Ok(Value::string(s))
+        } else {
+            Ok(Value::string(&format!("{}{}", s, suffix)))
+        }
+    });
+
+    // string/replace-first — replace only first occurrence
+    register_fn(env, "string/replace-first", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity("string/replace-first", "3", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let from = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let to = args[2]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?;
+        match s.find(from) {
+            Some(idx) => {
+                let mut result = String::with_capacity(s.len());
+                result.push_str(&s[..idx]);
+                result.push_str(to);
+                result.push_str(&s[idx + from.len()..]);
+                Ok(Value::string(&result))
+            }
+            None => Ok(Value::string(s)),
+        }
+    });
+
+    // string/replace-last — replace only last occurrence
+    register_fn(env, "string/replace-last", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity("string/replace-last", "3", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let from = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let to = args[2]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?;
+        match s.rfind(from) {
+            Some(idx) => {
+                let mut result = String::with_capacity(s.len());
+                result.push_str(&s[..idx]);
+                result.push_str(to);
+                result.push_str(&s[idx + from.len()..]);
+                Ok(Value::string(&result))
+            }
+            None => Ok(Value::string(s)),
+        }
+    });
+
+    // string/remove — remove all occurrences of substring
+    register_fn(env, "string/remove", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/remove", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let needle = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        Ok(Value::string(&s.replace(needle, "")))
+    });
+
+    // string/take — first N chars (positive) or last N chars (negative)
+    register_fn(env, "string/take", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("string/take", "2", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let n = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        let char_count = s.chars().count() as i64;
+        if n >= 0 {
+            let take = (n as usize).min(char_count as usize);
+            Ok(Value::string(&s.chars().take(take).collect::<String>()))
+        } else {
+            let take = ((-n) as usize).min(char_count as usize);
+            let skip = char_count as usize - take;
+            Ok(Value::string(&s.chars().skip(skip).collect::<String>()))
+        }
+    });
+
+    fn split_identifier_words(s: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut current = String::new();
+        let mut prev_was_upper = false;
+        let mut prev_was_sep = true;
+        for ch in s.chars() {
+            if ch == '_' || ch == '-' || ch == ' ' || ch == '.' {
+                if !current.is_empty() {
+                    words.push(current.clone());
+                    current.clear();
+                }
+                prev_was_upper = false;
+                prev_was_sep = true;
+            } else if ch.is_uppercase() {
+                if !current.is_empty() && (!prev_was_upper || prev_was_sep) {
+                    words.push(current.clone());
+                    current.clear();
+                } else if !current.is_empty() && prev_was_upper && current.len() > 1 {
+                    // Handle acronyms like "HTMLParser" -> ["HTML", "Parser"]
+                    // We need to peek ahead — but since we don't have peek here,
+                    // we'll handle it simply: consecutive uppercase stays together
+                    // until a lowercase follows
+                }
+                current.push(ch);
+                prev_was_upper = true;
+                prev_was_sep = false;
+            } else if ch.is_lowercase() && prev_was_upper && current.len() > 1 {
+                // Transition from uppercase run to lowercase: split before last uppercase
+                let last = current.pop().unwrap();
+                if !current.is_empty() {
+                    words.push(current.clone());
+                    current.clear();
+                }
+                current.push(last);
+                current.push(ch);
+                prev_was_upper = false;
+                prev_was_sep = false;
+            } else {
+                current.push(ch);
+                prev_was_upper = false;
+                prev_was_sep = false;
+            }
+        }
+        if !current.is_empty() {
+            words.push(current);
+        }
+        words
+    }
+
+    register_fn(env, "string/snake-case", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/snake-case", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let words = split_identifier_words(s);
+        let result: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+        Ok(Value::string(&result.join("_")))
+    });
+
+    register_fn(env, "string/kebab-case", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/kebab-case", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let words = split_identifier_words(s);
+        let result: Vec<String> = words.iter().map(|w| w.to_lowercase()).collect();
+        Ok(Value::string(&result.join("-")))
+    });
+
+    register_fn(env, "string/camel-case", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/camel-case", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let words = split_identifier_words(s);
+        let mut result = String::new();
+        for (i, word) in words.iter().enumerate() {
+            if i == 0 {
+                result.push_str(&word.to_lowercase());
+            } else {
+                let mut chars = word.chars();
+                if let Some(first) = chars.next() {
+                    result.extend(first.to_uppercase());
+                    result.push_str(&chars.collect::<String>().to_lowercase());
+                }
+            }
+        }
+        Ok(Value::string(&result))
+    });
+
+    register_fn(env, "string/pascal-case", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/pascal-case", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let words = split_identifier_words(s);
+        let mut result = String::new();
+        for word in &words {
+            let mut chars = word.chars();
+            if let Some(first) = chars.next() {
+                result.extend(first.to_uppercase());
+                result.push_str(&chars.collect::<String>().to_lowercase());
+            }
+        }
+        Ok(Value::string(&result))
+    });
+
+    register_fn(env, "string/headline", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/headline", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let words = split_identifier_words(s);
+        let result: Vec<String> = words
+            .iter()
+            .map(|word| {
+                let mut chars = word.chars();
+                match chars.next() {
+                    Some(first) => {
+                        let mut w = first.to_uppercase().to_string();
+                        w.push_str(&chars.collect::<String>().to_lowercase());
+                        w
+                    }
+                    None => String::new(),
+                }
+            })
+            .collect();
+        Ok(Value::string(&result.join(" ")))
+    });
+
+    register_fn(env, "string/words", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("string/words", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let words = split_identifier_words(s);
+        Ok(Value::list(
+            words.into_iter().map(|w| Value::string(&w)).collect(),
+        ))
+    });
+
+    // string/wrap — wrap string with left and right delimiters
+    register_fn(env, "string/wrap", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("string/wrap", "2-3", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let left = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let right = if args.len() == 3 {
+            args[2]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?
+        } else {
+            left
+        };
+        Ok(Value::string(&format!("{}{}{}", left, s, right)))
+    });
+
+    // string/unwrap — remove surrounding delimiters if both present
+    register_fn(env, "string/unwrap", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("string/unwrap", "2-3", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let left = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let right = if args.len() == 3 {
+            args[2]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?
+        } else {
+            left
+        };
+        if s.starts_with(left) && s.ends_with(right) && s.len() >= left.len() + right.len() {
+            Ok(Value::string(&s[left.len()..s.len() - right.len()]))
+        } else {
+            Ok(Value::string(s))
+        }
+    });
 }

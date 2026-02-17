@@ -215,6 +215,10 @@ pub fn eval(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
 /// Maximum eval nesting depth before we bail with an error.
 /// This prevents native stack overflow from unbounded recursion
 /// (both function calls and special form nesting like deeply nested if/let/begin).
+/// WASM has a much smaller call stack (~1MB V8 limit) so we use a lower depth.
+#[cfg(target_arch = "wasm32")]
+const MAX_EVAL_DEPTH: usize = 256;
+#[cfg(not(target_arch = "wasm32"))]
 const MAX_EVAL_DEPTH: usize = 1024;
 
 pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {

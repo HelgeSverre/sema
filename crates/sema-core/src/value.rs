@@ -1409,6 +1409,130 @@ impl fmt::Display for Value {
     }
 }
 
+// ── Pretty-print ──────────────────────────────────────────────────
+
+/// Pretty-print a value with line breaks and indentation when the compact
+/// representation exceeds `max_width` columns.  Small values that fit in
+/// one line are returned in the normal compact format.
+pub fn pretty_print(value: &Value, max_width: usize) -> String {
+    let compact = format!("{value}");
+    if compact.len() <= max_width {
+        return compact;
+    }
+    let mut buf = String::new();
+    pp_value(value, 0, max_width, &mut buf);
+    buf
+}
+
+/// Render `value` into `buf` at the given `indent` level.  If the compact
+/// form fits in `max_width - indent` columns we use it; otherwise we break
+/// the container across multiple lines.
+fn pp_value(value: &Value, indent: usize, max_width: usize, buf: &mut String) {
+    let compact = format!("{value}");
+    let remaining = max_width.saturating_sub(indent);
+    if compact.len() <= remaining {
+        buf.push_str(&compact);
+        return;
+    }
+
+    match value.view() {
+        ValueView::List(items) => {
+            pp_seq(items.iter(), '(', ')', indent, max_width, buf);
+        }
+        ValueView::Vector(items) => {
+            pp_seq(items.iter(), '[', ']', indent, max_width, buf);
+        }
+        ValueView::Map(map) => {
+            pp_map(
+                map.iter().map(|(k, v)| (k.clone(), v.clone())),
+                indent,
+                max_width,
+                buf,
+            );
+        }
+        ValueView::HashMap(map) => {
+            let mut entries: Vec<_> = map.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+            pp_map(entries.into_iter(), indent, max_width, buf);
+        }
+        _ => buf.push_str(&compact),
+    }
+}
+
+/// Pretty-print a list or vector.
+fn pp_seq<'a>(
+    items: impl Iterator<Item = &'a Value>,
+    open: char,
+    close: char,
+    indent: usize,
+    max_width: usize,
+    buf: &mut String,
+) {
+    buf.push(open);
+    let child_indent = indent + 1;
+    let pad = " ".repeat(child_indent);
+    for (i, item) in items.enumerate() {
+        if i > 0 {
+            buf.push('\n');
+            buf.push_str(&pad);
+        }
+        pp_value(item, child_indent, max_width, buf);
+    }
+    buf.push(close);
+}
+
+/// Pretty-print a map (BTreeMap or HashMap).
+fn pp_map(
+    entries: impl Iterator<Item = (Value, Value)>,
+    indent: usize,
+    max_width: usize,
+    buf: &mut String,
+) {
+    buf.push('{');
+    let child_indent = indent + 1;
+    let pad = " ".repeat(child_indent);
+    for (i, (k, v)) in entries.enumerate() {
+        if i > 0 {
+            buf.push('\n');
+            buf.push_str(&pad);
+        }
+        // Key is always compact
+        let key_str = format!("{k}");
+        buf.push_str(&key_str);
+
+        // Check if the value fits inline after the key
+        let inline_indent = child_indent + key_str.len() + 1;
+        let compact_val = format!("{v}");
+        let remaining = max_width.saturating_sub(inline_indent);
+
+        if compact_val.len() <= remaining {
+            // Fits inline
+            buf.push(' ');
+            buf.push_str(&compact_val);
+        } else if is_compound(&v) {
+            // Complex value: break to next line indented 2 from key
+            let nested_indent = child_indent + 2;
+            let nested_pad = " ".repeat(nested_indent);
+            buf.push('\n');
+            buf.push_str(&nested_pad);
+            pp_value(&v, nested_indent, max_width, buf);
+        } else {
+            // Simple value that's just long: keep inline
+            buf.push(' ');
+            buf.push_str(&compact_val);
+        }
+    }
+    buf.push('}');
+}
+
+/// Check whether a value is a compound container (list, vector, map, hashmap).
+fn is_compound(value: &Value) -> bool {
+    matches!(
+        value.view(),
+        ValueView::List(_) | ValueView::Vector(_) | ValueView::Map(_) | ValueView::HashMap(_)
+    )
+}
+
 // ── Debug ─────────────────────────────────────────────────────────
 
 impl fmt::Debug for Value {

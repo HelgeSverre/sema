@@ -4,7 +4,7 @@
 
 **Goal:** Provide meaningful implementations of stdlib functions that are gated behind `#[cfg(not(target_arch = "wasm32"))]` so playground users can run more examples without "Unbound variable" errors.
 
-**Status:** Implemented (MVP) — 2026-02-14
+**Status:** HTTP via fetch bridge implemented — 2026-02-17
 
 ---
 
@@ -40,9 +40,9 @@ Thread-local `BTreeMap<String, String>` (files) + `BTreeSet<String>` (directorie
 
 **Limitation:** Session-only — all data lost on page reload.
 
-### Tier 3: HTTP Stubs
+### Tier 3: HTTP via Fetch Bridge ✅ (Implemented 2026-02-17)
 
-`http/get`, `http/post`, `http/put`, `http/delete`, `http/request` return clear error messages explaining async limitation and pointing to future `eval_async`.
+`http/get`, `http/post`, `http/put`, `http/delete`, `http/request` work via browser `fetch()` API using a replay-with-cache strategy. WASM HTTP fns check an in-memory cache; on miss they raise a marker error caught by `eval_async`, which performs the actual `fetch()`, caches the response, and replays evaluation.
 
 ---
 
@@ -122,13 +122,10 @@ WASM-only functions for browser environment detection:
 - `web/user-agent-data` → structured map from `navigator.userAgentData` (Chromium-only, nil on Firefox/Safari)
   - Returns `{:mobile bool :platform "macOS" :brands ("Chromium/120" "Google Chrome/120")}` or nil
 
-### Phase 2: `eval_async` + HTTP via fetch (Large, 1-2 days)
-1. Add `wasm-bindgen-futures` and `web-sys` (with fetch features) to `playground/crate/Cargo.toml`
-2. Implement `pub async fn eval_async(&self, code: &str) -> String` on `WasmInterpreter`
-3. Implement `http/get` etc. using `web_sys::window().fetch_with_str()`
-4. Use raw `web-sys` fetch (not reqwest-wasm) to minimize binary size
-5. Return same `{:status :headers :body}` map as native
-6. Add CORS error detection and user-friendly error messages
+### Phase 2: HTTP via fetch ✅ (Implemented 2026-02-17)
+Implemented via replay-with-cache strategy using `eval_async`/`eval_vm_async` + `web-sys` fetch.
+Uses `wasm-bindgen-futures` and raw `web-sys` (not reqwest-wasm) to minimize binary size.
+Returns same `{:status :headers :body}` map as native. CORS errors surface as `SemaError::Io`.
 
 ### Phase 3: OPFS-backed persistent VFS (Large, 2-3 days)
 **Research findings on OPFS:**
