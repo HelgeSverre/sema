@@ -77,7 +77,7 @@ fn http_cache_key(
     }
     key.push('\n');
     for (k, v) in headers {
-        write!(key, "{k}:{v}\n").unwrap();
+        writeln!(key, "{k}:{v}").unwrap();
     }
     key
 }
@@ -347,14 +347,12 @@ async fn perform_fetch(
 
     let mut resp_headers = BTreeMap::new();
     if let Ok(Some(iter)) = js_sys::try_iter(&response.headers()) {
-        for entry in iter {
-            if let Ok(entry) = entry {
-                let arr: js_sys::Array = entry.into();
-                if arr.length() >= 2 {
-                    let k = arr.get(0).as_string().unwrap_or_default();
-                    let v = arr.get(1).as_string().unwrap_or_default();
-                    resp_headers.insert(Value::keyword(&k), Value::string(&v));
-                }
+        for entry in iter.flatten() {
+            let arr: js_sys::Array = entry.into();
+            if arr.length() >= 2 {
+                let k = arr.get(0).as_string().unwrap_or_default();
+                let v = arr.get(1).as_string().unwrap_or_default();
+                resp_headers.insert(Value::keyword(&k), Value::string(&v));
             }
         }
     }

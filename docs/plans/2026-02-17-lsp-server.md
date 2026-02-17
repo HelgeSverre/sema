@@ -1,21 +1,68 @@
-# Sema LSP Server — Design Document (v2)
+# Sema Developer Experience — Design Document (v2)
 
 **Date:** 2026-02-17
 **Status:** Draft
 **Supersedes:** `2026-02-16-lsp-server.v1.md`
 **Implementation:** Not started
+**Goal:** World-class developer experience — tree-sitter grammar for instant structural editing + full LSP for semantic features.
 
 ## Overview
 
-Add Language Server Protocol support to Sema via a new `sema-lsp` crate and a `sema lsp` subcommand. The server reuses the existing runtime: `sema-reader` for parsing, `sema-eval::Interpreter` for semantic analysis, and the sandbox system for safety. The bytecode VM (`sema-vm`) is not used by the LSP initially — all analysis runs through the tree-walker under a restrictive sandbox.
+Two complementary systems:
+
+1. **`tree-sitter-sema`** — A dedicated tree-sitter grammar for Sema. Currently Helix piggybacks on the Scheme grammar (`grammar = "scheme"`), which doesn't understand Sema-specific syntax (keywords `:foo`, hash maps `{}`, vectors `[]`, `#t`/`#f` booleans, block comments `#| |#`, etc.). A proper grammar gives every tree-sitter-native editor (Neovim, Helix, Zed, Emacs 29+) accurate highlighting, folding, indentation, and text objects — instantly, with no server.
+
+2. **`sema-lsp`** — A Language Server Protocol server providing diagnostics, completions, go-to-definition, and hover. Uses `sema-reader` for parsing, `sema-eval::Interpreter` for semantic analysis, and the sandbox system for safety. The bytecode VM (`sema-vm`) is not used initially — all analysis runs through the tree-walker under a restrictive sandbox.
 
 ## Prerequisites (Phase 0)
 
-Before starting LSP implementation:
+Before starting either system:
 
 1. **Unify the special-forms list.** `SPECIAL_FORMS` in `main.rs` and `SpecialFormSpurs` in `special_forms.rs` are duplicated and out of sync. Export a canonical `SPECIAL_FORM_NAMES: &[&str]` from `sema-eval` and have both CLI completion and LSP consume it.
 
 2. **Add end positions to `Span`** (recommended, not blocking Phase 1). Currently `Span { line, col }` is start-only. Adding `end_line`/`end_col` improves diagnostic underlines and is required for precise go-to-definition highlighting in Phase 3+.
+
+---
+
+## Tree-sitter Grammar (`tree-sitter-sema`)
+
+### Why a Dedicated Grammar
+
+Sema extends standard Scheme syntax with:
+- Keywords: `:foo`, `:bar`
+- Hash map literals: `{:key value}`
+- Vector literals: `[1 2 3]`
+- Block comments: `#| ... |#`
+- String escapes: `\n`, `\t`, `\\`, `\"`
+- Boolean literals: `#t`, `#f` (plus `true`/`false` as symbols)
+- Dot notation in symbols: `record.field`
+
+The Scheme tree-sitter grammar doesn't parse these correctly. A custom `tree-sitter-sema` grammar (~100-150 lines of `grammar.js`) handles all of them.
+
+### Deliverables
+
+- `tree-sitter-sema/` repository (or subdirectory under `editors/`)
+- `grammar.js` defining: atoms (int, float, string, char, boolean, keyword, symbol), lists `()`, vectors `[]`, maps `{}`, quote/unquote/quasiquote/splice, comments (line `;` and block `#| |#`)
+- Query files: `highlights.scm`, `indents.scm`, `textobjects.scm`, `folds.scm`
+- Published to npm (for Neovim/Helix/Zed consumption) and as a Rust crate
+- Updated editor configs: Helix switches from `grammar = "scheme"` to `grammar = "sema"`, Neovim gets tree-sitter config, Zed gets language extension
+
+### What This Enables (No LSP Required)
+
+| Feature | Editor Support |
+|---------|---------------|
+| Accurate syntax highlighting | Neovim, Helix, Zed, Emacs 29+ |
+| Code folding | All tree-sitter editors |
+| Smart indentation | All tree-sitter editors |
+| Structural text objects (`af` = around function, `if` = inside function) | Neovim, Helix |
+| Incremental select (expand/shrink selection by AST node) | Neovim, Helix, Zed |
+| Syntax-aware commenting | All tree-sitter editors |
+
+### Complexity
+
+**Easy–Medium.** S-expression grammars are among the simplest to write for tree-sitter. Existing `tree-sitter-sexp`, `tree-sitter-commonlisp`, and `tree-sitter-clojure` grammars serve as references. The query files can be adapted from the existing Helix `.scm` files (which are already well-structured with 300+ lines of Sema-specific patterns).
+
+---
 
 ## Crate Structure
 
@@ -209,7 +256,6 @@ Phase 2 only handles top-level definitions. `let`/`let*`/`letrec` bindings are n
 ### 3a. Import/Load Path Resolution (Easy)
 
 When cursor is on a string in `(import "path")` or `(load "path")`:
-
 - Resolve path relative to current file (same logic as evaluator's module loader)
 - Return `Location` pointing to the resolved file, line 0
 
@@ -218,7 +264,6 @@ When cursor is on a string in `(import "path")` or `(load "path")`:
 ### 3b. User-Defined Symbols (Medium)
 
 For `define`/`defun` symbols:
-
 - Parse file with `read_many_with_spans`
 - Walk top-level forms to find the binding
 - Use `SpanMap` to look up the span (keyed by `Rc` pointer address via `Rc::as_ptr as usize`)
@@ -307,21 +352,25 @@ The extension currently only provides TextMate grammar. Add LSP client:
 
 ## Summary
 
-| Phase | Feature                                                  | Complexity  | New Code                 |
-| ----- | -------------------------------------------------------- | ----------- | ------------------------ |
-| 0     | Prerequisites (special forms export, optional end spans) | Easy        | ~30 lines                |
-| 1     | Parse diagnostics                                        | Easy        | ~250 lines               |
-| 2     | Completion                                               | Medium      | ~200 lines               |
-| 3     | Go to definition                                         | Hard        | ~400 lines               |
-| 4     | Hover docs                                               | Medium–Hard | ~200 lines + doc content |
+| Phase | Feature | Complexity | Effort (agent) |
+|-------|---------|------------|----------------|
+| 0 | Prerequisites (special forms export, optional end spans) | Easy | ~30 min |
+| T | Tree-sitter grammar + queries + editor configs | Easy–Medium | ~2–3 hours |
+| 1 | LSP: Parse diagnostics | Easy | ~2 hours |
+| 2 | LSP: Completion | Medium | ~1–2 hours |
+| 3 | LSP: Go to definition | Hard | ~2–3 hours |
+| 4 | LSP: Hover docs | Medium–Hard | ~2–3 hours |
 
 ### Implementation Order
 
-1. **Phase 0** — unify special forms list (small, unblocks Phase 2)
-2. **Phase 1** — parse diagnostics (immediate value, validates tower-lsp plumbing)
-3. **Phase 2** — completion (most-requested IDE feature)
-4. **Phase 3a** — import path resolution (easy, do alongside Phase 2)
-5. **Phase 3b/3c + Phase 4** — incrementally as LSP matures
+1. **Phase 0** — unify special forms list (small, unblocks Phase 2 + tree-sitter queries)
+2. **Phase T** — tree-sitter grammar (immediate payoff across all modern editors, independent of LSP)
+3. **Phase 1** — LSP parse diagnostics (immediate value, validates tower-lsp plumbing)
+4. **Phase 2** — LSP completion (most-requested IDE feature)
+5. **Phase 3a** — import path resolution (easy, do alongside Phase 2)
+6. **Phase 3b/3c + Phase 4** — incrementally as LSP matures
+
+**Total estimated agent effort: ~10–14 hours for everything.** Phases 0+T+1+2 (~6–8 hours) deliver 90% of the daily-use value.
 
 ---
 
@@ -334,3 +383,5 @@ The extension currently only provides TextMate grammar. Add LSP client:
 - **Incremental parsing:** Phase 1 re-parses the full file on every keystroke. The reader is fast enough for typical Sema files. If performance becomes an issue, add debouncing (100–200ms via `tokio::time::sleep`) first, then consider `TextDocumentSyncKind::INCREMENTAL`.
 
 - **WASM LSP:** `sema-wasm` exists but `tower-lsp` is stdio-oriented. In-browser LSP would need a different transport (WebSocket/worker). Out of scope.
+
+- **Tree-sitter in LSP:** Once `tree-sitter-sema` exists, the LSP could optionally use it for faster incremental parsing instead of re-running `sema-reader` on every keystroke. Low priority — `sema-reader` is already fast for typical file sizes.
