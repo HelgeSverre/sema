@@ -38,10 +38,10 @@ fn test_define_and_call() {
         eval("(begin (define (square x) (* x x)) (square 5))"),
         Value::int(25)
     );
-}
+    }
 
-#[test]
-fn test_defun_alias() {
+    #[test]
+    fn test_defun_alias() {
     let interp = Interpreter::new();
     let result = interp
         .eval_str("(defun square (x) (* x x)) (square 5)")
@@ -8408,4 +8408,34 @@ fn test_context_with_nested() {
                             (list (context/get :a) (context/get :b) (context/get :c)))))))"#),
         eval("(list 1 2 3)"),
     );
+}
+
+#[test]
+fn test_context_hidden() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/set-hidden :secret "s3cret")
+            (list (context/get-hidden :secret) (context/get :secret)))"#),
+        eval(r#"(list "s3cret" nil)"#),
+    );
+}
+
+#[test]
+fn test_context_hidden_not_in_all() {
+    let result = eval(r#"(begin
+        (context/set :visible 1)
+        (context/set-hidden :invisible 2)
+        (context/all))"#);
+    let map = result.as_map_rc().expect("should be map");
+    assert_eq!(map.get(&Value::keyword("visible")), Some(&Value::int(1)));
+    assert_eq!(map.get(&Value::keyword("invisible")), None);
+}
+
+#[test]
+fn test_context_has_hidden() {
+    assert_eq!(
+        eval(r#"(begin (context/set-hidden :k "v") (context/has-hidden? :k))"#),
+        Value::bool(true),
+    );
+    assert_eq!(eval("(context/has-hidden? :nope)"), Value::bool(false));
 }

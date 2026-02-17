@@ -44,6 +44,50 @@ pub fn register(env: &sema_core::Env) {
         Ok(ctx.context_remove(&args[0]).unwrap_or_else(Value::nil))
     });
 
+    register_fn_ctx(env, "context/push", |ctx, args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("context/push", "2", args.len()));
+        }
+        ctx.context_stack_push(args[0].clone(), args[1].clone());
+        Ok(Value::nil())
+    });
+
+    register_fn_ctx(env, "context/stack", |ctx, args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("context/stack", "1", args.len()));
+        }
+        Ok(Value::list(ctx.context_stack_get(&args[0])))
+    });
+
+    register_fn_ctx(env, "context/pop", |ctx, args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("context/pop", "1", args.len()));
+        }
+        Ok(ctx.context_stack_pop(&args[0]).unwrap_or_else(Value::nil))
+    });
+
+    register_fn_ctx(env, "context/set-hidden", |ctx, args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("context/set-hidden", "2", args.len()));
+        }
+        ctx.hidden_set(args[0].clone(), args[1].clone());
+        Ok(Value::nil())
+    });
+
+    register_fn_ctx(env, "context/get-hidden", |ctx, args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("context/get-hidden", "1", args.len()));
+        }
+        Ok(ctx.hidden_get(&args[0]).unwrap_or_else(Value::nil))
+    });
+
+    register_fn_ctx(env, "context/has-hidden?", |ctx, args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("context/has-hidden?", "1", args.len()));
+        }
+        Ok(Value::bool(ctx.hidden_has(&args[0])))
+    });
+
     // (context/with bindings-map thunk) -> result of thunk
     register_fn_ctx(env, "context/with", |ctx, args| {
         if args.len() != 2 {
