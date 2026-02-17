@@ -26,13 +26,13 @@ Source text
 
 The lowering pass converts the `Value` AST into `CoreExpr`, a desugared intermediate representation. All ~35 special forms are lowered to ~30 CoreExpr variants. Several forms desugar into simpler ones:
 
-| Source Form | Lowers To |
-|------------|-----------|
-| `cond` | Nested `If` |
-| `when` | `If` with nil else |
-| `unless` | `If` with swapped branches |
-| `case` | `Let` + nested `If` with `Or` comparisons |
-| `defun` | `Define` + `Lambda` |
+| Source Form | Lowers To                                 |
+| ----------- | ----------------------------------------- |
+| `cond`      | Nested `If`                               |
+| `when`      | `If` with nil else                        |
+| `unless`    | `If` with swapped branches                |
+| `case`      | `Let` + nested `If` with `Or` comparisons |
+| `defun`     | `Define` + `Lambda`                       |
 
 **Tail position analysis** happens during lowering. The `Call` node carries a `tail: bool` flag, set based on position:
 
@@ -43,11 +43,11 @@ The lowering pass converts the `Value` AST into `CoreExpr`, a desugared intermed
 
 The resolver walks the CoreExpr tree and classifies every variable reference as one of:
 
-| Resolution | Opcode | Description |
-|-----------|--------|-------------|
-| `Local { slot }` | `LoadLocal` / `StoreLocal` | Variable in the current function's frame |
-| `Upvalue { index }` | `LoadUpvalue` / `StoreUpvalue` | Captured from an enclosing function |
-| `Global { spur }` | `LoadGlobal` / `StoreGlobal` | Module-level binding |
+| Resolution          | Opcode                         | Description                              |
+| ------------------- | ------------------------------ | ---------------------------------------- |
+| `Local { slot }`    | `LoadLocal` / `StoreLocal`     | Variable in the current function's frame |
+| `Upvalue { index }` | `LoadUpvalue` / `StoreUpvalue` | Captured from an enclosing function      |
+| `Global { spur }`   | `LoadGlobal` / `StoreGlobal`   | Module-level binding                     |
 
 This is the key optimization over the tree-walker: instead of hash-based environment chain lookup (O(scope depth) per access), variables are accessed by direct slot index (O(1)).
 
@@ -81,16 +81,16 @@ The compiler (`compiler.rs`) transforms `ResolvedExpr` into bytecode `Chunk`s. T
 
 **Runtime-delegated forms** — forms that can't be compiled to pure bytecode are compiled as calls to `__vm-*` global functions registered by `sema-eval`:
 
-| Source Form | Delegate |
-|------------|----------|
-| `eval` | `__vm-eval` |
-| `import` | `__vm-import` |
-| `load` | `__vm-load` |
-| `defmacro` | `__vm-defmacro-form` (passes entire form as quoted constant) |
-| `define-record-type` | `__vm-define-record-type` |
-| `delay` | `__vm-delay` (passes unevaluated body as quoted constant) |
-| `force` | `__vm-force` |
-| `prompt`, `message`, `deftool`, `defagent`, `macroexpand` | Corresponding `__vm-*` delegates |
+| Source Form                                               | Delegate                                                     |
+| --------------------------------------------------------- | ------------------------------------------------------------ |
+| `eval`                                                    | `__vm-eval`                                                  |
+| `import`                                                  | `__vm-import`                                                |
+| `load`                                                    | `__vm-load`                                                  |
+| `defmacro`                                                | `__vm-defmacro-form` (passes entire form as quoted constant) |
+| `define-record-type`                                      | `__vm-define-record-type`                                    |
+| `delay`                                                   | `__vm-delay` (passes unevaluated body as quoted constant)    |
+| `force`                                                   | `__vm-force`                                                 |
+| `prompt`, `message`, `deftool`, `defagent`, `macroexpand` | Corresponding `__vm-*` delegates                             |
 
 **Public API**: `compile()`, `compile_many()`, `compile_with_locals()`, `compile_many_with_locals()` — all return `CompileResult { chunk, functions }`.
 
@@ -120,68 +120,68 @@ The VM uses a stack-based instruction set with variable-length encoding. Each op
 
 ### Constants & Stack
 
-| Opcode | Operands | Description |
-|--------|----------|-------------|
+| Opcode  | Operands  | Description             |
+| ------- | --------- | ----------------------- |
 | `Const` | u16 index | Push `constants[index]` |
-| `Nil` | — | Push nil |
-| `True` | — | Push #t |
-| `False` | — | Push #f |
-| `Pop` | — | Discard top of stack |
-| `Dup` | — | Duplicate top of stack |
+| `Nil`   | —         | Push nil                |
+| `True`  | —         | Push #t                 |
+| `False` | —         | Push #f                 |
+| `Pop`   | —         | Discard top of stack    |
+| `Dup`   | —         | Duplicate top of stack  |
 
 ### Variable Access
 
-| Opcode | Operands | Description |
-|--------|----------|-------------|
-| `LoadLocal` | u16 slot | Push `locals[slot]` |
-| `StoreLocal` | u16 slot | `locals[slot] = pop` |
-| `LoadUpvalue` | u16 index | Push `upvalues[index].get()` |
-| `StoreUpvalue` | u16 index | `upvalues[index].set(pop)` |
-| `LoadGlobal` | u32 spur | Push `globals[spur]` |
-| `StoreGlobal` | u32 spur | `globals[spur] = pop` |
-| `DefineGlobal` | u32 spur | Define new global binding |
+| Opcode         | Operands  | Description                  |
+| -------------- | --------- | ---------------------------- |
+| `LoadLocal`    | u16 slot  | Push `locals[slot]`          |
+| `StoreLocal`   | u16 slot  | `locals[slot] = pop`         |
+| `LoadUpvalue`  | u16 index | Push `upvalues[index].get()` |
+| `StoreUpvalue` | u16 index | `upvalues[index].set(pop)`   |
+| `LoadGlobal`   | u32 spur  | Push `globals[spur]`         |
+| `StoreGlobal`  | u32 spur  | `globals[spur] = pop`        |
+| `DefineGlobal` | u32 spur  | Define new global binding    |
 
 ### Control Flow
 
-| Opcode | Operands | Description |
-|--------|----------|-------------|
-| `Jump` | i32 offset | Unconditional relative jump |
-| `JumpIfFalse` | i32 offset | Pop, jump if falsy |
-| `JumpIfTrue` | i32 offset | Pop, jump if truthy |
+| Opcode        | Operands   | Description                 |
+| ------------- | ---------- | --------------------------- |
+| `Jump`        | i32 offset | Unconditional relative jump |
+| `JumpIfFalse` | i32 offset | Pop, jump if falsy          |
+| `JumpIfTrue`  | i32 offset | Pop, jump if truthy         |
 
 ### Functions
 
-| Opcode | Operands | Description |
-|--------|----------|-------------|
-| `Call` | u16 argc | Call function with argc args |
-| `TailCall` | u16 argc | Tail call (reuse frame for TCO) |
-| `Return` | — | Return top of stack |
+| Opcode        | Operands                         | Description                           |
+| ------------- | -------------------------------- | ------------------------------------- |
+| `Call`        | u16 argc                         | Call function with argc args          |
+| `TailCall`    | u16 argc                         | Tail call (reuse frame for TCO)       |
+| `Return`      | —                                | Return top of stack                   |
 | `MakeClosure` | u16 func_id, u16 n_upvalues, ... | Create closure from function template |
-| `CallNative` | u16 native_id, u16 argc | Direct native function call |
+| `CallNative`  | u16 native_id, u16 argc          | Direct native function call           |
 
 ### Data Constructors
 
-| Opcode | Operands | Description |
-|--------|----------|-------------|
-| `MakeList` | u16 n | Pop n values, push list |
-| `MakeVector` | u16 n | Pop n values, push vector |
-| `MakeMap` | u16 n_pairs | Pop 2n values, push sorted map |
-| `MakeHashMap` | u16 n_pairs | Pop 2n values, push hash map |
+| Opcode        | Operands    | Description                    |
+| ------------- | ----------- | ------------------------------ |
+| `MakeList`    | u16 n       | Pop n values, push list        |
+| `MakeVector`  | u16 n       | Pop n values, push vector      |
+| `MakeMap`     | u16 n_pairs | Pop 2n values, push sorted map |
+| `MakeHashMap` | u16 n_pairs | Pop 2n values, push hash map   |
 
 ### Arithmetic & Comparison
 
-| Opcode | Description |
-|--------|-------------|
-| `Add`, `Sub`, `Mul`, `Div` | Generic arithmetic (int/float/string) |
-| `Negate`, `Not` | Unary operators |
-| `Eq`, `Lt`, `Gt`, `Le`, `Ge` | Generic comparison |
-| `AddInt`, `SubInt`, `MulInt` | Specialized int fast paths |
-| `LtInt`, `EqInt` | Specialized int comparison |
+| Opcode                       | Description                           |
+| ---------------------------- | ------------------------------------- |
+| `Add`, `Sub`, `Mul`, `Div`   | Generic arithmetic (int/float/string) |
+| `Negate`, `Not`              | Unary operators                       |
+| `Eq`, `Lt`, `Gt`, `Le`, `Ge` | Generic comparison                    |
+| `AddInt`, `SubInt`, `MulInt` | Specialized int fast paths            |
+| `LtInt`, `EqInt`             | Specialized int comparison            |
 
 ### Exception Handling
 
-| Opcode | Description |
-|--------|-------------|
+| Opcode  | Description                   |
+| ------- | ----------------------------- |
 | `Throw` | Pop value, raise as exception |
 
 Exception handling uses an **exception table** on the Chunk rather than inline opcodes. Each entry specifies a PC range, handler address, and stack depth to restore.
@@ -198,17 +198,17 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 
 ### Source Files
 
-| File | Purpose |
-|------|---------|
-| `opcodes.rs` | `Op` enum — 42 bytecode opcodes |
-| `chunk.rs` | `Chunk` (bytecode + constants + spans), `Function`, `UpvalueDesc` |
-| `emit.rs` | `Emitter` — bytecode builder with jump backpatching |
-| `disasm.rs` | Human-readable bytecode disassembler |
-| `core_expr.rs` | `CoreExpr` and `ResolvedExpr` IR enums |
-| `lower.rs` | Value AST → CoreExpr lowering pass |
-| `resolve.rs` | Variable resolution (local/upvalue/global analysis) |
-| `compiler.rs` | Bytecode compiler (ResolvedExpr → Chunk) |
-| `vm.rs` | VM dispatch loop, call frames, closures, exception handling |
+| File           | Purpose                                                           |
+| -------------- | ----------------------------------------------------------------- |
+| `opcodes.rs`   | `Op` enum — 42 bytecode opcodes                                   |
+| `chunk.rs`     | `Chunk` (bytecode + constants + spans), `Function`, `UpvalueDesc` |
+| `emit.rs`      | `Emitter` — bytecode builder with jump backpatching               |
+| `disasm.rs`    | Human-readable bytecode disassembler                              |
+| `core_expr.rs` | `CoreExpr` and `ResolvedExpr` IR enums                            |
+| `lower.rs`     | Value AST → CoreExpr lowering pass                                |
+| `resolve.rs`   | Variable resolution (local/upvalue/global analysis)               |
+| `compiler.rs`  | Bytecode compiler (ResolvedExpr → Chunk)                          |
+| `vm.rs`        | VM dispatch loop, call frames, closures, exception handling       |
 
 ## Current Limitations
 

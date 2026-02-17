@@ -186,6 +186,7 @@ When context is non-empty, `log/info`, `log/warn`, `log/error`, and `log/debug` 
 ```
 
 Output:
+
 ```
 [INFO] Request processed {:trace-id "abc-123" :user-id 42}
 ```
@@ -241,20 +242,20 @@ Hidden context is **not** included in log output.
 
 ## Function Reference
 
-| Function | Args | Description |
-|---|---|---|
-| `context/set` | `key value` | Set a context value |
-| `context/get` | `key` | Get a value (or `nil`) |
-| `context/has?` | `key` | Check if key exists |
-| `context/remove` | `key` | Remove and return value |
-| `context/pull` | `key` | Get and remove (alias for remove) |
-| `context/all` | | Get all context as a map |
-| `context/merge` | `map` | Merge map into context |
-| `context/clear` | | Clear all context |
-| `context/with` | `map thunk` | Scoped override |
-| `context/push` | `key value` | Push to named stack |
-| `context/stack` | `key` | Get stack as list |
-| `context/pop` | `key` | Pop from named stack |
-| `context/set-hidden` | `key value` | Set hidden value |
-| `context/get-hidden` | `key` | Get hidden value |
-| `context/has-hidden?` | `key` | Check hidden key exists |
+| Function              | Args        | Description                       |
+| --------------------- | ----------- | --------------------------------- |
+| `context/set`         | `key value` | Set a context value               |
+| `context/get`         | `key`       | Get a value (or `nil`)            |
+| `context/has?`        | `key`       | Check if key exists               |
+| `context/remove`      | `key`       | Remove and return value           |
+| `context/pull`        | `key`       | Get and remove (alias for remove) |
+| `context/all`         |             | Get all context as a map          |
+| `context/merge`       | `map`       | Merge map into context            |
+| `context/clear`       |             | Clear all context                 |
+| `context/with`        | `map thunk` | Scoped override                   |
+| `context/push`        | `key value` | Push to named stack               |
+| `context/stack`       | `key`       | Get stack as list                 |
+| `context/pop`         | `key`       | Pop from named stack              |
+| `context/set-hidden`  | `key value` | Set hidden value                  |
+| `context/get-hidden`  | `key`       | Get hidden value                  |
+| `context/has-hidden?` | `key`       | Check hidden key exists           |

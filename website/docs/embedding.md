@@ -35,12 +35,12 @@ fn main() -> sema::Result<()> {
 
 `Interpreter::builder()` returns an `InterpreterBuilder` with these options:
 
-| Method             | Default | Description                            |
-| ------------------ | ------- | -------------------------------------- |
-| `.with_stdlib(b)`  | `true`  | Register the full standard library     |
-| `.with_llm(b)`     | `true`  | Enable LLM functions and auto-config   |
-| `.without_stdlib()` | —      | Shorthand for `.with_stdlib(false)`    |
-| `.without_llm()`   | —      | Shorthand for `.with_llm(false)`       |
+| Method              | Default       | Description                          |
+| ------------------- | ------------- | ------------------------------------ |
+| `.with_stdlib(b)`   | `true`        | Register the full standard library   |
+| `.with_llm(b)`      | `true`        | Enable LLM functions and auto-config |
+| `.without_stdlib()` | —             | Shorthand for `.with_stdlib(false)`  |
+| `.without_llm()`    | —             | Shorthand for `.with_llm(false)`     |
 | `.with_sandbox(sb)` | `allow_all()` | Set sandbox to restrict capabilities |
 
 ### Default Interpreter
@@ -272,14 +272,14 @@ See [CLI Sandbox docs](./cli.md#sandbox) for the full list of capabilities and a
 
 ## API Reference
 
-| Type                 | Description                                             |
-| -------------------- | ------------------------------------------------------- |
-| `Interpreter`        | Holds the global environment; evaluates code            |
-| `InterpreterBuilder` | Configures and builds an `Interpreter`                  |
-| `Value`              | Core value enum — Int, Float, String, List, Map, etc.   |
+| Type                 | Description                                                      |
+| -------------------- | ---------------------------------------------------------------- |
+| `Interpreter`        | Holds the global environment; evaluates code                     |
+| `InterpreterBuilder` | Configures and builds an `Interpreter`                           |
+| `Value`              | Core value enum — Int, Float, String, List, Map, etc.            |
 | `SemaError`          | Error type with `eval()`, `type_error()`, `arity()` constructors |
-| `Sandbox`            | Configures which capabilities are denied                |
-| `Caps`               | Capability bitflags (FS_READ, SHELL, NETWORK, etc.)     |
-| `Env`                | Environment (scope chain backed by `Rc<RefCell<BTreeMap>>`) |
-| `intern(s)`          | Intern a string, returning a `Spur` handle              |
-| `resolve(spur)`      | Resolve a `Spur` back to a `&str`                       |
+| `Sandbox`            | Configures which capabilities are denied                         |
+| `Caps`               | Capability bitflags (FS_READ, SHELL, NETWORK, etc.)              |
+| `Env`                | Environment (scope chain backed by `Rc<RefCell<BTreeMap>>`)      |
+| `intern(s)`          | Intern a string, returning a `Spur` handle                       |
+| `resolve(spur)`      | Resolve a `Spur` back to a `&str`                                |

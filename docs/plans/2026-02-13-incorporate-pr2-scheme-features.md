@@ -15,6 +15,7 @@
 ## Conflict Analysis
 
 **Git merge test result: 5 conflicting files:**
+
 1. `crates/sema-core/src/lib.rs` — PR adds `Thunk` export; main changed to Spur-based exports
 2. `crates/sema-core/src/value.rs` — PR adds `Value::Char(char)`, `Value::Thunk(Rc<Thunk>)`, `Thunk` struct; main changed Symbol/Keyword to Spur, added HashMap variant
 3. `crates/sema-eval/src/special_forms.rs` — PR adds `do` loop + `delay`/`force` handlers; main changed "begin" | "do" arm and refactored symbol dispatch
@@ -22,9 +23,11 @@
 5. `crates/sema/tests/integration_test.rs` — PR changes `string-ref` to return Char, adds 214 new tests; main changed test structure
 
 **Auto-merged cleanly (no manual work needed):**
+
 - `README.md`, `agents/LIMITATIONS.md`, `crates/sema-eval/src/eval.rs`, `crates/sema-llm/src/builtins.rs`, `crates/sema-reader/src/reader.rs`, `crates/sema-stdlib/src/map.rs`, `crates/sema-stdlib/src/string.rs`, `website/index.html`
 
 **Files only in PR (new/trivially applicable):**
+
 - `examples/scheme-basics.sema` (new file)
 - `crates/sema-reader/src/lexer.rs` (char literal tokenization)
 - `crates/sema-stdlib/src/predicates.rs` (char?/promise?/promise-forced?)
@@ -38,6 +41,7 @@
 **Effort: Medium** — touches core Value enum, lexer, reader, string.rs, predicates.rs, Display, PartialEq, Ord, Hash
 
 **What PR #2 does:**
+
 - Adds `Value::Char(char)` variant to the Value enum
 - Adds `as_char()` method, `Value::char(c)` constructor
 - Adds `Char` arms in `PartialEq`, `Ord` (re-numbers type_order), `Display` (formats as `#\a`)
@@ -49,6 +53,7 @@
 - `char?` predicate in predicates.rs
 
 **Adaptation needed for v0.3.0:**
+
 - The `Value` enum already has `HashMap` variant at position 11 — Char needs to be inserted and type_order adjusted to include both `Char` and `HashMap`
 - Hash impl for Value needs `Value::Char(c) => c.hash(state)` arm
 - Display for Char: `write!(f, "#\\{}", ...)` with special cases for space/newline/tab
@@ -58,6 +63,7 @@
 **Effort: Medium** — new Thunk struct, Value variant, special forms, predicates
 
 **What PR #2 does:**
+
 - Adds `Thunk` struct with `body: Value` and `forced: RefCell<Option<Value>>`
 - `Debug` and `Clone` impls for Thunk
 - `Value::Thunk(Rc<Thunk>)` variant
@@ -67,6 +73,7 @@
 - `promise?` and `promise-forced?` predicates
 
 **Adaptation needed for v0.3.0:**
+
 - Thunk struct is independent of interning — ports directly
 - Add to Value enum alongside existing HashMap variant
 - Add arms in Display, PartialEq, Ord, Hash, type_name, type_order
@@ -78,10 +85,12 @@
 **Effort: Low** — pure stdlib additions in list.rs
 
 **What PR #2 does:**
+
 - Registers caar, cadr, cdar, cddr, caaar, caadr, cadar, caddr, cdaar, cdadr, cddar, cdddr
 - Each composes existing `first()` and `rest()` functions
 
 **Adaptation needed for v0.3.0:**
+
 - Ports directly — no dependency on Symbol/Keyword representation
 - Just append `register_fn` calls after existing list registrations
 
@@ -90,10 +99,12 @@
 **Effort: Low** — modifications to map.rs `assoc` + new functions in list.rs
 
 **What PR #2 does:**
+
 - Makes `assoc` dual-purpose: `(assoc key alist)` for alist lookup, `(assoc map key val ...)` for map assoc
 - Adds `assq` and `assv` in list.rs (both use `==` comparison — identical in Sema since we don't have `eq?` vs `eqv?` distinction)
 
 **Adaptation needed for v0.3.0:**
+
 - The `assoc` function in map.rs was modified in v0.3.0 for COW optimization (Rc::try_unwrap) — need to add the alist check before the existing map assoc logic
 - `assq`/`assv` port directly
 
@@ -102,12 +113,14 @@
 **Effort: Medium-High** — replaces `do` as `begin` alias with Scheme iteration form
 
 **What PR #2 does:**
+
 - Removes `"do"` from `"begin" | "do"` match arm in special_forms.rs
 - Adds new `eval_do` handler implementing R7RS `do` loop with parallel variable assignment
 - `do` special form: `(do ((var init step) ...) (test result ...) body ...)`
 - Uses `eval::eval_value` for step evaluation (parallel assignment)
 
 **Adaptation needed for v0.3.0:**
+
 - In current main, special_forms.rs line 24: `"begin" | "do" => Some(eval_begin(args, env))` — remove `| "do"` and add `"do" => Some(eval_do(args, env))`
 - The `eval_do` function from PR uses `name.clone()` for Spur binding — must be changed to `intern(name)` pattern
 - In list.rs mini-eval, PR removes "do" from `"begin" | "do"` — same change needed, but mini-eval uses Spur comparison now, not string matching. The `sf.do_` Spur constant was for `"do"` matching `begin`. Need to either: (a) remove the `do_` spur and add `do` as its own special form in mini-eval, or (b) simply stop matching `do` to `begin` in the mini-eval (the mini-eval won't handle `do` loops — they'll fall through to the full evaluator)
@@ -119,10 +132,12 @@
 ### Task 1: Add `Value::Char` and `Thunk` to sema-core
 
 **Files:**
+
 - Modify: `crates/sema-core/src/value.rs`
 - Modify: `crates/sema-core/src/lib.rs`
 
 **Step 1: Add Thunk struct** (after Macro struct, ~line 78)
+
 ```rust
 /// A lazy promise: delay/force with memoization.
 pub struct Thunk {
@@ -151,6 +166,7 @@ impl Clone for Thunk {
 ```
 
 **Step 2: Add `Char` and `Thunk` variants to Value enum** (Char after Keyword, Thunk after Agent)
+
 ```rust
 Keyword(Spur),
 Char(char),       // NEW
@@ -161,6 +177,7 @@ Thunk(Rc<Thunk>), // NEW
 ```
 
 **Step 3: Add arms in `type_name()`**
+
 ```rust
 Value::Char(_) => "char",
 ...
@@ -168,6 +185,7 @@ Value::Thunk(_) => "promise",
 ```
 
 **Step 4: Add `as_char()` method and `Value::char()` constructor**
+
 ```rust
 pub fn as_char(&self) -> Option<char> {
     match self {
@@ -182,25 +200,29 @@ pub fn char(c: char) -> Value {
 ```
 
 **Step 5: Add Char/Thunk arms in Hash impl**
+
 ```rust
 Value::Char(c) => c.hash(state),
 ```
 
 **Step 6: Add Char arm in PartialEq**
+
 ```rust
 (Value::Char(a), Value::Char(b)) => a == b,
 ```
 
 **Step 7: Update type_order and Ord**
-Current type_order: Nil=0, Bool=1, Int=2, Float=3, String=4, Symbol=5, Keyword=6, List=7, Vector=8, Map=9, HashMap=10, _=11
-New: Nil=0, Bool=1, Int=2, Float=3, Char=4, String=5, Symbol=6, Keyword=7, List=8, Vector=9, Map=10, HashMap=11, _=12
+Current type*order: Nil=0, Bool=1, Int=2, Float=3, String=4, Symbol=5, Keyword=6, List=7, Vector=8, Map=9, HashMap=10, *=11
+New: Nil=0, Bool=1, Int=2, Float=3, Char=4, String=5, Symbol=6, Keyword=7, List=8, Vector=9, Map=10, HashMap=11, \_=12
 
 Add in cmp match:
+
 ```rust
 (Value::Char(a), Value::Char(b)) => a.cmp(b),
 ```
 
 **Step 8: Add Display arms**
+
 ```rust
 Value::Char(c) => match c {
     ' ' => write!(f, "#\\space"),
@@ -224,11 +246,13 @@ Value::Thunk(t) => {
 Add `Thunk` to the `pub use value::` line.
 
 **Step 10: Run tests**
+
 ```bash
 cargo test -p sema-core
 ```
 
 **Step 11: Commit**
+
 ```bash
 git add crates/sema-core/
 git commit -m "feat(core): add Value::Char and Value::Thunk (delay/force) types"
@@ -239,6 +263,7 @@ git commit -m "feat(core): add Value::Char and Value::Thunk (delay/force) types"
 ### Task 2: Add character literal lexing and parsing
 
 **Files:**
+
 - Modify: `crates/sema-reader/src/lexer.rs`
 - Modify: `crates/sema-reader/src/reader.rs`
 
@@ -251,11 +276,13 @@ git commit -m "feat(core): add Value::Char and Value::Thunk (delay/force) types"
 **Step 4: Add reader unit tests** for char literals, named chars, special chars, chars in lists, error cases.
 
 **Step 5: Run tests**
+
 ```bash
 cargo test -p sema-reader
 ```
 
 **Step 6: Commit**
+
 ```bash
 git add crates/sema-reader/
 git commit -m "feat(reader): add character literal syntax (#\\a, #\\space, etc.)"
@@ -266,6 +293,7 @@ git commit -m "feat(reader): add character literal syntax (#\\a, #\\space, etc.)
 ### Task 3: Add car/cdr compositions and alist functions to stdlib
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/list.rs`
 - Modify: `crates/sema-stdlib/src/map.rs`
 
@@ -274,6 +302,7 @@ git commit -m "feat(reader): add character literal syntax (#\\a, #\\space, etc.)
 **Step 2: Add `assq` and `assv`** functions in list.rs.
 
 **Step 3: Make `assoc` dual-purpose** in map.rs — add alist lookup check before existing map assoc logic:
+
 ```rust
 // Scheme alist lookup: (assoc key alist)
 if args.len() == 2 {
@@ -291,14 +320,17 @@ if args.len() == 2 {
 }
 // existing map assoc logic follows...
 ```
+
 Also update the error message for insufficient args.
 
 **Step 4: Run tests**
+
 ```bash
 cargo test -p sema-stdlib
 ```
 
 **Step 5: Commit**
+
 ```bash
 git add crates/sema-stdlib/src/list.rs crates/sema-stdlib/src/map.rs
 git commit -m "feat(stdlib): add car/cdr compositions and association list functions"
@@ -309,6 +341,7 @@ git commit -m "feat(stdlib): add car/cdr compositions and association list funct
 ### Task 4: Add char builtins and predicates
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/string.rs`
 - Modify: `crates/sema-stdlib/src/predicates.rs`
 
@@ -321,11 +354,13 @@ git commit -m "feat(stdlib): add car/cdr compositions and association list funct
 **Step 4: Add type predicates** in predicates.rs: `char?`, `promise?`, `promise-forced?`.
 
 **Step 5: Run tests**
+
 ```bash
 cargo test -p sema-stdlib
 ```
 
 **Step 6: Commit**
+
 ```bash
 git add crates/sema-stdlib/src/string.rs crates/sema-stdlib/src/predicates.rs
 git commit -m "feat(stdlib): add character builtins and type predicates"
@@ -336,9 +371,11 @@ git commit -m "feat(stdlib): add character builtins and type predicates"
 ### Task 5: Add `do` loop and `delay`/`force` special forms
 
 **Files:**
+
 - Modify: `crates/sema-eval/src/special_forms.rs`
 
 **Step 1: Change dispatch** — remove `| "do"` from `"begin" | "do"` match arm. Add:
+
 ```rust
 "do" => Some(eval_do(args, env)),
 "delay" => Some(eval_delay(args, env)),
@@ -346,6 +383,7 @@ git commit -m "feat(stdlib): add character builtins and type predicates"
 ```
 
 **Step 2: Implement `eval_do`** — R7RS `do` loop with parallel variable assignment:
+
 ```rust
 fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     // (do ((var init step) ...) (test result ...) body ...)
@@ -417,6 +455,7 @@ fn eval_do(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 Note: In the PR version, `var_names` stores `String`. In v0.3.0, we use `Spur` directly since `Env::set` takes `Spur`.
 
 **Step 3: Implement `eval_delay`** — creates a Thunk wrapping a lambda:
+
 ```rust
 fn eval_delay(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
@@ -439,6 +478,7 @@ fn eval_delay(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 ```
 
 **Step 4: Implement `eval_force`** — evaluates thunk body, memoizes:
+
 ```rust
 fn eval_force(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
@@ -463,11 +503,13 @@ fn eval_force(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
 **Step 5: Update mini-eval in list.rs** — remove `sf.do_` from the begin/do check. Currently the SpecialFormSpurs has `do_: Spur` initialized to `"do"`, and the mini-eval matches `head_spur == sf.begin || head_spur == sf.do_` for the begin handler. Remove the `sf.do_` check (and optionally remove the `do_` field from SpecialFormSpurs). The `do` loop is complex enough that it should fall through to the full evaluator.
 
 **Step 6: Run tests**
+
 ```bash
 cargo test -p sema-eval
 ```
 
 **Step 7: Commit**
+
 ```bash
 git add crates/sema-eval/src/special_forms.rs crates/sema-stdlib/src/list.rs
 git commit -m "feat(eval): add do loop, delay/force special forms"
@@ -478,6 +520,7 @@ git commit -m "feat(eval): add do loop, delay/force special forms"
 ### Task 6: Add integration tests
 
 **Files:**
+
 - Modify: `crates/sema/tests/integration_test.rs`
 
 **Step 1: Add car/cdr composition tests** (test_car_cdr_compositions)
@@ -486,16 +529,19 @@ git commit -m "feat(eval): add do loop, delay/force special forms"
 **Step 4: Add char literal tests** (literals, predicate, conversions, char predicates, case, string-ref returns char, string->list, list->string)
 **Step 5: Add delay/force tests** (basic, promise?, memoization, force non-promise, promise-forced?)
 **Step 6: Update existing tests** that changed behavior:
+
 - `test_string_ref` → expect `Value::Char('h')` not `Value::string("h")`
 - `test_string_chars` → expect `(#\a #\b #\c)` not `("a" "b" "c")`
 - `test_do_alias` → rename to `test_do_loop`, test as iteration not begin alias
 
 **Step 7: Run all tests**
+
 ```bash
 cargo test
 ```
 
 **Step 8: Commit**
+
 ```bash
 git add crates/sema/tests/integration_test.rs
 git commit -m "test: add integration tests for all 5 Scheme features"
@@ -506,6 +552,7 @@ git commit -m "test: add integration tests for all 5 Scheme features"
 ### Task 7: Add examples and update docs
 
 **Files:**
+
 - Create: `examples/scheme-basics.sema`
 - Modify: `examples/text-processing.sema` (update caesar cipher to use chars)
 - Modify: `agents/LIMITATIONS.md`
@@ -529,12 +576,14 @@ git commit -m "test: add integration tests for all 5 Scheme features"
 **Step 7: Update website/index.html** — add char/promise type cards, update stdlib function lists, update code examples.
 
 **Step 8: Run full test suite and example**
+
 ```bash
 cargo test
 cargo run -- examples/scheme-basics.sema
 ```
 
 **Step 9: Commit**
+
 ```bash
 git add examples/ agents/ CHANGELOG.md README.md website/
 git commit -m "docs: update docs, examples, and changelog for Scheme features"
@@ -544,17 +593,18 @@ git commit -m "docs: update docs, examples, and changelog for Scheme features"
 
 ## Summary
 
-| Feature | Effort | Files Modified | Key Adaptation |
-|---------|--------|---------------|----------------|
-| Char type | Medium | 6 files | Add to Value enum alongside HashMap, update type_order |
-| Thunk/delay/force | Medium | 4 files | Ports cleanly, add to Value enum |
-| Car/cdr compositions | Low | 1 file | Direct port |
-| Alist functions | Low | 2 files | Add alist check before COW map assoc |
-| `do` loop | Medium-High | 2 files | Adapt var_names from String to Spur, update mini-eval Spur dispatch |
+| Feature              | Effort      | Files Modified | Key Adaptation                                                      |
+| -------------------- | ----------- | -------------- | ------------------------------------------------------------------- |
+| Char type            | Medium      | 6 files        | Add to Value enum alongside HashMap, update type_order              |
+| Thunk/delay/force    | Medium      | 4 files        | Ports cleanly, add to Value enum                                    |
+| Car/cdr compositions | Low         | 1 file         | Direct port                                                         |
+| Alist functions      | Low         | 2 files        | Add alist check before COW map assoc                                |
+| `do` loop            | Medium-High | 2 files        | Adapt var_names from String to Spur, update mini-eval Spur dispatch |
 
 **Total: ~7 tasks, estimated 45-60 min of implementation time.**
 
 The PR's code is well-structured and the features are largely independent of the interning changes. The main friction points are:
+
 1. `Value` enum match exhaustiveness (every match on Value needs new arms)
 2. `do` loop using Spur for var names instead of String
 3. Mini-eval removing `do` → `begin` alias from Spur-based dispatch

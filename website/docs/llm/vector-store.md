@@ -29,7 +29,7 @@ Open a named store backed by a file. If the file exists, its contents are loaded
 Add a document with an ID, embedding (bytevector), and metadata map.
 
 ```scheme
-(vector-store/add "my-store" "doc-1" 
+(vector-store/add "my-store" "doc-1"
   (llm/embed "Hello world")
   {:source "greeting.txt" :page 1})
 ```
@@ -84,7 +84,7 @@ These functions operate on embedding bytevectors (packed f64 arrays in little-en
 Cosine similarity between two embedding vectors. Returns a float between -1.0 and 1.0.
 
 ```scheme
-(vector/cosine-similarity 
+(vector/cosine-similarity
   (embedding/list->embedding '(1.0 0.0))
   (embedding/list->embedding '(0.0 1.0)))
 ; => 0.0
@@ -95,7 +95,7 @@ Cosine similarity between two embedding vectors. Returns a float between -1.0 an
 Dot product of two embedding vectors.
 
 ```scheme
-(vector/dot-product 
+(vector/dot-product
   (embedding/list->embedding '(1.0 2.0 3.0))
   (embedding/list->embedding '(4.0 5.0 6.0)))
 ; => 32.0
@@ -115,7 +115,7 @@ Return a unit-length copy of the vector.
 Euclidean distance between two embedding vectors.
 
 ```scheme
-(vector/distance 
+(vector/distance
   (embedding/list->embedding '(0.0 0.0))
   (embedding/list->embedding '(3.0 4.0)))
 ; => 5.0
@@ -142,7 +142,7 @@ A RAG-style workflow: embed documents, store them, search semantically, and pers
 (vector-store/save "docs")
 
 ;; Search
-(define results 
+(define results
   (vector-store/search "docs" (llm/embed "programming languages") 2))
 (map (lambda (r) (:text (:metadata r))) results)
 ```

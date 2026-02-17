@@ -39,16 +39,16 @@ Return structured browser information from `navigator.userAgentData`. Returns a 
 
 System functions return web-appropriate values instead of OS-specific ones:
 
-| Function | Native | WASM |
-|---|---|---|
-| `sys/platform` | `"macos"` / `"linux"` / `"windows"` | `"web"` |
-| `sys/os` | `"macos"` | `"web"` |
-| `sys/arch` | `"aarch64"` / `"x86_64"` | `"wasm32"` |
-| `sys/cwd` | Current directory path | `"/"` |
-| `sys/interactive?` | `#t` in REPL | `#f` |
-| `sys/pid` | Process ID | `0` |
-| `sys/elapsed` | Nanoseconds since process start | Nanoseconds since page load |
-| `time-ms` | `SystemTime` milliseconds | `Date.now()` milliseconds |
+| Function           | Native                              | WASM                        |
+| ------------------ | ----------------------------------- | --------------------------- |
+| `sys/platform`     | `"macos"` / `"linux"` / `"windows"` | `"web"`                     |
+| `sys/os`           | `"macos"`                           | `"web"`                     |
+| `sys/arch`         | `"aarch64"` / `"x86_64"`            | `"wasm32"`                  |
+| `sys/cwd`          | Current directory path              | `"/"`                       |
+| `sys/interactive?` | `#t` in REPL                        | `#f`                        |
+| `sys/pid`          | Process ID                          | `0`                         |
+| `sys/elapsed`      | Nanoseconds since process start     | Nanoseconds since page load |
+| `time-ms`          | `SystemTime` milliseconds           | `Date.now()` milliseconds   |
 
 These always return `nil` in WASM: `sys/hostname`, `sys/user`, `sys/home-dir`, `sys/which`, `sys/tty`.
 
@@ -103,10 +103,10 @@ Browser security rules (CORS) may block requests to servers that don't include `
 
 These functions return an error when called in the playground:
 
-| Function | Reason |
-|---|---|
-| `shell` | No subprocess execution in browser |
-| `exit` | No process to exit |
-| `read-line` | No stdin in browser |
-| `read-stdin` | No stdin in browser |
-| `sleep` | Cannot block the browser main thread (no-op) |
+| Function     | Reason                                       |
+| ------------ | -------------------------------------------- |
+| `shell`      | No subprocess execution in browser           |
+| `exit`       | No process to exit                           |
+| `read-line`  | No stdin in browser                          |
+| `read-stdin` | No stdin in browser                          |
+| `sleep`      | Cannot block the browser main thread (no-op) |

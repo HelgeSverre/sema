@@ -26,15 +26,15 @@ Source → Reader → Macro Expand → Lower (CoreExpr) → Resolve (slots) → 
 
 All 4 original bugs are fixed:
 
-| Bug | Problem | Fix |
-|-----|---------|-----|
-| **1. Self-ref injection corrupting locals** | `make_closure` wrote a NativeFn self-reference into a local slot for all named functions, not just named-let loops | Desugar named-let to `letrec` + `lambda` in `lower.rs`, eliminating self-ref injection entirely |
-| **2. Missing arity checking** | NativeFn wrapper silently filled missing args with Nil and ignored extras | Added strict arity validation in both the NativeFn fallback wrapper and `call_vm_closure` |
-| **3. compile_named_let missing func_id patch/upvalues** | Named-let didn't patch child func_ids or support upvalues | Same named-let desugaring as Bug 1 — `compile_named_let` is no longer needed |
-| **4. Fresh VM per closure → stack overflow** | Each closure call created `VM::new()` + `vm.run()`, exhausting the Rust stack after ~200-500 calls | Same-VM execution via opaque payload in NativeFn (see Architecture above) |
-| **5. Recursive inner define** | `(define (f) (define (g) (g)) (g))` failed — resolver resolved lambda body before defining local slot | Fixed in resolver: allocate local slot before resolving RHS |
-| **6. delay/force not capturing lexical vars** | `(define (f a) (delay a))` failed — delay passed raw AST, tree-walker couldn't see VM locals | Fixed: delay now lowers to zero-arg lambda thunk that captures lexical environment |
-| **7. `__vm-import` selective import** | Selective names list pushed as single element instead of spreading individual symbols | Fixed: spread symbols individually in the reconstructed import form |
+| Bug                                                     | Problem                                                                                                            | Fix                                                                                             |
+| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| **1. Self-ref injection corrupting locals**             | `make_closure` wrote a NativeFn self-reference into a local slot for all named functions, not just named-let loops | Desugar named-let to `letrec` + `lambda` in `lower.rs`, eliminating self-ref injection entirely |
+| **2. Missing arity checking**                           | NativeFn wrapper silently filled missing args with Nil and ignored extras                                          | Added strict arity validation in both the NativeFn fallback wrapper and `call_vm_closure`       |
+| **3. compile_named_let missing func_id patch/upvalues** | Named-let didn't patch child func_ids or support upvalues                                                          | Same named-let desugaring as Bug 1 — `compile_named_let` is no longer needed                    |
+| **4. Fresh VM per closure → stack overflow**            | Each closure call created `VM::new()` + `vm.run()`, exhausting the Rust stack after ~200-500 calls                 | Same-VM execution via opaque payload in NativeFn (see Architecture above)                       |
+| **5. Recursive inner define**                           | `(define (f) (define (g) (g)) (g))` failed — resolver resolved lambda body before defining local slot              | Fixed in resolver: allocate local slot before resolving RHS                                     |
+| **6. delay/force not capturing lexical vars**           | `(define (f a) (delay a))` failed — delay passed raw AST, tree-walker couldn't see VM locals                       | Fixed: delay now lowers to zero-arg lambda thunk that captures lexical environment              |
+| **7. `__vm-import` selective import**                   | Selective names list pushed as single element instead of spreading individual symbols                              | Fixed: spread symbols individually in the reconstructed import form                             |
 
 ## Test Coverage
 

@@ -55,15 +55,15 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 
 ### Crate Responsibilities
 
-| Crate | Role | Key types |
-|-------|------|-----------|
-| **sema-core** | Shared types | `Value` (NaN-boxed 8-byte), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types |
-| **sema-reader** | Parsing | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap` |
-| **sema-vm** | Bytecode VM (opt-in via `--vm`) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch |
-| **sema-eval** | Evaluation | Trampoline-based evaluator, 39 special forms, module system, call stack + span table |
-| **sema-stdlib** | Standard library | ~350 native functions across 19 modules |
-| **sema-llm** | LLM integration | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
-| **sema** | Binary | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API |
+| Crate           | Role                            | Key types                                                                                                                                 |
+| --------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **sema-core**   | Shared types                    | `Value` (NaN-boxed 8-byte), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types                       |
+| **sema-reader** | Parsing                         | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap`                                                           |
+| **sema-vm**     | Bytecode VM (opt-in via `--vm`) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch                                     |
+| **sema-eval**   | Evaluation                      | Trampoline-based evaluator, 39 special forms, module system, call stack + span table                                                      |
+| **sema-stdlib** | Standard library                | ~350 native functions across 19 modules                                                                                                   |
+| **sema-llm**    | LLM integration                 | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
+| **sema**        | Binary                          | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API                                                                              |
 
 ## The Value Type
 
@@ -102,14 +102,14 @@ Sema uses NaN-boxing — encoding values in the unused bits of IEEE 754 NaN repr
 
 `Value::List(Rc<Vec<Value>>)` stores list elements in a contiguous `Vec`, not a linked list of cons cells. This is a deliberate departure from traditional Lisp:
 
-| Operation | Vec-backed | Cons cells |
-|-----------|-----------|------------|
-| Random access (`nth`) | O(1) | O(n) |
-| `length` | O(1) | O(n) |
-| Cache locality | Contiguous | Pointer-chasing |
-| `cons` (prepend) | O(n) copy | O(1) |
-| `append` | O(n) copy | O(n) |
-| Pattern matching (`car`/`cdr`) | Slice indexing | Natural |
+| Operation                      | Vec-backed     | Cons cells      |
+| ------------------------------ | -------------- | --------------- |
+| Random access (`nth`)          | O(1)           | O(n)            |
+| `length`                       | O(1)           | O(n)            |
+| Cache locality                 | Contiguous     | Pointer-chasing |
+| `cons` (prepend)               | O(n) copy      | O(1)            |
+| `append`                       | O(n) copy      | O(n)            |
+| Pattern matching (`car`/`cdr`) | Slice indexing | Natural         |
 
 The performance win comes from cache locality — modern CPUs prefetch sequential memory, so iterating a `Vec` is dramatically faster than chasing pointers through a cons list. Random access and length are constant-time bonuses.
 
@@ -183,16 +183,16 @@ Variable lookup walks the parent chain until it finds a binding or reaches the r
 
 ### Operations
 
-| Operation | Behavior | Used by |
-|-----------|----------|---------|
-| `get(spur)` | Walk parent chain, return first match | Variable lookup |
-| `set(spur, val)` | Insert in current scope | `define`, parameter binding |
-| `set_existing(spur, val)` | Walk chain, update where found | `set!` (mutation) |
-| `update(spur, val)` | Overwrite in current scope, no key allocation | Hot-path env reuse |
-| `take(spur)` | Remove from current scope, return value | COW optimization |
-| `take_anywhere(spur)` | Remove from any scope in chain | COW optimization |
+| Operation                 | Behavior                                      | Used by                     |
+| ------------------------- | --------------------------------------------- | --------------------------- |
+| `get(spur)`               | Walk parent chain, return first match         | Variable lookup             |
+| `set(spur, val)`          | Insert in current scope                       | `define`, parameter binding |
+| `set_existing(spur, val)` | Walk chain, update where found                | `set!` (mutation)           |
+| `update(spur, val)`       | Overwrite in current scope, no key allocation | Hot-path env reuse          |
+| `take(spur)`              | Remove from current scope, return value       | COW optimization            |
+| `take_anywhere(spur)`     | Remove from any scope in chain                | COW optimization            |
 
-`take` and `take_anywhere` exist for the copy-on-write optimization: by *removing* a value from the environment before passing it to a function, the `Rc` refcount drops to 1, enabling in-place mutation. See [Performance Internals](./performance.md#_1-copy-on-write-map-mutation).
+`take` and `take_anywhere` exist for the copy-on-write optimization: by _removing_ a value from the environment before passing it to a function, the `Rc` refcount drops to 1, enabling in-place mutation. See [Performance Internals](./performance.md#_1-copy-on-write-map-mutation).
 
 `update` exists for the lambda environment reuse optimization: when reusing an environment across iterations of a hot loop, `update` overwrites an existing binding without the overhead of `BTreeMap::insert`'s key allocation path. See [Performance Internals](./performance.md#_2-lambda-environment-reuse).
 
@@ -230,7 +230,7 @@ This keeps error construction concise across ~350 native functions and 39 specia
 
 ### Lazy Stack Traces
 
-Stack traces are not captured at error creation time. Instead, the `WithTrace` wrapper is attached during error *propagation* — when the trampoline loop unwinds through a function call, it wraps the error with the current call stack:
+Stack traces are not captured at error creation time. Instead, the `WithTrace` wrapper is attached during error _propagation_ — when the trampoline loop unwinds through a function call, it wraps the error with the current call stack:
 
 ```rust
 pub fn with_stack_trace(self, trace: StackTrace) -> Self {
@@ -255,37 +255,37 @@ Sema's evaluator state is held in an explicit `EvalContext` struct, defined in `
 
 ### EvalContext Fields
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `module_cache` | `RefCell<BTreeMap<PathBuf, ...>>` | Loaded modules (path → exports) |
-| `current_file` | `RefCell<Vec<PathBuf>>` | Stack of file paths being executed |
-| `module_exports` | `RefCell<Vec<Option<Vec<String>>>>` | Exports declared by currently-loading module |
-| `module_load_stack` | `RefCell<Vec<PathBuf>>` | Cycle detection during module loading |
-| `call_stack` | `RefCell<Vec<CallFrame>>` | Call frames for error traces |
-| `span_table` | `RefCell<HashMap<usize, Span>>` | Rc pointer address → source span |
-| `eval_depth` | `Cell<usize>` | Recursion depth counter |
-| `eval_step_limit` | `Cell<usize>` | Step limit for fuzz targets |
-| `eval_steps` | `Cell<usize>` | Current step counter |
+| Field               | Type                                | Purpose                                      |
+| ------------------- | ----------------------------------- | -------------------------------------------- |
+| `module_cache`      | `RefCell<BTreeMap<PathBuf, ...>>`   | Loaded modules (path → exports)              |
+| `current_file`      | `RefCell<Vec<PathBuf>>`             | Stack of file paths being executed           |
+| `module_exports`    | `RefCell<Vec<Option<Vec<String>>>>` | Exports declared by currently-loading module |
+| `module_load_stack` | `RefCell<Vec<PathBuf>>`             | Cycle detection during module loading        |
+| `call_stack`        | `RefCell<Vec<CallFrame>>`           | Call frames for error traces                 |
+| `span_table`        | `RefCell<HashMap<usize, Span>>`     | Rc pointer address → source span             |
+| `eval_depth`        | `Cell<usize>`                       | Recursion depth counter                      |
+| `eval_step_limit`   | `Cell<usize>`                       | Step limit for fuzz targets                  |
+| `eval_steps`        | `Cell<usize>`                       | Current step counter                         |
 
 ### Remaining Thread-Locals
 
 Some state remains in thread-local storage — either because it's a pure performance cache or because it belongs to a subsystem that hasn't been refactored yet:
 
-| Location | Thread-local | Purpose |
-|----------|-------------|---------|
-| `sema-core/value.rs` | `INTERNER` | String interner (`lasso::Rodeo`) |
-| `sema-core/context.rs` | `EVAL_FN` | Evaluator callback |
-| `sema-core/context.rs` | `CALL_FN` | Call-value callback |
-| `sema-core/context.rs` | `STDLIB_CTX` | Shared `EvalContext` for stdlib callbacks |
-| `sema-eval/special_forms.rs` | `SF` | Cached `SpecialFormSpurs` (performance cache) |
-| `sema-llm/builtins.rs` | `PROVIDER_REGISTRY` | Registered LLM providers |
-| `sema-llm/builtins.rs` | `SESSION_USAGE` | Cumulative token usage |
-| `sema-llm/builtins.rs` | `LAST_USAGE` | Most recent completion's usage |
-| `sema-llm/builtins.rs` | `EVAL_FN` | Full evaluator callback |
-| `sema-llm/builtins.rs` | `SESSION_COST` | Cumulative dollar cost |
-| `sema-llm/builtins.rs` | `BUDGET_LIMIT` | Spending cap |
-| `sema-llm/builtins.rs` | `BUDGET_SPENT` | Spending against cap |
-| `sema-llm/pricing.rs` | `CUSTOM_PRICING` | User-defined model pricing |
+| Location                     | Thread-local        | Purpose                                       |
+| ---------------------------- | ------------------- | --------------------------------------------- |
+| `sema-core/value.rs`         | `INTERNER`          | String interner (`lasso::Rodeo`)              |
+| `sema-core/context.rs`       | `EVAL_FN`           | Evaluator callback                            |
+| `sema-core/context.rs`       | `CALL_FN`           | Call-value callback                           |
+| `sema-core/context.rs`       | `STDLIB_CTX`        | Shared `EvalContext` for stdlib callbacks     |
+| `sema-eval/special_forms.rs` | `SF`                | Cached `SpecialFormSpurs` (performance cache) |
+| `sema-llm/builtins.rs`       | `PROVIDER_REGISTRY` | Registered LLM providers                      |
+| `sema-llm/builtins.rs`       | `SESSION_USAGE`     | Cumulative token usage                        |
+| `sema-llm/builtins.rs`       | `LAST_USAGE`        | Most recent completion's usage                |
+| `sema-llm/builtins.rs`       | `EVAL_FN`           | Full evaluator callback                       |
+| `sema-llm/builtins.rs`       | `SESSION_COST`      | Cumulative dollar cost                        |
+| `sema-llm/builtins.rs`       | `BUDGET_LIMIT`      | Spending cap                                  |
+| `sema-llm/builtins.rs`       | `BUDGET_SPENT`      | Spending against cap                          |
+| `sema-llm/pricing.rs`        | `CUSTOM_PRICING`    | User-defined model pricing                    |
 
 ### Implications for Embedding
 
@@ -298,12 +298,14 @@ Multiple `Interpreter` instances can coexist on the same thread with fully isola
 Sema compiles to WebAssembly with conditional compilation gates. The `#[cfg(not(target_arch = "wasm32"))]` attribute excludes modules that depend on OS-level capabilities:
 
 **From sema-stdlib:**
+
 - `io` — file system access (`file/read`, `file/write`, `file/fold-lines`, etc.)
 - `system` — process execution, environment variables, exit
 - `http` — HTTP client (`http/get`, `http/post`, etc.)
 - `terminal` — terminal control (colors, cursor, raw mode)
 
 **From sema-eval:**
+
 - Module `import`/`load` (depends on file system)
 
 **sema-llm** is excluded entirely — LLM providers require network access.
@@ -419,7 +421,7 @@ let result = sema_core::call_callback(&func, &[elem], env)?;
 
 The `with_stdlib_ctx` function provides a shared `EvalContext` for stdlib callbacks, avoiding per-call allocation of a new context.
 
-This is a clean dependency inversion — `sema-stdlib` depends only on the callback signature defined in `sema-core`, not on `sema-eval`. The runtime cost is one `Cell::get()` + function pointer dispatch per call, which is negligible. Unlike the previous mini-evaluator approach, this architecture uses the *same* evaluator everywhere — all special forms, builtins, and features are available inside higher-order functions like `map` and `file/fold-lines`.
+This is a clean dependency inversion — `sema-stdlib` depends only on the callback signature defined in `sema-core`, not on `sema-eval`. The runtime cost is one `Cell::get()` + function pointer dispatch per call, which is negligible. Unlike the previous mini-evaluator approach, this architecture uses the _same_ evaluator everywhere — all special forms, builtins, and features are available inside higher-order functions like `map` and `file/fold-lines`.
 
 ### Solution 2: Eval Callback (sema-llm)
 
@@ -459,7 +461,7 @@ fn full_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaEr
 }
 ```
 
-This is the classic dependency inversion pattern — `sema-llm` depends on an *interface* (the callback signature) rather than the concrete implementation. The runtime cost is one `RefCell::borrow()` + dynamic dispatch per eval call, which is negligible for LLM tool invocations (the LLM API call dominates by orders of magnitude).
+This is the classic dependency inversion pattern — `sema-llm` depends on an _interface_ (the callback signature) rather than the concrete implementation. The runtime cost is one `RefCell::borrow()` + dynamic dispatch per eval call, which is negligible for LLM tool invocations (the LLM API call dominates by orders of magnitude).
 
 ### Why Not a Trait?
 

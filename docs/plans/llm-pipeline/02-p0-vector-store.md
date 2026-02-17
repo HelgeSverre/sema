@@ -7,6 +7,7 @@
 ## Task 8: In-Memory Vector Store
 
 **Files:**
+
 - Create: `crates/sema-llm/src/vector_store.rs`
 - Modify: `crates/sema-llm/src/lib.rs` (add `pub mod vector_store`)
 - Modify: `crates/sema-llm/src/builtins.rs` (register builtins, add thread-local)
@@ -321,6 +322,7 @@ git commit -m "feat(llm): add in-memory vector store with cosine similarity sear
 ## Task 9: Vector Math Utilities
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 

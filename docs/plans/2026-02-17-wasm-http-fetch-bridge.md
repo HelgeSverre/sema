@@ -13,6 +13,7 @@
 ## Task 1: Add `wasm-bindgen-futures` and `web-sys` dependencies
 
 **Files:**
+
 - Modify: `crates/sema-wasm/Cargo.toml`
 
 **Step 1: Add dependencies**
@@ -50,6 +51,7 @@ git commit -m "feat(wasm): add wasm-bindgen-futures and web-sys deps for HTTP fe
 ## Task 2: HTTP request cache and marker error infrastructure
 
 **Files:**
+
 - Modify: `crates/sema-wasm/src/lib.rs`
 
 This task adds the cache, marker format, and helper functions. No HTTP fns are changed yet.
@@ -161,6 +163,7 @@ git commit -m "feat(wasm): add HTTP cache and marker infrastructure for fetch br
 ## Task 3: Replace HTTP stubs with cache-aware native functions
 
 **Files:**
+
 - Modify: `crates/sema-wasm/src/lib.rs`
 
 Replace the 5 HTTP stub registrations (lines ~507-557) with cache-aware versions.
@@ -385,6 +388,7 @@ git commit -m "feat(wasm): replace HTTP stubs with cache-aware native fns"
 ## Task 4: Implement `eval_async` with fetch and replay loop
 
 **Files:**
+
 - Modify: `crates/sema-wasm/src/lib.rs`
 
 This is the core task. Add async evaluation methods that catch HTTP markers, perform `fetch()`, cache results, and replay.
@@ -716,6 +720,7 @@ git commit -m "feat(wasm): implement eval_async with fetch bridge and replay loo
 ## Task 5: Update playground JS to use async evaluation
 
 **Files:**
+
 - Modify: `playground/src/app.js`
 
 **Step 1: Make `run()` async and use `eval_async`/`eval_vm_async`**
@@ -725,31 +730,36 @@ Replace the `run()` function with:
 ```javascript
 async function run() {
   if (!interp) return;
-  const code = document.getElementById('editor').value;
+  const code = document.getElementById("editor").value;
   if (!code.trim()) return;
 
-  const engine = useVM ? 'vm' : 'tree';
-  const runBtn = document.getElementById('run-btn');
+  const engine = useVM ? "vm" : "tree";
+  const runBtn = document.getElementById("run-btn");
   runBtn.disabled = true;
 
   const t0 = performance.now();
-  const raw = useVM ? await interp.eval_vm_async(code) : await interp.eval_async(code);
+  const raw = useVM
+    ? await interp.eval_vm_async(code)
+    : await interp.eval_async(code);
   const elapsed = performance.now() - t0;
 
   runBtn.disabled = false;
 
   let result;
-  try { result = JSON.parse(raw); }
-  catch { result = { value: null, output: [], error: raw }; }
+  try {
+    result = JSON.parse(raw);
+  } catch {
+    result = { value: null, output: [], error: raw };
+  }
 
-  const out = document.getElementById('output');
-  out.innerHTML = '';
+  const out = document.getElementById("output");
+  out.innerHTML = "";
 
   // Print output lines
   if (result.output && result.output.length > 0) {
     for (const line of result.output) {
-      const div = document.createElement('div');
-      div.className = 'output-line';
+      const div = document.createElement("div");
+      div.className = "output-line";
       div.textContent = line;
       out.appendChild(div);
     }
@@ -757,26 +767,27 @@ async function run() {
 
   // Print result or error
   if (result.error) {
-    const div = document.createElement('div');
-    div.className = 'output-error';
+    const div = document.createElement("div");
+    div.className = "output-error";
     div.textContent = result.error;
     out.appendChild(div);
   } else if (result.value !== null) {
-    const div = document.createElement('div');
-    div.className = 'output-value';
+    const div = document.createElement("div");
+    div.className = "output-value";
     div.textContent = `=> ${result.value}`;
     out.appendChild(div);
   }
 
   // Timing
-  const timing = document.createElement('div');
-  timing.className = 'output-timing';
-  timing.textContent = `Evaluated in ${elapsed.toFixed(1)}ms · ${engine === 'vm' ? 'bytecode VM' : 'tree-walker'}`;
+  const timing = document.createElement("div");
+  timing.className = "output-timing";
+  timing.textContent = `Evaluated in ${elapsed.toFixed(1)}ms · ${engine === "vm" ? "bytecode VM" : "tree-walker"}`;
   out.appendChild(timing);
 }
 ```
 
 Key changes:
+
 - `function run()` → `async function run()`
 - `interp.eval_global(code)` → `await interp.eval_async(code)`
 - `interp.eval_vm(code)` → `await interp.eval_vm_async(code)`
@@ -822,6 +833,7 @@ Start the playground dev server and test in browser:
 4. Expected: Returns a map with `:status 200`, `:headers {...}`, `:body "..."`
 
 Also test:
+
 - `(:status (http/get "https://httpbin.org/get"))` → `200`
 - `(http/post "https://httpbin.org/post" {:name "sema"})` → map with status 200
 - `(http/get "https://invalid.example.test")` → fetch error (not marker leak)
@@ -838,6 +850,7 @@ git commit -m "test: smoke test WASM HTTP fetch bridge"
 ## Task 7: Add Playwright tests for HTTP in playground
 
 **Files:**
+
 - Modify: `playground/tests/playground.spec.ts`
 
 **Step 1: Add HTTP-specific tests**
@@ -847,66 +860,84 @@ Add these tests at the end of the test file:
 ```typescript
 // ── HTTP fetch tests ──
 
-test('http/get works in playground', async ({ page }) => {
+test("http/get works in playground", async ({ page }) => {
   await setEditorCode(page, '(:status (http/get "https://httpbin.org/get"))');
   await clickRunAndWait(page);
 
-  const value = await page.$eval('#output .output-value', el => el.textContent);
-  expect(value).toContain('200');
+  const value = await page.$eval(
+    "#output .output-value",
+    (el) => el.textContent,
+  );
+  expect(value).toContain("200");
 
-  const errorEl = await page.$('#output .output-error');
+  const errorEl = await page.$("#output .output-error");
   expect(errorEl).toBeNull();
 });
 
-test('http/get works with VM engine', async ({ page }) => {
+test("http/get works with VM engine", async ({ page }) => {
   await setEditorCode(page, '(:status (http/get "https://httpbin.org/get"))');
   await selectVM(page);
   await clickRunAndWait(page);
 
-  const value = await page.$eval('#output .output-value', el => el.textContent);
-  expect(value).toContain('200');
+  const value = await page.$eval(
+    "#output .output-value",
+    (el) => el.textContent,
+  );
+  expect(value).toContain("200");
 });
 
-test('http/post sends body', async ({ page }) => {
-  await setEditorCode(page, '(:status (http/post "https://httpbin.org/post" "hello"))');
+test("http/post sends body", async ({ page }) => {
+  await setEditorCode(
+    page,
+    '(:status (http/post "https://httpbin.org/post" "hello"))',
+  );
   await clickRunAndWait(page);
 
-  const value = await page.$eval('#output .output-value', el => el.textContent);
-  expect(value).toContain('200');
+  const value = await page.$eval(
+    "#output .output-value",
+    (el) => el.textContent,
+  );
+  expect(value).toContain("200");
 });
 
-test('http/get returns response with body', async ({ page }) => {
-  await setEditorCode(page, '(string? (:body (http/get "https://httpbin.org/get")))');
+test("http/get returns response with body", async ({ page }) => {
+  await setEditorCode(
+    page,
+    '(string? (:body (http/get "https://httpbin.org/get")))',
+  );
   await clickRunAndWait(page);
 
-  const value = await page.$eval('#output .output-value', el => el.textContent);
-  expect(value).toContain('#t');
+  const value = await page.$eval(
+    "#output .output-value",
+    (el) => el.textContent,
+  );
+  expect(value).toContain("#t");
 });
 
-test('http/get CORS error shows useful message', async ({ page }) => {
+test("http/get CORS error shows useful message", async ({ page }) => {
   // Most non-API sites block CORS
   await setEditorCode(page, '(http/get "https://example.com")');
   await clickRunAndWait(page);
 
   // Should show an error, not a marker leak
-  const errorEl = await page.$('#output .output-error');
+  const errorEl = await page.$("#output .output-error");
   if (errorEl) {
     const errorText = await errorEl.textContent();
-    expect(errorText).not.toContain('__SEMA_WASM_HTTP__');
+    expect(errorText).not.toContain("__SEMA_WASM_HTTP__");
   }
 });
 
-test('run button disabled during async eval', async ({ page }) => {
+test("run button disabled during async eval", async ({ page }) => {
   await setEditorCode(page, '(http/get "https://httpbin.org/delay/1")');
 
-  const runBtn = page.getByTestId('run-btn');
+  const runBtn = page.getByTestId("run-btn");
   await runBtn.click();
 
   // Button should be disabled while fetching
   await expect(runBtn).toBeDisabled();
 
   // Wait for completion
-  await page.waitForSelector('#output .output-timing', { timeout: 30000 });
+  await page.waitForSelector("#output .output-timing", { timeout: 30000 });
   await expect(runBtn).toBeEnabled();
 });
 ```
@@ -928,6 +959,7 @@ git commit -m "test(playground): add Playwright tests for HTTP fetch bridge"
 ## Task 8: Update playground docs
 
 **Files:**
+
 - Modify: `website/docs/stdlib/playground.md`
 
 **Step 1: Move HTTP from "Not Available" to a working section**
@@ -942,7 +974,7 @@ Remove the `::: info Future: HTTP Support` block entirely.
 
 Add a new section after "Terminal Styling" and before "Not Available in WASM":
 
-```markdown
+````markdown
 ### HTTP Functions
 
 HTTP functions work in the playground via the browser's `fetch()` API. They return the same `{:status :headers :body}` map as the native CLI.
@@ -955,36 +987,41 @@ HTTP functions work in the playground via the browser's `fetch()` API. They retu
 (http/post "https://httpbin.org/post" {:name "sema"})
 ; => {:status 200 :headers {...} :body "..."}
 ```
+````
 
 All HTTP functions are supported: `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`.
 
 ::: warning CORS Restrictions
 Browser security rules (CORS) may block requests to servers that don't include `Access-Control-Allow-Origin` headers. Public APIs like httpbin.org work fine. If you get a network error, the target server likely doesn't allow cross-origin requests.
 :::
-```
+
+````
 
 **Step 2: Commit**
 
 ```bash
 git add website/docs/stdlib/playground.md
 git commit -m "docs: update playground docs — HTTP now works via fetch bridge"
-```
+````
 
 ---
 
 ## Task 9: Update the WASM shims design doc
 
 **Files:**
+
 - Modify: `docs/plans/2026-02-14-wasm-shims-design.md`
 
 **Step 1: Update status and mark Phase 2 as complete**
 
 At the top, update status line to:
+
 ```
 **Status:** HTTP via fetch bridge implemented — 2026-02-17
 ```
 
 In the "Tier 3: HTTP Stubs" section, update to:
+
 ```markdown
 ### Tier 3: HTTP via Fetch Bridge ✅ (Implemented 2026-02-17)
 
@@ -992,8 +1029,10 @@ In the "Tier 3: HTTP Stubs" section, update to:
 ```
 
 In the Future Roadmap, update Phase 2:
+
 ```markdown
 ### Phase 2: HTTP via fetch ✅ (Implemented 2026-02-17)
+
 Implemented via replay-with-cache strategy using `eval_async`/`eval_vm_async` + `web-sys` fetch.
 ```
 
@@ -1008,13 +1047,13 @@ git commit -m "docs: mark HTTP fetch bridge as implemented in WASM shims design 
 
 ## Summary of changes
 
-| File | Change |
-|------|--------|
-| `crates/sema-wasm/Cargo.toml` | Add `wasm-bindgen-futures`, `web-sys` deps |
-| `crates/sema-wasm/src/lib.rs` | HTTP cache, marker infra, `wasm_http_request`, `perform_fetch`, `eval_async`, `eval_vm_async` |
-| `playground/src/app.js` | Make `run()` async, use `eval_async`/`eval_vm_async` |
-| `playground/tests/playground.spec.ts` | Add HTTP Playwright tests |
-| `website/docs/stdlib/playground.md` | Move HTTP to working section, remove "coming soon" |
-| `docs/plans/2026-02-14-wasm-shims-design.md` | Mark Phase 2 complete |
+| File                                         | Change                                                                                        |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `crates/sema-wasm/Cargo.toml`                | Add `wasm-bindgen-futures`, `web-sys` deps                                                    |
+| `crates/sema-wasm/src/lib.rs`                | HTTP cache, marker infra, `wasm_http_request`, `perform_fetch`, `eval_async`, `eval_vm_async` |
+| `playground/src/app.js`                      | Make `run()` async, use `eval_async`/`eval_vm_async`                                          |
+| `playground/tests/playground.spec.ts`        | Add HTTP Playwright tests                                                                     |
+| `website/docs/stdlib/playground.md`          | Move HTTP to working section, remove "coming soon"                                            |
+| `docs/plans/2026-02-14-wasm-shims-design.md` | Mark Phase 2 complete                                                                         |
 
 **No changes to:** `sema-core`, `sema-eval`, `sema-stdlib`, `sema-vm` — the entire feature lives in the WASM boundary layer.

@@ -6,16 +6,16 @@ All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset
 
 ## Benchmark Summary
 
-| Stage | 1M rows | 10M rows | Technique | Status |
-|-------|---------|----------|-----------|--------|
-| Baseline | 2,501 ms | ~25,000 ms | Naive implementation | — |
-| + COW assoc | 1,800 ms | ~18,000 ms | In-place map mutation | ✅ Active |
-| + Env reuse | 1,626 ms | 16,059 ms | Lambda env recycling (mini-eval) | ❌ Removed |
-| + Mini-eval | ~960 ms | ~9,600 ms | Inlined builtins, custom parser | ❌ Removed |
-| + String interning | — | — | Spur-based dispatch | ✅ Active |
-| + hashbrown | — | — | Amortized O(1) accumulator | ✅ Active |
-| **Post-removal** | **~2,900 ms** | **~29,600 ms** | Callback architecture + fast paths | ✅ Current (tree-walker) |
-| **Bytecode VM** | **~1,700 ms** | **~17,100 ms** | Bytecode VM (`--vm`) | ✅ Active |
+| Stage              | 1M rows       | 10M rows       | Technique                          | Status                   |
+| ------------------ | ------------- | -------------- | ---------------------------------- | ------------------------ |
+| Baseline           | 2,501 ms      | ~25,000 ms     | Naive implementation               | —                        |
+| + COW assoc        | 1,800 ms      | ~18,000 ms     | In-place map mutation              | ✅ Active                |
+| + Env reuse        | 1,626 ms      | 16,059 ms      | Lambda env recycling (mini-eval)   | ❌ Removed               |
+| + Mini-eval        | ~960 ms       | ~9,600 ms      | Inlined builtins, custom parser    | ❌ Removed               |
+| + String interning | —             | —              | Spur-based dispatch                | ✅ Active                |
+| + hashbrown        | —             | —              | Amortized O(1) accumulator         | ✅ Active                |
+| **Post-removal**   | **~2,900 ms** | **~29,600 ms** | Callback architecture + fast paths | ✅ Current (tree-walker) |
+| **Bytecode VM**    | **~1,700 ms** | **~17,100 ms** | Bytecode VM (`--vm`)               | ✅ Active                |
 
 > **Note:** The mini-eval and its associated optimizations (env reuse, inlined builtins, custom number parser, SIMD split fast path) were removed to unblock the bytecode VM, which is now implemented and available via `--vm`. The bytecode VM provides a ~1.7× speedup over the tree-walker (~1,700ms vs ~2,900ms on 1M rows), recovering much of the mini-eval's performance through compilation. The tree-walker remains the default; the current architecture uses `sema_core::call_callback` to route stdlib → real evaluator. Fast-path optimizations (self-evaluating short-circuit, inline NativeFn dispatch, thread-local EvalContext, deferred cloning) partially recovered performance.
 
@@ -33,7 +33,7 @@ match Rc::try_unwrap(m) {
 }
 ```
 
-The key insight is pairing this with `Env::take()` — by *removing* the accumulator from the environment before passing it to `assoc`, the refcount drops to 1, enabling the in-place path. User code looks like:
+The key insight is pairing this with `Env::take()` — by _removing_ the accumulator from the environment before passing it to `assoc`, the refcount drops to 1, enabling the in-place path. User code looks like:
 
 ```scheme
 (file/fold-lines "data.csv"
@@ -48,15 +48,16 @@ The `fold-lines` implementation moves (not clones) `acc` into the lambda env on 
 **Impact:** ~30% of the total speedup. Eliminated the O(n) full-map clone, leaving only the O(log n) BTreeMap insert per row.
 
 **Literature:**
+
 - This is the same copy-on-write strategy used by Swift's value types. (Clojure's persistent data structures solve a related problem — avoiding full copies — but via structural sharing rather than refcount-based COW.)
 - Phil Bagwell, ["Ideal Hash Trees"](https://infoscience.epfl.ch/entities/publication/64410) (2001) — the paper behind Clojure/Scala persistent collections
 - Rust's `Rc::make_mut` provides the same semantics with less ceremony
 
-## 2. Lambda Environment Reuse *(removed)*
+## 2. Lambda Environment Reuse _(removed)_
 
 > **Status:** This optimization was part of the mini-eval's hot path in `io.rs`. It was removed when the mini-eval was deleted. The current `file/fold-lines` uses `sema_core::call_callback`, which routes through the real evaluator — each call creates a fresh `Env` via the standard `apply_lambda` path.
 
-**What it was:** For simple lambdas (known arity, no rest params), the mini-eval created the lambda environment *once* and reused it across all iterations, overwriting bindings in place. Combined with a reusable `line_buf`, this eliminated per-iteration allocations for `Env`, string interning, and line buffers.
+**What it was:** For simple lambdas (known arity, no rest params), the mini-eval created the lambda environment _once_ and reused it across all iterations, overwriting bindings in place. Combined with a reusable `line_buf`, this eliminated per-iteration allocations for `Env`, string interning, and line buffers.
 
 **Why it was removed:** The env reuse logic was tightly coupled to the mini-eval's direct lambda dispatch. The callback architecture routes through the real evaluator's `apply_lambda`, which always creates a fresh child `Env` — this is correct and avoids subtle bugs from env mutation leaking across calls.
 
@@ -64,13 +65,14 @@ The `fold-lines` implementation moves (not clones) `acc` into the lambda env on 
 
 **What remains:** The reusable `line_buf` (`String::with_capacity(64)` cleared each iteration) is still present in `file/fold-lines` — only the env reuse was lost.
 
-## 3. Evaluator Callback Architecture *(replacing Mini-Eval)*
+## 3. Evaluator Callback Architecture _(replacing Mini-Eval)_
 
 > **Status:** The mini-eval was deleted and replaced with a callback architecture. Stdlib now calls the real evaluator via `sema_core::call_callback`.
 
 **What the mini-eval was:** `sema-stdlib` previously contained its own minimal evaluator (`sema_eval_value`) that handled common forms via direct recursive calls, inlining builtins like `+`, `=`, `assoc`, `string/split`, and `string->number` to skip `Env` lookup and `NativeFn` dispatch entirely.
 
 **Why it was removed:**
+
 1. **Semantic drift:** The mini-eval diverged from the real evaluator — new special forms, error handling, and features had to be duplicated or were silently missing.
 2. **Blocking bytecode VM:** A bytecode compiler can't target two evaluators. Removing the mini-eval ensures a single evaluation path that the VM can replace.
 
@@ -94,6 +96,7 @@ sema_core::with_stdlib_ctx(|ctx| {
 **Performance trade-off:** ~960ms → ~2,900ms on 1M rows (~3× regression). The overhead comes from the full trampoline evaluator: call stack management, span tracking, and `Trampoline` dispatch on every sub-expression.
 
 **Fast-path optimizations that partially recovered performance:**
+
 1. **Self-evaluating fast path:** `eval_value` short-circuits for integers, floats, strings, keywords, and symbols — skipping depth tracking and step limits for the most common forms.
 2. **Inline NativeFn dispatch:** When the evaluator sees a `Value::NativeFn` in call position, it calls the function pointer directly without going through `call_callback` indirection.
 3. **Thread-local shared EvalContext:** `with_stdlib_ctx` reuses a single `EvalContext` across all stdlib → evaluator callbacks, avoiding per-call allocation of `RefCell`/`Cell` fields.
@@ -102,6 +105,7 @@ sema_core::with_stdlib_ctx(|ctx| {
 **Remaining gap:** The ~3× regression cannot be fully closed within the tree-walking architecture. The bytecode VM (`--vm`) — the reason the mini-eval was removed — reduces this to ~1.8× vs the mini-eval (~1,700ms vs ~960ms) and is ~1.7× faster than the tree-walker.
 
 **Literature:**
+
 - Inline caching, pioneered by Smalltalk-80 and refined in V8's hidden classes, solves the same dispatch overhead problem but at a different architectural level
 - Most production Lisps (SBCL, Chez Scheme) compile to native code, making dispatch overhead negligible — Sema's callback overhead is inherent to tree-walking interpreters
 - Lua 5.x's bytecode VM inlines common operations (`OP_ADD`, `OP_GETTABLE`) into the dispatch loop — this is the approach Sema's bytecode VM (`sema-vm`) takes
@@ -139,11 +143,12 @@ if head_spur == sf.if_ {
 }
 ```
 
-**Caveat:** The initial implementation was actually *slower* (2,518ms vs 1,580ms baseline) because `resolve()` was allocating a new `String` on every symbol lookup. Fixed by adding `with_resolved(spur, |s| ...)` which provides a borrowed `&str` without allocation, and switching `Env` to use `Spur` keys directly.
+**Caveat:** The initial implementation was actually _slower_ (2,518ms vs 1,580ms baseline) because `resolve()` was allocating a new `String` on every symbol lookup. Fixed by adding `with_resolved(spur, |s| ...)` which provides a borrowed `&str` without allocation, and switching `Env` to use `Spur` keys directly.
 
 **Impact:** 1,580ms → 1,400ms (11% faster) after fixing the allocation issue.
 
 **Literature:**
+
 - String interning is as old as Lisp itself — McCarthy's original LISP 1.5 (1962) interned atoms in the "object list" (oblist)
 - Java interns all string literals and provides `String.intern()`. The JVM's `invokedynamic` uses interned method names for O(1) dispatch
 - The [string-interner](https://crates.io/crates/string-interner) and [lasso](https://crates.io/crates/lasso) crates are the two main Rust options; lasso was chosen for its `Rodeo` thread-local interner which fits Sema's single-threaded architecture
@@ -169,10 +174,11 @@ if head_spur == sf.if_ {
 **Impact:** 1,400ms → 1,340ms (4% faster). Modest because BTreeMap with 400 entries and short string keys is already fast.
 
 **Literature:**
+
 - hashbrown uses SwissTable, designed by Google for their C++ `absl::flat_hash_map`. See [CppCon 2017: Matt Kulukundis "Designing a Fast, Efficient, Cache-friendly Hash Table"](https://www.youtube.com/watch?v=ncHmEUmJZf4)
 - Clojure's `{:key val}` maps use HAMTs (hash array mapped tries) which provide O(~1) lookup with structural sharing. Sema's approach is simpler: full COW on the `Rc<HashMap>` rather than structural sharing, which is viable because the refcount-1 fast path almost always hits
 
-## 6. SIMD Byte Search (memchr) *(removed)*
+## 6. SIMD Byte Search (memchr) _(removed)_
 
 > **Status:** The memchr-based two-part split fast path was part of the mini-eval's inlined `string/split` and was removed with it. The current `string/split` in `sema-stdlib/src/string.rs` uses Rust's standard `str::split()` followed by `map` and `collect`. The `memchr` crate remains a dependency of `sema-stdlib` but is no longer used in the split hot path.
 
@@ -181,9 +187,10 @@ if head_spur == sf.if_ {
 **Impact when active:** Negligible for SIMD specifically (1BRC strings are 10–30 bytes), but the two-part fast path avoided iterator/Vec overhead.
 
 **Literature:**
+
 - memchr is maintained by Andrew Gallant (BurntSushi), author of ripgrep. It uses the [generic SIMD](https://github.com/BurntSushi/memchr/blob/master/src/arch/all/memchr/mod.rs) framework to dispatch to the best available instruction set at runtime
 
-## 7. Custom Number Parser *(removed)*
+## 7. Custom Number Parser _(removed)_
 
 > **Status:** This was part of the mini-eval's inlined `string->number` and was removed with it. The current `string->number` in `sema-stdlib/src/string.rs` uses Rust's standard `str::parse::<i64>()` with fallback to `str::parse::<f64>()`.
 
@@ -192,6 +199,7 @@ if head_spur == sf.if_ {
 **Impact when active:** Part of the combined mini-eval speedup. Difficult to isolate, but avoided the overhead of Rust's [dec2flt](https://github.com/rust-lang/rust/tree/master/library/core/src/num/dec2flt) algorithm.
 
 **Literature:**
+
 - Rust's float parser is based on the [Eisel-Lemire algorithm](https://nigeltao.github.io/blog/2020/eisel-lemire.html) (2020), which is fast for a general-purpose parser but still does more work than necessary for simple decimals
 - Daniel Lemire's [fast_float](https://github.com/fastfloat/fast_float) C++ library (and its Rust port) takes a similar "fast path for common cases" approach
 
@@ -211,12 +219,12 @@ let mut reader = std::io::BufReader::with_capacity(256 * 1024, file);
 
 Not everything we tried worked:
 
-| Approach | Result | Why |
-|----------|--------|-----|
-| **HashMap for Env** | Slower | `BTreeMap` is faster for the very small maps (1–3 entries) typical of `let` scopes. HashMap's hashing overhead exceeds BTreeMap's few integer comparisons at that size. |
-| **im-rc / rpds (persistent collections)** | Slower | Structural sharing fights the COW optimization — the whole point is to *avoid* sharing and mutate in place when refcount is 1. |
-| **bumpalo / typed-arena** | Incompatible | Values need to escape the arena (returned from functions, stored in environments). Arena allocation only works for temporaries. |
-| **compact_str / smol_str** | Redundant | Once symbols/keywords are interned as `Spur`, small-string optimization for them is pointless. String *values* are still `Rc<String>` but they're not in the hot path for dispatch. |
+| Approach                                  | Result       | Why                                                                                                                                                                                 |
+| ----------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **HashMap for Env**                       | Slower       | `BTreeMap` is faster for the very small maps (1–3 entries) typical of `let` scopes. HashMap's hashing overhead exceeds BTreeMap's few integer comparisons at that size.             |
+| **im-rc / rpds (persistent collections)** | Slower       | Structural sharing fights the COW optimization — the whole point is to _avoid_ sharing and mutate in place when refcount is 1.                                                      |
+| **bumpalo / typed-arena**                 | Incompatible | Values need to escape the arena (returned from functions, stored in environments). Arena allocation only works for temporaries.                                                     |
+| **compact_str / smol_str**                | Redundant    | Once symbols/keywords are interned as `Spur`, small-string optimization for them is pointless. String _values_ are still `Rc<String>` but they're not in the hot path for dispatch. |
 
 > **Note:** "Full evaluator callback" was previously listed here as rejected (4x slower than mini-eval). It is now the **current architecture** — the ~2.7× overhead vs the mini-eval is accepted as the cost of architectural correctness. The bytecode VM (`--vm`) is the path to eliminate this overhead entirely.
 

@@ -115,7 +115,7 @@ The dispatch order matters:
 
 1. **Self-evaluating:** Numbers, strings, booleans, nil, keywords, etc. return themselves immediately. These are the leaves of every evaluation.
 2. **Symbols:** Look up the binding in the environment chain. If not found, return `SemaError::Unbound`.
-3. **Vectors and maps:** Evaluate each element/entry recursively (these are *not* in tail position, so they call `eval_value` directly).
+3. **Vectors and maps:** Evaluate each element/entry recursively (these are _not_ in tail position, so they call `eval_value` directly).
 4. **Lists:** The interesting case — check for special forms first, then evaluate the head and dispatch on its type.
 
 ### List Evaluation
@@ -143,7 +143,7 @@ match &func {
 }
 ```
 
-Note: the head is checked for special forms *before* it's evaluated. This is essential — `if`, `define`, `lambda`, etc. must not evaluate their arguments eagerly.
+Note: the head is checked for special forms _before_ it's evaluated. This is essential — `if`, `define`, `lambda`, etc. must not evaluate their arguments eagerly.
 
 ## Special Form Dispatch
 
@@ -263,7 +263,7 @@ fn apply_lambda(ctx: &EvalContext, lambda: &Lambda, args: &[Value]) -> Result<Tr
 }
 ```
 
-This is where TCO actually happens. The last expression is *not* evaluated by `apply_lambda` — it's returned as `Trampoline::Eval` so the trampoline loop can evaluate it without growing the stack. Non-tail body expressions (everything except the last) are evaluated normally via `eval_value`.
+This is where TCO actually happens. The last expression is _not_ evaluated by `apply_lambda` — it's returned as `Trampoline::Eval` so the trampoline loop can evaluate it without growing the stack. Non-tail body expressions (everything except the last) are evaluated normally via `eval_value`.
 
 Named lambdas bind themselves in the new environment, enabling direct recursion without requiring `letrec` or `Y-combinator` gymnastics.
 
@@ -366,7 +366,7 @@ fn span_of_expr(ctx: &EvalContext, expr: &Value) -> Option<Span> {
 }
 ```
 
-This avoids storing spans inside `Value` (which would increase the size of every value). The trade-off: spans are only available for list expressions (and vectors, which the reader also registers). Spans remain valid across `Rc::clone()` calls since cloning an `Rc` preserves the inner pointer. They only become stale if a list is *rebuilt* into a new `Rc<Vec<_>>` (e.g., by `map` or `filter` constructing a fresh vector). In practice this works well because error-producing expressions are typically the original parsed forms.
+This avoids storing spans inside `Value` (which would increase the size of every value). The trade-off: spans are only available for list expressions (and vectors, which the reader also registers). Spans remain valid across `Rc::clone()` calls since cloning an `Rc` preserves the inner pointer. They only become stale if a list is _rebuilt_ into a new `Rc<Vec<_>>` (e.g., by `map` or `filter` constructing a fresh vector). In practice this works well because error-producing expressions are typically the original parsed forms.
 
 ### RAII Stack Management
 
@@ -414,7 +414,7 @@ Without this trimming, a tail-recursive loop of 1M iterations would accumulate 1
 
 ### MAX_EVAL_DEPTH (1024)
 
-The evaluator tracks nesting depth via the `eval_depth` field in `EvalContext`, incremented on every `eval_value` call and decremented on return. However, `eval_value` has a **fast path** at the top that short-circuits self-evaluating forms and symbol lookups *before* any depth tracking or step counting:
+The evaluator tracks nesting depth via the `eval_depth` field in `EvalContext`, incremented on every `eval_value` call and decremented on return. However, `eval_value` has a **fast path** at the top that short-circuits self-evaluating forms and symbol lookups _before_ any depth tracking or step counting:
 
 ```rust
 const MAX_EVAL_DEPTH: usize = 1024;
@@ -450,7 +450,7 @@ This fast path is a significant optimization: self-evaluating forms (numbers, st
 
 This protects against non-tail recursion that the trampoline can't help with — for example, `(f (f (f ...)))` nests `eval_value` calls for each argument evaluation. The limit of 1024 is generous enough for real programs but prevents native stack overflow.
 
-Note that tail-recursive loops do *not* increase the depth counter, because each iteration returns from `eval_value_inner` via the trampoline loop rather than nesting a new `eval_value` call.
+Note that tail-recursive loops do _not_ increase the depth counter, because each iteration returns from `eval_value_inner` via the trampoline loop rather than nesting a new `eval_value` call.
 
 ### EVAL_STEP_LIMIT (Fuzzing)
 
@@ -480,18 +480,18 @@ pub struct Env {
 
 ### Operations
 
-| Method | Behavior |
-|--------|----------|
-| `get(spur)` | Walk the parent chain, return first match |
-| `set(spur, val)` | Insert into the current (innermost) scope |
-| `set_existing(spur, val)` | Walk the chain, update where found (for `set!`) |
-| `take(spur)` | Remove from current scope only (for COW optimization) |
-| `take_anywhere(spur)` | Remove from any scope in the chain |
-| `update(spur, val)` | Overwrite in current scope without re-hashing (for hot loops) |
+| Method                    | Behavior                                                      |
+| ------------------------- | ------------------------------------------------------------- |
+| `get(spur)`               | Walk the parent chain, return first match                     |
+| `set(spur, val)`          | Insert into the current (innermost) scope                     |
+| `set_existing(spur, val)` | Walk the chain, update where found (for `set!`)               |
+| `take(spur)`              | Remove from current scope only (for COW optimization)         |
+| `take_anywhere(spur)`     | Remove from any scope in the chain                            |
+| `update(spur, val)`       | Overwrite in current scope without re-hashing (for hot loops) |
 
 The `take` method is critical for the copy-on-write map optimization described in the Performance page — by removing a value from the environment before passing it to a function, the `Rc` reference count drops to 1, enabling in-place mutation.
 
-**Literature:** This is the standard lexical environment model described in *Lisp in Small Pieces* (Queinnec, 1996, Chapter 6) — a chain of frames linked by static (lexical) pointers. The alternative for lexical scoping — flat closures that copy all free variables into each closure — is faster for lookup but uses more memory when closures share large environments. Sema uses the chained model because closures are pervasive and lookup cost is dominated by the `Spur` integer comparison, not chain traversal.
+**Literature:** This is the standard lexical environment model described in _Lisp in Small Pieces_ (Queinnec, 1996, Chapter 6) — a chain of frames linked by static (lexical) pointers. The alternative for lexical scoping — flat closures that copy all free variables into each closure — is faster for lookup but uses more memory when closures share large environments. Sema uses the chained model because closures are pervasive and lookup cost is dominated by the `Spur` integer comparison, not chain traversal.
 
 ## Adding a Special Form
 
@@ -505,7 +505,7 @@ If you need to add a new special form to Sema:
 
 ## Further Reading
 
-- Christian Queinnec, [*Lisp in Small Pieces*](https://www.cambridge.org/core/books/lisp-in-small-pieces/66FD2BE3EDDDC68588A4605F14A4D2A4) (Cambridge, 1996) — the canonical deep-dive into Lisp interpreter and compiler implementation, covering environment models, continuations, and compilation strategies
+- Christian Queinnec, [_Lisp in Small Pieces_](https://www.cambridge.org/core/books/lisp-in-small-pieces/66FD2BE3EDDDC68588A4605F14A4D2A4) (Cambridge, 1996) — the canonical deep-dive into Lisp interpreter and compiler implementation, covering environment models, continuations, and compilation strategies
 - Guy Lewis Steele Jr., ["Rabbit: A Compiler for Scheme"](https://dspace.mit.edu/handle/1721.1/6913) (MIT AI Memo 474, 1978) — introduces the trampoline concept and proves that tail calls can be implemented as jumps
-- Abelson & Sussman, [*Structure and Interpretation of Computer Programs*](https://mitpress.mit.edu/9780262510875/structure-and-interpretation-of-computer-programs/) (MIT Press, 1996) — Chapter 4's metacircular evaluator is the template for Sema's `eval_step`/`apply_lambda` split; Chapter 5 shows how to compile to a register machine
+- Abelson & Sussman, [_Structure and Interpretation of Computer Programs_](https://mitpress.mit.edu/9780262510875/structure-and-interpretation-of-computer-programs/) (MIT Press, 1996) — Chapter 4's metacircular evaluator is the template for Sema's `eval_step`/`apply_lambda` split; Chapter 5 shows how to compile to a register machine
 - R. Kent Dybvig, ["Three Implementation Models for Scheme"](https://www.cs.indiana.edu/~dyb/pubs/3imp.pdf) (PhD thesis, 1987) — compares heap-based, stack-based, and string-based models; Sema uses heap-based (Rc+RefCell scopes)

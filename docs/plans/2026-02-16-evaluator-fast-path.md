@@ -19,6 +19,7 @@
 ### Source 1: Throwaway `EvalContext` per call (~allocations)
 
 `call_function` in `list.rs:979-981`:
+
 ```rust
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     let ctx = sema_core::EvalContext::new();   // ← allocates 6 RefCells + 3 Cells every call
@@ -33,6 +34,7 @@ pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
 ### Source 2: Thread-local borrow per call (~indirection)
 
 `call_callback` in `context.rs:204-211`:
+
 ```rust
 pub fn call_callback(ctx: &EvalContext, func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     CALL_FN.with(|call| {
@@ -50,6 +52,7 @@ The thread-local `CALL_FN.with()` + `RefCell::borrow()` is ~5-10ns overhead per 
 ### Source 3: Full evaluator overhead per lambda body expression
 
 `call_value` → `eval_value` for each body expression of a lambda:
+
 ```rust
 pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
     let depth = ctx.eval_depth.get();       // ← Cell::get
@@ -75,6 +78,7 @@ Then `eval_value_inner` sets up a `CallStackGuard`, reads `eval_step_limit`, cre
 The biggest single win. Replace `EvalContext::new()` in `call_function` and the IO functions with a thread-local shared context.
 
 **Files:**
+
 - Modify: `crates/sema-core/src/context.rs`
 - Modify: `crates/sema-stdlib/src/list.rs`
 - Modify: `crates/sema-stdlib/src/io.rs`
@@ -104,6 +108,7 @@ Also export `with_stdlib_ctx` from `crates/sema-core/src/lib.rs`.
 **Step 2: Update `call_function` in `crates/sema-stdlib/src/list.rs`**
 
 Replace:
+
 ```rust
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     let ctx = sema_core::EvalContext::new();
@@ -112,6 +117,7 @@ pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
 ```
 
 With:
+
 ```rust
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     sema_core::with_stdlib_ctx(|ctx| sema_core::call_callback(ctx, func, args))
@@ -123,6 +129,7 @@ pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
 Replace `let ctx = sema_core::EvalContext::new();` in both functions with `sema_core::with_stdlib_ctx(|ctx| { ... })`. Move the entire loop body inside the `with_stdlib_ctx` closure.
 
 For `file/for-each-line` (around line 365):
+
 ```rust
 sema_core::with_stdlib_ctx(|ctx| {
     let mut line_buf = String::with_capacity(64);
@@ -179,12 +186,14 @@ file streaming functions. Previously each callback invocation allocated
 Skip the thread-local callback indirection for native functions — they don't need the evaluator at all.
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/list.rs`
 - Test: existing integration tests
 
 **Step 1: Optimize `call_function` to dispatch `NativeFn` directly**
 
 Replace:
+
 ```rust
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     sema_core::with_stdlib_ctx(|ctx| sema_core::call_callback(ctx, func, args))
@@ -192,6 +201,7 @@ pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
 ```
 
 With:
+
 ```rust
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
     match func {
@@ -227,12 +237,14 @@ from stdlib higher-order functions like map/filter/fold."
 The full `eval_value` does depth tracking and step counting even for self-evaluating forms (Int, Float, String, Bool, Nil, Keyword). These don't need any of that — they just return themselves.
 
 **Files:**
+
 - Modify: `crates/sema-eval/src/eval.rs`
 - Test: existing integration tests
 
 **Step 1: Add a fast-path check before depth tracking in `eval_value`**
 
 Replace the beginning of `eval_value`:
+
 ```rust
 pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
     let depth = ctx.eval_depth.get();
@@ -256,6 +268,7 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
 ```
 
 With:
+
 ```rust
 pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
     // Fast path: self-evaluating forms skip depth/step tracking entirely.
@@ -330,6 +343,7 @@ from map/filter/fold hot paths."
 When `call_value` is called from stdlib (e.g., `map` calling a user lambda), it calls `eval_value` per body expression. Each `eval_value` call enters `eval_value_inner` which sets up a `CallStackGuard`. The `call_value` function itself doesn't push call frames (that's done in `eval_step` for direct calls), but the body expressions can trigger nested frame pushes. The issue is that `eval_value_inner` unconditionally creates a `CallStackGuard` and reads `call_stack_depth()` — a `RefCell::borrow()` on every entry.
 
 **Files:**
+
 - Modify: `crates/sema-eval/src/eval.rs`
 - Test: existing integration tests
 
@@ -378,6 +392,7 @@ This part is unchanged. The optimization is in Task 3's fast path — `eval_valu
 **Step 2: Instead, reduce `eval_value_inner` overhead for non-TCO calls**
 
 When `eval_value_inner` is entered and the expression is a simple function call (list) that returns a `Trampoline::Value` on the first iteration, the trampoline loop exits immediately. But it still:
+
 1. Clones `expr` into `current_expr` (line 228)
 2. Clones `env` into `current_env` (line 229)
 3. Calls `ctx.call_stack_depth()` (RefCell borrow, line 230)
@@ -386,6 +401,7 @@ When `eval_value_inner` is entered and the expression is a simple function call 
 We can avoid the clones by taking the expression and env by reference for the first iteration:
 
 Replace the beginning of `eval_value_inner`:
+
 ```rust
 fn eval_value_inner(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
     let entry_depth = ctx.call_stack_depth();
@@ -512,6 +528,7 @@ Expected: clean (no warnings, no errors)
 Run: `cargo build --release && cargo run --release -- benchmarks/1brc/1brc.sema -- benchmarks/1brc/measurements-1m.txt`
 
 Record the result. Compare against:
+
 - Pre-optimization (post-regression): ~3050ms
 - Original mini-eval: ~960ms
 - Target: ≤1500ms
@@ -531,11 +548,11 @@ git commit -m "docs: record evaluator fast-path optimization results"
 
 ## Summary of Expected Impact
 
-| Optimization | Mechanism | Expected Impact |
-|---|---|---|
-| Thread-local shared `EvalContext` | Eliminates 6 heap allocs per callback call | 10-20% reduction |
-| Inline `NativeFn` dispatch | Skips thread-local + RefCell borrow for native fns | 5-10% reduction |
-| Self-evaluating fast path in `eval_value` | Skips depth/step/trampoline for Int, String, Symbol | 30-50% reduction |
+| Optimization                                       | Mechanism                                              | Expected Impact  |
+| -------------------------------------------------- | ------------------------------------------------------ | ---------------- |
+| Thread-local shared `EvalContext`                  | Eliminates 6 heap allocs per callback call             | 10-20% reduction |
+| Inline `NativeFn` dispatch                         | Skips thread-local + RefCell borrow for native fns     | 5-10% reduction  |
+| Self-evaluating fast path in `eval_value`          | Skips depth/step/trampoline for Int, String, Symbol    | 30-50% reduction |
 | Avoid first-iteration clones in `eval_value_inner` | Eliminates `Value::clone()` + `Env::clone()` per entry | 10-15% reduction |
 
 Combined target: ≤1500ms on 1BRC 1M rows (vs 3050ms baseline, vs 960ms original mini-eval).

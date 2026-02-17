@@ -92,10 +92,10 @@ Send a prompt value (composed from `prompt` expressions) to the LLM.
 
 All completion and chat functions accept an options map with these keys:
 
-| Key            | Description                          |
-| -------------- | ------------------------------------ |
-| `:model`       | Model name (e.g. `"claude-haiku-4-5-20251001"`) |
-| `:max-tokens`  | Maximum tokens in response           |
-| `:temperature` | Sampling temperature (0.0–1.0)       |
-| `:system`      | System prompt (for `llm/complete`)   |
+| Key            | Description                                                   |
+| -------------- | ------------------------------------------------------------- |
+| `:model`       | Model name (e.g. `"claude-haiku-4-5-20251001"`)               |
+| `:max-tokens`  | Maximum tokens in response                                    |
+| `:temperature` | Sampling temperature (0.0–1.0)                                |
+| `:system`      | System prompt (for `llm/complete`)                            |
 | `:tools`       | List of tool values (see [Tools & Agents](./tools-agents.md)) |

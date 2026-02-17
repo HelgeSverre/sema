@@ -12,31 +12,31 @@
 
 ### Tier 1: Trivial Shims (constants, no-ops, pass-throughs)
 
-| Category | Functions | Implementation |
-|----------|-----------|----------------|
-| **System constants** | `sys/platform`, `sys/arch`, `sys/os` | Return `"web"`, `"wasm32"`, `"web"` |
-| **System stubs** | `sys/args`, `sys/cwd`, `sys/home-dir`, `sys/temp-dir`, `sys/hostname`, `sys/user`, `sys/pid`, `sys/which`, `sys/tty`, `sys/interactive?` | Sensible defaults (empty list, `"/"`, nil, etc.) |
-| **Timing** | `sys/elapsed` | `Date.now()` delta from module load, converted to nanos |
-| **No-ops** | `sleep`, `env`, `sys/set-env`, `sys/env-all` | No-op or return nil/empty |
-| **Errors** | `exit`, `read-line`, `read-stdin`, `shell` | Return clear "not supported in WASM" errors |
-| **Terminal styling** | All 15 `term/*` color/modifier fns, `term/style`, `term/strip`, `term/rgb` | Pass-through (return text unchanged) |
-| **Path operations** | `path/join`, `path/dirname`, `path/basename`, `path/extension`, `path/absolute` | Pure string manipulation (no `std::path`) |
-| **IO/parsing** | `read`, `read-many`, `error` | Direct delegation to `sema_reader` / `SemaError` |
+| Category             | Functions                                                                                                                                | Implementation                                          |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **System constants** | `sys/platform`, `sys/arch`, `sys/os`                                                                                                     | Return `"web"`, `"wasm32"`, `"web"`                     |
+| **System stubs**     | `sys/args`, `sys/cwd`, `sys/home-dir`, `sys/temp-dir`, `sys/hostname`, `sys/user`, `sys/pid`, `sys/which`, `sys/tty`, `sys/interactive?` | Sensible defaults (empty list, `"/"`, nil, etc.)        |
+| **Timing**           | `sys/elapsed`                                                                                                                            | `Date.now()` delta from module load, converted to nanos |
+| **No-ops**           | `sleep`, `env`, `sys/set-env`, `sys/env-all`                                                                                             | No-op or return nil/empty                               |
+| **Errors**           | `exit`, `read-line`, `read-stdin`, `shell`                                                                                               | Return clear "not supported in WASM" errors             |
+| **Terminal styling** | All 15 `term/*` color/modifier fns, `term/style`, `term/strip`, `term/rgb`                                                               | Pass-through (return text unchanged)                    |
+| **Path operations**  | `path/join`, `path/dirname`, `path/basename`, `path/extension`, `path/absolute`                                                          | Pure string manipulation (no `std::path`)               |
+| **IO/parsing**       | `read`, `read-many`, `error`                                                                                                             | Direct delegation to `sema_reader` / `SemaError`        |
 
 ### Tier 2: In-Memory Virtual Filesystem (VFS)
 
 Thread-local `BTreeMap<String, String>` (files) + `BTreeSet<String>` (directories).
 
-| Function | Behavior |
-|----------|----------|
-| `file/read`, `file/write`, `file/append` | Read/write/append to VFS |
-| `file/exists?`, `file/delete`, `file/rename`, `file/copy` | Standard file ops on VFS |
-| `file/list` | List direct children by prefix match |
-| `file/mkdir` | Add path + all parents to directory set |
-| `file/is-directory?`, `file/is-file?`, `file/is-symlink?` | Check VFS state (symlink always false) |
-| `file/info` | Map with `:size`, `:is-dir`, `:is-file` |
-| `file/read-lines`, `file/write-lines` | Line-oriented VFS operations |
-| `load` | Read from VFS + `sema_reader::read_many` |
+| Function                                                  | Behavior                                 |
+| --------------------------------------------------------- | ---------------------------------------- |
+| `file/read`, `file/write`, `file/append`                  | Read/write/append to VFS                 |
+| `file/exists?`, `file/delete`, `file/rename`, `file/copy` | Standard file ops on VFS                 |
+| `file/list`                                               | List direct children by prefix match     |
+| `file/mkdir`                                              | Add path + all parents to directory set  |
+| `file/is-directory?`, `file/is-file?`, `file/is-symlink?` | Check VFS state (symlink always false)   |
+| `file/info`                                               | Map with `:size`, `:is-dir`, `:is-file`  |
+| `file/read-lines`, `file/write-lines`                     | Line-oriented VFS operations             |
+| `load`                                                    | Read from VFS + `sema_reader::read_many` |
 
 **Limitation:** Session-only — all data lost on page reload.
 
@@ -53,11 +53,13 @@ Thread-local `BTreeMap<String, String>` (files) + `BTreeSet<String>` (directorie
 **Decision:** `sys/platform` → `"web"`, `sys/os` → `"web"`, `sys/arch` → `"wasm32"`
 
 **Alternatives considered:**
+
 - **(A) Parse `navigator.userAgent`** to detect macOS/Windows/Linux → Rejected. UA strings are increasingly unreliable (UA reduction, iPad masquerading, privacy browsers). Would be brittle and misleading since code runs in WASM sandbox, not natively.
 - **(B) Use `navigator.platform`** → Rejected. Deprecated API.
 - **(C) Use `navigator.userAgentData`** → Chromium-only, not portable.
 
 **Rationale:** The code is running in a WASM sandbox. Reporting `"macos"` would be misleading — filesystem paths, processes, and signals don't exist. This matches how other languages handle it:
+
 - Go: `GOOS=js`, `GOARCH=wasm`
 - Rust: target is `wasm32-unknown-unknown`
 - Python/Pyodide: `sys.platform` = `"emscripten"`
@@ -70,11 +72,11 @@ Thread-local `BTreeMap<String, String>` (files) + `BTreeSet<String>` (directorie
 
 **Alternatives researched:**
 
-| Approach | Persistence | Performance | Complexity | Browser Support |
-|----------|-------------|-------------|------------|-----------------|
-| **In-memory HashMap** | Session only | ✅ Fastest | ✅ Trivial | All |
-| **IndexedDB** | ✅ Cross-session | Slower (transaction overhead) | Medium (async sync) | All |
-| **OPFS** | ✅ Cross-session | 10-100x faster than IDB | High (Worker required for sync) | Chrome 86+, FF 111+, Safari 15.2+ |
+| Approach              | Persistence      | Performance                   | Complexity                      | Browser Support                   |
+| --------------------- | ---------------- | ----------------------------- | ------------------------------- | --------------------------------- |
+| **In-memory HashMap** | Session only     | ✅ Fastest                    | ✅ Trivial                      | All                               |
+| **IndexedDB**         | ✅ Cross-session | Slower (transaction overhead) | Medium (async sync)             | All                               |
+| **OPFS**              | ✅ Cross-session | 10-100x faster than IDB       | High (Worker required for sync) | Chrome 86+, FF 111+, Safari 15.2+ |
 
 **Rationale:** For a playground, session-only storage is acceptable. The VFS enables examples like turtle-svg, modules-demo, and streaming-io to run without requiring async bridges or Web Workers.
 
@@ -117,18 +119,23 @@ Thread-local `BTreeMap<String, String>` (files) + `BTreeSet<String>` (directorie
 ## Future Roadmap
 
 ### Phase 1: `web/*` namespace ✅ (Implemented)
+
 WASM-only functions for browser environment detection:
+
 - `web/user-agent` → raw `navigator.userAgent` string (all browsers)
 - `web/user-agent-data` → structured map from `navigator.userAgentData` (Chromium-only, nil on Firefox/Safari)
   - Returns `{:mobile bool :platform "macOS" :brands ("Chromium/120" "Google Chrome/120")}` or nil
 
 ### Phase 2: HTTP via fetch ✅ (Implemented 2026-02-17)
+
 Implemented via replay-with-cache strategy using `eval_async`/`eval_vm_async` + `web-sys` fetch.
 Uses `wasm-bindgen-futures` and raw `web-sys` (not reqwest-wasm) to minimize binary size.
 Returns same `{:status :headers :body}` map as native. CORS errors surface as `SemaError::Io`.
 
 ### Phase 3: OPFS-backed persistent VFS (Large, 2-3 days)
+
 **Research findings on OPFS:**
+
 - `FileSystemSyncAccessHandle` provides **synchronous file I/O** but only in Web Workers
 - All modern browsers support it (Chrome 86+, Firefox 111+, Safari 15.2+)
 - 10-100x faster than IndexedDB for file operations
@@ -136,6 +143,7 @@ Returns same `{:status :headers :body}` map as native. CORS errors surface as `S
 - Rust crate `anchpop/opfs` provides wasm-bindgen bindings
 
 **Architecture for OPFS integration:**
+
 ```
 ┌─────────────────────┐
 │  Main Thread (UI)   │
@@ -156,7 +164,9 @@ Returns same `{:status :headers :body}` map as native. CORS errors surface as `S
 **Requirements:** Moving the interpreter to a Web Worker (currently runs on main thread). This is a significant architectural change but also enables `Atomics.wait` for sync HTTP.
 
 ### Phase 4: Interpreter async primitives (XL, 3+ days)
+
 If demand warrants, add structured concurrency to the interpreter:
+
 - `Value::Task(id)` + task registry
 - `spawn`, `join`, `await` special forms
 - Internal event loop / scheduler

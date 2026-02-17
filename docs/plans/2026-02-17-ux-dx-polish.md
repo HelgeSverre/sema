@@ -24,14 +24,14 @@ Collected ideas for improving the developer experience. No functional changes â€
 ```
 
 **Scope:**
+
 - Only affects REPL display and `println` output formatting â€” no changes to `Value` representation or evaluation semantics
 - Should also be reflected in website docs example outputs for readability
 - Consider a `(set! *print-width* 80)` parameter or `(pprint expr)` function
 - Relevant functions: vector-store/search results, llm/extract results, map-heavy pipelines
 
 **Implementation notes:**
+
 - Add a `pretty_print(value, max_width)` function in sema-core or sema-stdlib
 - REPL uses it by default for interactive output
 - `display`/`println` keep current compact format for scripting compatibility
-
-

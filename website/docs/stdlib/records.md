@@ -30,6 +30,7 @@ The syntax is:
 ```
 
 This defines:
+
 - **Constructor** — `make-point` creates a new point record
 - **Predicate** — `point?` tests if a value is a point
 - **Accessors** — `point-x` and `point-y` extract field values

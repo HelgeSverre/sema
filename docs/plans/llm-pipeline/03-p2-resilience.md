@@ -7,6 +7,7 @@
 ## Task 10: Rate Limiting
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -40,6 +41,7 @@ thread_local! {
 ```
 
 Add to `reset_runtime_state()`:
+
 ```rust
 RATE_LIMIT_RPS.with(|r| r.set(None));
 RATE_LIMIT_LAST.with(|r| r.set(0));
@@ -103,6 +105,7 @@ git commit -m "feat(llm): add token-bucket rate limiting with llm/with-rate-limi
 ## Task 11: Generic Retry / Exponential Backoff
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/meta.rs` (or new file — check convention)
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -221,12 +224,12 @@ git add crates/sema-stdlib/src/meta.rs crates/sema/tests/integration_test.rs
 git commit -m "feat(stdlib): add generic retry with exponential backoff"
 ```
 
-
 ---
 
 ## Task 12: `llm/summarize`
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -302,6 +305,7 @@ git commit -m "feat(llm): add llm/summarize convenience wrapper"
 ## Task 13: `llm/compare`
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -318,7 +322,7 @@ fn test_llm_compare_arity() {
 
 ### Step 2: Implement
 
-```rust
+````rust
 register_fn_gated(env, sandbox, sema_core::Caps::LLM, "llm/compare", |args| {
     if args.len() < 2 || args.len() > 3 {
         return Err(SemaError::arity("llm/compare", "2-3", args.len()));
@@ -357,7 +361,7 @@ register_fn_gated(env, sandbox, sema_core::Caps::LLM, "llm/compare", |args| {
     })?;
     Ok(json_to_sema_value(&json))
 });
-```
+````
 
 ### Step 3: Run tests, commit
 
@@ -366,12 +370,12 @@ git add crates/sema-llm/src/builtins.rs crates/sema/tests/integration_test.rs
 git commit -m "feat(llm): add llm/compare for semantic text comparison"
 ```
 
-
 ---
 
 ## Task 14: Persistent Key-Value Store
 
 **Files:**
+
 - Create: `crates/sema-stdlib/src/kv.rs`
 - Modify: `crates/sema-stdlib/src/lib.rs` (add `mod kv`, register)
 - Test: `crates/sema/tests/integration_test.rs`
@@ -641,6 +645,7 @@ fn json_val_to_sema(json: &serde_json::Value) -> Value {
 ### Step 3: Register kv module
 
 In `crates/sema-stdlib/src/lib.rs`:
+
 - Add `mod kv;` (gated: `#[cfg(not(target_arch = "wasm32"))]`)
 - Add `kv::register(env, sandbox);` in `register_stdlib` (gated same way)
 
@@ -654,12 +659,12 @@ git add crates/sema-stdlib/src/kv.rs crates/sema-stdlib/src/lib.rs crates/sema/t
 git commit -m "feat(stdlib): add persistent JSON-backed key-value store"
 ```
 
-
 ---
 
 ## Task 15: Document Metadata Tracking
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/text.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 

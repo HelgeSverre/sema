@@ -7,6 +7,7 @@
 ## Task 4: Text Chunking
 
 **Files:**
+
 - Create: `crates/sema-stdlib/src/text.rs`
 - Modify: `crates/sema-stdlib/src/lib.rs` (add `mod text` + register call)
 - Test: `crates/sema/tests/integration_test.rs`
@@ -260,6 +261,7 @@ git commit -m "feat(stdlib): add text chunking module with recursive splitting"
 ## Task 5: Text Cleaning Utilities
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/text.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -439,6 +441,7 @@ git commit -m "feat(stdlib): add text cleaning — clean-whitespace, strip-html,
 ## Task 6: Prompt Templates
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/text.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -571,6 +574,7 @@ git commit -m "feat(stdlib): add prompt templates with mustache-style variable s
 ## Task 7: Token Counting
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 

@@ -32,6 +32,7 @@ Tasks 5-9 are sequential.
 ### Task 1: `file/read-bytes` and `file/write-bytes`
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/io.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -132,6 +133,7 @@ Expected: PASS
 ### Task 2: `base64/encode-bytes` and `base64/decode-bytes`
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/crypto.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -240,6 +242,7 @@ Expected: PASS
 ### Task 3: Path utilities
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/io.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -394,6 +397,7 @@ Expected: PASS
 ### Task 4: `file/glob`
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/Cargo.toml` — add `glob = "0.3"` dependency
 - Modify: `crates/sema-stdlib/src/io.rs`
 - Test: `crates/sema/tests/integration_test.rs`
@@ -401,6 +405,7 @@ Expected: PASS
 **Step 1: Add dependency**
 
 Add to `crates/sema-stdlib/Cargo.toml` under `[dependencies]`:
+
 ```toml
 glob = "0.3"
 ```
@@ -473,14 +478,19 @@ Expected: PASS
 ### Task 5: Multi-modal `ChatMessage` content type
 
 **Problem:** Currently `ChatMessage.content` is a `String`. Vision APIs need content to be a list of content blocks:
+
 ```json
 [
-  {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "..."}},
-  {"type": "text", "text": "What's in this image?"}
+  {
+    "type": "image",
+    "source": { "type": "base64", "media_type": "image/png", "data": "..." }
+  },
+  { "type": "text", "text": "What's in this image?" }
 ]
 ```
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/types.rs` — change `ChatMessage.content`
 - Modify: `crates/sema-llm/src/anthropic.rs` — serialize content blocks
 - Modify: `crates/sema-llm/src/openai.rs` — serialize content blocks
@@ -597,6 +607,7 @@ impl ChatMessage {
 Grep for `ChatMessage {` and `content:` in `sema-llm/src/`. Every site that constructs a `ChatMessage` with a `String` content needs to use `ChatMessage::new(role, content)` instead. Every site that reads `.content` as a string needs to use `.content.to_text()`.
 
 This is a large mechanical migration. Key files:
+
 - `builtins.rs` — the `extract_messages` function (line ~2454) constructs `ChatMessage` from Sema values. The `complete_with_prompt` function builds messages from `Prompt`.
 - `anthropic.rs` — serializes messages to JSON. Must serialize `MessageContent::Blocks` as an array of content blocks.
 - `openai.rs` — serializes messages. OpenAI uses `content: [{"type": "text", ...}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}}]`.
@@ -613,17 +624,22 @@ Expected: PASS (all existing tests should work — text-only messages go through
 ### Task 6: Anthropic vision serialization
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/anthropic.rs`
 
 **Step 1:** Update the message serialization in `complete_async` to handle `MessageContent::Blocks`:
 
 For Anthropic, when content has images, serialize as:
+
 ```json
 {
   "role": "user",
   "content": [
-    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "..."}},
-    {"type": "text", "text": "What's in this image?"}
+    {
+      "type": "image",
+      "source": { "type": "base64", "media_type": "image/png", "data": "..." }
+    },
+    { "type": "text", "text": "What's in this image?" }
   ]
 }
 ```
@@ -640,17 +656,22 @@ Expected: compiles
 ### Task 7: OpenAI vision serialization
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/openai.rs`
 
 **Step 1:** Update the message serialization in `complete_async` to handle `MessageContent::Blocks`:
 
 For OpenAI, when content has images, serialize as:
+
 ```json
 {
   "role": "user",
   "content": [
-    {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
-    {"type": "text", "text": "What's in this image?"}
+    {
+      "type": "image_url",
+      "image_url": { "url": "data:image/png;base64,..." }
+    },
+    { "type": "text", "text": "What's in this image?" }
   ]
 }
 ```
@@ -665,6 +686,7 @@ Expected: compiles
 ### Task 8: `llm/complete` with image support + `message/with-image`
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 - Modify: `crates/sema-core/src/value.rs` (update `Message` struct)
 - Test: `crates/sema/tests/integration_test.rs`
@@ -695,6 +717,7 @@ pub struct ImageAttachment {
 ```
 
 The function:
+
 1. Takes role, text, bytevector, and optional options map
 2. Base64-encodes the bytevector
 3. Auto-detects media type from magic bytes (PNG: `\x89PNG`, JPEG: `\xFF\xD8\xFF`, GIF: `GIF8`, WebP: `RIFF....WEBP`, PDF: `%PDF`)
@@ -743,6 +766,7 @@ Expected: PASS
 ### Task 9: `llm/extract-from-image` convenience function
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -756,6 +780,7 @@ Expected: PASS
 ```
 
 The function:
+
 1. Accepts a schema (map), a source (string path or bytevector), and optional options
 2. If source is a string, reads the file as bytes via `std::fs::read`
 3. Base64-encodes the bytes
@@ -853,21 +878,21 @@ If `detect_media_type` is not exposed as a Sema function, test it through `messa
 
 ## Summary of New Functions
 
-| Function | Module | Signature | Returns |
-|----------|--------|-----------|---------|
-| `file/read-bytes` | io | `(file/read-bytes path)` | bytevector |
-| `file/write-bytes` | io | `(file/write-bytes path bv)` | nil |
-| `base64/encode-bytes` | crypto | `(base64/encode-bytes bv)` | string |
-| `base64/decode-bytes` | crypto | `(base64/decode-bytes str)` | bytevector |
-| `path/ext` | io | `(path/ext path)` | string |
-| `path/stem` | io | `(path/stem path)` | string |
-| `path/dir` | io | `(path/dir path)` | string |
-| `path/filename` | io | `(path/filename path)` | string |
-| `path/join` | io | `(path/join parts...)` | string |
-| `path/absolute?` | io | `(path/absolute? path)` | bool |
-| `file/glob` | io | `(file/glob pattern)` | list of strings |
-| `message/with-image` | llm | `(message/with-image role text bytes)` | message |
-| `llm/extract-from-image` | llm | `(llm/extract-from-image schema source opts?)` | map |
+| Function                 | Module | Signature                                      | Returns         |
+| ------------------------ | ------ | ---------------------------------------------- | --------------- |
+| `file/read-bytes`        | io     | `(file/read-bytes path)`                       | bytevector      |
+| `file/write-bytes`       | io     | `(file/write-bytes path bv)`                   | nil             |
+| `base64/encode-bytes`    | crypto | `(base64/encode-bytes bv)`                     | string          |
+| `base64/decode-bytes`    | crypto | `(base64/decode-bytes str)`                    | bytevector      |
+| `path/ext`               | io     | `(path/ext path)`                              | string          |
+| `path/stem`              | io     | `(path/stem path)`                             | string          |
+| `path/dir`               | io     | `(path/dir path)`                              | string          |
+| `path/filename`          | io     | `(path/filename path)`                         | string          |
+| `path/join`              | io     | `(path/join parts...)`                         | string          |
+| `path/absolute?`         | io     | `(path/absolute? path)`                        | bool            |
+| `file/glob`              | io     | `(file/glob pattern)`                          | list of strings |
+| `message/with-image`     | llm    | `(message/with-image role text bytes)`         | message         |
+| `llm/extract-from-image` | llm    | `(llm/extract-from-image schema source opts?)` | map             |
 
 ## Total Test Count
 

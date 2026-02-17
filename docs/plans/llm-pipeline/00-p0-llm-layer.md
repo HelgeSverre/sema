@@ -7,6 +7,7 @@
 ## Task 1: LLM Response Caching
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs` (thread-locals, `do_complete`, new builtins)
 - Test: `crates/sema/tests/integration_test.rs`
 
@@ -63,7 +64,6 @@ fn test_llm_cache_key_different_temperature() {
 
 **Run:** `cargo test -p sema --test integration_test -- test_llm_cache`
 **Expected:** FAIL — functions not defined
-
 
 ### Step 2: Add cache data structures and thread-locals
 
@@ -176,7 +176,6 @@ fn is_cache_valid(cached: &CachedResponse) -> bool {
     (unix_timestamp() - cached.cached_at) < ttl
 }
 ```
-
 
 ### Step 5: Integrate caching into `do_complete`
 
@@ -344,12 +343,12 @@ git add crates/sema-llm/src/builtins.rs crates/sema/tests/integration_test.rs
 git commit -m "feat(llm): add LLM response caching with disk persistence and TTL"
 ```
 
-
 ---
 
 ## Task 2: Enhanced Retry with Reask
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs` (lines 1157-1244, the `llm/extract` handler)
 - Test: `crates/sema/tests/integration_test.rs` + unit tests in `builtins.rs`
 
@@ -357,6 +356,7 @@ git commit -m "feat(llm): add LLM response caching with disk persistence and TTL
 
 Enhance existing `llm/extract` retry. Currently it injects generic "Your previous response had
 validation errors" message. The reask pattern should:
+
 1. Make validation + retry the **default** (`:validate true :retries 2` by default)
 2. Add `:reask? true` option that includes actual response + errors in structured format
 3. Include the failed response content in retry prompt so LLM can see what it got wrong
@@ -441,7 +441,7 @@ fn test_format_reask_prompt() {
 
 Add helper near `format_schema` (line ~2618):
 
-```rust
+````rust
 fn format_reask_prompt(prev_response: &str, errors: &str, schema_desc: &str) -> String {
     format!(
         "Your previous response did not match the required schema.\n\n\
@@ -451,17 +451,17 @@ fn format_reask_prompt(prev_response: &str, errors: &str, schema_desc: &str) -> 
          {schema_desc}\nDo not include any other text."
     )
 }
-```
-
+````
 
 ### Step 3: Enhance `llm/extract` with reask behavior
 
 Replace the `llm/extract` handler (lines 1157-1244). Key changes from original:
+
 - Default `validate = true` (was `false`), `max_retries = 2` (was `0`)
 - New `:reask?` option (default `true`) — includes previous response in retry
 - Stores `last_response_content` for reask prompt
 
-```rust
+````rust
 register_fn(env, "llm/extract", |args| {
     if args.len() < 2 || args.len() > 3 {
         return Err(SemaError::arity("llm/extract", "2-3", args.len()));
@@ -545,7 +545,7 @@ register_fn(env, "llm/extract", |args| {
     }
     unreachable!()
 });
-```
+````
 
 ### Step 4: Run tests
 
@@ -559,12 +559,12 @@ git add crates/sema-llm/src/builtins.rs
 git commit -m "feat(llm): enhance llm/extract with reask pattern and default validation"
 ```
 
-
 ---
 
 ## Task 3: Fallback Provider Chains
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs` (new thread-local, modify dispatch, new builtins)
 - Test: `crates/sema/tests/integration_test.rs` + unit tests in `builtins.rs`
 

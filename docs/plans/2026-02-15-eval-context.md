@@ -16,18 +16,18 @@
 
 ### Scope of each current thread-local
 
-| Variable | Current scope | New scope | Rationale |
-|----------|--------------|-----------|-----------|
-| `MODULE_CACHE` | Per-thread | Per-interpreter | Each interpreter should have independent modules |
-| `CURRENT_FILE` | Per-thread | Per-context (stack) | Scoped to eval invocation chain |
-| `MODULE_EXPORTS` | Per-thread | Per-context (stack of `Option<Vec<String>>`) | Already a stack for nested import reentrancy |
-| `MODULE_LOAD_STACK` | Per-thread | Per-context (stack) | Cyclic import detection |
-| `CALL_STACK` | Per-thread | Per-context | Scoped to eval invocation chain |
-| `SPAN_TABLE` | Per-thread | Per-interpreter | Spans persist across eval calls (with 200K cap) |
-| `EVAL_DEPTH` | Per-thread | Per-context | Tracks nesting depth |
-| `EVAL_STEP_LIMIT` | Per-thread | Per-context | Set once, read per eval |
-| `EVAL_STEPS` | Per-thread | Per-context | Reset at top-level eval |
-| `SF` (special_forms.rs) | Per-thread | **Keep as thread-local** | Pure cache of interned symbols, no state |
+| Variable                | Current scope | New scope                                    | Rationale                                        |
+| ----------------------- | ------------- | -------------------------------------------- | ------------------------------------------------ |
+| `MODULE_CACHE`          | Per-thread    | Per-interpreter                              | Each interpreter should have independent modules |
+| `CURRENT_FILE`          | Per-thread    | Per-context (stack)                          | Scoped to eval invocation chain                  |
+| `MODULE_EXPORTS`        | Per-thread    | Per-context (stack of `Option<Vec<String>>`) | Already a stack for nested import reentrancy     |
+| `MODULE_LOAD_STACK`     | Per-thread    | Per-context (stack)                          | Cyclic import detection                          |
+| `CALL_STACK`            | Per-thread    | Per-context                                  | Scoped to eval invocation chain                  |
+| `SPAN_TABLE`            | Per-thread    | Per-interpreter                              | Spans persist across eval calls (with 200K cap)  |
+| `EVAL_DEPTH`            | Per-thread    | Per-context                                  | Tracks nesting depth                             |
+| `EVAL_STEP_LIMIT`       | Per-thread    | Per-context                                  | Set once, read per eval                          |
+| `EVAL_STEPS`            | Per-thread    | Per-context                                  | Reset at top-level eval                          |
+| `SF` (special_forms.rs) | Per-thread    | **Keep as thread-local**                     | Pure cache of interned symbols, no state         |
 
 ### NativeFn strategy: dual constructors, not 350 signature changes
 
@@ -70,12 +70,14 @@ pub struct EvalContext {
 ### Task 1: Add EvalContext struct to sema-core
 
 **Files:**
+
 - Create: `crates/sema-core/src/context.rs`
 - Modify: `crates/sema-core/src/lib.rs`
 
 **Step 1: Create the context module**
 
 Create `crates/sema-core/src/context.rs`:
+
 ```rust
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
@@ -255,6 +257,7 @@ Run: `cargo build -p sema-core`
 Expected: compiles with no errors.
 
 **Step 4: Commit**
+
 ```
 git add -A && git commit -m "feat(core): add EvalContext struct"
 ```
@@ -264,11 +267,13 @@ git add -A && git commit -m "feat(core): add EvalContext struct"
 ### Task 2: Change NativeFn signature with dual constructors
 
 **Files:**
+
 - Modify: `crates/sema-core/src/value.rs`
 
 **Step 1: Write a test for both constructor styles**
 
 Add to the bottom of `crates/sema-core/src/value.rs` (or a test module):
+
 ```rust
 #[cfg(test)]
 mod tests {
@@ -303,6 +308,7 @@ Expected: FAIL — `NativeFn::simple` and `NativeFn::with_ctx` don't exist yet.
 **Step 3: Change the NativeFn type and add constructors**
 
 In `crates/sema-core/src/value.rs`, change:
+
 ```rust
 pub type NativeFnInner = dyn Fn(&EvalContext, &[Value]) -> Result<Value, SemaError>;
 
@@ -336,6 +342,7 @@ Run: `cargo test -p sema-core`
 Expected: PASS
 
 **Step 5: Commit**
+
 ```
 git add -A && git commit -m "feat(core): change NativeFn to accept EvalContext, add dual constructors"
 ```
@@ -347,12 +354,14 @@ git add -A && git commit -m "feat(core): change NativeFn to accept EvalContext, 
 ### Task 3: Add EvalContext to Interpreter and thread through eval functions
 
 **Files:**
+
 - Modify: `crates/sema-eval/src/eval.rs`
 - Modify: `crates/sema-eval/src/lib.rs`
 
 **Step 1: Add EvalContext field to Interpreter**
 
 In `eval.rs`, change `Interpreter`:
+
 ```rust
 pub struct Interpreter {
     pub global_env: Rc<Env>,
@@ -361,6 +370,7 @@ pub struct Interpreter {
 ```
 
 Update `Interpreter::new()` to create the context. Remove the `reset_runtime_state()` call — a fresh `EvalContext` replaces it:
+
 ```rust
 pub fn new() -> Self {
     let env = Env::new();
@@ -383,6 +393,7 @@ Note: `sema_llm::builtins::reset_runtime_state()` is kept for now since LLM thre
 **Step 2: Change eval_value / eval_value_inner / eval_step signatures**
 
 Add `ctx: &EvalContext` parameter to:
+
 - `pub fn eval_value(expr: &Value, env: &Env, ctx: &EvalContext) -> EvalResult`
 - `fn eval_value_inner(expr: &Value, env: &Env, ctx: &EvalContext) -> EvalResult`
 - `fn eval_step(expr: &Value, env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError>`
@@ -442,6 +453,7 @@ impl Interpreter {
 **Step 6: Update set_eval_callback to pass ctx**
 
 The LLM eval callback must pass the context through. Update the callback setup:
+
 ```rust
 // In Interpreter::new(), after ctx is created, we need the callback to
 // capture a reference. Since ctx lives on the Interpreter, the callback
@@ -459,6 +471,7 @@ Run: `cargo build -p sema-eval`
 Expected: compilation errors in special_forms.rs (next task) and downstream crates (expected).
 
 **Step 9: Commit (WIP)**
+
 ```
 git add -A && git commit -m "wip(eval): thread EvalContext through eval functions"
 ```
@@ -468,11 +481,13 @@ git add -A && git commit -m "wip(eval): thread EvalContext through eval function
 ### Task 4: Update special_forms.rs to use EvalContext
 
 **Files:**
+
 - Modify: `crates/sema-eval/src/special_forms.rs`
 
 **Step 1: Add ctx parameter to try_eval_special and all special form functions**
 
 Change the signature:
+
 ```rust
 pub fn try_eval_special(
     head_spur: Spur,
@@ -487,6 +502,7 @@ And propagate `ctx` to every `eval_*` function in special_forms.rs (~34 function
 **Step 2: Update eval_import to use ctx methods**
 
 This is the most complex special form. Replace all `eval::` free function calls with `ctx.` method calls:
+
 ```rust
 fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     // ...
@@ -546,6 +562,7 @@ For the remaining ~30 functions, the only change is adding `, ctx` to `eval::eva
 **Step 6: Update call site in eval.rs**
 
 In `eval_step`, update:
+
 ```rust
 if let Some(result) = special_forms::try_eval_special(*spur, args, env, ctx) {
     return result;
@@ -555,11 +572,13 @@ if let Some(result) = special_forms::try_eval_special(*spur, args, env, ctx) {
 **Step 7: Update native function calls in eval_step**
 
 Where native functions are called:
+
 ```rust
 match (native.func)(ctx, &eval_args) { ... }
 ```
 
 And update `CallFrame` construction:
+
 ```rust
 let frame = CallFrame {
     name: native.name.to_string(),
@@ -574,6 +593,7 @@ Run: `cargo test -p sema-eval`
 Expected: should compile; tests in sema-eval should pass.
 
 **Step 9: Commit**
+
 ```
 git add -A && git commit -m "feat(eval): thread EvalContext through special forms"
 ```
@@ -585,12 +605,14 @@ git add -A && git commit -m "feat(eval): thread EvalContext through special form
 ### Task 5: Update sema-stdlib to use NativeFn::simple()
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/lib.rs` (the `register_fn` helper)
 - Potentially: other files if they construct `NativeFn` directly
 
 **Step 1: Update the register_fn helper**
 
 The stdlib has a centralized `register_fn` helper in `lib.rs`:
+
 ```rust
 // Current:
 Value::NativeFn(Rc::new(NativeFn {
@@ -614,6 +636,7 @@ Run: `cargo build -p sema-stdlib`
 Expected: compiles.
 
 **Step 4: Commit**
+
 ```
 git add -A && git commit -m "refactor(stdlib): use NativeFn::simple() constructor"
 ```
@@ -623,6 +646,7 @@ git add -A && git commit -m "refactor(stdlib): use NativeFn::simple() constructo
 ### Task 6: Update sema-llm builtins
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 
 **Step 1: Update NativeFn construction in sema-llm**
@@ -634,11 +658,13 @@ Also update the direct `NativeFn { ... }` construction for tool handler (~line 2
 **Step 2: Update the EvalCallback signature**
 
 Change the callback to accept `&EvalContext`:
+
 ```rust
 pub type EvalCallback = Box<dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>>;
 ```
 
 Update `set_eval_callback`:
+
 ```rust
 pub fn set_eval_callback(f: impl Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError> + 'static) {
     EVAL_FN.with(|eval| {
@@ -648,6 +674,7 @@ pub fn set_eval_callback(f: impl Fn(&EvalContext, &Value, &Env) -> Result<Value,
 ```
 
 Update `full_eval` to accept `&EvalContext`:
+
 ```rust
 fn full_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
     EVAL_FN.with(|eval_fn| {
@@ -675,6 +702,7 @@ Any builtin that calls `full_eval` needs the context. These use `NativeFn::with_
 Run: `cargo build -p sema-llm`
 
 **Step 6: Commit**
+
 ```
 git add -A && git commit -m "refactor(llm): update NativeFn construction and EvalCallback signature"
 ```
@@ -686,19 +714,23 @@ git add -A && git commit -m "refactor(llm): update NativeFn construction and Eva
 ### Task 7: Update sema binary crate (main.rs + lib.rs)
 
 **Files:**
+
 - Modify: `crates/sema/src/main.rs`
 - Modify: `crates/sema/src/lib.rs`
 
 **Step 1: Update lib.rs (InterpreterBuilder / Interpreter)**
 
 In `InterpreterBuilder::build()`:
+
 - Remove `sema_eval::reset_runtime_state()` — fresh `EvalContext` replaces it
 - Keep `sema_llm::builtins::reset_runtime_state()` — LLM thread-locals still need it
 - Update `set_eval_callback` to pass the new signature:
+
   ```rust
   sema_llm::builtins::set_eval_callback(sema_eval::eval_value);
   // eval_value now takes (&EvalContext, &Value, &Env) which matches the new EvalCallback
   ```
+
   Note: `eval_value` signature is `(expr: &Value, env: &Env, ctx: &EvalContext)` but `EvalCallback` expects `(&EvalContext, &Value, &Env)`. Decide parameter order to match, or use a closure wrapper.
 
 - Update `Interpreter::register_fn()` to use `NativeFn::simple()`.
@@ -706,6 +738,7 @@ In `InterpreterBuilder::build()`:
 **Step 2: Update main.rs**
 
 Replace calls to free functions:
+
 ```rust
 // Before:
 sema_eval::push_file_path(canonical);
@@ -727,6 +760,7 @@ Run: `cargo run -- examples/hello.sema`
 Expected: runs without error.
 
 **Step 4: Commit**
+
 ```
 git add -A && git commit -m "refactor(sema): update main.rs and lib.rs for EvalContext"
 ```
@@ -736,11 +770,13 @@ git add -A && git commit -m "refactor(sema): update main.rs and lib.rs for EvalC
 ### Task 8: Update WASM playground crate
 
 **Files:**
+
 - Modify: `playground/crate/src/lib.rs`
 
 **Step 1: Update WasmInterpreter**
 
 The WASM crate calls `sema_eval::eval_string(code, &env)` in two places (`eval` and `eval_global` methods). Update both to pass ctx:
+
 ```rust
 // In eval():
 sema_eval::eval_string(code, &env, &self.inner.ctx)
@@ -750,6 +786,7 @@ sema_eval::eval_string(code, &self.inner.global_env, &self.inner.ctx)
 ```
 
 Also update `NativeFn` construction in `register_wasm_io()` (line 60):
+
 ```rust
 // Current:
 Value::NativeFn(Rc::new(NativeFn {
@@ -772,6 +809,7 @@ Alternatively verify with: `cargo check -p sema-wasm --target wasm32-unknown-unk
 If wasm target is not installed, at minimum verify the Rust code is correct by reading through the changes.
 
 **Step 3: Commit**
+
 ```
 git add -A && git commit -m "refactor(wasm): update playground for EvalContext"
 ```
@@ -783,6 +821,7 @@ git add -A && git commit -m "refactor(wasm): update playground for EvalContext"
 ### Task 9: Remove thread_local! block and old free functions from eval.rs
 
 **Files:**
+
 - Modify: `crates/sema-eval/src/eval.rs`
 - Modify: `crates/sema-eval/src/lib.rs`
 
@@ -793,6 +832,7 @@ Remove the entire `thread_local! { ... }` macro invocation from eval.rs (current
 **Step 2: Delete the old free functions**
 
 Remove all free functions that were wrappers around thread-local access:
+
 - `push_file_path`, `pop_file_path`, `current_file_dir`, `current_file_path`
 - `get_cached_module`, `cache_module`
 - `set_module_exports`, `clear_module_exports`, `take_module_exports`
@@ -808,6 +848,7 @@ Keep `create_module_env` — it doesn't use thread-locals, just walks env parent
 **Step 3: Update lib.rs exports**
 
 Slim down `pub use eval::{...}` to only export what's still needed:
+
 ```rust
 pub use eval::{
     create_module_env, eval, eval_string, eval_value, Interpreter, EvalResult, Trampoline,
@@ -822,6 +863,7 @@ Run: `cargo test`
 Expected: all tests pass.
 
 **Step 5: Commit**
+
 ```
 git add -A && git commit -m "refactor(eval): remove thread_local! state, all state now in EvalContext"
 ```
@@ -831,6 +873,7 @@ git add -A && git commit -m "refactor(eval): remove thread_local! state, all sta
 ### Task 10: Run full test suite, lint, and manual verification
 
 **Files:**
+
 - Modify: `crates/sema/tests/integration_test.rs` (if needed)
 - Modify: `crates/sema/tests/embedding_bench.rs` (if needed)
 
@@ -838,6 +881,7 @@ git add -A && git commit -m "refactor(eval): remove thread_local! state, all sta
 
 Run: `cargo test`
 Expected: all tests pass. Pay special attention to:
+
 - Module import/export tests (the nested import and cyclic detection logic changed)
 - Tests that create multiple `Interpreter` instances (they now get independent state)
 - The embedding bench test
@@ -855,6 +899,7 @@ This exercises nested evaluation heavily. Verify it runs without error.
 **Step 4: Test REPL**
 
 Run: `cargo run` and try:
+
 ```
 sema> (define x 42)
 sema> x
@@ -862,6 +907,7 @@ sema> x
 sema> (+ x 1)
 43
 ```
+
 Verify define persistence works.
 
 **Step 5: Test the meta-eval stress test**
@@ -870,6 +916,7 @@ Run: `cargo run -- examples/meta-eval-stress.sema`
 This is a new test added in the recent bugfix PR that exercises nested module loading and evaluation.
 
 **Step 6: Commit**
+
 ```
 git add -A && git commit -m "chore: verify EvalContext migration passes all tests"
 ```

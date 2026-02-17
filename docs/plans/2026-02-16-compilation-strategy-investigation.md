@@ -18,12 +18,12 @@ A full native-code compiler (LLVM/Cranelift) is viable but only justified if the
 
 **The GC question is the elephant in the room.** Sema's `Rc`-based memory management has no cycle collection. With closures, environments, self-referential bindings, and compiled closure graphs, reference cycles will leak. A production-quality compilation target almost certainly requires a tracing GC.
 
-| Path | Speedup | Effort | WASM | GC Required | Risk |
-|------|---------|--------|------|-------------|------|
-| **Bytecode VM** | 5–15× | 6–12 PM | ✅ | Recommended | Medium |
-| **Native (Cranelift)** | 10–30× | 12–24+ PM | ❌ (dual backend) | Required | High |
-| **Native (LLVM)** | 10–30× | 12–24+ PM | ✅ (LLVM WASM) | Required | High |
-| **C as IR** | 5–20× | 8–14 PM | ❌ | Required | Medium |
+| Path                   | Speedup | Effort    | WASM              | GC Required | Risk   |
+| ---------------------- | ------- | --------- | ----------------- | ----------- | ------ |
+| **Bytecode VM**        | 5–15×   | 6–12 PM   | ✅                | Recommended | Medium |
+| **Native (Cranelift)** | 10–30×  | 12–24+ PM | ❌ (dual backend) | Required    | High   |
+| **Native (LLVM)**      | 10–30×  | 12–24+ PM | ✅ (LLVM WASM)    | Required    | High   |
+| **C as IR**            | 5–20×   | 8–14 PM   | ❌                | Required    | Medium |
 
 ---
 
@@ -57,14 +57,14 @@ Based on 1BRC benchmarking (~1000ms for 1M rows after perf crate integration):
 
 ### What compilation eliminates
 
-| Bottleneck | Tree-walker cost | Compiled cost |
-|------------|-----------------|---------------|
-| Variable lookup | HashMap chain walk per access | Slot index (O(1)) |
-| Scope creation | `Rc<RefCell<HashMap>>` alloc per scope | Stack frame pointer bump |
-| Special form dispatch | 35 if-else per list | Direct bytecode/branch |
-| Constant evaluation | Full eval per literal | Inline constant |
-| Function call overhead | Clone args, alloc scope, bind by name | Copy to slots |
-| Tail call | Trampoline loop + env clone | Reuse frame + jump |
+| Bottleneck             | Tree-walker cost                       | Compiled cost            |
+| ---------------------- | -------------------------------------- | ------------------------ |
+| Variable lookup        | HashMap chain walk per access          | Slot index (O(1))        |
+| Scope creation         | `Rc<RefCell<HashMap>>` alloc per scope | Stack frame pointer bump |
+| Special form dispatch  | 35 if-else per list                    | Direct bytecode/branch   |
+| Constant evaluation    | Full eval per literal                  | Inline constant          |
+| Function call overhead | Clone args, alloc scope, bind by name  | Copy to slots            |
+| Tail call              | Trampoline loop + env clone            | Reuse frame + jump       |
 
 ---
 
@@ -204,6 +204,7 @@ pub enum UpvalueDesc {
 **Compiled approach: lexical slots + upvalues** (the Lua/Steel model).
 
 Each function has `n_locals` slots. The compiler resolves every variable reference to one of:
+
 - **Local slot** — `LoadLocal slot`
 - **Upvalue** — `LoadUpvalue idx` (captured from enclosing scope)
 - **Global** — `LoadGlobal spur` (module-level binding)
@@ -226,6 +227,7 @@ pub struct Closure {
 ```
 
 When the compiler detects that a local is captured and mutated via `set!`:
+
 1. The local slot holds an `Rc<UpvalueCell>` instead of a `Value` directly
 2. `LoadLocal` / `StoreLocal` go through the cell indirection
 3. `MakeClosure` captures the `Rc<UpvalueCell>` (shared reference)
@@ -245,6 +247,7 @@ pub enum VarResolution {
 ```
 
 The compiler performs a two-pass analysis:
+
 1. **Resolve**: walk the AST, determine each variable's scope and whether it's captured
 2. **Assign slots**: number locals sequentially, generate upvalue descriptors
 
@@ -255,17 +258,18 @@ This analysis pass is the **single biggest difference** between a tree-walking i
 **Recommendation: keep current `Value` enum for VM v1.** Optimize later if benchmarks demand it.
 
 The 22-variant enum works. Rc-cloning is the dominant cost, but compilation dramatically reduces clone frequency because:
+
 - Locals live in slots (no hash map insertion/lookup)
 - Constants are loaded by reference to the constant pool
 - Fewer intermediate values are created
 
 **Future optimization path (if needed):**
 
-| Approach | Pros | Cons | Effort |
-|----------|------|------|--------|
-| **Keep `Value` enum** | Zero migration; works now | Rc overhead on every access | — |
-| **Tagged `u64` (NaN boxing)** | Fastest dispatch; 0 alloc for int/float/bool/nil | Complex in Rust; WASM edge cases; heap objects still need Rc or GC | Large |
-| **Tagged pointer** | Good middle ground; immediates for int/bool/nil/char | Still need heap for strings/lists/etc. | Medium |
+| Approach                      | Pros                                                 | Cons                                                               | Effort |
+| ----------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------ | ------ |
+| **Keep `Value` enum**         | Zero migration; works now                            | Rc overhead on every access                                        | —      |
+| **Tagged `u64` (NaN boxing)** | Fastest dispatch; 0 alloc for int/float/bool/nil     | Complex in Rust; WASM edge cases; heap objects still need Rc or GC | Large  |
+| **Tagged pointer**            | Good middle ground; immediates for int/bool/nil/char | Still need heap for strings/lists/etc.                             | Medium |
 
 **NaN boxing sketch (for reference — not recommended for v1):**
 
@@ -287,34 +291,34 @@ This eliminates allocation for the most common types but requires careful Rust `
 
 Special forms compile away into bytecode. They cease to exist at runtime:
 
-| Special Form | Compiles To |
-|-------------|-------------|
-| `if` | `JumpIfFalse` + branches |
-| `cond` | Cascaded `JumpIfFalse` |
-| `and` / `or` | Short-circuit jumps |
-| `when` / `unless` | `JumpIfFalse` / `JumpIfTrue` + body |
-| `begin` | Sequential instructions (no-op wrapper) |
-| `let` / `let*` / `letrec` | `StoreLocal` for bindings + body |
-| `define` / `defun` | `StoreGlobal` (or `StoreLocal` at non-top-level) |
-| `set!` | `StoreLocal` / `StoreUpvalue` / `StoreGlobal` |
-| `lambda` / `fn` | `MakeClosure` |
-| `quote` | `Const` (literal in constant pool) |
-| `quasiquote` | Compile template with `Const` + `MakeList` |
-| `do` | Loop with `Jump` back + `JumpIfFalse` exit |
-| `case` | Cascaded comparisons or jump table |
-| `try` / `throw` | Exception table entry + `Throw` opcode |
-| `delay` / `force` | `MakeClosure` (thunk) / call + cache |
-| `define-record-type` | Series of `StoreGlobal` for ctor/pred/accessors |
+| Special Form              | Compiles To                                      |
+| ------------------------- | ------------------------------------------------ |
+| `if`                      | `JumpIfFalse` + branches                         |
+| `cond`                    | Cascaded `JumpIfFalse`                           |
+| `and` / `or`              | Short-circuit jumps                              |
+| `when` / `unless`         | `JumpIfFalse` / `JumpIfTrue` + body              |
+| `begin`                   | Sequential instructions (no-op wrapper)          |
+| `let` / `let*` / `letrec` | `StoreLocal` for bindings + body                 |
+| `define` / `defun`        | `StoreGlobal` (or `StoreLocal` at non-top-level) |
+| `set!`                    | `StoreLocal` / `StoreUpvalue` / `StoreGlobal`    |
+| `lambda` / `fn`           | `MakeClosure`                                    |
+| `quote`                   | `Const` (literal in constant pool)               |
+| `quasiquote`              | Compile template with `Const` + `MakeList`       |
+| `do`                      | Loop with `Jump` back + `JumpIfFalse` exit       |
+| `case`                    | Cascaded comparisons or jump table               |
+| `try` / `throw`           | Exception table entry + `Throw` opcode           |
+| `delay` / `force`         | `MakeClosure` (thunk) / call + cache             |
+| `define-record-type`      | Series of `StoreGlobal` for ctor/pred/accessors  |
 
 **Forms that remain as runtime operations:**
 
-| Special Form | Why | Implementation |
-|-------------|-----|----------------|
-| `eval` | Inherently dynamic | Native fn: invokes compiler + VM recursively |
-| `load` / `import` | File I/O + compilation | Native fn: reads, compiles, caches module |
-| `macroexpand` | Debug/meta tool | Native fn: runs macro expander |
-| `with-budget` | Step counter management | Native fn: sets `ctx.eval_step_limit` |
-| `prompt` / `message` / `deftool` / `defagent` | LLM data constructors | Could compile to `MakeRecord`-like ops or remain native |
+| Special Form                                  | Why                     | Implementation                                          |
+| --------------------------------------------- | ----------------------- | ------------------------------------------------------- |
+| `eval`                                        | Inherently dynamic      | Native fn: invokes compiler + VM recursively            |
+| `load` / `import`                             | File I/O + compilation  | Native fn: reads, compiles, caches module               |
+| `macroexpand`                                 | Debug/meta tool         | Native fn: runs macro expander                          |
+| `with-budget`                                 | Step counter management | Native fn: sets `ctx.eval_step_limit`                   |
+| `prompt` / `message` / `deftool` / `defagent` | LLM data constructors   | Could compile to `MakeRecord`-like ops or remain native |
 
 ### A5. Mapping ~350 Native Functions
 
@@ -332,6 +336,7 @@ pub struct NativeRegistry {
 ```
 
 The VM dispatch loop:
+
 ```rust
 Op::CallNative => {
     let native_id = read_u16(&chunk.code, &mut pc);
@@ -383,6 +388,7 @@ pub struct CompiledModule {
 ```
 
 **Compilation flow for `(import "path")`:**
+
 1. Resolve path (same logic as today)
 2. Check `ctx.module_cache` for compiled module
 3. If not cached: read file → expand macros → compile → cache
@@ -443,16 +449,17 @@ With the tree-walker, cycles are rare because environments are created and destr
 
 **Options:**
 
-| GC Strategy | Pros | Cons | Effort |
-|-------------|------|------|--------|
-| **Keep `Rc` (no cycles)** | Zero effort; works today | Leaks on closure cycles; not "production" | — |
-| **`Rc` + cycle detector** | Targeted fix; low disruption | Periodic scan is O(n objects); limited | Small |
-| **Tracing mark-sweep** | Correct; standard for VMs | Requires root enumeration; pause times | 3–6 PM |
-| **Tracing generational** | Best throughput; short pauses | Complex implementation | 6–12 PM |
+| GC Strategy               | Pros                          | Cons                                      | Effort  |
+| ------------------------- | ----------------------------- | ----------------------------------------- | ------- |
+| **Keep `Rc` (no cycles)** | Zero effort; works today      | Leaks on closure cycles; not "production" | —       |
+| **`Rc` + cycle detector** | Targeted fix; low disruption  | Periodic scan is O(n objects); limited    | Small   |
+| **Tracing mark-sweep**    | Correct; standard for VMs     | Requires root enumeration; pause times    | 3–6 PM  |
+| **Tracing generational**  | Best throughput; short pauses | Complex implementation                    | 6–12 PM |
 
 **Recommendation:** For VM v1, keep `Rc` and document the cycle limitation. For production, implement a simple **mark-sweep GC** with the VM stack as roots. The VM naturally provides root enumeration (stack + global env + module cache), making tracing straightforward.
 
 **Mark-sweep integration sketch:**
+
 ```rust
 pub struct GcHeap {
     objects: Vec<Box<dyn GcObject>>,
@@ -469,6 +476,7 @@ trait GcObject {
 ### A11. WASM Compatibility
 
 The bytecode VM is inherently WASM-compatible:
+
 - Same bytecode executes identically on all platforms
 - Same sandbox model
 - Same debug metadata
@@ -495,6 +503,7 @@ Binary search on `pc_to_span` to find the source location for any PC. This repla
 #### Stack traces
 
 The VM maintains a call stack just like `EvalContext` does today:
+
 - Push frame on `Call` / `CallNative`
 - Pop frame on `Return`
 - On error: walk frames, look up PC → span for each, produce stack trace
@@ -514,15 +523,16 @@ Essential for development — a `disassemble(chunk: &Chunk) -> String` function 
 
 Based on benchmarks of similar systems (Steel, Ketos, Guile):
 
-| Workload | Tree-walker | Bytecode VM | Speedup |
-|----------|-------------|-------------|---------|
-| 1BRC (1M rows) | ~1000ms | ~100–200ms | 5–10× |
-| Fibonacci(35) | ~2s (est.) | ~200ms | ~10× |
-| Tight loop (10M iterations) | ~5s (est.) | ~400ms | ~12× |
-| LLM API call | ~500ms | ~500ms | 1× (I/O bound) |
-| Module loading | ~10ms | ~15ms first, ~2ms cached | 0.7–5× |
+| Workload                    | Tree-walker | Bytecode VM              | Speedup        |
+| --------------------------- | ----------- | ------------------------ | -------------- |
+| 1BRC (1M rows)              | ~1000ms     | ~100–200ms               | 5–10×          |
+| Fibonacci(35)               | ~2s (est.)  | ~200ms                   | ~10×           |
+| Tight loop (10M iterations) | ~5s (est.)  | ~400ms                   | ~12×           |
+| LLM API call                | ~500ms      | ~500ms                   | 1× (I/O bound) |
+| Module loading              | ~10ms       | ~15ms first, ~2ms cached | 0.7–5×         |
 
 The biggest wins come from:
+
 1. **Eliminating env chain lookups** (slot-based locals are O(1))
 2. **Eliminating per-scope allocation** (stack frame instead of `Rc<RefCell<HashMap>>`)
 3. **Reducing clone/RC overhead** (fewer intermediate `Value` clones)
@@ -530,25 +540,25 @@ The biggest wins come from:
 
 ### A14. Risks & Dealbreakers
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| **GC cycles** | High | Document as known limitation; plan tracing GC |
-| **Macro semantics** | Medium | Keep tree-walker for macro expansion |
-| **`eval` builtin** | Medium | `eval` invokes compiler+VM recursively |
-| **Debugging parity** | Medium | Invest in span mapping + disassembler early |
-| **Feature parity** | High | Must support all 35 special forms + 350 natives |
-| **REPL experience** | Medium | Compile per-expression; cache nothing |
+| Risk                 | Severity | Mitigation                                      |
+| -------------------- | -------- | ----------------------------------------------- |
+| **GC cycles**        | High     | Document as known limitation; plan tracing GC   |
+| **Macro semantics**  | Medium   | Keep tree-walker for macro expansion            |
+| **`eval` builtin**   | Medium   | `eval` invokes compiler+VM recursively          |
+| **Debugging parity** | Medium   | Invest in span mapping + disassembler early     |
+| **Feature parity**   | High     | Must support all 35 special forms + 350 natives |
+| **REPL experience**  | Medium   | Compile per-expression; cache nothing           |
 
 ### A15. Effort Estimate (Bytecode VM)
 
-| Component | Lines of Code | Person-Months |
-|-----------|--------------|---------------|
-| Compiler pipeline (lowering, slot allocation, upvalues, control flow) | ~3,000 | 3–5 |
-| VM runtime (dispatch loop, frames, TCO, exceptions, native ABI) | ~2,000 | 2–4 |
-| Debug metadata, stack traces, disassembler | ~800 | 1–2 |
-| Testing (port all 712 tests to verify identical behavior) | ~2,000 | 1–2 |
-| GC (if implemented) | ~1,500 | 3–6 |
-| **Total** | **~9,000** | **~6–12** |
+| Component                                                             | Lines of Code | Person-Months |
+| --------------------------------------------------------------------- | ------------- | ------------- |
+| Compiler pipeline (lowering, slot allocation, upvalues, control flow) | ~3,000        | 3–5           |
+| VM runtime (dispatch loop, frames, TCO, exceptions, native ABI)       | ~2,000        | 2–4           |
+| Debug metadata, stack traces, disassembler                            | ~800          | 1–2           |
+| Testing (port all 712 tests to verify identical behavior)             | ~2,000        | 1–2           |
+| GC (if implemented)                                                   | ~1,500        | 3–6           |
+| **Total**                                                             | **~9,000**    | **~6–12**     |
 
 ---
 
@@ -567,13 +577,15 @@ cranelift-native = "0.119"
 ```
 
 **Pros:**
+
 - Rust-native integration (no C++ FFI)
 - Designed for JIT use cases
 - Fast compile times (~10ms per function)
 - Good for x86_64 + AArch64
 
 **Cons:**
-- No WASM output target (Cranelift *consumes* WASM, doesn't *produce* it)
+
+- No WASM output target (Cranelift _consumes_ WASM, doesn't _produce_ it)
 - Less optimization than LLVM (no autovectorization, limited inlining)
 - Younger ecosystem; API changes between versions
 
@@ -587,12 +599,14 @@ inkwell = { version = "0.5", features = ["llvm17-0"] }
 ```
 
 **Pros:**
+
 - Best optimization potential
 - Can target WASM (via `wasm32-unknown-unknown`)
 - Can target every platform Sema might care about
 - Mature; battle-tested
 
 **Cons:**
+
 - Massive dependency (LLVM is ~100MB+ of C++)
 - Slow compile times (~100ms+ per function)
 - Complex API surface
@@ -610,6 +624,7 @@ inkwell = { version = "0.5", features = ["llvm17-0"] }
 #### C as intermediate language (Chicken Scheme approach)
 
 **How it works:**
+
 1. CPS-transform the program (all calls become tail calls)
 2. Generate C source code
 3. Compile with system C compiler
@@ -633,12 +648,14 @@ Sema source
 ```
 
 The **calling convention** for compiled Sema functions:
+
 ```rust
 // All compiled functions use this signature
 fn(ctx: *mut EvalContext, args: *const Value, argc: u32) -> Value
 ```
 
 **Or** for known-arity functions with no rest params:
+
 ```rust
 fn(ctx: *mut EvalContext, arg0: Value, arg1: Value) -> Value
 ```
@@ -646,6 +663,7 @@ fn(ctx: *mut EvalContext, arg0: Value, arg1: Value) -> Value
 ### B3. Closures in Native Code
 
 Same upvalue model as the VM, but implemented in generated machine code:
+
 - Locals live in the machine stack frame
 - Captured-and-mutated locals are boxed into heap cells
 - Closure object: code pointer + array of upvalue cell pointers
@@ -653,11 +671,13 @@ Same upvalue model as the VM, but implemented in generated machine code:
 ### B4. TCO in Native Code
 
 This is **harder** than in a VM:
+
 - LLVM has `musttail` but it's restrictive (same calling convention, same return type)
 - Cranelift has no built-in tail call support
 - Dynamic dispatch (calling an unknown closure) makes tail calls especially hard
 
 **Practical approach:** implement a **trampoline** in the runtime, same as today:
+
 ```rust
 enum TrampolineResult {
     Done(Value),
@@ -671,22 +691,22 @@ This means native compilation **does not automatically solve TCO** better than a
 
 **This is the critical differentiator against native compilation.**
 
-| Backend | x86_64 | AArch64 | WASM |
-|---------|--------|---------|------|
-| **Bytecode VM** | ✅ | ✅ | ✅ |
-| **Cranelift** | ✅ | ✅ | ❌ |
-| **LLVM** | ✅ | ✅ | ✅ (slow) |
-| **C as IR** | ✅ | ✅ | ❌ |
+| Backend         | x86_64 | AArch64 | WASM      |
+| --------------- | ------ | ------- | --------- |
+| **Bytecode VM** | ✅     | ✅      | ✅        |
+| **Cranelift**   | ✅     | ✅      | ❌        |
+| **LLVM**        | ✅     | ✅      | ✅ (slow) |
+| **C as IR**     | ✅     | ✅      | ❌        |
 
 If WASM support is a hard requirement (sema.run playground), native compilation via Cranelift requires a **dual backend**: VM for WASM, native for desktop. This doubles testing and maintenance burden.
 
 ### B6. Performance Expectations
 
-| Workload | Tree-walker | Bytecode VM | Native (Cranelift) | Native (LLVM) |
-|----------|-------------|-------------|-------------------|---------------|
-| 1BRC (1M) | ~1000ms | ~100–200ms | ~50–100ms | ~30–80ms |
-| Fibonacci(35) | ~2s | ~200ms | ~80ms | ~50ms |
-| LLM API call | ~500ms | ~500ms | ~500ms | ~500ms |
+| Workload      | Tree-walker | Bytecode VM | Native (Cranelift) | Native (LLVM) |
+| ------------- | ----------- | ----------- | ------------------ | ------------- |
+| 1BRC (1M)     | ~1000ms     | ~100–200ms  | ~50–100ms          | ~30–80ms      |
+| Fibonacci(35) | ~2s         | ~200ms      | ~80ms              | ~50ms         |
+| LLM API call  | ~500ms      | ~500ms      | ~500ms             | ~500ms        |
 
 Native compilation is typically **1.5–3× faster** than a well-implemented bytecode VM. The gap narrows with specialized VM opcodes and widens with numeric-heavy workloads.
 
@@ -694,14 +714,14 @@ Native compilation is typically **1.5–3× faster** than a well-implemented byt
 
 ### B7. Effort Estimate (Native Compilation)
 
-| Component | Person-Months |
-|-----------|---------------|
-| Lowered IR + Cranelift codegen + calling convention | 6–10 |
-| Closure/upvalue compilation | 2–4 |
-| Debug metadata + stack traces | 2–4 |
-| GC (required — no choice with native) | 3–6 |
-| WASM dual-backend testing | 3–6 |
-| **Total** | **~12–24+** |
+| Component                                           | Person-Months |
+| --------------------------------------------------- | ------------- |
+| Lowered IR + Cranelift codegen + calling convention | 6–10          |
+| Closure/upvalue compilation                         | 2–4           |
+| Debug metadata + stack traces                       | 2–4           |
+| GC (required — no choice with native)               | 3–6           |
+| WASM dual-backend testing                           | 3–6           |
+| **Total**                                           | **~12–24+**   |
 
 ---
 
@@ -709,14 +729,14 @@ Native compilation is typically **1.5–3× faster** than a well-implemented byt
 
 ### What other Rust Lisp/Scheme implementations did
 
-| Project | Strategy | Value Variants | GC | LOC | WASM |
-|---------|----------|---------------|-----|-----|------|
-| **Ketos** | Stack-based bytecode | 18 | Rc | ~2K (VM) | ❌ |
-| **Steel** | Stack-based bytecode + Cranelift JIT | 36+ | Rc + experimental tracing | ~10K | Partial |
-| **Guile 3.0** | Stack-based bytecode + Lightning JIT | Tagged pointers | Mark-sweep | ~50K+ | ❌ |
-| **Chez Scheme** | Nanopass → native (register-based) | Tagged pointers | Generational | ~100K+ | ❌ |
-| **Chicken** | CPS → C source | Tagged pointers | Cheney-on-the-MTA | ~30K+ | ❌ |
-| **Sema (current)** | Tree-walking + trampoline | 22 (Rc-based enum) | Rc | ~46K | ✅ |
+| Project            | Strategy                             | Value Variants     | GC                        | LOC      | WASM    |
+| ------------------ | ------------------------------------ | ------------------ | ------------------------- | -------- | ------- |
+| **Ketos**          | Stack-based bytecode                 | 18                 | Rc                        | ~2K (VM) | ❌      |
+| **Steel**          | Stack-based bytecode + Cranelift JIT | 36+                | Rc + experimental tracing | ~10K     | Partial |
+| **Guile 3.0**      | Stack-based bytecode + Lightning JIT | Tagged pointers    | Mark-sweep                | ~50K+    | ❌      |
+| **Chez Scheme**    | Nanopass → native (register-based)   | Tagged pointers    | Generational              | ~100K+   | ❌      |
+| **Chicken**        | CPS → C source                       | Tagged pointers    | Cheney-on-the-MTA         | ~30K+    | ❌      |
+| **Sema (current)** | Tree-walking + trampoline            | 22 (Rc-based enum) | Rc                        | ~46K     | ✅      |
 
 ### Key lessons from each
 
@@ -814,11 +834,13 @@ This IR serves as the boundary between the macro expander and the bytecode compi
 ```
 
 **After variable resolution:**
+
 - `x` → Local slot 0
 - `y` → Local slot 1
 - `+` → Global (native fn)
 
 **Bytecode:**
+
 ```
 0000  CONST 0          ; push 1
 0003  STORE_LOCAL 0     ; x = 1
@@ -841,10 +863,12 @@ Compare to tree-walker: allocates `Env::with_parent`, inserts "x" and "y" into a
 ```
 
 **Variable resolution:**
+
 - `n` in `make-counter`: Local slot 0, **captured and mutated** → boxed
 - `n` in inner lambda: Upvalue 0
 
 **`make-counter` bytecode:**
+
 ```
 0000  CONST 0          ; push 0
 0003  BOX               ; wrap in UpvalueCell (because n is captured + mutated)
@@ -855,6 +879,7 @@ Compare to tree-walker: allocates `Env::with_parent`, inserts "x" and "y" into a
 ```
 
 **Inner lambda (func_id=1) bytecode:**
+
 ```
 0000  LOAD_UPVALUE 0    ; push n's cell
 0003  DEREF              ; get current value
@@ -930,14 +955,14 @@ Compare to tree-walker: allocates `Env::with_parent`, inserts "x" and "y" into a
 
 ### Factual Corrections
 
-| Claim in document | Actual | Severity |
-|---|---|---|
-| "22 Value variants" | **23 variants** (Nil, Bool, Int, Float, String, Symbol, Keyword, Char, List, Vector, Map, HashMap, Lambda, Macro, NativeFn, Prompt, Message, Conversation, ToolDef, Agent, Thunk, Record, Bytevector) | Medium |
-| "~350 native functions" | **~380** (321 stdlib + 59 sema-llm builtins) | Low |
-| "~1000ms for 1BRC 1M rows" | **~1,600ms** (codebase comment says "1.6s on 1M rows"; benchmarks/1brc/results.json shows 15,564ms for 10M rows, extrapolating to ~1,556ms for 1M) | **High** — performance projections built on wrong baseline |
-| "`Env.clone()` is expensive" | `Env.clone()` is **2 Rc bumps** (bindings + parent are both `Rc`). The real cost is `Env::with_parent` allocating a new empty HashMap per scope, not cloning | Medium |
-| "EvalContext replaced all thread_locals" | **4 thread_locals remain**: `SpecialFormSpurs` cache in special_forms.rs, interner `INTERNER` in value.rs, `EVAL_FN`/`CALL_FN` callbacks in context.rs (mini-eval's `SpecialFormSpurs` in list.rs was deleted) | Low |
-| "Closures capture full Env (clone)" | Env clone is cheap (Rc bump), but both closures from the same scope **share the same bindings HashMap** via `Rc<RefCell>` — this is accidental shared mutability that the upvalue model makes explicit | Medium |
+| Claim in document                        | Actual                                                                                                                                                                                                         | Severity                                                   |
+| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| "22 Value variants"                      | **23 variants** (Nil, Bool, Int, Float, String, Symbol, Keyword, Char, List, Vector, Map, HashMap, Lambda, Macro, NativeFn, Prompt, Message, Conversation, ToolDef, Agent, Thunk, Record, Bytevector)          | Medium                                                     |
+| "~350 native functions"                  | **~380** (321 stdlib + 59 sema-llm builtins)                                                                                                                                                                   | Low                                                        |
+| "~1000ms for 1BRC 1M rows"               | **~1,600ms** (codebase comment says "1.6s on 1M rows"; benchmarks/1brc/results.json shows 15,564ms for 10M rows, extrapolating to ~1,556ms for 1M)                                                             | **High** — performance projections built on wrong baseline |
+| "`Env.clone()` is expensive"             | `Env.clone()` is **2 Rc bumps** (bindings + parent are both `Rc`). The real cost is `Env::with_parent` allocating a new empty HashMap per scope, not cloning                                                   | Medium                                                     |
+| "EvalContext replaced all thread_locals" | **4 thread_locals remain**: `SpecialFormSpurs` cache in special_forms.rs, interner `INTERNER` in value.rs, `EVAL_FN`/`CALL_FN` callbacks in context.rs (mini-eval's `SpecialFormSpurs` in list.rs was deleted) | Low                                                        |
+| "Closures capture full Env (clone)"      | Env clone is cheap (Rc bump), but both closures from the same scope **share the same bindings HashMap** via `Rc<RefCell>` — this is accidental shared mutability that the upvalue model makes explicit         | Medium                                                     |
 
 ### ~~Critical Issue 1: The Mini-Eval (620 LOC) Is a Blocker~~ — **RESOLVED**
 
@@ -953,13 +978,14 @@ The 620-line `sema_eval_value` and `call_function` in `sema-stdlib/src/list.rs` 
 
 The document proposes "compile-time macroexpansion" with the tree-walker evaluating macro bodies. This has several unresolved problems:
 
-1. **Macros are runtime in Sema today.** `Value::Macro(mac)` is invoked at runtime during `eval_step` when encountered. `apply_macro` evaluates the macro body in the *caller's* environment. Macros can read runtime variables, perform I/O, call `eval`, and have side effects. A "compile-time-only" phase would be a **language change**.
+1. **Macros are runtime in Sema today.** `Value::Macro(mac)` is invoked at runtime during `eval_step` when encountered. `apply_macro` evaluates the macro body in the _caller's_ environment. Macros can read runtime variables, perform I/O, call `eval`, and have side effects. A "compile-time-only" phase would be a **language change**.
 
 2. **Callable interop breaks.** If a macro body calls a user-defined function, and that function exists only as compiled bytecode (not as `Value::Lambda`), the tree-walker macro expander can't call it. The tree-walker must be taught to invoke compiled closures, which means **the VM must be callable from the tree-walker** — creating circular runtime dependency.
 
 3. **Environment bifurcation.** The tree-walker uses `Env` chains; the VM uses slots. If the macro expander runs in the tree-walker, it sees `Env`-based globals. If the VM has updated globals via `StoreGlobal`, the macro expander may see stale values unless they share a single global store.
 
 **Required resolution:** Choose one:
+
 - **Option A (preserve semantics):** Keep macros as runtime operations. VM detects `Value::Macro` callables and invokes the tree-walker for expansion, then compiles and executes the result. Slower but correct.
 - **Option B (language change):** Restrict macros to compile-time-only. `defmacro` only allowed at top-level. Macro bodies can only reference other macros and compile-time constants. Breaks existing code that uses runtime macros.
 
@@ -976,6 +1002,7 @@ The document says `eval` "invokes compiler+VM recursively." But the hard questio
 ### Critical Issue 4: Three Independent Evaluators With Semantic Drift
 
 The codebase has **three separate eval implementations**:
+
 1. `eval_value` in `sema-eval/src/eval.rs` — full evaluator (35 special forms, TCO, depth limits, call stack)
 2. `sema_eval_value` in `sema-stdlib/src/list.rs` — mini-eval (14 special forms, no TCO, no depth limits, different `set!` semantics)
 3. `call_value_fn` + `full_eval` callback in `sema-llm/src/builtins.rs` — LLM eval (delegates to tree-walker via callback, creates Lambda clones instead of Rc::clone for self-reference)
@@ -1010,29 +1037,29 @@ Every function call currently interns each parameter name: `sema_core::intern(pa
 
 ### Revised Effort Estimate
 
-| Component | Original Estimate | Revised Estimate | Delta Reason |
-|-----------|------------------|------------------|--------------|
-| Compiler pipeline | 3–5 PM | 3–5 PM | Unchanged |
-| VM runtime | 2–4 PM | 2–4 PM | Unchanged |
-| Debug metadata + disassembler | 1–2 PM | 1–2 PM | Unchanged |
-| Testing (712 tests) | 1–2 PM | 1–2 PM | Unchanged |
-| GC (if implemented) | 3–6 PM | 3–6 PM | Unchanged |
-| **Mini-eval deletion + callback re-entry** | **Not estimated** | **1–2 PM** | 620-line evaluator must be replaced; 18+ stdlib functions need callback restructuring |
-| **Macro/eval semantics design** | **Not estimated** | **0.5–1 PM** | Critical design decisions + compatibility testing |
-| **WASM integration** | **Not estimated** | **0.5–1 PM** | VFS interaction, binary size, playground wiring |
-| **Lambda/core type changes** | **Not estimated** | **0.5 PM** | `Lambda.params` Vec<String> → Vec<Spur>, etc. |
-| **Original total** | **6–12 PM** | — | — |
-| **Revised total** | — | **~10–18 PM** | More realistic for a single developer |
+| Component                                  | Original Estimate | Revised Estimate | Delta Reason                                                                          |
+| ------------------------------------------ | ----------------- | ---------------- | ------------------------------------------------------------------------------------- |
+| Compiler pipeline                          | 3–5 PM            | 3–5 PM           | Unchanged                                                                             |
+| VM runtime                                 | 2–4 PM            | 2–4 PM           | Unchanged                                                                             |
+| Debug metadata + disassembler              | 1–2 PM            | 1–2 PM           | Unchanged                                                                             |
+| Testing (712 tests)                        | 1–2 PM            | 1–2 PM           | Unchanged                                                                             |
+| GC (if implemented)                        | 3–6 PM            | 3–6 PM           | Unchanged                                                                             |
+| **Mini-eval deletion + callback re-entry** | **Not estimated** | **1–2 PM**       | 620-line evaluator must be replaced; 18+ stdlib functions need callback restructuring |
+| **Macro/eval semantics design**            | **Not estimated** | **0.5–1 PM**     | Critical design decisions + compatibility testing                                     |
+| **WASM integration**                       | **Not estimated** | **0.5–1 PM**     | VFS interaction, binary size, playground wiring                                       |
+| **Lambda/core type changes**               | **Not estimated** | **0.5 PM**       | `Lambda.params` Vec<String> → Vec<Spur>, etc.                                         |
+| **Original total**                         | **6–12 PM**       | —                | —                                                                                     |
+| **Revised total**                          | —                 | **~10–18 PM**    | More realistic for a single developer                                                 |
 
 ### Revised Performance Expectations
 
 Based on corrected baseline (~1,600ms not ~1,000ms):
 
-| Workload | Tree-walker (actual) | Bytecode VM (projected) | Speedup |
-|----------|---------------------|------------------------|---------|
-| 1BRC (1M rows) | ~1,600ms | ~160–320ms | 5–10× |
-| Fibonacci(35) | ~2s (est.) | ~200ms | ~10× |
-| LLM API call | ~500ms | ~500ms | 1× (I/O bound) |
+| Workload       | Tree-walker (actual) | Bytecode VM (projected) | Speedup        |
+| -------------- | -------------------- | ----------------------- | -------------- |
+| 1BRC (1M rows) | ~1,600ms             | ~160–320ms              | 5–10×          |
+| Fibonacci(35)  | ~2s (est.)           | ~200ms                  | ~10×           |
+| LLM API call   | ~500ms               | ~500ms                  | 1× (I/O bound) |
 
 **Caveat:** The 5–15× claim may be overstated. Sema's hot path already has significant optimizations (Spur-based dispatch, hashbrown, memchr, inlined mini-eval). The remaining overhead may be dominated by `Rc` refcount traffic and `Value` cloning, which a bytecode VM doesn't automatically eliminate. **Profile before committing.**
 

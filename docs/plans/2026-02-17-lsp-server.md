@@ -209,6 +209,7 @@ Phase 2 only handles top-level definitions. `let`/`let*`/`letrec` bindings are n
 ### 3a. Import/Load Path Resolution (Easy)
 
 When cursor is on a string in `(import "path")` or `(load "path")`:
+
 - Resolve path relative to current file (same logic as evaluator's module loader)
 - Return `Location` pointing to the resolved file, line 0
 
@@ -217,6 +218,7 @@ When cursor is on a string in `(import "path")` or `(load "path")`:
 ### 3b. User-Defined Symbols (Medium)
 
 For `define`/`defun` symbols:
+
 - Parse file with `read_many_with_spans`
 - Walk top-level forms to find the binding
 - Use `SpanMap` to look up the span (keyed by `Rc` pointer address via `Rc::as_ptr as usize`)
@@ -305,13 +307,13 @@ The extension currently only provides TextMate grammar. Add LSP client:
 
 ## Summary
 
-| Phase | Feature | Complexity | New Code |
-|-------|---------|------------|----------|
-| 0 | Prerequisites (special forms export, optional end spans) | Easy | ~30 lines |
-| 1 | Parse diagnostics | Easy | ~250 lines |
-| 2 | Completion | Medium | ~200 lines |
-| 3 | Go to definition | Hard | ~400 lines |
-| 4 | Hover docs | Medium–Hard | ~200 lines + doc content |
+| Phase | Feature                                                  | Complexity  | New Code                 |
+| ----- | -------------------------------------------------------- | ----------- | ------------------------ |
+| 0     | Prerequisites (special forms export, optional end spans) | Easy        | ~30 lines                |
+| 1     | Parse diagnostics                                        | Easy        | ~250 lines               |
+| 2     | Completion                                               | Medium      | ~200 lines               |
+| 3     | Go to definition                                         | Hard        | ~400 lines               |
+| 4     | Hover docs                                               | Medium–Hard | ~200 lines + doc content |
 
 ### Implementation Order
 

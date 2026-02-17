@@ -13,12 +13,14 @@
 ## Task 1: Add `pdf-extract` and `lopdf` dependencies
 
 **Files:**
+
 - Modify: `Cargo.toml` (workspace deps, lines 22-47)
 - Modify: `crates/sema-stdlib/Cargo.toml` (lines 26-30)
 
 **Step 1: Add workspace dependencies**
 
 In `Cargo.toml`, add to `[workspace.dependencies]`:
+
 ```toml
 pdf-extract = "0.10"
 lopdf = "0.38"
@@ -27,6 +29,7 @@ lopdf = "0.38"
 **Step 2: Add to sema-stdlib's platform-specific deps**
 
 In `crates/sema-stdlib/Cargo.toml`, add under `[target.'cfg(not(target_arch = "wasm32"))'.dependencies]`:
+
 ```toml
 pdf-extract.workspace = true
 lopdf.workspace = true
@@ -49,6 +52,7 @@ git commit -m "deps: add pdf-extract and lopdf for PDF processing"
 ## Task 2: Create `pdf.rs` module with all four functions
 
 **Files:**
+
 - Create: `crates/sema-stdlib/src/pdf.rs`
 - Modify: `crates/sema-stdlib/src/lib.rs`
 
@@ -149,12 +153,14 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
 In `crates/sema-stdlib/src/lib.rs`:
 
 Add after `mod text;` (line 28):
+
 ```rust
 #[cfg(not(target_arch = "wasm32"))]
 mod pdf;
 ```
 
 Add at the end of `register_stdlib()`, before the closing `}` (after line 59):
+
 ```rust
     #[cfg(not(target_arch = "wasm32"))]
     pdf::register(env, sandbox);
@@ -177,6 +183,7 @@ git commit -m "feat: add pdf/ stdlib module (extract-text, extract-text-pages, p
 ## Task 3: Create PDF fixture files for testing
 
 **Files:**
+
 - Create: `crates/sema/tests/fixtures/sample-invoice.pdf`
 - Create: `crates/sema/tests/fixtures/not-a-receipt.pdf`
 - Copy: `examples/fixtures/glados-downloads/input/Invoice-P8ZVOH52-0001.pdf`
@@ -190,6 +197,7 @@ We need minimal programmatically-generated PDFs for tests (so they work in CI wi
 Create a small Rust script `crates/sema/tests/generate_fixtures.rs` — actually, simpler: write a shell one-liner that creates minimal PDFs. The simplest valid PDF with text can be created as a raw byte file.
 
 Create a helper script `scripts/generate-test-pdfs.sh`:
+
 ```bash
 #!/bin/bash
 # Generate minimal PDF fixtures for integration tests
@@ -326,6 +334,7 @@ git commit -m "test: add PDF fixture files for tests and GLaDOS example"
 ## Task 4: Write integration tests for `pdf/extract-text`
 
 **Files:**
+
 - Modify: `crates/sema/tests/integration_test.rs` (append at end)
 
 **Step 1: Write the tests**
@@ -383,6 +392,7 @@ git commit -m "test: add integration tests for pdf/extract-text"
 ## Task 5: Write integration tests for `pdf/extract-text-pages`
 
 **Files:**
+
 - Modify: `crates/sema/tests/integration_test.rs` (append at end)
 
 **Step 1: Write the tests**
@@ -428,6 +438,7 @@ git commit -m "test: add integration tests for pdf/extract-text-pages"
 ## Task 6: Write integration tests for `pdf/page-count`
 
 **Files:**
+
 - Modify: `crates/sema/tests/integration_test.rs` (append at end)
 
 **Step 1: Write the tests**
@@ -477,6 +488,7 @@ git commit -m "test: add integration tests for pdf/page-count"
 ## Task 7: Write integration tests for `pdf/metadata`
 
 **Files:**
+
 - Modify: `crates/sema/tests/integration_test.rs` (append at end)
 
 **Step 1: Write the tests**
@@ -561,6 +573,7 @@ Expected: No warnings or errors
 ## Task 9: Write the GLaDOS receipt processor example
 
 **Files:**
+
 - Create: `examples/glados-downloads.sema`
 
 This is the showcase example. It demonstrates: `pdf/extract-text`, `pdf/page-count`, `llm/auto-configure`, `llm/extract`, `text/clean-whitespace`, `file/list`, `file/exists?`, `file/mkdir`, `file/copy`, `file/read`, `file/write`, `path/join`, `path/basename`, `path/extension`, `json/encode-pretty`, `json/decode`, `string/contains?`, `string/lower`, `filter`, `for-each`, `cond`, `let*`.
@@ -817,31 +830,31 @@ git commit -m "feat: PDF stdlib + GLaDOS receipt processor example
 
 ## Summary of new functions
 
-| Function | Signature | Returns | Description |
-|---|---|---|---|
-| `pdf/extract-text` | `(pdf/extract-text path)` | string | All text from all pages |
-| `pdf/extract-text-pages` | `(pdf/extract-text-pages path)` | list of strings | Text per page |
-| `pdf/page-count` | `(pdf/page-count path)` | integer | Number of pages |
-| `pdf/metadata` | `(pdf/metadata path)` | map | `:title`, `:author`, `:subject`, `:creator`, `:producer`, `:pages` |
+| Function                 | Signature                       | Returns         | Description                                                        |
+| ------------------------ | ------------------------------- | --------------- | ------------------------------------------------------------------ |
+| `pdf/extract-text`       | `(pdf/extract-text path)`       | string          | All text from all pages                                            |
+| `pdf/extract-text-pages` | `(pdf/extract-text-pages path)` | list of strings | Text per page                                                      |
+| `pdf/page-count`         | `(pdf/page-count path)`         | integer         | Number of pages                                                    |
+| `pdf/metadata`           | `(pdf/metadata path)`           | map             | `:title`, `:author`, `:subject`, `:creator`, `:producer`, `:pages` |
 
 ## Test coverage
 
-| Test | What it verifies |
-|---|---|
-| `test_pdf_extract_text` | Extracts text containing expected keywords |
-| `test_pdf_extract_text_not_receipt` | Different fixture returns different text |
-| `test_pdf_extract_text_nonexistent` | Error on missing file |
-| `test_pdf_extract_text_empty_string_arg` | Arity error with no args |
-| `test_pdf_extract_text_pages` | Returns list with one page |
-| `test_pdf_extract_text_pages_returns_list` | Length is correct |
-| `test_pdf_extract_text_pages_nonexistent` | Error on missing file |
-| `test_pdf_page_count` | Returns 1 for single-page PDF |
-| `test_pdf_page_count_second_fixture` | Works on both fixtures |
-| `test_pdf_page_count_nonexistent` | Error on missing file |
-| `test_pdf_page_count_arity` | Arity errors (0 and 2 args) |
-| `test_pdf_metadata_returns_map` | Returns a map |
-| `test_pdf_metadata_has_pages` | `:pages` key = 1 |
-| `test_pdf_metadata_has_title` | `:title` = "Test Document" |
-| `test_pdf_metadata_has_author` | `:author` = "Sema Test Suite" |
-| `test_pdf_metadata_nonexistent` | Error on missing file |
-| `test_pdf_metadata_arity` | Arity errors |
+| Test                                       | What it verifies                           |
+| ------------------------------------------ | ------------------------------------------ |
+| `test_pdf_extract_text`                    | Extracts text containing expected keywords |
+| `test_pdf_extract_text_not_receipt`        | Different fixture returns different text   |
+| `test_pdf_extract_text_nonexistent`        | Error on missing file                      |
+| `test_pdf_extract_text_empty_string_arg`   | Arity error with no args                   |
+| `test_pdf_extract_text_pages`              | Returns list with one page                 |
+| `test_pdf_extract_text_pages_returns_list` | Length is correct                          |
+| `test_pdf_extract_text_pages_nonexistent`  | Error on missing file                      |
+| `test_pdf_page_count`                      | Returns 1 for single-page PDF              |
+| `test_pdf_page_count_second_fixture`       | Works on both fixtures                     |
+| `test_pdf_page_count_nonexistent`          | Error on missing file                      |
+| `test_pdf_page_count_arity`                | Arity errors (0 and 2 args)                |
+| `test_pdf_metadata_returns_map`            | Returns a map                              |
+| `test_pdf_metadata_has_pages`              | `:pages` key = 1                           |
+| `test_pdf_metadata_has_title`              | `:title` = "Test Document"                 |
+| `test_pdf_metadata_has_author`             | `:author` = "Sema Test Suite"              |
+| `test_pdf_metadata_nonexistent`            | Error on missing file                      |
+| `test_pdf_metadata_arity`                  | Arity errors                               |

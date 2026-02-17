@@ -31,15 +31,16 @@ The schema map specifies field names as keys and type descriptors as values. Sup
 (llm/extract schema text {:model "claude-haiku-4-5-20251001"})
 ```
 
-| Option       | Type     | Default | Description                                       |
-| ------------ | -------- | ------- | ------------------------------------------------- |
-| `:model`     | string   | —       | Override the default model                         |
-| `:validate`  | boolean  | `false` | Validate response against the schema              |
-| `:retries`   | integer  | `0`     | Retry on validation failure (requires `:validate`) |
+| Option      | Type    | Default | Description                                        |
+| ----------- | ------- | ------- | -------------------------------------------------- |
+| `:model`    | string  | —       | Override the default model                         |
+| `:validate` | boolean | `false` | Validate response against the schema               |
+| `:retries`  | integer | `0`     | Retry on validation failure (requires `:validate`) |
 
 ### Schema Validation
 
 With `:validate true`, the extracted result is checked against the schema:
+
 - All schema keys must be present in the result
 - Types must match: `:string` → string, `:number` → integer or float, `:boolean` → boolean, `:list`/`:array` → list or vector
 
@@ -114,8 +115,8 @@ Supported image formats (detected automatically via magic bytes): PNG, JPEG, GIF
 (llm/extract-from-image schema source {:model "gpt-4o"})
 ```
 
-| Option   | Type   | Default | Description              |
-| -------- | ------ | ------- | ------------------------ |
+| Option   | Type   | Default | Description                |
+| -------- | ------ | ------- | -------------------------- |
 | `:model` | string | —       | Override the default model |
 
 ## Multi-Modal Messages

@@ -83,6 +83,36 @@ Remove common leading indentation from all lines.
 (text/trim-indent "    hello\n      world") ; => "hello\n  world"
 ```
 
+### `text/excerpt`
+
+Extract a snippet around a search term with omission markers. Case-insensitive search. Returns `nil` if query not found.
+
+```scheme
+(text/excerpt "The quick brown fox jumps over the lazy dog" "fox" {:radius 10})
+; => "...brown fox jumps ov..."
+
+(text/excerpt "Hello world" "Hello")
+; => "Hello world"
+
+;; Custom omission marker
+(text/excerpt "Long text here..." "text" {:radius 5 :omission "[…]"})
+; => "[…]g text here[…]"
+```
+
+Options map (optional third argument):
+
+- `:radius` — number of characters to show on each side (default: 100)
+- `:omission` — marker string for truncated parts (default: `"..."`)
+
+### `text/normalize-newlines`
+
+Convert `\r\n` (Windows) and `\r` (old Mac) line endings to `\n` (Unix).
+
+```scheme
+(text/normalize-newlines "line1\r\nline2\rline3")
+; => "line1\nline2\nline3"
+```
+
 ## Prompt Templates
 
 ### `prompt/template`

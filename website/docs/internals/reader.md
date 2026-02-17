@@ -41,26 +41,26 @@ pub struct Span {
 
 The full `Token` enum:
 
-| Token | Syntax | Example |
-|-------|--------|---------|
-| `LParen` / `RParen` | `(` `)` | `(+ 1 2)` |
-| `LBracket` / `RBracket` | `[` `]` | `[1 2 3]` |
-| `LBrace` / `RBrace` | `{` `}` | `{:a 1 :b 2}` |
-| `Quote` | `'` | `'foo` |
-| `Quasiquote` | `` ` `` | `` `(a ,b) `` |
-| `Unquote` | `,` | `,x` |
-| `UnquoteSplice` | `,@` | `,@xs` |
-| `Int(i64)` | digits | `42`, `-7` |
-| `Float(f64)` | digits with `.` | `3.14`, `-0.5` |
-| `String(String)` | `"..."` | `"hello"` |
-| `Symbol(String)` | identifier | `define`, `string/trim` |
-| `Keyword(String)` | `:` + name | `:key`, `:name` |
-| `Bool(bool)` | `#t` / `#f` | `#t` |
-| `Char(char)` | `#\` + char/name | `#\a`, `#\space` |
-| `BytevectorStart` | `#u8(` | `#u8(1 2 3)` |
-| `Dot` | `.` | `(a . b)` |
+| Token                   | Syntax           | Example                 |
+| ----------------------- | ---------------- | ----------------------- |
+| `LParen` / `RParen`     | `(` `)`          | `(+ 1 2)`               |
+| `LBracket` / `RBracket` | `[` `]`          | `[1 2 3]`               |
+| `LBrace` / `RBrace`     | `{` `}`          | `{:a 1 :b 2}`           |
+| `Quote`                 | `'`              | `'foo`                  |
+| `Quasiquote`            | `` ` ``          | `` `(a ,b) ``           |
+| `Unquote`               | `,`              | `,x`                    |
+| `UnquoteSplice`         | `,@`             | `,@xs`                  |
+| `Int(i64)`              | digits           | `42`, `-7`              |
+| `Float(f64)`            | digits with `.`  | `3.14`, `-0.5`          |
+| `String(String)`        | `"..."`          | `"hello"`               |
+| `Symbol(String)`        | identifier       | `define`, `string/trim` |
+| `Keyword(String)`       | `:` + name       | `:key`, `:name`         |
+| `Bool(bool)`            | `#t` / `#f`      | `#t`                    |
+| `Char(char)`            | `#\` + char/name | `#\a`, `#\space`        |
+| `BytevectorStart`       | `#u8(`           | `#u8(1 2 3)`            |
+| `Dot`                   | `.`              | `(a . b)`               |
 
-Symbol characters include alphanumeric plus ``+ - * / ! ? < > = _ & % ^ ~ .`` — a superset of Scheme's identifier syntax that allows operators and predicates like `nil?` or `string->number` as plain symbols.
+Symbol characters include alphanumeric plus `+ - * / ! ? < > = _ & % ^ ~ .` — a superset of Scheme's identifier syntax that allows operators and predicates like `nil?` or `string->number` as plain symbols.
 
 Booleans accept both `#t`/`#f` (R7RS) and `true`/`false` (as symbol aliases resolved during tokenization).
 
@@ -96,18 +96,18 @@ Each compound form has its own parsing method:
 
 The parser produces `Value` nodes directly. There is no separate AST type — the same `Value` enum used at runtime is the representation of parsed code. This is the Lisp tradition: code is data, and the reader produces data.
 
-> **Comparison:** Racket's reader is configurable with [readtables](https://docs.racket-lang.org/reference/readtables.html) — user code can define new reader syntax. Common Lisp goes further with [reader macros](http://www.lispworks.com/documentation/HyperSpec/Body/02_d.htm) that can override any character's parsing behavior. Sema has neither — quote sugar is hardcoded in the lexer, and there's no mechanism for user-defined reader extensions. This is a deliberate simplicity trade-off: the reader is predictable, the implementation is ~300 lines, and all syntax is documented in one place. See Nystrom's [*Crafting Interpreters*](https://craftinginterpreters.com/parsing-expressions.html) for a thorough treatment of recursive descent parsing, or Aho et al., *Compilers: Principles, Techniques, and Tools* (the Dragon Book), §4.4 for the theory.
+> **Comparison:** Racket's reader is configurable with [readtables](https://docs.racket-lang.org/reference/readtables.html) — user code can define new reader syntax. Common Lisp goes further with [reader macros](http://www.lispworks.com/documentation/HyperSpec/Body/02_d.htm) that can override any character's parsing behavior. Sema has neither — quote sugar is hardcoded in the lexer, and there's no mechanism for user-defined reader extensions. This is a deliberate simplicity trade-off: the reader is predictable, the implementation is ~300 lines, and all syntax is documented in one place. See Nystrom's [_Crafting Interpreters_](https://craftinginterpreters.com/parsing-expressions.html) for a thorough treatment of recursive descent parsing, or Aho et al., _Compilers: Principles, Techniques, and Tools_ (the Dragon Book), §4.4 for the theory.
 
 ## Quote Desugaring
 
-The reader desugars quote syntax into real lists *before the evaluator ever sees them*. This is important: `'x` is not a special syntactic form that the evaluator handles — it's reader sugar that produces a `(quote x)` list.
+The reader desugars quote syntax into real lists _before the evaluator ever sees them_. This is important: `'x` is not a special syntactic form that the evaluator handles — it's reader sugar that produces a `(quote x)` list.
 
-| Syntax | Desugars to | Reader token |
-|--------|-------------|--------------|
-| `'x` | `(quote x)` | `Token::Quote` |
-| `` `x `` | `(quasiquote x)` | `Token::Quasiquote` |
-| `,x` | `(unquote x)` | `Token::Unquote` |
-| `,@x` | `(unquote-splicing x)` | `Token::UnquoteSplice` |
+| Syntax   | Desugars to            | Reader token           |
+| -------- | ---------------------- | ---------------------- |
+| `'x`     | `(quote x)`            | `Token::Quote`         |
+| `` `x `` | `(quasiquote x)`       | `Token::Quasiquote`    |
+| `,x`     | `(unquote x)`          | `Token::Unquote`       |
+| `,@x`    | `(unquote-splicing x)` | `Token::UnquoteSplice` |
 
 When the parser encounters a `Quote` token, it:
 
@@ -117,7 +117,7 @@ When the parser encounters a `Quote` token, it:
 
 The evaluator then sees `(quote x)` as a normal list whose `car` is the symbol `quote` — which it handles as a special form. The same applies to `quasiquote`, which the evaluator expands recursively (handling nested `unquote` and `unquote-splicing` within templates).
 
-The key distinction: the *syntax* (`` ` , ,@ ' ``) is reader-level, but the *semantics* (what `quasiquote` does with its template) is evaluator-level. The reader's job is just to produce the list structure.
+The key distinction: the _syntax_ (`` ` , ,@ ' ``) is reader-level, but the _semantics_ (what `quasiquote` does with its template) is evaluator-level. The reader's job is just to produce the list structure.
 
 ## Dotted Pairs
 
@@ -130,23 +130,23 @@ Sema supports dotted pair notation `(a . b)` for compatibility with Scheme's con
 
 The parser's `parse_list` method detects `Token::Dot` and inserts `Value::symbol(".")` into the element list. The evaluator and printer check for this marker when they need to distinguish `(a b c)` from `(a b . c)`.
 
-This is a pragmatic compromise. Real Scheme implementations use linked cons cells where `(a . b)` is `cons(a, b)` — the dot is the *absence* of a list, not a marker within one. Sema's Vec-based representation can't express improper lists natively, so the dot marker serves as an escape hatch for the few places that need it (mostly association lists and Scheme compatibility).
+This is a pragmatic compromise. Real Scheme implementations use linked cons cells where `(a . b)` is `cons(a, b)` — the dot is the _absence_ of a list, not a marker within one. Sema's Vec-based representation can't express improper lists natively, so the dot marker serves as an escape hatch for the few places that need it (mostly association lists and Scheme compatibility).
 
 ## String Escapes
 
 The lexer handles common R7RS escape sequences plus Unicode extensions:
 
-| Escape | Character | Notes |
-|--------|-----------|-------|
-| `\n` | newline | |
-| `\t` | tab | |
-| `\r` | carriage return | |
-| `\\` | backslash | |
-| `\"` | double quote | |
-| `\0` | null | |
-| `\x41;` | `A` (hex 0x41) | R7RS — note the trailing semicolon |
-| `\u0041` | `A` | 4-digit Unicode escape |
-| `\U00000041` | `A` | 8-digit Unicode escape (full Unicode range) |
+| Escape       | Character       | Notes                                       |
+| ------------ | --------------- | ------------------------------------------- |
+| `\n`         | newline         |                                             |
+| `\t`         | tab             |                                             |
+| `\r`         | carriage return |                                             |
+| `\\`         | backslash       |                                             |
+| `\"`         | double quote    |                                             |
+| `\0`         | null            |                                             |
+| `\x41;`      | `A` (hex 0x41)  | R7RS — note the trailing semicolon          |
+| `\u0041`     | `A`             | 4-digit Unicode escape                      |
+| `\U00000041` | `A`             | 8-digit Unicode escape (full Unicode range) |
 
 The R7RS hex escape `\x<hex>;` uses a semicolon terminator, which is unusual — most languages use a fixed digit count. This allows variable-length hex sequences: `\x41;` and `\x041;` are both valid and produce the same character. The semicolon disambiguates where the hex digits end.
 
@@ -154,14 +154,14 @@ The `\uNNNN` and `\UNNNNNNNN` forms follow the C/Java/Rust convention of fixed-w
 
 Character literals follow a similar pattern:
 
-| Literal | Character |
-|---------|-----------|
-| `#\a` | the character `a` |
-| `#\space` | space |
-| `#\newline` | newline |
-| `#\tab` | tab |
-| `#\return` | carriage return |
-| `#\nul` | null |
+| Literal     | Character         |
+| ----------- | ----------------- |
+| `#\a`       | the character `a` |
+| `#\space`   | space             |
+| `#\newline` | newline           |
+| `#\tab`     | tab               |
+| `#\return`  | carriage return   |
+| `#\nul`     | null              |
 
 ## Span Tracking
 

@@ -15,6 +15,7 @@
 ## Task 1: Add fetched pricing data structures and thread-local storage
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/pricing.rs`
 
 **Step 1: Write the failing test**
@@ -119,6 +120,7 @@ Specifically:
 
 1. Add `use chrono::NaiveDate;` and serde derives.
 2. Define:
+
    ```rust
    #[derive(Debug, serde::Deserialize)]
    struct PricingResponse {
@@ -144,6 +146,7 @@ Specifically:
        updated_at: String,
    }
    ```
+
 3. Add thread-local:
    ```rust
    thread_local! {
@@ -160,6 +163,7 @@ Specifically:
    - Tries exact match on `vendor/id`
    - Tries substring: `model.contains(&entry.id)` (longest match wins to avoid e.g. "gpt-4o" matching before "gpt-4o-mini")
 7. Update `model_pricing()` to insert a fetched lookup between custom and hardcoded:
+
    ```rust
    pub fn model_pricing(model: &str) -> Option<(f64, f64)> {
        // 1. Custom pricing (user overrides)
@@ -177,6 +181,7 @@ Specifically:
        }
    }
    ```
+
 8. Add a public `pub fn fetched_pricing_updated_at() -> Option<String>` for use in status reporting.
 
 **Step 4: Run tests to verify they pass**
@@ -196,6 +201,7 @@ git commit -m "feat(pricing): add fetched pricing data structures with fallback 
 ## Task 2: Add disk cache read/write
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/pricing.rs`
 
 **Step 1: Write the failing test**
@@ -284,6 +290,7 @@ git commit -m "feat(pricing): add disk cache read/write with atomic writes"
 ## Task 3: Add network fetch function
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/pricing.rs`
 
 **Step 1: Write the failing test**
@@ -351,6 +358,7 @@ git commit -m "feat(pricing): add remote pricing fetch with short timeout"
 ## Task 4: Add the orchestrator function called from auto-configure
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/pricing.rs`
 - Modify: `crates/sema-llm/src/builtins.rs`
 
@@ -442,6 +450,7 @@ git commit -m "feat(pricing): wire up refresh_pricing into llm/auto-configure"
 ## Task 5: Add `llm/pricing-status` builtin
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 - Modify: `crates/sema-llm/src/pricing.rs`
 
@@ -518,6 +527,7 @@ git commit -m "feat: add (llm/pricing-status) builtin"
 ## Task 6: Add budget-with-unknown-pricing warning
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 
 **Step 1: Write the failing test**
@@ -593,6 +603,7 @@ git commit -m "feat(pricing): warn once when budget is set but pricing is unknow
 ## Task 7: Update hardcoded pricing table comment
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/pricing.rs`
 
 **Step 1: Update the doc comment on the hardcoded table**
@@ -626,6 +637,7 @@ m if m.contains("gemma") => Some((0.10, 0.20)),
 Remove the `// free tier` comment. Note the `!m.contains("ollama")` guard so Ollama llama models don't match.
 
 For Moonshot:
+
 ```rust
 // Moonshot (estimates)
 m if m.contains("moonshot") => Some((0.50, 1.50)),
@@ -651,13 +663,14 @@ git commit -m "fix(pricing): update stale hardcoded prices, add fallback disclai
 ## Task 8: Update documentation — cost tracking page
 
 **Files:**
+
 - Modify: `website/docs/llm/cost.md`
 
 **Step 1: Update the cost docs**
 
 Add a new section before "Budget Enforcement" explaining pricing sources:
 
-```markdown
+````markdown
 ## Pricing Sources
 
 Sema tracks LLM costs using pricing data from multiple sources, checked in this order:
@@ -678,7 +691,9 @@ Check which pricing source is active and when it was last updated.
 ; => {:source fetched :updated-at "2025-10-10"}
 ; or {:source hardcoded} if no dynamic pricing is available
 ```
-```
+````
+
+````
 
 Update the `llm/set-pricing` section to clarify it overrides all other sources:
 
@@ -689,14 +704,15 @@ Set custom pricing for a model (overrides both dynamic and built-in pricing). Co
 
 ```scheme
 (llm/set-pricing "my-model" 1.0 3.0)   ; $1.00/M input, $3.00/M output
-```
-```
+````
+
+````
 
 Add a note to Budget Enforcement:
 
 ```markdown
 > **Note:** If pricing is unknown for a model (not in any source), budget enforcement operates in best-effort mode — the call proceeds with a one-time warning. Use `(llm/set-pricing)` to set pricing for unlisted models.
-```
+````
 
 **Step 2: Verify docs render correctly**
 
@@ -714,13 +730,14 @@ git commit -m "docs: update cost tracking docs with dynamic pricing sources"
 ## Task 9: Update README pricing section
 
 **Files:**
+
 - Modify: `README.md`
 
 **Step 1: Update the Cost Tracking section**
 
 In the README, find the "Cost Tracking & Budgets" section (around line 870). Update to mention dynamic pricing:
 
-```markdown
+````markdown
 ### Cost Tracking & Budgets
 
 ```scheme
@@ -737,9 +754,11 @@ In the README, find the "Cost Tracking & Budgets" section (around line 870). Upd
 (llm/pricing-status)                   ; => {:source fetched :updated-at "2025-10-10"}
 (llm/set-pricing "my-model" 1.0 3.0)  ; custom pricing (per million tokens)
 ```
+````
 
 Pricing data is fetched from [llm-prices.com](https://www.llm-prices.com) during auto-configure and cached locally. Works fully offline with built-in fallback estimates.
-```
+
+````
 
 **Step 2: Verify**
 
@@ -750,13 +769,14 @@ Read the updated section to check formatting.
 ```bash
 git add README.md
 git commit -m "docs: update README cost tracking section with dynamic pricing"
-```
+````
 
 ---
 
 ## Task 10: Update CHANGELOG
 
 **Files:**
+
 - Modify: `CHANGELOG.md`
 
 **Step 1: Add entry at the top**
@@ -789,6 +809,7 @@ git commit -m "docs: add changelog entry for dynamic pricing"
 ## Task 11: Update AGENTS.md / CLAUDE.md
 
 **Files:**
+
 - Modify: `AGENTS.md`
 
 **Step 1: Update the architecture notes**

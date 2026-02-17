@@ -132,13 +132,13 @@ In `config.el`:
 
 ### Key Bindings
 
-| Key | Command | Description |
-|-----|---------|-------------|
-| `C-c C-z` | `sema-repl` | Start or switch to the Sema REPL |
-| `C-c C-e` | `sema-send-last-sexp` | Send sexp before point to REPL |
-| `C-c C-r` | `sema-send-region` | Send selected region to REPL |
-| `C-c C-b` | `sema-send-buffer` | Send entire buffer to REPL |
-| `C-c C-l` | `sema-run-file` | Run current file with `sema` |
+| Key       | Command               | Description                      |
+| --------- | --------------------- | -------------------------------- |
+| `C-c C-z` | `sema-repl`           | Start or switch to the Sema REPL |
+| `C-c C-e` | `sema-send-last-sexp` | Send sexp before point to REPL   |
+| `C-c C-r` | `sema-send-region`    | Send selected region to REPL     |
+| `C-c C-b` | `sema-send-buffer`    | Send entire buffer to REPL       |
+| `C-c C-l` | `sema-run-file`       | Run current file with `sema`     |
 
 ### Configuration
 

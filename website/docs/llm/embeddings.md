@@ -112,11 +112,11 @@ Returns a detailed estimate map with the token count and the estimation method u
 
 ## Supported Embedding Providers
 
-| Provider  | Env Variable     |
-| --------- | ---------------- |
-| Jina      | `JINA_API_KEY`   |
-| Voyage    | `VOYAGE_API_KEY` |
-| Cohere    | `COHERE_API_KEY` |
-| OpenAI    | `OPENAI_API_KEY` |
+| Provider | Env Variable     |
+| -------- | ---------------- |
+| Jina     | `JINA_API_KEY`   |
+| Voyage   | `VOYAGE_API_KEY` |
+| Cohere   | `COHERE_API_KEY` |
+| OpenAI   | `OPENAI_API_KEY` |
 
 See [Provider Management](./providers.md) for the full provider capability table.

@@ -33,24 +33,26 @@ An Emacs major mode for editing [Sema](https://sema-lang.com) (`.sema`) files.
 ### Doom Emacs
 
 In `packages.el`:
+
 ```elisp
 (package! sema-mode :recipe (:local-repo "/path/to/sema/editors/emacs"))
 ```
 
 In `config.el`:
+
 ```elisp
 (use-package! sema-mode :mode "\\.sema\\'")
 ```
 
 ## Key Bindings
 
-| Key         | Command              | Description                        |
-|-------------|----------------------|------------------------------------|
-| `C-c C-z`   | `sema-repl`          | Start or switch to the Sema REPL   |
-| `C-c C-e`   | `sema-send-last-sexp`| Send sexp before point to REPL     |
-| `C-c C-r`   | `sema-send-region`   | Send selected region to REPL       |
-| `C-c C-b`   | `sema-send-buffer`   | Send entire buffer to REPL         |
-| `C-c C-l`   | `sema-run-file`      | Run current file with `sema`       |
+| Key       | Command               | Description                      |
+| --------- | --------------------- | -------------------------------- |
+| `C-c C-z` | `sema-repl`           | Start or switch to the Sema REPL |
+| `C-c C-e` | `sema-send-last-sexp` | Send sexp before point to REPL   |
+| `C-c C-r` | `sema-send-region`    | Send selected region to REPL     |
+| `C-c C-b` | `sema-send-buffer`    | Send entire buffer to REPL       |
+| `C-c C-l` | `sema-run-file`       | Run current file with `sema`     |
 
 ## Configuration
 

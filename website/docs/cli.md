@@ -17,7 +17,7 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 | `-l, --load <FILE>`  | Load file(s) before executing (repeatable)   |
 | `-q, --quiet`        | Suppress REPL banner                         |
 | `-i, --interactive`  | Enter REPL after running file or eval        |
-| `--no-init`          | Skip LLM auto-configuration                 |
+| `--no-init`          | Skip LLM auto-configuration                  |
 | `--no-llm`           | Disable LLM features (same as `--no-init`)   |
 | `--model <NAME>`     | Set default LLM model                        |
 | `--provider <NAME>`  | Set LLM provider                             |
@@ -99,24 +99,24 @@ The `--sandbox` flag restricts access to dangerous operations. Functions remain 
 
 ### Modes
 
-| Mode | Description |
-| --- | --- |
-| `strict` | Deny shell, fs-write, network, env-write, process, llm (reads allowed) |
-| `all` | Deny all capabilities |
-| Comma-separated | e.g. `no-shell,no-network` — deny specific capabilities |
+| Mode            | Description                                                            |
+| --------------- | ---------------------------------------------------------------------- |
+| `strict`        | Deny shell, fs-write, network, env-write, process, llm (reads allowed) |
+| `all`           | Deny all capabilities                                                  |
+| Comma-separated | e.g. `no-shell,no-network` — deny specific capabilities                |
 
 ### Capabilities
 
-| Capability | Functions affected |
-| --- | --- |
-| `shell` | `shell` |
-| `fs-read` | `file/read`, `file/exists?`, `file/list`, `file/info`, `load`, ... |
-| `fs-write` | `file/write`, `file/append`, `file/delete`, `file/mkdir`, `file/copy`, ... |
-| `network` | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request` |
-| `env-read` | `env`, `sys/env-all` |
-| `env-write` | `sys/set-env` |
-| `process` | `exit`, `sys/pid`, `sys/args`, `sys/which` |
-| `llm` | `llm/complete`, `llm/chat`, `llm/send` |
+| Capability  | Functions affected                                                         |
+| ----------- | -------------------------------------------------------------------------- |
+| `shell`     | `shell`                                                                    |
+| `fs-read`   | `file/read`, `file/exists?`, `file/list`, `file/info`, `load`, ...         |
+| `fs-write`  | `file/write`, `file/append`, `file/delete`, `file/mkdir`, `file/copy`, ... |
+| `network`   | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`         |
+| `env-read`  | `env`, `sys/env-all`                                                       |
+| `env-write` | `sys/set-env`                                                              |
+| `process`   | `exit`, `sys/pid`, `sys/args`, `sys/which`                                 |
+| `llm`       | `llm/complete`, `llm/chat`, `llm/send`                                     |
 
 Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, etc.) are never restricted.
 
@@ -152,6 +152,7 @@ Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, 
 ### Tab Completion
 
 The REPL supports tab completion for:
+
 - All 350+ built-in function names (e.g., `string/tr` → `string/trim`)
 - Special forms (`def` → `define`, `defun`, `defmacro`, ...)
 - User-defined bindings

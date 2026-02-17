@@ -106,7 +106,7 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 
 **What "reify" means:** When compiled code calls `eval`, the VM must bridge two worlds. The VM stores locals in numbered stack slots (e.g., `x` is slot 0, `y` is slot 1). The tree-walker evaluator that runs `eval`'d expressions expects an `Env` hash map with named bindings. "Reify" means the VM walks its current frame and upvalue cells, builds a temporary `Env` with `{x → slot[0], y → slot[1], ...}`, and passes it to the tree-walker.
 
-**Why read-only:** If `eval` could mutate locals via `set!`, the temporary Env would need to be a *live view* into VM slots — requiring `Env` to become an enum over hash-map storage vs. frame-pointer storage. This is architecturally invasive and adds runtime branching to every `Env::get`/`set` call. The read-only model avoids this entirely: the reified Env is a plain hash map snapshot. `eval` can read locals and mutate globals, which covers all practical use cases.
+**Why read-only:** If `eval` could mutate locals via `set!`, the temporary Env would need to be a _live view_ into VM slots — requiring `Env` to become an enum over hash-map storage vs. frame-pointer storage. This is architecturally invasive and adds runtime branching to every `Env::get`/`set` call. The read-only model avoids this entirely: the reified Env is a plain hash map snapshot. `eval` can read locals and mutate globals, which covers all practical use cases.
 
 **Compiler requirement:** The compiler must preserve a name→slot mapping table (`Vec<(Spur, u16)>`) in each function's debug metadata. Without this, reify can't know what names to assign to slot values.
 
@@ -127,6 +127,7 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 **Decision:** Accept `Rc` cycle limitations for the initial bytecode VM. Document known cycle sources (recursive `define`, self-referencing closures via upvalue cells). Plan tracing mark-sweep GC for v2, using the VM stack as roots.
 
 **Known cycle sources:**
+
 - Named lambdas bind themselves in their captured env: `Lambda → env → bindings → Lambda`
 - In the VM, self-reference becomes: `Closure → upvalues → UpvalueCell → Value::Closure → ...`
 - These are bounded leaks (closure + its captured environment), not growing leaks.
@@ -154,6 +155,7 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 **Decision:** Replace the 24-byte `enum Value` with an 8-byte NaN-boxed `struct Value(u64)`. All values are encoded in 8 bytes using IEEE 754 quiet NaN payload space.
 
 **Encoding scheme:**
+
 - **Floats:** Stored directly as `f64` bits. Canonical quiet NaN (`0x7FF8...`) used for NaN float values to avoid collision with boxed values.
 - **Boxed values:** sign=1, exponent=all 1s, quiet bit=1. Bits 50-45 = TAG (6 bits, up to 64 types), bits 44-0 = PAYLOAD (45 bits).
 - **Small integers:** 45-bit two's complement in the payload, range ±17.5 trillion. No heap allocation.
@@ -166,13 +168,14 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 
 **Benchmark results (Apple M-series, release mode):**
 
-| Benchmark | Old (TW) | NaN-box (TW) | Δ TW | Old (VM) | NaN-box (VM) | Δ VM |
-|-----------|----------|-------------|------|----------|-------------|------|
-| tak       | 19.3s    | 21.1s       | −9%  | 9.09s    | 8.04s       | **+12%** |
-| nqueens   | 18.7s    | 20.8s       | −11% | <1ms     | <1ms        | —    |
-| deriv     | 2.97s    | 3.44s       | −16% | 1.99s    | 1.84s       | **+8%** |
+| Benchmark | Old (TW) | NaN-box (TW) | Δ TW | Old (VM) | NaN-box (VM) | Δ VM     |
+| --------- | -------- | ------------ | ---- | -------- | ------------ | -------- |
+| tak       | 19.3s    | 21.1s        | −9%  | 9.09s    | 8.04s        | **+12%** |
+| nqueens   | 18.7s    | 20.8s        | −11% | <1ms     | <1ms         | —        |
+| deriv     | 2.97s    | 3.44s        | −16% | 1.99s    | 1.84s        | **+8%**  |
 
 **Analysis:**
+
 - **VM mode sees 8-12% speedup** — the bytecode VM benefits from smaller Value size in its stack, constant pool, and register operations. Better cache locality.
 - **Tree-walker sees 9-16% regression** — the tree-walker's hot path now has additional cost from `view()` (refcount bump) and accessor overhead that the direct enum `match` didn't have. The tree-walker matches on Value types hundreds of millions of times in these benchmarks.
 - **Memory reduced ~5-10%** across all benchmarks (RSS), reflecting the 3× smaller Value type.
@@ -190,7 +193,7 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 - No central registry is planned — the ecosystem is not large enough to justify the infrastructure.
 - **Future: GitHub-based imports**
   - `github:username/repo` style imports that auto-download to `~/.sema/packages/`
-  - Could also support URL imports: `(import "https://raw.githubusercontent.com/...")`  for single-file dependencies
+  - Could also support URL imports: `(import "https://raw.githubusercontent.com/...")` for single-file dependencies
   - Lock file (`sema.lock`) for reproducible builds, recording exact commit SHAs
 
 ## LSP Server

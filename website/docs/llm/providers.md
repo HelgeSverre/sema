@@ -70,6 +70,7 @@ For full control over request/response handling, you can define providers entire
 ```
 
 **Parameters:**
+
 - `:complete` — **(required)** A function that takes a request map and returns a response
 - `:default-model` — Model name used when none is specified (default: `"default"`)
 
@@ -77,15 +78,15 @@ For full control over request/response handling, you can define providers entire
 
 The `:complete` function receives a map with these keys:
 
-| Key             | Type            | Description                        |
-| --------------- | --------------- | ---------------------------------- |
-| `:model`        | string          | Model name                         |
-| `:messages`     | list of maps    | Each has `:role` and `:content`    |
-| `:max-tokens`   | integer or nil  | Token limit                        |
-| `:temperature`  | float or nil    | Sampling temperature               |
-| `:system`       | string or nil   | System prompt                      |
-| `:tools`        | list or nil     | Tool schemas (if tools are in use) |
-| `:stop-sequences` | list or nil     | Stop sequences for generation       |
+| Key               | Type           | Description                        |
+| ----------------- | -------------- | ---------------------------------- |
+| `:model`          | string         | Model name                         |
+| `:messages`       | list of maps   | Each has `:role` and `:content`    |
+| `:max-tokens`     | integer or nil | Token limit                        |
+| `:temperature`    | float or nil   | Sampling temperature               |
+| `:system`         | string or nil  | System prompt                      |
+| `:tools`          | list or nil    | Tool schemas (if tools are in use) |
+| `:stop-sequences` | list or nil    | Stop sequences for generation      |
 
 ### Response Format
 
@@ -94,14 +95,14 @@ The function can return either:
 - **A string** — used as the assistant's response content
 - **A map** with optional keys:
 
-| Key               | Type   | Default       |
-| ----------------- | ------ | ------------- |
-| `:content`        | string | `""`          |
-| `:role`           | string | `"assistant"` |
-| `:model`          | string | request model |
-| `:stop-reason`    | string | `"end_turn"`  |
-| `:usage`          | map    | zero tokens   |
-| `:tool-calls`     | list    | empty list  |
+| Key            | Type   | Default       |
+| -------------- | ------ | ------------- |
+| `:content`     | string | `""`          |
+| `:role`        | string | `"assistant"` |
+| `:model`       | string | request model |
+| `:stop-reason` | string | `"end_turn"`  |
+| `:usage`       | map    | zero tokens   |
+| `:tool-calls`  | list   | empty list    |
 
 The `:usage` map can contain `:prompt-tokens` and `:completion-tokens` (both integers).
 
@@ -224,21 +225,21 @@ Switch the active provider at runtime.
 
 All providers are auto-configured from environment variables. Use `(llm/configure :provider {...})` for manual setup.
 
-| Provider          | Type           | Chat | Stream | Tools | Embeddings | Vision |
-| ----------------- | -------------- | ---- | ------ | ----- | ---------- | ------ |
-| **Anthropic**     | Native         | ✅   | ✅     | ✅    | —          | ✅     |
-| **OpenAI**        | Native         | ✅   | ✅     | ✅    | ✅         | ✅     |
-| **Google Gemini** | Native         | ✅   | ✅     | ✅    | —          | ✅     |
-| **Ollama**        | Native (local) | ✅   | ✅     | ✅    | —          | ✅ ²   |
-| **Groq**          | OpenAI-compat  | ✅   | ✅     | ✅    | —          | —      |
-| **xAI**           | OpenAI-compat  | ✅   | ✅     | ✅    | —          | —      |
-| **Mistral**       | OpenAI-compat  | ✅   | ✅     | ✅    | —          | —      |
-| **Moonshot**      | OpenAI-compat  | ✅   | ✅     | ✅    | —          | —      |
-| **Jina**          | Embedding-only | —    | —      | —     | ✅         | —      |
-| **Voyage**        | Embedding-only | —    | —      | —     | ✅         | —      |
-| **Cohere**        | Embedding-only | —    | —      | —     | ✅         | —      |
-| *Any OpenAI-compat* | `llm/configure`  | ✅ | ✅   | ✅    | —          | ✅     |
-| *Custom Lisp*     | `llm/define-provider` | ✅ | ¹ | ✅  | —          | —      |
+| Provider            | Type                  | Chat | Stream | Tools | Embeddings | Vision |
+| ------------------- | --------------------- | ---- | ------ | ----- | ---------- | ------ |
+| **Anthropic**       | Native                | ✅   | ✅     | ✅    | —          | ✅     |
+| **OpenAI**          | Native                | ✅   | ✅     | ✅    | ✅         | ✅     |
+| **Google Gemini**   | Native                | ✅   | ✅     | ✅    | —          | ✅     |
+| **Ollama**          | Native (local)        | ✅   | ✅     | ✅    | —          | ✅ ²   |
+| **Groq**            | OpenAI-compat         | ✅   | ✅     | ✅    | —          | —      |
+| **xAI**             | OpenAI-compat         | ✅   | ✅     | ✅    | —          | —      |
+| **Mistral**         | OpenAI-compat         | ✅   | ✅     | ✅    | —          | —      |
+| **Moonshot**        | OpenAI-compat         | ✅   | ✅     | ✅    | —          | —      |
+| **Jina**            | Embedding-only        | —    | —      | —     | ✅         | —      |
+| **Voyage**          | Embedding-only        | —    | —      | —     | ✅         | —      |
+| **Cohere**          | Embedding-only        | —    | —      | —     | ✅         | —      |
+| _Any OpenAI-compat_ | `llm/configure`       | ✅   | ✅     | ✅    | —          | ✅     |
+| _Custom Lisp_       | `llm/define-provider` | ✅   | ¹      | ✅    | —          | —      |
 
 ¹ Streaming falls back to non-streaming (sends complete response as a single chunk).
 

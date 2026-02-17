@@ -8,28 +8,28 @@ Sema has 20 built-in data types covering numbers, text, collections, and LLM pri
 
 ## Type Table
 
-| Type         | Syntax               | Examples                              |
-| ------------ | -------------------- | ------------------------------------- |
-| Integer      | digits               | `42`, `-7`, `0`                       |
-| Float        | digits with `.`      | `3.14`, `-0.5`, `1e10`                |
-| String       | double-quoted        | `"hello"`, `"line\nbreak"`, `"\x1B;"` |
-| Boolean      | `#t` / `#f`          | `#t`, `#f`                            |
-| Nil          | `nil`                | `nil`                                 |
-| Symbol       | bare identifier      | `foo`, `my-var`, `+`                  |
-| Keyword      | colon-prefixed       | `:name`, `:type`, `:ok`               |
-| Character    | `#\` prefix          | `#\a`, `#\space`, `#\newline`         |
-| List         | parenthesized        | `(1 2 3)`, `(+ a b)`                  |
-| Vector       | bracketed            | `[1 2 3]`, `["a" "b"]`               |
-| Map          | curly-braced         | `{:name "Ada" :age 36}`               |
-| HashMap      | `(hashmap/new ...)`  | `(hashmap/new :a 1 :b 2)`             |
-| Prompt       | `(prompt ...)`       | LLM prompt (see [Prompts](../llm/prompts.md))          |
-| Message      | `(message ...)`      | LLM message (see [Prompts](../llm/prompts.md))         |
-| Conversation | `(conversation/new)` | LLM conversation (see [Conversations](../llm/conversations.md)) |
+| Type         | Syntax               | Examples                                                           |
+| ------------ | -------------------- | ------------------------------------------------------------------ |
+| Integer      | digits               | `42`, `-7`, `0`                                                    |
+| Float        | digits with `.`      | `3.14`, `-0.5`, `1e10`                                             |
+| String       | double-quoted        | `"hello"`, `"line\nbreak"`, `"\x1B;"`                              |
+| Boolean      | `#t` / `#f`          | `#t`, `#f`                                                         |
+| Nil          | `nil`                | `nil`                                                              |
+| Symbol       | bare identifier      | `foo`, `my-var`, `+`                                               |
+| Keyword      | colon-prefixed       | `:name`, `:type`, `:ok`                                            |
+| Character    | `#\` prefix          | `#\a`, `#\space`, `#\newline`                                      |
+| List         | parenthesized        | `(1 2 3)`, `(+ a b)`                                               |
+| Vector       | bracketed            | `[1 2 3]`, `["a" "b"]`                                             |
+| Map          | curly-braced         | `{:name "Ada" :age 36}`                                            |
+| HashMap      | `(hashmap/new ...)`  | `(hashmap/new :a 1 :b 2)`                                          |
+| Prompt       | `(prompt ...)`       | LLM prompt (see [Prompts](../llm/prompts.md))                      |
+| Message      | `(message ...)`      | LLM message (see [Prompts](../llm/prompts.md))                     |
+| Conversation | `(conversation/new)` | LLM conversation (see [Conversations](../llm/conversations.md))    |
 | Tool         | `(deftool ...)`      | LLM tool definition (see [Tools & Agents](../llm/tools-agents.md)) |
-| Agent        | `(defagent ...)`     | LLM agent (see [Tools & Agents](../llm/tools-agents.md))          |
-| Promise      | `(delay expr)`       | Lazy evaluation                       |
-| Record       | `define-record-type` | `(define-record-type point ...)`      |
-| Bytevector   | `#u8(...)` literal   | `#u8(1 2 3)`, `#u8()`                 |
+| Agent        | `(defagent ...)`     | LLM agent (see [Tools & Agents](../llm/tools-agents.md))           |
+| Promise      | `(delay expr)`       | Lazy evaluation                                                    |
+| Record       | `define-record-type` | `(define-record-type point ...)`                                   |
+| Bytevector   | `#u8(...)` literal   | `#u8(1 2 3)`, `#u8()`                                              |
 
 ## Scalars
 

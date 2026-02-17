@@ -605,3 +605,196 @@ Convert a list of characters to a string.
 ```scheme
 (list->string '(#\h #\i))   ; => "hi"
 ```
+
+## Slicing & Extraction
+
+### `string/after`
+
+Everything after the first occurrence of a needle. Returns the original string if needle not found.
+
+```scheme
+(string/after "hello@world.com" "@")  ; => "world.com"
+(string/after "no-match" "@")         ; => "no-match"
+```
+
+### `string/after-last`
+
+Everything after the last occurrence of a needle.
+
+```scheme
+(string/after-last "a.b.c" ".")  ; => "c"
+```
+
+### `string/before`
+
+Everything before the first occurrence of a needle.
+
+```scheme
+(string/before "hello@world.com" "@")  ; => "hello"
+(string/before "no-match" "@")         ; => "no-match"
+```
+
+### `string/before-last`
+
+Everything before the last occurrence of a needle.
+
+```scheme
+(string/before-last "a.b.c" ".")  ; => "a.b"
+```
+
+### `string/between`
+
+Extract the portion between two delimiters.
+
+```scheme
+(string/between "[hello]" "[" "]")  ; => "hello"
+(string/between "start:middle:end" "start:" ":end")  ; => "middle"
+```
+
+### `string/take`
+
+Take the first N characters (positive) or last N characters (negative).
+
+```scheme
+(string/take "hello" 3)   ; => "hel"
+(string/take "hello" -2)  ; => "lo"
+```
+
+## Prefix & Suffix
+
+### `string/chop-start`
+
+Remove a prefix if present, otherwise return unchanged.
+
+```scheme
+(string/chop-start "Hello World" "Hello ")  ; => "World"
+(string/chop-start "Hello" "Bye")           ; => "Hello"
+```
+
+### `string/chop-end`
+
+Remove a suffix if present.
+
+```scheme
+(string/chop-end "file.txt" ".txt")  ; => "file"
+(string/chop-end "file.txt" ".md")   ; => "file.txt"
+```
+
+### `string/ensure-start`
+
+Ensure a string starts with a prefix (adds it if missing).
+
+```scheme
+(string/ensure-start "/path" "/")   ; => "/path"
+(string/ensure-start "path" "/")    ; => "/path"
+```
+
+### `string/ensure-end`
+
+Ensure a string ends with a suffix.
+
+```scheme
+(string/ensure-end "path" "/")   ; => "path/"
+(string/ensure-end "path/" "/")  ; => "path/"
+```
+
+### `string/wrap`
+
+Wrap a string with left and right delimiters.
+
+```scheme
+(string/wrap "hello" "(" ")")   ; => "(hello)"
+(string/wrap "hello" "**")      ; => "**hello**"
+```
+
+### `string/unwrap`
+
+Remove surrounding delimiters if both present.
+
+```scheme
+(string/unwrap "(hello)" "(" ")")  ; => "hello"
+(string/unwrap "hello" "(" ")")    ; => "hello"
+```
+
+## Replacement
+
+### `string/replace-first`
+
+Replace only the first occurrence of a substring.
+
+```scheme
+(string/replace-first "aaa" "a" "b")  ; => "baa"
+```
+
+### `string/replace-last`
+
+Replace only the last occurrence.
+
+```scheme
+(string/replace-last "aaa" "a" "b")  ; => "aab"
+```
+
+### `string/remove`
+
+Remove all occurrences of a substring.
+
+```scheme
+(string/remove "hello world" "o")  ; => "hell wrld"
+```
+
+## Case Conversion
+
+### `string/snake-case`
+
+Convert to snake_case.
+
+```scheme
+(string/snake-case "helloWorld")     ; => "hello_world"
+(string/snake-case "Hello World")   ; => "hello_world"
+```
+
+### `string/kebab-case`
+
+Convert to kebab-case.
+
+```scheme
+(string/kebab-case "helloWorld")     ; => "hello-world"
+(string/kebab-case "Hello World")   ; => "hello-world"
+```
+
+### `string/camel-case`
+
+Convert to camelCase.
+
+```scheme
+(string/camel-case "hello_world")    ; => "helloWorld"
+(string/camel-case "Hello World")    ; => "helloWorld"
+```
+
+### `string/pascal-case`
+
+Convert to PascalCase.
+
+```scheme
+(string/pascal-case "hello_world")   ; => "HelloWorld"
+(string/pascal-case "hello world")   ; => "HelloWorld"
+```
+
+### `string/headline`
+
+Convert to Title Case headline.
+
+```scheme
+(string/headline "hello_world")   ; => "Hello World"
+(string/headline "helloWorld")    ; => "Hello World"
+```
+
+### `string/words`
+
+Split a string into words (splits on non-alphanumeric boundaries).
+
+```scheme
+(string/words "hello_world")     ; => ("hello" "world")
+(string/words "helloWorld")      ; => ("hello" "World")
+(string/words "Hello World!")    ; => ("Hello" "World")
+```

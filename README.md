@@ -127,25 +127,25 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
 
 All providers are auto-configured from environment variables — just set the API key and go.
 
-| Provider          | Chat | Stream | Tools | Embeddings | Vision |
-| ----------------- | ---- | ------ | ----- | ---------- | ------ |
-| **Anthropic**     | ✅   | ✅     | ✅    | —          | ✅     |
-| **OpenAI**        | ✅   | ✅     | ✅    | ✅         | ✅     |
-| **Google Gemini** | ✅   | ✅     | ✅    | —          | ✅     |
-| **Ollama**        | ✅   | ✅     | ✅    | —          | ✅     |
-| **Groq**          | ✅   | ✅     | ✅    | —          | —      |
-| **xAI**           | ✅   | ✅     | ✅    | —          | —      |
-| **Mistral**       | ✅   | ✅     | ✅    | —          | —      |
-| **Moonshot**      | ✅   | ✅     | ✅    | —          | —      |
-| **Jina**          | —    | —      | —     | ✅         | —      |
-| **Voyage**        | —    | —      | —     | ✅         | —      |
-| **Cohere**        | —    | —      | —     | ✅         | —      |
+| Provider              | Chat | Stream | Tools | Embeddings | Vision |
+| --------------------- | ---- | ------ | ----- | ---------- | ------ |
+| **Anthropic**         | ✅   | ✅     | ✅    | —          | ✅     |
+| **OpenAI**            | ✅   | ✅     | ✅    | ✅         | ✅     |
+| **Google Gemini**     | ✅   | ✅     | ✅    | —          | ✅     |
+| **Ollama**            | ✅   | ✅     | ✅    | —          | ✅     |
+| **Groq**              | ✅   | ✅     | ✅    | —          | —      |
+| **xAI**               | ✅   | ✅     | ✅    | —          | —      |
+| **Mistral**           | ✅   | ✅     | ✅    | —          | —      |
+| **Moonshot**          | ✅   | ✅     | ✅    | —          | —      |
+| **Jina**              | —    | —      | —     | ✅         | —      |
+| **Voyage**            | —    | —      | —     | ✅         | —      |
+| **Cohere**            | —    | —      | —     | ✅         | —      |
 | **Any OpenAI-compat** | ✅   | ✅     | ✅    | —          | ✅     |
-| **Custom (Lisp)**  | ✅   | —      | ✅    | —          | —      |
+| **Custom (Lisp)**     | ✅   | —      | ✅    | —          | —      |
 
 ## It's Also a Real Lisp
 
-350+ built-in functions, tail-call optimization, macros, modules, error handling — not a toy.
+460+ built-in functions, tail-call optimization, macros, modules, error handling — not a toy.
 
 ```scheme
 ;; Closures, higher-order functions, TCO
@@ -228,14 +228,14 @@ sema completions fish > ~/.config/fish/completions/sema.fish
 
 ### Editor Support
 
-| Editor | Install |
-| --- | --- |
-| **VS Code** | `cd editors/vscode/sema && npx @vscode/vsce package` then install `.vsix` |
-| **Vim / Neovim** | `Plug 'helgesverre/sema', { 'rtp': 'editors/vim' }` |
-| **Emacs** | `(require 'sema-mode)` — see [docs](https://sema-lang.com/docs/editors.html) |
-| **Helix** | Copy `languages.toml` + query files — see [docs](https://sema-lang.com/docs/editors.html) |
+| Editor           | Install                                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------- |
+| **VS Code**      | `cd editors/vscode/sema && npx @vscode/vsce package` then install `.vsix`                 |
+| **Vim / Neovim** | `Plug 'helgesverre/sema', { 'rtp': 'editors/vim' }`                                       |
+| **Emacs**        | `(require 'sema-mode)` — see [docs](https://sema-lang.com/docs/editors.html)              |
+| **Helix**        | Copy `languages.toml` + query files — see [docs](https://sema-lang.com/docs/editors.html) |
 
-All editors provide syntax highlighting for 350+ builtins, special forms, keyword literals, character literals, LLM primitives, and more.
+All editors provide syntax highlighting for 460+ builtins, special forms, keyword literals, character literals, LLM primitives, and more.
 
 > 📖 Full installation instructions: **[sema-lang.com/docs/editors](https://sema-lang.com/docs/editors.html)**
 
@@ -243,23 +243,23 @@ All editors provide syntax highlighting for 350+ builtins, special forms, keywor
 
 The [`examples/`](examples/) directory has 50+ programs:
 
-| Example | What it does |
-| --- | --- |
-| [`coding-agent.sema`](examples/ai-tools/coding-agent.sema) | Full coding agent with file editing, search, and shell tools |
-| [`review.sema`](examples/ai-tools/review.sema) | AI code reviewer for git diffs |
-| [`commit-msg.sema`](examples/ai-tools/commit-msg.sema) | Generate conventional commit messages from staged changes |
-| [`summarize.sema`](examples/ai-tools/summarize.sema) | Summarize files or piped input |
-| [`game-of-life.sema`](examples/game-of-life.sema) | Conway's Game of Life |
-| [`brainfuck.sema`](examples/brainfuck.sema) | Brainfuck interpreter |
-| [`mandelbrot.sema`](examples/mandelbrot.sema) | ASCII Mandelbrot set |
-| [`json-api.sema`](examples/json-api.sema) | Fetch and process JSON APIs |
-| [`test-vision.sema`](examples/llm/test-vision.sema) | Vision extraction and multi-modal chat tests |
-| [`test-extract.sema`](examples/llm/test-extract.sema) | Structured extraction and classification |
-| [`test-batch.sema`](examples/llm/test-batch.sema) | Batch/parallel LLM completions |
-| [`test-pipeline.sema`](examples/llm/test-pipeline.sema) | Caching, budgets, rate limiting, retry, fallback chains |
-| [`test-text-tools.sema`](examples/llm/test-text-tools.sema) | Text chunking, prompt templates, document abstraction |
-| [`test-vector-store.sema`](examples/llm/test-vector-store.sema) | In-memory vector store with similarity search |
-| [`test-kv-store.sema`](examples/llm/test-kv-store.sema) | Persistent JSON-backed key-value store |
+| Example                                                         | What it does                                                 |
+| --------------------------------------------------------------- | ------------------------------------------------------------ |
+| [`coding-agent.sema`](examples/ai-tools/coding-agent.sema)      | Full coding agent with file editing, search, and shell tools |
+| [`review.sema`](examples/ai-tools/review.sema)                  | AI code reviewer for git diffs                               |
+| [`commit-msg.sema`](examples/ai-tools/commit-msg.sema)          | Generate conventional commit messages from staged changes    |
+| [`summarize.sema`](examples/ai-tools/summarize.sema)            | Summarize files or piped input                               |
+| [`game-of-life.sema`](examples/game-of-life.sema)               | Conway's Game of Life                                        |
+| [`brainfuck.sema`](examples/brainfuck.sema)                     | Brainfuck interpreter                                        |
+| [`mandelbrot.sema`](examples/mandelbrot.sema)                   | ASCII Mandelbrot set                                         |
+| [`json-api.sema`](examples/json-api.sema)                       | Fetch and process JSON APIs                                  |
+| [`test-vision.sema`](examples/llm/test-vision.sema)             | Vision extraction and multi-modal chat tests                 |
+| [`test-extract.sema`](examples/llm/test-extract.sema)           | Structured extraction and classification                     |
+| [`test-batch.sema`](examples/llm/test-batch.sema)               | Batch/parallel LLM completions                               |
+| [`test-pipeline.sema`](examples/llm/test-pipeline.sema)         | Caching, budgets, rate limiting, retry, fallback chains      |
+| [`test-text-tools.sema`](examples/llm/test-text-tools.sema)     | Text chunking, prompt templates, document abstraction        |
+| [`test-vector-store.sema`](examples/llm/test-vector-store.sema) | In-memory vector store with similarity search                |
+| [`test-kv-store.sema`](examples/llm/test-kv-store.sema)         | Persistent JSON-backed key-value store                       |
 
 ## Why Sema?
 
@@ -267,7 +267,7 @@ The [`examples/`](examples/) directory has 50+ programs:
 - **Multi-provider** — swap between Anthropic, OpenAI, Gemini, Ollama, any OpenAI-compatible endpoint, or define your own provider in Sema
 - **Pipeline-ready** — response caching, fallback chains, rate limiting, retry with backoff, text chunking, prompt templates, vector store, and a persistent KV store
 - **Cost-aware** — built-in budget tracking with dynamic pricing from [llm-prices.com](https://www.llm-prices.com)
-- **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and 350+ stdlib functions
+- **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and 460+ stdlib functions
 - **Embeddable** — clean Rust crate structure with a builder API
 - **Developer-friendly** — REPL with tab completion, structured error messages with hints, and 50+ example programs
 
@@ -288,7 +288,7 @@ crates/
   sema-reader/   Lexer and s-expression parser
   sema-vm/       Bytecode compiler and virtual machine
   sema-eval/     Trampoline-based evaluator, special forms, modules
-  sema-stdlib/   350+ built-in functions across 19 modules
+  sema-stdlib/   460+ built-in functions across 21 modules
   sema-llm/      LLM provider trait + multi-provider clients
   sema-wasm/     WebAssembly build for sema.run playground
   sema/          CLI binary: REPL + file runner

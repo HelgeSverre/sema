@@ -15,6 +15,7 @@
 ### Task 1: Add `Caps` bitflag and `Sandbox` type to `sema-core`
 
 **Files:**
+
 - Create: `crates/sema-core/src/sandbox.rs`
 - Modify: `crates/sema-core/src/lib.rs`
 - Modify: `crates/sema-core/src/error.rs`
@@ -209,6 +210,7 @@ git commit -m "feat: add Caps/Sandbox types and PermissionDenied error variant"
 ### Task 2: Add `register_fn_gated` and thread `Sandbox` through stdlib registration
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/lib.rs`
 
 **Step 1: Add `register_fn_gated` helper and update `register_stdlib` signature**
@@ -282,6 +284,7 @@ git commit -m "feat: add register_fn_gated and thread Sandbox through register_s
 ### Task 3: Gate dangerous functions in `system.rs`
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/system.rs`
 
 **Step 1: Update `register` to accept `&Sandbox` and gate functions**
@@ -290,16 +293,16 @@ Change the signature to `pub fn register(env: &sema_core::Env, sandbox: &sema_co
 
 Replace `register_fn` with `register_fn_gated` for dangerous functions:
 
-| Function | Capability |
-|---|---|
-| `shell` | `Caps::SHELL` |
-| `exit` | `Caps::PROCESS` |
-| `env` | `Caps::ENV_READ` |
+| Function      | Capability        |
+| ------------- | ----------------- |
+| `shell`       | `Caps::SHELL`     |
+| `exit`        | `Caps::PROCESS`   |
+| `env`         | `Caps::ENV_READ`  |
 | `sys/set-env` | `Caps::ENV_WRITE` |
-| `sys/env-all` | `Caps::ENV_READ` |
-| `sys/args` | `Caps::PROCESS` |
-| `sys/which` | `Caps::PROCESS` |
-| `sys/pid` | `Caps::PROCESS` |
+| `sys/env-all` | `Caps::ENV_READ`  |
+| `sys/args`    | `Caps::PROCESS`   |
+| `sys/which`   | `Caps::PROCESS`   |
+| `sys/pid`     | `Caps::PROCESS`   |
 
 Leave safe functions ungated: `time-ms`, `sleep`, `sys/cwd`, `sys/platform`, `sys/arch`, `sys/os`, `sys/home-dir`, `sys/temp-dir`, `sys/hostname`, `sys/user`, `sys/interactive?`, `sys/tty`, `sys/elapsed`.
 
@@ -333,6 +336,7 @@ git commit -m "feat: gate shell/env/process functions with sandbox capabilities"
 ### Task 4: Gate dangerous functions in `io.rs`
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/io.rs`
 
 **Step 1: Update `register` to accept `&Sandbox` and gate file functions**
@@ -341,27 +345,27 @@ Change signature to `pub fn register(env: &sema_core::Env, sandbox: &sema_core::
 
 Gate file functions:
 
-| Function | Capability |
-|---|---|
-| `file/read` | `Caps::FS_READ` |
-| `file/exists?` | `Caps::FS_READ` |
-| `file/is-directory?` | `Caps::FS_READ` |
-| `file/is-file?` | `Caps::FS_READ` |
-| `file/is-symlink?` | `Caps::FS_READ` |
-| `file/list` | `Caps::FS_READ` |
-| `file/read-lines` | `Caps::FS_READ` |
-| `file/for-each-line` | `Caps::FS_READ` |
-| `file/fold-lines` | `Caps::FS_READ` |
-| `file/info` | `Caps::FS_READ` |
-| `path/absolute` | `Caps::FS_READ` |
-| `load` | `Caps::FS_READ` |
-| `file/write` | `Caps::FS_WRITE` |
-| `file/append` | `Caps::FS_WRITE` |
-| `file/delete` | `Caps::FS_WRITE` |
-| `file/rename` | `Caps::FS_WRITE` |
-| `file/mkdir` | `Caps::FS_WRITE` |
-| `file/write-lines` | `Caps::FS_WRITE` |
-| `file/copy` | `Caps::FS_WRITE` |
+| Function             | Capability       |
+| -------------------- | ---------------- |
+| `file/read`          | `Caps::FS_READ`  |
+| `file/exists?`       | `Caps::FS_READ`  |
+| `file/is-directory?` | `Caps::FS_READ`  |
+| `file/is-file?`      | `Caps::FS_READ`  |
+| `file/is-symlink?`   | `Caps::FS_READ`  |
+| `file/list`          | `Caps::FS_READ`  |
+| `file/read-lines`    | `Caps::FS_READ`  |
+| `file/for-each-line` | `Caps::FS_READ`  |
+| `file/fold-lines`    | `Caps::FS_READ`  |
+| `file/info`          | `Caps::FS_READ`  |
+| `path/absolute`      | `Caps::FS_READ`  |
+| `load`               | `Caps::FS_READ`  |
+| `file/write`         | `Caps::FS_WRITE` |
+| `file/append`        | `Caps::FS_WRITE` |
+| `file/delete`        | `Caps::FS_WRITE` |
+| `file/rename`        | `Caps::FS_WRITE` |
+| `file/mkdir`         | `Caps::FS_WRITE` |
+| `file/write-lines`   | `Caps::FS_WRITE` |
+| `file/copy`          | `Caps::FS_WRITE` |
 
 Leave ungated: `display`, `print`, `println`, `newline`, `print-error`, `println-error`, `read-line`, `read-stdin`, `read`, `read-many`, `error`, `path/join`, `path/dirname`, `path/basename`, `path/extension`.
 
@@ -384,6 +388,7 @@ git commit -m "feat: gate file I/O functions with sandbox capabilities"
 ### Task 5: Gate all functions in `http.rs`
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/http.rs`
 
 **Step 1: Update `register` to accept `&Sandbox` and gate all HTTP functions**
@@ -417,6 +422,7 @@ git commit -m "feat: gate HTTP functions with sandbox network capability"
 ### Task 6: Update `sema-eval::Interpreter` and `sema::InterpreterBuilder`
 
 **Files:**
+
 - Modify: `crates/sema-eval/src/eval.rs`
 - Modify: `crates/sema/src/lib.rs`
 
@@ -485,6 +491,7 @@ git commit -m "feat: thread Sandbox through InterpreterBuilder"
 ### Task 7: Add `--sandbox` CLI flag
 
 **Files:**
+
 - Modify: `crates/sema/src/main.rs`
 
 **Step 1: Add the CLI argument to the `Cli` struct**
@@ -570,6 +577,7 @@ git commit -m "feat: add --sandbox CLI flag"
 ### Task 8: Gate LLM functions
 
 **Files:**
+
 - Modify: `crates/sema-llm/src/builtins.rs`
 
 **Step 1: Update `register_llm_builtins` to accept `&Sandbox`**
@@ -628,6 +636,7 @@ git commit -m "feat: gate LLM functions with sandbox llm capability"
 ### Task 9: Add integration tests
 
 **Files:**
+
 - Modify: `crates/sema/tests/integration_test.rs`
 
 **Step 1: Write sandbox integration tests**
@@ -735,6 +744,7 @@ git commit -m "test: add sandbox integration tests"
 ### Task 10: Add `--sandbox` help text to REPL and CLI
 
 **Files:**
+
 - Modify: `crates/sema/src/main.rs`
 
 **Step 1: Print sandbox status in REPL banner**
@@ -776,28 +786,28 @@ git commit -m "feat: show sandbox status in REPL banner"
 
 ## Summary of Changes
 
-| Crate | Files changed | Effort |
-|---|---|---|
-| `sema-core` | +sandbox.rs, ~error.rs, ~lib.rs | Small |
+| Crate         | Files changed                         | Effort              |
+| ------------- | ------------------------------------- | ------------------- |
+| `sema-core`   | +sandbox.rs, ~error.rs, ~lib.rs       | Small               |
 | `sema-stdlib` | ~lib.rs, ~system.rs, ~io.rs, ~http.rs | Medium (mechanical) |
-| `sema-llm` | ~builtins.rs | Small |
-| `sema-eval` | ~eval.rs | Tiny |
-| `sema` | ~lib.rs, ~main.rs, +tests | Small |
+| `sema-llm`    | ~builtins.rs                          | Small               |
+| `sema-eval`   | ~eval.rs                              | Tiny                |
+| `sema`        | ~lib.rs, ~main.rs, +tests             | Small               |
 
 **Total estimated effort: 2-3 hours**
 
 ## Capability Group Summary
 
-| Group | CLI name | Functions |
-|---|---|---|
-| `FS_READ` | `fs-read` | `file/read`, `file/exists?`, `file/list`, `file/is-file?`, `file/is-directory?`, `file/is-symlink?`, `file/read-lines`, `file/for-each-line`, `file/fold-lines`, `file/info`, `path/absolute`, `load` |
-| `FS_WRITE` | `fs-write` | `file/write`, `file/append`, `file/delete`, `file/rename`, `file/mkdir`, `file/write-lines`, `file/copy` |
-| `SHELL` | `shell` | `shell` |
-| `NETWORK` | `network` | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request` |
-| `ENV_READ` | `env-read` | `env`, `sys/env-all` |
-| `ENV_WRITE` | `env-write` | `sys/set-env` |
-| `PROCESS` | `process` | `exit`, `sys/args`, `sys/pid`, `sys/which` |
-| `LLM` | `llm` | `llm/complete`, `llm/chat`, `llm/send` |
+| Group       | CLI name    | Functions                                                                                                                                                                                             |
+| ----------- | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `FS_READ`   | `fs-read`   | `file/read`, `file/exists?`, `file/list`, `file/is-file?`, `file/is-directory?`, `file/is-symlink?`, `file/read-lines`, `file/for-each-line`, `file/fold-lines`, `file/info`, `path/absolute`, `load` |
+| `FS_WRITE`  | `fs-write`  | `file/write`, `file/append`, `file/delete`, `file/rename`, `file/mkdir`, `file/write-lines`, `file/copy`                                                                                              |
+| `SHELL`     | `shell`     | `shell`                                                                                                                                                                                               |
+| `NETWORK`   | `network`   | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`                                                                                                                                    |
+| `ENV_READ`  | `env-read`  | `env`, `sys/env-all`                                                                                                                                                                                  |
+| `ENV_WRITE` | `env-write` | `sys/set-env`                                                                                                                                                                                         |
+| `PROCESS`   | `process`   | `exit`, `sys/args`, `sys/pid`, `sys/which`                                                                                                                                                            |
+| `LLM`       | `llm`       | `llm/complete`, `llm/chat`, `llm/send`                                                                                                                                                                |
 
 ## CLI Usage Examples
 

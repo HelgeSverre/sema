@@ -233,6 +233,7 @@ pub async fn run_server() {
 ### `didClose` Handling
 
 The original plan omitted `didClose`. The server must:
+
 - Remove the document from the store
 - Clear diagnostics (publish empty `vec![]`) so stale errors don't linger
 
@@ -279,6 +280,7 @@ fn collect_builtin_names() -> Vec<String> {
 ### Special Form Names
 
 The REPL already has a `SPECIAL_FORMS` constant in `main.rs` (lines 12–59) with ~40 names. Options:
+
 1. **Reuse the REPL list:** Move the `SPECIAL_FORMS` array to `sema-eval` as a public constant, share it between REPL and LSP. This is the DRY approach and keeps the two in sync.
 2. **Export from `SpecialFormSpurs`:** Add a `pub fn special_form_names()` to `sema-eval`. Cleaner but requires the struct to be kept in sync manually.
 3. **Hard-code in `sema-lsp`:** Quick but creates a third copy.
@@ -329,14 +331,14 @@ fn extract_definitions(exprs: &[Value]) -> Vec<(String, CompletionItemKind)> {
 
 ### Completion Item Kinds
 
-| Source | `CompletionItemKind` |
-|--------|---------------------|
-| Special forms (`if`, `define`, `lambda`, ...) | `Keyword` |
-| Stdlib functions (`+`, `string/trim`, `map`, ...) | `Function` |
-| User `define` | `Variable` |
-| User `defun` | `Function` |
-| User `defmacro` | `Keyword` |
-| User `deftool`/`defagent` | `Class` |
+| Source                                            | `CompletionItemKind` |
+| ------------------------------------------------- | -------------------- |
+| Special forms (`if`, `define`, `lambda`, ...)     | `Keyword`            |
+| Stdlib functions (`+`, `string/trim`, `map`, ...) | `Function`           |
+| User `define`                                     | `Variable`           |
+| User `defun`                                      | `Function`           |
+| User `defmacro`                                   | `Keyword`            |
+| User `deftool`/`defagent`                         | `Class`              |
 
 ### Trigger
 
@@ -356,6 +358,7 @@ Register `completion_provider` in `ServerCapabilities` with trigger characters `
 #### 3a. `import`/`load` Path Resolution
 
 When the cursor is on a string literal inside `(import "path")` or `(load "path")`:
+
 - Resolve the path relative to the current file (same logic as the evaluator's module loader in `special_forms.rs`)
 - Return a `Location` pointing to the resolved file, line 0
 
@@ -364,6 +367,7 @@ When the cursor is on a string literal inside `(import "path")` or `(load "path"
 #### 3b. User-Defined Symbol Definitions
 
 For `(define x ...)` and `(defun f ...)`:
+
 - Parse the current file with `read_many_with_spans`
 - Walk top-level forms to find `define`/`defun` that binds the symbol under the cursor
 - Use the `SpanMap` to look up the span of the definition's name symbol (keyed by `Rc` pointer address)
@@ -377,6 +381,7 @@ For `(define x ...)` and `(defun f ...)`:
 #### 3c. Cross-File Module Definitions
 
 For symbols imported via `(import "module")`:
+
 - Parse the target module file
 - Find the exported symbol's definition span in that file
 - Return a `Location` in the target file
@@ -403,6 +408,7 @@ This is optional — point spans work fine for go-to-definition (the editor will
 ### Symbol-Under-Cursor Resolution
 
 > **Missing from plan:** Phase 3 needs a function to determine "what symbol is the cursor on?" given a `(line, col)` and the source text. Options:
+>
 > 1. Re-lex the line at the cursor position to find token boundaries
 > 2. Use the `SpanMap` to find the nearest span to the cursor position (requires iterating all spans — O(n) but fine for typical file sizes)
 > 3. Simple regex/character-class scan backward and forward from cursor position to find symbol boundaries
@@ -480,31 +486,41 @@ The current extension only provides syntax highlighting (TextMate grammar). Add 
 ### Extension Entry Point (`extension.ts`)
 
 ```typescript
-import { workspace, ExtensionContext } from 'vscode';
-import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
+import { workspace, ExtensionContext } from "vscode";
+import {
+  LanguageClient,
+  LanguageClientOptions,
+  ServerOptions,
+} from "vscode-languageclient/node";
 
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
-    const serverOptions: ServerOptions = {
-        command: 'sema',
-        args: ['lsp'],
-    };
+  const serverOptions: ServerOptions = {
+    command: "sema",
+    args: ["lsp"],
+  };
 
-    const clientOptions: LanguageClientOptions = {
-        documentSelector: [{ scheme: 'file', language: 'sema' }],
-    };
+  const clientOptions: LanguageClientOptions = {
+    documentSelector: [{ scheme: "file", language: "sema" }],
+  };
 
-    client = new LanguageClient('sema-lsp', 'Sema Language Server', serverOptions, clientOptions);
-    client.start();
+  client = new LanguageClient(
+    "sema-lsp",
+    "Sema Language Server",
+    serverOptions,
+    clientOptions,
+  );
+  client.start();
 }
 
 export function deactivate(): Thenable<void> | undefined {
-    return client?.stop();
+  return client?.stop();
 }
 ```
 
 > **Extension packaging:** The extension currently has no `node_modules`, `tsconfig.json`, or build step. Adding the LSP client requires:
+>
 > - `npm init` + `npm install vscode-languageclient`
 > - A `tsconfig.json` for compiling `extension.ts` → `out/extension.js`
 > - Update `.vscodeignore` to exclude `node_modules` but include `out/`
@@ -524,17 +540,20 @@ export function deactivate(): Thenable<void> | undefined {
 > **Missing from original plan.** LSP servers are notoriously hard to test manually. Plan for:
 
 ### Unit Tests (in `sema-lsp`)
+
 - `sema_span_to_lsp_range` conversion (1-indexed to 0-indexed edge cases: line 1 col 1 → 0,0)
 - `sema_error_to_diagnostic` with various error types (Reader, WithContext, nested WithTrace+WithContext)
 - `extract_definitions` with various AST shapes
 - `collect_builtin_names` returns non-empty list and includes known names
 
 ### Integration Tests
+
 - Spin up the LSP server in-process using `tower_lsp::LspService::new()`, send `initialize` → `initialized` → `didOpen` with bad source → assert diagnostics
 - Use the `tower-lsp` test utilities or the `lsp-types` crate to construct request/response pairs
 - Test completion results for partial prefixes
 
 ### Manual Testing Checklist
+
 - [ ] `sema lsp` starts and doesn't crash
 - [ ] VS Code shows red squiggles for `(define x` (unclosed paren)
 - [ ] Fixing the error clears the squiggles
@@ -545,12 +564,12 @@ export function deactivate(): Thenable<void> | undefined {
 
 ## Summary
 
-| Phase | Feature | Complexity | Sema Infrastructure Reused | New Code |
-|-------|---------|------------|---------------------------|----------|
-| 1 | Parse diagnostics | **Easy** | `read_many_with_spans`, `SemaError` spans/hints/notes | ~200 lines (tower-lsp boilerplate + span conversion + doc store) |
-| 2 | Completion | **Medium** | `Env` bindings, `SPECIAL_FORMS`, AST walking | ~250 lines (symbol collection + completion handler) |
-| 3 | Go to definition | **Hard** | `SpanMap`, module resolution logic, `EvalContext` | ~400 lines (definition finder + cross-file resolution) |
-| 4 | Hover docs | **Medium–Hard** | `NativeFn`, `Lambda` params | ~200 lines LSP side + doc string authoring effort |
+| Phase | Feature           | Complexity      | Sema Infrastructure Reused                            | New Code                                                         |
+| ----- | ----------------- | --------------- | ----------------------------------------------------- | ---------------------------------------------------------------- |
+| 1     | Parse diagnostics | **Easy**        | `read_many_with_spans`, `SemaError` spans/hints/notes | ~200 lines (tower-lsp boilerplate + span conversion + doc store) |
+| 2     | Completion        | **Medium**      | `Env` bindings, `SPECIAL_FORMS`, AST walking          | ~250 lines (symbol collection + completion handler)              |
+| 3     | Go to definition  | **Hard**        | `SpanMap`, module resolution logic, `EvalContext`     | ~400 lines (definition finder + cross-file resolution)           |
+| 4     | Hover docs        | **Medium–Hard** | `NativeFn`, `Lambda` params                           | ~200 lines LSP side + doc string authoring effort                |
 
 ### Recommended Implementation Order
 

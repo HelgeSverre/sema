@@ -10,11 +10,11 @@
 
 **Current benchmark (tak 500 iterations, hyperfine 5 runs, Apple Silicon):**
 
-| Implementation | Time | vs Janet |
-|----------------|------|----------|
-| Janet 1.x | 1.19s | 1.0x |
-| Sema VM | 9.26s | 7.8x |
-| Sema tree-walker | 19.32s | 16.2x |
+| Implementation   | Time   | vs Janet |
+| ---------------- | ------ | -------- |
+| Janet 1.x        | 1.19s  | 1.0x     |
+| Sema VM          | 9.26s  | 7.8x     |
+| Sema tree-walker | 19.32s | 16.2x    |
 
 ---
 
@@ -22,14 +22,14 @@
 
 Profiling `tak(18,12,6)` × 500 iterations (~22M function calls, ~66M arithmetic ops):
 
-| Bottleneck | Janet approach | Sema VM current | Est. impact |
-|------------|--------------|-----------------|-------------|
-| **Dispatch** | Computed gotos, 32-bit fixed-width instructions | `match` on byte opcode, variable-length encoding | ~2x |
-| **Arithmetic** | Inline NaN-boxed f64 ops, no branching for common case | `view()` pattern match → reconstruct Value | ~1.5x |
-| **Call frames** | Pointer bump on flat `Janet *data` array, no heap alloc | `Vec::push(CallFrame)` with `Rc<Closure>` clone, `vec![None; n]` for upvalues | ~2x |
-| **Variable access** | `stack[A]` — direct register index in instruction word | `self.stack[base + slot]` — extra indirection through `self.frames[fi]` | ~1.3x |
-| **Tail calls** | Overwrite current frame in-place, reset pc | Clone closure Rc, rebuild upvalue vec, resize stack | ~1.5x |
-| **Clone/Drop** | No refcounting (tracing GC) | `Value::clone()` bumps Rc on every push/load, Drop on every pop | ~1.5x |
+| Bottleneck          | Janet approach                                          | Sema VM current                                                               | Est. impact |
+| ------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------- | ----------- |
+| **Dispatch**        | Computed gotos, 32-bit fixed-width instructions         | `match` on byte opcode, variable-length encoding                              | ~2x         |
+| **Arithmetic**      | Inline NaN-boxed f64 ops, no branching for common case  | `view()` pattern match → reconstruct Value                                    | ~1.5x       |
+| **Call frames**     | Pointer bump on flat `Janet *data` array, no heap alloc | `Vec::push(CallFrame)` with `Rc<Closure>` clone, `vec![None; n]` for upvalues | ~2x         |
+| **Variable access** | `stack[A]` — direct register index in instruction word  | `self.stack[base + slot]` — extra indirection through `self.frames[fi]`       | ~1.3x       |
+| **Tail calls**      | Overwrite current frame in-place, reset pc              | Clone closure Rc, rebuild upvalue vec, resize stack                           | ~1.5x       |
+| **Clone/Drop**      | No refcounting (tracing GC)                             | `Value::clone()` bumps Rc on every push/load, Drop on every pop               | ~1.5x       |
 
 These multiply together: 2 × 1.5 × 2 × 1.3 × 1.5 × 1.5 ≈ **17x** theoretical overhead, which aligns with the measured 7.8x gap (some overlap between categories).
 
@@ -42,6 +42,7 @@ These multiply together: 2 × 1.5 × 2 × 1.3 × 1.5 × 1.5 ≈ **17x** theoreti
 **Solution:** Add `try_as_small_int()` fast-path that checks the NaN-box tag bits directly and extracts the i64 without constructing a `ValueView`.
 
 **Files:**
+
 - Modify: `crates/sema-core/src/value.rs` — add `try_as_small_int(&self) -> Option<i64>` inline method
 - Modify: `crates/sema-vm/src/vm.rs` — rewrite `vm_add`, `vm_sub`, `vm_mul`, `vm_lt`, and dispatch sites
 
@@ -134,6 +135,7 @@ fn vm_add_slow(a: &Value, b: &Value) -> Result<Value, SemaError> {
 ## Phase 2: Eliminate Per-Call Heap Allocations (Est. 1.5-2x speedup)
 
 **Problem:** Every `call_vm_closure` does:
+
 1. `Rc::clone(&closure)` — atomic refcount bump
 2. `vec![None; n_locals]` — heap allocation for `open_upvalues`
 3. `Vec::push(CallFrame)` — may reallocate `frames` vec
@@ -143,6 +145,7 @@ For `tak(18,12,6)` with 22M calls, that's 22M `Vec` allocations for upvalue slot
 **Solution:** Lazy upvalue allocation + pre-allocated frame pool.
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/vm.rs` — `CallFrame`, `call_vm_closure`, `tail_call_vm_closure`, `LoadLocal`, `StoreLocal`, `MakeClosure`
 
 ### Task 2.1: Lazy upvalue Vec allocation
@@ -225,6 +228,7 @@ This avoids cloning the `Rc<Closure>` wrapper and lets us access `func` and `upv
 > **Note:** This is the biggest single change and touches the compiler, instruction encoding, and entire VM dispatch loop. It should be done incrementally — start with a hybrid approach.
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/chunk.rs` — new `Op32` instruction format
 - Modify: `crates/sema-vm/src/compiler.rs` — register allocator, emit 32-bit instructions
 - Modify: `crates/sema-vm/src/vm.rs` — new dispatch loop
@@ -234,6 +238,7 @@ This avoids cloning the `Rc<Closure>` wrapper and lets us access `func` and `upv
 ### Task 3.1: Design the instruction format
 
 Janet's format (reference):
+
 ```
  31       24 23    16 15      8 7       0
 ┌──────────┬────────┬─────────┬─────────┐
@@ -248,6 +253,7 @@ Formats:
 ```
 
 Sema's new format (proposal):
+
 ```
  31       24 23    16 15      8 7       0
 ┌──────────┬────────┬─────────┬─────────┐
@@ -289,12 +295,14 @@ impl Inst {
 This replaces the current stack-position tracking with explicit register (slot) allocation. Each function has a fixed `slotcount` (like Janet's `JanetFuncDef.slotcount`).
 
 **Key design:**
+
 - Locals occupy slots 0..n_params+n_locals
 - Temporaries occupy slots above locals
 - Compiler tracks a "next free slot" watermark
 - Each expression compilation returns the slot it wrote its result to
 
 This is a significant rewrite of `compiler.rs`. Break into sub-tasks:
+
 1. Add `RegisterAllocator` struct that tracks free/used slots
 2. Change `compile_expr` to take a `dest: u8` parameter and write result there
 3. Convert each expression compiler (if, let, call, etc.) to use register ops
@@ -368,6 +376,7 @@ fn run(&mut self, ctx: &EvalContext) -> Result<Value, SemaError> {
 **Solution:** Rust doesn't have computed gotos natively, but there are workarounds:
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/vm.rs` — dispatch loop
 
 ### Task 4.1: Research and implement best dispatch for Rust
@@ -408,6 +417,7 @@ Janet avoids this entirely because it uses a **tracing GC** — values are just 
 **Solution:** Short of switching to a tracing GC (out of scope), we can minimize unnecessary clones.
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/vm.rs` — stack operations
 - Modify: `crates/sema-core/src/value.rs` — add `is_immediate()` method
 
@@ -488,11 +498,11 @@ op::LOAD_GLOBAL_CACHED => {
 
 Identify hot instruction sequences and fuse them:
 
-| Pattern | Fused instruction | Savings |
-|---------|------------------|---------|
-| `LoadLocal A; LoadLocal B; Add; StoreLocal C` | `ADD_LOCAL C, A, B` | 3 dispatches |
-| `LoadLocal A; LoadConst imm; Lt` | `LT_IMM dest, A, imm` | 2 dispatches |
-| `Call N; Return` | `TAILCALL N` | 1 dispatch + frame pop/push |
+| Pattern                                       | Fused instruction     | Savings                     |
+| --------------------------------------------- | --------------------- | --------------------------- |
+| `LoadLocal A; LoadLocal B; Add; StoreLocal C` | `ADD_LOCAL C, A, B`   | 3 dispatches                |
+| `LoadLocal A; LoadConst imm; Lt`              | `LT_IMM dest, A, imm` | 2 dispatches                |
+| `Call N; Return`                              | `TAILCALL N`          | 1 dispatch + frame pop/push |
 
 **Implementation:** Add a peephole optimization pass over the compiled instruction stream before execution.
 
@@ -529,15 +539,15 @@ This eliminates bounds checks from every opcode handler. Estimated ~5-10% on com
 
 ## Expected Cumulative Results
 
-| Phase | Change | Est. speedup | Cumulative time (tak) |
-|-------|--------|-------------|----------------------|
-| Baseline | — | — | 9.26s |
-| Phase 1 | Fast-path arithmetic | 1.5-2x | ~5.5s |
-| Phase 2 | Eliminate per-call allocs | 1.3-1.5x | ~4.0s |
-| Phase 3 | Register-based encoding | 1.5-2x | ~2.3s |
-| Phase 4 | Dispatch optimization | 1.1-1.3x | ~1.9s |
-| Phase 5 | Reduce clone/drop | 1.1-1.3x | ~1.6s |
-| Phase 6 | Advanced opts | 1.1-1.3x | ~1.3s |
+| Phase    | Change                    | Est. speedup | Cumulative time (tak) |
+| -------- | ------------------------- | ------------ | --------------------- |
+| Baseline | —                         | —            | 9.26s                 |
+| Phase 1  | Fast-path arithmetic      | 1.5-2x       | ~5.5s                 |
+| Phase 2  | Eliminate per-call allocs | 1.3-1.5x     | ~4.0s                 |
+| Phase 3  | Register-based encoding   | 1.5-2x       | ~2.3s                 |
+| Phase 4  | Dispatch optimization     | 1.1-1.3x     | ~1.9s                 |
+| Phase 5  | Reduce clone/drop         | 1.1-1.3x     | ~1.6s                 |
+| Phase 6  | Advanced opts             | 1.1-1.3x     | ~1.3s                 |
 
 **Target: ~1.3-2.0s** — within 1.1-1.7x of Janet's 1.19s.
 

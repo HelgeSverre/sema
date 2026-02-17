@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.6.0
+
+### Added
+
+- **Pretty-printing** — `pprint` builtin and `pretty_print(value, max_width)` in `sema-core`. Smart line-breaking for nested maps/lists with 2-character indentation. Used by REPL and playground for result display.
+- **Context module** (15 functions) — ambient key-value context that flows through execution: `context/set`, `context/get`, `context/has?`, `context/remove`, `context/pull`, `context/all`, `context/merge`, `context/clear`, `context/with` (scoped overrides), `context/push`, `context/stack`, `context/pop` (named stacks), `context/set-hidden`, `context/get-hidden`, `context/has-hidden?`. Context auto-appends to `log/info`, `log/warn`, `log/error` output.
+- **PDF processing module** (4 functions) — `pdf/extract-text`, `pdf/extract-text-pages`, `pdf/page-count`, `pdf/metadata`. Pure-Rust via `pdf-extract` and `lopdf` crates, sandboxed under `FS_READ`.
+- **21 new string functions** — `string/after`, `string/after-last`, `string/before`, `string/before-last`, `string/between`, `string/chop-start`, `string/chop-end`, `string/ensure-start`, `string/ensure-end`, `string/replace-first`, `string/replace-last`, `string/remove`, `string/take`, `string/snake-case`, `string/kebab-case`, `string/camel-case`, `string/pascal-case`, `string/headline`, `string/words`, `string/wrap`, `string/unwrap`.
+- **Text utilities** — `text/excerpt` (snippet extraction around a search term with omission markers), `text/normalize-newlines` (convert `\r\n`/`\r` to `\n`).
+- **Async HTTP in WASM playground** — `http/get`, `http/post`, `http/put`, `http/delete`, `http/request` now work in the browser playground via a replay-with-cache strategy (uses browser `fetch()` API).
+- **`check_arity!` macro** — reduces boilerplate in stdlib function implementations.
+
+### Changed
+
+- **WASM stack tuning** — `MAX_EVAL_DEPTH` lowered to 256 for `wasm32` targets; `.cargo/config.toml` sets 64MB WASM linear memory stack.
+- **Stdlib function count** — increased from ~370 to ~460+ registered functions.
+
+### Internal
+
+- **Website docs** — added documentation pages for Context, PDF processing, Playground & WASM HTTP support, and 21 new string functions. Updated stdlib index and quick reference tables.
+
 ## 1.5.0
 
 ### Breaking
@@ -126,7 +147,7 @@
 
 ### Improved
 
-- **Structured error messages** — errors now support `.with_hint()` and `.with_note()` for actionable suggestions and context. Reader errors show human-readable token names instead of Rust debug format (e.g. `expected \`)\`, got \`]\`` instead of `RParen`/`RBracket`).
+- **Structured error messages** — errors now support `.with_hint()` and `.with_note()` for actionable suggestions and context. Reader errors show human-readable token names instead of Rust debug format (e.g. `expected \`)\`, got \`]\``instead of`RParen`/`RBracket`).
 - **Better error spans** — unterminated lists/vectors/maps now point to the opening delimiter instead of `0:0`.
 - **Contextual hints on common errors** — unmatched delimiters, prefix operators without expressions (`'`, `` ` ``, `,`, `,@`), "not callable" errors, and bare `#` all include actionable hints.
 

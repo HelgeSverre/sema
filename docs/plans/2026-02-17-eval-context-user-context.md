@@ -13,6 +13,7 @@
 ## Task 1: Add user context storage to `EvalContext`
 
 **Files:**
+
 - Modify: `crates/sema-core/src/context.rs`
 
 **Step 1: Add context fields to `EvalContext`**
@@ -197,6 +198,7 @@ git commit -m "feat: add user context, hidden context, and stacks to EvalContext
 ## Task 2: Create `context.rs` stdlib module with core functions
 
 **Files:**
+
 - Create: `crates/sema-stdlib/src/context.rs`
 - Modify: `crates/sema-stdlib/src/lib.rs`
 
@@ -318,11 +320,13 @@ pub fn register(env: &sema_core::Env) {
 Add `mod context;` to the module list and `context::register(env);` in `register_stdlib`:
 
 In `crates/sema-stdlib/src/lib.rs`, add after `mod csv_ops;`:
+
 ```rust
 mod context;
 ```
 
 In `register_stdlib`, add after `csv_ops::register(env);` (near the bottom):
+
 ```rust
 context::register(env);
 ```
@@ -344,6 +348,7 @@ git commit -m "feat: add context/set, context/get, context/has?, context/remove,
 ## Task 3: Add `context/with` scoped override
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/context.rs`
 - Modify: `crates/sema/tests/integration_test.rs`
 
@@ -436,6 +441,7 @@ git commit -m "feat: add context/with scoped override"
 ## Task 4: Add hidden context functions
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/context.rs`
 - Modify: `crates/sema/tests/integration_test.rs`
 
@@ -527,6 +533,7 @@ git commit -m "feat: add context/set-hidden, context/get-hidden, context/has-hid
 ## Task 5: Add context stacks (push/pop/get)
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/context.rs`
 - Modify: `crates/sema/tests/integration_test.rs`
 
@@ -623,6 +630,7 @@ git commit -m "feat: add context/push, context/stack, context/pop (stack operati
 ## Task 6: Add `context/merge` and `context/clear`
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/context.rs`
 - Modify: `crates/sema-core/src/context.rs`
 - Modify: `crates/sema/tests/integration_test.rs`
@@ -714,6 +722,7 @@ git commit -m "feat: add context/merge and context/clear"
 ## Task 7: Wire context into `log/` functions as automatic metadata
 
 **Files:**
+
 - Modify: `crates/sema-stdlib/src/io.rs` (or wherever `log/info`, `log/warn`, `log/error` are defined)
 - Modify: `crates/sema/tests/integration_test.rs`
 
@@ -749,6 +758,7 @@ New format with context: `[INFO] test message {:trace-id "abc-123" :user-id 42}`
 The key change: after formatting the log message, call `ctx.context_all()`. If the resulting map is non-empty, append it as a printed map to the log line.
 
 Example modification pattern:
+
 ```rust
 // Before (simplified):
 register_fn(env, "log/info", |args| {
@@ -791,6 +801,7 @@ git commit -m "feat: log/info, log/warn, log/error auto-append user context as m
 ## Task 8: Full test suite verification and edge cases
 
 **Files:**
+
 - Modify: `crates/sema/tests/integration_test.rs`
 
 **Step 1: Write edge case tests**
@@ -894,15 +905,15 @@ git commit -m "test: add edge case tests for context (error restore, value types
 
 ## Summary
 
-| Task | What | Functions Added |
-|------|-------|----------------|
-| 1 | `EvalContext` storage + helpers | (Rust internals) |
-| 2 | Core context module | `context/set`, `context/get`, `context/has?`, `context/remove`, `context/all`, `context/pull` |
-| 3 | Scoped overrides | `context/with` |
-| 4 | Hidden context | `context/set-hidden`, `context/get-hidden`, `context/has-hidden?` |
-| 5 | Stacks | `context/push`, `context/stack`, `context/pop` |
-| 6 | Merge + clear | `context/merge`, `context/clear` |
-| 7 | Log integration | `log/*` auto-appends context as metadata |
-| 8 | Edge cases + verification | Error restore, type flexibility, full suite |
+| Task | What                            | Functions Added                                                                               |
+| ---- | ------------------------------- | --------------------------------------------------------------------------------------------- |
+| 1    | `EvalContext` storage + helpers | (Rust internals)                                                                              |
+| 2    | Core context module             | `context/set`, `context/get`, `context/has?`, `context/remove`, `context/all`, `context/pull` |
+| 3    | Scoped overrides                | `context/with`                                                                                |
+| 4    | Hidden context                  | `context/set-hidden`, `context/get-hidden`, `context/has-hidden?`                             |
+| 5    | Stacks                          | `context/push`, `context/stack`, `context/pop`                                                |
+| 6    | Merge + clear                   | `context/merge`, `context/clear`                                                              |
+| 7    | Log integration                 | `log/*` auto-appends context as metadata                                                      |
+| 8    | Edge cases + verification       | Error restore, type flexibility, full suite                                                   |
 
 Total: **15 new Lisp functions**, all in `context/` namespace.

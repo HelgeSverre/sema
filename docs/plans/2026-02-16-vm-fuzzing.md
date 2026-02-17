@@ -17,6 +17,7 @@
 ### Task 1: Replace `unsafe transmute` with safe opcode decoding
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/opcodes.rs`
 - Modify: `crates/sema-vm/src/vm.rs:86`
 - Test: `crates/sema-vm/src/vm.rs` (existing tests must still pass)
@@ -72,6 +73,7 @@ git commit -m "fix: replace unsafe transmute with safe opcode decoding"
 ### Task 2: Add VM fuel / step limit
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/vm.rs` (add fuel counter to `VM` struct and decrement in `run()` loop)
 - Test: `crates/sema-vm/src/vm.rs` (add unit test for fuel exhaustion)
 
@@ -169,6 +171,7 @@ git commit -m "feat: add fuel/step limit to VM for fuzzing safety"
 ### Task 3: Add bounds checks to operand reads
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/vm.rs` (`read_u16`, `read_u32`, `read_i32`, `read_spur`)
 
 **Context:** `read_u16` reads `code[pc+1]` and `code[pc+2]` without checking bounds. If a truncated instruction is at the end of `code`, this panics with index-out-of-bounds. Same for `read_u32`/`read_i32`. Also `read_spur` transmutes `u32→Spur` which may be UB for zero values.
@@ -208,6 +211,7 @@ fn read_spur(&mut self) -> Result<Spur, SemaError> {
 **Step 2: Update all call sites**
 
 Every `self.read_u16()` becomes `self.read_u16()?`, etc. This affects:
+
 - `Op::Const`, `Op::LoadLocal`, `Op::StoreLocal`, `Op::LoadUpvalue`, `Op::StoreUpvalue`
 - `Op::Call`, `Op::TailCall`, `Op::MakeList`, `Op::MakeVector`, `Op::MakeMap`, `Op::MakeHashMap`
 - `Op::CallNative`, `Op::MakeClosure`
@@ -233,6 +237,7 @@ git commit -m "fix: add bounds checks to VM operand reads"
 ### Task 4: Set up `cargo-fuzz` for `sema-vm`
 
 **Files:**
+
 - Create: `crates/sema-vm/fuzz/Cargo.toml`
 - Create: `crates/sema-vm/fuzz/fuzz_targets/fuzz_vm.rs`
 - Modify: `Makefile` (add `fuzz-vm` target)
@@ -386,6 +391,7 @@ git commit -m "feat: add source-level fuzz target for VM"
 ### Task 5: Add differential fuzz target (tree-walker vs VM)
 
 **Files:**
+
 - Create: `crates/sema-vm/fuzz/fuzz_targets/fuzz_vm_diff.rs`
 - Modify: `crates/sema-vm/fuzz/Cargo.toml` (add `sema-eval` dependency + new `[[bin]]`)
 - Modify: `Makefile` (add `fuzz-vm-diff` target)
@@ -513,6 +519,7 @@ git commit -m "feat: add differential fuzz target (tree-walker vs VM)"
 ### Task 6: Add raw bytecode fuzz target
 
 **Files:**
+
 - Create: `crates/sema-vm/fuzz/fuzz_targets/fuzz_vm_bytecode.rs`
 - Modify: `crates/sema-vm/fuzz/Cargo.toml` (add `arbitrary` dependency + new `[[bin]]`)
 - Modify: `Makefile` (add `fuzz-vm-bytecode` target)
@@ -679,6 +686,7 @@ git commit -m "feat: add raw bytecode fuzz target for VM"
 ### Task 7: Generate seed corpus from compiled examples
 
 **Files:**
+
 - Create: `crates/sema-vm/fuzz/generate_corpus.rs` (helper binary or test)
 - Create: `crates/sema-vm/fuzz/corpus/fuzz_vm/` (directory with seed inputs)
 
@@ -715,6 +723,7 @@ git commit -m "feat: add seed corpus for VM fuzzing"
 ### Task 8: Add additional VM stack/frame guards for robustness
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/vm.rs`
 
 **Context:** Beyond fuel limits, add guards against pathological resource usage that could OOM the fuzzer.
@@ -763,14 +772,14 @@ git commit -m "feat: add stack/frame depth limits to VM"
 
 ## Summary of expected bugs
 
-| Bug class | Found by | Severity |
-|-----------|----------|----------|
+| Bug class                                   | Found by                       | Severity |
+| ------------------------------------------- | ------------------------------ | -------- |
 | UB from `transmute` on invalid opcode bytes | Task 1 (fix) + Task 6 (verify) | Critical |
-| Stack underflow panics (`pop().unwrap()`) | Task 4, Task 6 | High |
-| OOB reads in operand decoding | Task 3 (fix) + Task 6 (verify) | High |
-| Correctness: wrong result from compiler | Task 5 (differential) | High |
-| Jump offset wrapping → infinite loop | Task 2 (fuel) + Task 6 | Medium |
-| `functions[func_id]` OOB in MakeClosure | Task 6 | Medium |
-| Exception handler stack corruption | Task 6 | Medium |
-| Closure/upvalue aliasing bugs | Task 5 (differential) | Medium |
-| OOM from unbounded containers | Task 8 | Low |
+| Stack underflow panics (`pop().unwrap()`)   | Task 4, Task 6                 | High     |
+| OOB reads in operand decoding               | Task 3 (fix) + Task 6 (verify) | High     |
+| Correctness: wrong result from compiler     | Task 5 (differential)          | High     |
+| Jump offset wrapping → infinite loop        | Task 2 (fuel) + Task 6         | Medium   |
+| `functions[func_id]` OOB in MakeClosure     | Task 6                         | Medium   |
+| Exception handler stack corruption          | Task 6                         | Medium   |
+| Closure/upvalue aliasing bugs               | Task 5 (differential)          | Medium   |
+| OOM from unbounded containers               | Task 8                         | Low      |

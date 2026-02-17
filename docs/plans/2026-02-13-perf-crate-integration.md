@@ -17,6 +17,7 @@
 ## Task 1: Add `memchr` — SIMD byte search for `string/split`
 
 **Files:**
+
 - Modify: `Cargo.toml` (workspace deps)
 - Modify: `crates/sema-stdlib/Cargo.toml`
 - Modify: `crates/sema-stdlib/src/list.rs` (lines 1302–1337, inlined `string/split`)
@@ -26,11 +27,13 @@
 ### Step 1: Add workspace dependency
 
 In `Cargo.toml` (root), add under `[workspace.dependencies]`:
+
 ```toml
 memchr = "2"
 ```
 
 In `crates/sema-stdlib/Cargo.toml`, add:
+
 ```toml
 memchr.workspace = true
 ```
@@ -157,6 +160,7 @@ git commit -m "perf: use memchr for SIMD byte search in string/split hot path"
 This is the largest change. Symbols and keywords will store a `Spur` (u32 key) instead of `Rc<String>`. A thread-local `Rodeo` interner maps between strings and spurs.
 
 **Files:**
+
 - Modify: `Cargo.toml` (workspace deps)
 - Modify: `crates/sema-core/Cargo.toml`
 - Modify: `crates/sema-core/src/value.rs` (Value enum, Env, constructors, Eq/Ord/Display, accessors)
@@ -172,6 +176,7 @@ This is the largest change. Symbols and keywords will store a `Spur` (u32 key) i
 - Test: `crates/sema/tests/integration_test.rs`
 
 ### Critical design decisions:
+
 - **ONLY** intern `Value::Symbol` and `Value::Keyword`. `Value::String` stays as `Rc<String>`.
 - Thread-local `Rodeo` interner, accessed via helper fns `intern(s: &str) -> Spur` and `resolve(spur: Spur) -> &str`.
 - `Spur` Ord is by integer value (insertion order), NOT lexicographic. This changes BTreeMap iteration order for maps with keyword/symbol keys. **This is acceptable** — map keys should not depend on iteration order of keywords.
@@ -182,11 +187,13 @@ This is the largest change. Symbols and keywords will store a `Spur` (u32 key) i
 ### Step 1: Add workspace dependency
 
 In `Cargo.toml` (root), add under `[workspace.dependencies]`:
+
 ```toml
 lasso = "0.7"
 ```
 
 In `crates/sema-core/Cargo.toml`, add:
+
 ```toml
 lasso.workspace = true
 ```
@@ -349,6 +356,7 @@ This is a **free speedup** — same interned string always gets the same Spur.
 ```
 
 **IMPORTANT:** We must compare by string content, not Spur integer value, because:
+
 - The sort order of keyword map keys would change between runs (Spur values depend on intern order)
 - `(sort '(:c :a :b))` must always return `(:a :b :c)`, not vary by intern order
 - BTreeMap iteration of `{:c 1 :a 2 :b 3}` must be deterministic
@@ -556,6 +564,7 @@ Value::Keyword(s) => Ok(Value::String(Rc::new(resolve(*s)))),
 Search for `Value::Symbol(Rc::new`, `Value::Keyword(Rc::new`, `Value::Symbol(ref`, `Value::Keyword(ref`, `Rc::clone(kw)` across all crates and update.
 
 Key files to scan:
+
 - `crates/sema-eval/src/special_forms.rs` — many symbol pattern matches
 - `crates/sema-stdlib/src/predicates.rs` — `symbol?`, `keyword?`
 - `crates/sema-stdlib/src/io.rs` — unlikely
@@ -565,11 +574,13 @@ Key files to scan:
 ### Step 16: Re-export interner functions from sema-core lib.rs
 
 In `crates/sema-core/src/lib.rs`, add:
+
 ```rust
 pub use value::{intern, resolve, with_resolved, compare_spurs};
 ```
 
 And re-export `Spur` from lasso:
+
 ```rust
 pub use lasso::Spur;
 ```
@@ -594,6 +605,7 @@ git commit -m "perf: intern symbols and keywords with lasso (Spur-based Value::S
 ### Step 20: Add decision to DECISIONS.md
 
 Add Decision #43 documenting the interning approach:
+
 ```markdown
 ### 43. String interning for symbols and keywords (lasso)
 
@@ -610,6 +622,7 @@ Add Decision #43 documenting the interning approach:
 ## Task 3: Add `hashbrown` — Fast HashMap for hot-path accumulator
 
 **Files:**
+
 - Modify: `Cargo.toml` (workspace deps)
 - Modify: `crates/sema-core/Cargo.toml`
 - Modify: `crates/sema-core/src/value.rs` (add Hash impl for Value)
@@ -618,6 +631,7 @@ Add Decision #43 documenting the interning approach:
 - Test: `crates/sema/tests/integration_test.rs`
 
 ### Design decisions:
+
 - **Do NOT change `Value::Map` from BTreeMap to HashMap globally.** This would break deterministic iteration order (sorted output, test stability).
 - Instead, add `Value::HashMap(Rc<hashbrown::HashMap<Value, Value>>)` as a new variant, OR use HashMap only inside the inlined `assoc`/`get` hot path.
 - Actually, adding a new Value variant is invasive (every match on Value needs updating). Better approach: **Add `Hash` impl for `Value`** so it CAN be used as HashMap key, then use hashbrown HashMap internally in a new native function `hashmap/new`, `hashmap/get`, `hashmap/assoc` — or even simpler: make `file/fold-lines` auto-detect when the accumulator is a map with many keys and switch to HashMap internally.
@@ -641,11 +655,13 @@ BUT — this means changing the 1BRC script and adding a bunch of match arms. A 
 ### Step 1: Add workspace dependency
 
 In `Cargo.toml` (root), add under `[workspace.dependencies]`:
+
 ```toml
 hashbrown = "0.15"
 ```
 
 In `crates/sema-core/Cargo.toml` and `crates/sema-stdlib/Cargo.toml`, add:
+
 ```toml
 hashbrown.workspace = true
 ```
@@ -822,6 +838,7 @@ register_fn(env, "hashmap/contains?", |args| {
 Update the existing registered builtins to handle `Value::HashMap` in addition to `Value::Map`. This way user code that calls `(get hm :key)` works without needing `hashmap/get`.
 
 In `crates/sema-stdlib/src/map.rs`, update `get`:
+
 ```rust
 Value::HashMap(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
 ```
@@ -833,6 +850,7 @@ Similarly update `assoc`, `keys`, `vals`, `contains?`, `count`, `empty?`, `lengt
 The inlined `get` (line ~1173) and `assoc` (line ~1116) should handle `Value::HashMap`:
 
 For inlined `get`:
+
 ```rust
 "get" => {
     if items.len() == 3 || items.len() == 4 {
@@ -855,6 +873,7 @@ For inlined `get`:
 ```
 
 For inlined `assoc` with COW optimization — handle `Value::HashMap` with `Rc::make_mut`:
+
 ```rust
 // In the assoc inlined builtin, after taking from env:
 // If the value is a HashMap, use Rc::make_mut on it too
@@ -957,10 +976,10 @@ After all 3 tasks:
 
 ## Summary
 
-| Task | Crate | Expected Improvement | Effort |
-|------|-------|---------------------|--------|
-| 1 | memchr | 5-10% | Small (< 1 hour) |
-| 2 | lasso | 20-40% | Large (many files) |
-| 3 | hashbrown | 10-25% | Medium (new variant + builtins) |
+| Task | Crate     | Expected Improvement | Effort                          |
+| ---- | --------- | -------------------- | ------------------------------- |
+| 1    | memchr    | 5-10%                | Small (< 1 hour)                |
+| 2    | lasso     | 20-40%               | Large (many files)              |
+| 3    | hashbrown | 10-25%               | Medium (new variant + builtins) |
 
 **Combined target: ~1000ms** (from 1580ms baseline, ~37% reduction)

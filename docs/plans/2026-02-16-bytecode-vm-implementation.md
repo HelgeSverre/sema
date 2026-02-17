@@ -11,6 +11,7 @@
 **Dep flow:** `sema-core ← sema-reader ← sema-vm ← sema-eval` (sema-vm depends on core+reader; sema-eval depends on sema-vm for the compiled path).
 
 **Test commands:**
+
 - `cargo test -p sema-vm` — unit tests for compiler + VM
 - `cargo test -p sema --test integration_test` — all 545 integration tests
 - `cargo test` — all 712 tests
@@ -22,6 +23,7 @@
 ## Task 1: Create `sema-vm` crate with Op enum and Chunk/Function structs
 
 **Files:**
+
 - Create: `crates/sema-vm/Cargo.toml`
 - Create: `crates/sema-vm/src/lib.rs`
 - Create: `crates/sema-vm/src/opcodes.rs`
@@ -217,6 +219,7 @@ feat(vm): add sema-vm crate with Op enum, Chunk, and Function structs
 ## Task 2: Bytecode emitter helpers and disassembler
 
 **Files:**
+
 - Create: `crates/sema-vm/src/emit.rs`
 - Create: `crates/sema-vm/src/disasm.rs`
 - Modify: `crates/sema-vm/src/lib.rs`
@@ -230,6 +233,7 @@ Add tests to each module. The emitter test: create a Chunk, emit `Const 0` + `Co
 **Step 2: Implement `emit.rs`**
 
 Helper struct `Emitter` wrapping a `Chunk`:
+
 - `emit_op(&mut self, op: Op)` — push opcode byte
 - `emit_u16(&mut self, val: u16)` — push 2 LE bytes
 - `emit_u32(&mut self, val: u32)` — push 4 LE bytes
@@ -270,6 +274,7 @@ feat(vm): add bytecode emitter and disassembler
 ## Task 3: CoreExpr IR and the lowering pass (Value AST → CoreExpr)
 
 **Files:**
+
 - Create: `crates/sema-vm/src/core_expr.rs`
 - Create: `crates/sema-vm/src/lower.rs`
 - Modify: `crates/sema-vm/src/lib.rs`
@@ -377,6 +382,7 @@ pub struct DoVar {
 ```
 
 **Design decisions:**
+
 - `tail` flag on `Call` is set during lowering based on tail position analysis (last expr in body of lambda, begin, let, cond, when, unless; NOT inside try body)
 - `And`/`Or` remain distinct (short-circuit semantics need special compilation)
 - `Quote` wraps a raw `Value` — no further processing needed
@@ -431,6 +437,7 @@ fn lower_expr(expr: &Value, tail: bool) -> Result<CoreExpr, SemaError> {
 ```
 
 The `lower_list` function handles special forms by checking the head symbol:
+
 - `quote` → `CoreExpr::Quote`
 - `if` → `CoreExpr::If` (tail propagated to then/else)
 - `cond` → lower to nested `If`
@@ -461,6 +468,7 @@ The `lower_list` function handles special forms by checking the head symbol:
 - Anything else → function `Call`
 
 **Tail position rules** (critical for TCO correctness):
+
 - `begin`: only last expr is tail
 - `if`: both then and else branches are tail
 - `let`/`let*`/`letrec`/`named-let`: only last body expr is tail
@@ -474,6 +482,7 @@ The `lower_list` function handles special forms by checking the head symbol:
 **Step 3: Write unit tests**
 
 Test each special form lowering:
+
 ```rust
 #[cfg(test)]
 mod tests {
@@ -571,6 +580,7 @@ feat(vm): add CoreExpr IR and lowering pass for all special forms
 ## Task 4: Variable resolver (local/upvalue/global analysis)
 
 **Files:**
+
 - Create: `crates/sema-vm/src/resolve.rs`
 - Modify: `crates/sema-vm/src/core_expr.rs` (add ResolvedExpr or annotate CoreExpr)
 - Modify: `crates/sema-vm/src/lib.rs`
@@ -625,6 +635,7 @@ enum ScopeKind {
 ```
 
 The algorithm:
+
 1. **Resolve pass:** Walk the CoreExpr. For each `Var(spur)`:
    - Search current scope's locals → `VarResolution::Local { slot }`
    - Search enclosing scopes up to a function boundary → add `UpvalueDesc` entries → `VarResolution::Upvalue { index }`
@@ -684,6 +695,7 @@ feat(vm): add variable resolver (local/upvalue/global analysis)
 ## Task 5: Bytecode compiler (ResolvedExpr → Chunk)
 
 **Files:**
+
 - Create: `crates/sema-vm/src/compiler.rs`
 - Modify: `crates/sema-vm/src/lib.rs`
 
@@ -768,6 +780,7 @@ feat(vm): add bytecode compiler (ResolvedExpr → Chunk)
 ## Task 6: VM dispatch loop with call frames and stack
 
 **Files:**
+
 - Create: `crates/sema-vm/src/vm.rs`
 - Modify: `crates/sema-vm/src/lib.rs`
 
@@ -878,6 +891,7 @@ impl VM {
 **Step 3: Handle `Call` and `TailCall`**
 
 For `Call`:
+
 1. Pop argc args from stack
 2. Pop the function value
 3. If `Value::Lambda` → wrap in Closure, push new CallFrame, continue dispatch
@@ -886,6 +900,7 @@ For `Call`:
 6. If `Closure` (from MakeClosure) → push new CallFrame
 
 For `TailCall`:
+
 1. Pop argc args
 2. Pop the function value
 3. Copy args into current frame's local slots (overwriting)
@@ -895,6 +910,7 @@ For `TailCall`:
 **Step 4: Handle exceptions (try/throw)**
 
 The `Throw` opcode returns a `SemaError::UserException`. The dispatch loop catches errors and checks the current frame's exception table. If the PC falls within a `try_start..try_end` range:
+
 1. Restore stack to `stack_depth`
 2. Push the caught error value (converted via `error_to_value`)
 3. Store to `catch_slot`
@@ -952,6 +968,7 @@ feat(vm): add VM dispatch loop with call frames, TCO, and exception handling
 ## Task 7: Native function registry and `CallNative` dispatch
 
 **Files:**
+
 - Create: `crates/sema-vm/src/natives.rs`
 - Modify: `crates/sema-vm/src/vm.rs`
 - Modify: `crates/sema-vm/src/compiler.rs`
@@ -972,6 +989,7 @@ Built during interpreter initialization by walking the global Env and extracting
 **Step 2: Compiler integration**
 
 When the compiler encounters `Call { func: Var(ref_), args, .. }` where `ref_.resolution == Global` and the global is a known native:
+
 - Emit `CallNative native_id argc` instead of `LoadGlobal + Call`
 
 This requires passing the `NativeRegistry` to the compiler.
@@ -1012,6 +1030,7 @@ feat(vm): add native function registry and CallNative fast path
 ## Task 8: Upvalue boxing, closures, and `set!` through captures
 
 **Files:**
+
 - Modify: `crates/sema-vm/src/vm.rs`
 - Modify: `crates/sema-vm/src/compiler.rs`
 
@@ -1020,6 +1039,7 @@ feat(vm): add native function registry and CallNative fast path
 **Step 1: Compiler changes**
 
 For locals marked as captured+mutated by the resolver:
+
 - After initializing the local, emit a `Box` pseudo-op that wraps the value in an `UpvalueCell`
 - `LoadLocal` and `StoreLocal` for boxed locals go through `Deref`/`SetCell` indirection
 
@@ -1074,6 +1094,7 @@ feat(vm): add upvalue boxing for captured+mutated variables
 ## Task 9: Wire VM into Interpreter (dual-path execution)
 
 **Files:**
+
 - Modify: `crates/sema-eval/Cargo.toml` (add sema-vm dependency)
 - Modify: `crates/sema-eval/src/eval.rs`
 - Modify: `crates/sema-eval/src/lib.rs`
@@ -1132,6 +1153,7 @@ fn expand_macros(&self, expr: &Value) -> Result<Value, SemaError> {
 **Step 4: Handle `eval`, `import`, `load` at the VM level**
 
 These require calling back into the full pipeline:
+
 - `eval`: the VM calls `Interpreter::eval_compiled` recursively (with reified env)
 - `import`/`load`: the VM calls back to load, parse, expand, compile, and execute a file
 
@@ -1173,6 +1195,7 @@ feat(vm): wire bytecode VM into Interpreter with dual-path execution
 ## Task 10: `--vm` CLI flag and compiled integration tests
 
 **Files:**
+
 - Modify: `crates/sema/src/main.rs` (add `--vm` flag)
 - Create: `crates/sema/tests/vm_integration_test.rs` (or add `_compiled` variants to existing tests)
 
@@ -1194,8 +1217,9 @@ When `--vm` is set, the REPL and file evaluation use `eval_compiled` instead of 
 **Step 2: Create VM integration tests**
 
 Port the most critical integration tests to verify compiled execution. Start with:
+
 - Arithmetic, comparison, boolean ops
-- Define, set!, let/let*/letrec
+- Define, set!, let/let\*/letrec
 - Lambda, closures, recursion
 - TCO (tail call optimization)
 - Try/catch/throw
@@ -1219,6 +1243,7 @@ feat(vm): add --vm CLI flag and compiled integration tests
 ## Task 11: Profile 1BRC with flamegraph (baseline)
 
 **Files:**
+
 - Create: `benchmarks/profile.sh` (profiling script)
 
 **Context:** Before measuring VM speedup, establish a baseline flamegraph of the tree-walker on 1BRC to confirm where time is spent. This validates (or invalidates) the assumption that env lookups and Rc traffic dominate.
@@ -1250,6 +1275,7 @@ samply record ./target/release-with-debug/sema benchmarks/1brc/1brc.sema -- benc
 **Step 3: Run and capture baseline**
 
 Expected output: flamegraph showing time distribution across:
+
 - `eval_value` / `eval_value_inner` / `eval_step`
 - `Env::get` (hash lookups)
 - `Value::clone` / Rc refcount operations
@@ -1260,6 +1286,7 @@ Expected output: flamegraph showing time distribution across:
 **Step 4: Document findings**
 
 Add results to `benchmarks/1brc/profile-results.md`:
+
 - Top 10 hottest functions with % time
 - Key bottleneck confirmed or refuted
 - Implications for VM optimization priorities
@@ -1275,6 +1302,7 @@ chore: add 1BRC profiling script and baseline flamegraph results
 ## Task 12: Run 1BRC through VM and measure speedup
 
 **Files:**
+
 - Modify: `benchmarks/1brc/profile-results.md`
 
 **Context:** With the VM wired into the Interpreter, run the 1BRC benchmark through the compiled path and compare against tree-walker baseline.
@@ -1294,16 +1322,17 @@ time cargo run --release -- --vm benchmarks/1brc/1brc.sema -- bench-1m.txt
 **Step 3: Profile VM execution**
 
 Flamegraph the VM path to see where time is now spent. Expected new hotspots:
+
 - VM dispatch loop
 - Native function calls (unchanged)
 - Stack push/pop and Value::clone
 
 **Step 4: Document comparison**
 
-| Path | 1BRC 1M rows (median) | Speedup |
-|------|----------------------|---------|
-| Tree-walker | ~Xms | 1× |
-| Bytecode VM | ~Yms | X/Y× |
+| Path        | 1BRC 1M rows (median) | Speedup |
+| ----------- | --------------------- | ------- |
+| Tree-walker | ~Xms                  | 1×      |
+| Bytecode VM | ~Yms                  | X/Y×    |
 
 **Step 5: Commit**
 
@@ -1316,6 +1345,7 @@ chore: add 1BRC VM benchmark results
 ## Execution Notes
 
 ### Dependency ordering
+
 Tasks 1-5 are strictly sequential (each builds on the previous).
 Task 6 depends on tasks 1-2 (needs Op + Chunk + emitter).
 Task 7 depends on tasks 5-6.
@@ -1326,16 +1356,19 @@ Task 11 is independent — can run in parallel with any task.
 Task 12 depends on tasks 10-11.
 
 ### Testing strategy
+
 - Each task has its own unit tests in `sema-vm`
 - Task 10 adds integration tests verifying behavioral parity with tree-walker
 - The ultimate correctness check: all 712 existing tests pass through both paths
 
 ### Risk mitigation
+
 - If macro expansion causes issues in Task 9, fall back to tree-walker for macro-containing expressions
 - If `import`/`load`/`eval` are complex, leave them as tree-walker-delegated for v1
 - If 1BRC doesn't show expected speedup, profile to identify the bottleneck (likely native function call overhead for string/split, hashmap operations)
 
 ### What's NOT in this plan (deferred to future work)
+
 - Module compilation caching
 - WASM playground integration
 - Tracing GC

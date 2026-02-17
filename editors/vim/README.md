@@ -79,22 +79,22 @@ programs.neovim.extraConfig = ''
 
 ## Highlighting Groups
 
-| Group              | What it covers                                         |
-|--------------------|--------------------------------------------------------|
-| `semaSpecial`      | Special forms (`define`, `lambda`, `if`, `defagent`…)  |
-| `semaBuiltin`      | Builtin functions (`map`, `llm/chat`, `file/read`…)    |
-| `semaThreading`    | Threading macros (`->`, `->>`, `as->`)                 |
-| `semaKeyword`      | Keyword literals (`:model`, `:temperature`…)           |
-| `semaString`       | String literals                                        |
-| `semaNumber`       | Integer and float literals                             |
-| `semaBoolean`      | `#t`, `#f`, `true`, `false`                            |
-| `semaConstant`     | `nil`                                                  |
-| `semaCharacter`    | Character literals (`#\a`, `#\space`…)                 |
-| `semaComment`      | Line comments (`;`)                                    |
+| Group              | What it covers                                        |
+| ------------------ | ----------------------------------------------------- |
+| `semaSpecial`      | Special forms (`define`, `lambda`, `if`, `defagent`…) |
+| `semaBuiltin`      | Builtin functions (`map`, `llm/chat`, `file/read`…)   |
+| `semaThreading`    | Threading macros (`->`, `->>`, `as->`)                |
+| `semaKeyword`      | Keyword literals (`:model`, `:temperature`…)          |
+| `semaString`       | String literals                                       |
+| `semaNumber`       | Integer and float literals                            |
+| `semaBoolean`      | `#t`, `#f`, `true`, `false`                           |
+| `semaConstant`     | `nil`                                                 |
+| `semaCharacter`    | Character literals (`#\a`, `#\space`…)                |
+| `semaComment`      | Line comments (`;`)                                   |
 | `semaTodo`         | TODO/FIXME/XXX/HACK/NOTE in comments                  |
-| `semaStringEscape` | Escape sequences in strings                            |
-| `semaQuote`        | Quote (`'`) and quasiquote (`` ` ``) prefixes          |
-| `semaUnquote`      | Unquote (`,`) and unquote-splicing (`,@`)              |
-| `semaParens`       | Parentheses, brackets, and braces                      |
+| `semaStringEscape` | Escape sequences in strings                           |
+| `semaQuote`        | Quote (`'`) and quasiquote (`` ` ``) prefixes         |
+| `semaUnquote`      | Unquote (`,`) and unquote-splicing (`,@`)             |
+| `semaParens`       | Parentheses, brackets, and braces                     |
 
 Override any group in your colorscheme to customise appearance.
