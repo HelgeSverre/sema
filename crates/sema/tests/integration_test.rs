@@ -8476,3 +8476,26 @@ fn test_context_stack_empty() {
     assert_eq!(eval("(context/stack :empty)"), eval("(list)"));
     assert_eq!(eval("(context/pop :empty)"), Value::nil());
 }
+
+#[test]
+fn test_context_merge() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/set :a 1)
+            (context/merge {:b 2 :c 3})
+            (list (context/get :a) (context/get :b) (context/get :c)))"#),
+        eval("(list 1 2 3)"),
+    );
+}
+
+#[test]
+fn test_context_clear() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/set :a 1)
+            (context/set :b 2)
+            (context/clear)
+            (context/all))"#),
+        eval("{}"),
+    );
+}

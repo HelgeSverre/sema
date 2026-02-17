@@ -88,6 +88,27 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::bool(ctx.hidden_has(&args[0])))
     });
 
+    register_fn_ctx(env, "context/merge", |ctx, args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("context/merge", "1", args.len()));
+        }
+        let map = args[0]
+            .as_map_rc()
+            .ok_or_else(|| SemaError::type_error("map", args[0].type_name()))?;
+        for (k, v) in map.iter() {
+            ctx.context_set(k.clone(), v.clone());
+        }
+        Ok(Value::nil())
+    });
+
+    register_fn_ctx(env, "context/clear", |ctx, args| {
+        if !args.is_empty() {
+            return Err(SemaError::arity("context/clear", "0", args.len()));
+        }
+        ctx.context_clear();
+        Ok(Value::nil())
+    });
+
     // (context/with bindings-map thunk) -> result of thunk
     register_fn_ctx(env, "context/with", |ctx, args| {
         if args.len() != 2 {
