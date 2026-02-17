@@ -704,7 +704,7 @@ fn eval_prompt(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                                 content.push_str(&part_val.to_string());
                             }
                         }
-                        messages.push(Message { role, content });
+                        messages.push(Message { role, content, images: Vec::new() });
                         continue;
                     }
                 }
@@ -751,7 +751,7 @@ fn eval_message(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoli
             content.push_str(&val.to_string());
         }
     }
-    Ok(Trampoline::Value(Value::message(Message { role, content })))
+    Ok(Trampoline::Value(Value::message(Message { role, content, images: Vec::new() })))
 }
 
 /// (deftool name "description" {:param {:type :string :description "..."}} handler-expr)

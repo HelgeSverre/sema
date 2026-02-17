@@ -7153,6 +7153,34 @@ fn test_sandbox_all_denied_safe_functions_comprehensive() {
         .is_ok());
 }
 
+// === Task 8: message/with-image ===
+
+#[test]
+fn test_message_with_image_creates_message() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (define msg (message/with-image :user "Describe this" (bytevector 137 80 78 71)))
+                (message? msg))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::bool(true));
+}
+
+#[test]
+fn test_message_with_image_role() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (define msg (message/with-image :user "What is this?" (bytevector 1 2 3)))
+                (message/role msg))"#,
+        )
+        .unwrap();
+    assert_eq!(result.to_string(), ":user");
+}
+
 // === Task 4: file/glob ===
 
 #[test]

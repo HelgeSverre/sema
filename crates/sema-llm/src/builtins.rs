@@ -4,8 +4,8 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use sema_core::{
-    resolve, Conversation, Env, EvalContext, Message, NativeFn, Prompt, Role, SemaError, Value,
-    ValueView,
+    resolve, Conversation, Env, EvalContext, ImageAttachment, Message, NativeFn, Prompt, Role,
+    SemaError, Value, ValueView,
 };
 
 use crate::anthropic::AnthropicProvider;
@@ -16,7 +16,8 @@ use crate::openai::OpenAiProvider;
 use crate::pricing;
 use crate::provider::{LlmProvider, ProviderRegistry};
 use crate::types::{
-    ChatMessage, ChatRequest, ChatResponse, EmbedRequest, LlmError, ToolCall, ToolSchema, Usage,
+    ChatMessage, ChatRequest, ChatResponse, ContentBlock, EmbedRequest, LlmError, ToolCall,
+    ToolSchema, Usage,
 };
 
 /// Type for a full evaluator callback: (ctx, expr, env) -> Result<Value, SemaError>
@@ -1375,10 +1376,12 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         new_messages.push(Message {
             role: Role::User,
             content: user_msg,
+            images: Vec::new(),
         });
         new_messages.push(Message {
             role: Role::Assistant,
             content: response.content,
+            images: Vec::new(),
         });
 
         Ok(Value::conversation(Conversation {
@@ -1485,6 +1488,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             Message {
                 role: Role::System,
                 content: new_system,
+                images: Vec::new(),
             },
         );
         Ok(Value::prompt(Prompt { messages }))
@@ -2129,6 +2133,53 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::bool(args[0].as_message_rc().is_some()))
     });
 
+    // (message/with-image :user "Describe this" bytevec)
+    // (message/with-image :user "Describe this" bytevec {:media-type "image/png"})
+    register_fn(env, "message/with-image", |args| {
+        if args.len() < 3 || args.len() > 4 {
+            return Err(SemaError::arity("message/with-image", "3-4", args.len()));
+        }
+        let role = if let Some(kw) = args[0].as_keyword() {
+            match kw.as_str() {
+                "system" => Role::System,
+                "user" => Role::User,
+                "assistant" => Role::Assistant,
+                "tool" => Role::Tool,
+                other => {
+                    return Err(SemaError::eval(format!(
+                        "message/with-image: unknown role '{other}'"
+                    )))
+                }
+            }
+        } else {
+            return Err(SemaError::type_error("keyword", args[0].type_name()));
+        };
+        let text = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?
+            .to_string();
+        let bv = args[2]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[2].type_name()))?;
+
+        let media_type = if let Some(opts) = args.get(3).and_then(|v| v.as_map_rc()) {
+            opts.get(&Value::keyword("media-type"))
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| detect_media_type(bv).to_string())
+        } else {
+            detect_media_type(bv).to_string()
+        };
+
+        use base64::Engine;
+        let data = base64::engine::general_purpose::STANDARD.encode(bv);
+
+        Ok(Value::message(Message {
+            role,
+            content: text,
+            images: vec![ImageAttachment { data, media_type }],
+        }))
+    });
+
     register_fn(env, "conversation?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("conversation?", "1", args.len()));
@@ -2263,7 +2314,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .map(|s| s.to_string())
             .unwrap_or_else(|| args[2].to_string());
         let mut new_messages = conv.messages.clone();
-        new_messages.push(Message { role, content });
+        new_messages.push(Message { role, content, images: Vec::new() });
         Ok(Value::conversation(Conversation {
             messages: new_messages,
             model: conv.model.clone(),
@@ -2418,6 +2469,24 @@ fn complete_with_prompt(prompt: &Prompt, opts: Option<&Value>) -> Result<Value, 
     Ok(Value::string(&response.content))
 }
 
+fn message_to_chat_message(m: &Message) -> ChatMessage {
+    if m.images.is_empty() {
+        ChatMessage::new(m.role.to_string(), m.content.clone())
+    } else {
+        let mut blocks = Vec::new();
+        for img in &m.images {
+            blocks.push(ContentBlock::Image {
+                media_type: Some(img.media_type.clone()),
+                data: img.data.clone(),
+            });
+        }
+        blocks.push(ContentBlock::Text {
+            text: m.content.clone(),
+        });
+        ChatMessage::with_blocks(m.role.to_string(), blocks)
+    }
+}
+
 fn extract_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
     if let Some(items) = val.as_list() {
         let mut messages = Vec::new();
@@ -2425,14 +2494,11 @@ fn extract_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
             let m = item
                 .as_message_rc()
                 .ok_or_else(|| SemaError::type_error("message", item.type_name()))?;
-            messages.push(ChatMessage::new(m.role.to_string(), m.content.clone()));
+            messages.push(message_to_chat_message(&m));
         }
         Ok(messages)
     } else if let Some(p) = val.as_prompt_rc() {
-        Ok(p.messages
-            .iter()
-            .map(|m| ChatMessage::new(m.role.to_string(), m.content.clone()))
-            .collect())
+        Ok(p.messages.iter().map(message_to_chat_message).collect())
     } else {
         Err(SemaError::type_error(
             "list of messages or prompt",
@@ -3176,5 +3242,22 @@ mod tests {
 
         // Lambda body returns z_last — must be "ZLAST", not "AFIRST"
         assert_eq!(result, "ZLAST");
+    }
+}
+
+/// Detect media type from file magic bytes.
+fn detect_media_type(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        "image/png"
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"GIF8") {
+        "image/gif"
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else if bytes.starts_with(b"%PDF") {
+        "application/pdf"
+    } else {
+        "application/octet-stream"
     }
 }

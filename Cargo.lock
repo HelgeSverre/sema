@@ -1701,6 +1701,7 @@ dependencies = [
 name = "sema-llm"
 version = "1.4.0"
 dependencies = [
+ "base64",
  "futures",
  "reqwest",
  "sema-core",

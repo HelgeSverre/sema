@@ -173,11 +173,20 @@ impl fmt::Display for Role {
     }
 }
 
+/// A base64-encoded image attachment.
+#[derive(Debug, Clone)]
+pub struct ImageAttachment {
+    pub data: String,
+    pub media_type: String,
+}
+
 /// A single message in a conversation.
 #[derive(Debug, Clone)]
 pub struct Message {
     pub role: Role,
     pub content: String,
+    /// Optional image attachments (base64-encoded).
+    pub images: Vec<ImageAttachment>,
 }
 
 /// A prompt: a structured list of messages.
