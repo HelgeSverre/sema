@@ -40,18 +40,17 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
   (lambda (command) (:stdout (shell "sh" "-c" command))))
 
 ;; Create an agent with tools, system prompt, and spending limit
-(llm/set-budget 0.50)
-
 (defagent coder
   {:system (format "You are a coding assistant. Working directory: ~a" (sys/cwd))
    :tools [read-file edit-file run-command]
    :model "claude-sonnet-4-20250514"
    :max-turns 20})
 
-;; Run it
-(define result (agent/run coder "Add error handling to src/main.rs"))
-(println (:response result))
-(println (format "Cost: $~a" (:spent (llm/budget-remaining))))
+;; Run it — budget is scoped, automatically restored after the block
+(with-budget {:max-cost-usd 0.50}
+  (define result (agent/run coder "Add error handling to src/main.rs"))
+  (println (:response result))
+  (println (format "Cost: $~a" (:spent (llm/budget-remaining)))))
 ```
 
 ## Key Features
