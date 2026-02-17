@@ -502,4 +502,72 @@ pub fn register(env: &sema_core::Env) {
             _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
         }
     });
+
+    register_fn(env, "map/sort-keys", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("map/sort-keys", "1", args.len()));
+        }
+        match args[0].view() {
+            ValueView::Map(m) => Ok(Value::map(m.as_ref().clone())),
+            ValueView::HashMap(m) => {
+                let sorted: BTreeMap<Value, Value> = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                Ok(Value::map(sorted))
+            }
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "map/except", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("map/except", "2", args.len()));
+        }
+        let keys_to_remove = match args[1].view() {
+            ValueView::List(l) => l.as_ref().clone(),
+            ValueView::Vector(v) => v.as_ref().clone(),
+            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+        };
+        let key_set: std::collections::BTreeSet<Value> = keys_to_remove.into_iter().collect();
+        match args[0].view() {
+            ValueView::Map(m) => {
+                let mut result = BTreeMap::new();
+                for (k, v) in m.iter() {
+                    if !key_set.contains(k) {
+                        result.insert(k.clone(), v.clone());
+                    }
+                }
+                Ok(Value::map(result))
+            }
+            ValueView::HashMap(m) => {
+                let mut result = HBHashMap::new();
+                for (k, v) in m.iter() {
+                    if !key_set.contains(k) {
+                        result.insert(k.clone(), v.clone());
+                    }
+                }
+                Ok(Value::hashmap_from_rc(Rc::new(result)))
+            }
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+        }
+    });
+
+    register_fn(env, "map/zip", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("map/zip", "2", args.len()));
+        }
+        let keys = match args[0].view() {
+            ValueView::List(l) => l.as_ref().clone(),
+            ValueView::Vector(v) => v.as_ref().clone(),
+            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
+        };
+        let vals = match args[1].view() {
+            ValueView::List(l) => l.as_ref().clone(),
+            ValueView::Vector(v) => v.as_ref().clone(),
+            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+        };
+        let mut map = BTreeMap::new();
+        for (k, v) in keys.into_iter().zip(vals.into_iter()) {
+            map.insert(k, v);
+        }
+        Ok(Value::map(map))
+    });
 }

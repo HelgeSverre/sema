@@ -7038,3 +7038,358 @@ fn test_sandbox_load_denied_by_fs_read() {
         "load should be denied by fs-read sandbox"
     );
 }
+
+// === New Collection Functions (Laravel-inspired) ===
+
+#[test]
+fn test_list_reject() {
+    assert_eq!(
+        eval_to_string("(list/reject (fn (x) (> x 3)) (list 1 2 3 4 5))"),
+        "(1 2 3)"
+    );
+    assert_eq!(
+        eval_to_string("(list/reject (fn (x) (even? x)) (list 1 2 3 4 5))"),
+        "(1 3 5)"
+    );
+    assert_eq!(
+        eval_to_string("(list/reject (fn (x) #t) (list 1 2 3))"),
+        "()"
+    );
+    assert_eq!(
+        eval_to_string("(list/reject (fn (x) #f) (list 1 2 3))"),
+        "(1 2 3)"
+    );
+}
+
+#[test]
+fn test_list_pluck() {
+    assert_eq!(
+        eval_to_string(r#"(list/pluck :name (list (hash-map :name "Alice" :age 30) (hash-map :name "Bob" :age 25)))"#),
+        r#"("Alice" "Bob")"#
+    );
+    assert_eq!(
+        eval_to_string(r#"(list/pluck :missing (list (hash-map :a 1)))"#),
+        "(nil)"
+    );
+    assert_eq!(
+        eval_to_string("(list/pluck :x (list))"),
+        "()"
+    );
+}
+
+#[test]
+fn test_list_avg() {
+    assert_eq!(eval("(list/avg (list 2 4 6))"), Value::float(4.0));
+    assert_eq!(eval("(list/avg (list 1 2 3 4))"), Value::float(2.5));
+    assert_eq!(eval("(list/avg (list 10))"), Value::float(10.0));
+    assert_eq!(eval("(list/avg (list 1.5 2.5))"), Value::float(2.0));
+}
+
+#[test]
+fn test_list_avg_empty_error() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(list/avg (list))").is_err());
+}
+
+#[test]
+fn test_list_median() {
+    // Odd count
+    assert_eq!(eval("(list/median (list 3 1 2))"), Value::float(2.0));
+    // Even count
+    assert_eq!(eval("(list/median (list 1 2 3 4))"), Value::float(2.5));
+    // Single element
+    assert_eq!(eval("(list/median (list 5))"), Value::float(5.0));
+    // Already sorted
+    assert_eq!(eval("(list/median (list 1 2 3 4 5))"), Value::float(3.0));
+}
+
+#[test]
+fn test_list_median_empty_error() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(list/median (list))").is_err());
+}
+
+#[test]
+fn test_list_mode() {
+    // Single mode
+    assert_eq!(eval("(list/mode (list 1 2 2 3 3 3))"), Value::int(3));
+    // Multiple modes returns a list
+    assert_eq!(
+        eval_to_string("(list/mode (list 1 1 2 2 3))"),
+        "(1 2)"
+    );
+    // All same
+    assert_eq!(eval("(list/mode (list 5 5 5))"), Value::int(5));
+}
+
+#[test]
+fn test_list_diff() {
+    assert_eq!(
+        eval_to_string("(list/diff (list 1 2 3 4 5) (list 3 4))"),
+        "(1 2 5)"
+    );
+    assert_eq!(
+        eval_to_string("(list/diff (list 1 2 3) (list 4 5 6))"),
+        "(1 2 3)"
+    );
+    assert_eq!(
+        eval_to_string("(list/diff (list 1 2 3) (list 1 2 3))"),
+        "()"
+    );
+}
+
+#[test]
+fn test_list_intersect() {
+    assert_eq!(
+        eval_to_string("(list/intersect (list 1 2 3 4 5) (list 3 4 6))"),
+        "(3 4)"
+    );
+    assert_eq!(
+        eval_to_string("(list/intersect (list 1 2 3) (list 4 5 6))"),
+        "()"
+    );
+}
+
+#[test]
+fn test_list_sliding() {
+    assert_eq!(
+        eval_to_string("(list/sliding (list 1 2 3 4 5) 2)"),
+        "((1 2) (2 3) (3 4) (4 5))"
+    );
+    assert_eq!(
+        eval_to_string("(list/sliding (list 1 2 3 4 5) 3)"),
+        "((1 2 3) (2 3 4) (3 4 5))"
+    );
+    // With step
+    assert_eq!(
+        eval_to_string("(list/sliding (list 1 2 3 4 5 6) 2 3)"),
+        "((1 2) (4 5))"
+    );
+    // Window larger than list
+    assert_eq!(
+        eval_to_string("(list/sliding (list 1 2) 5)"),
+        "()"
+    );
+}
+
+#[test]
+fn test_list_key_by() {
+    assert_eq!(
+        eval(r#"(begin
+            (define people (list (hash-map :id 1 :name "Alice") (hash-map :id 2 :name "Bob")))
+            (define keyed (list/key-by (fn (p) (get p :id)) people))
+            (get (get keyed 2) :name))"#),
+        Value::string("Bob")
+    );
+}
+
+#[test]
+fn test_list_times() {
+    assert_eq!(
+        eval_to_string("(list/times 5 (fn (i) (* i i)))"),
+        "(0 1 4 9 16)"
+    );
+    assert_eq!(
+        eval_to_string("(list/times 3 (fn (i) (+ i 1)))"),
+        "(1 2 3)"
+    );
+    assert_eq!(
+        eval_to_string("(list/times 0 (fn (i) i))"),
+        "()"
+    );
+}
+
+#[test]
+fn test_list_duplicates() {
+    assert_eq!(
+        eval_to_string("(list/duplicates (list 1 2 2 3 3 3 4))"),
+        "(2 3)"
+    );
+    assert_eq!(
+        eval_to_string("(list/duplicates (list 1 2 3))"),
+        "()"
+    );
+    assert_eq!(
+        eval_to_string("(list/duplicates (list 1 1 1))"),
+        "(1)"
+    );
+}
+
+#[test]
+fn test_list_cross_join() {
+    assert_eq!(
+        eval_to_string("(list/cross-join (list 1 2) (list 3 4))"),
+        "((1 3) (1 4) (2 3) (2 4))"
+    );
+    assert_eq!(
+        eval_to_string(r#"(list/cross-join (list "a" "b") (list 1 2))"#),
+        r#"(("a" 1) ("a" 2) ("b" 1) ("b" 2))"#
+    );
+    assert_eq!(
+        eval_to_string("(list/cross-join (list) (list 1 2))"),
+        "()"
+    );
+}
+
+#[test]
+fn test_list_page() {
+    assert_eq!(
+        eval_to_string("(list/page (range 20) 1 5)"),
+        "(0 1 2 3 4)"
+    );
+    assert_eq!(
+        eval_to_string("(list/page (range 20) 2 5)"),
+        "(5 6 7 8 9)"
+    );
+    assert_eq!(
+        eval_to_string("(list/page (range 20) 4 5)"),
+        "(15 16 17 18 19)"
+    );
+    // Beyond last page
+    assert_eq!(
+        eval_to_string("(list/page (range 20) 5 5)"),
+        "()"
+    );
+    // Partial last page
+    assert_eq!(
+        eval_to_string("(list/page (range 7) 2 5)"),
+        "(5 6)"
+    );
+}
+
+#[test]
+fn test_list_find() {
+    assert_eq!(
+        eval("(list/find (fn (x) (> x 3)) (list 1 2 3 4 5))"),
+        Value::int(4)
+    );
+    assert_eq!(
+        eval("(list/find (fn (x) (> x 10)) (list 1 2 3))"),
+        Value::nil()
+    );
+    assert_eq!(
+        eval("(list/find even? (list 1 3 4 5 6))"),
+        Value::int(4)
+    );
+}
+
+#[test]
+fn test_list_pad() {
+    assert_eq!(
+        eval_to_string("(list/pad (list 1 2 3) 5 0)"),
+        "(1 2 3 0 0)"
+    );
+    // Already long enough
+    assert_eq!(
+        eval_to_string("(list/pad (list 1 2 3) 2 0)"),
+        "(1 2 3)"
+    );
+    assert_eq!(
+        eval_to_string("(list/pad (list) 3 nil)"),
+        "(nil nil nil)"
+    );
+}
+
+#[test]
+fn test_list_sole() {
+    assert_eq!(
+        eval("(list/sole (fn (x) (> x 3)) (list 1 2 3 4))"),
+        Value::int(4)
+    );
+}
+
+#[test]
+fn test_list_sole_multiple_error() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(list/sole (fn (x) (> x 2)) (list 1 2 3 4))").is_err());
+}
+
+#[test]
+fn test_list_sole_none_error() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(list/sole (fn (x) (> x 10)) (list 1 2 3))").is_err());
+}
+
+#[test]
+fn test_list_join() {
+    assert_eq!(
+        eval(r#"(list/join (list "a" "b" "c") ", ")"#),
+        Value::string(r#""a", "b", "c""#)
+    );
+    assert_eq!(
+        eval(r#"(list/join (list "a" "b" "c") ", " " and ")"#),
+        Value::string(r#""a", "b" and "c""#)
+    );
+    assert_eq!(
+        eval(r#"(list/join (list "solo") ", ")"#),
+        Value::string(r#""solo""#)
+    );
+    assert_eq!(
+        eval(r#"(list/join (list) ", ")"#),
+        Value::string("")
+    );
+    // With numbers
+    assert_eq!(
+        eval(r#"(list/join (list 1 2 3) ", " " and ")"#),
+        Value::string("1, 2 and 3")
+    );
+}
+
+#[test]
+fn test_tap() {
+    // tap should return the original value
+    assert_eq!(eval("(tap 42 (fn (x) (+ x 1)))"), Value::int(42));
+    assert_eq!(
+        eval_to_string("(tap (list 1 2 3) (fn (x) nil))"),
+        "(1 2 3)"
+    );
+}
+
+#[test]
+fn test_map_sort_keys() {
+    // BTreeMap is already sorted, so this is a no-op for regular maps
+    assert_eq!(
+        eval_to_string("(map/entries (map/sort-keys (hash-map :b 2 :a 1 :c 3)))"),
+        "((:a 1) (:b 2) (:c 3))"
+    );
+    // HashMap -> sorted map
+    assert_eq!(
+        eval_to_string("(begin (define hm (hashmap/new :b 2 :a 1 :c 3)) (map/entries (map/sort-keys hm)))"),
+        "((:a 1) (:b 2) (:c 3))"
+    );
+}
+
+#[test]
+fn test_map_except() {
+    assert_eq!(
+        eval_to_string("(map/entries (map/except (hash-map :a 1 :b 2 :c 3) (list :b)))"),
+        "((:a 1) (:c 3))"
+    );
+    assert_eq!(
+        eval_to_string("(map/entries (map/except (hash-map :a 1 :b 2 :c 3) (list :a :c)))"),
+        "((:b 2))"
+    );
+    // Remove non-existing key
+    assert_eq!(
+        eval("(count (map/except (hash-map :a 1 :b 2) (list :z)))"),
+        Value::int(2)
+    );
+}
+
+#[test]
+fn test_map_zip() {
+    assert_eq!(
+        eval_to_string("(map/entries (map/zip (list :a :b :c) (list 1 2 3)))"),
+        "((:a 1) (:b 2) (:c 3))"
+    );
+    // Uneven lists - shorter wins
+    assert_eq!(
+        eval("(count (map/zip (list :a :b) (list 1 2 3)))"),
+        Value::int(2)
+    );
+    // Empty
+    assert_eq!(
+        eval("(count (map/zip (list) (list)))"),
+        Value::int(0)
+    );
+}

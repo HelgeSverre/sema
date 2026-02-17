@@ -1,0 +1,132 @@
+;; Sema Stdlib: Extended Collection Functions
+;; Inspired by Laravel Collections - additional list/map operations
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== Extended Collection Functions ===")
+(println)
+
+;; ---- List Functions ----
+
+(println "--- Filtering & Searching ---")
+
+;; list/reject (inverse of filter)
+(assert-eq (list/reject (fn (x) (> x 3)) (list 1 2 3 4 5)) (list 1 2 3) "list/reject")
+(assert-eq (list/reject (fn (x) (even? x)) (list 1 2 3 4)) (list 1 3) "list/reject even")
+
+;; list/find (first match)
+(assert-eq (list/find (fn (x) (> x 3)) (list 1 2 3 4 5)) 4 "list/find")
+(assert-eq (list/find (fn (x) (> x 10)) (list 1 2 3)) nil "list/find not found")
+
+;; list/sole (exactly one match or error)
+(assert-eq (list/sole (fn (x) (> x 4)) (list 1 2 3 4 5)) 5 "list/sole")
+
+;; list/duplicates
+(assert-eq (list/duplicates (list 1 2 2 3 3 3 4)) (list 2 3) "list/duplicates")
+(assert-eq (list/duplicates (list 1 2 3)) (list) "list/duplicates none")
+
+(println)
+(println "--- Extraction & Transformation ---")
+
+;; list/pluck (extract field from list of maps)
+(define people (list
+  (hash-map :name "Alice" :age 30)
+  (hash-map :name "Bob" :age 25)
+  (hash-map :name "Charlie" :age 35)))
+(assert-eq (list/pluck :name people) (list "Alice" "Bob" "Charlie") "list/pluck")
+(assert-eq (list/pluck :age people) (list 30 25 35) "list/pluck ages")
+
+;; list/key-by (list of maps → map keyed by fn)
+(define keyed (list/key-by (fn (p) (get p :name)) people))
+(assert-eq (get (get keyed "Alice") :age) 30 "list/key-by")
+(assert-eq (get (get keyed "Bob") :age) 25 "list/key-by Bob")
+
+;; list/times (generate by calling fn N times)
+(assert-eq (list/times 5 (fn (i) (* i i))) (list 0 1 4 9 16) "list/times squares")
+(assert-eq (list/times 3 (fn (i) (+ i 1))) (list 1 2 3) "list/times 1-indexed")
+
+(println)
+(println "--- Statistics ---")
+
+;; list/avg
+(assert-eq (list/avg (list 2 4 6)) 4.0 "list/avg")
+(assert-eq (list/avg (list 1 2 3 4)) 2.5 "list/avg fractional")
+
+;; list/median
+(assert-eq (list/median (list 3 1 2)) 2.0 "list/median odd")
+(assert-eq (list/median (list 1 2 3 4)) 2.5 "list/median even")
+(assert-eq (list/median (list 1 2 3 4 5)) 3.0 "list/median 5 items")
+
+;; list/mode (most frequent)
+(assert-eq (list/mode (list 1 2 2 3 3 3)) 3 "list/mode single")
+(assert-eq (list/mode (list 1 1 2 2 3)) (list 1 2) "list/mode multiple")
+
+(println)
+(println "--- Set Operations ---")
+
+;; list/diff (items in A not in B)
+(assert-eq (list/diff (list 1 2 3 4 5) (list 3 4)) (list 1 2 5) "list/diff")
+(assert-eq (list/diff (list 1 2 3) (list 1 2 3)) (list) "list/diff all removed")
+
+;; list/intersect (items in both)
+(assert-eq (list/intersect (list 1 2 3 4 5) (list 3 4 6)) (list 3 4) "list/intersect")
+(assert-eq (list/intersect (list 1 2) (list 3 4)) (list) "list/intersect none")
+
+(println)
+(println "--- Windowing & Pagination ---")
+
+;; list/sliding (sliding window)
+(assert-eq (list/sliding (list 1 2 3 4 5) 2) (list (list 1 2) (list 2 3) (list 3 4) (list 4 5)) "list/sliding 2")
+(assert-eq (list/sliding (list 1 2 3 4 5) 3) (list (list 1 2 3) (list 2 3 4) (list 3 4 5)) "list/sliding 3")
+(assert-eq (list/sliding (list 1 2 3 4 5 6) 2 3) (list (list 1 2) (list 4 5)) "list/sliding step 3")
+
+;; list/page (pagination)
+(assert-eq (list/page (range 20) 1 5) (list 0 1 2 3 4) "list/page first")
+(assert-eq (list/page (range 20) 2 5) (list 5 6 7 8 9) "list/page second")
+(assert-eq (list/page (range 20) 5 5) (list) "list/page beyond")
+
+;; list/cross-join (Cartesian product)
+(assert-eq (list/cross-join (list 1 2) (list 3 4)) (list (list 1 3) (list 1 4) (list 2 3) (list 2 4)) "list/cross-join")
+
+(println)
+(println "--- Padding & Joining ---")
+
+;; list/pad (pad to length)
+(assert-eq (list/pad (list 1 2 3) 5 0) (list 1 2 3 0 0) "list/pad")
+(assert-eq (list/pad (list 1 2 3) 2 0) (list 1 2 3) "list/pad already long")
+
+;; list/join (join with optional final separator)
+(assert-eq (list/join (list 1 2 3) ", ") "1, 2, 3" "list/join")
+(assert-eq (list/join (list 1 2 3) ", " " and ") "1, 2 and 3" "list/join with final sep")
+(assert-eq (list/join (list 10 20) "-") "10-20" "list/join two items")
+
+(println)
+(println "--- Utility ---")
+
+;; tap (side-effect, return original)
+(define tap-result (tap 42 (fn (x) (+ x 1))))
+(assert-eq tap-result 42 "tap returns original")
+
+(println)
+(println "---- Map Functions ----")
+(println)
+
+;; map/sort-keys
+(assert-eq (map/entries (map/sort-keys (hash-map :c 3 :a 1 :b 2))) (list (list :a 1) (list :b 2) (list :c 3)) "map/sort-keys")
+
+;; map/except (inverse of select-keys)
+(define m (map/sort-keys (hash-map :a 1 :b 2 :c 3 :d 4)))
+(assert-eq (map/entries (map/except m (list :b :d))) (list (list :a 1) (list :c 3)) "map/except")
+(assert-eq (count (map/except m (list :a :b :c :d))) 0 "map/except all")
+
+;; map/zip (zip two lists into map)
+(define zipped (map/zip (list :x :y :z) (list 10 20 30)))
+(assert-eq (get zipped :x) 10 "map/zip x")
+(assert-eq (get zipped :y) 20 "map/zip y")
+(assert-eq (get zipped :z) 30 "map/zip z")
+
+(println)
+(println "All extended collection tests passed!")

@@ -852,6 +852,344 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::list(result))
     });
 
+    // list/reject — inverse of filter
+    register_fn(env, "list/reject", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/reject", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "list/reject")?;
+        let mut result = Vec::new();
+        for item in &items {
+            let reject = call_function(&args[0], &[item.clone()])?;
+            if !reject.is_truthy() {
+                result.push(item.clone());
+            }
+        }
+        Ok(Value::list(result))
+    });
+
+    // list/pluck — extract a field from list of maps
+    register_fn(env, "list/pluck", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/pluck", "2", args.len()));
+        }
+        let key = &args[0];
+        let items = get_sequence(&args[1], "list/pluck")?;
+        let mut result = Vec::with_capacity(items.len());
+        for item in &items {
+            let val = match item.view() {
+                ValueView::Map(m) => m.get(key).cloned().unwrap_or(Value::nil()),
+                ValueView::HashMap(m) => m.get(key).cloned().unwrap_or(Value::nil()),
+                _ => Value::nil(),
+            };
+            result.push(val);
+        }
+        Ok(Value::list(result))
+    });
+
+    // list/avg — average of numeric list
+    register_fn(env, "list/avg", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/avg", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/avg")?;
+        if items.is_empty() {
+            return Err(SemaError::eval("list/avg: empty list"));
+        }
+        let mut sum: f64 = 0.0;
+        for item in &items {
+            if let Some(n) = item.as_int() {
+                sum += n as f64;
+            } else if let Some(f) = item.as_float() {
+                sum += f;
+            } else {
+                return Err(SemaError::type_error("number", item.type_name()));
+            }
+        }
+        Ok(Value::float(sum / items.len() as f64))
+    });
+
+    // list/median — statistical median
+    register_fn(env, "list/median", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/median", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/median")?;
+        if items.is_empty() {
+            return Err(SemaError::eval("list/median: empty list"));
+        }
+        let mut nums: Vec<f64> = Vec::with_capacity(items.len());
+        for item in &items {
+            if let Some(n) = item.as_int() {
+                nums.push(n as f64);
+            } else if let Some(f) = item.as_float() {
+                nums.push(f);
+            } else {
+                return Err(SemaError::type_error("number", item.type_name()));
+            }
+        }
+        nums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mid = nums.len() / 2;
+        if nums.len() % 2 == 0 {
+            Ok(Value::float((nums[mid - 1] + nums[mid]) / 2.0))
+        } else {
+            Ok(Value::float(nums[mid]))
+        }
+    });
+
+    // list/mode — statistical mode (most frequent)
+    register_fn(env, "list/mode", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/mode", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/mode")?;
+        if items.is_empty() {
+            return Err(SemaError::eval("list/mode: empty list"));
+        }
+        let mut counts: std::collections::BTreeMap<Value, usize> = std::collections::BTreeMap::new();
+        for item in &items {
+            *counts.entry(item.clone()).or_insert(0) += 1;
+        }
+        let max_count = counts.values().copied().max().unwrap();
+        let modes: Vec<Value> = counts
+            .into_iter()
+            .filter(|(_, c)| *c == max_count)
+            .map(|(v, _)| v)
+            .collect();
+        if modes.len() == 1 {
+            Ok(modes.into_iter().next().unwrap())
+        } else {
+            Ok(Value::list(modes))
+        }
+    });
+
+    // list/diff — set difference
+    register_fn(env, "list/diff", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/diff", "2", args.len()));
+        }
+        let a = get_sequence(&args[0], "list/diff")?;
+        let b = get_sequence(&args[1], "list/diff")?;
+        let b_set: std::collections::BTreeSet<Value> = b.into_iter().collect();
+        let result: Vec<Value> = a.into_iter().filter(|item| !b_set.contains(item)).collect();
+        Ok(Value::list(result))
+    });
+
+    // list/intersect — set intersection
+    register_fn(env, "list/intersect", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/intersect", "2", args.len()));
+        }
+        let a = get_sequence(&args[0], "list/intersect")?;
+        let b = get_sequence(&args[1], "list/intersect")?;
+        let b_set: std::collections::BTreeSet<Value> = b.into_iter().collect();
+        let result: Vec<Value> = a.into_iter().filter(|item| b_set.contains(item)).collect();
+        Ok(Value::list(result))
+    });
+
+    // list/sliding — sliding window
+    register_fn(env, "list/sliding", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("list/sliding", "2-3", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/sliding")?;
+        let size = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as usize;
+        let step = if args.len() == 3 {
+            args[2]
+                .as_int()
+                .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))? as usize
+        } else {
+            1
+        };
+        if size == 0 {
+            return Err(SemaError::eval("list/sliding: size must be positive"));
+        }
+        if step == 0 {
+            return Err(SemaError::eval("list/sliding: step must be positive"));
+        }
+        let mut result = Vec::new();
+        let mut i = 0;
+        while i + size <= items.len() {
+            result.push(Value::list(items[i..i + size].to_vec()));
+            i += step;
+        }
+        Ok(Value::list(result))
+    });
+
+    // list/key-by — turn list of maps into map keyed by fn
+    register_fn(env, "list/key-by", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/key-by", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "list/key-by")?;
+        let mut map = std::collections::BTreeMap::new();
+        for item in &items {
+            let key = call_function(&args[0], &[item.clone()])?;
+            map.insert(key, item.clone());
+        }
+        Ok(Value::map(map))
+    });
+
+    // list/times — generate list by calling fn N times
+    register_fn(env, "list/times", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/times", "2", args.len()));
+        }
+        let n = args[0]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
+        let mut result = Vec::with_capacity(n);
+        for i in 0..n {
+            result.push(call_function(&args[1], &[Value::int(i as i64)])?);
+        }
+        Ok(Value::list(result))
+    });
+
+    // list/duplicates — find duplicate values
+    register_fn(env, "list/duplicates", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("list/duplicates", "1", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/duplicates")?;
+        let mut seen: std::collections::BTreeSet<Value> = std::collections::BTreeSet::new();
+        let mut dupes: std::collections::BTreeSet<Value> = std::collections::BTreeSet::new();
+        for item in &items {
+            if !seen.insert(item.clone()) {
+                dupes.insert(item.clone());
+            }
+        }
+        Ok(Value::list(dupes.into_iter().collect()))
+    });
+
+    // list/cross-join — cartesian product
+    register_fn(env, "list/cross-join", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/cross-join", "2", args.len()));
+        }
+        let a = get_sequence(&args[0], "list/cross-join")?;
+        let b = get_sequence(&args[1], "list/cross-join")?;
+        let mut result = Vec::with_capacity(a.len() * b.len());
+        for ai in &a {
+            for bi in &b {
+                result.push(Value::list(vec![ai.clone(), bi.clone()]));
+            }
+        }
+        Ok(Value::list(result))
+    });
+
+    // list/page — pagination
+    register_fn(env, "list/page", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity("list/page", "3", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/page")?;
+        let page = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        let per_page = args[2]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))? as usize;
+        if page < 1 {
+            return Err(SemaError::eval("list/page: page must be >= 1"));
+        }
+        let start = ((page - 1) as usize) * per_page;
+        if start >= items.len() {
+            return Ok(Value::list(vec![]));
+        }
+        let end = (start + per_page).min(items.len());
+        Ok(Value::list(items[start..end].to_vec()))
+    });
+
+    // list/find — first matching item
+    register_fn(env, "list/find", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/find", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "list/find")?;
+        for item in &items {
+            let result = call_function(&args[0], &[item.clone()])?;
+            if result.is_truthy() {
+                return Ok(item.clone());
+            }
+        }
+        Ok(Value::nil())
+    });
+
+    // list/pad — pad list to length
+    register_fn(env, "list/pad", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity("list/pad", "3", args.len()));
+        }
+        let mut items = get_sequence(&args[0], "list/pad")?;
+        let target_len = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as usize;
+        let fill = args[2].clone();
+        while items.len() < target_len {
+            items.push(fill.clone());
+        }
+        Ok(Value::list(items))
+    });
+
+    // list/sole — single matching item or error
+    register_fn(env, "list/sole", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("list/sole", "2", args.len()));
+        }
+        let items = get_sequence(&args[1], "list/sole")?;
+        let mut found: Option<Value> = None;
+        for item in &items {
+            let result = call_function(&args[0], &[item.clone()])?;
+            if result.is_truthy() {
+                if found.is_some() {
+                    return Err(SemaError::eval("list/sole: more than one matching item"));
+                }
+                found = Some(item.clone());
+            }
+        }
+        found.ok_or_else(|| SemaError::eval("list/sole: no matching item"))
+    });
+
+    // list/join — join with optional final separator
+    register_fn(env, "list/join", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("list/join", "2-3", args.len()));
+        }
+        let items = get_sequence(&args[0], "list/join")?;
+        let sep = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?
+            .to_string();
+        let final_sep = if args.len() == 3 {
+            args[2]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[2].type_name()))?
+                .to_string()
+        } else {
+            sep.clone()
+        };
+        if items.is_empty() {
+            return Ok(Value::string(""));
+        }
+        let strs: Vec<String> = items.iter().map(|v| format!("{}", v)).collect();
+        if strs.len() == 1 {
+            return Ok(Value::string(&strs[0]));
+        }
+        let init = strs[..strs.len() - 1].join(&sep);
+        Ok(Value::string(&format!("{}{}{}", init, final_sep, strs[strs.len() - 1])))
+    });
+
+    // tap — side-effect then return original
+    register_fn(env, "tap", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("tap", "2", args.len()));
+        }
+        call_function(&args[1], &[args[0].clone()])?;
+        Ok(args[0].clone())
+    });
+
     // Car/cdr compositions (2-deep)
     register_fn(env, "caar", |args| first(&[first(args)?]));
     register_fn(env, "cadr", |args| first(&[rest(args)?]));

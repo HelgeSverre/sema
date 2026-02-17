@@ -226,3 +226,28 @@ The generic functions `get`, `assoc`, `dissoc`, `keys`, `vals`, `merge`, `count`
 (map/map-vals (fn (v) (* v 2)) (hashmap/new :a 1))  ; hashmap with :a 2
 (map/filter (fn (k v) (> v 1)) (hashmap/new :a 1 :b 2))  ; hashmap with :b
 ```
+
+### `map/sort-keys`
+
+Sort a map by its keys. Converts hashmaps to sorted maps.
+
+```scheme
+(map/sort-keys (hashmap/new :c 3 :a 1 :b 2))   ; => {:a 1 :b 2 :c 3}
+```
+
+### `map/except`
+
+Remove specified keys from a map (inverse of `map/select-keys`).
+
+```scheme
+(map/except {:a 1 :b 2 :c 3} '(:b))       ; => {:a 1 :c 3}
+(map/except {:a 1 :b 2 :c 3} '(:a :c))    ; => {:b 2}
+```
+
+### `map/zip`
+
+Create a map from a list of keys and a list of values.
+
+```scheme
+(map/zip '(:a :b :c) '(1 2 3))   ; => {:a 1 :b 2 :c 3}
+```

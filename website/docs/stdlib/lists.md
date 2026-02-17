@@ -486,3 +486,170 @@ Drop elements from the front while a predicate holds.
 ```scheme
 (list/drop-while (fn (x) (< x 4)) '(1 2 3 4 5))   ; => (4 5)
 ```
+
+## Filtering
+
+### `list/reject`
+
+Return elements that do NOT satisfy a predicate (inverse of `filter`).
+
+```scheme
+(list/reject even? '(1 2 3 4 5))   ; => (1 3 5)
+```
+
+### `list/find`
+
+Return the first element that satisfies a predicate, or `nil` if none found.
+
+```scheme
+(list/find even? '(1 3 4 5 6))   ; => 4
+(list/find even? '(1 3 5))       ; => nil
+```
+
+### `list/sole`
+
+Return the single element matching a predicate. Errors if zero or more than one match.
+
+```scheme
+(list/sole (fn (x) (> x 4)) '(1 2 3 4 5))   ; => 5
+```
+
+## Set Operations
+
+### `list/diff`
+
+Return elements in the first list that are not in the second list.
+
+```scheme
+(list/diff '(1 2 3 4 5) '(3 4))   ; => (1 2 5)
+```
+
+### `list/intersect`
+
+Return elements present in both lists.
+
+```scheme
+(list/intersect '(1 2 3 4 5) '(3 4 6))   ; => (3 4)
+```
+
+### `list/duplicates`
+
+Return values that appear more than once in a list.
+
+```scheme
+(list/duplicates '(1 2 2 3 3 3 4))   ; => (2 3)
+```
+
+## Extraction
+
+### `list/pluck`
+
+Extract a specific key from each map in a list.
+
+```scheme
+(define people (list {:name "Alice" :age 30} {:name "Bob" :age 25}))
+(list/pluck :name people)   ; => ("Alice" "Bob")
+```
+
+### `list/key-by`
+
+Transform a list of maps into a map keyed by a function result.
+
+```scheme
+(list/key-by (fn (p) (get p :id)) people)   ; => map keyed by :id
+```
+
+## Statistics
+
+### `list/avg`
+
+Return the average of a numeric list.
+
+```scheme
+(list/avg '(2 4 6))   ; => 4.0
+```
+
+### `list/median`
+
+Return the statistical median.
+
+```scheme
+(list/median '(3 1 2))     ; => 2.0
+(list/median '(1 2 3 4))   ; => 2.5
+```
+
+### `list/mode`
+
+Return the most frequent value. If tied, returns a list.
+
+```scheme
+(list/mode '(1 2 2 3 3 3))   ; => 3
+(list/mode '(1 1 2 2))       ; => (1 2)
+```
+
+## Windowing
+
+### `list/sliding`
+
+Create a sliding window over a list. Optional step parameter.
+
+```scheme
+(list/sliding '(1 2 3 4 5) 2)     ; => ((1 2) (2 3) (3 4) (4 5))
+(list/sliding '(1 2 3 4 5 6) 2 3) ; => ((1 2) (4 5))
+```
+
+### `list/page`
+
+Paginate a list. `(list/page items page per-page)` — 1-indexed pages.
+
+```scheme
+(list/page (range 20) 1 5)   ; => (0 1 2 3 4)
+(list/page (range 20) 2 5)   ; => (5 6 7 8 9)
+```
+
+### `list/cross-join`
+
+Cartesian product of two lists.
+
+```scheme
+(list/cross-join '(1 2) '(3 4))   ; => ((1 3) (1 4) (2 3) (2 4))
+```
+
+## Padding & Joining
+
+### `list/pad`
+
+Pad a list to a target length with a fill value.
+
+```scheme
+(list/pad '(1 2 3) 5 0)   ; => (1 2 3 0 0)
+```
+
+### `list/join`
+
+Join list elements into a string. Optional final separator.
+
+```scheme
+(list/join '(1 2 3) ", ")             ; => "1, 2, 3"
+(list/join '(1 2 3) ", " " and ")     ; => "1, 2 and 3"
+```
+
+## Generation
+
+### `list/times`
+
+Generate a list by calling a function N times with the index (0-based).
+
+```scheme
+(list/times 5 (fn (i) (* i i)))   ; => (0 1 4 9 16)
+```
+
+## Utility
+
+### `tap`
+
+Apply a side-effect function to a value, then return the original value.
+
+```scheme
+(tap 42 (fn (x) (println x)))   ; prints 42, returns 42
+```

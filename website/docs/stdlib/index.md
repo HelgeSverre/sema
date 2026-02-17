@@ -73,6 +73,13 @@ Sema's stdlib follows consistent naming patterns:
 | `list/split-at`, `list/take-while`, `list/drop-while` | Splitting |
 | `assoc`, `assq`, `assv` | Association lists |
 | `interpose` | Interleaving |
+| `list/reject`, `list/find`, `list/sole` | Filtering & searching |
+| `list/pluck`, `list/key-by` | Map extraction |
+| `list/avg`, `list/median`, `list/mode` | Statistics |
+| `list/diff`, `list/intersect`, `list/duplicates` | Set operations |
+| `list/sliding`, `list/page`, `list/cross-join` | Windowing & pagination |
+| `list/pad`, `list/join`, `list/times` | Padding, joining & generation |
+| `tap` | Utility |
 
 ### [Vectors](./vectors)
 
@@ -90,6 +97,7 @@ Sema's stdlib follows consistent naming patterns:
 | `map/entries`, `map/from-entries` | Entry conversion |
 | `map/map-vals`, `map/map-keys`, `map/filter` | Higher-order |
 | `map/select-keys`, `map/update` | Selection & update |
+| `map/sort-keys`, `map/except`, `map/zip` | Sorting, exclusion & zipping |
 | `hashmap/new`, `hashmap/get`, `hashmap/assoc`, ... | HashMap operations |
 
 ### [Predicates & Type Checking](./predicates)
