@@ -2,8 +2,10 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use js_sys::Date;
-use sema_core::{Env, NativeFn, SemaError, Value};
+use sema_core::{pretty_print, Env, NativeFn, SemaError, Value, ValueView};
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::JsFuture;
 
 thread_local! {
     /// Completed lines of output (flushed by println/newline)
@@ -20,6 +22,8 @@ thread_local! {
         s.insert("/".to_string());
         s
     });
+    /// In-memory HTTP response cache for the replay-with-cache strategy
+    static HTTP_CACHE: RefCell<BTreeMap<String, Value>> = const { RefCell::new(BTreeMap::new()) };
 }
 
 /// Append text to the current line buffer (no newline).
@@ -49,6 +53,367 @@ fn take_output() -> Vec<String> {
         }
     });
     OUTPUT.with(|o| o.borrow_mut().drain(..).collect())
+}
+
+const HTTP_AWAIT_MARKER: &str = "__SEMA_WASM_HTTP__";
+const MAX_REPLAYS: usize = 50;
+
+/// Build a deterministic cache key from HTTP request parameters.
+fn http_cache_key(
+    method: &str,
+    url: &str,
+    body: Option<&str>,
+    headers: &[(String, String)],
+) -> String {
+    use std::fmt::Write;
+    let mut key = format!("{method}\n{url}\n");
+    match body {
+        Some(b) => {
+            write!(key, "{b}").unwrap();
+        }
+        None => {
+            key.push_str("<nil>");
+        }
+    }
+    key.push('\n');
+    for (k, v) in headers {
+        write!(key, "{k}:{v}\n").unwrap();
+    }
+    key
+}
+
+/// Create a marker error whose message encodes an HTTP request as JSON.
+fn http_await_marker(
+    method: &str,
+    url: &str,
+    body: Option<&str>,
+    headers: &[(String, String)],
+    timeout_ms: Option<i64>,
+) -> SemaError {
+    let key = http_cache_key(method, url, body, headers);
+    let body_json = match body {
+        Some(b) => format!("\"{}\"", escape_json(b)),
+        None => "null".to_string(),
+    };
+    let timeout_json = match timeout_ms {
+        Some(t) => format!("{t}"),
+        None => "null".to_string(),
+    };
+    let headers_json = headers
+        .iter()
+        .map(|(k, v)| format!("[\"{}\",\"{}\"]", escape_json(k), escape_json(v)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let payload = format!(
+        "{}{{\"key\":\"{}\",\"method\":\"{}\",\"url\":\"{}\",\"body\":{},\"headers\":[{}],\"timeout\":{}}}",
+        HTTP_AWAIT_MARKER,
+        escape_json(&key),
+        escape_json(method),
+        escape_json(url),
+        body_json,
+        headers_json,
+        timeout_json,
+    );
+    SemaError::eval(payload)
+}
+
+/// Check whether an error is an HTTP await marker.
+fn is_http_await_marker(err: &SemaError) -> bool {
+    match err.inner() {
+        SemaError::Eval(msg) => msg.starts_with(HTTP_AWAIT_MARKER),
+        _ => false,
+    }
+}
+
+/// Extract the JSON payload from an HTTP await marker error.
+fn parse_http_marker(err: &SemaError) -> Option<String> {
+    match err.inner() {
+        SemaError::Eval(msg) if msg.starts_with(HTTP_AWAIT_MARKER) => {
+            Some(msg[HTTP_AWAIT_MARKER.len()..].to_string())
+        }
+        _ => None,
+    }
+}
+
+/// Clear the HTTP response cache.
+fn clear_http_cache() {
+    HTTP_CACHE.with(|c| c.borrow_mut().clear());
+}
+
+/// Convert a sema Value to a serde_json::Value for body serialization.
+fn value_to_json_for_body(val: &Value) -> Result<serde_json::Value, SemaError> {
+    match val.view() {
+        ValueView::Nil => Ok(serde_json::Value::Null),
+        ValueView::Bool(b) => Ok(serde_json::Value::Bool(b)),
+        ValueView::Int(n) => Ok(serde_json::Value::Number(n.into())),
+        ValueView::Float(f) => serde_json::Number::from_f64(f)
+            .map(serde_json::Value::Number)
+            .ok_or_else(|| SemaError::eval("http: cannot encode NaN/Infinity as JSON")),
+        ValueView::String(s) => Ok(serde_json::Value::String(s.to_string())),
+        ValueView::Keyword(s) => Ok(serde_json::Value::String(sema_core::resolve(s))),
+        ValueView::Symbol(s) => Ok(serde_json::Value::String(sema_core::resolve(s))),
+        ValueView::List(items) | ValueView::Vector(items) => {
+            let arr: Result<Vec<_>, _> = items.iter().map(value_to_json_for_body).collect();
+            Ok(serde_json::Value::Array(arr?))
+        }
+        ValueView::Map(map) => {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in map.iter() {
+                let key = match k.view() {
+                    ValueView::String(s) => s.to_string(),
+                    ValueView::Keyword(s) => sema_core::resolve(s),
+                    ValueView::Symbol(s) => sema_core::resolve(s),
+                    _ => k.to_string(),
+                };
+                obj.insert(key, value_to_json_for_body(v)?);
+            }
+            Ok(serde_json::Value::Object(obj))
+        }
+        ValueView::HashMap(map) => {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in map.iter() {
+                let key = match k.view() {
+                    ValueView::String(s) => s.to_string(),
+                    ValueView::Keyword(s) => sema_core::resolve(s),
+                    ValueView::Symbol(s) => sema_core::resolve(s),
+                    _ => k.to_string(),
+                };
+                obj.insert(key, value_to_json_for_body(v)?);
+            }
+            Ok(serde_json::Value::Object(obj))
+        }
+        _ => Err(SemaError::eval(format!(
+            "http: cannot serialize {} to JSON",
+            val.type_name()
+        ))),
+    }
+}
+
+/// Perform an HTTP request via the replay-with-cache strategy.
+/// On cache hit, returns the cached response. On cache miss, returns a marker error.
+fn wasm_http_request(
+    method: &str,
+    url: &str,
+    body: Option<&Value>,
+    opts: Option<&Value>,
+) -> Result<Value, SemaError> {
+    let mut headers: Vec<(String, String)> = Vec::new();
+    let mut timeout_ms: Option<i64> = None;
+    let mut has_content_type = false;
+
+    if let Some(opts_val) = opts {
+        if let Some(opts_map) = opts_val.as_map_rc() {
+            if let Some(headers_val) = opts_map.get(&Value::keyword("headers")) {
+                if let Some(hmap) = headers_val.as_map_rc() {
+                    for (k, v) in hmap.iter() {
+                        let key = match k.view() {
+                            ValueView::String(s) => s.to_string(),
+                            ValueView::Keyword(s) => sema_core::resolve(s),
+                            _ => k.to_string(),
+                        };
+                        let val = match v.as_str() {
+                            Some(s) => s.to_string(),
+                            None => v.to_string(),
+                        };
+                        if key.eq_ignore_ascii_case("content-type") {
+                            has_content_type = true;
+                        }
+                        headers.push((key, val));
+                    }
+                }
+            }
+            if let Some(timeout_val) = opts_map.get(&Value::keyword("timeout")) {
+                if let Some(ms) = timeout_val.as_int() {
+                    timeout_ms = Some(ms);
+                }
+            }
+        }
+    }
+
+    let body_str = match body {
+        Some(val) => {
+            if let Some(s) = val.as_str() {
+                Some(s.to_string())
+            } else if val.as_map_rc().is_some() {
+                let json = value_to_json_for_body(val)?;
+                let json_str = serde_json::to_string(&json)
+                    .map_err(|e| SemaError::eval(format!("http: json encode: {e}")))?;
+                if !has_content_type {
+                    headers.push(("Content-Type".to_string(), "application/json".to_string()));
+                }
+                Some(json_str)
+            } else if val.is_nil() {
+                None
+            } else {
+                Some(val.to_string())
+            }
+        }
+        None => None,
+    };
+
+    headers.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+
+    let key = http_cache_key(method, url, body_str.as_deref(), &headers);
+
+    let cached = HTTP_CACHE.with(|c| c.borrow().get(&key).cloned());
+    if let Some(val) = cached {
+        return Ok(val);
+    }
+
+    Err(http_await_marker(
+        method,
+        url,
+        body_str.as_deref(),
+        &headers,
+        timeout_ms,
+    ))
+}
+
+/// Perform an HTTP fetch via the browser's `fetch()` API.
+async fn perform_fetch(
+    method: &str,
+    url: &str,
+    body: Option<&str>,
+    headers: &[(String, String)],
+    timeout_ms: Option<u64>,
+) -> Result<Value, SemaError> {
+    let window = web_sys::window()
+        .ok_or_else(|| SemaError::Io("no global `window` available".to_string()))?;
+
+    let opts = web_sys::RequestInit::new();
+    opts.set_method(method);
+    opts.set_mode(web_sys::RequestMode::Cors);
+
+    if let Some(body_str) = body {
+        opts.set_body(&JsValue::from_str(body_str));
+    }
+
+    let abort_controller = if timeout_ms.is_some() {
+        let controller = web_sys::AbortController::new()
+            .map_err(|_| SemaError::Io("failed to create AbortController".to_string()))?;
+        opts.set_signal(Some(&controller.signal()));
+        Some(controller)
+    } else {
+        None
+    };
+
+    let request = web_sys::Request::new_with_str_and_init(url, &opts).map_err(|e| {
+        SemaError::Io(format!(
+            "failed to create request: {}",
+            e.as_string().unwrap_or_default()
+        ))
+    })?;
+
+    for (k, v) in headers {
+        request.headers().set(k, v).map_err(|e| {
+            SemaError::Io(format!(
+                "failed to set header: {}",
+                e.as_string().unwrap_or_default()
+            ))
+        })?;
+    }
+
+    if let (Some(ms), Some(controller)) = (timeout_ms, &abort_controller) {
+        let c = controller.clone();
+        let closure = wasm_bindgen::closure::Closure::once(move || {
+            c.abort();
+        });
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            closure.as_ref().unchecked_ref(),
+            ms as i32,
+        );
+        closure.forget();
+    }
+
+    let resp_jsvalue = JsFuture::from(window.fetch_with_request(&request))
+        .await
+        .map_err(|e| {
+            let msg = e
+                .as_string()
+                .or_else(|| {
+                    js_sys::Reflect::get(&e, &JsValue::from_str("message"))
+                        .ok()
+                        .and_then(|m| m.as_string())
+                })
+                .unwrap_or_else(|| "fetch failed".to_string());
+            SemaError::Io(msg)
+        })?;
+
+    let response: web_sys::Response = resp_jsvalue
+        .dyn_into()
+        .map_err(|_| SemaError::Io("fetch did not return a Response".to_string()))?;
+
+    let status = response.status() as i64;
+
+    let mut resp_headers = BTreeMap::new();
+    if let Ok(Some(iter)) = js_sys::try_iter(&response.headers()) {
+        for entry in iter {
+            if let Ok(entry) = entry {
+                let arr: js_sys::Array = entry.into();
+                if arr.length() >= 2 {
+                    let k = arr.get(0).as_string().unwrap_or_default();
+                    let v = arr.get(1).as_string().unwrap_or_default();
+                    resp_headers.insert(Value::keyword(&k), Value::string(&v));
+                }
+            }
+        }
+    }
+
+    let body_promise = response.text().map_err(|e| {
+        SemaError::Io(format!(
+            "failed to read response body: {}",
+            e.as_string().unwrap_or_default()
+        ))
+    })?;
+    let body_jsvalue = JsFuture::from(body_promise).await.map_err(|e| {
+        SemaError::Io(format!(
+            "failed to read response body: {}",
+            e.as_string().unwrap_or_default()
+        ))
+    })?;
+    let body_text = body_jsvalue.as_string().unwrap_or_default();
+
+    let mut result = BTreeMap::new();
+    result.insert(Value::keyword("status"), Value::int(status));
+    result.insert(Value::keyword("headers"), Value::map(resp_headers));
+    result.insert(Value::keyword("body"), Value::string(&body_text));
+
+    Ok(Value::map(result))
+}
+
+/// Parse an HTTP marker JSON and perform the fetch, returning (cache_key, response).
+async fn perform_fetch_from_marker(json_str: &str) -> Result<(String, Value), SemaError> {
+    let parsed: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| SemaError::eval(format!("failed to parse HTTP marker JSON: {e}")))?;
+
+    let key = parsed["key"]
+        .as_str()
+        .ok_or_else(|| SemaError::eval("HTTP marker missing 'key'"))?
+        .to_string();
+    let method = parsed["method"]
+        .as_str()
+        .ok_or_else(|| SemaError::eval("HTTP marker missing 'method'"))?;
+    let url = parsed["url"]
+        .as_str()
+        .ok_or_else(|| SemaError::eval("HTTP marker missing 'url'"))?;
+    let body = parsed["body"].as_str();
+    let timeout_ms = parsed["timeout"].as_u64();
+
+    let mut headers = Vec::new();
+    if let Some(arr) = parsed["headers"].as_array() {
+        for pair in arr {
+            if let Some(pair_arr) = pair.as_array() {
+                if pair_arr.len() >= 2 {
+                    let k = pair_arr[0].as_str().unwrap_or_default().to_string();
+                    let v = pair_arr[1].as_str().unwrap_or_default().to_string();
+                    headers.push((k, v));
+                }
+            }
+        }
+    }
+
+    let response = perform_fetch(method, url, body, &headers, timeout_ms).await?;
+    Ok((key, response))
 }
 
 /// Register print/println/display/newline that write to the output buffer instead of stdout
@@ -114,6 +479,19 @@ fn register_wasm_io(env: &Env) {
                 }
             }
             append_output(&out);
+            flush_line();
+            Ok(Value::nil())
+        }),
+    );
+
+    // pprint: pretty-print a value and flush
+    register(
+        "pprint",
+        Box::new(|args: &[Value]| {
+            if args.len() != 1 {
+                return Err(SemaError::arity("pprint", "1", args.len()));
+            }
+            append_output(&pretty_print(&args[0], 80));
             flush_line();
             Ok(Value::nil())
         }),
@@ -504,7 +882,7 @@ fn register_wasm_io(env: &Env) {
         }),
     );
 
-    // --- HTTP stubs (async fetch not available in synchronous WASM) ---
+    // --- HTTP via replay-with-cache (async eval catches markers and performs fetch) ---
 
     register(
         "http/get",
@@ -512,7 +890,10 @@ fn register_wasm_io(env: &Env) {
             if args.is_empty() || args.len() > 2 {
                 return Err(SemaError::arity("http/get", "1 or 2", args.len()));
             }
-            Err(SemaError::eval("http/get is not yet supported in WASM. HTTP requires async evaluation which will be available via eval_async in a future release."))
+            let url = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            wasm_http_request("GET", url, None, args.get(1))
         }),
     );
 
@@ -522,7 +903,10 @@ fn register_wasm_io(env: &Env) {
             if args.len() < 2 || args.len() > 3 {
                 return Err(SemaError::arity("http/post", "2 or 3", args.len()));
             }
-            Err(SemaError::eval("http/post is not yet supported in WASM. HTTP requires async evaluation which will be available via eval_async in a future release."))
+            let url = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            wasm_http_request("POST", url, Some(&args[1]), args.get(2))
         }),
     );
 
@@ -532,7 +916,10 @@ fn register_wasm_io(env: &Env) {
             if args.len() < 2 || args.len() > 3 {
                 return Err(SemaError::arity("http/put", "2 or 3", args.len()));
             }
-            Err(SemaError::eval("http/put is not yet supported in WASM. HTTP requires async evaluation which will be available via eval_async in a future release."))
+            let url = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            wasm_http_request("PUT", url, Some(&args[1]), args.get(2))
         }),
     );
 
@@ -542,7 +929,10 @@ fn register_wasm_io(env: &Env) {
             if args.is_empty() || args.len() > 2 {
                 return Err(SemaError::arity("http/delete", "1 or 2", args.len()));
             }
-            Err(SemaError::eval("http/delete is not yet supported in WASM. HTTP requires async evaluation which will be available via eval_async in a future release."))
+            let url = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            wasm_http_request("DELETE", url, None, args.get(1))
         }),
     );
 
@@ -552,7 +942,15 @@ fn register_wasm_io(env: &Env) {
             if args.len() < 2 || args.len() > 4 {
                 return Err(SemaError::arity("http/request", "2-4", args.len()));
             }
-            Err(SemaError::eval("http/request is not yet supported in WASM. HTTP requires async evaluation which will be available via eval_async in a future release."))
+            let method = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let url = args[1]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+            let body = args.get(2);
+            let opts = args.get(3);
+            wasm_http_request(method, url, body, opts)
         }),
     );
 
@@ -1092,6 +1490,10 @@ impl WasmInterpreter {
         // Override print/println/display with our buffer-based versions
         register_wasm_io(&interp.global_env);
 
+        // Set eval step limit to prevent infinite loops from crashing the browser tab.
+        // 10M steps is enough for complex examples but prevents runaway computation.
+        interp.ctx.set_eval_step_limit(10_000_000);
+
         WasmInterpreter { inner: interp }
     }
 
@@ -1156,7 +1558,7 @@ impl WasmInterpreter {
                 let val_str = if val.is_nil() {
                     "null".to_string()
                 } else {
-                    format!("\"{}\"", escape_json(&format!("{val}")))
+                    format!("\"{}\"", escape_json(&pretty_print(&val, 80)))
                 };
                 format!(
                     "{{\"value\":{},\"output\":[{}],\"error\":null}}",
@@ -1204,7 +1606,7 @@ impl WasmInterpreter {
                 let val_str = if val.is_nil() {
                     "null".to_string()
                 } else {
-                    format!("\"{}\"", escape_json(&format!("{val}")))
+                    format!("\"{}\"", escape_json(&pretty_print(&val, 80)))
                 };
                 format!(
                     "{{\"value\":{},\"output\":[{}],\"error\":null}}",
@@ -1239,6 +1641,170 @@ impl WasmInterpreter {
                 )
             }
         }
+    }
+
+    /// Evaluate code with async HTTP support (tree-walker, global env)
+    pub async fn eval_async(&self, code: &str) -> String {
+        clear_http_cache();
+
+        for _ in 0..MAX_REPLAYS {
+            OUTPUT.with(|o| o.borrow_mut().clear());
+            LINE_BUF.with(|b| b.borrow_mut().clear());
+
+            match sema_eval::eval_string(&self.inner.ctx, code, &self.inner.global_env) {
+                Ok(val) => {
+                    let output = take_output();
+                    let val_str = if val.is_nil() {
+                        "null".to_string()
+                    } else {
+                        format!("\"{}\"", escape_json(&pretty_print(&val, 80)))
+                    };
+                    return format!(
+                        "{{\"value\":{},\"output\":[{}],\"error\":null}}",
+                        val_str,
+                        output
+                            .iter()
+                            .map(|s| format!("\"{}\"", escape_json(s)))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    );
+                }
+                Err(e) => {
+                    if is_http_await_marker(&e) {
+                        if let Some(json_str) = parse_http_marker(&e) {
+                            match perform_fetch_from_marker(&json_str).await {
+                                Ok((key, response)) => {
+                                    HTTP_CACHE.with(|c| {
+                                        c.borrow_mut().insert(key, response);
+                                    });
+                                    continue;
+                                }
+                                Err(fetch_err) => {
+                                    let output = take_output();
+                                    let err_str = format!("{}", fetch_err.inner());
+                                    return format!(
+                                        "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
+                                        output
+                                            .iter()
+                                            .map(|s| format!("\"{}\"", escape_json(s)))
+                                            .collect::<Vec<_>>()
+                                            .join(","),
+                                        escape_json(&err_str)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    let output = take_output();
+                    let mut err_str = format!("{}", e.inner());
+                    if let Some(trace) = e.stack_trace() {
+                        err_str.push_str(&format!("\n{trace}"));
+                    }
+                    if let Some(hint) = e.hint() {
+                        err_str.push_str(&format!("\n  hint: {hint}"));
+                    }
+                    if let Some(note) = e.note() {
+                        err_str.push_str(&format!("\n  note: {note}"));
+                    }
+                    return format!(
+                        "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
+                        output
+                            .iter()
+                            .map(|s| format!("\"{}\"", escape_json(s)))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        escape_json(&err_str)
+                    );
+                }
+            }
+        }
+
+        format!(
+            "{{\"value\":null,\"output\":[],\"error\":\"{}\"}}",
+            escape_json("exceeded maximum number of HTTP requests (50)")
+        )
+    }
+
+    /// Evaluate code with async HTTP support (bytecode VM)
+    pub async fn eval_vm_async(&self, code: &str) -> String {
+        clear_http_cache();
+
+        for _ in 0..MAX_REPLAYS {
+            OUTPUT.with(|o| o.borrow_mut().clear());
+            LINE_BUF.with(|b| b.borrow_mut().clear());
+
+            match self.inner.eval_str_compiled(code) {
+                Ok(val) => {
+                    let output = take_output();
+                    let val_str = if val.is_nil() {
+                        "null".to_string()
+                    } else {
+                        format!("\"{}\"", escape_json(&pretty_print(&val, 80)))
+                    };
+                    return format!(
+                        "{{\"value\":{},\"output\":[{}],\"error\":null}}",
+                        val_str,
+                        output
+                            .iter()
+                            .map(|s| format!("\"{}\"", escape_json(s)))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    );
+                }
+                Err(e) => {
+                    if is_http_await_marker(&e) {
+                        if let Some(json_str) = parse_http_marker(&e) {
+                            match perform_fetch_from_marker(&json_str).await {
+                                Ok((key, response)) => {
+                                    HTTP_CACHE.with(|c| {
+                                        c.borrow_mut().insert(key, response);
+                                    });
+                                    continue;
+                                }
+                                Err(fetch_err) => {
+                                    let output = take_output();
+                                    let err_str = format!("{}", fetch_err.inner());
+                                    return format!(
+                                        "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
+                                        output
+                                            .iter()
+                                            .map(|s| format!("\"{}\"", escape_json(s)))
+                                            .collect::<Vec<_>>()
+                                            .join(","),
+                                        escape_json(&err_str)
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    let output = take_output();
+                    let mut err_str = format!("{}", e.inner());
+                    if let Some(trace) = e.stack_trace() {
+                        err_str.push_str(&format!("\n{trace}"));
+                    }
+                    if let Some(hint) = e.hint() {
+                        err_str.push_str(&format!("\n  hint: {hint}"));
+                    }
+                    if let Some(note) = e.note() {
+                        err_str.push_str(&format!("\n  note: {note}"));
+                    }
+                    return format!(
+                        "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
+                        output
+                            .iter()
+                            .map(|s| format!("\"{}\"", escape_json(s)))
+                            .collect::<Vec<_>>()
+                            .join(","),
+                        escape_json(&err_str)
+                    );
+                }
+            }
+        }
+
+        format!(
+            "{{\"value\":null,\"output\":[],\"error\":\"{}\"}}",
+            escape_json("exceeded maximum number of HTTP requests (50)")
+        )
     }
 
     /// Get the Sema version
