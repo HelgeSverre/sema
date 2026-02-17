@@ -82,6 +82,7 @@ export default defineConfig({
             { text: 'Maps & HashMaps', link: '/docs/stdlib/maps' },
             { text: 'Predicates', link: '/docs/stdlib/predicates' },
             { text: 'File I/O & Paths', link: '/docs/stdlib/file-io' },
+            { text: 'PDF Processing', link: '/docs/stdlib/pdf' },
             { text: 'HTTP & JSON', link: '/docs/stdlib/http-json' },
             { text: 'Regex', link: '/docs/stdlib/regex' },
             { text: 'CSV & Encoding', link: '/docs/stdlib/csv-encoding' },

@@ -8372,7 +8372,9 @@ fn test_context_all() {
 #[test]
 fn test_context_pull() {
     assert_eq!(
-        eval(r#"(begin (context/set :temp "value") (define pulled (context/pull :temp)) (list pulled (context/has? :temp)))"#),
+        eval(
+            r#"(begin (context/set :temp "value") (define pulled (context/pull :temp)) (list pulled (context/has? :temp)))"#
+        ),
         eval(r#"(list "value" #f)"#),
     );
 }
@@ -8380,18 +8382,22 @@ fn test_context_pull() {
 #[test]
 fn test_context_with_scoped() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/set :x "outer")
             (context/with {:x "inner" :y "only-inner"}
-                (lambda () (list (context/get :x) (context/get :y)))))"#),
+                (lambda () (list (context/get :x) (context/get :y)))))"#
+        ),
         eval(r#"(list "inner" "only-inner")"#),
     );
     // After context/with, :x is restored and :y is gone
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/set :x "outer")
             (context/with {:x "inner"} (lambda () nil))
-            (list (context/get :x) (context/get :y)))"#),
+            (list (context/get :x) (context/get :y)))"#
+        ),
         eval(r#"(list "outer" nil)"#),
     );
 }
@@ -8399,13 +8405,15 @@ fn test_context_with_scoped() {
 #[test]
 fn test_context_with_nested() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/set :a 1)
             (context/with {:b 2}
                 (lambda ()
                     (context/with {:c 3}
                         (lambda ()
-                            (list (context/get :a) (context/get :b) (context/get :c)))))))"#),
+                            (list (context/get :a) (context/get :b) (context/get :c)))))))"#
+        ),
         eval("(list 1 2 3)"),
     );
 }
@@ -8413,19 +8421,23 @@ fn test_context_with_nested() {
 #[test]
 fn test_context_hidden() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/set-hidden :secret "s3cret")
-            (list (context/get-hidden :secret) (context/get :secret)))"#),
+            (list (context/get-hidden :secret) (context/get :secret)))"#
+        ),
         eval(r#"(list "s3cret" nil)"#),
     );
 }
 
 #[test]
 fn test_context_hidden_not_in_all() {
-    let result = eval(r#"(begin
+    let result = eval(
+        r#"(begin
         (context/set :visible 1)
         (context/set-hidden :invisible 2)
-        (context/all))"#);
+        (context/all))"#,
+    );
     let map = result.as_map_rc().expect("should be map");
     assert_eq!(map.get(&Value::keyword("visible")), Some(&Value::int(1)));
     assert_eq!(map.get(&Value::keyword("invisible")), None);
@@ -8443,11 +8455,13 @@ fn test_context_has_hidden() {
 #[test]
 fn test_context_stack_push_get() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/push :breadcrumbs "first")
             (context/push :breadcrumbs "second")
             (context/push :breadcrumbs "third")
-            (context/stack :breadcrumbs))"#),
+            (context/stack :breadcrumbs))"#
+        ),
         eval(r#"(list "first" "second" "third")"#),
     );
 }
@@ -8455,18 +8469,22 @@ fn test_context_stack_push_get() {
 #[test]
 fn test_context_stack_pop() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/push :trail "a")
             (context/push :trail "b")
-            (context/pop :trail))"#),
+            (context/pop :trail))"#
+        ),
         Value::string("b"),
     );
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/push :trail "a")
             (context/push :trail "b")
             (context/pop :trail)
-            (context/stack :trail))"#),
+            (context/stack :trail))"#
+        ),
         eval(r#"(list "a")"#),
     );
 }
@@ -8480,10 +8498,12 @@ fn test_context_stack_empty() {
 #[test]
 fn test_context_merge() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/set :a 1)
             (context/merge {:b 2 :c 3})
-            (list (context/get :a) (context/get :b) (context/get :c)))"#),
+            (list (context/get :a) (context/get :b) (context/get :c)))"#
+        ),
         eval("(list 1 2 3)"),
     );
 }
@@ -8491,21 +8511,25 @@ fn test_context_merge() {
 #[test]
 fn test_context_clear() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/set :a 1)
             (context/set :b 2)
             (context/clear)
-            (context/all))"#),
+            (context/all))"#
+        ),
         eval("{}"),
     );
 }
 
 #[test]
 fn test_log_includes_context() {
-    eval(r#"(begin
+    eval(
+        r#"(begin
         (context/set :trace-id "abc-123")
         (context/set :user-id 42)
-        (log/info "test message"))"#);
+        (log/info "test message"))"#,
+    );
 }
 
 #[test]
@@ -8530,10 +8554,12 @@ fn test_context_with_restores_on_error() {
 #[test]
 fn test_context_with_any_value_types() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/set "string-key" 42)
             (context/set 123 "number-key")
-            (list (context/get "string-key") (context/get 123)))"#),
+            (list (context/get "string-key") (context/get 123)))"#
+        ),
         eval(r#"(list 42 "number-key")"#),
     );
 }
@@ -8541,10 +8567,12 @@ fn test_context_with_any_value_types() {
 #[test]
 fn test_context_stacks_independent() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (context/push :a 1)
             (context/push :b 2)
-            (list (context/stack :a) (context/stack :b)))"#),
+            (list (context/stack :a) (context/stack :b)))"#
+        ),
         eval("(list (list 1) (list 2))"),
     );
 }
@@ -8554,22 +8582,38 @@ fn test_context_stacks_independent() {
 #[test]
 fn test_context_arity_errors() {
     assert!(eval_err("(context/set :x)").to_string().contains("expects"));
-    assert!(eval_err("(context/set :x 1 2)").to_string().contains("expects"));
+    assert!(eval_err("(context/set :x 1 2)")
+        .to_string()
+        .contains("expects"));
     assert!(eval_err("(context/get)").to_string().contains("expects"));
-    assert!(eval_err("(context/get :a :b)").to_string().contains("expects"));
+    assert!(eval_err("(context/get :a :b)")
+        .to_string()
+        .contains("expects"));
     assert!(eval_err("(context/has?)").to_string().contains("expects"));
     assert!(eval_err("(context/remove)").to_string().contains("expects"));
     assert!(eval_err("(context/all :x)").to_string().contains("expects"));
     assert!(eval_err("(context/pull)").to_string().contains("expects"));
-    assert!(eval_err("(context/push :x)").to_string().contains("expects"));
+    assert!(eval_err("(context/push :x)")
+        .to_string()
+        .contains("expects"));
     assert!(eval_err("(context/stack)").to_string().contains("expects"));
     assert!(eval_err("(context/pop)").to_string().contains("expects"));
     assert!(eval_err("(context/merge)").to_string().contains("expects"));
-    assert!(eval_err("(context/clear :x)").to_string().contains("expects"));
-    assert!(eval_err("(context/with {:a 1})").to_string().contains("expects"));
-    assert!(eval_err("(context/set-hidden :x)").to_string().contains("expects"));
-    assert!(eval_err("(context/get-hidden)").to_string().contains("expects"));
-    assert!(eval_err("(context/has-hidden?)").to_string().contains("expects"));
+    assert!(eval_err("(context/clear :x)")
+        .to_string()
+        .contains("expects"));
+    assert!(eval_err("(context/with {:a 1})")
+        .to_string()
+        .contains("expects"));
+    assert!(eval_err("(context/set-hidden :x)")
+        .to_string()
+        .contains("expects"));
+    assert!(eval_err("(context/get-hidden)")
+        .to_string()
+        .contains("expects"));
+    assert!(eval_err("(context/has-hidden?)")
+        .to_string()
+        .contains("expects"));
 }
 
 // --- Type error tests ---
@@ -8686,171 +8730,387 @@ fn test_context_remove_across_frames() {
         )
         .unwrap();
     assert_eq!(result, Value::nil());
-    assert_eq!(
-        interp.eval_str("(context/get :x)").unwrap(),
-        Value::nil(),
-    );
+    assert_eq!(interp.eval_str("(context/get :x)").unwrap(), Value::nil(),);
 }
 
 // ── String boundary slicers ──
 
 #[test]
 fn test_string_after() {
-    assert_eq!(eval(r#"(string/after "This is my name" "This is ")"#), Value::string("my name"));
-    assert_eq!(eval(r#"(string/after "hello" "missing")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/after "one::two::three" "::")"#), Value::string("two::three"));
+    assert_eq!(
+        eval(r#"(string/after "This is my name" "This is ")"#),
+        Value::string("my name")
+    );
+    assert_eq!(
+        eval(r#"(string/after "hello" "missing")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/after "one::two::three" "::")"#),
+        Value::string("two::three")
+    );
     // edge: empty input, empty needle, boundary positions, unicode
     assert_eq!(eval(r#"(string/after "" "x")"#), Value::string(""));
     assert_eq!(eval(r#"(string/after "hello" "")"#), Value::string("hello"));
     assert_eq!(eval(r#"(string/after "abc" "a")"#), Value::string("bc"));
     assert_eq!(eval(r#"(string/after "abc" "c")"#), Value::string(""));
     assert_eq!(eval(r#"(string/after "abc" "abc")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/after "café🎉bar" "🎉")"#), Value::string("bar"));
-    assert_eq!(eval(r#"(string/after "ééé hannah" "han")"#), Value::string("nah"));
+    assert_eq!(
+        eval(r#"(string/after "café🎉bar" "🎉")"#),
+        Value::string("bar")
+    );
+    assert_eq!(
+        eval(r#"(string/after "ééé hannah" "han")"#),
+        Value::string("nah")
+    );
 }
 
 #[test]
 fn test_string_after_last() {
-    assert_eq!(eval(r#"(string/after-last "one::two::three" "::")"#), Value::string("three"));
-    assert_eq!(eval(r#"(string/after-last "hello" "missing")"#), Value::string("hello"));
+    assert_eq!(
+        eval(r#"(string/after-last "one::two::three" "::")"#),
+        Value::string("three")
+    );
+    assert_eq!(
+        eval(r#"(string/after-last "hello" "missing")"#),
+        Value::string("hello")
+    );
     // edge: empty needle, boundary positions, unicode
     assert_eq!(eval(r#"(string/after-last "" "x")"#), Value::string(""));
     assert_eq!(eval(r#"(string/after-last "hello" "")"#), Value::string(""));
     assert_eq!(eval(r#"(string/after-last "abc" "c")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/after-last "abc" "abc")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/after-last "yvette" "t")"#), Value::string("e"));
-    assert_eq!(eval(r#"(string/after-last "yvette" "tte")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/after-last "寿司🍣寿司🍣end" "🍣")"#), Value::string("end"));
+    assert_eq!(
+        eval(r#"(string/after-last "abc" "abc")"#),
+        Value::string("")
+    );
+    assert_eq!(
+        eval(r#"(string/after-last "yvette" "t")"#),
+        Value::string("e")
+    );
+    assert_eq!(
+        eval(r#"(string/after-last "yvette" "tte")"#),
+        Value::string("")
+    );
+    assert_eq!(
+        eval(r#"(string/after-last "寿司🍣寿司🍣end" "🍣")"#),
+        Value::string("end")
+    );
 }
 
 #[test]
 fn test_string_before() {
-    assert_eq!(eval(r#"(string/before "This is my name" " my")"#), Value::string("This is"));
-    assert_eq!(eval(r#"(string/before "hello" "missing")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/before "one::two::three" "::")"#), Value::string("one"));
+    assert_eq!(
+        eval(r#"(string/before "This is my name" " my")"#),
+        Value::string("This is")
+    );
+    assert_eq!(
+        eval(r#"(string/before "hello" "missing")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/before "one::two::three" "::")"#),
+        Value::string("one")
+    );
     // edge: empty input, empty needle, boundary positions, unicode
     assert_eq!(eval(r#"(string/before "" "x")"#), Value::string(""));
     assert_eq!(eval(r#"(string/before "hello" "")"#), Value::string(""));
     assert_eq!(eval(r#"(string/before "abc" "a")"#), Value::string(""));
     assert_eq!(eval(r#"(string/before "abc" "c")"#), Value::string("ab"));
     assert_eq!(eval(r#"(string/before "abc" "abc")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/before "café🎉bar" "🎉")"#), Value::string("café"));
-    assert_eq!(eval(r#"(string/before "foo@bar.com" "@")"#), Value::string("foo"));
-    assert_eq!(eval(r#"(string/before "@foo@bar.com" "@")"#), Value::string(""));
+    assert_eq!(
+        eval(r#"(string/before "café🎉bar" "🎉")"#),
+        Value::string("café")
+    );
+    assert_eq!(
+        eval(r#"(string/before "foo@bar.com" "@")"#),
+        Value::string("foo")
+    );
+    assert_eq!(
+        eval(r#"(string/before "@foo@bar.com" "@")"#),
+        Value::string("")
+    );
 }
 
 #[test]
 fn test_string_before_last() {
-    assert_eq!(eval(r#"(string/before-last "one::two::three" "::")"#), Value::string("one::two"));
-    assert_eq!(eval(r#"(string/before-last "hello" "missing")"#), Value::string("hello"));
+    assert_eq!(
+        eval(r#"(string/before-last "one::two::three" "::")"#),
+        Value::string("one::two")
+    );
+    assert_eq!(
+        eval(r#"(string/before-last "hello" "missing")"#),
+        Value::string("hello")
+    );
     // edge: empty needle, boundary positions, unicode
     assert_eq!(eval(r#"(string/before-last "" "x")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/before-last "hello" "")"#), Value::string("hello"));
+    assert_eq!(
+        eval(r#"(string/before-last "hello" "")"#),
+        Value::string("hello")
+    );
     assert_eq!(eval(r#"(string/before-last "abc" "a")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/before-last "abc" "abc")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/before-last "yvette" "t")"#), Value::string("yvet"));
-    assert_eq!(eval(r#"(string/before-last "寿司🍣寿司🍣end" "🍣")"#), Value::string("寿司🍣寿司"));
-    assert_eq!(eval(r#"(string/before-last "laravel framework" " ")"#), Value::string("laravel"));
+    assert_eq!(
+        eval(r#"(string/before-last "abc" "abc")"#),
+        Value::string("")
+    );
+    assert_eq!(
+        eval(r#"(string/before-last "yvette" "t")"#),
+        Value::string("yvet")
+    );
+    assert_eq!(
+        eval(r#"(string/before-last "寿司🍣寿司🍣end" "🍣")"#),
+        Value::string("寿司🍣寿司")
+    );
+    assert_eq!(
+        eval(r#"(string/before-last "laravel framework" " ")"#),
+        Value::string("laravel")
+    );
 }
 
 #[test]
 fn test_string_between() {
-    assert_eq!(eval(r#"(string/between "This is my name" "This " " name")"#), Value::string("is my"));
-    assert_eq!(eval(r#"(string/between "[hello]" "[" "]")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/between "no match" "(" ")")"#), Value::string(""));
+    assert_eq!(
+        eval(r#"(string/between "This is my name" "This " " name")"#),
+        Value::string("is my")
+    );
+    assert_eq!(
+        eval(r#"(string/between "[hello]" "[" "]")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/between "no match" "(" ")")"#),
+        Value::string("")
+    );
     // edge: empty delimiters, nested brackets, unicode
     assert_eq!(eval(r#"(string/between "" "[" "]")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/between "abc" "" "c")"#), Value::string("ab"));
+    assert_eq!(
+        eval(r#"(string/between "abc" "" "c")"#),
+        Value::string("ab")
+    );
     assert_eq!(eval(r#"(string/between "abc" "a" "")"#), Value::string(""));
     assert_eq!(eval(r#"(string/between "abc" "" "")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/between "hannah" "ha" "ah")"#), Value::string("nn"));
-    assert_eq!(eval(r#"(string/between "[a]ab[b]" "[" "]")"#), Value::string("a"));
-    assert_eq!(eval(r#"(string/between "foobarbar" "foo" "bar")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/between "寿司(🍣)定食" "(" ")")"#), Value::string("🍣"));
+    assert_eq!(
+        eval(r#"(string/between "hannah" "ha" "ah")"#),
+        Value::string("nn")
+    );
+    assert_eq!(
+        eval(r#"(string/between "[a]ab[b]" "[" "]")"#),
+        Value::string("a")
+    );
+    assert_eq!(
+        eval(r#"(string/between "foobarbar" "foo" "bar")"#),
+        Value::string("")
+    );
+    assert_eq!(
+        eval(r#"(string/between "寿司(🍣)定食" "(" ")")"#),
+        Value::string("🍣")
+    );
 }
 
 // ── Prefix/suffix tools ──
 
 #[test]
 fn test_string_chop_start() {
-    assert_eq!(eval(r#"(string/chop-start "Hello World" "Hello ")"#), Value::string("World"));
-    assert_eq!(eval(r#"(string/chop-start "Hello" "Bye")"#), Value::string("Hello"));
+    assert_eq!(
+        eval(r#"(string/chop-start "Hello World" "Hello ")"#),
+        Value::string("World")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-start "Hello" "Bye")"#),
+        Value::string("Hello")
+    );
     // edge: empty string, empty prefix, unicode/emoji
     assert_eq!(eval(r#"(string/chop-start "" "x")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/chop-start "hello" "")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/chop-start "http://laravel.com" "http://")"#), Value::string("laravel.com"));
-    assert_eq!(eval(r#"(string/chop-start "🌊✋" "🌊")"#), Value::string("✋"));
-    assert_eq!(eval(r#"(string/chop-start "🌊✋" "✋")"#), Value::string("🌊✋"));
-    assert_eq!(eval(r#"(string/chop-start "こんにちは世界" "こんにちは")"#), Value::string("世界"));
+    assert_eq!(
+        eval(r#"(string/chop-start "hello" "")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-start "http://laravel.com" "http://")"#),
+        Value::string("laravel.com")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-start "🌊✋" "🌊")"#),
+        Value::string("✋")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-start "🌊✋" "✋")"#),
+        Value::string("🌊✋")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-start "こんにちは世界" "こんにちは")"#),
+        Value::string("世界")
+    );
 }
 
 #[test]
 fn test_string_chop_end() {
-    assert_eq!(eval(r#"(string/chop-end "Hello World" " World")"#), Value::string("Hello"));
-    assert_eq!(eval(r#"(string/chop-end "Hello" "Bye")"#), Value::string("Hello"));
+    assert_eq!(
+        eval(r#"(string/chop-end "Hello World" " World")"#),
+        Value::string("Hello")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-end "Hello" "Bye")"#),
+        Value::string("Hello")
+    );
     // edge: empty string, empty suffix, unicode/emoji
     assert_eq!(eval(r#"(string/chop-end "" "x")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/chop-end "hello" "")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/chop-end "path/to/file.php" ".php")"#), Value::string("path/to/file"));
-    assert_eq!(eval(r#"(string/chop-end "✋🌊" "🌊")"#), Value::string("✋"));
-    assert_eq!(eval(r#"(string/chop-end "✋🌊" "✋")"#), Value::string("✋🌊"));
-    assert_eq!(eval(r#"(string/chop-end "寿司🍣" "🍣")"#), Value::string("寿司"));
+    assert_eq!(
+        eval(r#"(string/chop-end "hello" "")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-end "path/to/file.php" ".php")"#),
+        Value::string("path/to/file")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-end "✋🌊" "🌊")"#),
+        Value::string("✋")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-end "✋🌊" "✋")"#),
+        Value::string("✋🌊")
+    );
+    assert_eq!(
+        eval(r#"(string/chop-end "寿司🍣" "🍣")"#),
+        Value::string("寿司")
+    );
 }
 
 #[test]
 fn test_string_ensure_start() {
-    assert_eq!(eval(r#"(string/ensure-start "world" "hello ")"#), Value::string("hello world"));
-    assert_eq!(eval(r#"(string/ensure-start "hello world" "hello ")"#), Value::string("hello world"));
+    assert_eq!(
+        eval(r#"(string/ensure-start "world" "hello ")"#),
+        Value::string("hello world")
+    );
+    assert_eq!(
+        eval(r#"(string/ensure-start "hello world" "hello ")"#),
+        Value::string("hello world")
+    );
     // edge: empty input, empty prefix
-    assert_eq!(eval(r#"(string/ensure-start "" "pre-")"#), Value::string("pre-"));
-    assert_eq!(eval(r#"(string/ensure-start "hello" "")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/ensure-start "test/string" "/")"#), Value::string("/test/string"));
-    assert_eq!(eval(r#"(string/ensure-start "/test/string" "/")"#), Value::string("/test/string"));
+    assert_eq!(
+        eval(r#"(string/ensure-start "" "pre-")"#),
+        Value::string("pre-")
+    );
+    assert_eq!(
+        eval(r#"(string/ensure-start "hello" "")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/ensure-start "test/string" "/")"#),
+        Value::string("/test/string")
+    );
+    assert_eq!(
+        eval(r#"(string/ensure-start "/test/string" "/")"#),
+        Value::string("/test/string")
+    );
 }
 
 #[test]
 fn test_string_ensure_end() {
-    assert_eq!(eval(r#"(string/ensure-end "/path" "/")"#), Value::string("/path/"));
-    assert_eq!(eval(r#"(string/ensure-end "/path/" "/")"#), Value::string("/path/"));
+    assert_eq!(
+        eval(r#"(string/ensure-end "/path" "/")"#),
+        Value::string("/path/")
+    );
+    assert_eq!(
+        eval(r#"(string/ensure-end "/path/" "/")"#),
+        Value::string("/path/")
+    );
     // edge: empty input, empty suffix
-    assert_eq!(eval(r#"(string/ensure-end "" "-post")"#), Value::string("-post"));
-    assert_eq!(eval(r#"(string/ensure-end "hello" "")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/ensure-end "ab" "bc")"#), Value::string("abbc"));
+    assert_eq!(
+        eval(r#"(string/ensure-end "" "-post")"#),
+        Value::string("-post")
+    );
+    assert_eq!(
+        eval(r#"(string/ensure-end "hello" "")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/ensure-end "ab" "bc")"#),
+        Value::string("abbc")
+    );
 }
 
 // ── Replace variants ──
 
 #[test]
 fn test_string_replace_first() {
-    assert_eq!(eval(r#"(string/replace-first "aaa" "a" "b")"#), Value::string("baa"));
-    assert_eq!(eval(r#"(string/replace-first "hello" "x" "y")"#), Value::string("hello"));
+    assert_eq!(
+        eval(r#"(string/replace-first "aaa" "a" "b")"#),
+        Value::string("baa")
+    );
+    assert_eq!(
+        eval(r#"(string/replace-first "hello" "x" "y")"#),
+        Value::string("hello")
+    );
     // edge: empty input, empty needle, unicode
-    assert_eq!(eval(r#"(string/replace-first "" "a" "b")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/replace-first "hello" "" "X")"#), Value::string("Xhello"));
-    assert_eq!(eval(r#"(string/replace-first "🍣🍣" "🍣" "x")"#), Value::string("x🍣"));
-    assert_eq!(eval(r#"(string/replace-first "foobar foobar" "bar" "qux")"#), Value::string("fooqux foobar"));
+    assert_eq!(
+        eval(r#"(string/replace-first "" "a" "b")"#),
+        Value::string("")
+    );
+    assert_eq!(
+        eval(r#"(string/replace-first "hello" "" "X")"#),
+        Value::string("Xhello")
+    );
+    assert_eq!(
+        eval(r#"(string/replace-first "🍣🍣" "🍣" "x")"#),
+        Value::string("x🍣")
+    );
+    assert_eq!(
+        eval(r#"(string/replace-first "foobar foobar" "bar" "qux")"#),
+        Value::string("fooqux foobar")
+    );
 }
 
 #[test]
 fn test_string_replace_last() {
-    assert_eq!(eval(r#"(string/replace-last "aaa" "a" "b")"#), Value::string("aab"));
-    assert_eq!(eval(r#"(string/replace-last "hello" "x" "y")"#), Value::string("hello"));
+    assert_eq!(
+        eval(r#"(string/replace-last "aaa" "a" "b")"#),
+        Value::string("aab")
+    );
+    assert_eq!(
+        eval(r#"(string/replace-last "hello" "x" "y")"#),
+        Value::string("hello")
+    );
     // edge: empty input, empty needle, unicode
-    assert_eq!(eval(r#"(string/replace-last "" "a" "b")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/replace-last "hello" "" "X")"#), Value::string("helloX"));
-    assert_eq!(eval(r#"(string/replace-last "🍣🍣" "🍣" "x")"#), Value::string("🍣x"));
-    assert_eq!(eval(r#"(string/replace-last "foobar foobar" "bar" "qux")"#), Value::string("foobar fooqux"));
+    assert_eq!(
+        eval(r#"(string/replace-last "" "a" "b")"#),
+        Value::string("")
+    );
+    assert_eq!(
+        eval(r#"(string/replace-last "hello" "" "X")"#),
+        Value::string("helloX")
+    );
+    assert_eq!(
+        eval(r#"(string/replace-last "🍣🍣" "🍣" "x")"#),
+        Value::string("🍣x")
+    );
+    assert_eq!(
+        eval(r#"(string/replace-last "foobar foobar" "bar" "qux")"#),
+        Value::string("foobar fooqux")
+    );
 }
 
 #[test]
 fn test_string_remove() {
-    assert_eq!(eval(r#"(string/remove "hello world" "o")"#), Value::string("hell wrld"));
+    assert_eq!(
+        eval(r#"(string/remove "hello world" "o")"#),
+        Value::string("hell wrld")
+    );
     assert_eq!(eval(r#"(string/remove "abc" "x")"#), Value::string("abc"));
     // edge: empty input, empty needle, multi-byte removal
     assert_eq!(eval(r#"(string/remove "" "x")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/remove "hello" "")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/remove "Foobar" "o")"#), Value::string("Fbar"));
-    assert_eq!(eval(r#"(string/remove "café café" "é")"#), Value::string("caf caf"));
+    assert_eq!(
+        eval(r#"(string/remove "hello" "")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/remove "Foobar" "o")"#),
+        Value::string("Fbar")
+    );
+    assert_eq!(
+        eval(r#"(string/remove "café café" "é")"#),
+        Value::string("caf caf")
+    );
 }
 
 #[test]
@@ -8872,66 +9132,168 @@ fn test_string_take() {
 
 #[test]
 fn test_string_snake_case() {
-    assert_eq!(eval(r#"(string/snake-case "helloWorld")"#), Value::string("hello_world"));
-    assert_eq!(eval(r#"(string/snake-case "HelloWorld")"#), Value::string("hello_world"));
-    assert_eq!(eval(r#"(string/snake-case "hello-world")"#), Value::string("hello_world"));
-    assert_eq!(eval(r#"(string/snake-case "Hello World")"#), Value::string("hello_world"));
+    assert_eq!(
+        eval(r#"(string/snake-case "helloWorld")"#),
+        Value::string("hello_world")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "HelloWorld")"#),
+        Value::string("hello_world")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "hello-world")"#),
+        Value::string("hello_world")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "Hello World")"#),
+        Value::string("hello_world")
+    );
     // edge: empty, consecutive separators, acronyms, numbers, unicode
     assert_eq!(eval(r#"(string/snake-case "")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/snake-case "foo--bar")"#), Value::string("foo_bar"));
-    assert_eq!(eval(r#"(string/snake-case "foo__bar")"#), Value::string("foo_bar"));
-    assert_eq!(eval(r#"(string/snake-case "HTMLParser")"#), Value::string("html_parser"));
-    assert_eq!(eval(r#"(string/snake-case "LaravelPHPFramework")"#), Value::string("laravel_php_framework"));
-    assert_eq!(eval(r#"(string/snake-case "user2FAEnabled")"#), Value::string("user2_fa_enabled"));
-    assert_eq!(eval(r#"(string/snake-case "CaféConLeche")"#), Value::string("café_con_leche"));
+    assert_eq!(
+        eval(r#"(string/snake-case "foo--bar")"#),
+        Value::string("foo_bar")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "foo__bar")"#),
+        Value::string("foo_bar")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "HTMLParser")"#),
+        Value::string("html_parser")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "LaravelPHPFramework")"#),
+        Value::string("laravel_php_framework")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "user2FAEnabled")"#),
+        Value::string("user2_fa_enabled")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "CaféConLeche")"#),
+        Value::string("café_con_leche")
+    );
 }
 
 #[test]
 fn test_string_kebab_case() {
-    assert_eq!(eval(r#"(string/kebab-case "helloWorld")"#), Value::string("hello-world"));
-    assert_eq!(eval(r#"(string/kebab-case "hello_world")"#), Value::string("hello-world"));
-    assert_eq!(eval(r#"(string/kebab-case "HelloWorld")"#), Value::string("hello-world"));
+    assert_eq!(
+        eval(r#"(string/kebab-case "helloWorld")"#),
+        Value::string("hello-world")
+    );
+    assert_eq!(
+        eval(r#"(string/kebab-case "hello_world")"#),
+        Value::string("hello-world")
+    );
+    assert_eq!(
+        eval(r#"(string/kebab-case "HelloWorld")"#),
+        Value::string("hello-world")
+    );
     // edge: empty, consecutive separators, acronyms
     assert_eq!(eval(r#"(string/kebab-case "")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/kebab-case "foo__bar")"#), Value::string("foo-bar"));
-    assert_eq!(eval(r#"(string/kebab-case "HTMLParser")"#), Value::string("html-parser"));
-    assert_eq!(eval(r#"(string/kebab-case "user2FAEnabled")"#), Value::string("user2-fa-enabled"));
+    assert_eq!(
+        eval(r#"(string/kebab-case "foo__bar")"#),
+        Value::string("foo-bar")
+    );
+    assert_eq!(
+        eval(r#"(string/kebab-case "HTMLParser")"#),
+        Value::string("html-parser")
+    );
+    assert_eq!(
+        eval(r#"(string/kebab-case "user2FAEnabled")"#),
+        Value::string("user2-fa-enabled")
+    );
 }
 
 #[test]
 fn test_string_camel_case() {
-    assert_eq!(eval(r#"(string/camel-case "hello_world")"#), Value::string("helloWorld"));
-    assert_eq!(eval(r#"(string/camel-case "hello-world")"#), Value::string("helloWorld"));
-    assert_eq!(eval(r#"(string/camel-case "Hello World")"#), Value::string("helloWorld"));
+    assert_eq!(
+        eval(r#"(string/camel-case "hello_world")"#),
+        Value::string("helloWorld")
+    );
+    assert_eq!(
+        eval(r#"(string/camel-case "hello-world")"#),
+        Value::string("helloWorld")
+    );
+    assert_eq!(
+        eval(r#"(string/camel-case "Hello World")"#),
+        Value::string("helloWorld")
+    );
     // edge: empty, consecutive separators, acronyms, numbers
     assert_eq!(eval(r#"(string/camel-case "")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/camel-case "foo__bar")"#), Value::string("fooBar"));
-    assert_eq!(eval(r#"(string/camel-case "HTMLParser")"#), Value::string("htmlParser"));
-    assert_eq!(eval(r#"(string/camel-case "FooBar")"#), Value::string("fooBar"));
+    assert_eq!(
+        eval(r#"(string/camel-case "foo__bar")"#),
+        Value::string("fooBar")
+    );
+    assert_eq!(
+        eval(r#"(string/camel-case "HTMLParser")"#),
+        Value::string("htmlParser")
+    );
+    assert_eq!(
+        eval(r#"(string/camel-case "FooBar")"#),
+        Value::string("fooBar")
+    );
 }
 
 #[test]
 fn test_string_pascal_case() {
-    assert_eq!(eval(r#"(string/pascal-case "hello_world")"#), Value::string("HelloWorld"));
-    assert_eq!(eval(r#"(string/pascal-case "hello-world")"#), Value::string("HelloWorld"));
-    assert_eq!(eval(r#"(string/pascal-case "hello world")"#), Value::string("HelloWorld"));
+    assert_eq!(
+        eval(r#"(string/pascal-case "hello_world")"#),
+        Value::string("HelloWorld")
+    );
+    assert_eq!(
+        eval(r#"(string/pascal-case "hello-world")"#),
+        Value::string("HelloWorld")
+    );
+    assert_eq!(
+        eval(r#"(string/pascal-case "hello world")"#),
+        Value::string("HelloWorld")
+    );
     // edge: empty, consecutive separators, acronyms
     assert_eq!(eval(r#"(string/pascal-case "")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/pascal-case "foo__bar")"#), Value::string("FooBar"));
-    assert_eq!(eval(r#"(string/pascal-case "HTMLParser")"#), Value::string("HtmlParser"));
+    assert_eq!(
+        eval(r#"(string/pascal-case "foo__bar")"#),
+        Value::string("FooBar")
+    );
+    assert_eq!(
+        eval(r#"(string/pascal-case "HTMLParser")"#),
+        Value::string("HtmlParser")
+    );
 }
 
 #[test]
 fn test_string_headline() {
-    assert_eq!(eval(r#"(string/headline "hello_world")"#), Value::string("Hello World"));
-    assert_eq!(eval(r#"(string/headline "helloWorld")"#), Value::string("Hello World"));
-    assert_eq!(eval(r#"(string/headline "hello-world")"#), Value::string("Hello World"));
+    assert_eq!(
+        eval(r#"(string/headline "hello_world")"#),
+        Value::string("Hello World")
+    );
+    assert_eq!(
+        eval(r#"(string/headline "helloWorld")"#),
+        Value::string("Hello World")
+    );
+    assert_eq!(
+        eval(r#"(string/headline "hello-world")"#),
+        Value::string("Hello World")
+    );
     // edge: empty, consecutive/mixed separators, acronyms
     assert_eq!(eval(r#"(string/headline "")"#), Value::string(""));
-    assert_eq!(eval(r#"(string/headline "foo--bar__baz")"#), Value::string("Foo Bar Baz"));
-    assert_eq!(eval(r#"(string/headline "HTMLParser")"#), Value::string("Html Parser"));
-    assert_eq!(eval(r#"(string/headline "LaravelPHPFramework")"#), Value::string("Laravel Php Framework"));
-    assert_eq!(eval(r#"(string/headline "user2FAEnabled")"#), Value::string("User2 Fa Enabled"));
+    assert_eq!(
+        eval(r#"(string/headline "foo--bar__baz")"#),
+        Value::string("Foo Bar Baz")
+    );
+    assert_eq!(
+        eval(r#"(string/headline "HTMLParser")"#),
+        Value::string("Html Parser")
+    );
+    assert_eq!(
+        eval(r#"(string/headline "LaravelPHPFramework")"#),
+        Value::string("Laravel Php Framework")
+    );
+    assert_eq!(
+        eval(r#"(string/headline "user2FAEnabled")"#),
+        Value::string("User2 Fa Enabled")
+    );
 }
 
 #[test]
@@ -8967,28 +9329,64 @@ fn test_string_words() {
 
 #[test]
 fn test_string_wrap() {
-    assert_eq!(eval(r#"(string/wrap "hello" "'")"#), Value::string("'hello'"));
-    assert_eq!(eval(r#"(string/wrap "hello" "[" "]")"#), Value::string("[hello]"));
+    assert_eq!(
+        eval(r#"(string/wrap "hello" "'")"#),
+        Value::string("'hello'")
+    );
+    assert_eq!(
+        eval(r#"(string/wrap "hello" "[" "]")"#),
+        Value::string("[hello]")
+    );
     // edge: empty delimiter, empty string, unicode
     assert_eq!(eval(r#"(string/wrap "hello" "")"#), Value::string("hello"));
     assert_eq!(eval(r#"(string/wrap "" "'")"#), Value::string("''"));
     assert_eq!(eval(r#"(string/wrap "X" "🧪")"#), Value::string("🧪X🧪"));
     assert_eq!(eval(r#"(string/wrap "値" "«" "»")"#), Value::string("«値»"));
-    assert_eq!(eval(r#"(string/wrap "-bar-" "foo" "baz")"#), Value::string("foo-bar-baz"));
+    assert_eq!(
+        eval(r#"(string/wrap "-bar-" "foo" "baz")"#),
+        Value::string("foo-bar-baz")
+    );
 }
 
 #[test]
 fn test_string_unwrap() {
-    assert_eq!(eval(r#"(string/unwrap "'hello'" "'")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/unwrap "[hello]" "[" "]")"#), Value::string("hello"));
-    assert_eq!(eval(r#"(string/unwrap "hello" "'")"#), Value::string("hello"));
+    assert_eq!(
+        eval(r#"(string/unwrap "'hello'" "'")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap "[hello]" "[" "]")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap "hello" "'")"#),
+        Value::string("hello")
+    );
     // edge: only one side matches (Sema leaves unchanged), asymmetric delimiters
-    assert_eq!(eval(r#"(string/unwrap "'hello" "'")"#), Value::string("'hello"));
-    assert_eq!(eval(r#"(string/unwrap "hello'" "'")"#), Value::string("hello'"));
-    assert_eq!(eval(r#"(string/unwrap "[hello" "[" "]")"#), Value::string("[hello"));
-    assert_eq!(eval(r#"(string/unwrap "hello]" "[" "]")"#), Value::string("hello]"));
-    assert_eq!(eval(r#"(string/unwrap "foo-bar-baz" "foo-" "-baz")"#), Value::string("bar"));
-    assert_eq!(eval(r#"(string/unwrap "{some: \"json\"}" "{" "}")"#), Value::string("some: \"json\""));
+    assert_eq!(
+        eval(r#"(string/unwrap "'hello" "'")"#),
+        Value::string("'hello")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap "hello'" "'")"#),
+        Value::string("hello'")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap "[hello" "[" "]")"#),
+        Value::string("[hello")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap "hello]" "[" "]")"#),
+        Value::string("hello]")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap "foo-bar-baz" "foo-" "-baz")"#),
+        Value::string("bar")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap "{some: \"json\"}" "{" "}")"#),
+        Value::string("some: \"json\"")
+    );
 }
 
 // ── Text helpers ──
@@ -9038,4 +9436,648 @@ fn test_text_normalize_newlines() {
         eval(r#"(text/normalize-newlines "already\nfine")"#),
         Value::string("already\nfine")
     );
+}
+
+// ── Deep edge case tests ──
+
+#[test]
+fn test_string_after_multi_byte_needle() {
+    // multi-byte needle within multi-byte string
+    assert_eq!(
+        eval(r#"(string/after "ééé hannah" "han")"#),
+        Value::string("nah")
+    );
+    // newline as needle
+    assert_eq!(
+        eval(r#"(string/after "line1\nline2" "\n")"#),
+        Value::string("line2")
+    );
+    // needle appears multiple times — returns after first
+    assert_eq!(eval(r#"(string/after "a.b.c" ".")"#), Value::string("b.c"));
+}
+
+#[test]
+fn test_string_between_left_found_right_missing() {
+    // left found, right not found → returns everything after left
+    assert_eq!(
+        eval(r#"(string/between "foo left only" "foo" "bar")"#),
+        Value::string(" left only")
+    );
+    // left & right adjacent → empty result
+    assert_eq!(
+        eval(r#"(string/between "foobar" "foo" "bar")"#),
+        Value::string("")
+    );
+    // left & right with content between
+    assert_eq!(
+        eval(r#"(string/between "fooxbar" "foo" "bar")"#),
+        Value::string("x")
+    );
+    // multi-char delimiters
+    assert_eq!(
+        eval(r#"(string/between "123456789" "123" "6789")"#),
+        Value::string("45")
+    );
+}
+
+#[test]
+fn test_string_unwrap_minimal_length() {
+    // exactly delimiter + delimiter with empty content
+    assert_eq!(eval(r#"(string/unwrap "xx" "x")"#), Value::string(""));
+    // single char can't be unwrapped with single-char delimiter (len < left+right)
+    assert_eq!(eval(r#"(string/unwrap "x" "x")"#), Value::string("x"));
+    // multi-char delimiters wrapping empty content
+    assert_eq!(eval(r#"(string/unwrap "[]" "[" "]")"#), Value::string(""));
+    // delimiter longer than string
+    assert_eq!(eval(r#"(string/unwrap "ab" "abc")"#), Value::string("ab"));
+}
+
+#[test]
+fn test_string_replace_first_full_and_delete() {
+    // replace entire string
+    assert_eq!(
+        eval(r#"(string/replace-first "abc" "abc" "xyz")"#),
+        Value::string("xyz")
+    );
+    // replace with empty (delete first occurrence)
+    assert_eq!(
+        eval(r#"(string/replace-first "abc" "b" "")"#),
+        Value::string("ac")
+    );
+    // multi-byte replacement
+    assert_eq!(
+        eval(r#"(string/replace-first "Jönköping Malmö" "Jö" "xxx")"#),
+        Value::string("xxxnköping Malmö")
+    );
+}
+
+#[test]
+fn test_string_replace_last_full_and_delete() {
+    // replace entire string
+    assert_eq!(
+        eval(r#"(string/replace-last "abc" "abc" "xyz")"#),
+        Value::string("xyz")
+    );
+    // replace with empty (delete last occurrence)
+    assert_eq!(
+        eval(r#"(string/replace-last "abcb" "b" "")"#),
+        Value::string("abc")
+    );
+    // multi-byte replacement
+    assert_eq!(
+        eval(r#"(string/replace-last "Malmö Jönköping" "öping" "yyy")"#),
+        Value::string("Malmö Jönkyyy")
+    );
+}
+
+#[test]
+fn test_string_remove_multi_char_and_overlapping() {
+    // remove multi-char substring
+    assert_eq!(
+        eval(r#"(string/remove "Foobar" "bar")"#),
+        Value::string("Foo")
+    );
+    assert_eq!(
+        eval(r#"(string/remove "Foobar" "F")"#),
+        Value::string("oobar")
+    );
+    // remove multiple occurrences
+    assert_eq!(eval(r#"(string/remove "abcabc" "abc")"#), Value::string(""));
+    // case sensitive
+    assert_eq!(
+        eval(r#"(string/remove "Foobar" "f")"#),
+        Value::string("Foobar")
+    );
+}
+
+#[test]
+fn test_string_take_exact_length() {
+    // take exactly the string length
+    assert_eq!(eval(r#"(string/take "abc" 3)"#), Value::string("abc"));
+    // negative take exceeding length returns full string
+    assert_eq!(eval(r#"(string/take "ab" -10)"#), Value::string("ab"));
+    // single char string
+    assert_eq!(eval(r#"(string/take "a" 1)"#), Value::string("a"));
+    assert_eq!(eval(r#"(string/take "a" -1)"#), Value::string("a"));
+    // multi-byte: take from string with mixed ascii and emoji
+    assert_eq!(eval(r#"(string/take "a🎉b" 2)"#), Value::string("a🎉"));
+    assert_eq!(eval(r#"(string/take "a🎉b" -2)"#), Value::string("🎉b"));
+}
+
+#[test]
+fn test_string_snake_case_idempotent_and_edge() {
+    // already in snake_case
+    assert_eq!(
+        eval(r#"(string/snake-case "already_snake")"#),
+        Value::string("already_snake")
+    );
+    // single uppercase char
+    assert_eq!(eval(r#"(string/snake-case "A")"#), Value::string("a"));
+    // all uppercase (acronym)
+    assert_eq!(eval(r#"(string/snake-case "ABC")"#), Value::string("abc"));
+    // acronym then lowercase
+    assert_eq!(
+        eval(r#"(string/snake-case "ABCDef")"#),
+        Value::string("abc_def")
+    );
+    // dot-separated (namespace-like)
+    assert_eq!(
+        eval(r#"(string/snake-case "foo.bar.baz")"#),
+        Value::string("foo_bar_baz")
+    );
+    // multi-acronym
+    assert_eq!(
+        eval(r#"(string/snake-case "getHTTPSUrl")"#),
+        Value::string("get_https_url")
+    );
+    assert_eq!(
+        eval(r#"(string/snake-case "XMLToJSON")"#),
+        Value::string("xml_to_json")
+    );
+    // trailing number
+    assert_eq!(
+        eval(r#"(string/snake-case "version2")"#),
+        Value::string("version2")
+    );
+}
+
+#[test]
+fn test_string_camel_case_idempotent_and_edge() {
+    // already camelCase — idempotent
+    assert_eq!(
+        eval(r#"(string/camel-case "alreadyCamel")"#),
+        Value::string("alreadyCamel")
+    );
+    // single word
+    assert_eq!(
+        eval(r#"(string/camel-case "hello")"#),
+        Value::string("hello")
+    );
+    // all uppercase words
+    assert_eq!(
+        eval(r#"(string/camel-case "FOO_BAR")"#),
+        Value::string("fooBar")
+    );
+    // dot-separated
+    assert_eq!(
+        eval(r#"(string/camel-case "foo.bar.baz")"#),
+        Value::string("fooBarBaz")
+    );
+}
+
+#[test]
+fn test_string_pascal_case_edge() {
+    // single word
+    assert_eq!(
+        eval(r#"(string/pascal-case "hello")"#),
+        Value::string("Hello")
+    );
+    // all uppercase words
+    assert_eq!(
+        eval(r#"(string/pascal-case "FOO_BAR")"#),
+        Value::string("FooBar")
+    );
+    // dot-separated
+    assert_eq!(
+        eval(r#"(string/pascal-case "foo.bar.baz")"#),
+        Value::string("FooBarBaz")
+    );
+}
+
+#[test]
+fn test_string_headline_unicode() {
+    // unicode uppercase transitions (Laravel-inspired)
+    assert_eq!(
+        eval(r#"(string/headline "sindÖdeUndSo")"#),
+        Value::string("Sind Öde Und So")
+    );
+    assert_eq!(
+        eval(r#"(string/headline "öffentliche-überraschungen")"#),
+        Value::string("Öffentliche Überraschungen")
+    );
+}
+
+#[test]
+fn test_string_words_separators_only() {
+    // all separators → empty list
+    assert_eq!(eval(r#"(string/words "")"#), eval("'()"));
+    assert_eq!(eval(r#"(string/words "___")"#), eval("'()"));
+    assert_eq!(eval(r#"(string/words "---")"#), eval("'()"));
+    assert_eq!(eval(r#"(string/words "   ")"#), eval("'()"));
+    // single word (no separators)
+    assert_eq!(eval(r#"(string/words "abc")"#), eval(r#"'("abc")"#));
+    // trailing number stays with word
+    assert_eq!(
+        eval(r#"(string/words "version2")"#),
+        eval(r#"'("version2")"#)
+    );
+    // multi-acronym
+    assert_eq!(
+        eval(r#"(string/words "getHTTPSUrl")"#),
+        eval(r#"'("get" "HTTPS" "Url")"#)
+    );
+    assert_eq!(
+        eval(r#"(string/words "XMLToJSON")"#),
+        eval(r#"'("XML" "To" "JSON")"#)
+    );
+    // dot-separated
+    assert_eq!(
+        eval(r#"(string/words "foo.bar.baz")"#),
+        eval(r#"'("foo" "bar" "baz")"#)
+    );
+}
+
+#[test]
+fn test_string_wrap_unwrap_roundtrip() {
+    // wrap then unwrap should recover original
+    assert_eq!(
+        eval(r#"(string/unwrap (string/wrap "hello" "[" "]") "[" "]")"#),
+        Value::string("hello")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap (string/wrap "data" "<<" ">>") "<<" ">>")"#),
+        Value::string("data")
+    );
+    // wrap with multi-char delimiter
+    assert_eq!(
+        eval(r#"(string/wrap "mid" "[]")"#),
+        Value::string("[]mid[]")
+    );
+    assert_eq!(
+        eval(r#"(string/unwrap "[]mid[]" "[]")"#),
+        Value::string("mid")
+    );
+}
+
+#[test]
+fn test_text_excerpt_radius_zero() {
+    // radius 0 — only the query itself plus omission markers
+    assert_eq!(
+        eval(r#"(text/excerpt "abcdef" "cde" {:radius 0})"#),
+        Value::string("...cde...")
+    );
+    // query at start — no leading omission
+    assert_eq!(
+        eval(r#"(text/excerpt "abcdef" "abc" {:radius 0})"#),
+        Value::string("abc...")
+    );
+    // query at end — no trailing omission
+    assert_eq!(
+        eval(r#"(text/excerpt "abcdef" "def" {:radius 0})"#),
+        Value::string("...def")
+    );
+}
+
+#[test]
+fn test_text_excerpt_unicode_deep() {
+    // CJK with radius (from Laravel tests)
+    assert_eq!(
+        eval(r#"(text/excerpt "㏗༼㏗" "༼" {:radius 0})"#),
+        Value::string("...༼...")
+    );
+    // accented characters
+    assert_eq!(
+        eval(r#"(text/excerpt "Como você está" "ê" {:radius 2})"#),
+        Value::string("...ocê e...")
+    );
+    // case-insensitive match on accented
+    assert_eq!(
+        eval(r#"(text/excerpt "João Antônio" "JOÃO" {:radius 5})"#),
+        Value::string("João Antô...")
+    );
+    // default radius (100) on short string — no omission markers
+    assert_eq!(
+        eval(r#"(text/excerpt "short text" "text")"#),
+        Value::string("short text")
+    );
+}
+
+#[test]
+fn test_text_normalize_newlines_edge() {
+    // empty string
+    assert_eq!(eval(r#"(text/normalize-newlines "")"#), Value::string(""));
+    // only carriage returns
+    assert_eq!(
+        eval(r#"(text/normalize-newlines "\r\r\r")"#),
+        Value::string("\n\n\n")
+    );
+    // mixed line endings
+    assert_eq!(
+        eval(r#"(text/normalize-newlines "a\r\nb\rc\nd")"#),
+        Value::string("a\nb\nc\nd")
+    );
+    // no line endings
+    assert_eq!(
+        eval(r#"(text/normalize-newlines "no newlines")"#),
+        Value::string("no newlines")
+    );
+}
+
+#[test]
+fn test_string_chop_start_prefix_is_full_string() {
+    // prefix equals entire string → empty result
+    assert_eq!(
+        eval(r#"(string/chop-start "hello" "hello")"#),
+        Value::string("")
+    );
+    // suffix equals entire string → empty result
+    assert_eq!(
+        eval(r#"(string/chop-end "hello" "hello")"#),
+        Value::string("")
+    );
+}
+
+#[test]
+fn test_string_ensure_start_already_doubled() {
+    // ensure-start with prefix already present twice — should not add
+    assert_eq!(
+        eval(r#"(string/ensure-start "//test" "/")"#),
+        Value::string("//test")
+    );
+    // ensure-end with suffix already present — should not add
+    assert_eq!(
+        eval(r#"(string/ensure-end "testbc" "bc")"#),
+        Value::string("testbc")
+    );
+}
+
+#[test]
+fn test_string_between_overlapping_delimiters() {
+    // same delimiter for left and right
+    assert_eq!(
+        eval(r#"(string/between "xhellox" "x" "x")"#),
+        Value::string("hello")
+    );
+    // delimiter appears three times — takes first and next
+    assert_eq!(
+        eval(r#"(string/between "|a|b|c" "|" "|")"#),
+        Value::string("a")
+    );
+}
+
+#[test]
+fn test_string_after_before_composability() {
+    // composing after and before to extract between
+    assert_eq!(
+        eval(r#"(string/before (string/after "user@host.com" "@") ".")"#),
+        Value::string("host")
+    );
+    // chop-start then chop-end to extract path
+    assert_eq!(
+        eval(
+            r#"(string/chop-end (string/chop-start "http://example.com/path" "http://") "/path")"#
+        ),
+        Value::string("example.com")
+    );
+}
+
+#[test]
+fn test_casing_roundtrip() {
+    // snake → camel → snake roundtrip
+    assert_eq!(
+        eval(r#"(string/snake-case (string/camel-case "hello_world"))"#),
+        Value::string("hello_world")
+    );
+    // snake → pascal → snake roundtrip
+    assert_eq!(
+        eval(r#"(string/snake-case (string/pascal-case "hello_world"))"#),
+        Value::string("hello_world")
+    );
+    // kebab → camel → kebab roundtrip
+    assert_eq!(
+        eval(r#"(string/kebab-case (string/camel-case "hello-world"))"#),
+        Value::string("hello-world")
+    );
+}
+
+// --- PDF processing tests ---
+
+fn pdf_fixture(name: &str) -> String {
+    format!("{}/tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
+}
+
+#[test]
+fn test_pdf_extract_text() {
+    let path = pdf_fixture("sample-invoice.pdf");
+    let result = eval(&format!(r#"(pdf/extract-text "{path}")"#));
+    let text = result.as_str().expect("should return a string");
+    assert!(
+        text.contains("Invoice"),
+        "should contain 'Invoice', got: {text}"
+    );
+    assert!(text.contains("Acme"), "should contain 'Acme', got: {text}");
+}
+
+#[test]
+fn test_pdf_extract_text_not_receipt() {
+    let path = pdf_fixture("not-a-receipt.pdf");
+    let result = eval(&format!(r#"(pdf/extract-text "{path}")"#));
+    let text = result.as_str().expect("should return a string");
+    assert!(
+        text.contains("Meeting"),
+        "should contain 'Meeting', got: {text}"
+    );
+    assert!(
+        !text.contains("Invoice"),
+        "should NOT contain 'Invoice', got: {text}"
+    );
+}
+
+#[test]
+fn test_pdf_extract_text_nonexistent() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(pdf/extract-text "/nonexistent/file.pdf")"#);
+    assert!(result.is_err(), "should error on nonexistent file");
+}
+
+#[test]
+fn test_pdf_extract_text_arity() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str(r#"(pdf/extract-text)"#).is_err());
+}
+
+#[test]
+fn test_pdf_extract_text_pages() {
+    let path = pdf_fixture("sample-invoice.pdf");
+    let result = eval(&format!(r#"(pdf/extract-text-pages "{path}")"#));
+    let pages = result.as_list().expect("should return a list");
+    assert_eq!(pages.len(), 1, "single-page PDF should return 1 page");
+    let page_text = pages[0].as_str().expect("page should be a string");
+    assert!(
+        page_text.contains("Invoice"),
+        "page should contain 'Invoice'"
+    );
+}
+
+#[test]
+fn test_pdf_extract_text_pages_returns_list() {
+    let path = pdf_fixture("sample-invoice.pdf");
+    let result = eval(&format!(r#"(length (pdf/extract-text-pages "{path}"))"#));
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_pdf_extract_text_pages_nonexistent() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(pdf/extract-text-pages "/nonexistent.pdf")"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_pdf_page_count() {
+    let path = pdf_fixture("sample-invoice.pdf");
+    let result = eval(&format!(r#"(pdf/page-count "{path}")"#));
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_pdf_page_count_second_fixture() {
+    let path = pdf_fixture("not-a-receipt.pdf");
+    let result = eval(&format!(r#"(pdf/page-count "{path}")"#));
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_pdf_page_count_nonexistent() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(pdf/page-count "/nonexistent.pdf")"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_pdf_page_count_arity() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str(r#"(pdf/page-count)"#).is_err());
+    assert!(interp.eval_str(r#"(pdf/page-count "a" "b")"#).is_err());
+}
+
+#[test]
+fn test_pdf_metadata_returns_map() {
+    let path = pdf_fixture("sample-invoice.pdf");
+    let result = eval(&format!(r#"(pdf/metadata "{path}")"#));
+    assert!(result.as_map_rc().is_some(), "should return a map");
+}
+
+#[test]
+fn test_pdf_metadata_has_pages() {
+    let path = pdf_fixture("sample-invoice.pdf");
+    let result = eval(&format!(r#"(get (pdf/metadata "{path}") :pages)"#));
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_pdf_metadata_has_title() {
+    let path = pdf_fixture("sample-invoice.pdf");
+    let result = eval(&format!(r#"(get (pdf/metadata "{path}") :title)"#));
+    let title = result.as_str().expect("should have :title");
+    assert_eq!(title, "Test Document");
+}
+
+#[test]
+fn test_pdf_metadata_has_author() {
+    let path = pdf_fixture("sample-invoice.pdf");
+    let result = eval(&format!(r#"(get (pdf/metadata "{path}") :author)"#));
+    let author = result.as_str().expect("should have :author");
+    assert_eq!(author, "Sema Test Suite");
+}
+
+#[test]
+fn test_pdf_metadata_nonexistent() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(pdf/metadata "/nonexistent.pdf")"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_pdf_metadata_arity() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str(r#"(pdf/metadata)"#).is_err());
+    assert!(interp.eval_str(r#"(pdf/metadata "a" "b")"#).is_err());
+}
+
+// ── Pretty-print ──────────────────────────────────────────────────
+
+#[test]
+fn test_pretty_print_small_map_stays_compact() {
+    let val = eval("{:a 1 :b 2}");
+    assert_eq!(sema_core::pretty_print(&val, 80), "{:a 1 :b 2}");
+}
+
+#[test]
+fn test_pretty_print_small_vector_stays_compact() {
+    let val = eval("[1 2 3 4 5]");
+    assert_eq!(sema_core::pretty_print(&val, 80), "[1 2 3 4 5]");
+}
+
+#[test]
+fn test_pretty_print_small_list_stays_compact() {
+    let val = eval(r#"(list {:id "doc-1" :score 0.92} {:id "doc-2" :score 0.85})"#);
+    assert_eq!(
+        sema_core::pretty_print(&val, 80),
+        r#"({:id "doc-1" :score 0.92} {:id "doc-2" :score 0.85})"#
+    );
+}
+
+#[test]
+fn test_pretty_print_list_breaks_at_narrow_width() {
+    let val = eval(r#"(list {:id "doc-1" :score 0.92} {:id "doc-2" :score 0.85})"#);
+    assert_eq!(
+        sema_core::pretty_print(&val, 40),
+        "({:id \"doc-1\" :score 0.92}\n {:id \"doc-2\" :score 0.85})"
+    );
+}
+
+#[test]
+fn test_pretty_print_map_breaks_at_narrow_width() {
+    let val =
+        eval(r#"{:user "helge" :settings {:theme "dark" :font-size 14} :scores [95 87 92 88]}"#);
+    assert_eq!(
+        sema_core::pretty_print(&val, 60),
+        "{:scores [95 87 92 88]\n :settings {:font-size 14 :theme \"dark\"}\n :user \"helge\"}"
+    );
+}
+
+#[test]
+fn test_pretty_print_vector_of_maps_breaks() {
+    let val = eval(
+        r#"[{:name "alice" :age 30 :city "oslo"} {:name "bob" :age 25 :city "berlin"} {:name "carol" :age 35 :city "paris"}]"#,
+    );
+    assert_eq!(
+        sema_core::pretty_print(&val, 80),
+        "[{:age 30 :city \"oslo\" :name \"alice\"}\n {:age 25 :city \"berlin\" :name \"bob\"}\n {:age 35 :city \"paris\" :name \"carol\"}]"
+    );
+}
+
+#[test]
+fn test_pretty_print_nested_list_of_maps() {
+    let val = eval(
+        r#"(list {:id "doc-1" :metadata {:source "greeting.txt"} :score 0.92} {:id "doc-2" :metadata {:source "readme.md"} :score 0.85})"#,
+    );
+    assert_eq!(
+        sema_core::pretty_print(&val, 80),
+        "({:id \"doc-1\" :metadata {:source \"greeting.txt\"} :score 0.92}\n {:id \"doc-2\" :metadata {:source \"readme.md\"} :score 0.85})"
+    );
+}
+
+#[test]
+fn test_pretty_print_nested_map_breaks_with_indent() {
+    let val = eval(
+        r#"{:headers (hash-map :Accept "application/json" :Host "httpbin.org" :User-Agent "Mozilla/5.0 (Macintosh)")}"#,
+    );
+    assert_eq!(
+        sema_core::pretty_print(&val, 60),
+        "{:headers\n   {:Accept \"application/json\"\n    :Host \"httpbin.org\"\n    :User-Agent \"Mozilla/5.0 (Macintosh)\"}}"
+    );
+}
+
+#[test]
+fn test_pprint_returns_nil() {
+    assert_eq!(eval(r#"(pprint {:a 1})"#), Value::nil());
+}
+
+#[test]
+fn test_pprint_arity() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(pprint)").is_err());
+    assert!(interp.eval_str("(pprint 1 2)").is_err());
 }

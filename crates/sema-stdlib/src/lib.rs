@@ -18,6 +18,8 @@ mod list;
 mod map;
 mod math;
 mod meta;
+#[cfg(not(target_arch = "wasm32"))]
+mod pdf;
 mod predicates;
 mod regex_ops;
 mod string;
@@ -57,6 +59,8 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     text::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     kv::register(env, sandbox);
+    #[cfg(not(target_arch = "wasm32"))]
+    pdf::register(env, sandbox);
 }
 
 fn register_fn_gated(

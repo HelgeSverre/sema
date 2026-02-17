@@ -1,0 +1,185 @@
+;; glados-downloads.sema — Receipt processor inspired by all-the-languages
+;; Demonstrates: pdf/*, llm/extract, file I/O, path ops, JSON, text processing
+;;
+;; Watches an input folder for PDFs, uses LLM to classify receipts,
+;; and auto-files matching invoices to an output folder.
+;;
+;; Usage: cargo run -- examples/glados-downloads.sema
+;; Requires: ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable
+
+;; === Configuration ===
+(define input-dir  "examples/fixtures/glados-downloads/input")
+(define output-dir "examples/fixtures/glados-downloads/output")
+(define state-file "/tmp/glados-sema-processed.json")
+(define target-whitelist '("Liseth Solutions" "Liseth Solutions AS" "Liseth"))
+(define target-label "Liseth Solutions")
+
+;; === GLaDOS personality ===
+(define (glados msg)
+  (println (format "  🤖 GLaDOS: ~a" msg)))
+
+(define (log msg)
+  (println (format "[glados] ~a" msg)))
+
+(define (log-detail msg)
+  (println (format "[glados]   → ~a" msg)))
+
+;; === State tracking ===
+(define (load-state)
+  (if (file/exists? state-file)
+    (json/decode (file/read state-file))
+    '()))
+
+(define (save-state processed)
+  (file/write state-file (json/encode-pretty processed)))
+
+;; === Whitelist matching ===
+(define (matches-whitelist? text)
+  (define lower-text (string/lower text))
+  (any
+    (fn (term) (string/contains? lower-text (string/lower term)))
+    target-whitelist))
+
+;; === PDF analysis ===
+(define (analyze-pdf path)
+  (define text (text/clean-whitespace (pdf/extract-text path)))
+  (define pages (pdf/page-count path))
+  (log-detail (format "Extracted ~a chars from ~a page(s)" (string-length text) pages))
+
+  ;; Use LLM structured extraction to classify the document
+  (llm/extract
+    {:isReceiptOrInvoice {:type :boolean :description "Is this a receipt or invoice?"}
+     :vendorName {:type :string :description "The seller/merchant who sent the invoice"}
+     :recipientName {:type :string :description "The buyer/customer being billed"}
+     :invoiceDate {:type :string :description "Invoice date in YYYY-MM-DD format"}
+     :totalAmount {:type :string :description "Total amount with currency"}
+     :summary {:type :string :description "Brief one-line summary"}
+     :proposedFileName {:type :string :description "Suggested filename: YYYY.MM.DD - VendorName.pdf"}}
+    text
+    {:model "claude-haiku-4-5-20251001"}))
+
+;; === File receipt into output folder ===
+(define (file-receipt path analysis)
+  (define invoice-date (or (get analysis :invoiceDate) ""))
+  (define vendor (or (get analysis :vendorName) "Unknown"))
+  (define proposed (or (get analysis :proposedFileName) ""))
+
+  ;; Determine year folder — extract 4-digit year from date string
+  (define year-result (regex/match "[0-9]{4}" invoice-date))
+  (define year (if (nil? year-result) "2025" (get year-result :match)))
+  (define dest-dir (path/join output-dir year "Kvitteringer"))
+  (file/mkdir dest-dir)
+
+  ;; Build filename
+  (define dest-filename
+    (if (> (string-length proposed) 0)
+      proposed
+      (format "~a - ~a.pdf" (string/replace invoice-date "-" ".") vendor)))
+
+  ;; Handle duplicates
+  (define dest-path (path/join dest-dir dest-filename))
+  (define final-path
+    (if (file/exists? dest-path)
+      (let loop ((n 2))
+        (define try-name (format "~a (~a).pdf"
+                          (string/replace dest-filename ".pdf" "") n))
+        (define try-path (path/join dest-dir try-name))
+        (if (file/exists? try-path)
+          (loop (+ n 1))
+          try-path))
+      dest-path))
+
+  ;; Copy file (not move, so fixtures stay intact for re-runs)
+  (file/copy path final-path)
+  (log (format "✓ FILED: ~a → ~a/Kvitteringer/" (path/basename final-path) year))
+  final-path)
+
+;; === Process a single PDF ===
+(define (process-pdf path processed)
+  (define filename (path/basename path))
+  (log (format "Processing: ~a" filename))
+  (log-detail (format "File size: ~a bytes" (get (file/info path) :size)))
+
+  (define analysis (analyze-pdf path))
+  (define is-receipt (get analysis :isReceiptOrInvoice))
+  (define vendor (or (get analysis :vendorName) "Unknown"))
+  (define recipient (or (get analysis :recipientName) ""))
+  (define summary (or (get analysis :summary) "Document"))
+
+  (log-detail (format "Vendor:    ~a" vendor))
+  (log-detail (format "Recipient: ~a" recipient))
+  (log-detail (format "Date:      ~a" (or (get analysis :invoiceDate) "unknown")))
+  (log-detail (format "Summary:   ~a" summary))
+
+  (cond
+    ;; Not a receipt at all
+    ((not is-receipt)
+     (log-detail "RESULT: Not a receipt/invoice → skipping")
+     (glados "I analyzed this document. It is not a receipt. How disappointing.")
+     (cons filename processed))
+
+    ;; Receipt but doesn't match target
+    ((not (matches-whitelist? (string-append vendor " " recipient)))
+     (log-detail (format "RESULT: Receipt, but not for ~a" target-label))
+     (glados (format "A receipt from ~a. Not for ~a. Filing this is your problem, not mine."
+                      vendor target-label))
+     (cons filename processed))
+
+    ;; Receipt matches target — file it!
+    (else
+     (log-detail (format "RESULT: ~a receipt → filing!" target-label))
+     (file-receipt path analysis)
+     (glados (format "Another receipt filed. ~a. Your tax deductions grow ever larger." summary))
+     (cons filename processed))))
+
+;; === Main ===
+(println "═══════════════════════════════════════════════════════════")
+(println "  GLaDOS Receipt Processor — Sema Edition")
+(println "═══════════════════════════════════════════════════════════")
+(glados "Oh. It's you again. With more receipts, I see.")
+(newline)
+
+;; Configure LLM
+(define provider (llm/auto-configure))
+(when (nil? provider)
+  (println "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (exit 1))
+(log (format "LLM provider: ~a" provider))
+
+;; Find PDFs in input folder
+(define all-files (file/list input-dir))
+(define pdf-files
+  (filter
+    (fn (f) (equal? (path/extension f) "pdf"))
+    all-files))
+
+(log (format "Found ~a PDF(s) in ~a" (length pdf-files) input-dir))
+(newline)
+
+;; Load state and process each PDF
+(define processed (load-state))
+(define final-processed
+  (foldl
+    (fn (acc filename)
+      (define full-path (path/join input-dir filename))
+      (if (not (equal? (member filename acc) #f))
+        (begin
+          (log-detail (format "SKIP (already processed): ~a" filename))
+          acc)
+        (begin
+          (println "───────────────────────────────────────────────────────────")
+          (process-pdf full-path acc))))
+    processed
+    pdf-files))
+
+;; Save state
+(save-state final-processed)
+
+;; Summary
+(newline)
+(println "═══════════════════════════════════════════════════════════")
+(define new-count (- (length final-processed) (length processed)))
+(log (format "Processed ~a new PDF(s), ~a total tracked" new-count (length final-processed)))
+(glados "The experiment is complete. The results are... exactly as pointless as expected.")
+(println (format "\n~a" (llm/session-usage)))
+(println "═══════════════════════════════════════════════════════════")

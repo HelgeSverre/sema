@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Standard Library
 
-Sema ships with **365+ built-in functions** across **20 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
+Sema ships with **370+ built-in functions** across **21 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
 
 ## Naming Conventions
 
@@ -127,6 +127,15 @@ Sema's stdlib follows consistent naming patterns:
 | `file/glob` | File globbing |
 | `path/join`, `path/dirname`, `path/basename`, `path/extension`, `path/absolute` | Path manipulation |
 | `path/ext`, `path/stem`, `path/dir`, `path/filename`, `path/absolute?` | Path predicates & components |
+
+### [PDF Processing](./pdf)
+
+| Function | Description |
+|---|---|
+| `pdf/extract-text` | Extract all text from a PDF |
+| `pdf/extract-text-pages` | Extract text per page (returns list) |
+| `pdf/page-count` | Get number of pages |
+| `pdf/metadata` | Get metadata map (`:title`, `:author`, `:pages`, ...) |
 
 ### [HTTP & JSON](./http-json)
 

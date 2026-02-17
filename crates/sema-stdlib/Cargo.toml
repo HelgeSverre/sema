@@ -28,3 +28,5 @@ tokio.workspace = true
 reqwest.workspace = true
 hostname.workspace = true
 libc.workspace = true
+pdf-extract.workspace = true
+lopdf.workspace = true
