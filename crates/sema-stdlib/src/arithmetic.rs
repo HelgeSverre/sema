@@ -1,11 +1,9 @@
-use sema_core::{SemaError, Value, ValueView};
+use sema_core::{check_arity, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
 fn mod_impl(args: &[Value]) -> Result<Value, SemaError> {
-    if args.len() != 2 {
-        return Err(SemaError::arity("mod", "2", args.len()));
-    }
+    check_arity!(args, "mod", 2);
     match (args[0].view(), args[1].view()) {
         (ValueView::Int(a), ValueView::Int(b)) => {
             if b == 0 {
@@ -56,9 +54,8 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "-", |args| {
-        if args.is_empty() {
-            return Err(SemaError::arity("-", "1+", 0));
-        }
+        check_arity!(args, "-", 1..);
+
         if args.len() == 1 {
             return match args[0].view() {
                 ValueView::Int(n) => Ok(Value::int(n.wrapping_neg())),
@@ -139,9 +136,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "/", |args| {
-        if args.len() < 2 {
-            return Err(SemaError::arity("/", "2+", args.len()));
-        }
+        check_arity!(args, "/", 2..);
         let mut result = match args[0].view() {
             ValueView::Int(n) => n as f64,
             ValueView::Float(f) => f,

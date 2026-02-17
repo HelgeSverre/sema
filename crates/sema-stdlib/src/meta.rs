@@ -1,6 +1,6 @@
 use std::cell::Cell;
 
-use sema_core::{SemaError, Value};
+use sema_core::{check_arity, SemaError, Value};
 
 use crate::register_fn;
 
@@ -11,9 +11,7 @@ thread_local! {
 pub fn register(env: &sema_core::Env) {
     // (retry thunk) or (retry thunk {:max-attempts 3 :base-delay-ms 100 :backoff 2.0})
     register_fn(env, "retry", |args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("retry", "1-2", args.len()));
-        }
+        check_arity!(args, "retry", 1..=2);
         let thunk = &args[0];
         if thunk.as_lambda_rc().is_none() && thunk.as_native_fn_rc().is_none() {
             return Err(SemaError::type_error("function", thunk.type_name()));
@@ -61,9 +59,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "gensym", |args| {
-        if args.len() > 1 {
-            return Err(SemaError::arity("gensym", "0 or 1", args.len()));
-        }
+        check_arity!(args, "gensym", 0..=1);
         let prefix = if args.len() == 1 {
             args[0]
                 .as_str()

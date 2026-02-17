@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 
-use sema_core::{SemaError, Value};
+use sema_core::{check_arity, SemaError, Value};
 
 struct KvStore {
     path: String,
@@ -14,9 +14,7 @@ thread_local! {
 
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     crate::register_fn_gated(env, sandbox, sema_core::Caps::FS_WRITE, "kv/open", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("kv/open", "2", args.len()));
-        }
+        check_arity!(args, "kv/open", 2);
         let name = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -44,9 +42,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn(env, "kv/get", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("kv/get", "2", args.len()));
-        }
+        check_arity!(args, "kv/get", 2);
         let name = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -66,9 +62,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, sema_core::Caps::FS_WRITE, "kv/set", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("kv/set", "3", args.len()));
-        }
+        check_arity!(args, "kv/set", 3);
         let name = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -93,9 +87,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         sema_core::Caps::FS_WRITE,
         "kv/delete",
         |args| {
-            if args.len() != 2 {
-                return Err(SemaError::arity("kv/delete", "2", args.len()));
-            }
+            check_arity!(args, "kv/delete", 2);
             let name = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -115,9 +107,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     );
 
     crate::register_fn(env, "kv/keys", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("kv/keys", "1", args.len()));
-        }
+        check_arity!(args, "kv/keys", 1);
         let name = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -133,9 +123,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn(env, "kv/close", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("kv/close", "1", args.len()));
-        }
+        check_arity!(args, "kv/close", 1);
         let name = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;

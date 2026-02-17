@@ -5,7 +5,7 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use sema_core::{SemaError, Value, ValueView};
+use sema_core::{check_arity, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -17,9 +17,7 @@ fn make_style_fn(env: &sema_core::Env, name: &str, code: &str) {
     let code = code.to_string();
     let fn_name = name.to_string();
     register_fn(env, name, move |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity(&fn_name, "1", args.len()));
-        }
+        check_arity!(args, &fn_name, 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -63,9 +61,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (term/style "text" :bold :red ...)
     register_fn(env, "term/style", |args| {
-        if args.is_empty() {
-            return Err(SemaError::arity("term/style", "1+", args.len()));
-        }
+        check_arity!(args, "term/style", 1..);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -110,9 +106,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (term/strip "ansi-string") -> plain string
     register_fn(env, "term/strip", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("term/strip", "1", args.len()));
-        }
+        check_arity!(args, "term/strip", 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -142,9 +136,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (term/rgb "text" r g b) -> 24-bit color
     register_fn(env, "term/rgb", |args| {
-        if args.len() != 4 {
-            return Err(SemaError::arity("term/rgb", "4", args.len()));
-        }
+        check_arity!(args, "term/rgb", 4);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -164,9 +156,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (term/spinner-start "message") -> spinner-id
     register_fn(env, "term/spinner-start", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("term/spinner-start", "1", args.len()));
-        }
+        check_arity!(args, "term/spinner-start", 1);
         let msg = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?
@@ -218,9 +208,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (term/spinner-stop id) or (term/spinner-stop id {:symbol "✔" :text "Done" :color :green})
     register_fn(env, "term/spinner-stop", |args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("term/spinner-stop", "1-2", args.len()));
-        }
+        check_arity!(args, "term/spinner-stop", 1..=2);
         let id = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("integer", args[0].type_name()))?;
@@ -263,9 +251,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (term/spinner-update id "new message")
     register_fn(env, "term/spinner-update", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("term/spinner-update", "2", args.len()));
-        }
+        check_arity!(args, "term/spinner-update", 2);
         let id = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("integer", args[0].type_name()))?;

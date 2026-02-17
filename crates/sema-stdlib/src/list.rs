@@ -1,11 +1,9 @@
-use sema_core::{SemaError, Value, ValueView};
+use sema_core::{check_arity, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
 fn repeat_impl(args: &[Value]) -> Result<Value, SemaError> {
-    if args.len() != 2 {
-        return Err(SemaError::arity("list/repeat", "2", args.len()));
-    }
+    check_arity!(args, "list/repeat", 2);
     let n = args[0]
         .as_int()
         .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
@@ -19,9 +17,7 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "vector", |args| Ok(Value::vector(args.to_vec())));
 
     register_fn(env, "cons", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("cons", "2", args.len()));
-        }
+        check_arity!(args, "cons", 2);
         if args[1].is_nil() {
             Ok(Value::list(vec![args[0].clone()]))
         } else if let Some(list) = args[1].as_list() {
@@ -40,9 +36,7 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "rest", rest);
 
     register_fn(env, "length", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("length", "1", args.len()));
-        }
+        check_arity!(args, "length", 1);
         if let Some(l) = args[0].as_list() {
             Ok(Value::int(l.len() as i64))
         } else if let Some(v) = args[0].as_vector() {
@@ -78,9 +72,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "reverse", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("reverse", "1", args.len()));
-        }
+        check_arity!(args, "reverse", 1);
         if let Some(l) = args[0].as_list() {
             let mut v = l.to_vec();
             v.reverse();
@@ -95,9 +87,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "nth", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("nth", "2", args.len()));
-        }
+        check_arity!(args, "nth", 2);
         let idx = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
@@ -116,9 +106,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "map", |args| {
-        if args.len() < 2 {
-            return Err(SemaError::arity("map", "2+", args.len()));
-        }
+        check_arity!(args, "map", 2..);
         if args.len() == 2 {
             let items = get_sequence(&args[1], "map")?;
             let mut result = Vec::with_capacity(items.len());
@@ -143,9 +131,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "filter", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("filter", "2", args.len()));
-        }
+        check_arity!(args, "filter", 2);
         let items = get_sequence(&args[1], "filter")?;
         let mut result = Vec::new();
         for item in &items {
@@ -158,9 +144,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "foldl", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("foldl", "3", args.len()));
-        }
+        check_arity!(args, "foldl", 3);
         let items = get_sequence(&args[2], "foldl")?;
         let mut acc = args[1].clone();
         for item in &items {
@@ -170,9 +154,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "for-each", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("for-each", "2", args.len()));
-        }
+        check_arity!(args, "for-each", 2);
         let items = get_sequence(&args[1], "for-each")?;
         for item in &items {
             call_function(&args[0], &[item.clone()])?;
@@ -181,6 +163,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "range", |args| {
+        check_arity!(args, "range", 1..=3);
         let (start, end, step) = match args.len() {
             1 => (
                 0i64,
@@ -198,7 +181,7 @@ pub fn register(env: &sema_core::Env) {
                     .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
                 (s, e, 1)
             }
-            3 => {
+            _ => {
                 let s = args[0]
                     .as_int()
                     .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
@@ -210,7 +193,6 @@ pub fn register(env: &sema_core::Env) {
                     .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?;
                 (s, e, st)
             }
-            _ => return Err(SemaError::arity("range", "1-3", args.len())),
         };
         if step == 0 {
             return Err(SemaError::eval("range: step cannot be 0"));
@@ -232,9 +214,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "apply", |args| {
-        if args.len() < 2 {
-            return Err(SemaError::arity("apply", "2+", args.len()));
-        }
+        check_arity!(args, "apply", 2..);
         let func = &args[0];
         // Last arg must be a list, preceding args are prepended
         let last = &args[args.len() - 1];
@@ -245,9 +225,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "take", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("take", "2", args.len()));
-        }
+        check_arity!(args, "take", 2);
         let n = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
@@ -258,9 +236,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "drop", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("drop", "2", args.len()));
-        }
+        check_arity!(args, "drop", 2);
         let n = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
@@ -271,17 +247,13 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "last", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("last", "1", args.len()));
-        }
+        check_arity!(args, "last", 1);
         let items = get_sequence(&args[0], "last")?;
         Ok(items.last().cloned().unwrap_or(Value::nil()))
     });
 
     register_fn(env, "zip", |args| {
-        if args.len() < 2 {
-            return Err(SemaError::arity("zip", "2+", args.len()));
-        }
+        check_arity!(args, "zip", 2..);
         let lists: Vec<Vec<Value>> = args
             .iter()
             .map(|a| get_sequence(a, "zip"))
@@ -296,9 +268,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "flatten", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("flatten", "1", args.len()));
-        }
+        check_arity!(args, "flatten", 1);
         let items = get_sequence(&args[0], "flatten")?;
         let mut result = Vec::new();
         for item in &items {
@@ -314,9 +284,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "member", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("member", "2", args.len()));
-        }
+        check_arity!(args, "member", 2);
         let items = get_sequence(&args[1], "member")?;
         for (i, item) in items.iter().enumerate() {
             if item == &args[0] {
@@ -327,9 +295,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "any", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("any", "2", args.len()));
-        }
+        check_arity!(args, "any", 2);
         let items = get_sequence(&args[1], "any")?;
         for item in &items {
             if call_function(&args[0], &[item.clone()])?.is_truthy() {
@@ -340,9 +306,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "every", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("every", "2", args.len()));
-        }
+        check_arity!(args, "every", 2);
         let items = get_sequence(&args[1], "every")?;
         for item in &items {
             if !call_function(&args[0], &[item.clone()])?.is_truthy() {
@@ -353,9 +317,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "reduce", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("reduce", "2", args.len()));
-        }
+        check_arity!(args, "reduce", 2);
         let items = get_sequence(&args[1], "reduce")?;
         if items.is_empty() {
             return Err(SemaError::eval("reduce: empty list"));
@@ -368,9 +330,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "partition", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("partition", "2", args.len()));
-        }
+        check_arity!(args, "partition", 2);
         let items = get_sequence(&args[1], "partition")?;
         let mut matching = Vec::new();
         let mut non_matching = Vec::new();
@@ -388,9 +348,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "foldr", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("foldr", "3", args.len()));
-        }
+        check_arity!(args, "foldr", 3);
         let items = get_sequence(&args[2], "foldr")?;
         let mut acc = args[1].clone();
         for item in items.iter().rev() {
@@ -400,9 +358,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "sort", |args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("sort", "1-2", args.len()));
-        }
+        check_arity!(args, "sort", 1..=2);
         let mut items = get_sequence(&args[0], "sort")?;
         if args.len() == 1 {
             items.sort();
@@ -441,9 +397,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/index-of", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/index-of", "2", args.len()));
-        }
+        check_arity!(args, "list/index-of", 2);
         let items = get_sequence(&args[0], "list/index-of")?;
         for (i, item) in items.iter().enumerate() {
             if item == &args[1] {
@@ -454,9 +408,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/unique", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/unique", "1", args.len()));
-        }
+        check_arity!(args, "list/unique", 1);
         let items = get_sequence(&args[0], "list/unique")?;
         let mut seen = Vec::new();
         let mut result = Vec::new();
@@ -470,9 +422,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/group-by", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/group-by", "2", args.len()));
-        }
+        check_arity!(args, "list/group-by", 2);
         let items = get_sequence(&args[1], "list/group-by")?;
         let mut groups: Vec<(Value, Vec<Value>)> = Vec::new();
         for item in &items {
@@ -491,9 +441,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/interleave", |args| {
-        if args.len() < 2 {
-            return Err(SemaError::arity("list/interleave", "2+", args.len()));
-        }
+        check_arity!(args, "list/interleave", 2..);
         let lists: Vec<Vec<Value>> = args
             .iter()
             .map(|a| get_sequence(a, "list/interleave"))
@@ -509,9 +457,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "sort-by", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("sort-by", "2", args.len()));
-        }
+        check_arity!(args, "sort-by", 2);
         let items = get_sequence(&args[1], "sort-by")?;
         // Extract keys for each element
         let mut keyed: Vec<(Value, Value)> = Vec::with_capacity(items.len());
@@ -525,18 +471,14 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "flatten-deep", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("flatten-deep", "1", args.len()));
-        }
+        check_arity!(args, "flatten-deep", 1);
         let mut out = Vec::new();
         flatten_recursive(&args[0], &mut out);
         Ok(Value::list(out))
     });
 
     register_fn(env, "interpose", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("interpose", "2", args.len()));
-        }
+        check_arity!(args, "interpose", 2);
         let items = get_sequence(&args[1], "interpose")?;
         if items.is_empty() {
             return Ok(Value::list(vec![]));
@@ -552,9 +494,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "frequencies", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("frequencies", "1", args.len()));
-        }
+        check_arity!(args, "frequencies", 1);
         let items = get_sequence(&args[0], "frequencies")?;
         let mut counts: std::collections::BTreeMap<Value, i64> = std::collections::BTreeMap::new();
         for item in &items {
@@ -568,9 +508,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list->vector", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list->vector", "1", args.len()));
-        }
+        check_arity!(args, "list->vector", 1);
         if let Some(l) = args[0].as_list() {
             Ok(Value::vector(l.to_vec()))
         } else {
@@ -579,9 +517,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "vector->list", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("vector->list", "1", args.len()));
-        }
+        check_arity!(args, "vector->list", 1);
         if let Some(v) = args[0].as_vector() {
             Ok(Value::list(v.to_vec()))
         } else {
@@ -590,9 +526,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/chunk", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/chunk", "2", args.len()));
-        }
+        check_arity!(args, "list/chunk", 2);
         let n = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
@@ -609,9 +543,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "take-while", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("take-while", "2", args.len()));
-        }
+        check_arity!(args, "take-while", 2);
         let items = get_sequence(&args[1], "take-while")?;
         let mut result = Vec::new();
         for item in &items {
@@ -625,9 +557,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "drop-while", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("drop-while", "2", args.len()));
-        }
+        check_arity!(args, "drop-while", 2);
         let items = get_sequence(&args[1], "drop-while")?;
         let mut dropping = true;
         let mut result = Vec::new();
@@ -642,9 +572,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/dedupe", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/dedupe", "1", args.len()));
-        }
+        check_arity!(args, "list/dedupe", 1);
         let items = get_sequence(&args[0], "list/dedupe")?;
         let mut result = Vec::new();
         for item in &items {
@@ -656,9 +584,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "flat-map", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("flat-map", "2", args.len()));
-        }
+        check_arity!(args, "flat-map", 2);
         let items = get_sequence(&args[1], "flat-map")?;
         let mut result = Vec::new();
         for item in &items {
@@ -675,9 +601,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/shuffle", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/shuffle", "1", args.len()));
-        }
+        check_arity!(args, "list/shuffle", 1);
         let mut items = get_sequence(&args[0], "list/shuffle")?;
         use rand::seq::SliceRandom;
         items.shuffle(&mut rand::rng());
@@ -685,9 +609,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/split-at", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/split-at", "2", args.len()));
-        }
+        check_arity!(args, "list/split-at", 2);
         let items = get_sequence(&args[0], "list/split-at")?;
         let n = args[1]
             .as_int()
@@ -700,9 +622,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/take-while", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/take-while", "2", args.len()));
-        }
+        check_arity!(args, "list/take-while", 2);
         let items = get_sequence(&args[1], "list/take-while")?;
         let mut result = Vec::new();
         for item in &items {
@@ -717,9 +637,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/drop-while", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/drop-while", "2", args.len()));
-        }
+        check_arity!(args, "list/drop-while", 2);
         let items = get_sequence(&args[1], "list/drop-while")?;
         let mut dropping = true;
         let mut result = Vec::new();
@@ -737,9 +655,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/sum", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/sum", "1", args.len()));
-        }
+        check_arity!(args, "list/sum", 1);
         let items = get_sequence(&args[0], "list/sum")?;
         let mut int_sum: i64 = 0;
         let mut has_float = false;
@@ -763,9 +679,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/min", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/min", "1", args.len()));
-        }
+        check_arity!(args, "list/min", 1);
         let items = get_sequence(&args[0], "list/min")?;
         if items.is_empty() {
             return Err(SemaError::eval("list/min: empty list"));
@@ -780,9 +694,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/max", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/max", "1", args.len()));
-        }
+        check_arity!(args, "list/max", 1);
         let items = get_sequence(&args[0], "list/max")?;
         if items.is_empty() {
             return Err(SemaError::eval("list/max: empty list"));
@@ -797,9 +709,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list/pick", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/pick", "1", args.len()));
-        }
+        check_arity!(args, "list/pick", 1);
         let items = get_sequence(&args[0], "list/pick")?;
         if items.is_empty() {
             return Err(SemaError::eval("list/pick: empty list"));
@@ -813,6 +723,7 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "make-list", repeat_impl);
 
     register_fn(env, "iota", |args| {
+        check_arity!(args, "iota", 1..=3);
         let (count, start, step) = match args.len() {
             1 => {
                 let c = args[0]
@@ -829,7 +740,7 @@ pub fn register(env: &sema_core::Env) {
                     .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
                 (c, s, 1)
             }
-            3 => {
+            _ => {
                 let c = args[0]
                     .as_int()
                     .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
@@ -841,7 +752,6 @@ pub fn register(env: &sema_core::Env) {
                     .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?;
                 (c, s, st)
             }
-            _ => return Err(SemaError::arity("iota", "1-3", args.len())),
         };
         let mut result = Vec::with_capacity(count.max(0) as usize);
         let mut val = start;
@@ -854,9 +764,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/reject — inverse of filter
     register_fn(env, "list/reject", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/reject", "2", args.len()));
-        }
+        check_arity!(args, "list/reject", 2);
         let items = get_sequence(&args[1], "list/reject")?;
         let mut result = Vec::new();
         for item in &items {
@@ -870,9 +778,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/pluck — extract a field from list of maps
     register_fn(env, "list/pluck", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/pluck", "2", args.len()));
-        }
+        check_arity!(args, "list/pluck", 2);
         let key = &args[0];
         let items = get_sequence(&args[1], "list/pluck")?;
         let mut result = Vec::with_capacity(items.len());
@@ -889,9 +795,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/avg — average of numeric list
     register_fn(env, "list/avg", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/avg", "1", args.len()));
-        }
+        check_arity!(args, "list/avg", 1);
         let items = get_sequence(&args[0], "list/avg")?;
         if items.is_empty() {
             return Err(SemaError::eval("list/avg: empty list"));
@@ -911,9 +815,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/median — statistical median
     register_fn(env, "list/median", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/median", "1", args.len()));
-        }
+        check_arity!(args, "list/median", 1);
         let items = get_sequence(&args[0], "list/median")?;
         if items.is_empty() {
             return Err(SemaError::eval("list/median: empty list"));
@@ -939,9 +841,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/mode — statistical mode (most frequent)
     register_fn(env, "list/mode", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/mode", "1", args.len()));
-        }
+        check_arity!(args, "list/mode", 1);
         let items = get_sequence(&args[0], "list/mode")?;
         if items.is_empty() {
             return Err(SemaError::eval("list/mode: empty list"));
@@ -966,9 +866,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/diff — set difference
     register_fn(env, "list/diff", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/diff", "2", args.len()));
-        }
+        check_arity!(args, "list/diff", 2);
         let a = get_sequence(&args[0], "list/diff")?;
         let b = get_sequence(&args[1], "list/diff")?;
         let b_set: std::collections::BTreeSet<Value> = b.into_iter().collect();
@@ -978,9 +876,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/intersect — set intersection
     register_fn(env, "list/intersect", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/intersect", "2", args.len()));
-        }
+        check_arity!(args, "list/intersect", 2);
         let a = get_sequence(&args[0], "list/intersect")?;
         let b = get_sequence(&args[1], "list/intersect")?;
         let b_set: std::collections::BTreeSet<Value> = b.into_iter().collect();
@@ -990,9 +886,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/sliding — sliding window
     register_fn(env, "list/sliding", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("list/sliding", "2-3", args.len()));
-        }
+        check_arity!(args, "list/sliding", 2..=3);
         let items = get_sequence(&args[0], "list/sliding")?;
         let size = args[1]
             .as_int()
@@ -1023,9 +917,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/key-by — turn list of maps into map keyed by fn
     register_fn(env, "list/key-by", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/key-by", "2", args.len()));
-        }
+        check_arity!(args, "list/key-by", 2);
         let items = get_sequence(&args[1], "list/key-by")?;
         let mut map = std::collections::BTreeMap::new();
         for item in &items {
@@ -1037,9 +929,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/times — generate list by calling fn N times
     register_fn(env, "list/times", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/times", "2", args.len()));
-        }
+        check_arity!(args, "list/times", 2);
         let n = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
@@ -1053,9 +943,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/duplicates — find duplicate values
     register_fn(env, "list/duplicates", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list/duplicates", "1", args.len()));
-        }
+        check_arity!(args, "list/duplicates", 1);
         let items = get_sequence(&args[0], "list/duplicates")?;
         let mut seen: std::collections::BTreeSet<Value> = std::collections::BTreeSet::new();
         let mut dupes: std::collections::BTreeSet<Value> = std::collections::BTreeSet::new();
@@ -1069,9 +957,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/cross-join — cartesian product
     register_fn(env, "list/cross-join", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/cross-join", "2", args.len()));
-        }
+        check_arity!(args, "list/cross-join", 2);
         let a = get_sequence(&args[0], "list/cross-join")?;
         let b = get_sequence(&args[1], "list/cross-join")?;
         let mut result = Vec::with_capacity(a.len() * b.len());
@@ -1085,9 +971,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/page — pagination
     register_fn(env, "list/page", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("list/page", "3", args.len()));
-        }
+        check_arity!(args, "list/page", 3);
         let items = get_sequence(&args[0], "list/page")?;
         let page = args[1]
             .as_int()
@@ -1109,9 +993,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/find — first matching item
     register_fn(env, "list/find", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/find", "2", args.len()));
-        }
+        check_arity!(args, "list/find", 2);
         let items = get_sequence(&args[1], "list/find")?;
         for item in &items {
             let result = call_function(&args[0], &[item.clone()])?;
@@ -1124,9 +1006,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/pad — pad list to length
     register_fn(env, "list/pad", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("list/pad", "3", args.len()));
-        }
+        check_arity!(args, "list/pad", 3);
         let mut items = get_sequence(&args[0], "list/pad")?;
         let target_len = args[1]
             .as_int()
@@ -1141,9 +1021,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/sole — single matching item or error
     register_fn(env, "list/sole", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("list/sole", "2", args.len()));
-        }
+        check_arity!(args, "list/sole", 2);
         let items = get_sequence(&args[1], "list/sole")?;
         let mut found: Option<Value> = None;
         for item in &items {
@@ -1160,9 +1038,7 @@ pub fn register(env: &sema_core::Env) {
 
     // list/join — join with optional final separator
     register_fn(env, "list/join", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("list/join", "2-3", args.len()));
-        }
+        check_arity!(args, "list/join", 2..=3);
         let items = get_sequence(&args[0], "list/join")?;
         let sep = args[1]
             .as_str()
@@ -1194,9 +1070,7 @@ pub fn register(env: &sema_core::Env) {
 
     // tap — side-effect then return original
     register_fn(env, "tap", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("tap", "2", args.len()));
-        }
+        check_arity!(args, "tap", 2);
         call_function(&args[1], &[args[0].clone()])?;
         Ok(args[0].clone())
     });
@@ -1219,9 +1093,7 @@ pub fn register(env: &sema_core::Env) {
 
     // Association list functions (assoc is dual-purpose in map.rs)
     register_fn(env, "assq", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("assq", "2", args.len()));
-        }
+        check_arity!(args, "assq", 2);
         let key = &args[0];
         let alist = get_sequence(&args[1], "assq")?;
         for pair in &alist {
@@ -1235,9 +1107,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "assv", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("assv", "2", args.len()));
-        }
+        check_arity!(args, "assv", 2);
         let key = &args[0];
         let alist = get_sequence(&args[1], "assv")?;
         for pair in &alist {
@@ -1252,9 +1122,7 @@ pub fn register(env: &sema_core::Env) {
 }
 
 fn first(args: &[Value]) -> Result<Value, SemaError> {
-    if args.len() != 1 {
-        return Err(SemaError::arity("car", "1", args.len()));
-    }
+    check_arity!(args, "car", 1);
     if let Some(l) = args[0].as_list() {
         if l.is_empty() {
             Ok(Value::nil())
@@ -1273,9 +1141,7 @@ fn first(args: &[Value]) -> Result<Value, SemaError> {
 }
 
 fn rest(args: &[Value]) -> Result<Value, SemaError> {
-    if args.len() != 1 {
-        return Err(SemaError::arity("cdr", "1", args.len()));
-    }
+    check_arity!(args, "cdr", 1);
     if let Some(l) = args[0].as_list() {
         if l.len() <= 1 {
             Ok(Value::list(vec![]))

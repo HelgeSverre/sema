@@ -1,14 +1,12 @@
 use std::io::IsTerminal;
 
-use sema_core::{Caps, SemaError, Value};
+use sema_core::{check_arity, Caps, SemaError, Value};
 
 use crate::register_fn;
 
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "env", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("env", "1", args.len()));
-        }
+        check_arity!(args, "env", 1);
         let name = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -19,9 +17,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::SHELL, "shell", |args| {
-        if args.is_empty() {
-            return Err(SemaError::arity("shell", "1+", 0));
-        }
+        check_arity!(args, "shell", 1..);
         let cmd = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -67,9 +63,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "time-ms", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("time-ms", "0", args.len()));
-        }
+        check_arity!(args, "time-ms", 0);
         let ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -78,9 +72,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "sleep", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("sleep", "1", args.len()));
-        }
+        check_arity!(args, "sleep", 1);
         let ms = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
@@ -89,25 +81,19 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::PROCESS, "sys/args", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/args", "0", args.len()));
-        }
+        check_arity!(args, "sys/args", 0);
         let args_list: Vec<Value> = std::env::args().map(|a| Value::string(&a)).collect();
         Ok(Value::list(args_list))
     });
 
     register_fn(env, "sys/cwd", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/cwd", "0", args.len()));
-        }
+        check_arity!(args, "sys/cwd", 0);
         let cwd = std::env::current_dir().map_err(|e| SemaError::Io(format!("sys/cwd: {e}")))?;
         Ok(Value::string(&cwd.to_string_lossy()))
     });
 
     register_fn(env, "sys/platform", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/platform", "0", args.len()));
-        }
+        check_arity!(args, "sys/platform", 0);
         let platform = if cfg!(target_os = "macos") {
             "macos"
         } else if cfg!(target_os = "linux") {
@@ -121,9 +107,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::ENV_WRITE, "sys/set-env", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("sys/set-env", "2", args.len()));
-        }
+        check_arity!(args, "sys/set-env", 2);
         let name = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -137,9 +121,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "sys/env-all", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/env-all", "0", args.len()));
-        }
+        check_arity!(args, "sys/env-all", 0);
         let mut map = std::collections::BTreeMap::new();
         for (key, val) in std::env::vars() {
             map.insert(Value::keyword(&key), Value::string(&val));
@@ -148,9 +130,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "sys/home-dir", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/home-dir", "0", args.len()));
-        }
+        check_arity!(args, "sys/home-dir", 0);
         match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             Ok(home) => Ok(Value::string(&home)),
             Err(_) => Ok(Value::nil()),
@@ -158,16 +138,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "sys/temp-dir", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/temp-dir", "0", args.len()));
-        }
+        check_arity!(args, "sys/temp-dir", 0);
         Ok(Value::string(&std::env::temp_dir().to_string_lossy()))
     });
 
     register_fn(env, "sys/hostname", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/hostname", "0", args.len()));
-        }
+        check_arity!(args, "sys/hostname", 0);
         match hostname::get() {
             Ok(name) => Ok(Value::string(&name.to_string_lossy())),
             Err(_) => Ok(Value::nil()),
@@ -175,9 +151,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "sys/user", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/user", "0", args.len()));
-        }
+        check_arity!(args, "sys/user", 0);
         match std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
             Ok(user) => Ok(Value::string(&user)),
             Err(_) => Ok(Value::nil()),
@@ -185,16 +159,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "sys/interactive?", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/interactive?", "0", args.len()));
-        }
+        check_arity!(args, "sys/interactive?", 0);
         Ok(Value::bool(std::io::stdin().is_terminal()))
     });
 
     register_fn(env, "sys/tty", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/tty", "0", args.len()));
-        }
+        check_arity!(args, "sys/tty", 0);
         if !std::io::stdin().is_terminal() {
             return Ok(Value::nil());
         }
@@ -219,30 +189,22 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::PROCESS, "sys/pid", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/pid", "0", args.len()));
-        }
+        check_arity!(args, "sys/pid", 0);
         Ok(Value::int(std::process::id() as i64))
     });
 
     register_fn(env, "sys/arch", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/arch", "0", args.len()));
-        }
+        check_arity!(args, "sys/arch", 0);
         Ok(Value::string(std::env::consts::ARCH))
     });
 
     register_fn(env, "sys/os", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/os", "0", args.len()));
-        }
+        check_arity!(args, "sys/os", 0);
         Ok(Value::string(std::env::consts::OS))
     });
 
     crate::register_fn_gated(env, sandbox, Caps::PROCESS, "sys/which", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("sys/which", "1", args.len()));
-        }
+        check_arity!(args, "sys/which", 1);
         let name = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -258,9 +220,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "sys/elapsed", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("sys/elapsed", "0", args.len()));
-        }
+        check_arity!(args, "sys/elapsed", 0);
         use std::time::Instant;
         thread_local! {
             static START: Instant = Instant::now();

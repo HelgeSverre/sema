@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use regex::Regex;
-use sema_core::{SemaError, Value};
+use sema_core::{check_arity, SemaError, Value};
 
 use crate::register_fn;
 
@@ -11,9 +11,7 @@ fn compile_regex(pattern: &str) -> Result<Regex, SemaError> {
 
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "regex/match?", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("regex/match?", "2", args.len()));
-        }
+        check_arity!(args, "regex/match?", 2);
         let pattern = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -25,9 +23,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "regex/match", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("regex/match", "2", args.len()));
-        }
+        check_arity!(args, "regex/match", 2);
         let pattern = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -58,9 +54,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "regex/find-all", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("regex/find-all", "2", args.len()));
-        }
+        check_arity!(args, "regex/find-all", 2);
         let pattern = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -76,9 +70,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "regex/replace", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("regex/replace", "3", args.len()));
-        }
+        check_arity!(args, "regex/replace", 3);
         let pattern = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -93,9 +85,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "regex/replace-all", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("regex/replace-all", "3", args.len()));
-        }
+        check_arity!(args, "regex/replace-all", 3);
         let pattern = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -110,9 +100,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "regex/split", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("regex/split", "2", args.len()));
-        }
+        check_arity!(args, "regex/split", 2);
         let pattern = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;

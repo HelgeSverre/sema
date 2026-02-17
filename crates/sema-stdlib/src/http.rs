@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use sema_core::{Caps, SemaError, Value, ValueView};
+use sema_core::{check_arity, Caps, SemaError, Value, ValueView};
 
 thread_local! {
     static HTTP_RUNTIME: tokio::runtime::Runtime = tokio::runtime::Runtime::new()
@@ -100,9 +100,7 @@ fn http_request(
 
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/get", |args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("http/get", "1 or 2", args.len()));
-        }
+        check_arity!(args, "http/get", 1..=2);
         let url = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -111,9 +109,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/post", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("http/post", "2 or 3", args.len()));
-        }
+        check_arity!(args, "http/post", 2..=3);
         let url = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -123,9 +119,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/put", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("http/put", "2 or 3", args.len()));
-        }
+        check_arity!(args, "http/put", 2..=3);
         let url = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -135,9 +129,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/delete", |args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("http/delete", "1 or 2", args.len()));
-        }
+        check_arity!(args, "http/delete", 1..=2);
         let url = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -146,9 +138,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::NETWORK, "http/request", |args| {
-        if args.len() < 2 || args.len() > 4 {
-            return Err(SemaError::arity("http/request", "2-4", args.len()));
-        }
+        check_arity!(args, "http/request", 2..=4);
         let method = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?

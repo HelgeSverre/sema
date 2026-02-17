@@ -1,24 +1,20 @@
 use std::collections::BTreeMap;
 
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
-use sema_core::{SemaError, Value};
+use sema_core::{check_arity, SemaError, Value};
 
 use crate::register_fn;
 
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "time/now", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("time/now", "0", args.len()));
-        }
+        check_arity!(args, "time/now", 0);
         let now = Utc::now();
         let secs = now.timestamp() as f64 + now.timestamp_subsec_millis() as f64 / 1000.0;
         Ok(Value::float(secs))
     });
 
     register_fn(env, "time/format", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("time/format", "2", args.len()));
-        }
+        check_arity!(args, "time/format", 2);
         let ts = args[0]
             .as_float()
             .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
@@ -30,9 +26,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "time/parse", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("time/parse", "2", args.len()));
-        }
+        check_arity!(args, "time/parse", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -46,9 +40,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "time/date-parts", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("time/date-parts", "1", args.len()));
-        }
+        check_arity!(args, "time/date-parts", 1);
         let ts = args[0]
             .as_float()
             .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
@@ -70,9 +62,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "time/add", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("time/add", "2", args.len()));
-        }
+        check_arity!(args, "time/add", 2);
         let ts = args[0]
             .as_float()
             .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
@@ -83,9 +73,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "time/diff", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("time/diff", "2", args.len()));
-        }
+        check_arity!(args, "time/diff", 2);
         let t1 = args[0]
             .as_float()
             .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;

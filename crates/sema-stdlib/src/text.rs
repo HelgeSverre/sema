@@ -1,13 +1,11 @@
-use sema_core::{SemaError, Value};
+use sema_core::{check_arity, SemaError, Value};
 
 use crate::register_fn;
 
 pub fn register(env: &sema_core::Env) {
     // (text/chunk text) or (text/chunk text {:size 1000 :overlap 200})
     register_fn(env, "text/chunk", |args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("text/chunk", "1-2", args.len()));
-        }
+        check_arity!(args, "text/chunk", 1..=2);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -39,9 +37,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (text/chunk-by-separator text separator)
     register_fn(env, "text/chunk-by-separator", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("text/chunk-by-separator", "2", args.len()));
-        }
+        check_arity!(args, "text/chunk-by-separator", 2);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -61,9 +57,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (text/split-sentences text)
     register_fn(env, "text/split-sentences", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("text/split-sentences", "1", args.len()));
-        }
+        check_arity!(args, "text/split-sentences", 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -79,9 +73,7 @@ pub fn register(env: &sema_core::Env) {
     // --- Task 5: Text Cleaning ---
 
     register_fn(env, "text/clean-whitespace", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("text/clean-whitespace", "1", args.len()));
-        }
+        check_arity!(args, "text/clean-whitespace", 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -91,9 +83,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "text/strip-html", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("text/strip-html", "1", args.len()));
-        }
+        check_arity!(args, "text/strip-html", 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -101,9 +91,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "text/truncate", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("text/truncate", "2-3", args.len()));
-        }
+        check_arity!(args, "text/truncate", 2..=3);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -130,9 +118,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "text/word-count", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("text/word-count", "1", args.len()));
-        }
+        check_arity!(args, "text/word-count", 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -140,9 +126,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "text/trim-indent", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("text/trim-indent", "1", args.len()));
-        }
+        check_arity!(args, "text/trim-indent", 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -152,9 +136,7 @@ pub fn register(env: &sema_core::Env) {
     // --- Task 6: Prompt Templates ---
 
     register_fn(env, "prompt/template", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("prompt/template", "1", args.len()));
-        }
+        check_arity!(args, "prompt/template", 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -162,9 +144,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "prompt/render", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("prompt/render", "2", args.len()));
-        }
+        check_arity!(args, "prompt/render", 2);
         let template = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -177,9 +157,7 @@ pub fn register(env: &sema_core::Env) {
     // --- Task 15: Document Metadata ---
 
     register_fn(env, "document/create", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("document/create", "2", args.len()));
-        }
+        check_arity!(args, "document/create", 2);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -193,9 +171,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "document/text", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("document/text", "1", args.len()));
-        }
+        check_arity!(args, "document/text", 1);
         let map = args[0]
             .as_map_rc()
             .ok_or_else(|| SemaError::type_error("map (document)", args[0].type_name()))?;
@@ -205,9 +181,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "document/metadata", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("document/metadata", "1", args.len()));
-        }
+        check_arity!(args, "document/metadata", 1);
         let map = args[0]
             .as_map_rc()
             .ok_or_else(|| SemaError::type_error("map (document)", args[0].type_name()))?;
@@ -217,9 +191,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "document/chunk", |args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("document/chunk", "1-2", args.len()));
-        }
+        check_arity!(args, "document/chunk", 1..=2);
         let doc = args[0]
             .as_map_rc()
             .ok_or_else(|| SemaError::type_error("map (document)", args[0].type_name()))?;
@@ -271,9 +243,7 @@ pub fn register(env: &sema_core::Env) {
 
     // text/excerpt — extract a snippet around a match with omission markers
     register_fn(env, "text/excerpt", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("text/excerpt", "2-3", args.len()));
-        }
+        check_arity!(args, "text/excerpt", 2..=3);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -324,9 +294,7 @@ pub fn register(env: &sema_core::Env) {
 
     // text/normalize-newlines — convert \r\n and \r to \n
     register_fn(env, "text/normalize-newlines", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("text/normalize-newlines", "1", args.len()));
-        }
+        check_arity!(args, "text/normalize-newlines", 1);
         let text = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;

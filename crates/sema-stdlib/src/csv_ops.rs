@@ -1,14 +1,12 @@
 use std::collections::BTreeMap;
 
-use sema_core::{SemaError, Value, ValueView};
+use sema_core::{check_arity, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "csv/parse", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("csv/parse", "1", args.len()));
-        }
+        check_arity!(args, "csv/parse", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -25,9 +23,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "csv/parse-maps", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("csv/parse-maps", "1", args.len()));
-        }
+        check_arity!(args, "csv/parse-maps", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -55,9 +51,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "csv/encode", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("csv/encode", "1", args.len()));
-        }
+        check_arity!(args, "csv/encode", 1);
         let rows = match args[0].view() {
             ValueView::List(l) => l.as_ref().clone(),
             _ => return Err(SemaError::type_error("list", args[0].type_name())),

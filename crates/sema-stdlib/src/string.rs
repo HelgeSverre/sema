@@ -1,4 +1,4 @@
-use sema_core::{SemaError, Value, ValueView};
+use sema_core::{check_arity, SemaError, Value, ValueView};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::register_fn;
@@ -17,9 +17,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string-length", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string-length", "1", args.len()));
-        }
+        check_arity!(args, "string-length", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -27,9 +25,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string-ref", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string-ref", "2", args.len()));
-        }
+        check_arity!(args, "string-ref", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -44,9 +40,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "substring", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("substring", "2-3", args.len()));
-        }
+        check_arity!(args, "substring", 2..=3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -80,9 +74,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/split", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/split", "2", args.len()));
-        }
+        check_arity!(args, "string/split", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -94,9 +86,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/trim", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/trim", "1", args.len()));
-        }
+        check_arity!(args, "string/trim", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -104,9 +94,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/contains?", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/contains?", "2", args.len()));
-        }
+        check_arity!(args, "string/contains?", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -117,9 +105,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/starts-with?", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/starts-with?", "2", args.len()));
-        }
+        check_arity!(args, "string/starts-with?", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -130,9 +116,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/ends-with?", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/ends-with?", "2", args.len()));
-        }
+        check_arity!(args, "string/ends-with?", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -143,9 +127,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/upper", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/upper", "1", args.len()));
-        }
+        check_arity!(args, "string/upper", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -153,9 +135,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/lower", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/lower", "1", args.len()));
-        }
+        check_arity!(args, "string/lower", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -163,9 +143,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/replace", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("string/replace", "3", args.len()));
-        }
+        check_arity!(args, "string/replace", 3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -179,9 +157,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/join", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/join", "2", args.len()));
-        }
+        check_arity!(args, "string/join", 2);
         let sep = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
@@ -204,9 +180,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "format", |args| {
-        if args.is_empty() {
-            return Err(SemaError::arity("format", "1+", 0));
-        }
+        check_arity!(args, "format", 1..);
         let fmt = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -250,9 +224,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string->symbol", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string->symbol", "1", args.len()));
-        }
+        check_arity!(args, "string->symbol", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -260,9 +232,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "symbol->string", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("symbol->string", "1", args.len()));
-        }
+        check_arity!(args, "symbol->string", 1);
         let s = args[0]
             .as_symbol()
             .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
@@ -270,9 +240,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string->keyword", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string->keyword", "1", args.len()));
-        }
+        check_arity!(args, "string->keyword", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -280,9 +248,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "keyword->string", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("keyword->string", "1", args.len()));
-        }
+        check_arity!(args, "keyword->string", 1);
         let kw = args[0]
             .as_keyword()
             .ok_or_else(|| SemaError::type_error("keyword", args[0].type_name()))?;
@@ -302,9 +268,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "number->string", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("number->string", "1", args.len()));
-        }
+        check_arity!(args, "number->string", 1);
         match args[0].view() {
             ValueView::Int(n) => Ok(Value::string(&n.to_string())),
             ValueView::Float(f) => Ok(Value::string(&f.to_string())),
@@ -313,9 +277,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string->number", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string->number", "1", args.len()));
-        }
+        check_arity!(args, "string->number", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -329,9 +291,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string->float", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string->float", "1", args.len()));
-        }
+        check_arity!(args, "string->float", 1);
         match args[0].view() {
             ValueView::String(s) => s
                 .parse::<f64>()
@@ -347,9 +307,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/index-of", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/index-of", "2", args.len()));
-        }
+        check_arity!(args, "string/index-of", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -363,9 +321,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/chars", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/chars", "1", args.len()));
-        }
+        check_arity!(args, "string/chars", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -374,9 +330,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/repeat", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/repeat", "2", args.len()));
-        }
+        check_arity!(args, "string/repeat", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -388,9 +342,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/trim-left", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/trim-left", "1", args.len()));
-        }
+        check_arity!(args, "string/trim-left", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -398,9 +350,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/trim-right", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/trim-right", "1", args.len()));
-        }
+        check_arity!(args, "string/trim-right", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -408,9 +358,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/number?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/number?", "1", args.len()));
-        }
+        check_arity!(args, "string/number?", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -419,9 +367,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/pad-left", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("string/pad-left", "2-3", args.len()));
-        }
+        check_arity!(args, "string/pad-left", 2..=3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -447,9 +393,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/pad-right", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("string/pad-right", "2-3", args.len()));
-        }
+        check_arity!(args, "string/pad-right", 2..=3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -475,9 +419,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/last-index-of", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/last-index-of", "2", args.len()));
-        }
+        check_arity!(args, "string/last-index-of", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -491,9 +433,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/reverse", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/reverse", "1", args.len()));
-        }
+        check_arity!(args, "string/reverse", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -501,9 +441,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/empty?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/empty?", "1", args.len()));
-        }
+        check_arity!(args, "string/empty?", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -511,9 +449,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/capitalize", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/capitalize", "1", args.len()));
-        }
+        check_arity!(args, "string/capitalize", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -532,9 +468,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/title-case", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/title-case", "1", args.len()));
-        }
+        check_arity!(args, "string/title-case", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -560,9 +494,7 @@ pub fn register(env: &sema_core::Env) {
     // Character functions
 
     register_fn(env, "char->integer", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char->integer", "1", args.len()));
-        }
+        check_arity!(args, "char->integer", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -570,9 +502,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "integer->char", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("integer->char", "1", args.len()));
-        }
+        check_arity!(args, "integer->char", 1);
         let n = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
@@ -582,9 +512,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "char-alphabetic?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char-alphabetic?", "1", args.len()));
-        }
+        check_arity!(args, "char-alphabetic?", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -592,9 +520,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "char-numeric?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char-numeric?", "1", args.len()));
-        }
+        check_arity!(args, "char-numeric?", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -602,9 +528,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "char-whitespace?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char-whitespace?", "1", args.len()));
-        }
+        check_arity!(args, "char-whitespace?", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -612,9 +536,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "char-upper-case?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char-upper-case?", "1", args.len()));
-        }
+        check_arity!(args, "char-upper-case?", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -622,9 +544,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "char-lower-case?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char-lower-case?", "1", args.len()));
-        }
+        check_arity!(args, "char-lower-case?", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -632,9 +552,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "char-upcase", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char-upcase", "1", args.len()));
-        }
+        check_arity!(args, "char-upcase", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -642,9 +560,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "char-downcase", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char-downcase", "1", args.len()));
-        }
+        check_arity!(args, "char-downcase", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -652,9 +568,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "char->string", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("char->string", "1", args.len()));
-        }
+        check_arity!(args, "char->string", 1);
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -662,9 +576,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string->char", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string->char", "1", args.len()));
-        }
+        check_arity!(args, "string->char", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -681,9 +593,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string->list", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string->list", "1", args.len()));
-        }
+        check_arity!(args, "string->list", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -692,9 +602,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     fn two_chars(op: &str, args: &[Value]) -> Result<(char, char), SemaError> {
-        if args.len() != 2 {
-            return Err(SemaError::arity(op, "2", args.len()));
-        }
+        check_arity!(args, op, 2);
         let a = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
@@ -754,9 +662,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "list->string", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("list->string", "1", args.len()));
-        }
+        check_arity!(args, "list->string", 1);
         let items = args[0]
             .as_list()
             .ok_or_else(|| SemaError::type_error("list", args[0].type_name()))?;
@@ -771,9 +677,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/map", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/map", "2", args.len()));
-        }
+        check_arity!(args, "string/map", 2);
         let s = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
@@ -792,9 +696,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/byte-length", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/byte-length", "1", args.len()));
-        }
+        check_arity!(args, "string/byte-length", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -802,9 +704,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/codepoints", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/codepoints", "1", args.len()));
-        }
+        check_arity!(args, "string/codepoints", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -813,9 +713,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/from-codepoints", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/from-codepoints", "1", args.len()));
-        }
+        check_arity!(args, "string/from-codepoints", 1);
         let items = match args[0].view() {
             ValueView::List(l) => l,
             ValueView::Vector(v) => v,
@@ -835,9 +733,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/normalize", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/normalize", "2", args.len()));
-        }
+        check_arity!(args, "string/normalize", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -862,9 +758,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/foldcase", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/foldcase", "1", args.len()));
-        }
+        check_arity!(args, "string/foldcase", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -872,9 +766,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string-ci=?", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string-ci=?", "2", args.len()));
-        }
+        check_arity!(args, "string-ci=?", 2);
         let a = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -886,9 +778,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/after — everything after first occurrence of needle
     register_fn(env, "string/after", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/after", "2", args.len()));
-        }
+        check_arity!(args, "string/after", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -903,9 +793,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/after-last — everything after last occurrence of needle
     register_fn(env, "string/after-last", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/after-last", "2", args.len()));
-        }
+        check_arity!(args, "string/after-last", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -920,9 +808,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/before — everything before first occurrence of needle
     register_fn(env, "string/before", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/before", "2", args.len()));
-        }
+        check_arity!(args, "string/before", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -937,9 +823,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/before-last — everything before last occurrence of needle
     register_fn(env, "string/before-last", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/before-last", "2", args.len()));
-        }
+        check_arity!(args, "string/before-last", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -954,9 +838,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/between — portion between first occurrence of left and first occurrence of right after it
     register_fn(env, "string/between", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("string/between", "3", args.len()));
-        }
+        check_arity!(args, "string/between", 3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -980,9 +862,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/chop-start — remove prefix if present
     register_fn(env, "string/chop-start", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/chop-start", "2", args.len()));
-        }
+        check_arity!(args, "string/chop-start", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -997,9 +877,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/chop-end — remove suffix if present
     register_fn(env, "string/chop-end", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/chop-end", "2", args.len()));
-        }
+        check_arity!(args, "string/chop-end", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1014,9 +892,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/ensure-start — ensure string starts with prefix (add if missing)
     register_fn(env, "string/ensure-start", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/ensure-start", "2", args.len()));
-        }
+        check_arity!(args, "string/ensure-start", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1032,9 +908,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/ensure-end — ensure string ends with suffix (add if missing)
     register_fn(env, "string/ensure-end", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/ensure-end", "2", args.len()));
-        }
+        check_arity!(args, "string/ensure-end", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1050,9 +924,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/replace-first — replace only first occurrence
     register_fn(env, "string/replace-first", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("string/replace-first", "3", args.len()));
-        }
+        check_arity!(args, "string/replace-first", 3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1076,9 +948,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/replace-last — replace only last occurrence
     register_fn(env, "string/replace-last", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("string/replace-last", "3", args.len()));
-        }
+        check_arity!(args, "string/replace-last", 3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1102,9 +972,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/remove — remove all occurrences of substring
     register_fn(env, "string/remove", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/remove", "2", args.len()));
-        }
+        check_arity!(args, "string/remove", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1116,9 +984,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/take — first N chars (positive) or last N chars (negative)
     register_fn(env, "string/take", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("string/take", "2", args.len()));
-        }
+        check_arity!(args, "string/take", 2);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1186,9 +1052,7 @@ pub fn register(env: &sema_core::Env) {
     }
 
     register_fn(env, "string/snake-case", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/snake-case", "1", args.len()));
-        }
+        check_arity!(args, "string/snake-case", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1198,9 +1062,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/kebab-case", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/kebab-case", "1", args.len()));
-        }
+        check_arity!(args, "string/kebab-case", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1210,9 +1072,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/camel-case", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/camel-case", "1", args.len()));
-        }
+        check_arity!(args, "string/camel-case", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1233,9 +1093,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/pascal-case", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/pascal-case", "1", args.len()));
-        }
+        check_arity!(args, "string/pascal-case", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1252,9 +1110,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/headline", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/headline", "1", args.len()));
-        }
+        check_arity!(args, "string/headline", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1277,9 +1133,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "string/words", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("string/words", "1", args.len()));
-        }
+        check_arity!(args, "string/words", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1291,9 +1145,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/wrap — wrap string with left and right delimiters
     register_fn(env, "string/wrap", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("string/wrap", "2-3", args.len()));
-        }
+        check_arity!(args, "string/wrap", 2..=3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -1312,9 +1164,7 @@ pub fn register(env: &sema_core::Env) {
 
     // string/unwrap — remove surrounding delimiters if both present
     register_fn(env, "string/unwrap", |args| {
-        if args.len() < 2 || args.len() > 3 {
-            return Err(SemaError::arity("string/unwrap", "2-3", args.len()));
-        }
+        check_arity!(args, "string/unwrap", 2..=3);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;

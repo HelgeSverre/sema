@@ -1,14 +1,12 @@
 use std::collections::BTreeMap;
 
-use sema_core::{SemaError, Value, ValueView};
+use sema_core::{check_arity, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "json/encode", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("json/encode", "1", args.len()));
-        }
+        check_arity!(args, "json/encode", 1);
         let json = value_to_json(&args[0])?;
         let s = serde_json::to_string(&json)
             .map_err(|e| SemaError::eval(format!("json/encode: {e}")))?;
@@ -16,9 +14,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "json/encode-pretty", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("json/encode-pretty", "1", args.len()));
-        }
+        check_arity!(args, "json/encode-pretty", 1);
         let json = value_to_json(&args[0])?;
         let s = serde_json::to_string_pretty(&json)
             .map_err(|e| SemaError::eval(format!("json/encode-pretty: {e}")))?;
@@ -26,9 +22,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "json/decode", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("json/decode", "1", args.len()));
-        }
+        check_arity!(args, "json/decode", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;

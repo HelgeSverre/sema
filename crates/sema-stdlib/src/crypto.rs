@@ -1,5 +1,5 @@
 use hmac::{Hmac, Mac};
-use sema_core::{SemaError, Value};
+use sema_core::{check_arity, SemaError, Value};
 use sha2::{Digest, Sha256};
 
 use crate::register_fn;
@@ -8,16 +8,12 @@ type HmacSha256 = Hmac<Sha256>;
 
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "uuid/v4", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("uuid/v4", "0", args.len()));
-        }
+        check_arity!(args, "uuid/v4", 0);
         Ok(Value::string(&uuid::Uuid::new_v4().to_string()))
     });
 
     register_fn(env, "base64/encode", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("base64/encode", "1", args.len()));
-        }
+        check_arity!(args, "base64/encode", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -27,9 +23,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "base64/decode", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("base64/decode", "1", args.len()));
-        }
+        check_arity!(args, "base64/decode", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -43,9 +37,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "base64/encode-bytes", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("base64/encode-bytes", "1", args.len()));
-        }
+        check_arity!(args, "base64/encode-bytes", 1);
         let bv = args[0]
             .as_bytevector()
             .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
@@ -55,9 +47,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "base64/decode-bytes", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("base64/decode-bytes", "1", args.len()));
-        }
+        check_arity!(args, "base64/decode-bytes", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -69,9 +59,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "hash/md5", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("hash/md5", "1", args.len()));
-        }
+        check_arity!(args, "hash/md5", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -80,9 +68,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "hash/hmac-sha256", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("hash/hmac-sha256", "2", args.len()));
-        }
+        check_arity!(args, "hash/hmac-sha256", 2);
         let key = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -96,9 +82,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "hash/sha256", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("hash/sha256", "1", args.len()));
-        }
+        check_arity!(args, "hash/sha256", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;

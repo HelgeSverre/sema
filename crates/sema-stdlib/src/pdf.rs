@@ -1,12 +1,10 @@
 use std::collections::BTreeMap;
 
-use sema_core::{Caps, SemaError, Value};
+use sema_core::{check_arity, Caps, SemaError, Value};
 
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "pdf/extract-text", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("pdf/extract-text", "1", args.len()));
-        }
+        check_arity!(args, "pdf/extract-text", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -23,9 +21,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Caps::FS_READ,
         "pdf/extract-text-pages",
         |args| {
-            if args.len() != 1 {
-                return Err(SemaError::arity("pdf/extract-text-pages", "1", args.len()));
-            }
+            check_arity!(args, "pdf/extract-text-pages", 1);
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -37,9 +33,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     );
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "pdf/page-count", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("pdf/page-count", "1", args.len()));
-        }
+        check_arity!(args, "pdf/page-count", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -49,9 +43,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "pdf/metadata", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("pdf/metadata", "1", args.len()));
-        }
+        check_arity!(args, "pdf/metadata", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;

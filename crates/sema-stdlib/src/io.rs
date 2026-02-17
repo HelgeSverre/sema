@@ -2,7 +2,7 @@ use std::io::BufRead;
 use std::io::Read as _;
 use std::io::Write as _;
 
-use sema_core::{Caps, NativeFn, SemaError, Value, ValueView};
+use sema_core::{check_arity, Caps, NativeFn, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -45,25 +45,19 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "pprint", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("pprint", "1", args.len()));
-        }
+        check_arity!(args, "pprint", 1);
         println!("{}", sema_core::pretty_print(&args[0], 80));
         Ok(Value::nil())
     });
 
     register_fn(env, "newline", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("newline", "0", args.len()));
-        }
+        check_arity!(args, "newline", 0);
         println!();
         Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/read", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/read", "1", args.len()));
-        }
+        check_arity!(args, "file/read", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -73,9 +67,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/write", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("file/write", "2", args.len()));
-        }
+        check_arity!(args, "file/write", 2);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -88,9 +80,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/read-bytes", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/read-bytes", "1", args.len()));
-        }
+        check_arity!(args, "file/read-bytes", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -100,9 +90,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/write-bytes", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("file/write-bytes", "2", args.len()));
-        }
+        check_arity!(args, "file/write-bytes", 2);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -115,9 +103,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/exists?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/exists?", "1", args.len()));
-        }
+        check_arity!(args, "file/exists?", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -125,9 +111,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "read-line", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("read-line", "0", args.len()));
-        }
+        check_arity!(args, "read-line", 0);
         let mut input = String::new();
         std::io::stdin()
             .read_line(&mut input)
@@ -143,9 +127,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "read", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("read", "1", args.len()));
-        }
+        check_arity!(args, "read", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -153,9 +135,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "read-many", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("read-many", "1", args.len()));
-        }
+        check_arity!(args, "read-many", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -175,9 +155,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/append", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("file/append", "2", args.len()));
-        }
+        check_arity!(args, "file/append", 2);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -196,9 +174,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/delete", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/delete", "1", args.len()));
-        }
+        check_arity!(args, "file/delete", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -208,9 +184,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/rename", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("file/rename", "2", args.len()));
-        }
+        check_arity!(args, "file/rename", 2);
         let from = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -223,9 +197,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/list", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/list", "1", args.len()));
-        }
+        check_arity!(args, "file/list", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -241,9 +213,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/mkdir", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/mkdir", "1", args.len()));
-        }
+        check_arity!(args, "file/mkdir", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -253,9 +223,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-directory?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/is-directory?", "1", args.len()));
-        }
+        check_arity!(args, "file/is-directory?", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -263,9 +231,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-file?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/is-file?", "1", args.len()));
-        }
+        check_arity!(args, "file/is-file?", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -273,9 +239,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-symlink?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/is-symlink?", "1", args.len()));
-        }
+        check_arity!(args, "file/is-symlink?", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -283,9 +247,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/info", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/info", "1", args.len()));
-        }
+        check_arity!(args, "file/info", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -307,9 +269,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/join", |args| {
-        if args.is_empty() {
-            return Err(SemaError::arity("path/join", "1+", 0));
-        }
+        check_arity!(args, "path/join", 1..);
         let mut path = std::path::PathBuf::new();
         for arg in args {
             let s = arg
@@ -321,9 +281,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/dirname", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/dirname", "1", args.len()));
-        }
+        check_arity!(args, "path/dirname", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -334,9 +292,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/basename", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/basename", "1", args.len()));
-        }
+        check_arity!(args, "path/basename", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -347,9 +303,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/extension", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/extension", "1", args.len()));
-        }
+        check_arity!(args, "path/extension", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -360,9 +314,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "path/absolute", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/absolute", "1", args.len()));
-        }
+        check_arity!(args, "path/absolute", 1);
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -372,9 +324,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/glob", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/glob", "1", args.len()));
-        }
+        check_arity!(args, "file/glob", 1);
         let pattern = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -388,9 +338,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/ext", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/ext", "1", args.len()));
-        }
+        check_arity!(args, "path/ext", 1);
         let p = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -402,9 +350,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/stem", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/stem", "1", args.len()));
-        }
+        check_arity!(args, "path/stem", 1);
         let p = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -416,9 +362,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/dir", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/dir", "1", args.len()));
-        }
+        check_arity!(args, "path/dir", 1);
         let p = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -430,9 +374,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/filename", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/filename", "1", args.len()));
-        }
+        check_arity!(args, "path/filename", 1);
         let p = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -444,9 +386,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "path/absolute?", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("path/absolute?", "1", args.len()));
-        }
+        check_arity!(args, "path/absolute?", 1);
         let p = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -454,9 +394,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/read-lines", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("file/read-lines", "1", args.len()));
-        }
+        check_arity!(args, "file/read-lines", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -467,9 +405,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/for-each-line", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("file/for-each-line", "2", args.len()));
-        }
+        check_arity!(args, "file/for-each-line", 2);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -501,9 +437,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/fold-lines", |args| {
-        if args.len() != 3 {
-            return Err(SemaError::arity("file/fold-lines", "3", args.len()));
-        }
+        check_arity!(args, "file/fold-lines", 3);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -537,9 +471,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/write-lines", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("file/write-lines", "2", args.len()));
-        }
+        check_arity!(args, "file/write-lines", 2);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -562,9 +494,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/copy", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("file/copy", "2", args.len()));
-        }
+        check_arity!(args, "file/copy", 2);
         let src = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -605,9 +535,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "read-stdin", |args| {
-        if !args.is_empty() {
-            return Err(SemaError::arity("read-stdin", "0", args.len()));
-        }
+        check_arity!(args, "read-stdin", 0);
         let mut buf = String::new();
         std::io::stdin()
             .read_to_string(&mut buf)
@@ -621,9 +549,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     register_log_fn(env, "log/debug", "DEBUG");
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "load", |args| {
-        if args.len() != 1 {
-            return Err(SemaError::arity("load", "1", args.len()));
-        }
+        check_arity!(args, "load", 1);
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
@@ -640,9 +566,7 @@ fn register_log_fn(env: &sema_core::Env, name: &str, level: &'static str) {
     env.set(
         sema_core::intern(name),
         Value::native_fn(NativeFn::with_ctx(name, move |ctx, args| {
-            if args.is_empty() {
-                return Err(SemaError::arity(&fn_name, "1+", 0));
-            }
+            check_arity!(args, &fn_name, 1..);
             let mut msg = String::new();
             for (i, arg) in args.iter().enumerate() {
                 if i > 0 {
