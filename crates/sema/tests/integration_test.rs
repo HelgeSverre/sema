@@ -7153,6 +7153,62 @@ fn test_sandbox_all_denied_safe_functions_comprehensive() {
         .is_ok());
 }
 
+// === Task 2: base64/encode-bytes and base64/decode-bytes ===
+
+#[test]
+fn test_base64_encode_bytes() {
+    assert_eq!(
+        eval(r#"(base64/encode-bytes (bytevector 72 101 108 108 111))"#),
+        Value::string("SGVsbG8=")
+    );
+}
+
+#[test]
+fn test_base64_decode_bytes() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(r#"(bytevector-length (base64/decode-bytes "SGVsbG8="))"#)
+        .unwrap();
+    assert_eq!(result, Value::int(5));
+}
+
+#[test]
+fn test_base64_roundtrip_bytes() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (define bv (bytevector 0 1 255 128 64))
+                (define encoded (base64/encode-bytes bv))
+                (define decoded (base64/decode-bytes encoded))
+                (= bv decoded))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::bool(true));
+}
+
+#[test]
+fn test_base64_encode_bytes_type_error() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(base64/encode-bytes "not a bytevector")"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_base64_decode_bytes_invalid() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(base64/decode-bytes "!!!invalid!!!")"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_base64_encode_bytes_empty() {
+    assert_eq!(
+        eval(r#"(base64/encode-bytes (bytevector))"#),
+        Value::string("")
+    );
+}
+
 // === Sandbox: load is gated by fs-read ===
 
 // === Task 1: file/read-bytes and file/write-bytes ===

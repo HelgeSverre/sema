@@ -42,6 +42,32 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::string(&decoded))
     });
 
+    register_fn(env, "base64/encode-bytes", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("base64/encode-bytes", "1", args.len()));
+        }
+        let bv = args[0]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(bv);
+        Ok(Value::string(&encoded))
+    });
+
+    register_fn(env, "base64/decode-bytes", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("base64/decode-bytes", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(s.as_bytes())
+            .map_err(|e| SemaError::eval(format!("base64/decode-bytes: {e}")))?;
+        Ok(Value::bytevector(bytes))
+    });
+
     register_fn(env, "hash/md5", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("hash/md5", "1", args.len()));
