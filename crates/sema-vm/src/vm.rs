@@ -5,7 +5,6 @@ use std::rc::Rc;
 use sema_core::{resolve as resolve_spur, Env, EvalContext, SemaError, Spur, Value};
 
 use crate::chunk::Function;
-use crate::opcodes::Op;
 
 /// A mutable cell for captured variables (upvalues).
 #[derive(Debug)]
@@ -32,7 +31,7 @@ pub struct Closure {
 /// Carries both the closure and the function table from its compilation context.
 struct VmClosurePayload {
     closure: Rc<Closure>,
-    functions: Vec<Rc<Function>>,
+    functions: Rc<Vec<Rc<Function>>>,
 }
 
 /// A call frame in the VM's call stack.
@@ -50,11 +49,20 @@ pub struct VM {
     stack: Vec<Value>,
     frames: Vec<CallFrame>,
     globals: Rc<Env>,
-    functions: Vec<Rc<Function>>,
+    functions: Rc<Vec<Rc<Function>>>,
 }
 
 impl VM {
     pub fn new(globals: Rc<Env>, functions: Vec<Rc<Function>>) -> Self {
+        VM {
+            stack: Vec::with_capacity(256),
+            frames: Vec::with_capacity(64),
+            globals,
+            functions: Rc::new(functions),
+        }
+    }
+
+    fn new_with_rc_functions(globals: Rc<Env>, functions: Rc<Vec<Rc<Function>>>) -> Self {
         VM {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
@@ -80,157 +88,201 @@ impl VM {
     }
 
     fn run(&mut self, ctx: &EvalContext) -> Result<Value, SemaError> {
+        // Inline helpers for reading operands from bytecode without method call overhead
+        macro_rules! read_u16_inline {
+            ($code:expr, $pc:expr) => {{
+                let v = u16::from_le_bytes([$code[$pc], $code[$pc + 1]]);
+                $pc += 2;
+                v
+            }};
+        }
+        macro_rules! read_i32_inline {
+            ($code:expr, $pc:expr) => {{
+                let v = i32::from_le_bytes([
+                    $code[$pc],
+                    $code[$pc + 1],
+                    $code[$pc + 2],
+                    $code[$pc + 3],
+                ]);
+                $pc += 4;
+                v
+            }};
+        }
+        macro_rules! read_u32_inline {
+            ($code:expr, $pc:expr) => {{
+                let v = u32::from_le_bytes([
+                    $code[$pc],
+                    $code[$pc + 1],
+                    $code[$pc + 2],
+                    $code[$pc + 3],
+                ]);
+                $pc += 4;
+                v
+            }};
+        }
+
         loop {
-            let frame = self.frames.last().unwrap();
-            let code = &frame.closure.func.chunk.code;
-            let pc = frame.pc;
+            let fi = self.frames.len() - 1;
+            let code = unsafe {
+                &*(self
+                    .frames
+                    .get_unchecked(fi)
+                    .closure
+                    .func
+                    .chunk
+                    .code
+                    .as_slice() as *const [u8])
+            };
+            let base = self.frames[fi].base;
+            let mut pc = self.frames[fi].pc;
 
-            if pc >= code.len() {
-                return Err(SemaError::eval("VM: pc out of bounds"));
-            }
+            let opcode = code[pc];
+            pc += 1; // skip opcode byte
 
-            let op = Op::from_u8(code[pc])
-                .ok_or_else(|| SemaError::eval(format!("VM: invalid opcode {}", code[pc])))?;
-
-            match op {
-                Op::Const => {
-                    let idx = self.read_u16() as usize;
-                    let frame = self.frames.last().unwrap();
-                    let val = frame.closure.func.chunk.consts[idx].clone();
+            match opcode {
+                0 /* Const */ => {
+                    let idx = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
+                    let val = self.frames[fi].closure.func.chunk.consts[idx].clone();
                     self.stack.push(val);
                 }
-                Op::Nil => {
-                    self.advance_pc(1);
+                1 /* Nil */ => {
+                    self.frames[fi].pc = pc;
                     self.stack.push(Value::nil());
                 }
-                Op::True => {
-                    self.advance_pc(1);
+                2 /* True */ => {
+                    self.frames[fi].pc = pc;
                     self.stack.push(Value::bool(true));
                 }
-                Op::False => {
-                    self.advance_pc(1);
+                3 /* False */ => {
+                    self.frames[fi].pc = pc;
                     self.stack.push(Value::bool(false));
                 }
-                Op::Pop => {
-                    self.advance_pc(1);
-                    self.pop()?;
+                4 /* Pop */ => {
+                    self.frames[fi].pc = pc;
+                    self.stack.pop();
                 }
-                Op::Dup => {
-                    self.advance_pc(1);
-                    let val = self.peek()?.clone();
+                5 /* Dup */ => {
+                    self.frames[fi].pc = pc;
+                    let val = self.stack[self.stack.len() - 1].clone();
                     self.stack.push(val);
                 }
 
                 // --- Locals ---
-                Op::LoadLocal => {
-                    let slot = self.read_u16() as usize;
-                    let frame = self.frames.last().unwrap();
-                    let val = if let Some(Some(cell)) = frame.open_upvalues.get(slot) {
+                6 /* LoadLocal */ => {
+                    let slot = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
+                    let val = if let Some(Some(cell)) = self.frames[fi].open_upvalues.get(slot) {
                         cell.value.borrow().clone()
                     } else {
-                        self.stack[frame.base + slot].clone()
+                        self.stack[base + slot].clone()
                     };
                     self.stack.push(val);
                 }
-                Op::StoreLocal => {
-                    let slot = self.read_u16() as usize;
-                    let val = self.pop()?;
-                    let frame = self.frames.last().unwrap();
-                    let base = frame.base;
+                7 /* StoreLocal */ => {
+                    let slot = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
+                    let val = self.stack.pop().unwrap();
                     self.stack[base + slot] = val.clone();
-                    // If there's an open upvalue for this slot, update it too
-                    if let Some(Some(cell)) = frame.open_upvalues.get(slot) {
+                    if let Some(Some(cell)) = self.frames[fi].open_upvalues.get(slot) {
                         *cell.value.borrow_mut() = val;
                     }
                 }
 
                 // --- Upvalues ---
-                Op::LoadUpvalue => {
-                    let idx = self.read_u16() as usize;
-                    let frame = self.frames.last().unwrap();
-                    let val = frame.closure.upvalues[idx].value.borrow().clone();
+                8 /* LoadUpvalue */ => {
+                    let idx = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
+                    let val = self.frames[fi].closure.upvalues[idx].value.borrow().clone();
                     self.stack.push(val);
                 }
-                Op::StoreUpvalue => {
-                    let idx = self.read_u16() as usize;
-                    let val = self.pop()?;
-                    let frame = self.frames.last().unwrap();
-                    *frame.closure.upvalues[idx].value.borrow_mut() = val;
+                9 /* StoreUpvalue */ => {
+                    let idx = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
+                    let val = self.stack.pop().unwrap();
+                    *self.frames[fi].closure.upvalues[idx].value.borrow_mut() = val;
                 }
 
                 // --- Globals ---
-                Op::LoadGlobal => {
-                    let spur = self.read_spur();
+                10 /* LoadGlobal */ => {
+                    let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
+                    self.frames[fi].pc = pc;
                     match self.globals.get(spur) {
                         Some(val) => self.stack.push(val),
                         None => {
                             let err = SemaError::Unbound(resolve_spur(spur));
-                            match self.handle_exception(err, pc)? {
+                            match self.handle_exception(err, pc - 5)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             }
                         }
                     }
                 }
-                Op::StoreGlobal => {
-                    let spur = self.read_spur();
-                    let val = self.pop()?;
+                11 /* StoreGlobal */ => {
+                    let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
+                    self.frames[fi].pc = pc;
+                    let val = self.stack.pop().unwrap();
                     if !self.globals.set_existing(spur, val.clone()) {
                         self.globals.set(spur, val);
                     }
                 }
-                Op::DefineGlobal => {
-                    let spur = self.read_spur();
-                    let val = self.pop()?;
+                12 /* DefineGlobal */ => {
+                    let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
+                    self.frames[fi].pc = pc;
+                    let val = self.stack.pop().unwrap();
                     self.globals.set(spur, val);
                 }
 
                 // --- Control flow ---
-                Op::Jump => {
-                    let offset = self.read_i32();
-                    let frame = self.frames.last_mut().unwrap();
-                    frame.pc = (frame.pc as i64 + offset as i64) as usize;
+                13 /* Jump */ => {
+                    let offset = read_i32_inline!(code, pc);
+                    self.frames[fi].pc = (pc as i64 + offset as i64) as usize;
                 }
-                Op::JumpIfFalse => {
-                    let offset = self.read_i32();
-                    let val = self.pop()?;
+                14 /* JumpIfFalse */ => {
+                    let offset = read_i32_inline!(code, pc);
+                    let val = self.stack.pop().unwrap();
                     if !val.is_truthy() {
-                        let frame = self.frames.last_mut().unwrap();
-                        frame.pc = (frame.pc as i64 + offset as i64) as usize;
+                        self.frames[fi].pc = (pc as i64 + offset as i64) as usize;
+                    } else {
+                        self.frames[fi].pc = pc;
                     }
                 }
-                Op::JumpIfTrue => {
-                    let offset = self.read_i32();
-                    let val = self.pop()?;
+                15 /* JumpIfTrue */ => {
+                    let offset = read_i32_inline!(code, pc);
+                    let val = self.stack.pop().unwrap();
                     if val.is_truthy() {
-                        let frame = self.frames.last_mut().unwrap();
-                        frame.pc = (frame.pc as i64 + offset as i64) as usize;
+                        self.frames[fi].pc = (pc as i64 + offset as i64) as usize;
+                    } else {
+                        self.frames[fi].pc = pc;
                     }
                 }
 
                 // --- Function calls ---
-                Op::Call => {
-                    let argc = self.read_u16() as usize;
+                16 /* Call */ => {
+                    let argc = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
+                    let saved_pc = pc - 3; // opcode byte + u16
                     if let Err(err) = self.call_value(argc, ctx) {
-                        match self.handle_exception(err, pc)? {
+                        match self.handle_exception(err, saved_pc)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         }
                     }
                 }
-                Op::TailCall => {
-                    let argc = self.read_u16() as usize;
+                17 /* TailCall */ => {
+                    let argc = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
+                    let saved_pc = pc - 3;
                     if let Err(err) = self.tail_call_value(argc, ctx) {
-                        match self.handle_exception(err, pc)? {
+                        match self.handle_exception(err, saved_pc)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         }
                     }
                 }
-                Op::Return => {
+                18 /* Return */ => {
                     let result = self.stack.pop().unwrap_or(Value::nil());
                     let frame = self.frames.pop().unwrap();
-                    // Discard locals and function slot
                     self.stack.truncate(frame.base);
                     if self.frames.is_empty() {
                         return Ok(result);
@@ -239,31 +291,35 @@ impl VM {
                 }
 
                 // --- Closures ---
-                Op::MakeClosure => {
+                19 /* MakeClosure */ => {
                     self.make_closure()?;
                 }
 
-                Op::CallNative => {
-                    let _native_id = self.read_u16();
-                    let _argc = self.read_u16();
+                20 /* CallNative */ => {
+                    let _native_id = read_u16_inline!(code, pc);
+                    let _argc = read_u16_inline!(code, pc);
+                    self.frames[fi].pc = pc;
                     return Err(SemaError::eval("VM: CallNative not yet implemented"));
                 }
 
                 // --- Data constructors ---
-                Op::MakeList => {
-                    let n = self.read_u16() as usize;
+                21 /* MakeList */ => {
+                    let n = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
                     let start = self.stack.len() - n;
                     let items: Vec<Value> = self.stack.drain(start..).collect();
                     self.stack.push(Value::list(items));
                 }
-                Op::MakeVector => {
-                    let n = self.read_u16() as usize;
+                22 /* MakeVector */ => {
+                    let n = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
                     let start = self.stack.len() - n;
                     let items: Vec<Value> = self.stack.drain(start..).collect();
                     self.stack.push(Value::vector(items));
                 }
-                Op::MakeMap => {
-                    let n = self.read_u16() as usize;
+                23 /* MakeMap */ => {
+                    let n = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
                     let start = self.stack.len() - n * 2;
                     let items: Vec<Value> = self.stack.drain(start..).collect();
                     let mut map = BTreeMap::new();
@@ -272,8 +328,9 @@ impl VM {
                     }
                     self.stack.push(Value::map(map));
                 }
-                Op::MakeHashMap => {
-                    let n = self.read_u16() as usize;
+                24 /* MakeHashMap */ => {
+                    let n = read_u16_inline!(code, pc) as usize;
+                    self.frames[fi].pc = pc;
                     let start = self.stack.len() - n * 2;
                     let items: Vec<Value> = self.stack.drain(start..).collect();
                     let mut map = hashbrown::HashMap::new();
@@ -284,137 +341,134 @@ impl VM {
                 }
 
                 // --- Exceptions ---
-                Op::Throw => {
-                    self.advance_pc(1);
-                    let val = self.pop()?;
+                25 /* Throw */ => {
+                    self.frames[fi].pc = pc;
+                    let val = self.stack.pop().unwrap();
                     let err = SemaError::UserException(val);
-                    // Try to find an exception handler in the current or enclosing frames
-                    match self.handle_exception(err, pc)? {
+                    match self.handle_exception(err, pc - 1)? {
                         ExceptionAction::Handled => {}
                         ExceptionAction::Propagate(e) => return Err(e),
                     }
                 }
 
                 // --- Arithmetic ---
-                Op::Add => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                26 /* Add */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match vm_add(&a, &b) {
                         Ok(v) => self.stack.push(v),
-                        Err(err) => match self.handle_exception(err, pc)? {
+                        Err(err) => match self.handle_exception(err, pc - 1)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         },
                     }
                 }
-                Op::Sub => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                27 /* Sub */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match vm_sub(&a, &b) {
                         Ok(v) => self.stack.push(v),
-                        Err(err) => match self.handle_exception(err, pc)? {
+                        Err(err) => match self.handle_exception(err, pc - 1)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         },
                     }
                 }
-                Op::Mul => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                28 /* Mul */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match vm_mul(&a, &b) {
                         Ok(v) => self.stack.push(v),
-                        Err(err) => match self.handle_exception(err, pc)? {
+                        Err(err) => match self.handle_exception(err, pc - 1)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         },
                     }
                 }
-                Op::Div => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                29 /* Div */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match vm_div(&a, &b) {
                         Ok(v) => self.stack.push(v),
-                        Err(err) => match self.handle_exception(err, pc)? {
+                        Err(err) => match self.handle_exception(err, pc - 1)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         },
                     }
                 }
-                Op::Negate => {
-                    self.advance_pc(1);
-                    let a = self.pop()?;
+                30 /* Negate */ => {
+                    self.frames[fi].pc = pc;
+                    let a = self.stack.pop().unwrap();
                     if let Some(n) = a.as_int() {
                         self.stack.push(Value::int(-n));
                     } else if let Some(f) = a.as_float() {
                         self.stack.push(Value::float(-f));
                     } else {
-                        {
-                            let err = SemaError::type_error("number", a.type_name());
-                            match self.handle_exception(err, pc)? {
-                                ExceptionAction::Handled => {}
-                                ExceptionAction::Propagate(e) => return Err(e),
-                            }
+                        let err = SemaError::type_error("number", a.type_name());
+                        match self.handle_exception(err, pc - 1)? {
+                            ExceptionAction::Handled => {}
+                            ExceptionAction::Propagate(e) => return Err(e),
                         }
                     }
                 }
-                Op::Not => {
-                    self.advance_pc(1);
-                    let a = self.pop()?;
+                31 /* Not */ => {
+                    self.frames[fi].pc = pc;
+                    let a = self.stack.pop().unwrap();
                     self.stack.push(Value::bool(!a.is_truthy()));
                 }
-                Op::Eq => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                32 /* Eq */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     self.stack.push(Value::bool(a == b));
                 }
-                Op::Lt => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                33 /* Lt */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match vm_lt(&a, &b) {
                         Ok(v) => self.stack.push(Value::bool(v)),
-                        Err(err) => match self.handle_exception(err, pc)? {
+                        Err(err) => match self.handle_exception(err, pc - 1)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         },
                     }
                 }
-                Op::Gt => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                34 /* Gt */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match vm_lt(&b, &a) {
                         Ok(v) => self.stack.push(Value::bool(v)),
-                        Err(err) => match self.handle_exception(err, pc)? {
+                        Err(err) => match self.handle_exception(err, pc - 1)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         },
                     }
                 }
-                Op::Le => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                35 /* Le */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match vm_lt(&b, &a) {
                         Ok(v) => self.stack.push(Value::bool(!v)),
-                        Err(err) => match self.handle_exception(err, pc)? {
+                        Err(err) => match self.handle_exception(err, pc - 1)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         },
                     }
                 }
-                Op::Ge => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                36 /* Ge */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     match vm_lt(&a, &b) {
                         Ok(v) => self.stack.push(Value::bool(!v)),
-                        Err(err) => match self.handle_exception(err, pc)? {
+                        Err(err) => match self.handle_exception(err, pc - 1)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
                         },
@@ -422,136 +476,85 @@ impl VM {
                 }
 
                 // --- Specialized int fast paths ---
-                Op::AddInt => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                37 /* AddInt */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
                         self.stack.push(Value::int(x.wrapping_add(y)));
                     } else {
                         match vm_add(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => match self.handle_exception(err, pc)? {
+                            Err(err) => match self.handle_exception(err, pc - 1)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             },
                         }
                     }
                 }
-                Op::SubInt => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                38 /* SubInt */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
                         self.stack.push(Value::int(x.wrapping_sub(y)));
                     } else {
                         match vm_sub(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => match self.handle_exception(err, pc)? {
+                            Err(err) => match self.handle_exception(err, pc - 1)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             },
                         }
                     }
                 }
-                Op::MulInt => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                39 /* MulInt */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
                         self.stack.push(Value::int(x.wrapping_mul(y)));
                     } else {
                         match vm_mul(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => match self.handle_exception(err, pc)? {
+                            Err(err) => match self.handle_exception(err, pc - 1)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             },
                         }
                     }
                 }
-                Op::LtInt => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                40 /* LtInt */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
                         self.stack.push(Value::bool(x < y));
                     } else {
                         match vm_lt(&a, &b) {
                             Ok(v) => self.stack.push(Value::bool(v)),
-                            Err(err) => match self.handle_exception(err, pc)? {
+                            Err(err) => match self.handle_exception(err, pc - 1)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             },
                         }
                     }
                 }
-                Op::EqInt => {
-                    self.advance_pc(1);
-                    let b = self.pop()?;
-                    let a = self.pop()?;
+                41 /* EqInt */ => {
+                    self.frames[fi].pc = pc;
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
                     if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
                         self.stack.push(Value::bool(x == y));
                     } else {
                         self.stack.push(Value::bool(a == b));
                     }
                 }
+                _ => {
+                    return Err(SemaError::eval(format!("VM: invalid opcode {opcode}")));
+                }
             }
         }
-    }
-
-    // --- PC manipulation helpers ---
-
-    fn advance_pc(&mut self, n: usize) {
-        self.frames.last_mut().unwrap().pc += n;
-    }
-
-    fn pop(&mut self) -> Result<Value, SemaError> {
-        self.stack
-            .pop()
-            .ok_or_else(|| SemaError::eval("VM: stack underflow"))
-    }
-
-    fn peek(&self) -> Result<&Value, SemaError> {
-        self.stack
-            .last()
-            .ok_or_else(|| SemaError::eval("VM: stack underflow"))
-    }
-
-    /// Read a u16 operand and advance PC past the opcode + operand.
-    fn read_u16(&mut self) -> u16 {
-        let frame = self.frames.last_mut().unwrap();
-        let code = &frame.closure.func.chunk.code;
-        let pc = frame.pc + 1; // skip opcode
-        let val = u16::from_le_bytes([code[pc], code[pc + 1]]);
-        frame.pc = pc + 2;
-        val
-    }
-
-    /// Read a u32 operand (for Spur globals) and advance PC.
-    fn read_u32(&mut self) -> u32 {
-        let frame = self.frames.last_mut().unwrap();
-        let code = &frame.closure.func.chunk.code;
-        let pc = frame.pc + 1;
-        let val = u32::from_le_bytes([code[pc], code[pc + 1], code[pc + 2], code[pc + 3]]);
-        frame.pc = pc + 4;
-        val
-    }
-
-    /// Read a Spur from a u32 operand.
-    fn read_spur(&mut self) -> Spur {
-        let bits = self.read_u32();
-        unsafe { std::mem::transmute::<u32, Spur>(bits) }
-    }
-
-    /// Read an i32 operand (for jump offsets) and advance PC.
-    fn read_i32(&mut self) -> i32 {
-        let frame = self.frames.last_mut().unwrap();
-        let code = &frame.closure.func.chunk.code;
-        let pc = frame.pc + 1;
-        let val = i32::from_le_bytes([code[pc], code[pc + 1], code[pc + 2], code[pc + 3]]);
-        frame.pc = pc + 4;
-        val
     }
 
     // --- Function call implementation ---
@@ -655,27 +658,25 @@ impl VM {
             ));
         }
 
-        // Collect args from stack
+        // Copy args directly from stack into new locals — no Vec allocation
         let func_idx = self.stack.len() - 1 - argc;
-        let args: Vec<Value> = self.stack[func_idx + 1..].to_vec();
-        self.stack.truncate(func_idx);
+        let base = func_idx; // reuse the callee's slot as new frame base
 
-        // Set up locals
-        let base = self.stack.len();
-        self.stack.resize(base + n_locals, Value::nil());
-
-        // Write params into local slots
+        // Copy params first (forward copy: dest[base+i] < src[func_idx+1+i], always safe)
         if has_rest {
+            let rest: Vec<Value> = self.stack[func_idx + 1 + arity..func_idx + 1 + argc].to_vec();
             for i in 0..arity {
-                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
+                self.stack[base + i] = self.stack[func_idx + 1 + i].clone();
             }
-            let rest: Vec<Value> = args[arity..].to_vec();
             self.stack[base + arity] = Value::list(rest);
         } else {
             for i in 0..arity {
-                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
+                self.stack[base + i] = self.stack[func_idx + 1 + i].clone();
             }
         }
+
+        // Now resize to exact local count (pads with nil or truncates excess args)
+        self.stack.resize(base + n_locals, Value::nil());
 
         // Push frame
         self.frames.push(CallFrame {
@@ -722,30 +723,25 @@ impl VM {
             ));
         }
 
-        // Collect args
+        // Copy args directly into current frame's base — no Vec allocation
         let func_idx = self.stack.len() - 1 - argc;
-        let args: Vec<Value> = self.stack[func_idx + 1..].to_vec();
+        let base = self.frames.last().unwrap().base;
 
-        // Reuse current frame's base
-        let frame = self.frames.last().unwrap();
-        let base = frame.base;
-
-        // Truncate stack back to current frame's base
-        self.stack.truncate(base);
-        self.stack.resize(base + n_locals, Value::nil());
-
-        // Write params
+        // Copy args into base slots (args are above base, no overlap issues)
         if has_rest {
+            let rest: Vec<Value> = self.stack[func_idx + 1 + arity..func_idx + 1 + argc].to_vec();
             for i in 0..arity {
-                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
+                self.stack[base + i] = self.stack[func_idx + 1 + i].clone();
             }
-            let rest: Vec<Value> = args[arity..].to_vec();
             self.stack[base + arity] = Value::list(rest);
         } else {
             for i in 0..arity {
-                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
+                self.stack[base + i] = self.stack[func_idx + 1 + i].clone();
             }
         }
+
+        // Resize to exact local count (pads with nil or truncates excess)
+        self.stack.resize(base + n_locals, Value::nil());
 
         // Replace current frame (reuse slot)
         let frame = self.frames.last_mut().unwrap();
@@ -828,7 +824,7 @@ impl VM {
                 .unwrap_or_else(|| "<vm-closure>".to_string()),
             payload,
             move |ctx, args| {
-                let mut vm = VM::new(globals.clone(), functions.clone());
+                let mut vm = VM::new_with_rc_functions(globals.clone(), functions.clone());
                 let func = &closure_for_fallback.func;
                 let arity = func.arity as usize;
                 let has_rest = func.has_rest;
