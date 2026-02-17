@@ -21,6 +21,7 @@ memchr.workspace = true
 lasso.workspace = true
 hashbrown.workspace = true
 unicode-normalization.workspace = true
+glob.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio.workspace = true

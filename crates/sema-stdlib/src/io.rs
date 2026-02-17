@@ -363,6 +363,22 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(&abs.to_string_lossy()))
     });
 
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/glob", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/glob", "1", args.len()));
+        }
+        let pattern = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let paths = glob::glob(pattern)
+            .map_err(|e| SemaError::eval(format!("file/glob: invalid pattern: {e}")))?;
+        let items: Vec<Value> = paths
+            .filter_map(|entry| entry.ok())
+            .map(|path| Value::string(path.to_str().unwrap_or("")))
+            .collect();
+        Ok(Value::list(items))
+    });
+
     register_fn(env, "path/ext", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("path/ext", "1", args.len()));

@@ -7153,6 +7153,39 @@ fn test_sandbox_all_denied_safe_functions_comprehensive() {
         .is_ok());
 }
 
+// === Task 4: file/glob ===
+
+#[test]
+fn test_file_glob() {
+    let interp = Interpreter::new();
+    // Use absolute path to workspace root for reliable globbing
+    let workspace = env!("CARGO_MANIFEST_DIR").replace("/crates/sema", "");
+    let expr = format!(r#"(length (file/glob "{workspace}/crates/*/Cargo.toml"))"#);
+    let result = interp.eval_str(&expr).unwrap();
+    let count = result.as_int().unwrap();
+    assert!(
+        count >= 7,
+        "expected at least 7 crate Cargo.toml files, got {count}"
+    );
+}
+
+#[test]
+fn test_file_glob_no_matches() {
+    assert_eq!(
+        eval(r#"(file/glob "nonexistent-dir-xyz/*.nothing")"#).to_string(),
+        "()"
+    );
+}
+
+#[test]
+fn test_file_glob_returns_list_of_strings() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(r#"(string? (car (file/glob "Cargo.*")))"#)
+        .unwrap();
+    assert_eq!(result, Value::bool(true));
+}
+
 // === Task 3: Path utilities ===
 
 #[test]
