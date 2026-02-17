@@ -234,7 +234,7 @@ The [`examples/`](examples/) directory has 50+ programs:
 - No full numeric tower (rationals, bignums, complex numbers)
 - No continuations (`call/cc`) or hygienic macros (`syntax-rules`)
 - Single-threaded — `Rc`-based, no cross-thread sharing of values
-- No sandboxing — scripts have full filesystem, network, and shell access
+- No JIT — tree-walking interpreter and bytecode VM, no native code generation
 - No package manager — `import` resolves local files only
 - Young language — solid but not battle-tested at scale
 
@@ -242,11 +242,13 @@ The [`examples/`](examples/) directory has 50+ programs:
 
 ```
 crates/
-  sema-core/     Value types, errors, environment
+  sema-core/     NaN-boxed Value type, errors, environment
   sema-reader/   Lexer and s-expression parser
+  sema-vm/       Bytecode compiler and virtual machine
   sema-eval/     Trampoline-based evaluator, special forms, modules
   sema-stdlib/   350+ built-in functions across 19 modules
   sema-llm/      LLM provider trait + multi-provider clients
+  sema-wasm/     WebAssembly build for sema.run playground
   sema/          CLI binary: REPL + file runner
 ```
 

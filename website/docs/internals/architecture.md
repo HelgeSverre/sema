@@ -57,7 +57,7 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 
 | Crate | Role | Key types |
 |-------|------|-----------|
-| **sema-core** | Shared types | `Value` (23 variants), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types |
+| **sema-core** | Shared types | `Value` (NaN-boxed 8-byte), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types |
 | **sema-reader** | Parsing | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap` |
 | **sema-vm** | Bytecode VM (opt-in via `--vm`) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch |
 | **sema-eval** | Evaluation | Trampoline-based evaluator, 39 special forms, module system, call stack + span table |
@@ -67,35 +67,25 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 
 ## The Value Type
 
-All Sema data is represented by a single `Value` enum with 23 variants:
+All Sema data is represented by a single NaN-boxed `Value` — an 8-byte `struct Value(u64)` that encodes every type in IEEE 754 quiet NaN payload space:
 
 ```rust
 // crates/sema-core/src/value.rs
-pub enum Value {
-    Nil,
-    Bool(bool),
-    Int(i64),
-    Float(f64),
-    String(Rc<String>),
-    Symbol(Spur),           // interned u32 handle
-    Keyword(Spur),          // interned u32 handle
-    Char(char),
-    List(Rc<Vec<Value>>),
-    Vector(Rc<Vec<Value>>),
-    Map(Rc<BTreeMap<Value, Value>>),
-    HashMap(Rc<hashbrown::HashMap<Value, Value>>),
-    Lambda(Rc<Lambda>),
-    Macro(Rc<Macro>),
-    NativeFn(Rc<NativeFn>),
-    Prompt(Rc<Prompt>),
-    Message(Rc<Message>),
-    Conversation(Rc<Conversation>),
-    ToolDef(Rc<ToolDefinition>),
-    Agent(Rc<Agent>),
-    Thunk(Rc<Thunk>),
-    Record(Rc<Record>),
-    Bytevector(Rc<Vec<u8>>),
-}
+#[repr(transparent)]
+pub struct Value(u64);
+
+// Encoding: floats stored as raw f64 bits.
+// All other types packed into quiet NaN payloads:
+//   sign=1 | exponent=0x7FF | quiet=1 | TAG(6 bits) | PAYLOAD(45 bits)
+//
+// Immediate types (no heap allocation):
+//   Nil, Bool, Char, Symbol(Spur), Keyword(Spur), IntSmall(±2^44)
+//
+// Heap types (Rc pointer in 45-bit payload):
+//   String, List, Vector, Map, HashMap, Lambda, Macro, NativeFn,
+//   Prompt, Message, Conversation, ToolDef, Agent, Thunk, Record, Bytevector
+//
+// Pattern matching via val.view() → ValueView enum
 ```
 
 Several design choices here are worth examining.
@@ -106,7 +96,7 @@ Sema is single-threaded. `Arc` adds an atomic increment/decrement on every clone
 
 The trade-off versus a tracing garbage collector: reference counting gives deterministic destruction (values are freed the instant their last reference drops), but cannot collect cycles. In practice this is rarely a problem — Lisp closures tend to create tree-shaped reference graphs, not cycles. A lambda captures its enclosing environment, which may capture its own enclosing environment, forming a chain. Cycles are theoretically possible (e.g., named lambdas bind themselves in their own environment, and `Thunk` uses `RefCell` which could close over itself), but they don't arise in typical Sema programs. If they did, the leaked memory would be bounded by the closure's captured environment — not a growing leak.
 
-This is a different trade-off than most production Lisps make. SBCL uses a generational garbage collector with tagged pointers (the low bits of a machine word indicate the type, avoiding a separate tag field). Clojure rides the JVM's GC. Janet uses NaN boxing — encoding values in the unused bits of IEEE 754 NaN representations to fit a tagged value in 8 bytes. Sema's `Value` enum is 16 bytes on 64-bit targets (`std::mem::size_of::<Value>()` = 16, alignment 8) — the largest variants are pointer-sized (`Rc<T>` is 8 bytes, as are `i64` and `f64`), and the compiler packs the discriminant alongside these to fit within 16 bytes. Smaller variants like `Spur` (4 bytes), `bool` (1 byte), and `char` (4 bytes) leave room to spare. Rust does not guarantee enum layout, so this measurement is empirical — but it's stable across current rustc versions on 64-bit targets. Heap types like `List`, `Map`, and `Lambda` add one level of `Rc` pointer indirection. This is larger than Janet's 8-byte NaN-boxed values and SBCL's tagged words, but simpler to implement and debug — no bit-twiddling, no platform-specific pointer tagging, and Rust's type system enforces exhaustive matching on all 23 variants.
+Sema uses NaN-boxing — encoding values in the unused bits of IEEE 754 NaN representations to fit a tagged value in 8 bytes, the same technique used by Janet. This makes `Value` the same size as a `f64` or a pointer, meaning the value stack and constant pool have excellent cache locality. Heap types like `List`, `Map`, and `Lambda` add one level of `Rc` pointer indirection, with the pointer stored in the 45-bit payload field (using the 8-byte alignment guarantee to shift the pointer right by 3 bits). Small integers (±17.5 trillion), symbols, keywords, characters, booleans, and nil are all stored entirely within the 8-byte NaN-box with zero heap allocation.
 
 ### Why Vector-Backed Lists
 
@@ -180,11 +170,11 @@ This means the type system catches errors like passing a string where a message 
 
 ## Environment Model
 
-The environment is a linked list of scopes, each holding a `BTreeMap<Spur, Value>`:
+The environment is a linked list of scopes, each holding a `SpurMap<Spur, Value>` (a `hashbrown::HashMap`):
 
 ```rust
 pub struct Env {
-    pub bindings: Rc<RefCell<BTreeMap<Spur, Value>>>,
+    pub bindings: Rc<RefCell<SpurMap<Spur, Value>>>,
     pub parent: Option<Rc<Env>>,
 }
 ```

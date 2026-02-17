@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.4.0
+
+### Changed
+
+- **NaN-boxed Value type** — `Value` is now an 8-byte NaN-boxed `struct Value(u64)` instead of a 24-byte enum. All values are encoded in IEEE 754 quiet NaN payload space:
+  - **Immediates** (zero heap allocation): Nil, Bool, Char, Symbol(`Spur`), Keyword(`Spur`), small integers (±17.5 trillion range)
+  - **Heap types**: `Rc<T>` pointer stored in 45-bit payload (pointer >> 3, using 8-byte alignment)
+  - **Floats**: stored as raw `f64` bits with canonical quiet NaN for NaN values
+  - Pattern matching uses `val.view()` → `ValueView` enum; direct accessors (`as_int()`, `as_str()`, etc.) still work
+  - VM mode sees **8-12% speedup** from better cache locality; tree-walker sees 9-16% regression from `view()` overhead (acceptable — VM is the future execution path)
+  - Memory (RSS) reduced ~5-10% across all benchmarks
+
+### Fixed
+
+- **Dangling pointer UB in `as_bytevector()`/`as_record()`** — `borrow_rc()` created a stack-local `ManuallyDrop<Rc<T>>` and returned a reference into it. Fixed to use `borrow_ref()` directly.
+- **Clippy lints for Rust 1.93** — fixed `manual_div_ceil` and `doc_overindented_list_items` warnings in `sema-wasm`.
+
+### Internal
+
+- **VM dispatch loop optimization** — tightened the main `run()` loop and fixed a bug in `call_vm_closure` argument copying.
+- **Cross-language benchmark programs** — added Janet and Steel equivalents of `tak` and `nqueens` benchmarks for comparing against other Lisp implementations.
+- **VM performance roadmap** — `docs/plans/2026-02-17-vm-performance-roadmap.md` analyzing the 7.8x gap vs Janet with 6-phase optimization plan.
+
 ## 1.3.0
 
 ### Added
