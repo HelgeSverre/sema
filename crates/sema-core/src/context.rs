@@ -270,7 +270,7 @@ impl EvalContext {
         self.context_stacks
             .borrow_mut()
             .entry(key)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(value);
     }
 
