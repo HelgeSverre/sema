@@ -1,9 +1,91 @@
 use serde::{Deserialize, Serialize};
 
+/// A content block in a chat message — either text or an image.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image")]
+    Image {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        media_type: Option<String>,
+        /// Base64-encoded image data
+        data: String,
+    },
+}
+
+/// Message content: either a simple string or multi-modal content blocks.
+#[derive(Debug, Clone)]
+pub enum MessageContent {
+    Text(String),
+    Blocks(Vec<ContentBlock>),
+}
+
+impl MessageContent {
+    pub fn text(s: impl Into<String>) -> Self {
+        MessageContent::Text(s.into())
+    }
+
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            MessageContent::Text(s) => Some(s),
+            MessageContent::Blocks(blocks) => {
+                if blocks.len() == 1 {
+                    if let ContentBlock::Text { text } = &blocks[0] {
+                        return Some(text);
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Get the text content, concatenating if needed.
+    pub fn to_text(&self) -> String {
+        match self {
+            MessageContent::Text(s) => s.clone(),
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text { text } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(""),
+        }
+    }
+
+    pub fn has_images(&self) -> bool {
+        match self {
+            MessageContent::Text(_) => false,
+            MessageContent::Blocks(blocks) => {
+                blocks.iter().any(|b| matches!(b, ContentBlock::Image { .. }))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct ChatMessage {
     pub role: String,
-    pub content: String,
+    pub content: MessageContent,
+}
+
+impl ChatMessage {
+    pub fn new(role: impl Into<String>, content: impl Into<String>) -> Self {
+        ChatMessage {
+            role: role.into(),
+            content: MessageContent::Text(content.into()),
+        }
+    }
+
+    pub fn with_blocks(role: impl Into<String>, blocks: Vec<ContentBlock>) -> Self {
+        ChatMessage {
+            role: role.into(),
+            content: MessageContent::Blocks(blocks),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

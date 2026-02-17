@@ -283,7 +283,7 @@ fn chat_request_to_value(request: &ChatRequest) -> Value {
         .map(|m| {
             let mut msg_map = BTreeMap::new();
             msg_map.insert(Value::keyword("role"), Value::string(&m.role));
-            msg_map.insert(Value::keyword("content"), Value::string(&m.content));
+            msg_map.insert(Value::keyword("content"), Value::string(&m.content.to_text()));
             Value::map(msg_map)
         })
         .collect();
@@ -962,10 +962,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             }
         }
 
-        let messages = vec![ChatMessage {
-            role: "user".to_string(),
-            content: prompt_text,
-        }];
+        let messages = vec![ChatMessage::new("user", prompt_text)];
 
         let mut request = ChatRequest::new(model, messages);
         request.max_tokens = max_tokens.or(Some(4096));
@@ -1069,17 +1066,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
         // Parse the prompt/messages
         let messages = if let Some(s) = args[0].as_str() {
-            vec![ChatMessage {
-                role: "user".to_string(),
-                content: s.to_string(),
-            }]
+            vec![ChatMessage::new("user", s)]
         } else if let Some(p) = args[0].as_prompt_rc() {
             p.messages
                 .iter()
-                .map(|m| ChatMessage {
-                    role: m.role.to_string(),
-                    content: m.content.clone(),
-                })
+                .map(|m| ChatMessage::new(m.role.to_string(), m.content.clone()))
                 .collect()
         } else if args[0].as_list().is_some() {
             extract_messages(&args[0])?
@@ -1177,10 +1168,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             "Extract structured data from the text. Respond with ONLY a JSON object matching this schema:\n{}\nDo not include any other text.",
             schema_desc
         );
-        let messages = vec![ChatMessage {
-            role: "user".to_string(),
-            content: text.to_string(),
-        }];
+        let messages = vec![ChatMessage::new("user", text)];
 
         let mut model = String::new();
         let mut validate = false;
@@ -1284,10 +1272,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             "Classify the following text into exactly one of these categories: {}\nRespond with ONLY the category name, nothing else.",
             cat_names.join(", ")
         );
-        let messages = vec![ChatMessage {
-            role: "user".to_string(),
-            content: text.to_string(),
-        }];
+        let messages = vec![ChatMessage::new("user", text)];
 
         let mut model = String::new();
         if let Some(opts_val) = args.get(2) {
@@ -1373,15 +1358,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut chat_messages: Vec<ChatMessage> = conv
             .messages
             .iter()
-            .map(|m| ChatMessage {
-                role: m.role.to_string(),
-                content: m.content.clone(),
-            })
+            .map(|m| ChatMessage::new(m.role.to_string(), m.content.clone()))
             .collect();
-        chat_messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: user_msg.clone(),
-        });
+        chat_messages.push(ChatMessage::new("user", user_msg.clone()));
 
         let mut request = ChatRequest::new(conv.model.clone(), chat_messages);
         request.temperature = temperature;
@@ -1619,10 +1598,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         } else {
             Vec::new()
         };
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: user_msg,
-        });
+        messages.push(ChatMessage::new("user", user_msg));
 
         let tool_schemas = build_tool_schemas(&agent.tools)?;
         let system = if agent.system.is_empty() {
@@ -1700,10 +1676,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let requests: Vec<ChatRequest> = prompts
             .into_iter()
             .map(|prompt_text| {
-                let messages = vec![ChatMessage {
-                    role: "user".to_string(),
-                    content: prompt_text,
-                }];
+                let messages = vec![ChatMessage::new("user", prompt_text)];
                 let mut req = ChatRequest::new(model.clone(), messages);
                 req.max_tokens = max_tokens.or(Some(4096));
                 req.temperature = temperature;
@@ -1767,10 +1740,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     .as_str()
                     .map(|s| s.to_string())
                     .unwrap_or_else(|| prompt_val.to_string());
-                let messages = vec![ChatMessage {
-                    role: "user".to_string(),
-                    content: prompt_text,
-                }];
+                let messages = vec![ChatMessage::new("user", prompt_text)];
                 let mut req = ChatRequest::new(model.clone(), messages);
                 req.max_tokens = max_tokens.or(Some(4096));
                 req.temperature = temperature;
@@ -2426,10 +2396,7 @@ fn complete_with_prompt(prompt: &Prompt, opts: Option<&Value>) -> Result<Value, 
     let messages: Vec<ChatMessage> = prompt
         .messages
         .iter()
-        .map(|m| ChatMessage {
-            role: m.role.to_string(),
-            content: m.content.clone(),
-        })
+        .map(|m| ChatMessage::new(m.role.to_string(), m.content.clone()))
         .collect();
 
     let mut model = String::new();
@@ -2458,19 +2425,13 @@ fn extract_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
             let m = item
                 .as_message_rc()
                 .ok_or_else(|| SemaError::type_error("message", item.type_name()))?;
-            messages.push(ChatMessage {
-                role: m.role.to_string(),
-                content: m.content.clone(),
-            });
+            messages.push(ChatMessage::new(m.role.to_string(), m.content.clone()));
         }
         Ok(messages)
     } else if let Some(p) = val.as_prompt_rc() {
         Ok(p.messages
             .iter()
-            .map(|m| ChatMessage {
-                role: m.role.to_string(),
-                content: m.content.clone(),
-            })
+            .map(|m| ChatMessage::new(m.role.to_string(), m.content.clone()))
             .collect())
     } else {
         Err(SemaError::type_error(
@@ -2703,7 +2664,7 @@ fn sema_list_to_chat_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError
                     .unwrap_or_else(|| v.to_string())
             })
             .unwrap_or_default();
-        messages.push(ChatMessage { role, content });
+        messages.push(ChatMessage::new(role, content));
     }
     Ok(messages)
 }
@@ -2714,7 +2675,7 @@ fn chat_messages_to_sema_list(messages: &[ChatMessage]) -> Value {
         .map(|msg| {
             let mut map = BTreeMap::new();
             map.insert(Value::keyword("role"), Value::string(&msg.role));
-            map.insert(Value::keyword("content"), Value::string(&msg.content));
+            map.insert(Value::keyword("content"), Value::string(&msg.content.to_text()));
             Value::map(map)
         })
         .collect();
@@ -2751,20 +2712,14 @@ fn run_tool_loop(
         if response.tool_calls.is_empty() {
             // Push final assistant message onto history
             if !last_content.is_empty() {
-                messages.push(ChatMessage {
-                    role: "assistant".to_string(),
-                    content: last_content.clone(),
-                });
+                messages.push(ChatMessage::new("assistant", last_content.clone()));
             }
             return Ok((last_content, messages));
         }
 
         // Add assistant message (with content if any)
         if !response.content.is_empty() {
-            messages.push(ChatMessage {
-                role: "assistant".to_string(),
-                content: response.content.clone(),
-            });
+            messages.push(ChatMessage::new("assistant", response.content.clone()));
         }
 
         // Execute each tool call and add results
@@ -2802,19 +2757,16 @@ fn run_tool_loop(
                 let _ = call_value_fn(ctx, callback, &[Value::map(event_map)]);
             }
 
-            messages.push(ChatMessage {
-                role: "user".to_string(),
-                content: format!("[Tool result for {}]: {}", tc.name, result),
-            });
+            messages.push(ChatMessage::new(
+                "user",
+                format!("[Tool result for {}]: {}", tc.name, result),
+            ));
         }
     }
 
     // Push final assistant message if we exhausted rounds
     if !last_content.is_empty() {
-        messages.push(ChatMessage {
-            role: "assistant".to_string(),
-            content: last_content.clone(),
-        });
+        messages.push(ChatMessage::new("assistant", last_content.clone()));
     }
     Ok((last_content, messages))
 }

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::provider::LlmProvider;
-use crate::types::{ChatRequest, ChatResponse, LlmError, ToolCall, Usage};
+use crate::types::{ChatRequest, ChatResponse, LlmError, MessageContent, ToolCall, Usage};
 
 pub struct AnthropicProvider {
     api_key: String,
@@ -42,7 +42,7 @@ impl AnthropicProvider {
             .filter(|m| m.role != "system")
             .map(|m| AnthropicMessage {
                 role: m.role.clone(),
-                content: serde_json::Value::String(m.content.clone()),
+                content: serialize_anthropic_content(&m.content),
             })
             .collect();
 
@@ -51,7 +51,7 @@ impl AnthropicProvider {
                 .messages
                 .iter()
                 .find(|m| m.role == "system")
-                .map(|m| m.content.clone())
+                .map(|m| m.content.to_text())
         });
 
         let tools: Vec<AnthropicTool> = request
@@ -346,5 +346,31 @@ impl LlmProvider for AnthropicProvider {
                 .collect();
             futures::future::join_all(futures).await
         })
+    }
+}
+
+fn serialize_anthropic_content(content: &MessageContent) -> serde_json::Value {
+    match content {
+        MessageContent::Text(s) => serde_json::Value::String(s.clone()),
+        MessageContent::Blocks(blocks) => {
+            let arr: Vec<serde_json::Value> = blocks
+                .iter()
+                .map(|b| match b {
+                    crate::types::ContentBlock::Text { text } => serde_json::json!({
+                        "type": "text",
+                        "text": text
+                    }),
+                    crate::types::ContentBlock::Image { media_type, data } => serde_json::json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type.as_deref().unwrap_or("application/octet-stream"),
+                            "data": data
+                        }
+                    }),
+                })
+                .collect();
+            serde_json::Value::Array(arr)
+        }
     }
 }

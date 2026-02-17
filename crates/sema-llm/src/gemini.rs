@@ -194,9 +194,10 @@ impl GeminiProvider {
                 "assistant" => "model",
                 other => other,
             };
+            let parts = serialize_gemini_parts(&msg.content);
             contents.push(serde_json::json!({
                 "role": role,
-                "parts": [{"text": msg.content}]
+                "parts": parts
             }));
         }
 
@@ -210,7 +211,7 @@ impl GeminiProvider {
                 .messages
                 .iter()
                 .find(|m| m.role == "system")
-                .map(|m| m.content.clone())
+                .map(|m| m.content.to_text())
         });
         if let Some(sys) = system {
             body["systemInstruction"] = serde_json::json!({
@@ -365,5 +366,28 @@ impl LlmProvider for GeminiProvider {
                 .collect();
             futures::future::join_all(futures).await
         })
+    }
+}
+
+fn serialize_gemini_parts(content: &crate::types::MessageContent) -> serde_json::Value {
+    match content {
+        crate::types::MessageContent::Text(s) => serde_json::json!([{"text": s}]),
+        crate::types::MessageContent::Blocks(blocks) => {
+            let parts: Vec<serde_json::Value> = blocks
+                .iter()
+                .map(|b| match b {
+                    crate::types::ContentBlock::Text { text } => serde_json::json!({"text": text}),
+                    crate::types::ContentBlock::Image { media_type, data } => {
+                        serde_json::json!({
+                            "inlineData": {
+                                "mimeType": media_type.as_deref().unwrap_or("application/octet-stream"),
+                                "data": data
+                            }
+                        })
+                    }
+                })
+                .collect();
+            serde_json::Value::Array(parts)
+        }
     }
 }

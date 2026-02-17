@@ -2,7 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::LlmProvider;
 use crate::types::{
-    ChatRequest, ChatResponse, EmbedRequest, EmbedResponse, LlmError, ToolCall, Usage,
+    ChatRequest, ChatResponse, ContentBlock, EmbedRequest, EmbedResponse, LlmError, MessageContent,
+    ToolCall, Usage,
 };
 
 pub struct OpenAiProvider {
@@ -68,7 +69,7 @@ impl OpenAiProvider {
             .iter()
             .map(|m| OpenAiMessage {
                 role: m.role.clone(),
-                content: Some(m.content.clone()),
+                content: Some(serialize_openai_content(&m.content)),
                 tool_calls: None,
             })
             .collect();
@@ -135,7 +136,13 @@ impl OpenAiProvider {
             .first()
             .ok_or_else(|| LlmError::Parse("no choices in response".to_string()))?;
 
-        let content = choice.message.content.clone().unwrap_or_default();
+        let content = choice
+            .message
+            .content
+            .as_ref()
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
         let tool_calls = choice
             .message
             .tool_calls
@@ -359,7 +366,7 @@ struct StreamOptions {
 #[derive(Serialize, Deserialize)]
 struct OpenAiMessage {
     role: String,
-    content: Option<String>,
+    content: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OpenAiToolCall>>,
 }
@@ -445,5 +452,32 @@ impl LlmProvider for OpenAiProvider {
 
     fn embed(&self, request: EmbedRequest) -> Result<EmbedResponse, LlmError> {
         self.runtime.block_on(self.embed_async(request))
+    }
+}
+
+fn serialize_openai_content(content: &MessageContent) -> serde_json::Value {
+    match content {
+        MessageContent::Text(s) => serde_json::Value::String(s.clone()),
+        MessageContent::Blocks(blocks) => {
+            let arr: Vec<serde_json::Value> = blocks
+                .iter()
+                .map(|b| match b {
+                    ContentBlock::Text { text } => serde_json::json!({
+                        "type": "text",
+                        "text": text
+                    }),
+                    ContentBlock::Image { media_type, data } => {
+                        let mt = media_type.as_deref().unwrap_or("application/octet-stream");
+                        serde_json::json!({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:{mt};base64,{data}")
+                            }
+                        })
+                    }
+                })
+                .collect();
+            serde_json::Value::Array(arr)
+        }
     }
 }

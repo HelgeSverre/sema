@@ -91,10 +91,26 @@ impl OllamaProvider {
             }));
         }
         for msg in &request.messages {
-            messages.push(serde_json::json!({
+            let mut m = serde_json::json!({
                 "role": msg.role,
-                "content": msg.content,
-            }));
+                "content": msg.content.to_text(),
+            });
+            if let crate::types::MessageContent::Blocks(blocks) = &msg.content {
+                let images: Vec<&str> = blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if let crate::types::ContentBlock::Image { data, .. } = b {
+                            Some(data.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !images.is_empty() {
+                    m["images"] = serde_json::json!(images);
+                }
+            }
+            messages.push(m);
         }
 
         let mut body = serde_json::json!({
@@ -199,10 +215,26 @@ impl OllamaProvider {
             }));
         }
         for msg in &request.messages {
-            messages.push(serde_json::json!({
+            let mut m = serde_json::json!({
                 "role": msg.role,
-                "content": msg.content,
-            }));
+                "content": msg.content.to_text(),
+            });
+            if let crate::types::MessageContent::Blocks(blocks) = &msg.content {
+                let images: Vec<&str> = blocks
+                    .iter()
+                    .filter_map(|b| {
+                        if let crate::types::ContentBlock::Image { data, .. } = b {
+                            Some(data.as_str())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                if !images.is_empty() {
+                    m["images"] = serde_json::json!(images);
+                }
+            }
+            messages.push(m);
         }
 
         let mut body = serde_json::json!({
