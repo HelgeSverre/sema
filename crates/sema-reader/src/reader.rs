@@ -122,7 +122,7 @@ impl Parser {
         let rc = Rc::new(items);
         let ptr = Rc::as_ptr(&rc) as usize;
         self.span_map.insert(ptr, span);
-        Ok(Value::List(rc))
+        Ok(Value::list_from_rc(rc))
     }
 
     fn parse_list(&mut self) -> Result<Value, SemaError> {
@@ -170,7 +170,7 @@ impl Parser {
         let rc = Rc::new(items);
         let ptr = Rc::as_ptr(&rc) as usize;
         self.span_map.insert(ptr, open_span);
-        Ok(Value::Vector(rc))
+        Ok(Value::vector_from_rc(rc))
     }
 
     fn parse_map(&mut self) -> Result<Value, SemaError> {
@@ -196,7 +196,7 @@ impl Parser {
             map.insert(key, val);
         }
         self.expect(&Token::RBrace)?;
-        Ok(Value::Map(Rc::new(map)))
+        Ok(Value::map(map))
     }
 
     fn parse_bytevector(&mut self) -> Result<Value, SemaError> {
@@ -242,21 +242,21 @@ impl Parser {
             Some(SpannedToken {
                 token: Token::Int(n),
                 ..
-            }) => Ok(Value::Int(*n)),
+            }) => Ok(Value::int(*n)),
             Some(SpannedToken {
                 token: Token::Float(f),
                 ..
-            }) => Ok(Value::Float(*f)),
+            }) => Ok(Value::float(*f)),
             Some(SpannedToken {
                 token: Token::String(s),
                 ..
-            }) => Ok(Value::String(Rc::new(s.clone()))),
+            }) => Ok(Value::string(s)),
             Some(SpannedToken {
                 token: Token::Symbol(s),
                 ..
             }) => {
                 if s == "nil" {
-                    Ok(Value::Nil)
+                    Ok(Value::nil())
                 } else {
                     Ok(Value::symbol(s))
                 }
@@ -268,11 +268,11 @@ impl Parser {
             Some(SpannedToken {
                 token: Token::Bool(b),
                 ..
-            }) => Ok(Value::Bool(*b)),
+            }) => Ok(Value::bool(*b)),
             Some(SpannedToken {
                 token: Token::Char(c),
                 ..
-            }) => Ok(Value::Char(*c)),
+            }) => Ok(Value::char(*c)),
             Some(t) => {
                 let (name, hint) = match &t.token {
                     Token::RParen => (
@@ -336,7 +336,7 @@ fn token_display(tok: &Token) -> &'static str {
 pub fn read(input: &str) -> Result<Value, SemaError> {
     let tokens = tokenize(input)?;
     if tokens.is_empty() {
-        return Ok(Value::Nil);
+        return Ok(Value::nil());
     }
     let mut parser = Parser::new(tokens);
     parser.parse_expr()
@@ -376,17 +376,17 @@ mod tests {
 
     #[test]
     fn test_read_int() {
-        assert_eq!(read("42").unwrap(), Value::Int(42));
+        assert_eq!(read("42").unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_read_negative_int() {
-        assert_eq!(read("-7").unwrap(), Value::Int(-7));
+        assert_eq!(read("-7").unwrap(), Value::int(-7));
     }
 
     #[test]
     fn test_read_float() {
-        assert_eq!(read("3.14").unwrap(), Value::Float(3.14));
+        assert_eq!(read("3.14").unwrap(), Value::float(3.14));
     }
 
     #[test]
@@ -406,8 +406,8 @@ mod tests {
 
     #[test]
     fn test_read_bool() {
-        assert_eq!(read("#t").unwrap(), Value::Bool(true));
-        assert_eq!(read("#f").unwrap(), Value::Bool(false));
+        assert_eq!(read("#t").unwrap(), Value::bool(true));
+        assert_eq!(read("#f").unwrap(), Value::bool(false));
     }
 
     #[test]
@@ -415,7 +415,7 @@ mod tests {
         let result = read("(+ 1 2)").unwrap();
         assert_eq!(
             result,
-            Value::list(vec![Value::symbol("+"), Value::Int(1), Value::Int(2)])
+            Value::list(vec![Value::symbol("+"), Value::int(1), Value::int(2)])
         );
     }
 
@@ -426,8 +426,8 @@ mod tests {
             result,
             Value::list(vec![
                 Value::symbol("*"),
-                Value::list(vec![Value::symbol("+"), Value::Int(1), Value::Int(2)]),
-                Value::Int(3)
+                Value::list(vec![Value::symbol("+"), Value::int(1), Value::int(2)]),
+                Value::int(3)
             ])
         );
     }
@@ -437,7 +437,7 @@ mod tests {
         let result = read("[1 2 3]").unwrap();
         assert_eq!(
             result,
-            Value::vector(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+            Value::vector(vec![Value::int(1), Value::int(2), Value::int(3)])
         );
     }
 
@@ -445,9 +445,9 @@ mod tests {
     fn test_read_map() {
         let result = read("{:a 1 :b 2}").unwrap();
         let mut expected = BTreeMap::new();
-        expected.insert(Value::keyword("a"), Value::Int(1));
-        expected.insert(Value::keyword("b"), Value::Int(2));
-        assert_eq!(result, Value::Map(Rc::new(expected)));
+        expected.insert(Value::keyword("a"), Value::int(1));
+        expected.insert(Value::keyword("b"), Value::int(2));
+        assert_eq!(result, Value::map(expected));
     }
 
     #[test]
@@ -477,13 +477,13 @@ mod tests {
 
     #[test]
     fn test_read_nil() {
-        assert_eq!(read("nil").unwrap(), Value::Nil);
+        assert_eq!(read("nil").unwrap(), Value::nil());
     }
 
     #[test]
     fn test_read_many_exprs() {
         let results = read_many("1 2 3").unwrap();
-        assert_eq!(results, vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        assert_eq!(results, vec![Value::int(1), Value::int(2), Value::int(3)]);
     }
 
     #[test]
@@ -494,22 +494,22 @@ mod tests {
 
     #[test]
     fn test_read_zero() {
-        assert_eq!(read("0").unwrap(), Value::Int(0));
+        assert_eq!(read("0").unwrap(), Value::int(0));
     }
 
     #[test]
     fn test_read_negative_zero() {
-        assert_eq!(read("-0").unwrap(), Value::Int(0));
+        assert_eq!(read("-0").unwrap(), Value::int(0));
     }
 
     #[test]
     fn test_read_leading_zeros() {
-        assert_eq!(read("007").unwrap(), Value::Int(7));
+        assert_eq!(read("007").unwrap(), Value::int(7));
     }
 
     #[test]
     fn test_read_large_int() {
-        assert_eq!(read("9999999999999").unwrap(), Value::Int(9999999999999));
+        assert_eq!(read("9999999999999").unwrap(), Value::int(9999999999999));
     }
 
     #[test]
@@ -520,12 +520,12 @@ mod tests {
 
     #[test]
     fn test_read_negative_float() {
-        assert_eq!(read("-2.5").unwrap(), Value::Float(-2.5));
+        assert_eq!(read("-2.5").unwrap(), Value::float(-2.5));
     }
 
     #[test]
     fn test_read_float_leading_zero() {
-        assert_eq!(read("0.5").unwrap(), Value::Float(0.5));
+        assert_eq!(read("0.5").unwrap(), Value::float(0.5));
     }
 
     #[test]
@@ -538,14 +538,14 @@ mod tests {
     fn test_read_minus_in_list() {
         // `(- 3)` should parse as call to `-` with arg 3
         let result = read("(- 3)").unwrap();
-        assert_eq!(result, Value::list(vec![Value::symbol("-"), Value::Int(3)]));
+        assert_eq!(result, Value::list(vec![Value::symbol("-"), Value::int(3)]));
     }
 
     #[test]
     fn test_read_negative_in_list() {
         // `(-3)` should parse as list containing -3
         let result = read("(-3)").unwrap();
-        assert_eq!(result, Value::list(vec![Value::Int(-3)]));
+        assert_eq!(result, Value::list(vec![Value::int(-3)]));
     }
 
     #[test]
@@ -629,8 +629,8 @@ mod tests {
 
     #[test]
     fn test_read_true_false_as_bool() {
-        assert_eq!(read("true").unwrap(), Value::Bool(true));
-        assert_eq!(read("false").unwrap(), Value::Bool(false));
+        assert_eq!(read("true").unwrap(), Value::bool(true));
+        assert_eq!(read("false").unwrap(), Value::bool(false));
     }
 
     #[test]
@@ -657,12 +657,12 @@ mod tests {
 
     #[test]
     fn test_read_empty() {
-        assert_eq!(read("").unwrap(), Value::Nil);
+        assert_eq!(read("").unwrap(), Value::nil());
     }
 
     #[test]
     fn test_read_whitespace_only() {
-        assert_eq!(read("   \n\t  ").unwrap(), Value::Nil);
+        assert_eq!(read("   \n\t  ").unwrap(), Value::nil());
     }
 
     #[test]
@@ -691,7 +691,7 @@ mod tests {
         assert_eq!(
             result,
             Value::list(vec![Value::list(vec![Value::list(vec![Value::list(
-                vec![Value::Int(42)]
+                vec![Value::int(42)]
             )])])])
         );
     }
@@ -706,7 +706,7 @@ mod tests {
         // `read` only reads one expr, so extra `)` is just ignored (not consumed)
         // But `read_many` should fail since `)` is not a valid expr start
         let result = read("42").unwrap();
-        assert_eq!(result, Value::Int(42));
+        assert_eq!(result, Value::int(42));
     }
 
     #[test]
@@ -734,7 +734,7 @@ mod tests {
 
     #[test]
     fn test_read_empty_map() {
-        assert_eq!(read("{}").unwrap(), Value::Map(Rc::new(BTreeMap::new())));
+        assert_eq!(read("{}").unwrap(), Value::map(BTreeMap::new()));
     }
 
     #[test]
@@ -752,8 +752,8 @@ mod tests {
         // Later key wins (BTreeMap insert replaces)
         let result = read("{:a 1 :a 2}").unwrap();
         let mut expected = BTreeMap::new();
-        expected.insert(Value::keyword("a"), Value::Int(2));
-        assert_eq!(result, Value::Map(Rc::new(expected)));
+        expected.insert(Value::keyword("a"), Value::int(2));
+        assert_eq!(result, Value::map(expected));
     }
 
     #[test]
@@ -775,7 +775,7 @@ mod tests {
             result,
             Value::list(vec![
                 Value::symbol("quote"),
-                Value::list(vec![Value::Int(1), Value::Int(2), Value::Int(3)])
+                Value::list(vec![Value::int(1), Value::int(2), Value::int(3)])
             ])
         );
     }
@@ -802,13 +802,13 @@ mod tests {
 
     #[test]
     fn test_read_comment_after_expr() {
-        assert_eq!(read_many("42 ; comment").unwrap(), vec![Value::Int(42)]);
+        assert_eq!(read_many("42 ; comment").unwrap(), vec![Value::int(42)]);
     }
 
     #[test]
     fn test_read_multiple_comments() {
         let result = read_many("; first\n; second\n42").unwrap();
-        assert_eq!(result, vec![Value::Int(42)]);
+        assert_eq!(result, vec![Value::int(42)]);
     }
 
     #[test]
@@ -820,14 +820,14 @@ mod tests {
     #[test]
     fn test_read_crlf_line_endings() {
         let result = read_many("1\r\n2\r\n3").unwrap();
-        assert_eq!(result, vec![Value::Int(1), Value::Int(2), Value::Int(3)]);
+        assert_eq!(result, vec![Value::int(1), Value::int(2), Value::int(3)]);
     }
 
     #[test]
     fn test_read_tabs_as_whitespace() {
         assert_eq!(
             read("(\t+\t1\t2\t)").unwrap(),
-            Value::list(vec![Value::symbol("+"), Value::Int(1), Value::Int(2)])
+            Value::list(vec![Value::symbol("+"), Value::int(1), Value::int(2)])
         );
     }
 
@@ -836,12 +836,12 @@ mod tests {
         // List containing vector and map
         let result = read("([1 2] {:a 3})").unwrap();
         let mut map = BTreeMap::new();
-        map.insert(Value::keyword("a"), Value::Int(3));
+        map.insert(Value::keyword("a"), Value::int(3));
         assert_eq!(
             result,
             Value::list(vec![
-                Value::vector(vec![Value::Int(1), Value::Int(2)]),
-                Value::Map(Rc::new(map))
+                Value::vector(vec![Value::int(1), Value::int(2)]),
+                Value::map(map)
             ])
         );
     }
@@ -850,13 +850,13 @@ mod tests {
     fn test_read_many_mixed_types() {
         let result = read_many(r#"42 3.14 "hello" foo :bar #t nil"#).unwrap();
         assert_eq!(result.len(), 7);
-        assert_eq!(result[0], Value::Int(42));
-        assert_eq!(result[1], Value::Float(3.14));
+        assert_eq!(result[0], Value::int(42));
+        assert_eq!(result[1], Value::float(3.14));
         assert_eq!(result[2], Value::string("hello"));
         assert_eq!(result[3], Value::symbol("foo"));
         assert_eq!(result[4], Value::keyword("bar"));
-        assert_eq!(result[5], Value::Bool(true));
-        assert_eq!(result[6], Value::Nil);
+        assert_eq!(result[5], Value::bool(true));
+        assert_eq!(result[6], Value::nil());
     }
 
     #[test]
@@ -864,28 +864,22 @@ mod tests {
         let (exprs, spans) = read_many_with_spans("(+ 1 2)").unwrap();
         assert_eq!(exprs.len(), 1);
         // The list should have a span entry
-        if let Value::List(rc) = &exprs[0] {
-            let ptr = Rc::as_ptr(rc) as usize;
-            let span = spans.get(&ptr).expect("list should have span");
-            assert_eq!(span.line, 1);
-            assert_eq!(span.col, 1);
-        } else {
-            panic!("expected list");
-        }
+        let rc = exprs[0].as_list_rc().expect("expected list");
+        let ptr = Rc::as_ptr(&rc) as usize;
+        let span = spans.get(&ptr).expect("list should have span");
+        assert_eq!(span.line, 1);
+        assert_eq!(span.col, 1);
     }
 
     #[test]
     fn test_span_map_multiline() {
         let (exprs, spans) = read_many_with_spans("(foo)\n(bar)").unwrap();
         assert_eq!(exprs.len(), 2);
-        if let Value::List(rc) = &exprs[1] {
-            let ptr = Rc::as_ptr(rc) as usize;
-            let span = spans.get(&ptr).expect("second list should have span");
-            assert_eq!(span.line, 2);
-            assert_eq!(span.col, 1);
-        } else {
-            panic!("expected list");
-        }
+        let rc = exprs[1].as_list_rc().expect("expected list");
+        let ptr = Rc::as_ptr(&rc) as usize;
+        let span = spans.get(&ptr).expect("second list should have span");
+        assert_eq!(span.line, 2);
+        assert_eq!(span.col, 1);
     }
 
     #[test]
@@ -896,24 +890,24 @@ mod tests {
 
     #[test]
     fn test_read_char_literal() {
-        assert_eq!(read("#\\a").unwrap(), Value::Char('a'));
-        assert_eq!(read("#\\Z").unwrap(), Value::Char('Z'));
-        assert_eq!(read("#\\0").unwrap(), Value::Char('0'));
+        assert_eq!(read("#\\a").unwrap(), Value::char('a'));
+        assert_eq!(read("#\\Z").unwrap(), Value::char('Z'));
+        assert_eq!(read("#\\0").unwrap(), Value::char('0'));
     }
 
     #[test]
     fn test_read_char_named() {
-        assert_eq!(read("#\\space").unwrap(), Value::Char(' '));
-        assert_eq!(read("#\\newline").unwrap(), Value::Char('\n'));
-        assert_eq!(read("#\\tab").unwrap(), Value::Char('\t'));
-        assert_eq!(read("#\\return").unwrap(), Value::Char('\r'));
-        assert_eq!(read("#\\nul").unwrap(), Value::Char('\0'));
+        assert_eq!(read("#\\space").unwrap(), Value::char(' '));
+        assert_eq!(read("#\\newline").unwrap(), Value::char('\n'));
+        assert_eq!(read("#\\tab").unwrap(), Value::char('\t'));
+        assert_eq!(read("#\\return").unwrap(), Value::char('\r'));
+        assert_eq!(read("#\\nul").unwrap(), Value::char('\0'));
     }
 
     #[test]
     fn test_read_char_special() {
-        assert_eq!(read("#\\(").unwrap(), Value::Char('('));
-        assert_eq!(read("#\\)").unwrap(), Value::Char(')'));
+        assert_eq!(read("#\\(").unwrap(), Value::char('('));
+        assert_eq!(read("#\\)").unwrap(), Value::char(')'));
     }
 
     #[test]
@@ -921,7 +915,7 @@ mod tests {
         let result = read("(#\\a #\\b)").unwrap();
         assert_eq!(
             result,
-            Value::list(vec![Value::Char('a'), Value::Char('b')])
+            Value::list(vec![Value::char('a'), Value::char('b')])
         );
     }
 
