@@ -1,9 +1,8 @@
 use std::io::BufRead;
 use std::io::Read as _;
 use std::io::Write as _;
-use std::rc::Rc;
 
-use sema_core::{Caps, SemaError, Value};
+use sema_core::{Caps, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -13,12 +12,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             if i > 0 {
                 print!(" ");
             }
-            match arg {
-                Value::String(s) => print!("{s}"),
-                other => print!("{other}"),
+            match arg.as_str() {
+                Some(s) => print!("{s}"),
+                None => print!("{arg}"),
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "print", |args| {
@@ -28,7 +27,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             }
             print!("{arg}");
         }
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "println", |args| {
@@ -36,13 +35,13 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             if i > 0 {
                 print!(" ");
             }
-            match arg {
-                Value::String(s) => print!("{s}"),
-                other => print!("{other}"),
+            match arg.as_str() {
+                Some(s) => print!("{s}"),
+                None => print!("{arg}"),
             }
         }
         println!();
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "newline", |args| {
@@ -50,7 +49,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             return Err(SemaError::arity("newline", "0", args.len()));
         }
         println!();
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/read", |args| {
@@ -77,7 +76,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         std::fs::write(path, content)
             .map_err(|e| SemaError::Io(format!("file/write {path}: {e}")))?;
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/exists?", |args| {
@@ -87,7 +86,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::Bool(std::path::Path::new(path).exists()))
+        Ok(Value::bool(std::path::Path::new(path).exists()))
     });
 
     register_fn(env, "read-line", |args| {
@@ -133,9 +132,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         if args.is_empty() {
             return Err(SemaError::eval("error called with no message"));
         }
-        let msg = match &args[0] {
-            Value::String(s) => s.to_string(),
-            other => other.to_string(),
+        let msg = match args[0].as_str() {
+            Some(s) => s.to_string(),
+            None => args[0].to_string(),
         };
         Err(SemaError::eval(msg))
     });
@@ -158,7 +157,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .map_err(|e| SemaError::Io(format!("file/append {path}: {e}")))?;
         file.write_all(content.as_bytes())
             .map_err(|e| SemaError::Io(format!("file/append {path}: {e}")))?;
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/delete", |args| {
@@ -170,7 +169,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         std::fs::remove_file(path)
             .map_err(|e| SemaError::Io(format!("file/delete {path}: {e}")))?;
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/rename", |args| {
@@ -185,7 +184,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         std::fs::rename(from, to)
             .map_err(|e| SemaError::Io(format!("file/rename {from} -> {to}: {e}")))?;
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/list", |args| {
@@ -215,7 +214,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         std::fs::create_dir_all(path)
             .map_err(|e| SemaError::Io(format!("file/mkdir {path}: {e}")))?;
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-directory?", |args| {
@@ -225,7 +224,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::Bool(std::path::Path::new(path).is_dir()))
+        Ok(Value::bool(std::path::Path::new(path).is_dir()))
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-file?", |args| {
@@ -235,7 +234,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::Bool(std::path::Path::new(path).is_file()))
+        Ok(Value::bool(std::path::Path::new(path).is_file()))
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/is-symlink?", |args| {
@@ -245,7 +244,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::Bool(std::path::Path::new(path).is_symlink()))
+        Ok(Value::bool(std::path::Path::new(path).is_symlink()))
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/info", |args| {
@@ -258,18 +257,18 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let meta =
             std::fs::metadata(path).map_err(|e| SemaError::Io(format!("file/info {path}: {e}")))?;
         let mut map = std::collections::BTreeMap::new();
-        map.insert(Value::keyword("size"), Value::Int(meta.len() as i64));
-        map.insert(Value::keyword("is-dir"), Value::Bool(meta.is_dir()));
-        map.insert(Value::keyword("is-file"), Value::Bool(meta.is_file()));
+        map.insert(Value::keyword("size"), Value::int(meta.len() as i64));
+        map.insert(Value::keyword("is-dir"), Value::bool(meta.is_dir()));
+        map.insert(Value::keyword("is-file"), Value::bool(meta.is_file()));
         if let Ok(modified) = meta.modified() {
             if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
                 map.insert(
                     Value::keyword("modified"),
-                    Value::Int(duration.as_millis() as i64),
+                    Value::int(duration.as_millis() as i64),
                 );
             }
         }
-        Ok(Value::Map(Rc::new(map)))
+        Ok(Value::map(map))
     });
 
     register_fn(env, "path/join", |args| {
@@ -295,7 +294,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         match std::path::Path::new(s).parent() {
             Some(p) => Ok(Value::string(&p.to_string_lossy())),
-            None => Ok(Value::Nil),
+            None => Ok(Value::nil()),
         }
     });
 
@@ -308,7 +307,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         match std::path::Path::new(s).file_name() {
             Some(name) => Ok(Value::string(&name.to_string_lossy())),
-            None => Ok(Value::Nil),
+            None => Ok(Value::nil()),
         }
     });
 
@@ -321,7 +320,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         match std::path::Path::new(s).extension() {
             Some(ext) => Ok(Value::string(&ext.to_string_lossy())),
-            None => Ok(Value::Nil),
+            None => Ok(Value::nil()),
         }
     });
 
@@ -380,7 +379,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 }
                 sema_core::call_callback(ctx, &func, &[Value::string(&line_buf)])?;
             }
-            Ok(Value::Nil)
+            Ok(Value::nil())
         })
     });
 
@@ -427,22 +426,22 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let lines = match &args[1] {
-            Value::List(l) => l.as_ref(),
-            Value::Vector(v) => v.as_ref(),
+        let lines = match args[1].view() {
+            ValueView::List(l) => l,
+            ValueView::Vector(v) => v,
             _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
         };
         let strs: Vec<String> = lines
             .iter()
-            .map(|v| match v {
-                Value::String(s) => s.to_string(),
-                other => other.to_string(),
+            .map(|v| match v.as_str() {
+                Some(s) => s.to_string(),
+                None => v.to_string(),
             })
             .collect();
         let content = strs.join("\n");
         std::fs::write(path, content)
             .map_err(|e| SemaError::Io(format!("file/write-lines {path}: {e}")))?;
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/copy", |args| {
@@ -457,7 +456,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         std::fs::copy(src, dest)
             .map_err(|e| SemaError::Io(format!("file/copy {src} -> {dest}: {e}")))?;
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "print-error", |args| {
@@ -465,13 +464,13 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             if i > 0 {
                 eprint!(" ");
             }
-            match arg {
-                Value::String(s) => eprint!("{s}"),
-                other => eprint!("{other}"),
+            match arg.as_str() {
+                Some(s) => eprint!("{s}"),
+                None => eprint!("{arg}"),
             }
         }
         std::io::stderr().flush().ok();
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "println-error", |args| {
@@ -479,13 +478,13 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             if i > 0 {
                 eprint!(" ");
             }
-            match arg {
-                Value::String(s) => eprint!("{s}"),
-                other => eprint!("{other}"),
+            match arg.as_str() {
+                Some(s) => eprint!("{s}"),
+                None => eprint!("{arg}"),
             }
         }
         eprintln!();
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "read-stdin", |args| {

@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
 use regex::Regex;
 use sema_core::{SemaError, Value};
@@ -22,7 +21,7 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         let re = compile_regex(pattern)?;
-        Ok(Value::Bool(re.is_match(text)))
+        Ok(Value::bool(re.is_match(text)))
     });
 
     register_fn(env, "regex/match", |args| {
@@ -37,7 +36,7 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         let re = compile_regex(pattern)?;
         match re.captures(text) {
-            None => Ok(Value::Nil),
+            None => Ok(Value::nil()),
             Some(caps) => {
                 let full = caps.get(0).unwrap();
                 let mut map = BTreeMap::new();
@@ -47,13 +46,13 @@ pub fn register(env: &sema_core::Env) {
                     .skip(1)
                     .map(|m| match m {
                         Some(m) => Value::string(m.as_str()),
-                        None => Value::Nil,
+                        None => Value::nil(),
                     })
                     .collect();
                 map.insert(Value::keyword("groups"), Value::list(groups));
-                map.insert(Value::keyword("start"), Value::Int(full.start() as i64));
-                map.insert(Value::keyword("end"), Value::Int(full.end() as i64));
-                Ok(Value::Map(Rc::new(map)))
+                map.insert(Value::keyword("start"), Value::int(full.start() as i64));
+                map.insert(Value::keyword("end"), Value::int(full.end() as i64));
+                Ok(Value::map(map))
             }
         }
     });

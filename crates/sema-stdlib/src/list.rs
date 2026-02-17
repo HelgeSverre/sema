@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use sema_core::{SemaError, Value};
+use sema_core::{SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -24,14 +22,14 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 2 {
             return Err(SemaError::arity("cons", "2", args.len()));
         }
-        match &args[1] {
-            Value::List(list) => {
-                let mut new = vec![args[0].clone()];
-                new.extend(list.iter().cloned());
-                Ok(Value::list(new))
-            }
-            Value::Nil => Ok(Value::list(vec![args[0].clone()])),
-            _ => Ok(Value::list(vec![args[0].clone(), args[1].clone()])),
+        if args[1].is_nil() {
+            Ok(Value::list(vec![args[0].clone()]))
+        } else if let Some(list) = args[1].as_list() {
+            let mut new = vec![args[0].clone()];
+            new.extend(list.iter().cloned());
+            Ok(Value::list(new))
+        } else {
+            Ok(Value::list(vec![args[0].clone(), args[1].clone()]))
         }
     });
 
@@ -45,27 +43,35 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 1 {
             return Err(SemaError::arity("length", "1", args.len()));
         }
-        match &args[0] {
-            Value::List(l) => Ok(Value::Int(l.len() as i64)),
-            Value::Vector(v) => Ok(Value::Int(v.len() as i64)),
-            Value::String(s) => Ok(Value::Int(s.chars().count() as i64)),
-            Value::Map(m) => Ok(Value::Int(m.len() as i64)),
-            Value::HashMap(m) => Ok(Value::Int(m.len() as i64)),
-            Value::Bytevector(bv) => Ok(Value::Int(bv.len() as i64)),
-            _ => Err(SemaError::type_error(
+        if let Some(l) = args[0].as_list() {
+            Ok(Value::int(l.len() as i64))
+        } else if let Some(v) = args[0].as_vector() {
+            Ok(Value::int(v.len() as i64))
+        } else if let Some(s) = args[0].as_str() {
+            Ok(Value::int(s.chars().count() as i64))
+        } else if let Some(m) = args[0].as_map_rc() {
+            Ok(Value::int(m.len() as i64))
+        } else if let Some(m) = args[0].as_hashmap_rc() {
+            Ok(Value::int(m.len() as i64))
+        } else if let Some(bv) = args[0].as_bytevector() {
+            Ok(Value::int(bv.len() as i64))
+        } else {
+            Err(SemaError::type_error(
                 "list, vector, string, map, or bytevector",
                 args[0].type_name(),
-            )),
+            ))
         }
     });
 
     register_fn(env, "append", |args| {
         let mut result = Vec::new();
         for arg in args {
-            match arg {
-                Value::List(l) => result.extend(l.iter().cloned()),
-                Value::Vector(v) => result.extend(v.iter().cloned()),
-                _ => return Err(SemaError::type_error("list or vector", arg.type_name())),
+            if let Some(l) = arg.as_list() {
+                result.extend(l.iter().cloned());
+            } else if let Some(v) = arg.as_vector() {
+                result.extend(v.iter().cloned());
+            } else {
+                return Err(SemaError::type_error("list or vector", arg.type_name()));
             }
         }
         Ok(Value::list(result))
@@ -75,18 +81,16 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 1 {
             return Err(SemaError::arity("reverse", "1", args.len()));
         }
-        match &args[0] {
-            Value::List(l) => {
-                let mut v = l.as_ref().clone();
-                v.reverse();
-                Ok(Value::list(v))
-            }
-            Value::Vector(v) => {
-                let mut items = v.as_ref().clone();
-                items.reverse();
-                Ok(Value::vector(items))
-            }
-            _ => Err(SemaError::type_error("list or vector", args[0].type_name())),
+        if let Some(l) = args[0].as_list() {
+            let mut v = l.to_vec();
+            v.reverse();
+            Ok(Value::list(v))
+        } else if let Some(v) = args[0].as_vector() {
+            let mut items = v.to_vec();
+            items.reverse();
+            Ok(Value::vector(items))
+        } else {
+            Err(SemaError::type_error("list or vector", args[0].type_name()))
         }
     });
 
@@ -98,14 +102,16 @@ pub fn register(env: &sema_core::Env) {
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
             as usize;
-        match &args[0] {
-            Value::List(l) => l.get(idx).cloned().ok_or_else(|| {
+        if let Some(l) = args[0].as_list() {
+            l.get(idx).cloned().ok_or_else(|| {
                 SemaError::eval(format!("index {idx} out of bounds (length {})", l.len()))
-            }),
-            Value::Vector(v) => v.get(idx).cloned().ok_or_else(|| {
+            })
+        } else if let Some(v) = args[0].as_vector() {
+            v.get(idx).cloned().ok_or_else(|| {
                 SemaError::eval(format!("index {idx} out of bounds (length {})", v.len()))
-            }),
-            _ => Err(SemaError::type_error("list or vector", args[0].type_name())),
+            })
+        } else {
+            Err(SemaError::type_error("list or vector", args[0].type_name()))
         }
     });
 
@@ -171,7 +177,7 @@ pub fn register(env: &sema_core::Env) {
         for item in &items {
             call_function(&args[0], &[item.clone()])?;
         }
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "range", |args| {
@@ -213,12 +219,12 @@ pub fn register(env: &sema_core::Env) {
         let mut i = start;
         if step > 0 {
             while i < end {
-                result.push(Value::Int(i));
+                result.push(Value::int(i));
                 i += step;
             }
         } else {
             while i > end {
-                result.push(Value::Int(i));
+                result.push(Value::int(i));
                 i += step;
             }
         }
@@ -269,7 +275,7 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("last", "1", args.len()));
         }
         let items = get_sequence(&args[0], "last")?;
-        Ok(items.last().cloned().unwrap_or(Value::Nil))
+        Ok(items.last().cloned().unwrap_or(Value::nil()))
     });
 
     register_fn(env, "zip", |args| {
@@ -296,10 +302,12 @@ pub fn register(env: &sema_core::Env) {
         let items = get_sequence(&args[0], "flatten")?;
         let mut result = Vec::new();
         for item in &items {
-            match item {
-                Value::List(l) => result.extend(l.iter().cloned()),
-                Value::Vector(v) => result.extend(v.iter().cloned()),
-                other => result.push(other.clone()),
+            if let Some(l) = item.as_list() {
+                result.extend(l.iter().cloned());
+            } else if let Some(v) = item.as_vector() {
+                result.extend(v.iter().cloned());
+            } else {
+                result.push(item.clone());
             }
         }
         Ok(Value::list(result))
@@ -315,7 +323,7 @@ pub fn register(env: &sema_core::Env) {
                 return Ok(Value::list(items[i..].to_vec()));
             }
         }
-        Ok(Value::Bool(false))
+        Ok(Value::bool(false))
     });
 
     register_fn(env, "any", |args| {
@@ -325,10 +333,10 @@ pub fn register(env: &sema_core::Env) {
         let items = get_sequence(&args[1], "any")?;
         for item in &items {
             if call_function(&args[0], &[item.clone()])?.is_truthy() {
-                return Ok(Value::Bool(true));
+                return Ok(Value::bool(true));
             }
         }
-        Ok(Value::Bool(false))
+        Ok(Value::bool(false))
     });
 
     register_fn(env, "every", |args| {
@@ -338,10 +346,10 @@ pub fn register(env: &sema_core::Env) {
         let items = get_sequence(&args[1], "every")?;
         for item in &items {
             if !call_function(&args[0], &[item.clone()])?.is_truthy() {
-                return Ok(Value::Bool(false));
+                return Ok(Value::bool(false));
             }
         }
-        Ok(Value::Bool(true))
+        Ok(Value::bool(true))
     });
 
     register_fn(env, "reduce", |args| {
@@ -406,7 +414,8 @@ pub fn register(env: &sema_core::Env) {
                     return std::cmp::Ordering::Equal;
                 }
                 match call_function(&args[1], &[a.clone(), b.clone()]) {
-                    Ok(Value::Int(n)) => {
+                    Ok(ref v) if v.is_int() => {
+                        let n = v.as_int().unwrap();
                         if n < 0 {
                             std::cmp::Ordering::Less
                         } else if n > 0 {
@@ -415,8 +424,8 @@ pub fn register(env: &sema_core::Env) {
                             std::cmp::Ordering::Equal
                         }
                     }
-                    Ok(Value::Bool(true)) => std::cmp::Ordering::Less,
-                    Ok(Value::Bool(false)) => std::cmp::Ordering::Greater,
+                    Ok(ref v) if v.as_bool() == Some(true) => std::cmp::Ordering::Less,
+                    Ok(ref v) if v.as_bool() == Some(false) => std::cmp::Ordering::Greater,
                     Ok(_) => std::cmp::Ordering::Equal,
                     Err(e) => {
                         err = Some(e);
@@ -438,10 +447,10 @@ pub fn register(env: &sema_core::Env) {
         let items = get_sequence(&args[0], "list/index-of")?;
         for (i, item) in items.iter().enumerate() {
             if item == &args[1] {
-                return Ok(Value::Int(i as i64));
+                return Ok(Value::int(i as i64));
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "list/unique", |args| {
@@ -478,7 +487,7 @@ pub fn register(env: &sema_core::Env) {
         for (key, vals) in groups {
             map.insert(key, Value::list(vals));
         }
-        Ok(Value::Map(Rc::new(map)))
+        Ok(Value::map(map))
     });
 
     register_fn(env, "list/interleave", |args| {
@@ -553,18 +562,19 @@ pub fn register(env: &sema_core::Env) {
         }
         let map: std::collections::BTreeMap<Value, Value> = counts
             .into_iter()
-            .map(|(k, v)| (k, Value::Int(v)))
+            .map(|(k, v)| (k, Value::int(v)))
             .collect();
-        Ok(Value::Map(Rc::new(map)))
+        Ok(Value::map(map))
     });
 
     register_fn(env, "list->vector", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("list->vector", "1", args.len()));
         }
-        match &args[0] {
-            Value::List(l) => Ok(Value::vector(l.as_ref().clone())),
-            _ => Err(SemaError::type_error("list", args[0].type_name())),
+        if let Some(l) = args[0].as_list() {
+            Ok(Value::vector(l.to_vec()))
+        } else {
+            Err(SemaError::type_error("list", args[0].type_name()))
         }
     });
 
@@ -572,9 +582,10 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 1 {
             return Err(SemaError::arity("vector->list", "1", args.len()));
         }
-        match &args[0] {
-            Value::Vector(v) => Ok(Value::list(v.as_ref().clone())),
-            _ => Err(SemaError::type_error("vector", args[0].type_name())),
+        if let Some(v) = args[0].as_vector() {
+            Ok(Value::list(v.to_vec()))
+        } else {
+            Err(SemaError::type_error("vector", args[0].type_name()))
         }
     });
 
@@ -652,10 +663,12 @@ pub fn register(env: &sema_core::Env) {
         let mut result = Vec::new();
         for item in &items {
             let mapped = call_function(&args[0], &[item.clone()])?;
-            match mapped {
-                Value::List(l) => result.extend(l.iter().cloned()),
-                Value::Vector(v) => result.extend(v.iter().cloned()),
-                other => result.push(other),
+            if let Some(l) = mapped.as_list() {
+                result.extend(l.iter().cloned());
+            } else if let Some(v) = mapped.as_vector() {
+                result.extend(v.iter().cloned());
+            } else {
+                result.push(mapped);
             }
         }
         Ok(Value::list(result))
@@ -732,22 +745,20 @@ pub fn register(env: &sema_core::Env) {
         let mut has_float = false;
         let mut float_sum: f64 = 0.0;
         for item in &items {
-            match item {
-                Value::Int(n) => {
-                    int_sum += n;
-                    float_sum += *n as f64;
-                }
-                Value::Float(f) => {
-                    has_float = true;
-                    float_sum += f;
-                }
-                _ => return Err(SemaError::type_error("number", item.type_name())),
+            if let Some(n) = item.as_int() {
+                int_sum += n;
+                float_sum += n as f64;
+            } else if let Some(f) = item.as_float() {
+                has_float = true;
+                float_sum += f;
+            } else {
+                return Err(SemaError::type_error("number", item.type_name()));
             }
         }
         if has_float {
-            Ok(Value::Float(float_sum))
+            Ok(Value::float(float_sum))
         } else {
-            Ok(Value::Int(int_sum))
+            Ok(Value::int(int_sum))
         }
     });
 
@@ -835,7 +846,7 @@ pub fn register(env: &sema_core::Env) {
         let mut result = Vec::with_capacity(count.max(0) as usize);
         let mut val = start;
         for _ in 0..count {
-            result.push(Value::Int(val));
+            result.push(Value::int(val));
             val += step;
         }
         Ok(Value::list(result))
@@ -865,13 +876,13 @@ pub fn register(env: &sema_core::Env) {
         let key = &args[0];
         let alist = get_sequence(&args[1], "assq")?;
         for pair in &alist {
-            if let Value::List(p) = pair {
+            if let Some(p) = pair.as_list() {
                 if !p.is_empty() && &p[0] == key {
                     return Ok(pair.clone());
                 }
             }
         }
-        Ok(Value::Bool(false))
+        Ok(Value::bool(false))
     });
 
     register_fn(env, "assv", |args| {
@@ -881,13 +892,13 @@ pub fn register(env: &sema_core::Env) {
         let key = &args[0];
         let alist = get_sequence(&args[1], "assv")?;
         for pair in &alist {
-            if let Value::List(p) = pair {
+            if let Some(p) = pair.as_list() {
                 if !p.is_empty() && &p[0] == key {
                     return Ok(pair.clone());
                 }
             }
         }
-        Ok(Value::Bool(false))
+        Ok(Value::bool(false))
     });
 }
 
@@ -895,22 +906,20 @@ fn first(args: &[Value]) -> Result<Value, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("car", "1", args.len()));
     }
-    match &args[0] {
-        Value::List(l) => {
-            if l.is_empty() {
-                Ok(Value::Nil)
-            } else {
-                Ok(l[0].clone())
-            }
+    if let Some(l) = args[0].as_list() {
+        if l.is_empty() {
+            Ok(Value::nil())
+        } else {
+            Ok(l[0].clone())
         }
-        Value::Vector(v) => {
-            if v.is_empty() {
-                Ok(Value::Nil)
-            } else {
-                Ok(v[0].clone())
-            }
+    } else if let Some(v) = args[0].as_vector() {
+        if v.is_empty() {
+            Ok(Value::nil())
+        } else {
+            Ok(v[0].clone())
         }
-        _ => Err(SemaError::type_error("list or vector", args[0].type_name())),
+    } else {
+        Err(SemaError::type_error("list or vector", args[0].type_name()))
     }
 }
 
@@ -918,58 +927,56 @@ fn rest(args: &[Value]) -> Result<Value, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("cdr", "1", args.len()));
     }
-    match &args[0] {
-        Value::List(l) => {
-            if l.len() <= 1 {
-                Ok(Value::list(vec![]))
-            } else {
-                Ok(Value::list(l[1..].to_vec()))
-            }
+    if let Some(l) = args[0].as_list() {
+        if l.len() <= 1 {
+            Ok(Value::list(vec![]))
+        } else {
+            Ok(Value::list(l[1..].to_vec()))
         }
-        Value::Vector(v) => {
-            if v.len() <= 1 {
-                Ok(Value::vector(vec![]))
-            } else {
-                Ok(Value::vector(v[1..].to_vec()))
-            }
+    } else if let Some(v) = args[0].as_vector() {
+        if v.len() <= 1 {
+            Ok(Value::vector(vec![]))
+        } else {
+            Ok(Value::vector(v[1..].to_vec()))
         }
-        _ => Err(SemaError::type_error("list or vector", args[0].type_name())),
+    } else {
+        Err(SemaError::type_error("list or vector", args[0].type_name()))
     }
 }
 
 fn get_sequence(val: &Value, ctx: &str) -> Result<Vec<Value>, SemaError> {
-    match val {
-        Value::List(l) => Ok(l.as_ref().clone()),
-        Value::Vector(v) => Ok(v.as_ref().clone()),
-        _ => Err(SemaError::type_error(
+    if let Some(l) = val.as_list() {
+        Ok(l.to_vec())
+    } else if let Some(v) = val.as_vector() {
+        Ok(v.to_vec())
+    } else {
+        Err(SemaError::type_error(
             "list or vector",
             format!("{} in {ctx}", val.type_name()),
-        )),
+        ))
     }
 }
 
 fn flatten_recursive(val: &Value, out: &mut Vec<Value>) {
-    match val {
-        Value::List(l) => {
-            for item in l.iter() {
-                flatten_recursive(item, out);
-            }
+    if let Some(l) = val.as_list() {
+        for item in l.iter() {
+            flatten_recursive(item, out);
         }
-        Value::Vector(v) => {
-            for item in v.iter() {
-                flatten_recursive(item, out);
-            }
+    } else if let Some(v) = val.as_vector() {
+        for item in v.iter() {
+            flatten_recursive(item, out);
         }
-        other => out.push(other.clone()),
+    } else {
+        out.push(val.clone());
     }
 }
 
 fn num_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
-    match (a, b) {
-        (Value::Int(a), Value::Int(b)) => Ok(a < b),
-        (Value::Float(a), Value::Float(b)) => Ok(a < b),
-        (Value::Int(a), Value::Float(b)) => Ok((*a as f64) < *b),
-        (Value::Float(a), Value::Int(b)) => Ok(*a < (*b as f64)),
+    match (a.view(), b.view()) {
+        (ValueView::Int(a), ValueView::Int(b)) => Ok(a < b),
+        (ValueView::Float(a), ValueView::Float(b)) => Ok(a < b),
+        (ValueView::Int(a), ValueView::Float(b)) => Ok((a as f64) < b),
+        (ValueView::Float(a), ValueView::Int(b)) => Ok(a < (b as f64)),
         _ => Err(SemaError::type_error("number", a.type_name())),
     }
 }
@@ -977,8 +984,9 @@ fn num_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
 /// Call a Sema function (lambda or native) with given args.
 /// Delegates to the real evaluator via the registered callback.
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
-    match func {
-        Value::NativeFn(native) => sema_core::with_stdlib_ctx(|ctx| (native.func)(ctx, args)),
-        _ => sema_core::with_stdlib_ctx(|ctx| sema_core::call_callback(ctx, func, args)),
+    if let Some(native) = func.as_native_fn_rc() {
+        sema_core::with_stdlib_ctx(|ctx| (native.func)(ctx, args))
+    } else {
+        sema_core::with_stdlib_ctx(|ctx| sema_core::call_callback(ctx, func, args))
     }
 }

@@ -24,7 +24,6 @@ mod system;
 mod terminal;
 
 use sema_core::{Caps, Env, Sandbox, Value};
-use std::rc::Rc;
 
 pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     arithmetic::register(env);
@@ -78,6 +77,6 @@ fn register_fn(
 ) {
     env.set(
         sema_core::intern(name),
-        Value::NativeFn(Rc::new(sema_core::NativeFn::simple(name, f))),
+        Value::native_fn(sema_core::NativeFn::simple(name, f)),
     );
 }

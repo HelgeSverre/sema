@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
-use sema_core::{SemaError, Value};
+use sema_core::{SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -50,7 +49,7 @@ pub fn register(env: &sema_core::Env) {
                     map.insert(Value::keyword(header), Value::string(field));
                 }
             }
-            rows.push(Value::Map(Rc::new(map)));
+            rows.push(Value::map(map));
         }
         Ok(Value::list(rows))
     });
@@ -59,25 +58,25 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 1 {
             return Err(SemaError::arity("csv/encode", "1", args.len()));
         }
-        let rows = match &args[0] {
-            Value::List(l) => l.as_ref().clone(),
+        let rows = match args[0].view() {
+            ValueView::List(l) => l.as_ref().clone(),
             _ => return Err(SemaError::type_error("list", args[0].type_name())),
         };
         let mut wtr = csv::WriterBuilder::new().from_writer(Vec::new());
         for row in &rows {
-            let fields: Vec<String> = match row {
-                Value::List(l) => l
+            let fields: Vec<String> = match row.view() {
+                ValueView::List(l) => l
                     .iter()
-                    .map(|v| match v {
-                        Value::String(s) => s.to_string(),
-                        other => other.to_string(),
+                    .map(|v| match v.as_str() {
+                        Some(s) => s.to_string(),
+                        None => v.to_string(),
                     })
                     .collect(),
-                Value::Vector(v) => v
+                ValueView::Vector(v) => v
                     .iter()
-                    .map(|val| match val {
-                        Value::String(s) => s.to_string(),
-                        other => other.to_string(),
+                    .map(|val| match val.as_str() {
+                        Some(s) => s.to_string(),
+                        None => val.to_string(),
                     })
                     .collect(),
                 _ => return Err(SemaError::type_error("list", row.type_name())),

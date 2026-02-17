@@ -203,7 +203,7 @@ fn test_vm_delay_is_lazy() {
     let result = interp.eval_str_compiled("x").unwrap();
     assert_eq!(
         result,
-        Value::Int(0),
+        Value::int(0),
         "delay body should not be evaluated eagerly"
     );
 }
@@ -216,23 +216,23 @@ fn test_vm_force_evaluates_thunk() {
         .eval_str_compiled("(define t (delay (begin (set! x (+ x 1)) x)))")
         .unwrap();
     let result = interp.eval_str_compiled("(force t)").unwrap();
-    assert_eq!(result, Value::Int(1));
+    assert_eq!(result, Value::int(1));
     // force again should return memoized value
     let result2 = interp.eval_str_compiled("(force t)").unwrap();
-    assert_eq!(result2, Value::Int(1));
+    assert_eq!(result2, Value::int(1));
     // x should still be 1 (not 2)
     let x = interp.eval_str_compiled("x").unwrap();
-    assert_eq!(x, Value::Int(1), "force should memoize");
+    assert_eq!(x, Value::int(1), "force should memoize");
 }
 
 #[test]
 fn test_vm_define_record_type() {
     let result = eval_vm("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point-x (make-point 3 4)))");
-    assert_eq!(result, Value::Int(3));
+    assert_eq!(result, Value::int(3));
     let result2 = eval_vm("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point-y (make-point 3 4)))");
-    assert_eq!(result2, Value::Int(4));
+    assert_eq!(result2, Value::int(4));
     let result3 = eval_vm("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point? (make-point 1 2)))");
-    assert_eq!(result3, Value::Bool(true));
+    assert_eq!(result3, Value::bool(true));
 }
 
 #[test]
@@ -246,13 +246,13 @@ fn test_vm_define_record_type_persists() {
     let result = interp
         .eval_str_compiled("(point-x (make-point 3 4))")
         .unwrap();
-    assert_eq!(result, Value::Int(3));
+    assert_eq!(result, Value::int(3));
 }
 
 #[test]
 fn test_vm_eval_delegate() {
     let result = eval_vm("(eval '(+ 1 2))");
-    assert_eq!(result, Value::Int(3));
+    assert_eq!(result, Value::int(3));
 }
 
 #[test]
@@ -268,7 +268,7 @@ fn test_vm_multiple_defines_persist() {
     interp.eval_str_compiled("(define a 1)").unwrap();
     interp.eval_str_compiled("(define b 2)").unwrap();
     let result = interp.eval_str_compiled("(+ a b)").unwrap();
-    assert_eq!(result, Value::Int(3));
+    assert_eq!(result, Value::int(3));
 }
 
 #[test]
@@ -281,7 +281,7 @@ fn test_vm_nested_closures_shared_state() {
              (inc) (inc) (inc)
              (get)))",
     );
-    assert_eq!(result, Value::Int(3));
+    assert_eq!(result, Value::int(3));
 }
 
 #[test]
@@ -294,7 +294,7 @@ fn test_vm_recursion_moderate_depth() {
         .eval_str_compiled("(define (loop n) (if (= n 0) 0 (loop (- n 1))))")
         .unwrap();
     let result = interp.eval_str_compiled("(loop 50)").unwrap();
-    assert_eq!(result, Value::Int(0));
+    assert_eq!(result, Value::int(0));
 }
 
 #[test]
@@ -1505,7 +1505,7 @@ fn test_delay_captures_lexical_variables() {
                (define x (lazy-add (delay 1) (delay 2)))
                (force x))"
         ),
-        Value::Int(3)
+        Value::int(3)
     );
 }
 
@@ -1518,7 +1518,7 @@ fn test_delay_captures_closure_variable() {
                (define p (make-lazy 7))
                (force p))"
         ),
-        Value::Int(49)
+        Value::int(49)
     );
 }
 

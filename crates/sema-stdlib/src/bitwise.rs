@@ -13,7 +13,7 @@ pub fn register(env: &sema_core::Env) {
         let b = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
-        Ok(Value::Int(a & b))
+        Ok(Value::int(a & b))
     });
 
     register_fn(env, "bit/or", |args| {
@@ -26,7 +26,7 @@ pub fn register(env: &sema_core::Env) {
         let b = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
-        Ok(Value::Int(a | b))
+        Ok(Value::int(a | b))
     });
 
     register_fn(env, "bit/xor", |args| {
@@ -39,7 +39,7 @@ pub fn register(env: &sema_core::Env) {
         let b = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
-        Ok(Value::Int(a ^ b))
+        Ok(Value::int(a ^ b))
     });
 
     register_fn(env, "bit/not", |args| {
@@ -49,7 +49,7 @@ pub fn register(env: &sema_core::Env) {
         let a = args[0]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
-        Ok(Value::Int(!a))
+        Ok(Value::int(!a))
     });
 
     register_fn(env, "bit/shift-left", |args| {
@@ -62,7 +62,7 @@ pub fn register(env: &sema_core::Env) {
         let n = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
-        Ok(Value::Int(a << n))
+        Ok(Value::int(a << n))
     });
 
     register_fn(env, "bit/shift-right", |args| {
@@ -75,6 +75,6 @@ pub fn register(env: &sema_core::Env) {
         let n = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
-        Ok(Value::Int(a >> n))
+        Ok(Value::int(a >> n))
     });
 }

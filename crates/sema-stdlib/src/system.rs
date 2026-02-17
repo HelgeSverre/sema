@@ -1,5 +1,4 @@
 use std::io::IsTerminal;
-use std::rc::Rc;
 
 use sema_core::{Caps, SemaError, Value};
 
@@ -15,7 +14,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         match std::env::var(name) {
             Ok(val) => Ok(Value::string(&val)),
-            Err(_) => Ok(Value::Nil),
+            Err(_) => Ok(Value::nil()),
         }
     });
 
@@ -53,9 +52,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         result.insert(Value::keyword("stderr"), Value::string(&stderr));
         result.insert(
             Value::keyword("exit-code"),
-            Value::Int(output.status.code().unwrap_or(-1) as i64),
+            Value::int(output.status.code().unwrap_or(-1) as i64),
         );
-        Ok(Value::Map(Rc::new(result)))
+        Ok(Value::map(result))
     });
 
     crate::register_fn_gated(env, sandbox, Caps::PROCESS, "exit", |args| {
@@ -75,7 +74,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as i64;
-        Ok(Value::Int(ms))
+        Ok(Value::int(ms))
     });
 
     register_fn(env, "sleep", |args| {
@@ -86,7 +85,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
         std::thread::sleep(std::time::Duration::from_millis(ms as u64));
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::PROCESS, "sys/args", |args| {
@@ -134,7 +133,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         unsafe {
             std::env::set_var(name, value);
         }
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "sys/env-all", |args| {
@@ -145,7 +144,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         for (key, val) in std::env::vars() {
             map.insert(Value::keyword(&key), Value::string(&val));
         }
-        Ok(Value::Map(Rc::new(map)))
+        Ok(Value::map(map))
     });
 
     register_fn(env, "sys/home-dir", |args| {
@@ -154,7 +153,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         }
         match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             Ok(home) => Ok(Value::string(&home)),
-            Err(_) => Ok(Value::Nil),
+            Err(_) => Ok(Value::nil()),
         }
     });
 
@@ -171,7 +170,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         }
         match hostname::get() {
             Ok(name) => Ok(Value::string(&name.to_string_lossy())),
-            Err(_) => Ok(Value::Nil),
+            Err(_) => Ok(Value::nil()),
         }
     });
 
@@ -181,7 +180,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         }
         match std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
             Ok(user) => Ok(Value::string(&user)),
-            Err(_) => Ok(Value::Nil),
+            Err(_) => Ok(Value::nil()),
         }
     });
 
@@ -189,7 +188,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/interactive?", "0", args.len()));
         }
-        Ok(Value::Bool(std::io::stdin().is_terminal()))
+        Ok(Value::bool(std::io::stdin().is_terminal()))
     });
 
     register_fn(env, "sys/tty", |args| {
@@ -197,7 +196,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             return Err(SemaError::arity("sys/tty", "0", args.len()));
         }
         if !std::io::stdin().is_terminal() {
-            return Ok(Value::Nil);
+            return Ok(Value::nil());
         }
         #[cfg(unix)]
         {
@@ -206,7 +205,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             unsafe {
                 let name = libc::ttyname(fd);
                 if name.is_null() {
-                    Ok(Value::Nil)
+                    Ok(Value::nil())
                 } else {
                     let s = std::ffi::CStr::from_ptr(name).to_string_lossy().to_string();
                     Ok(Value::string(&s))
@@ -215,7 +214,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         }
         #[cfg(not(unix))]
         {
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }
     });
 
@@ -223,7 +222,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         if !args.is_empty() {
             return Err(SemaError::arity("sys/pid", "0", args.len()));
         }
-        Ok(Value::Int(std::process::id() as i64))
+        Ok(Value::int(std::process::id() as i64))
     });
 
     register_fn(env, "sys/arch", |args| {
@@ -255,7 +254,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 return Ok(Value::string(&candidate.to_string_lossy()));
             }
         }
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     register_fn(env, "sys/elapsed", |args| {
@@ -267,6 +266,6 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             static START: Instant = Instant::now();
         }
         let nanos = START.with(|s| s.elapsed().as_nanos()) as i64;
-        Ok(Value::Int(nanos))
+        Ok(Value::int(nanos))
     });
 }

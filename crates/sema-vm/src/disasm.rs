@@ -206,8 +206,8 @@ mod tests {
     #[test]
     fn test_disassemble_simple() {
         let mut e = Emitter::new();
-        e.emit_const(Value::Int(1));
-        e.emit_const(Value::Int(2));
+        e.emit_const(Value::int(1));
+        e.emit_const(Value::int(2));
         e.emit_op(Op::AddInt);
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();

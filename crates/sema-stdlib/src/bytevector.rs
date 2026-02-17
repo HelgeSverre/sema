@@ -54,7 +54,7 @@ pub fn register(env: &sema_core::Env) {
         let bv = args[0]
             .as_bytevector()
             .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
-        Ok(Value::Int(bv.len() as i64))
+        Ok(Value::int(bv.len() as i64))
     });
 
     register_fn(env, "bytevector-u8-ref", |args| {
@@ -73,7 +73,7 @@ pub fn register(env: &sema_core::Env) {
                 bv.len()
             )));
         }
-        Ok(Value::Int(bv[idx as usize] as i64))
+        Ok(Value::int(bv[idx as usize] as i64))
     });
 
     register_fn(env, "bytevector-u8-set!", |args| {
@@ -100,7 +100,7 @@ pub fn register(env: &sema_core::Env) {
                 "bytevector-u8-set!: byte value {byte} out of range 0..255"
             )));
         }
-        let mut new_bv = (**bv).clone();
+        let mut new_bv = bv.to_vec();
         new_bv[idx as usize] = byte as u8;
         Ok(Value::bytevector(new_bv))
     });
@@ -155,7 +155,7 @@ pub fn register(env: &sema_core::Env) {
         let bv = args[0]
             .as_bytevector()
             .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
-        let items: Vec<Value> = bv.iter().map(|&b| Value::Int(b as i64)).collect();
+        let items: Vec<Value> = bv.iter().map(|&b| Value::int(b as i64)).collect();
         Ok(Value::list(items))
     });
 
@@ -188,7 +188,7 @@ pub fn register(env: &sema_core::Env) {
         let bv = args[0]
             .as_bytevector()
             .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
-        let s = String::from_utf8((**bv).clone())
+        let s = String::from_utf8(bv.to_vec())
             .map_err(|e| SemaError::eval(format!("utf8->string: invalid UTF-8: {e}")))?;
         Ok(Value::string(&s))
     });
