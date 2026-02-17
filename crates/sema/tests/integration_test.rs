@@ -8372,9 +8372,7 @@ fn test_context_all() {
 #[test]
 fn test_context_pull() {
     assert_eq!(
-        eval(
-            r#"(begin (context/set :temp "value") (define pulled (context/pull :temp)) (list pulled (context/has? :temp)))"#
-        ),
+        eval(r#"(begin (context/set :temp "value") (define pulled (context/pull :temp)) (list pulled (context/has? :temp)))"#),
         eval(r#"(list "value" #f)"#),
     );
 }
@@ -8382,22 +8380,18 @@ fn test_context_pull() {
 #[test]
 fn test_context_with_scoped() {
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/set :x "outer")
             (context/with {:x "inner" :y "only-inner"}
-                (lambda () (list (context/get :x) (context/get :y)))))"#
-        ),
+                (lambda () (list (context/get :x) (context/get :y)))))"#),
         eval(r#"(list "inner" "only-inner")"#),
     );
     // After context/with, :x is restored and :y is gone
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/set :x "outer")
             (context/with {:x "inner"} (lambda () nil))
-            (list (context/get :x) (context/get :y)))"#
-        ),
+            (list (context/get :x) (context/get :y)))"#),
         eval(r#"(list "outer" nil)"#),
     );
 }
@@ -8405,15 +8399,13 @@ fn test_context_with_scoped() {
 #[test]
 fn test_context_with_nested() {
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/set :a 1)
             (context/with {:b 2}
                 (lambda ()
                     (context/with {:c 3}
                         (lambda ()
-                            (list (context/get :a) (context/get :b) (context/get :c)))))))"#
-        ),
+                            (list (context/get :a) (context/get :b) (context/get :c)))))))"#),
         eval("(list 1 2 3)"),
     );
 }
@@ -8421,23 +8413,19 @@ fn test_context_with_nested() {
 #[test]
 fn test_context_hidden() {
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/set-hidden :secret "s3cret")
-            (list (context/get-hidden :secret) (context/get :secret)))"#
-        ),
+            (list (context/get-hidden :secret) (context/get :secret)))"#),
         eval(r#"(list "s3cret" nil)"#),
     );
 }
 
 #[test]
 fn test_context_hidden_not_in_all() {
-    let result = eval(
-        r#"(begin
+    let result = eval(r#"(begin
         (context/set :visible 1)
         (context/set-hidden :invisible 2)
-        (context/all))"#,
-    );
+        (context/all))"#);
     let map = result.as_map_rc().expect("should be map");
     assert_eq!(map.get(&Value::keyword("visible")), Some(&Value::int(1)));
     assert_eq!(map.get(&Value::keyword("invisible")), None);
@@ -8455,13 +8443,11 @@ fn test_context_has_hidden() {
 #[test]
 fn test_context_stack_push_get() {
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/push :breadcrumbs "first")
             (context/push :breadcrumbs "second")
             (context/push :breadcrumbs "third")
-            (context/stack :breadcrumbs))"#
-        ),
+            (context/stack :breadcrumbs))"#),
         eval(r#"(list "first" "second" "third")"#),
     );
 }
@@ -8469,22 +8455,18 @@ fn test_context_stack_push_get() {
 #[test]
 fn test_context_stack_pop() {
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/push :trail "a")
             (context/push :trail "b")
-            (context/pop :trail))"#
-        ),
+            (context/pop :trail))"#),
         Value::string("b"),
     );
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/push :trail "a")
             (context/push :trail "b")
             (context/pop :trail)
-            (context/stack :trail))"#
-        ),
+            (context/stack :trail))"#),
         eval(r#"(list "a")"#),
     );
 }
@@ -8498,12 +8480,10 @@ fn test_context_stack_empty() {
 #[test]
 fn test_context_merge() {
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/set :a 1)
             (context/merge {:b 2 :c 3})
-            (list (context/get :a) (context/get :b) (context/get :c)))"#
-        ),
+            (list (context/get :a) (context/get :b) (context/get :c)))"#),
         eval("(list 1 2 3)"),
     );
 }
@@ -8511,25 +8491,21 @@ fn test_context_merge() {
 #[test]
 fn test_context_clear() {
     assert_eq!(
-        eval(
-            r#"(begin
+        eval(r#"(begin
             (context/set :a 1)
             (context/set :b 2)
             (context/clear)
-            (context/all))"#
-        ),
+            (context/all))"#),
         eval("{}"),
     );
 }
 
 #[test]
 fn test_log_includes_context() {
-    eval(
-        r#"(begin
+    eval(r#"(begin
         (context/set :trace-id "abc-123")
         (context/set :user-id 42)
-        (log/info "test message"))"#,
-    );
+        (log/info "test message"))"#);
 }
 
 #[test]
@@ -8538,4 +8514,37 @@ fn test_log_functions_basic() {
     eval(r#"(log/warn "caution")"#);
     eval(r#"(log/error "problem")"#);
     eval(r#"(log/debug "details")"#);
+}
+
+#[test]
+fn test_context_with_restores_on_error() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(context/set :x "before")"#).unwrap();
+    let _ = interp.eval_str(r#"(context/with {:x "during"} (lambda () (error "boom")))"#);
+    assert_eq!(
+        interp.eval_str(r#"(context/get :x)"#).unwrap(),
+        Value::string("before"),
+    );
+}
+
+#[test]
+fn test_context_with_any_value_types() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/set "string-key" 42)
+            (context/set 123 "number-key")
+            (list (context/get "string-key") (context/get 123)))"#),
+        eval(r#"(list 42 "number-key")"#),
+    );
+}
+
+#[test]
+fn test_context_stacks_independent() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/push :a 1)
+            (context/push :b 2)
+            (list (context/stack :a) (context/stack :b)))"#),
+        eval("(list (list 1) (list 2))"),
+    );
 }
