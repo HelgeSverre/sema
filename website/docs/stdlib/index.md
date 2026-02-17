@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Standard Library
 
-Sema ships with **350+ built-in functions** across **19 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
+Sema ships with **365+ built-in functions** across **20 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
 
 ## Naming Conventions
 
@@ -211,6 +211,17 @@ Sema's stdlib follows consistent naming patterns:
 | `text/truncate`, `text/word-count`, `text/trim-indent` | Text utilities |
 | `prompt/template`, `prompt/render` | Prompt templates |
 | `document/create`, `document/text`, `document/metadata`, `document/chunk` | Document metadata |
+
+### [Context](./context)
+
+| Function | Description |
+|---|---|
+| `context/set`, `context/get`, `context/has?` | Core key-value context |
+| `context/remove`, `context/pull`, `context/all` | Retrieval & cleanup |
+| `context/merge`, `context/clear` | Bulk operations |
+| `context/with` | Scoped overrides (auto-restores on exit) |
+| `context/push`, `context/stack`, `context/pop` | Named stacks |
+| `context/set-hidden`, `context/get-hidden`, `context/has-hidden?` | Hidden (non-logged) context |
 
 ### [Key-Value Store](./kv-store)
 

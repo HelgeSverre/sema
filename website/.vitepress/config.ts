@@ -91,6 +91,7 @@ export default defineConfig({
             { text: 'Records', link: '/docs/stdlib/records' },
             { text: 'Text Processing', link: '/docs/stdlib/text-processing' },
             { text: 'Key-Value Store', link: '/docs/stdlib/kv-store' },
+            { text: 'Context', link: '/docs/stdlib/context' },
             { text: 'Terminal Styling', link: '/docs/stdlib/terminal' },
           ],
         },
