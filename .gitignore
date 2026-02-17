@@ -28,4 +28,6 @@ lcov.info
 wip/
 bench-*.txt
 measurements.txt
+tools/token-usage.html
+tools/token-data.json
 

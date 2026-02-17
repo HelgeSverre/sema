@@ -3,6 +3,46 @@ use std::fmt;
 
 use crate::value::Value;
 
+/// Check arity of a native function's arguments, returning `SemaError::Arity` on mismatch.
+///
+/// # Forms
+///
+/// ```ignore
+/// check_arity!(args, "fn-name", 2);        // exactly 2
+/// check_arity!(args, "fn-name", 1..=3);    // 1 to 3 inclusive
+/// check_arity!(args, "fn-name", 2..);      // 2 or more
+/// ```
+#[macro_export]
+macro_rules! check_arity {
+    ($args:expr, $name:expr, $exact:literal) => {
+        if $args.len() != $exact {
+            return Err($crate::SemaError::arity(
+                $name,
+                stringify!($exact),
+                $args.len(),
+            ));
+        }
+    };
+    ($args:expr, $name:expr, $lo:literal ..= $hi:literal) => {
+        if $args.len() < $lo || $args.len() > $hi {
+            return Err($crate::SemaError::arity(
+                $name,
+                concat!(stringify!($lo), "-", stringify!($hi)),
+                $args.len(),
+            ));
+        }
+    };
+    ($args:expr, $name:expr, $lo:literal ..) => {
+        if $args.len() < $lo {
+            return Err($crate::SemaError::arity(
+                $name,
+                concat!(stringify!($lo), "+"),
+                $args.len(),
+            ));
+        }
+    };
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Span {
     pub line: usize,

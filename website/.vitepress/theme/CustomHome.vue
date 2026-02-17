@@ -14,7 +14,7 @@
     <p class="hero-sub">
       A Scheme-like Lisp where completions, tool use, and agentic loops are
       native forms &mdash; not string templates bolted onto a scripting language.
-      Implemented in Rust. 400+ builtins. 11 providers.
+      Implemented in Rust. 450+ builtins. 11 providers. Bytecode VM.
     </p>
     <div class="hero-actions">
       <a href="/docs/" class="hero-btn primary">Get Started</a>
@@ -59,7 +59,8 @@
     </p>
     <p>
       11 providers auto-configured from environment variables.
-      Cost tracking, budgets, and batch processing built in.
+      Response caching, cost budgets, rate limiting, fallback chains,
+      and batch processing built in.
     </p>
   </div>
   <div class="split-code">
@@ -233,10 +234,15 @@
   '<span class="p">(</span><span class="s">"serendipity"</span> <span class="s">"ephemeral"</span><span class="p">)</span>
   <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">50</span><span class="p">})</span>
 
-<span class="c">;; Provider management</span>
-<span class="p">(</span><span class="b">llm/list-providers</span><span class="p">)</span>     <span class="c">; =&gt; (:anthropic :openai ...)</span>
-<span class="p">(</span><span class="b">llm/set-default</span> <span class="kw">:openai</span><span class="p">)</span>
-<span class="p">(</span><span class="b">llm/set-budget</span> <span class="n">1.00</span><span class="p">)</span>    <span class="c">; $1 spending limit</span></code></pre>
+<span class="c">;; Budget-scoped calls</span>
+<span class="p">(</span><span class="b">llm/with-budget</span> <span class="p">{</span><span class="kw">:max-cost-usd</span> <span class="n">1.00</span><span class="p">}</span>
+  <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+    <span class="p">(</span><span class="b">llm/complete</span> <span class="s">"Summarize this"</span><span class="p">)))</span>
+
+<span class="c">;; Cache repeated calls</span>
+<span class="p">(</span><span class="b">llm/with-cache</span> <span class="p">{</span><span class="kw">:ttl</span> <span class="n">3600</span><span class="p">}</span>
+  <span class="p">(</span><span class="k">lambda</span> <span class="p">()</span>
+    <span class="p">(</span><span class="b">llm/complete</span> <span class="s">"Same prompt"</span><span class="p">)))</span></code></pre>
   </div>
 </section>
 
@@ -251,8 +257,10 @@
       Supports Jina, Voyage, Cohere, and OpenAI embedding models.
     </p>
     <p>
-      Batch embed multiple texts in a single call. Use with
-      <code class="ic">sort-by</code> to build simple semantic search.
+      Built-in vector store with <code class="ic">vector-store/create</code>,
+      <code class="ic">vector-store/add</code>, and
+      <code class="ic">vector-store/search</code> for similarity search.
+      Disk persistence included.
     </p>
   </div>
   <div class="split-code">
@@ -283,7 +291,7 @@
 <div class="ref-section" style="text-align: center;">
   <h3>LLM Function Reference</h3>
   <p style="font-size: 1.15rem; color: var(--text); margin-bottom: 1.5rem; font-style: italic;">
-    29 LLM builtins — completion, chat, streaming, tools, agents, embeddings, and more.
+    50+ LLM builtins — completion, chat, streaming, tools, agents, embeddings, vector stores, caching, and more.
   </p>
   <a href="/docs/llm/" class="docs-link">Browse LLM Reference →</a>
 </div>
@@ -402,7 +410,7 @@
 <section class="split compact">
   <div class="split-text">
     <div class="label">Standard Library</div>
-    <h2><span class="paren">(</span>400+ builtins<span class="paren">)</span></h2>
+    <h2><span class="paren">(</span>450+ builtins<span class="paren">)</span></h2>
     <p>
       Linked lists, vectors, and ordered maps with a full suite of
       higher-order operations. Slash-namespaced string functions, file I/O,
@@ -439,7 +447,7 @@
 <div class="ref-section" style="text-align: center;">
   <h3>Function Reference</h3>
   <p style="font-size: 1.15rem; color: var(--text); margin-bottom: 1.5rem; font-style: italic;">
-    400+ builtins across 17 modules — math, strings, lists, maps, I/O, HTTP, regex, and more.
+    450+ builtins across 19 modules — math, strings, lists, maps, I/O, HTTP, regex, text processing, and more.
   </p>
   <a href="/docs/stdlib/" class="docs-link">Browse Standard Library Reference →</a>
 </div>
@@ -484,8 +492,20 @@
       <p><code>try</code> / <code>catch</code> / <code>throw</code> with typed error maps and full stack traces.</p>
     </div>
     <div class="feat">
-      <h3>Cost Tracking</h3>
-      <p>Per-call and session usage tracking. Budget limits with <code>llm/set-budget</code>.</p>
+      <h3>Bytecode VM</h3>
+      <p>Optional bytecode compiler and stack-based VM via <code>--vm</code>. 1.7x faster than tree-walking.</p>
+    </div>
+    <div class="feat">
+      <h3>Caching &amp; Resilience</h3>
+      <p>Response caching, cost budgets, rate limiting, fallback chains, and retry with exponential backoff.</p>
+    </div>
+    <div class="feat">
+      <h3>Vector Store</h3>
+      <p>In-memory vector store with similarity search, cosine distance, and disk persistence.</p>
+    </div>
+    <div class="feat">
+      <h3>Capability Sandbox</h3>
+      <p><code>--sandbox</code> restricts shell, filesystem, network, and LLM access per capability group.</p>
     </div>
     <div class="feat">
       <h3>11 LLM Providers</h3>
@@ -499,6 +519,10 @@
       <h3>Clojure-Style Data</h3>
       <p>Keywords (<code>:foo</code>), maps (<code>{:k v}</code>), vectors (<code>[1 2]</code>). Keywords as functions.</p>
     </div>
+    <div class="feat">
+      <h3>Text Processing</h3>
+      <p>Chunking, sentence splitting, HTML stripping, prompt templates, and document abstractions.</p>
+    </div>
   </div>
 </section>
 
@@ -506,7 +530,7 @@
 <section id="architecture" class="arch-section">
   <h2><span class="paren">(</span>Architecture<span class="paren">)</span></h2>
   <p>
-    Six Rust crates, one directed dependency graph. No circular dependencies.
+    Seven Rust crates, one directed dependency graph. No circular dependencies.
     Single-threaded with <code class="ic">Rc</code>,
     deterministic ordering with <code class="ic">BTreeMap</code>.
   </p>
@@ -521,16 +545,20 @@
       <p>Lexer and s-expression parser</p>
     </div>
     <div class="crate-card">
+      <h4>sema-vm</h4>
+      <p>Bytecode compiler, resolver, stack-based VM</p>
+    </div>
+    <div class="crate-card">
       <h4>sema-eval</h4>
       <p>Trampoline evaluator, special forms, modules</p>
     </div>
     <div class="crate-card">
       <h4>sema-stdlib</h4>
-      <p>Comprehensive standard library builtins</p>
+      <p>450+ builtins across 19 modules</p>
     </div>
     <div class="crate-card">
       <h4>sema-llm</h4>
-      <p>LLM provider trait, multi-provider API clients, streaming</p>
+      <p>LLM providers, vector store, caching, resilience</p>
     </div>
     <div class="crate-card">
       <h4>sema</h4>
@@ -539,12 +567,12 @@
   </div>
 
   <div class="arch-diagram">
-<pre><code>         sema-core
-         /    |    \
-  sema-reader | sema-stdlib
-         \    |    /
-        sema-eval   sema-llm
-             \       /
+<pre><code>            sema-core
+          /    |    \
+  sema-reader  |  sema-stdlib
+      |    \   |   /
+  sema-vm  sema-eval   sema-llm
+         \     |      /
               sema</code></pre>
   </div>
 </section>
