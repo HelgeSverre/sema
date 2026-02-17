@@ -1243,6 +1243,89 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         unreachable!()
     });
 
+    // (llm/extract-from-image schema source {:model "..."})
+    // source: string path or bytevector
+    register_fn_ctx_gated(
+        env,
+        sandbox,
+        sema_core::Caps::LLM,
+        "llm/extract-from-image",
+        |_ctx, args| {
+            if args.len() < 2 || args.len() > 3 {
+                return Err(SemaError::arity("llm/extract-from-image", "2-3", args.len()));
+            }
+            let schema = &args[0];
+
+            // Get image bytes: either from path (string) or bytevector
+            let bytes = if let Some(path) = args[1].as_str() {
+                std::fs::read(path).map_err(|e| {
+                    SemaError::Io(format!("llm/extract-from-image: {path}: {e}"))
+                })?
+            } else if let Some(bv) = args[1].as_bytevector() {
+                bv.to_vec()
+            } else {
+                return Err(SemaError::type_error(
+                    "string path or bytevector",
+                    args[1].type_name(),
+                ));
+            };
+
+            let media_type = detect_media_type(&bytes).to_string();
+            use base64::Engine;
+            let b64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+            let schema_desc = format_schema(schema);
+            let system = format!(
+                "Extract structured data from the image. Respond with ONLY a JSON object matching this schema:\n{}\nDo not include any other text.",
+                schema_desc
+            );
+
+            let messages = vec![ChatMessage::with_blocks(
+                "user",
+                vec![
+                    ContentBlock::Image {
+                        media_type: Some(media_type),
+                        data: b64_data,
+                    },
+                    ContentBlock::Text {
+                        text: "Extract the requested data from this image.".to_string(),
+                    },
+                ],
+            )];
+
+            let mut model = String::new();
+            if let Some(opts_val) = args.get(2) {
+                if let Some(opts) = opts_val.as_map_rc() {
+                    model = get_opt_string(&opts, "model").unwrap_or_default();
+                }
+            }
+
+            let mut request = ChatRequest::new(model, messages);
+            request.system = Some(system);
+
+            let response = do_complete(request)?;
+            track_usage(&response.usage)?;
+
+            // Parse JSON response back to Sema value
+            let content = response.content.trim();
+            let json_str = if content.starts_with("```") {
+                content
+                    .trim_start_matches("```json")
+                    .trim_start_matches("```")
+                    .trim_end_matches("```")
+                    .trim()
+            } else {
+                content
+            };
+            let json: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
+                SemaError::Llm(format!(
+                    "failed to parse LLM JSON response: {e}\nResponse was: {content}"
+                ))
+            })?;
+            Ok(json_to_sema_value(&json))
+        },
+    );
+
     // (llm/classify categories text {:model "..."})
     register_fn(env, "llm/classify", |args| {
         if args.len() < 2 || args.len() > 3 {

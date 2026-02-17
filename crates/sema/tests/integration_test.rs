@@ -7153,6 +7153,36 @@ fn test_sandbox_all_denied_safe_functions_comprehensive() {
         .is_ok());
 }
 
+// === Task 9: llm/extract-from-image ===
+
+#[test]
+fn test_extract_from_image_arity() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(llm/extract-from-image {:x :string})"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_extract_from_image_invalid_path() {
+    let interp = Interpreter::new();
+    let result =
+        interp.eval_str(r#"(llm/extract-from-image {:x :string} "/nonexistent/file.png")"#);
+    assert!(result.is_err());
+}
+
+#[test]
+#[ignore] // requires ANTHROPIC_API_KEY and a real image file
+fn test_extract_from_image_e2e() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(llm/extract-from-image
+                {:description :string}
+                (bytevector 137 80 78 71 13 10 26 10)
+                {:model "claude-sonnet-4-20250514"})"#,
+    );
+    println!("Result: {:?}", result);
+}
+
 // === Task 8: message/with-image ===
 
 #[test]
