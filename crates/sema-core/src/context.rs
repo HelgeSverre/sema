@@ -17,6 +17,9 @@ pub struct EvalContext {
     pub eval_step_limit: Cell<usize>,
     pub eval_steps: Cell<usize>,
     pub sandbox: Sandbox,
+    pub user_context: RefCell<Vec<BTreeMap<Value, Value>>>,
+    pub hidden_context: RefCell<Vec<BTreeMap<Value, Value>>>,
+    pub context_stacks: RefCell<BTreeMap<Value, Vec<Value>>>,
 }
 
 impl EvalContext {
@@ -32,6 +35,9 @@ impl EvalContext {
             eval_step_limit: Cell::new(0),
             eval_steps: Cell::new(0),
             sandbox: Sandbox::allow_all(),
+            user_context: RefCell::new(vec![BTreeMap::new()]),
+            hidden_context: RefCell::new(vec![BTreeMap::new()]),
+            context_stacks: RefCell::new(BTreeMap::new()),
         }
     }
 
@@ -47,6 +53,9 @@ impl EvalContext {
             eval_step_limit: Cell::new(0),
             eval_steps: Cell::new(0),
             sandbox,
+            user_context: RefCell::new(vec![BTreeMap::new()]),
+            hidden_context: RefCell::new(vec![BTreeMap::new()]),
+            context_stacks: RefCell::new(BTreeMap::new()),
         }
     }
 
@@ -149,6 +158,138 @@ impl EvalContext {
 
     pub fn set_eval_step_limit(&self, limit: usize) {
         self.eval_step_limit.set(limit);
+    }
+
+    // --- User context methods ---
+
+    pub fn context_get(&self, key: &Value) -> Option<Value> {
+        let frames = self.user_context.borrow();
+        for frame in frames.iter().rev() {
+            if let Some(v) = frame.get(key) {
+                return Some(v.clone());
+            }
+        }
+        None
+    }
+
+    pub fn context_set(&self, key: Value, value: Value) {
+        let mut frames = self.user_context.borrow_mut();
+        if let Some(top) = frames.last_mut() {
+            top.insert(key, value);
+        }
+    }
+
+    pub fn context_has(&self, key: &Value) -> bool {
+        let frames = self.user_context.borrow();
+        frames.iter().any(|frame| frame.contains_key(key))
+    }
+
+    pub fn context_remove(&self, key: &Value) -> Option<Value> {
+        let mut frames = self.user_context.borrow_mut();
+        let mut first_found = None;
+        for frame in frames.iter_mut().rev() {
+            if let Some(v) = frame.remove(key) {
+                if first_found.is_none() {
+                    first_found = Some(v);
+                }
+            }
+        }
+        first_found
+    }
+
+    pub fn context_all(&self) -> BTreeMap<Value, Value> {
+        let frames = self.user_context.borrow();
+        let mut merged = BTreeMap::new();
+        for frame in frames.iter() {
+            for (k, v) in frame {
+                merged.insert(k.clone(), v.clone());
+            }
+        }
+        merged
+    }
+
+    pub fn context_push_frame(&self) {
+        self.user_context.borrow_mut().push(BTreeMap::new());
+    }
+
+    pub fn context_push_frame_with(&self, bindings: BTreeMap<Value, Value>) {
+        self.user_context.borrow_mut().push(bindings);
+    }
+
+    pub fn context_pop_frame(&self) {
+        let mut frames = self.user_context.borrow_mut();
+        if frames.len() > 1 {
+            frames.pop();
+        }
+    }
+
+    pub fn context_clear(&self) {
+        let mut frames = self.user_context.borrow_mut();
+        frames.clear();
+        frames.push(BTreeMap::new());
+    }
+
+    // --- Hidden context methods ---
+
+    pub fn hidden_get(&self, key: &Value) -> Option<Value> {
+        let frames = self.hidden_context.borrow();
+        for frame in frames.iter().rev() {
+            if let Some(v) = frame.get(key) {
+                return Some(v.clone());
+            }
+        }
+        None
+    }
+
+    pub fn hidden_set(&self, key: Value, value: Value) {
+        let mut frames = self.hidden_context.borrow_mut();
+        if let Some(top) = frames.last_mut() {
+            top.insert(key, value);
+        }
+    }
+
+    pub fn hidden_has(&self, key: &Value) -> bool {
+        let frames = self.hidden_context.borrow();
+        frames.iter().any(|frame| frame.contains_key(key))
+    }
+
+    pub fn hidden_push_frame(&self) {
+        self.hidden_context.borrow_mut().push(BTreeMap::new());
+    }
+
+    pub fn hidden_pop_frame(&self) {
+        let mut frames = self.hidden_context.borrow_mut();
+        if frames.len() > 1 {
+            frames.pop();
+        }
+    }
+
+    // --- Stack methods ---
+
+    pub fn context_stack_push(&self, key: Value, value: Value) {
+        self.context_stacks
+            .borrow_mut()
+            .entry(key)
+            .or_insert_with(Vec::new)
+            .push(value);
+    }
+
+    pub fn context_stack_get(&self, key: &Value) -> Vec<Value> {
+        self.context_stacks
+            .borrow()
+            .get(key)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    pub fn context_stack_pop(&self, key: &Value) -> Option<Value> {
+        let mut stacks = self.context_stacks.borrow_mut();
+        let stack = stacks.get_mut(key)?;
+        let val = stack.pop();
+        if stack.is_empty() {
+            stacks.remove(key);
+        }
+        val
     }
 }
 
