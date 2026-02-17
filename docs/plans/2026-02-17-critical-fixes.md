@@ -41,8 +41,8 @@ The dispatch loop used `unsafe { get_unchecked(fi) }` and a raw pointer cast to 
 ### 5. Thread-local callback architecture
 `set_eval_callback`/`set_call_callback` are global TLS. Creating two `Interpreter` instances in one thread silently overwrites callbacks. This makes embedding Sema as a library a footgun. **Fix:** Store evaluator/caller in `EvalContext` or pass explicitly.
 
-### 6. LLM domain types in `sema-core`
-`Prompt`, `Conversation`, `Agent`, `ToolDefinition`, message roles, images are all in the core `Value` enum. This bloats the tag space and creates coupling between core runtime and LLM concepts. **Fix:** Represent as maps/records or move to a separate `sema-llm-types` crate.
+### ~~6. LLM domain types in `sema-core`~~ — NOT A PROBLEM
+~~`Prompt`, `Conversation`, `Agent`, `ToolDefinition` in core `Value`.~~ Reconsidered: LLM primitives are Sema's defining feature, not a bolted-on extension. These types need to be first-class values. The NaN-boxing tag space has room (~15 of 64 tags used). Moving them out would add indirection with no practical benefit.
 
 ### 7. String interner leaks forever
 `INTERNER` is TLS, never evicts. Long-running REPLs accumulate interned strings indefinitely. Not a bug today, but a slow memory leak by design.
