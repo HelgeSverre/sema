@@ -72,6 +72,7 @@ export default defineConfig({
             { text: 'System', link: '/docs/stdlib/system' },
             { text: 'Bytevectors', link: '/docs/stdlib/bytevectors' },
             { text: 'Records', link: '/docs/stdlib/records' },
+            { text: 'Terminal Styling', link: '/docs/stdlib/terminal' },
           ],
         },
         {

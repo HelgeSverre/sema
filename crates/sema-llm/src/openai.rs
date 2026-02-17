@@ -64,15 +64,22 @@ impl OpenAiProvider {
 
     fn build_request_body(&self, request: &ChatRequest) -> OpenAiRequest {
         let model = self.resolve_model(&request.model);
-        let messages: Vec<OpenAiMessage> = request
-            .messages
-            .iter()
-            .map(|m| OpenAiMessage {
-                role: m.role.clone(),
-                content: Some(serialize_openai_content(&m.content)),
+        let mut messages: Vec<OpenAiMessage> = Vec::new();
+
+        // Prepend system message if provided
+        if let Some(ref system) = request.system {
+            messages.push(OpenAiMessage {
+                role: "system".to_string(),
+                content: Some(serde_json::Value::String(system.clone())),
                 tool_calls: None,
-            })
-            .collect();
+            });
+        }
+
+        messages.extend(request.messages.iter().map(|m| OpenAiMessage {
+            role: m.role.clone(),
+            content: Some(serialize_openai_content(&m.content)),
+            tool_calls: None,
+        }));
 
         let tools: Vec<OpenAiTool> = request
             .tools
@@ -87,6 +94,14 @@ impl OpenAiProvider {
             })
             .collect();
 
+        let response_format = if request.json_mode {
+            Some(ResponseFormat {
+                format_type: "json_object".to_string(),
+            })
+        } else {
+            None
+        };
+
         OpenAiRequest {
             model,
             messages,
@@ -96,6 +111,7 @@ impl OpenAiProvider {
             stop: request.stop_sequences.clone(),
             stream: None,
             stream_options: None,
+            response_format,
         }
     }
 
@@ -356,6 +372,14 @@ struct OpenAiRequest {
     stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream_options: Option<StreamOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    response_format: Option<ResponseFormat>,
+}
+
+#[derive(Serialize)]
+struct ResponseFormat {
+    #[serde(rename = "type")]
+    format_type: String,
 }
 
 #[derive(Serialize)]

@@ -126,6 +126,15 @@ Return the byte index of the first occurrence of a substring, or `nil` if not fo
 (string/index-of "hello" "xyz")  ; => nil
 ```
 
+### `string/last-index-of`
+
+Find the last occurrence of a substring. Returns the index or -1 if not found.
+
+```scheme
+(string/last-index-of "abcabc" "abc")   ; => 3
+(string/last-index-of "hello" "xyz")    ; => -1
+```
+
 ### `string/chars`
 
 Convert a string to a list of characters.
@@ -169,6 +178,15 @@ Test if a string represents a valid number.
 (string/number? "42")      ; => #t
 (string/number? "3.14")   ; => #t
 (string/number? "hello")  ; => #f
+```
+
+### `string/empty?`
+
+Test if a string is empty.
+
+```scheme
+(string/empty? "")      ; => #t
+(string/empty? "hello") ; => #f
 ```
 
 ### `string/map`

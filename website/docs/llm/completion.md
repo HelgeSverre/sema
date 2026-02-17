@@ -54,6 +54,27 @@ Send a list of messages and get a response. Supports system, user, and assistant
   {:max-tokens 100})
 ```
 
+### Multi-Modal Chat
+
+Send messages that include images alongside text using `message/with-image`.
+
+```scheme
+;; Load an image and ask the LLM about it
+(define img (file/read-bytes "photo.jpg"))
+(define msg (message/with-image :user "Describe this image." img))
+(llm/chat (list msg))
+```
+
+Combine with regular messages:
+
+```scheme
+(llm/chat
+  [(message :system "You are an image analyst.")
+   (message/with-image :user "What text is in this image?" (file/read-bytes "doc.png"))])
+```
+
+The image must be a bytevector. Media type (PNG, JPEG, GIF, WebP, PDF) is detected automatically from magic bytes. See [Vision Extraction](./extraction.md#vision-extraction) for structured data extraction from images.
+
 ### `llm/send`
 
 Send a prompt value (composed from `prompt` expressions) to the LLM.

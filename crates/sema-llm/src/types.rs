@@ -104,6 +104,8 @@ pub struct ChatRequest {
     pub system: Option<String>,
     pub tools: Vec<ToolSchema>,
     pub stop_sequences: Vec<String>,
+    /// When true, providers that support it will request JSON output mode.
+    pub json_mode: bool,
 }
 
 impl ChatRequest {
@@ -116,6 +118,7 @@ impl ChatRequest {
             system: None,
             tools: Vec::new(),
             stop_sequences: Vec::new(),
+            json_mode: false,
         }
     }
 }

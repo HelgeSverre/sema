@@ -1,0 +1,37 @@
+;; test-extract.sema — Test structured data extraction
+;; Requires: ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable
+;; Usage: cargo run -- examples/llm/test-extract.sema
+
+(llm/auto-configure)
+
+;; 1. Simple extraction
+(println "=== Test 1: llm/extract (basic) ===")
+(define person (llm/extract
+  {:name :string :age :number :city :string}
+  "John Smith is a 34-year-old engineer living in Oslo, Norway."))
+(println "Result:" person)
+
+;; 2. Extract with nested schema
+(println "\n=== Test 2: llm/extract (complex) ===")
+(define event (llm/extract
+  {:event_name :string :date :string :location :string :price :string}
+  "Join us for TechConf 2025 on March 15th at the Oslo Convention Center. Tickets are $299."))
+(println "Result:" event)
+
+;; 3. Classification
+(println "\n=== Test 3: llm/classify ===")
+(define sentiments (list
+  "I absolutely love this product!"
+  "This is the worst experience ever."
+  "The package arrived on time."))
+(for-each
+  (lambda (text)
+    (define label (llm/classify '(:positive :negative :neutral) text))
+    (println (format "  ~a => ~a" text label)))
+  sentiments)
+
+;; 4. Session usage
+(println "\n=== Session Usage ===")
+(println (llm/session-usage))
+
+(println "\nExtraction tests complete!")

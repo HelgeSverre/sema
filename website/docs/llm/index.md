@@ -44,7 +44,7 @@ Generate embeddings (as bytevectors), compute cosine similarity, and access embe
 
 ### [Structured Extraction](./extraction.md)
 
-Extract structured data from text and classify inputs.
+Extract structured data from text and images, classify inputs, and work with multi-modal content.
 
 ### [Provider Management](./providers.md)
 

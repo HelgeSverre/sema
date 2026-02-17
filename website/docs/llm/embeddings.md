@@ -6,6 +6,23 @@ outline: [2, 3]
 
 Generate vector embeddings from text and compute similarity between them. Embeddings are auto-configured from environment variables (`JINA_API_KEY`, `VOYAGE_API_KEY`, or `COHERE_API_KEY`).
 
+## Configuration
+
+### `llm/configure-embeddings`
+
+Configure a dedicated embedding provider separately from the chat provider.
+
+```scheme
+(llm/configure-embeddings :jina {:api-key (env "JINA_API_KEY")})
+(llm/configure-embeddings :voyage {:api-key (env "VOYAGE_API_KEY")})
+(llm/configure-embeddings :cohere {:api-key (env "COHERE_API_KEY")})
+
+;; OpenAI-compatible embedding provider
+(llm/configure-embeddings :openai {:api-key (env "OPENAI_API_KEY")})
+```
+
+This allows you to use one provider for chat (e.g., Anthropic) and a different one for embeddings.
+
 ## Generating Embeddings
 
 ### `llm/embed`

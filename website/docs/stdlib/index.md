@@ -49,9 +49,9 @@ Sema's stdlib follows consistent naming patterns:
 | `string/split`, `string/join`, `string/trim` | Split, join, trim |
 | `string/upper`, `string/lower`, `string/capitalize`, `string/title-case` | Case conversion |
 | `string/contains?`, `string/starts-with?`, `string/ends-with?` | Search predicates |
-| `string/replace`, `string/index-of`, `string/reverse` | Manipulation |
+| `string/replace`, `string/index-of`, `string/last-index-of`, `string/reverse` | Manipulation |
 | `string/chars`, `string/repeat`, `string/pad-left`, `string/pad-right` | Utilities |
-| `string/map`, `string/number?` | Higher-order & predicates |
+| `string/map`, `string/number?`, `string/empty?` | Higher-order & predicates |
 | `char->integer`, `integer->char`, `char-alphabetic?`, ... | Character operations |
 | `string->number`, `number->string`, `string->symbol`, ... | Type conversions |
 
@@ -62,10 +62,10 @@ Sema's stdlib follows consistent naming patterns:
 | `list`, `cons`, `car`, `cdr`, `first`, `rest` | Construction & access |
 | `cadr`, `caddr`, `last`, `nth` | Positional access |
 | `length`, `append`, `reverse`, `range` | Basic operations |
-| `map`, `filter`, `foldl`, `foldr`, `reduce` | Higher-order functions |
+| `map`, `filter`, `foldl`, `foldr`, `reduce`, `flat-map` | Higher-order functions |
 | `sort`, `sort-by`, `apply`, `for-each` | Ordering & application |
-| `take`, `drop`, `flatten`, `zip`, `partition` | Sublists |
-| `member`, `any`, `every`, `list/index-of`, `list/unique` | Searching |
+| `take`, `drop`, `flatten`, `flatten-deep`, `zip`, `partition` | Sublists |
+| `member`, `any`, `every`, `list/index-of`, `list/unique`, `list/dedupe` | Searching |
 | `list/group-by`, `list/interleave`, `list/chunk`, `frequencies` | Grouping |
 | `list/sum`, `list/min`, `list/max` | Aggregation |
 | `list/shuffle`, `list/pick` | Random |
@@ -108,13 +108,17 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function | Description |
 |---|---|
-| `display`, `println`, `print`, `newline`, `read-line` | Console I/O |
+| `display`, `println`, `print`, `print-error`, `println-error`, `newline`, `read-line`, `read-stdin` | Console I/O |
 | `file/read`, `file/write`, `file/append` | File read/write |
+| `file/read-bytes`, `file/write-bytes` | Binary file I/O |
 | `file/read-lines`, `file/write-lines` | Line-based I/O |
+| `file/for-each-line`, `file/fold-lines` | Streaming line I/O |
 | `file/delete`, `file/rename`, `file/copy` | File management |
 | `file/exists?`, `file/is-file?`, `file/is-directory?`, `file/is-symlink?` | File predicates |
 | `file/list`, `file/mkdir`, `file/info` | Directory operations |
+| `file/glob` | File globbing |
 | `path/join`, `path/dirname`, `path/basename`, `path/extension`, `path/absolute` | Path manipulation |
+| `path/ext`, `path/stem`, `path/dir`, `path/filename`, `path/absolute?` | Path predicates & components |
 
 ### [HTTP & JSON](./http-json)
 
@@ -137,7 +141,8 @@ Sema's stdlib follows consistent naming patterns:
 | `csv/parse`, `csv/parse-maps`, `csv/encode` | CSV operations |
 | `uuid/v4` | UUID generation |
 | `base64/encode`, `base64/decode` | Base64 encoding |
-| `hash/sha256` | Hashing |
+| `base64/encode-bytes`, `base64/decode-bytes` | Binary Base64 |
+| `hash/sha256`, `hash/md5`, `hash/hmac-sha256` | Hashing |
 
 ### [Date & Time](./datetime)
 
@@ -178,6 +183,16 @@ Sema's stdlib follows consistent naming patterns:
 | `define-record-type` | Define a record type |
 | `record?` | Record predicate |
 | `type` | Get record type tag |
+
+### [Terminal Styling](./terminal)
+
+| Function | Description |
+|---|---|
+| `term/bold`, `term/red`, `term/green`, ... | Individual style functions |
+| `term/style` | Apply multiple styles with keywords |
+| `term/rgb` | 24-bit true color |
+| `term/strip` | Remove ANSI escape codes |
+| `term/spinner-start`, `term/spinner-stop`, `term/spinner-update` | Animated spinners |
 
 ### [Playground & WASM](./playground)
 

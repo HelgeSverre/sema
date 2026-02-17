@@ -1189,6 +1189,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
         for attempt in 0..=max_retries {
             let mut request = ChatRequest::new(model.clone(), messages.clone());
+            request.json_mode = true;
             if attempt == 0 {
                 request.system = Some(system.clone());
             } else {
@@ -1288,7 +1289,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         data: b64_data,
                     },
                     ContentBlock::Text {
-                        text: "Extract the requested data from this image.".to_string(),
+                        text: "Extract the requested data from this image. Respond in JSON.".to_string(),
                     },
                 ],
             )];
@@ -1302,6 +1303,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
             let mut request = ChatRequest::new(model, messages);
             request.system = Some(system);
+            request.json_mode = true;
 
             let response = do_complete(request)?;
             track_usage(&response.usage)?;

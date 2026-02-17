@@ -82,3 +82,73 @@ Classify text into one of a set of categories. Returns the matching keyword.
 ```
 
 Pass a vector of keyword labels and the text to classify. The LLM picks the best-matching label.
+
+## Vision Extraction
+
+### `llm/extract-from-image`
+
+Extract structured data from images using vision-capable LLMs. Accepts a schema, an image source (file path or bytevector), and optional options.
+
+```scheme
+;; Extract from a file path
+(llm/extract-from-image
+  {:text :string :background_color :string}
+  "assets/logo.png")
+; => {:background_color "white" :text "Sema"}
+
+;; Extract from a bytevector
+(define img (file/read-bytes "invoice.jpg"))
+(llm/extract-from-image
+  {:invoice_number :string :date :string :total :string}
+  img)
+; => {:date "2025-03-15" :invoice_number "12345" :total "$139.96"}
+```
+
+Supported image formats (detected automatically via magic bytes): PNG, JPEG, GIF, WebP, PDF.
+
+### Options
+
+`llm/extract-from-image` accepts an optional third argument — an options map:
+
+```scheme
+(llm/extract-from-image schema source {:model "gpt-4o"})
+```
+
+| Option   | Type   | Default | Description              |
+| -------- | ------ | ------- | ------------------------ |
+| `:model` | string | —       | Override the default model |
+
+## Multi-Modal Messages
+
+### `message/with-image`
+
+Create a message that includes both text and an image, for use with `llm/chat`.
+
+```scheme
+(define img (file/read-bytes "photo.jpg"))
+(define msg (message/with-image :user "What do you see?" img))
+(llm/chat (list msg))
+```
+
+The image must be a bytevector (use `file/read-bytes` to load from disk). The media type is detected automatically.
+
+You can combine image messages with regular messages:
+
+```scheme
+(llm/chat
+  [(message :system "You are a helpful image analyst.")
+   (message/with-image :user "Describe this chart." (file/read-bytes "chart.png"))])
+```
+
+### Provider Support
+
+Vision features work with providers that support multi-modal input:
+
+| Provider      | `llm/extract-from-image` | `message/with-image` |
+| ------------- | ------------------------ | -------------------- |
+| **Anthropic** | ✅                       | ✅                   |
+| **OpenAI**    | ✅                       | ✅                   |
+| **Gemini**    | ✅                       | ✅                   |
+| **Ollama**    | ✅ (model-dependent)     | ✅ (model-dependent) |
+
+For Ollama, use a vision-capable model like `gemma3:4b` or `llava`.

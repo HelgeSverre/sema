@@ -222,23 +222,25 @@ Switch the active provider at runtime.
 
 All providers are auto-configured from environment variables. Use `(llm/configure :provider {...})` for manual setup.
 
-| Provider          | Type           | Chat | Stream | Tools | Embeddings |
-| ----------------- | -------------- | ---- | ------ | ----- | ---------- |
-| **Anthropic**     | Native         | ✅   | ✅     | ✅    | —          |
-| **OpenAI**        | Native         | ✅   | ✅     | ✅    | ✅         |
-| **Google Gemini** | Native         | ✅   | ✅     | ✅    | —          |
-| **Ollama**        | Native (local) | ✅   | ✅     | ✅    | —          |
-| **Groq**          | OpenAI-compat  | ✅   | ✅     | ✅    | —          |
-| **xAI**           | OpenAI-compat  | ✅   | ✅     | ✅    | —          |
-| **Mistral**       | OpenAI-compat  | ✅   | ✅     | ✅    | —          |
-| **Moonshot**      | OpenAI-compat  | ✅   | ✅     | ✅    | —          |
-| **Jina**          | Embedding-only | —    | —      | —     | ✅         |
-| **Voyage**        | Embedding-only | —    | —      | —     | ✅         |
-| **Cohere**        | Embedding-only | —    | —      | —     | ✅         |
-| *Any OpenAI-compat* | `llm/configure`  | ✅ | ✅   | ✅    | —          |
-| *Custom Lisp*     | `llm/define-provider` | ✅ | ¹ | ✅  | —          |
+| Provider          | Type           | Chat | Stream | Tools | Embeddings | Vision |
+| ----------------- | -------------- | ---- | ------ | ----- | ---------- | ------ |
+| **Anthropic**     | Native         | ✅   | ✅     | ✅    | —          | ✅     |
+| **OpenAI**        | Native         | ✅   | ✅     | ✅    | ✅         | ✅     |
+| **Google Gemini** | Native         | ✅   | ✅     | ✅    | —          | ✅     |
+| **Ollama**        | Native (local) | ✅   | ✅     | ✅    | —          | ✅ ²   |
+| **Groq**          | OpenAI-compat  | ✅   | ✅     | ✅    | —          | —      |
+| **xAI**           | OpenAI-compat  | ✅   | ✅     | ✅    | —          | —      |
+| **Mistral**       | OpenAI-compat  | ✅   | ✅     | ✅    | —          | —      |
+| **Moonshot**      | OpenAI-compat  | ✅   | ✅     | ✅    | —          | —      |
+| **Jina**          | Embedding-only | —    | —      | —     | ✅         | —      |
+| **Voyage**        | Embedding-only | —    | —      | —     | ✅         | —      |
+| **Cohere**        | Embedding-only | —    | —      | —     | ✅         | —      |
+| *Any OpenAI-compat* | `llm/configure`  | ✅ | ✅   | ✅    | —          | ✅     |
+| *Custom Lisp*     | `llm/define-provider` | ✅ | ¹ | ✅  | —          | —      |
 
 ¹ Streaming falls back to non-streaming (sends complete response as a single chunk).
+
+² Vision requires a vision-capable model (e.g., `gemma3:4b`, `llava`).
 
 ## Environment Variables
 

@@ -83,6 +83,16 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
             "Translate 'hello' to Spanish"
             "Translate 'hello' to German"])
 
+;; Vision — extract structured data from images
+(llm/extract-from-image
+  {:text :string :background_color :string}
+  "assets/logo.png")
+;; => {:background_color "white" :text "Sema"}
+
+;; Multi-modal chat — send images in messages
+(define img (file/read-bytes "photo.jpg"))
+(llm/chat [(message/with-image :user "Describe this image." img)])
+
 ;; Cost tracking
 (llm/set-budget 1.00)
 (llm/budget-remaining) ;; => {:limit 1.0 :spent 0.05 :remaining 0.95}
@@ -92,21 +102,21 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
 
 All providers are auto-configured from environment variables — just set the API key and go.
 
-| Provider          | Chat | Stream | Tools | Embeddings |
-| ----------------- | ---- | ------ | ----- | ---------- |
-| **Anthropic**     | ✅   | ✅     | ✅    | —          |
-| **OpenAI**        | ✅   | ✅     | ✅    | ✅         |
-| **Google Gemini** | ✅   | ✅     | ✅    | —          |
-| **Ollama**        | ✅   | ✅     | ✅    | —          |
-| **Groq**          | ✅   | ✅     | ✅    | —          |
-| **xAI**           | ✅   | ✅     | ✅    | —          |
-| **Mistral**       | ✅   | ✅     | ✅    | —          |
-| **Moonshot**      | ✅   | ✅     | ✅    | —          |
-| **Jina**          | —    | —      | —     | ✅         |
-| **Voyage**        | —    | —      | —     | ✅         |
-| **Cohere**        | —    | —      | —     | ✅         |
-| **Any OpenAI-compat** | ✅   | ✅     | ✅    | —          |
-| **Custom (Lisp)**  | ✅   | —      | ✅    | —          |
+| Provider          | Chat | Stream | Tools | Embeddings | Vision |
+| ----------------- | ---- | ------ | ----- | ---------- | ------ |
+| **Anthropic**     | ✅   | ✅     | ✅    | —          | ✅     |
+| **OpenAI**        | ✅   | ✅     | ✅    | ✅         | ✅     |
+| **Google Gemini** | ✅   | ✅     | ✅    | —          | ✅     |
+| **Ollama**        | ✅   | ✅     | ✅    | —          | ✅     |
+| **Groq**          | ✅   | ✅     | ✅    | —          | —      |
+| **xAI**           | ✅   | ✅     | ✅    | —          | —      |
+| **Mistral**       | ✅   | ✅     | ✅    | —          | —      |
+| **Moonshot**      | ✅   | ✅     | ✅    | —          | —      |
+| **Jina**          | —    | —      | —     | ✅         | —      |
+| **Voyage**        | —    | —      | —     | ✅         | —      |
+| **Cohere**        | —    | —      | —     | ✅         | —      |
+| **Any OpenAI-compat** | ✅   | ✅     | ✅    | —          | ✅     |
+| **Custom (Lisp)**  | ✅   | —      | ✅    | —          | —      |
 
 ## It's Also a Real Lisp
 
@@ -218,6 +228,9 @@ The [`examples/`](examples/) directory has 50+ programs:
 | [`brainfuck.sema`](examples/brainfuck.sema) | Brainfuck interpreter |
 | [`mandelbrot.sema`](examples/mandelbrot.sema) | ASCII Mandelbrot set |
 | [`json-api.sema`](examples/json-api.sema) | Fetch and process JSON APIs |
+| [`test-vision.sema`](examples/llm/test-vision.sema) | Vision extraction and multi-modal chat tests |
+| [`test-extract.sema`](examples/llm/test-extract.sema) | Structured extraction and classification |
+| [`test-batch.sema`](examples/llm/test-batch.sema) | Batch/parallel LLM completions |
 
 ## Why Sema?
 

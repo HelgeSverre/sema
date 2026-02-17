@@ -32,6 +32,22 @@ Alias for `display`. Print without a trailing newline.
 (print "also no newline")
 ```
 
+### `print-error`
+
+Print to stderr without a trailing newline.
+
+```scheme
+(print-error "warning: something happened")
+```
+
+### `println-error`
+
+Print to stderr with a trailing newline.
+
+```scheme
+(println-error "error: file not found")
+```
+
 ### `newline`
 
 Print a newline character.
@@ -46,6 +62,14 @@ Read a line of input from stdin.
 
 ```scheme
 (define name (read-line))
+```
+
+### `read-stdin`
+
+Read all of stdin as a string (until EOF).
+
+```scheme
+(define input (read-stdin))
 ```
 
 ## File Operations
@@ -90,6 +114,26 @@ Write a list of strings to a file, one per line.
 (file/write-lines "out.txt" '("a" "b" "c"))
 ```
 
+### `file/for-each-line`
+
+Iterate over lines of a file, calling a function on each line. Memory-efficient for large files.
+
+```scheme
+(file/for-each-line "data.txt"
+  (fn (line) (println line)))
+```
+
+### `file/fold-lines`
+
+Fold over lines of a file with an accumulator. Uses a 256KB buffer for high throughput on large files.
+
+```scheme
+(file/fold-lines "data.csv"
+  (fn (acc line) (+ acc 1))
+  0)
+; => number of lines
+```
+
 ### `file/delete`
 
 Delete a file.
@@ -112,6 +156,24 @@ Copy a file.
 
 ```scheme
 (file/copy "src.txt" "dst.txt")
+```
+
+## Binary File I/O
+
+### `file/read-bytes`
+
+Read a file as a bytevector (binary data).
+
+```scheme
+(file/read-bytes "image.png")   ; => #u8(137 80 78 71 ...)
+```
+
+### `file/write-bytes`
+
+Write a bytevector to a file.
+
+```scheme
+(file/write-bytes "output.bin" my-bytes)
 ```
 
 ## File Predicates
@@ -166,6 +228,15 @@ Create a directory.
 (file/mkdir "new-dir")
 ```
 
+### `file/glob`
+
+Find files matching a glob pattern.
+
+```scheme
+(file/glob "src/**/*.rs")      ; => ("src/main.rs" "src/lib.rs" ...)
+(file/glob "*.txt")            ; => ("readme.txt" "notes.txt")
+```
+
 ### `file/info`
 
 Get file metadata. Returns a map with `:size`, `:modified`, and other keys.
@@ -216,4 +287,47 @@ Return the absolute path.
 
 ```scheme
 (path/absolute ".")   ; => "/full/path/to/current/dir"
+```
+
+### `path/ext`
+
+Return the file extension (without the dot).
+
+```scheme
+(path/ext "file.rs")     ; => "rs"
+(path/ext "Makefile")    ; => ""
+```
+
+### `path/stem`
+
+Return the filename without extension.
+
+```scheme
+(path/stem "file.rs")      ; => "file"
+(path/stem "archive.tar.gz")  ; => "archive.tar"
+```
+
+### `path/dir`
+
+Return the directory portion of a path.
+
+```scheme
+(path/dir "/a/b/c.txt")   ; => "/a/b"
+```
+
+### `path/filename`
+
+Return the filename portion of a path.
+
+```scheme
+(path/filename "/a/b/c.txt")   ; => "c.txt"
+```
+
+### `path/absolute?`
+
+Test if a path is absolute.
+
+```scheme
+(path/absolute? "/usr/bin")   ; => #t
+(path/absolute? "relative")  ; => #f
 ```

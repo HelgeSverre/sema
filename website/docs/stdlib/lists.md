@@ -222,6 +222,15 @@ Sort a list by a key function.
 (sort-by abs '(-3 1 -2))             ; => (1 -2 -3)
 ```
 
+### `flat-map`
+
+Map a function over a list and flatten the results by one level.
+
+```scheme
+(flat-map (fn (x) (list x (* x 10))) '(1 2 3))
+; => (1 10 2 20 3 30)
+```
+
 ### `apply`
 
 Apply a function to a list of arguments.
@@ -256,6 +265,14 @@ Flatten nested lists into a single list.
 
 ```scheme
 (flatten '(1 (2 (3)) 4))   ; => (1 2 3 4)
+```
+
+### `flatten-deep`
+
+Recursively flatten all nested lists.
+
+```scheme
+(flatten-deep '(1 (2 (3 (4)))))   ; => (1 2 3 4)
 ```
 
 ### `zip`
@@ -318,6 +335,14 @@ Remove duplicate elements, preserving order.
 
 ```scheme
 (list/unique '(1 2 2 3 3 3))   ; => (1 2 3)
+```
+
+### `list/dedupe`
+
+Remove consecutive duplicates from a list.
+
+```scheme
+(list/dedupe '(1 1 2 2 3 3 2))   ; => (1 2 3 2)
 ```
 
 ## Grouping

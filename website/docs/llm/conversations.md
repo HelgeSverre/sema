@@ -73,6 +73,19 @@ Get the model associated with the conversation.
 (conversation/model conv)   ; => "claude-haiku-4-5-20251001"
 ```
 
+## Branching
+
+### `conversation/fork`
+
+Fork a conversation, creating an independent copy. Since conversations are immutable, this is equivalent to a clone.
+
+```scheme
+(define conv (conversation/new {}))
+(define conv (conversation/say conv "Remember the number 7"))
+(define branch (conversation/fork conv))
+;; branch and conv are now independent
+```
+
 ## Type Predicate
 
 ### `conversation?`

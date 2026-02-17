@@ -10,4 +10,18 @@
 (llm/stream "Count from 1 to 5, one number per word, nothing else." {:max-tokens 30})
 (newline)
 
+;; Vision: extract from image
+(println "OpenAI vision extract:")
+(define r (llm/extract-from-image {:text :string} "assets/logo.png"))
+(println "  " r)
+
+;; Vision: chat with image
+(define img (file/read-bytes "assets/logo.png"))
+(define msg (message/with-image :user "What text is in this image? Reply with just the text." img))
+(println "OpenAI vision chat:" (llm/chat (list msg)))
+
+;; Batch
+(define answers (llm/batch (list "Say just: alpha" "Say just: beta" "Say just: gamma")))
+(println "OpenAI batch:" answers)
+
 (println "OpenAI: OK")
