@@ -1,0 +1,73 @@
+;; markov-chain.sema — Markov chain text generator
+;; Demonstrates: file I/O, hash maps, foldl, list/pick, regex, named let
+
+;; ============================================================
+;; Section 1: Read & Tokenize
+;; ============================================================
+
+(define text (file/read "examples/markov-corpus.txt"))
+(define tokens (regex/find-all "[A-Za-z',;:!?.]+|[.]" text))
+
+(println "=== Markov Chain Text Generator ===\n")
+(println (str "Tokens in corpus: " (length tokens)))
+
+;; ============================================================
+;; Section 2: Build Trigram Table
+;; ============================================================
+;; Key: "word1 word2" -> Value: list of possible next words
+;; Sliding a 3-word window over the token list.
+
+(define (build-trigram-table tokens)
+  (let loop ((i 0) (table {}))
+    (if (>= i (- (length tokens) 2))
+      table
+      (let* ((w1 (nth tokens i))
+             (w2 (nth tokens (+ i 1)))
+             (w3 (nth tokens (+ i 2)))
+             (key (str w1 " " w2))
+             (existing (get table key '())))
+        (loop (+ i 1)
+              (assoc table key (cons w3 existing)))))))
+
+(define table (build-trigram-table tokens))
+(define all-keys (keys table))
+
+(println (str "Unique bigram keys: " (length all-keys)))
+(println "")
+
+;; ============================================================
+;; Section 3: Generate Text
+;; ============================================================
+;; Pick a random starting bigram, then walk the chain.
+
+(define (generate n)
+  (let* ((start-key (list/pick all-keys))
+         (pair (regex/find-all "[A-Za-z',;:!?.]+|[.]" start-key))
+         (w1 (nth pair 0))
+         (w2 (nth pair 1)))
+    (let loop ((w1 w1) (w2 w2) (count 2) (acc (list w2 w1)))
+      (if (>= count n)
+        (string/join (reverse acc) " ")
+        (let ((successors (get table (str w1 " " w2) nil)))
+          (if (nil? successors)
+            (string/join (reverse acc) " ")
+            (let ((next (list/pick successors)))
+              (loop w2 next (+ count 1) (cons next acc)))))))))
+
+;; ============================================================
+;; Section 4: Output
+;; ============================================================
+
+(println "--- Sample 1 (20 words) ---")
+(println (generate 20))
+(println "")
+
+(println "--- Sample 2 (40 words) ---")
+(println (generate 40))
+(println "")
+
+(println "--- Sample 3 (60 words) ---")
+(println (generate 60))
+(println "")
+
+(println "=== Done ===")
