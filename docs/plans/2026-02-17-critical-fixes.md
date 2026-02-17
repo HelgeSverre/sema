@@ -39,27 +39,39 @@ The dispatch loop used `unsafe { get_unchecked(fi) }` and a raw pointer cast to 
 ## 🟠 Serious (Tracked — Future Work)
 
 ### 5. Thread-local callback architecture
-`set_eval_callback`/`set_call_callback` are global TLS. Creating two `Interpreter` instances in one thread silently overwrites callbacks. This makes embedding Sema as a library a footgun. **Fix:** Store evaluator/caller in `EvalContext` or pass explicitly.
+**Status: FIXED**
+
+`set_eval_callback`/`set_call_callback` were global TLS. Creating two `Interpreter` instances in one thread silently overwrote callbacks. **Fix:** Moved callbacks into `EvalContext` as `Cell<Option<fn>>` fields. `STDLIB_CTX` kept for simple-fn stdlib closures.
 
 ### ~~6. LLM domain types in `sema-core`~~ — NOT A PROBLEM
 ~~`Prompt`, `Conversation`, `Agent`, `ToolDefinition` in core `Value`.~~ Reconsidered: LLM primitives are Sema's defining feature, not a bolted-on extension. These types need to be first-class values. The NaN-boxing tag space has room (~15 of 64 tags used). Moving them out would add indirection with no practical benefit.
 
 ### 7. String interner leaks forever
-`INTERNER` is TLS, never evicts. Long-running REPLs accumulate interned strings indefinitely. Not a bug today, but a slow memory leak by design.
+**Status: MITIGATED**
+
+`INTERNER` is TLS, never evicts. Not fixable without replacing `lasso::Rodeo`. **Mitigation:** Added `interner_stats()` function and `sys/interner-stats` builtin returning `{:count N :bytes N}` for monitoring.
 
 ### 8. Span table keyed by `Rc` pointer address
-`Rc::as_ptr() as usize` as a map key. Pointer addresses can be reused after dealloc. In long sessions, spans can point to wrong expressions. The table also hard-clears at `MAX_SPAN_TABLE_ENTRIES`.
+**Status: FIXED (partial)**
+
+Pointer-address keys can theoretically be reused after dealloc. The hard-clear at `MAX_SPAN_TABLE_ENTRIES` was replaced with a soft limit that skips new spans when full, preserving existing error locations. The fundamental pointer-reuse issue remains but is low-risk in practice.
 
 ## 🟡 Significant (Tracked — Quality)
 
 ### 9. No cross-mode tests (tree-walker vs VM)
-No property-based tests verify that tree-walker and VM produce identical results for the same program. When modes diverge, there's no automated detection.
+**Status: FIXED**
+
+Added 11 new `assert_equiv` tests: delay/force, nested maps, variadic arithmetic, deep tail recursion, bytevectors, records, quasiquote, try/catch error types, mutual recursion, and apply. Threading macros (`->`, `->>`) skipped as they require macro imports. Total: 64 cross-mode tests.
 
 ### 10. Stdlib silent error swallowing
-`file/list` uses `.filter_map(|e| e.ok())` which silently drops IO errors. Several `defagent` options silently fall back to defaults on type errors instead of reporting.
+**Status: FIXED**
+
+`file/list` and `file/glob` now propagate IO errors instead of silently dropping them via `.filter_map(|e| e.ok())`.
 
 ### 11. `try` catches all error types
-`try`/`catch` catches everything including `PermissionDenied`, `Io`, `Unbound` — users can easily swallow system-level errors. Should consider distinguishing user exceptions from interpreter errors.
+**Status: DOCUMENTED**
+
+This is a deliberate design choice — `error_to_value` already converts each error type to a map with a `:type` keyword that users can discriminate on. Added documentation to the special-forms page with a table of all 9 error `:type` values and a re-throw pattern example.
 
 ### 12. `transmute::<u32, Spur>` is fragile
 Appears in multiple places. If `lasso` changes internal representation, this breaks silently. Should use safe conversion APIs.
