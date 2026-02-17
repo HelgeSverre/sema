@@ -7,13 +7,13 @@ use wasm_bindgen::prelude::*;
 
 thread_local! {
     /// Completed lines of output (flushed by println/newline)
-    static OUTPUT: RefCell<Vec<String>> = RefCell::new(Vec::new());
+    static OUTPUT: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
     /// Current line being built by display/print (not yet flushed)
-    static LINE_BUF: RefCell<String> = RefCell::new(String::new());
+    static LINE_BUF: RefCell<String> = const { RefCell::new(String::new()) };
     /// Start time for sys/elapsed (milliseconds since epoch)
     static WASM_START_MS: f64 = Date::now();
     /// In-memory virtual filesystem for WASM
-    static VFS: RefCell<BTreeMap<String, String>> = RefCell::new(BTreeMap::new());
+    static VFS: RefCell<BTreeMap<String, String>> = const { RefCell::new(BTreeMap::new()) };
     /// Virtual directories (tracked for file/mkdir, file/is-directory?)
     static VFS_DIRS: RefCell<BTreeSet<String>> = RefCell::new({
         let mut s = BTreeSet::new();
@@ -52,8 +52,10 @@ fn take_output() -> Vec<String> {
 }
 
 /// Register print/println/display/newline that write to the output buffer instead of stdout
+type WasmNativeFn = Box<dyn Fn(&[Value]) -> Result<Value, SemaError>>;
+
 fn register_wasm_io(env: &Env) {
-    let register = |name: &str, f: Box<dyn Fn(&[Value]) -> Result<Value, SemaError>>| {
+    let register = |name: &str, f: WasmNativeFn| {
         env.set(
             sema_core::intern(name),
             Value::native_fn(NativeFn::simple(name, move |args| f(args))),
@@ -1073,6 +1075,12 @@ fn register_wasm_io(env: &Env) {
 #[wasm_bindgen]
 pub struct WasmInterpreter {
     inner: sema_eval::Interpreter,
+}
+
+impl Default for WasmInterpreter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[wasm_bindgen]
