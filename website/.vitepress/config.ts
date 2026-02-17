@@ -93,6 +93,7 @@ export default defineConfig({
             { text: 'Key-Value Store', link: '/docs/stdlib/kv-store' },
             { text: 'Context', link: '/docs/stdlib/context' },
             { text: 'Terminal Styling', link: '/docs/stdlib/terminal' },
+            { text: 'Playground & WASM', link: '/docs/stdlib/playground' },
           ],
         },
         {
