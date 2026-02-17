@@ -35,10 +35,9 @@
         ((< val 0.60) ";") ((< val 0.72) ":") ((< val 0.85) "%")
         (#t "#")))
 
-(do ((y 0 (+ y 1))) ((= y height))
-  (do ((x 0 (+ x 1))) ((= x width))
-    (display (terrain-char (octave-noise x y))))
-  (newline))
+(for-each (fn (y)
+  (println (string/join (map (fn (x) (terrain-char (octave-noise x y))) (range width)) "")))
+  (range height))
 
 (println "")
 (println "~ water  . sand  , grass  ; shrub  : forest  % mountain  # peak")

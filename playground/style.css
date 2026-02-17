@@ -297,6 +297,7 @@
     border-left: 2px solid var(--gold-dim);
     padding-left: 0.75rem;
     margin-top: 0.25rem;
+    white-space: pre;
   }
   .output-error {
     color: var(--error);

@@ -69,15 +69,20 @@ document.getElementById('engine-toggle').addEventListener('change', (e) => {
   });
 });
 
-function run() {
+async function run() {
   if (!interp) return;
   const code = document.getElementById('editor').value;
   if (!code.trim()) return;
 
   const engine = useVM ? 'vm' : 'tree';
+  const runBtn = document.getElementById('run-btn');
+  runBtn.disabled = true;
+
   const t0 = performance.now();
-  const raw = useVM ? interp.eval_vm(code) : interp.eval_global(code);
+  const raw = useVM ? await interp.eval_vm_async(code) : await interp.eval_async(code);
   const elapsed = performance.now() - t0;
+
+  runBtn.disabled = false;
 
   let result;
   try { result = JSON.parse(raw); }

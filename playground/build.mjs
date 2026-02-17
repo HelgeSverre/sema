@@ -15,6 +15,7 @@ const categoryNames = {
   'visuals': 'Visuals',
   'math-crypto': 'Math & Crypto',
   'llm-tools': 'LLM Tools',
+  'http': 'HTTP',
 };
 
 // Category display order
@@ -22,6 +23,7 @@ const categoryOrder = [
   'getting-started',
   'functional',
   'data',
+  'http',
   'llm-tools',
   'patterns',
   'visuals',

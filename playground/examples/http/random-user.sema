@@ -1,0 +1,25 @@
+;; Generate random user profiles from randomuser.me
+;;
+;; randomuser.me is a free API that generates fake user data
+;; (CORS-enabled, no API key needed)
+
+(println "=== Random User Profiles ===\n")
+
+(define resp (http/get "https://randomuser.me/api/?results=5&nat=us,gb,no,de,fr"))
+
+(if (= (:status resp) 200)
+  (let ((data (json/decode (:body resp))))
+    (for-each (fn (user)
+      (let* ((name (get user :name))
+             (loc  (get user :location))
+             (full-name (format "~a ~a" (get name :first) (get name :last)))
+             (city (get loc :city))
+             (country (get loc :country))
+             (email (get user :email))
+             (age (get (get user :dob) :age)))
+        (println (format "  ~a (~a)" full-name age))
+        (println (format "    📧 ~a" email))
+        (println (format "    📍 ~a, ~a" city country))
+        (println "")))
+      (get data :results)))
+  (println (format "Failed: ~a" (:status resp))))

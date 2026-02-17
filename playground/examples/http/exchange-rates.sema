@@ -1,0 +1,34 @@
+;; Fetch live currency exchange rates
+;;
+;; Uses the ExchangeRate API (no key, CORS-enabled)
+
+(println "=== Currency Exchange Dashboard ===\n")
+
+(define currencies (list "EUR" "GBP" "JPY" "CHF" "CAD" "AUD" "NOK" "SEK" "CNY" "KRW"))
+
+(let* ((resp (http/get "https://open.er-api.com/v6/latest/USD"))
+       (data (json/decode (:body resp)))
+       (rates (get data :rates)))
+
+  (println (format "  Base: USD — ~a\n" (get data :time_last_update_utc)))
+
+  (println (format "  ~a  ~a  ~a"
+    (string/pad-right "Currency" 10)
+    (string/pad-right "Rate" 14)
+    "Inverse (per USD)"))
+  (println (format "  ~a  ~a  ~a"
+    (string/repeat "─" 10)
+    (string/repeat "─" 14)
+    (string/repeat "─" 18)))
+
+  (for-each (fn (cur)
+    (let* ((rate (get rates (string->keyword cur)))
+           (inverse (if (and rate (> rate 0))
+                      (/ (round (* (/ 1 rate) 10000)) 10000)
+                      0))
+           (rate-str (str rate)))
+      (println (format "  ~a  ~a  ~a"
+        (string/pad-right cur 10)
+        (string/pad-right rate-str 14)
+        inverse))))
+    currencies))

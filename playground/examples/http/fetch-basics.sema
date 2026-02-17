@@ -1,0 +1,33 @@
+;; HTTP basics — fetching data from public APIs
+;;
+;; Note: CORS restrictions apply in the browser.
+;; These examples use APIs that allow cross-origin requests.
+
+(println "=== HTTP in the Playground ===\n")
+
+;; Simple GET request
+(define resp (http/get "https://httpbin.org/get"))
+(println (format "Status: ~a" (:status resp)))
+(println (format "Body is string? ~a" (string? (:body resp))))
+(println (format "Headers: ~a keys" (length (keys (:headers resp)))))
+
+;; Parse the JSON body
+(define data (json/decode (:body resp)))
+(println (format "\nOrigin IP: ~a" (get data :origin)))
+(println (format "URL: ~a" (get data :url)))
+
+;; POST with a JSON body
+(println "\n--- POST Request ---\n")
+(define post-resp
+  (http/post "https://httpbin.org/post" {:name "Sema" :version "1.5"}))
+(println (format "Status: ~a" (:status post-resp)))
+(define post-data (json/decode (:body post-resp)))
+(println (format "Echoed JSON: ~a" (get post-data :data)))
+
+;; Custom headers
+(println "\n--- Custom Headers ---\n")
+(define header-resp
+  (http/get "https://httpbin.org/headers"
+    {:headers {:X-Custom "hello-from-sema" :Accept "application/json"}}))
+(define header-data (json/decode (:body header-resp)))
+(println (format "Server saw headers: ~a" (get header-data :headers)))
