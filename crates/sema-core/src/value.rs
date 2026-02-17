@@ -44,6 +44,16 @@ where
     })
 }
 
+/// Return interner statistics: (count, estimated_memory_bytes).
+pub fn interner_stats() -> (usize, usize) {
+    INTERNER.with(|r| {
+        let interner = r.borrow();
+        let count = interner.len();
+        let bytes = count * 16; // approximate: Spur (4 bytes) + average string data
+        (count, bytes)
+    })
+}
+
 /// Compare two Spurs by their resolved string content (lexicographic).
 pub fn compare_spurs(a: Spur, b: Spur) -> std::cmp::Ordering {
     if a == b {

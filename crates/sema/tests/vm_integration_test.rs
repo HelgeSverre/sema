@@ -1534,5 +1534,94 @@ fn test_complex_deep_let_star() {
                 (g (+ f d))
                 (h (- g c)))
            (list a b c d e f g h))",
-    );
-}
+           );
+           }
+
+           // === Promise / delay-force ===
+           #[test]
+           fn test_equiv_delay_force() {
+           assert_equiv("(force (delay 42))");
+           assert_equiv("(force (delay (+ 1 2)))");
+           assert_equiv("(let ((p (delay (* 6 7)))) (+ (force p) (force p)))");
+           }
+
+           // === Nested maps ===
+           #[test]
+           fn test_equiv_nested_maps() {
+           assert_equiv("(get {:a {:b 1}} :a)");
+           assert_equiv("(get (get {:a {:b 42}} :a) :b)");
+           assert_equiv("(assoc {:x 1} :y 2)");
+           }
+
+           // === Variadic arithmetic ===
+           #[test]
+           fn test_equiv_variadic_arithmetic() {
+           assert_equiv("(+ 1 2 3 4 5)");
+           assert_equiv("(* 1 2 3 4)");
+           assert_equiv("(- 10)");
+           assert_equiv("(- 10 3 2)");
+           }
+
+           // === Multiple return values from begin ===
+           #[test]
+           fn test_equiv_begin_returns_last() {
+           assert_equiv("(begin 1 2 3)");
+           assert_equiv("(begin (define x 5) (+ x 1))");
+           }
+
+           // === Tail-recursive functions ===
+           #[test]
+           fn test_equiv_tail_recursion_deep() {
+           assert_equiv("(let loop ((n 1000) (acc 0)) (if (= n 0) acc (loop (- n 1) (+ acc n))))");
+           }
+
+           // === Bytevectors ===
+           #[test]
+           fn test_equiv_bytevectors() {
+           assert_equiv("(bytevector 1 2 3)");
+           assert_equiv("(bytevector-length (bytevector 10 20 30))");
+           assert_equiv("(bytevector-u8-ref (bytevector 10 20 30) 1)");
+           }
+
+           // === Records ===
+           #[test]
+           fn test_equiv_records() {
+           assert_equiv("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point-x (make-point 3 4)))");
+           assert_equiv("(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point? (make-point 1 2)))");
+           }
+
+           // === Threading macros ===
+           // VM doesn't support this yet — `->` and `->>` are unbound (not built-in, likely require macro import)
+           // #[test]
+           // fn test_equiv_threading() {
+           //     assert_equiv("(-> 5 (+ 3) (* 2))");
+           //     assert_equiv("(->> (list 1 2 3 4 5) (filter even?) (map (fn (x) (* x x))))");
+           // }
+
+           // === Quasiquote / unquote ===
+           #[test]
+           fn test_equiv_quasiquote() {
+           assert_equiv("(let ((x 42)) `(a ,x c))");
+           assert_equiv("(let ((xs '(1 2 3))) `(a ,@xs b))");
+           }
+
+           // === Error equivalence ===
+           #[test]
+           fn test_equiv_try_catch_types() {
+           assert_equiv("(try (/ 1 0) (catch e (get e :type)))");
+           assert_equiv("(try (+ 1 \"a\") (catch e (get e :type)))");
+           assert_equiv("(try (throw \"boom\") (catch e (get e :type)))");
+           }
+
+           // === Mutual recursion ===
+           #[test]
+           fn test_equiv_mutual_recursion() {
+           assert_equiv("(begin (define (even? n) (if (= n 0) #t (odd? (- n 1)))) (define (odd? n) (if (= n 0) #f (even? (- n 1)))) (even? 10))");
+           }
+
+           // === apply ===
+           #[test]
+           fn test_equiv_apply() {
+           assert_equiv("(apply + '(1 2 3))");
+           assert_equiv("(apply list '(1 2 3))");
+           }

@@ -252,7 +252,42 @@ Catch errors with structured error maps.
     (:type e)))        ; => :eval
 ```
 
-Error maps in `catch` have keys: `:type`, `:message`, `:stack-trace`, and variant-specific keys (`:value`, `:expected`/`:got`, `:name`).
+::: warning
+`try`/`catch` catches **all** error types — not just user exceptions thrown with `throw`. This includes internal errors like `:unbound` (typos in variable names), `:permission-denied`, and `:arity` (wrong number of arguments). Catching everything can silently mask bugs. **Re-throw errors you don't intend to handle.**
+:::
+
+#### Error map fields
+
+Every caught error is a map with at least `:type`, `:message`, and `:stack-trace`. Some error types include additional fields:
+
+| `:type` | Description | Extra fields |
+|---|---|---|
+| `:reader` | Syntax / parse error | — |
+| `:eval` | General evaluation error | — |
+| `:type-error` | Wrong argument type | `:expected`, `:got` |
+| `:arity` | Wrong number of arguments | — |
+| `:unbound` | Undefined variable | `:name` |
+| `:llm` | LLM provider error | — |
+| `:io` | File / network I/O error | — |
+| `:permission-denied` | Sandboxed capability denied | `:function`, `:capability` |
+| `:user` | Thrown with `throw` | `:value` (the original thrown value) |
+
+#### Discriminating error types
+
+Use the `:type` field to handle specific errors and re-throw the rest:
+
+```scheme
+(try
+  (some-operation)
+  (catch e
+    (cond
+      ((= (get e :type) :permission-denied)
+       (println "Access denied!"))
+      ((= (get e :type) :user)
+       (println (format "User error: ~a" (get e :message))))
+      (else
+       (throw e)))))  ;; re-throw unexpected errors
+```
 
 ### `throw`
 

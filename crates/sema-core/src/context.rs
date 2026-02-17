@@ -6,6 +6,12 @@ use crate::{CallFrame, Env, Sandbox, SemaError, Span, SpanMap, StackTrace, Value
 
 const MAX_SPAN_TABLE_ENTRIES: usize = 200_000;
 
+/// Function-pointer type for the full evaluator callback: (ctx, expr, env) -> Result<Value, SemaError>
+pub type EvalCallbackFn = fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>;
+
+/// Function-pointer type for calling a function value with evaluated arguments: (ctx, func, args) -> Result<Value, SemaError>
+pub type CallCallbackFn = fn(&EvalContext, &Value, &[Value]) -> Result<Value, SemaError>;
+
 pub struct EvalContext {
     pub module_cache: RefCell<BTreeMap<PathBuf, BTreeMap<String, Value>>>,
     pub current_file: RefCell<Vec<PathBuf>>,
@@ -20,6 +26,8 @@ pub struct EvalContext {
     pub user_context: RefCell<Vec<BTreeMap<Value, Value>>>,
     pub hidden_context: RefCell<Vec<BTreeMap<Value, Value>>>,
     pub context_stacks: RefCell<BTreeMap<Value, Vec<Value>>>,
+    pub eval_fn: Cell<Option<EvalCallbackFn>>,
+    pub call_fn: Cell<Option<CallCallbackFn>>,
 }
 
 impl EvalContext {
@@ -38,6 +46,8 @@ impl EvalContext {
             user_context: RefCell::new(vec![BTreeMap::new()]),
             hidden_context: RefCell::new(vec![BTreeMap::new()]),
             context_stacks: RefCell::new(BTreeMap::new()),
+            eval_fn: Cell::new(None),
+            call_fn: Cell::new(None),
         }
     }
 
@@ -56,6 +66,8 @@ impl EvalContext {
             user_context: RefCell::new(vec![BTreeMap::new()]),
             hidden_context: RefCell::new(vec![BTreeMap::new()]),
             context_stacks: RefCell::new(BTreeMap::new()),
+            eval_fn: Cell::new(None),
+            call_fn: Cell::new(None),
         }
     }
 
@@ -146,10 +158,10 @@ impl EvalContext {
 
     pub fn merge_span_table(&self, spans: SpanMap) {
         let mut table = self.span_table.borrow_mut();
-        if table.len().saturating_add(spans.len()) > MAX_SPAN_TABLE_ENTRIES {
-            table.clear();
+        if table.len() < MAX_SPAN_TABLE_ENTRIES {
+            table.extend(spans);
         }
-        table.extend(spans);
+        // If table is full, skip merging new spans (preserves existing error locations)
     }
 
     pub fn lookup_span(&self, ptr: usize) -> Option<Span> {
@@ -299,15 +311,7 @@ impl Default for EvalContext {
     }
 }
 
-/// Type for a full evaluator callback: (ctx, expr, env) -> Result<Value, SemaError>
-pub type EvalCallback = dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>;
-
-/// Type for calling a function value with evaluated arguments: (ctx, func, args) -> Result<Value, SemaError>
-pub type CallCallback = dyn Fn(&EvalContext, &Value, &[Value]) -> Result<Value, SemaError>;
-
 thread_local! {
-    static EVAL_FN: RefCell<Option<Box<EvalCallback>>> = const { RefCell::new(None) };
-    static CALL_FN: RefCell<Option<Box<CallCallback>>> = const { RefCell::new(None) };
     static STDLIB_CTX: EvalContext = EvalContext::new();
 }
 
@@ -321,43 +325,36 @@ where
 }
 
 /// Register the full evaluator callback. Called by `sema-eval` during interpreter init.
-pub fn set_eval_callback(
-    f: impl Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError> + 'static,
-) {
-    EVAL_FN.with(|eval| {
-        *eval.borrow_mut() = Some(Box::new(f));
-    });
+/// Stores into both `ctx` and the shared `STDLIB_CTX` so that stdlib simple-fn closures
+/// (which lack a ctx parameter) can still invoke the evaluator.
+pub fn set_eval_callback(ctx: &EvalContext, f: EvalCallbackFn) {
+    ctx.eval_fn.set(Some(f));
+    STDLIB_CTX.with(|stdlib| stdlib.eval_fn.set(Some(f)));
 }
 
 /// Register the call-value callback. Called by `sema-eval` during interpreter init.
-pub fn set_call_callback(
-    f: impl Fn(&EvalContext, &Value, &[Value]) -> Result<Value, SemaError> + 'static,
-) {
-    CALL_FN.with(|call| {
-        *call.borrow_mut() = Some(Box::new(f));
-    });
+/// Stores into both `ctx` and the shared `STDLIB_CTX`.
+pub fn set_call_callback(ctx: &EvalContext, f: CallCallbackFn) {
+    ctx.call_fn.set(Some(f));
+    STDLIB_CTX.with(|stdlib| stdlib.call_fn.set(Some(f)));
 }
 
 /// Evaluate an expression using the registered evaluator.
 /// Panics if no evaluator has been registered (programming error).
 pub fn eval_callback(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
-    EVAL_FN.with(|eval| {
-        let borrow = eval.borrow();
-        let f = borrow
-            .as_ref()
-            .expect("eval callback not registered — Interpreter::new() must be called first");
-        f(ctx, expr, env)
-    })
+    let f = ctx
+        .eval_fn
+        .get()
+        .expect("eval callback not registered — Interpreter::new() must be called first");
+    f(ctx, expr, env)
 }
 
 /// Call a function value with arguments using the registered callback.
 /// Panics if no callback has been registered (programming error).
 pub fn call_callback(ctx: &EvalContext, func: &Value, args: &[Value]) -> Result<Value, SemaError> {
-    CALL_FN.with(|call| {
-        let borrow = call.borrow();
-        let f = borrow
-            .as_ref()
-            .expect("call callback not registered — Interpreter::new() must be called first");
-        f(ctx, func, args)
-    })
+    let f = ctx
+        .call_fn
+        .get()
+        .expect("call callback not registered — Interpreter::new() must be called first");
+    f(ctx, func, args)
 }

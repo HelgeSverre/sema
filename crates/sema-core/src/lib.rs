@@ -6,13 +6,13 @@ pub mod value;
 
 pub use context::{
     call_callback, eval_callback, set_call_callback, set_eval_callback, with_stdlib_ctx,
-    EvalContext,
+    CallCallbackFn, EvalCallbackFn, EvalContext,
 };
 pub use error::{CallFrame, SemaError, Span, SpanMap, StackTrace};
 pub use lasso::Spur;
 pub use sandbox::{Caps, Sandbox};
 pub use value::{
-    compare_spurs, intern, pretty_print, resolve, with_resolved, Agent, Conversation, Env,
-    ImageAttachment, Lambda, Macro, Message, NativeFn, Prompt, Record, Role, Thunk, ToolDefinition,
-    Value, ValueView,
+    compare_spurs, intern, interner_stats, pretty_print, resolve, with_resolved, Agent,
+    Conversation, Env, ImageAttachment, Lambda, Macro, Message, NativeFn, Prompt, Record, Role,
+    Thunk, ToolDefinition, Value, ValueView,
 };

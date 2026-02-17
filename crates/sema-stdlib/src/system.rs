@@ -219,6 +219,15 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::nil())
     });
 
+    register_fn(env, "sys/interner-stats", |args| {
+        check_arity!(args, "sys/interner-stats", 0);
+        let (count, bytes) = sema_core::interner_stats();
+        let mut result = std::collections::BTreeMap::new();
+        result.insert(Value::keyword("count"), Value::int(count as i64));
+        result.insert(Value::keyword("bytes"), Value::int(bytes as i64));
+        Ok(Value::map(result))
+    });
+
     register_fn(env, "sys/elapsed", |args| {
         check_arity!(args, "sys/elapsed", 0);
         use std::time::Instant;

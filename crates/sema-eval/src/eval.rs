@@ -69,8 +69,8 @@ impl Interpreter {
         let env = Env::new();
         let ctx = EvalContext::new();
         // Register eval/call callbacks so stdlib can invoke the real evaluator
-        sema_core::set_eval_callback(eval_value);
-        sema_core::set_call_callback(call_value);
+        sema_core::set_eval_callback(&ctx, eval_value);
+        sema_core::set_call_callback(&ctx, call_value);
         // Register stdlib
         sema_stdlib::register_stdlib(&env, &sema_core::Sandbox::allow_all());
         // Register LLM builtins
@@ -88,8 +88,8 @@ impl Interpreter {
     pub fn new_with_sandbox(sandbox: &sema_core::Sandbox) -> Self {
         let env = Env::new();
         let ctx = EvalContext::new_with_sandbox(sandbox.clone());
-        sema_core::set_eval_callback(eval_value);
-        sema_core::set_call_callback(call_value);
+        sema_core::set_eval_callback(&ctx, eval_value);
+        sema_core::set_call_callback(&ctx, call_value);
         sema_stdlib::register_stdlib(&env, sandbox);
         #[cfg(not(target_arch = "wasm32"))]
         {

@@ -201,14 +201,14 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let entries: Vec<Value> = std::fs::read_dir(path)
+        let mut entries = Vec::new();
+        for entry in std::fs::read_dir(path)
             .map_err(|e| SemaError::Io(format!("file/list {path}: {e}")))?
-            .filter_map(|entry| {
-                entry
-                    .ok()
-                    .map(|e| Value::string(&e.file_name().to_string_lossy()))
-            })
-            .collect();
+        {
+            let entry =
+                entry.map_err(|e| SemaError::Io(format!("file/list {path}: {e}")))?;
+            entries.push(Value::string(&entry.file_name().to_string_lossy()));
+        }
         Ok(Value::list(entries))
     });
 
@@ -330,10 +330,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let paths = glob::glob(pattern)
             .map_err(|e| SemaError::eval(format!("file/glob: invalid pattern: {e}")))?;
-        let items: Vec<Value> = paths
-            .filter_map(|entry| entry.ok())
-            .map(|path| Value::string(path.to_str().unwrap_or("")))
-            .collect();
+        let mut items = Vec::new();
+        for entry in paths {
+            let path =
+                entry.map_err(|e| SemaError::Io(format!("file/glob: {e}")))?;
+            items.push(Value::string(path.to_str().unwrap_or("")));
+        }
         Ok(Value::list(items))
     });
 
