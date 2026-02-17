@@ -1,0 +1,62 @@
+;; Finite state machines using maps
+
+(println "=== Finite State Machines ===\n")
+
+;; --- Traffic Light ---
+(println "--- Traffic Light ---\n")
+
+(define traffic-fsm
+  (hash-map "red" (hash-map "next" "green" "dur" 5)
+            "green" (hash-map "next" "yellow" "dur" 4)
+            "yellow" (hash-map "next" "red" "dur" 1)))
+
+(define traffic-labels
+  (hash-map "red" "🔴 RED" "green" "🟢 GREEN" "yellow" "🟡 YELLOW"))
+
+(define (run-traffic state steps)
+  (when (> steps 0)
+    (let ((info (get traffic-fsm state)))
+      (println (format "  ~a  (~as)" (get traffic-labels state) (get info "dur")))
+      (run-traffic (get info "next") (- steps 1)))))
+
+(run-traffic "red" 9)
+
+;; --- Vending Machine ---
+(println "\n--- Vending Machine ---\n")
+
+(define vending-fsm
+  (hash-map "idle" (hash-map "coin" "selecting" "msg" "Waiting...")
+            "selecting" (hash-map "select" "dispensing" "cancel" "idle" "msg" "Choose item!")
+            "dispensing" (hash-map "done" "idle" "msg" "Dispensing...")))
+
+(define (vend-step state event)
+  (let ((next (get (get vending-fsm state) event)))
+    (if (null? next)
+      (begin (println (format "  ⚠ No '~a' in ~a" event state)) state)
+      (begin (println (format "  ~a --[~a]--> ~a: ~a" state event next (get (get vending-fsm next) "msg"))) next))))
+
+(define (vend-run state events)
+  (if (null? events) (println (format "  Final: ~a" state))
+    (vend-run (vend-step state (car events)) (cdr events))))
+
+(println "Buy item:")
+(vend-run "idle" '("coin" "select" "done"))
+(println "\nCancel:")
+(vend-run "idle" '("coin" "cancel"))
+
+;; --- Door FSM ---
+(println "\n--- Door ---\n")
+
+(define door-fsm
+  (hash-map "locked" (hash-map "unlock" "closed")
+            "closed" (hash-map "open" "open" "lock" "locked")
+            "open" (hash-map "close" "closed")))
+
+(define (fsm-run fsm state events)
+  (if (null? events) state
+    (let ((next (get (get fsm state) (car events))))
+      (println (format "  ~a --[~a]--> ~a" state (car events) next))
+      (fsm-run fsm next (cdr events)))))
+
+(println (format "Final: ~a"
+  (fsm-run door-fsm "locked" '("unlock" "open" "close" "lock"))))

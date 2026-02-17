@@ -8,6 +8,8 @@ use sema_core::{
     SemaError, Value, ValueView,
 };
 
+use sha2::{Digest, Sha256};
+
 use crate::anthropic::AnthropicProvider;
 use crate::embeddings::{CohereEmbeddingProvider, OpenAiCompatEmbeddingProvider};
 use crate::gemini::GeminiProvider;
@@ -19,6 +21,7 @@ use crate::types::{
     ChatMessage, ChatRequest, ChatResponse, ContentBlock, EmbedRequest, LlmError, ToolCall,
     ToolSchema, Usage,
 };
+use crate::vector_store::{VectorDocument, VectorStore};
 
 /// Type for a full evaluator callback: (ctx, expr, env) -> Result<Value, SemaError>
 pub type EvalCallback = Box<dyn Fn(&EvalContext, &Value, &Env) -> Result<Value, SemaError>>;
@@ -31,12 +34,42 @@ thread_local! {
     static SESSION_COST: RefCell<f64> = const { RefCell::new(0.0) };
     static BUDGET_LIMIT: RefCell<Option<f64>> = const { RefCell::new(None) };
     static BUDGET_SPENT: RefCell<f64> = const { RefCell::new(0.0) };
-    static BUDGET_STACK: RefCell<Vec<(Option<f64>, f64)>> = const { RefCell::new(Vec::new()) };
+    static BUDGET_TOKEN_LIMIT: RefCell<Option<u64>> = const { RefCell::new(None) };
+    static BUDGET_TOKENS_SPENT: RefCell<u64> = const { RefCell::new(0) };
+    static BUDGET_STACK: RefCell<Vec<BudgetFrame>> = const { RefCell::new(Vec::new()) };
+}
+
+#[derive(Clone)]
+struct BudgetFrame {
+    cost_limit: Option<f64>,
+    cost_spent: f64,
+    token_limit: Option<u64>,
+    tokens_spent: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct CachedResponse {
+    content: String,
+    model: String,
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    cached_at: i64,
 }
 
 thread_local! {
     static PRICING_WARNING_SHOWN: Cell<bool> = const { Cell::new(false) };
     static LISP_PROVIDERS: RefCell<std::collections::HashMap<String, LispProviderCallbacks>> = RefCell::new(std::collections::HashMap::new());
+    static CACHE_ENABLED: Cell<bool> = const { Cell::new(false) };
+    static CACHE_MEM: RefCell<std::collections::HashMap<String, CachedResponse>> =
+        RefCell::new(std::collections::HashMap::new());
+    static CACHE_TTL_SECS: Cell<i64> = const { Cell::new(3600) };
+    static CACHE_HITS: Cell<u64> = const { Cell::new(0) };
+    static CACHE_MISSES: Cell<u64> = const { Cell::new(0) };
+    static FALLBACK_CHAIN: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+    static VECTOR_STORES: RefCell<std::collections::HashMap<String, VectorStore>> =
+        RefCell::new(std::collections::HashMap::new());
+    static RATE_LIMIT_RPS: Cell<Option<f64>> = const { Cell::new(None) };
+    static RATE_LIMIT_LAST: Cell<u64> = const { Cell::new(0) };
 }
 
 struct LispProviderCallbacks {
@@ -62,9 +95,20 @@ pub fn reset_runtime_state() {
     SESSION_COST.with(|c| *c.borrow_mut() = 0.0);
     BUDGET_LIMIT.with(|l| *l.borrow_mut() = None);
     BUDGET_SPENT.with(|s| *s.borrow_mut() = 0.0);
+    BUDGET_TOKEN_LIMIT.with(|l| *l.borrow_mut() = None);
+    BUDGET_TOKENS_SPENT.with(|s| *s.borrow_mut() = 0);
     BUDGET_STACK.with(|s| s.borrow_mut().clear());
     PRICING_WARNING_SHOWN.with(|shown| shown.set(false));
     LISP_PROVIDERS.with(|p| p.borrow_mut().clear());
+    CACHE_ENABLED.with(|c| c.set(false));
+    CACHE_MEM.with(|c| c.borrow_mut().clear());
+    CACHE_TTL_SECS.with(|c| c.set(3600));
+    CACHE_HITS.with(|c| c.set(0));
+    CACHE_MISSES.with(|c| c.set(0));
+    FALLBACK_CHAIN.with(|c| *c.borrow_mut() = None);
+    VECTOR_STORES.with(|s| s.borrow_mut().clear());
+    RATE_LIMIT_RPS.with(|r| r.set(None));
+    RATE_LIMIT_LAST.with(|r| r.set(0));
     pricing::clear_fetched_pricing();
 }
 
@@ -134,6 +178,7 @@ where
 
 fn track_usage(usage: &Usage) -> Result<(), SemaError> {
     let cost = pricing::calculate_cost(usage);
+    let total_tokens = (usage.prompt_tokens + usage.completion_tokens) as u64;
 
     LAST_USAGE.with(|u| *u.borrow_mut() = Some(usage.clone()));
     SESSION_USAGE.with(|u| {
@@ -142,10 +187,30 @@ fn track_usage(usage: &Usage) -> Result<(), SemaError> {
         session.completion_tokens += usage.completion_tokens;
     });
 
+    // Check token budget
+    BUDGET_TOKEN_LIMIT.with(|limit| {
+        let limit = limit.borrow();
+        if let Some(max_tokens) = *limit {
+            BUDGET_TOKENS_SPENT.with(|spent| {
+                let mut spent = spent.borrow_mut();
+                *spent += total_tokens;
+                if *spent > max_tokens {
+                    return Err(SemaError::Llm(format!(
+                        "token budget exceeded: used {} of {} tokens",
+                        *spent, max_tokens
+                    )));
+                }
+                Ok(())
+            })
+        } else {
+            Ok(())
+        }
+    })?;
+
     if let Some(c) = cost {
         SESSION_COST.with(|sc| *sc.borrow_mut() += c);
 
-        // Check budget
+        // Check cost budget
         BUDGET_LIMIT.with(|limit| {
             let limit = limit.borrow();
             if let Some(max_cost) = *limit {
@@ -190,28 +255,53 @@ pub fn set_budget(max_cost_usd: f64) {
     BUDGET_SPENT.with(|s| *s.borrow_mut() = 0.0);
 }
 
+/// Set a token budget limit for LLM calls.
+pub fn set_token_budget(max_tokens: u64) {
+    BUDGET_TOKEN_LIMIT.with(|l| *l.borrow_mut() = Some(max_tokens));
+    BUDGET_TOKENS_SPENT.with(|s| *s.borrow_mut() = 0);
+}
+
 /// Clear the budget limit.
 pub fn clear_budget() {
     BUDGET_LIMIT.with(|l| *l.borrow_mut() = None);
+    BUDGET_TOKEN_LIMIT.with(|l| *l.borrow_mut() = None);
 }
 
 /// Push a scoped budget and reset spent for the new scope.
-pub fn push_budget_scope(max_cost_usd: f64) {
-    let prev_limit = BUDGET_LIMIT.with(|l| *l.borrow());
-    let prev_spent = BUDGET_SPENT.with(|s| *s.borrow());
-    BUDGET_STACK.with(|stack| stack.borrow_mut().push((prev_limit, prev_spent)));
-    set_budget(max_cost_usd);
+pub fn push_budget_scope(max_cost_usd: Option<f64>, max_tokens: Option<u64>) {
+    let frame = BudgetFrame {
+        cost_limit: BUDGET_LIMIT.with(|l| *l.borrow()),
+        cost_spent: BUDGET_SPENT.with(|s| *s.borrow()),
+        token_limit: BUDGET_TOKEN_LIMIT.with(|l| *l.borrow()),
+        tokens_spent: BUDGET_TOKENS_SPENT.with(|s| *s.borrow()),
+    };
+    BUDGET_STACK.with(|stack| stack.borrow_mut().push(frame));
+    if let Some(cost) = max_cost_usd {
+        set_budget(cost);
+    } else {
+        BUDGET_LIMIT.with(|l| *l.borrow_mut() = None);
+        BUDGET_SPENT.with(|s| *s.borrow_mut() = 0.0);
+    }
+    if let Some(tokens) = max_tokens {
+        set_token_budget(tokens);
+    } else {
+        BUDGET_TOKEN_LIMIT.with(|l| *l.borrow_mut() = None);
+        BUDGET_TOKENS_SPENT.with(|s| *s.borrow_mut() = 0);
+    }
 }
 
 /// Pop a scoped budget and restore the previous budget state.
 pub fn pop_budget_scope() {
     let prev = BUDGET_STACK.with(|stack| stack.borrow_mut().pop());
-    if let Some((limit, spent)) = prev {
-        BUDGET_LIMIT.with(|l| *l.borrow_mut() = limit);
-        BUDGET_SPENT.with(|s| *s.borrow_mut() = spent);
+    if let Some(frame) = prev {
+        BUDGET_LIMIT.with(|l| *l.borrow_mut() = frame.cost_limit);
+        BUDGET_SPENT.with(|s| *s.borrow_mut() = frame.cost_spent);
+        BUDGET_TOKEN_LIMIT.with(|l| *l.borrow_mut() = frame.token_limit);
+        BUDGET_TOKENS_SPENT.with(|s| *s.borrow_mut() = frame.tokens_spent);
     } else {
         clear_budget();
         BUDGET_SPENT.with(|s| *s.borrow_mut() = 0.0);
+        BUDGET_TOKENS_SPENT.with(|s| *s.borrow_mut() = 0);
     }
 }
 
@@ -284,7 +374,10 @@ fn chat_request_to_value(request: &ChatRequest) -> Value {
         .map(|m| {
             let mut msg_map = BTreeMap::new();
             msg_map.insert(Value::keyword("role"), Value::string(&m.role));
-            msg_map.insert(Value::keyword("content"), Value::string(&m.content.to_text()));
+            msg_map.insert(
+                Value::keyword("content"),
+                Value::string(&m.content.to_text()),
+            );
             Value::map(msg_map)
         })
         .collect();
@@ -1154,7 +1247,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(&response.content))
     });
 
-    // (llm/extract schema text {:model "..." :validate true :retries 2})
+    // (llm/extract schema text {:model "..." :validate true :retries 2 :reask? true})
     register_fn(env, "llm/extract", |args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("llm/extract", "2-3", args.len()));
@@ -1172,29 +1265,41 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let messages = vec![ChatMessage::new("user", text)];
 
         let mut model = String::new();
-        let mut validate = false;
-        let mut max_retries: u32 = 0;
+        let mut validate = true;
+        let mut max_retries: u32 = 2;
+        let mut reask = true;
         if let Some(opts_val) = args.get(2) {
             if let Some(opts) = opts_val.as_map_rc() {
                 model = get_opt_string(&opts, "model").unwrap_or_default();
-                validate = opts
-                    .get(&Value::keyword("validate"))
-                    .map(|v| v.is_truthy())
-                    .unwrap_or(false);
-                max_retries = get_opt_u32(&opts, "retries").unwrap_or(0);
+                if let Some(v) = opts.get(&Value::keyword("validate")) {
+                    validate = v.is_truthy();
+                }
+                if let Some(r) = get_opt_u32(&opts, "retries") {
+                    max_retries = r;
+                }
+                if let Some(v) = opts.get(&Value::keyword("reask?")) {
+                    reask = v.is_truthy();
+                }
             }
         }
 
         let mut last_validation_error = String::new();
+        let mut last_response_content = String::new();
 
         for attempt in 0..=max_retries {
             let mut request = ChatRequest::new(model.clone(), messages.clone());
             request.json_mode = true;
             if attempt == 0 {
                 request.system = Some(system.clone());
+            } else if reask {
+                request.system = Some(format_reask_prompt(
+                    &last_response_content,
+                    &last_validation_error,
+                    &schema_desc,
+                ));
             } else {
                 request.system = Some(format!(
-                    "{}\n\nYour previous response had validation errors: {}. Please fix these issues.",
+                    "{}\n\nYour previous response had validation errors: {}. Please fix.",
                     system, last_validation_error
                 ));
             }
@@ -1202,16 +1307,13 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             let response = do_complete(request)?;
             track_usage(&response.usage)?;
 
-            // Parse JSON response back to Sema value
             let content = response.content.trim();
-            // Strip markdown code fences if present
             let json_str = if content.starts_with("```") {
-                let inner = content
+                content
                     .trim_start_matches("```json")
                     .trim_start_matches("```")
                     .trim_end_matches("```")
-                    .trim();
-                inner
+                    .trim()
             } else {
                 content
             };
@@ -1227,6 +1329,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     Ok(()) => return Ok(result),
                     Err(err) => {
                         last_validation_error = err;
+                        last_response_content = content.to_string();
                         if attempt == max_retries {
                             return Err(SemaError::Llm(format!(
                                 "extraction validation failed after {} attempt(s): {}",
@@ -1253,15 +1356,18 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         "llm/extract-from-image",
         |_ctx, args| {
             if args.len() < 2 || args.len() > 3 {
-                return Err(SemaError::arity("llm/extract-from-image", "2-3", args.len()));
+                return Err(SemaError::arity(
+                    "llm/extract-from-image",
+                    "2-3",
+                    args.len(),
+                ));
             }
             let schema = &args[0];
 
             // Get image bytes: either from path (string) or bytevector
             let bytes = if let Some(path) = args[1].as_str() {
-                std::fs::read(path).map_err(|e| {
-                    SemaError::Io(format!("llm/extract-from-image: {path}: {e}"))
-                })?
+                std::fs::read(path)
+                    .map_err(|e| SemaError::Io(format!("llm/extract-from-image: {path}: {e}")))?
             } else if let Some(bv) = args[1].as_bytevector() {
                 bv.to_vec()
             } else {
@@ -1289,7 +1395,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         data: b64_data,
                     },
                     ContentBlock::Text {
-                        text: "Extract the requested data from this image. Respond in JSON.".to_string(),
+                        text: "Extract the requested data from this image. Respond in JSON."
+                            .to_string(),
                     },
                 ],
             )];
@@ -2399,7 +2506,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .map(|s| s.to_string())
             .unwrap_or_else(|| args[2].to_string());
         let mut new_messages = conv.messages.clone();
-        new_messages.push(Message { role, content, images: Vec::new() });
+        new_messages.push(Message {
+            role,
+            content,
+            images: Vec::new(),
+        });
         Ok(Value::conversation(Conversation {
             messages: new_messages,
             model: conv.model.clone(),
@@ -2498,21 +2609,618 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
     // (llm/budget-remaining) — query budget status
     register_fn(env, "llm/budget-remaining", |_args| {
-        BUDGET_LIMIT.with(|limit| {
-            let limit = limit.borrow();
-            match *limit {
-                Some(max_cost) => {
-                    let spent = BUDGET_SPENT.with(|s| *s.borrow());
-                    let mut map = BTreeMap::new();
-                    map.insert(Value::keyword("limit"), Value::float(max_cost));
-                    map.insert(Value::keyword("spent"), Value::float(spent));
-                    map.insert(Value::keyword("remaining"), Value::float(max_cost - spent));
-                    Ok(Value::map(map))
+        let cost_limit = BUDGET_LIMIT.with(|l| *l.borrow());
+        let token_limit = BUDGET_TOKEN_LIMIT.with(|l| *l.borrow());
+        if cost_limit.is_none() && token_limit.is_none() {
+            return Ok(Value::nil());
+        }
+        let mut map = BTreeMap::new();
+        if let Some(max_cost) = cost_limit {
+            let spent = BUDGET_SPENT.with(|s| *s.borrow());
+            map.insert(Value::keyword("limit"), Value::float(max_cost));
+            map.insert(Value::keyword("spent"), Value::float(spent));
+            map.insert(Value::keyword("remaining"), Value::float(max_cost - spent));
+        }
+        if let Some(max_tokens) = token_limit {
+            let tokens_spent = BUDGET_TOKENS_SPENT.with(|s| *s.borrow());
+            map.insert(Value::keyword("token-limit"), Value::int(max_tokens as i64));
+            map.insert(
+                Value::keyword("tokens-spent"),
+                Value::int(tokens_spent as i64),
+            );
+            map.insert(
+                Value::keyword("tokens-remaining"),
+                Value::int((max_tokens.saturating_sub(tokens_spent)) as i64),
+            );
+        }
+        Ok(Value::map(map))
+    });
+
+    // (llm/with-budget {:max-cost-usd 0.50 :max-tokens 10000} thunk)
+    register_fn_ctx(env, "llm/with-budget", |ctx, args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("llm/with-budget", "2", args.len()));
+        }
+        let opts = args[0]
+            .as_map_rc()
+            .ok_or_else(|| SemaError::type_error("map", args[0].type_name()))?;
+        let body_fn = &args[1];
+        if body_fn.as_lambda_rc().is_none() && body_fn.as_native_fn_rc().is_none() {
+            return Err(SemaError::type_error("function", body_fn.type_name()));
+        }
+
+        let max_cost = opts
+            .get(&Value::keyword("max-cost-usd"))
+            .and_then(|v| v.as_float());
+        let max_tokens = opts
+            .get(&Value::keyword("max-tokens"))
+            .and_then(|v| v.as_int())
+            .map(|v| v.max(0) as u64);
+
+        if max_cost.is_none() && max_tokens.is_none() {
+            return Err(SemaError::eval(
+                "llm/with-budget: requires at least :max-cost-usd or :max-tokens",
+            ));
+        }
+
+        push_budget_scope(max_cost, max_tokens);
+        let result = call_value_fn(ctx, body_fn, &[]);
+        pop_budget_scope();
+        result
+    });
+
+    // --- Cache builtins ---
+
+    register_fn(env, "llm/cache-key", |args| {
+        if args.is_empty() || args.len() > 2 {
+            return Err(SemaError::arity("llm/cache-key", "1-2", args.len()));
+        }
+        let prompt = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let mut model = String::new();
+        let mut temperature = None;
+        let mut system = None;
+        if let Some(opts) = args.get(1).and_then(|v| v.as_map_rc()) {
+            model = get_opt_string(&opts, "model").unwrap_or_default();
+            temperature = get_opt_f64(&opts, "temperature");
+            system = get_opt_string(&opts, "system");
+        }
+        let messages = vec![ChatMessage::new("user", prompt)];
+        let mut request = ChatRequest::new(model, messages);
+        request.temperature = temperature;
+        request.system = system;
+        Ok(Value::string(&compute_cache_key(&request)))
+    });
+
+    register_fn(env, "llm/cache-clear", |_args| {
+        let mem_count = CACHE_MEM.with(|c| {
+            let mut cache = c.borrow_mut();
+            let count = cache.len();
+            cache.clear();
+            count
+        });
+        let dir = cache_dir();
+        if dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    if entry
+                        .path()
+                        .extension()
+                        .map(|e| e == "json")
+                        .unwrap_or(false)
+                    {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
                 }
-                None => Ok(Value::nil()),
             }
+        }
+        CACHE_HITS.with(|c| c.set(0));
+        CACHE_MISSES.with(|c| c.set(0));
+        Ok(Value::int(mem_count as i64))
+    });
+
+    register_fn(env, "llm/cache-stats", |_args| {
+        let hits = CACHE_HITS.with(|c| c.get());
+        let misses = CACHE_MISSES.with(|c| c.get());
+        let size = CACHE_MEM.with(|c| c.borrow().len());
+        let mut map = BTreeMap::new();
+        map.insert(Value::keyword("hits"), Value::int(hits as i64));
+        map.insert(Value::keyword("misses"), Value::int(misses as i64));
+        map.insert(Value::keyword("size"), Value::int(size as i64));
+        Ok(Value::map(map))
+    });
+
+    register_fn_ctx(env, "llm/with-cache", |ctx, args| {
+        if args.is_empty() || args.len() > 2 {
+            return Err(SemaError::arity("llm/with-cache", "1-2", args.len()));
+        }
+        let (body_fn, ttl) = if args.len() == 2 {
+            let opts = args[0]
+                .as_map_rc()
+                .ok_or_else(|| SemaError::type_error("map", args[0].type_name()))?;
+            let ttl = get_opt_u32(&opts, "ttl").unwrap_or(3600) as i64;
+            (&args[1], ttl)
+        } else {
+            (&args[0], 3600i64)
+        };
+        if body_fn.as_lambda_rc().is_none() && body_fn.as_native_fn_rc().is_none() {
+            return Err(SemaError::type_error("function", body_fn.type_name()));
+        }
+        let prev_enabled = CACHE_ENABLED.with(|c| c.get());
+        let prev_ttl = CACHE_TTL_SECS.with(|c| c.get());
+        CACHE_ENABLED.with(|c| c.set(true));
+        CACHE_TTL_SECS.with(|c| c.set(ttl));
+        let result = call_value_fn(ctx, body_fn, &[]);
+        CACHE_ENABLED.with(|c| c.set(prev_enabled));
+        CACHE_TTL_SECS.with(|c| c.set(prev_ttl));
+        result
+    });
+
+    // --- Fallback provider builtins ---
+
+    register_fn_ctx(env, "llm/with-fallback", |ctx, args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("llm/with-fallback", "2", args.len()));
+        }
+        let providers = args[0]
+            .as_list()
+            .ok_or_else(|| SemaError::type_error("list", args[0].type_name()))?;
+        let body_fn = &args[1];
+        if body_fn.as_lambda_rc().is_none() && body_fn.as_native_fn_rc().is_none() {
+            return Err(SemaError::type_error("function", body_fn.type_name()));
+        }
+        let chain: Vec<String> = providers
+            .iter()
+            .map(|v| {
+                v.as_keyword()
+                    .or_else(|| v.as_str().map(|s| s.to_string()))
+                    .ok_or_else(|| SemaError::type_error("keyword or string", v.type_name()))
+            })
+            .collect::<Result<_, _>>()?;
+        let prev = FALLBACK_CHAIN.with(|c| c.borrow().clone());
+        FALLBACK_CHAIN.with(|c| *c.borrow_mut() = Some(chain));
+        let result = call_value_fn(ctx, body_fn, &[]);
+        FALLBACK_CHAIN.with(|c| *c.borrow_mut() = prev);
+        result
+    });
+
+    register_fn(env, "llm/providers", |_args| {
+        let names = PROVIDER_REGISTRY.with(|reg| reg.borrow().provider_names());
+        Ok(Value::list(
+            names.into_iter().map(|n| Value::keyword(&n)).collect(),
+        ))
+    });
+
+    register_fn(env, "llm/default-provider", |_args| {
+        let name = PROVIDER_REGISTRY.with(|reg| {
+            reg.borrow()
+                .default_provider()
+                .map(|p| p.name().to_string())
+        });
+        match name {
+            Some(n) => Ok(Value::keyword(&n)),
+            None => Ok(Value::nil()),
+        }
+    });
+
+    // --- Token counting builtins ---
+
+    register_fn(env, "llm/token-count", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("llm/token-count", "1", args.len()));
+        }
+        let char_count = if let Some(s) = args[0].as_str() {
+            s.len()
+        } else if let Some(list) = args[0].as_list() {
+            list.iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(|s| s.len())
+                        .unwrap_or_else(|| v.to_string().len())
+                })
+                .sum()
+        } else {
+            args[0].to_string().len()
+        };
+        Ok(Value::int((char_count / 4) as i64))
+    });
+
+    register_fn(env, "llm/token-estimate", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("llm/token-estimate", "1", args.len()));
+        }
+        let char_count = if let Some(s) = args[0].as_str() {
+            s.len()
+        } else {
+            args[0].to_string().len()
+        };
+        let tokens = (char_count / 4) as i64;
+        let mut map = BTreeMap::new();
+        map.insert(Value::keyword("tokens"), Value::int(tokens));
+        map.insert(Value::keyword("method"), Value::string("chars/4"));
+        map.insert(Value::keyword("chars"), Value::int(char_count as i64));
+        Ok(Value::map(map))
+    });
+
+    // --- Vector store builtins ---
+
+    register_fn(env, "vector-store/create", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("vector-store/create", "1", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        VECTOR_STORES.with(|s| s.borrow_mut().insert(name.to_string(), VectorStore::new()));
+        Ok(Value::string(name))
+    });
+
+    register_fn(env, "vector-store/add", |args| {
+        if args.len() != 4 {
+            return Err(SemaError::arity("vector-store/add", "4", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let id = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let emb = args[2]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[2].type_name()))?;
+        if emb.len() % 8 != 0 {
+            return Err(SemaError::eval(format!(
+                "vector-store/add: embedding length {} not multiple of 8",
+                emb.len()
+            )));
+        }
+        let metadata = args[3].clone();
+        VECTOR_STORES.with(|s| {
+            let mut s = s.borrow_mut();
+            let store = s
+                .get_mut(name)
+                .ok_or_else(|| SemaError::eval(format!("vector store '{}' not found", name)))?;
+            store.add(VectorDocument {
+                id: id.to_string(),
+                embedding: emb.to_vec(),
+                metadata,
+            });
+            Ok(Value::string(id))
         })
     });
+
+    register_fn(env, "vector-store/search", |args| {
+        if args.len() != 3 {
+            return Err(SemaError::arity("vector-store/search", "3", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let query = args[1]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[1].type_name()))?;
+        let k = args[2]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("integer", args[2].type_name()))?
+            as usize;
+        VECTOR_STORES.with(|s| {
+            let s = s.borrow();
+            let store = s
+                .get(name)
+                .ok_or_else(|| SemaError::eval(format!("vector store '{}' not found", name)))?;
+            Ok(Value::list(
+                store
+                    .search(query, k)
+                    .iter()
+                    .map(|r| r.to_value())
+                    .collect(),
+            ))
+        })
+    });
+
+    register_fn(env, "vector-store/delete", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("vector-store/delete", "2", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let id = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        VECTOR_STORES.with(|s| {
+            let mut s = s.borrow_mut();
+            let store = s
+                .get_mut(name)
+                .ok_or_else(|| SemaError::eval(format!("vector store '{}' not found", name)))?;
+            Ok(Value::bool(store.delete(id)))
+        })
+    });
+
+    register_fn(env, "vector-store/count", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("vector-store/count", "1", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        VECTOR_STORES.with(|s| {
+            let s = s.borrow();
+            let store = s
+                .get(name)
+                .ok_or_else(|| SemaError::eval(format!("vector store '{}' not found", name)))?;
+            Ok(Value::int(store.count() as i64))
+        })
+    });
+
+    // (vector-store/save name) or (vector-store/save name path)
+    register_fn(env, "vector-store/save", |args| {
+        if args.is_empty() || args.len() > 2 {
+            return Err(SemaError::arity("vector-store/save", "1-2", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let explicit_path = args.get(1).and_then(|v| v.as_str()).map(|s| s.to_string());
+        VECTOR_STORES.with(|s| {
+            let s = s.borrow();
+            let store = s
+                .get(name)
+                .ok_or_else(|| SemaError::eval(format!("vector store '{}' not found", name)))?;
+            let path = explicit_path
+                .as_deref()
+                .or(store.path.as_deref())
+                .ok_or_else(|| {
+                    SemaError::eval(
+                        "vector-store/save: no path associated. Use (vector-store/save name path)",
+                    )
+                })?;
+            let data = store.to_json().map_err(SemaError::Io)?;
+            let tmp = format!("{path}.tmp");
+            std::fs::write(&tmp, &data)
+                .map_err(|e| SemaError::Io(format!("vector-store/save: {e}")))?;
+            std::fs::rename(&tmp, path)
+                .map_err(|e| SemaError::Io(format!("vector-store/save: {e}")))?;
+            Ok(Value::string(path))
+        })
+    });
+
+    // (vector-store/open name path) — load from disk or create empty, associate path
+    register_fn(env, "vector-store/open", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("vector-store/open", "2", args.len()));
+        }
+        let name = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let path = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        let mut store = if std::path::Path::new(path).exists() {
+            let data = std::fs::read(path)
+                .map_err(|e| SemaError::Io(format!("vector-store/open: {e}")))?;
+            VectorStore::from_json(&data)
+                .map_err(|e| SemaError::Io(format!("vector-store/open: {e}")))?
+        } else {
+            VectorStore::new()
+        };
+        store.path = Some(path.to_string());
+        VECTOR_STORES.with(|s| s.borrow_mut().insert(name.to_string(), store));
+        Ok(Value::string(name))
+    });
+
+    // --- Vector math builtins ---
+
+    register_fn(env, "vector/cosine-similarity", |args| {
+        let (a, b) = require_matching_bytevectors("vector/cosine-similarity", args)?;
+        let (mut dot, mut ma, mut mb) = (0.0_f64, 0.0_f64, 0.0_f64);
+        for (ca, cb) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
+            let (fa, fb) = (
+                f64::from_le_bytes(ca.try_into().unwrap()),
+                f64::from_le_bytes(cb.try_into().unwrap()),
+            );
+            dot += fa * fb;
+            ma += fa * fa;
+            mb += fb * fb;
+        }
+        Ok(Value::float(if ma == 0.0 || mb == 0.0 {
+            0.0
+        } else {
+            dot / (ma.sqrt() * mb.sqrt())
+        }))
+    });
+
+    register_fn(env, "vector/dot-product", |args| {
+        let (a, b) = require_matching_bytevectors("vector/dot-product", args)?;
+        let mut dot = 0.0_f64;
+        for (ca, cb) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
+            dot += f64::from_le_bytes(ca.try_into().unwrap())
+                * f64::from_le_bytes(cb.try_into().unwrap());
+        }
+        Ok(Value::float(dot))
+    });
+
+    register_fn(env, "vector/normalize", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("vector/normalize", "1", args.len()));
+        }
+        let bv = args[0]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
+        if bv.is_empty() || bv.len() % 8 != 0 {
+            return Err(SemaError::eval("vector/normalize: invalid bytevector"));
+        }
+        let floats: Vec<f64> = bv
+            .chunks_exact(8)
+            .map(|c| f64::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        let mag: f64 = floats.iter().map(|f| f * f).sum::<f64>().sqrt();
+        let out: Vec<u8> = if mag == 0.0 {
+            floats.iter().flat_map(|_| 0.0_f64.to_le_bytes()).collect()
+        } else {
+            floats
+                .iter()
+                .flat_map(|f| (f / mag).to_le_bytes())
+                .collect()
+        };
+        Ok(Value::bytevector(out))
+    });
+
+    register_fn(env, "vector/distance", |args| {
+        let (a, b) = require_matching_bytevectors("vector/distance", args)?;
+        let mut sum_sq = 0.0_f64;
+        for (ca, cb) in a.chunks_exact(8).zip(b.chunks_exact(8)) {
+            let d = f64::from_le_bytes(ca.try_into().unwrap())
+                - f64::from_le_bytes(cb.try_into().unwrap());
+            sum_sq += d * d;
+        }
+        Ok(Value::float(sum_sq.sqrt()))
+    });
+
+    // --- Rate limiting ---
+
+    register_fn_ctx(env, "llm/with-rate-limit", |ctx, args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("llm/with-rate-limit", "2", args.len()));
+        }
+        let rps = args[0]
+            .as_float()
+            .or_else(|| args[0].as_int().map(|i| i as f64))
+            .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
+        let body_fn = &args[1];
+        if body_fn.as_lambda_rc().is_none() && body_fn.as_native_fn_rc().is_none() {
+            return Err(SemaError::type_error("function", body_fn.type_name()));
+        }
+        let prev = RATE_LIMIT_RPS.with(|r| r.get());
+        RATE_LIMIT_RPS.with(|r| r.set(Some(rps)));
+        let result = call_value_fn(ctx, body_fn, &[]);
+        RATE_LIMIT_RPS.with(|r| r.set(prev));
+        result
+    });
+
+    // --- Convenience wrappers ---
+
+    register_fn(env, "llm/summarize", |args| {
+        if args.is_empty() || args.len() > 2 {
+            return Err(SemaError::arity("llm/summarize", "1-2", args.len()));
+        }
+        let text = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+
+        let mut model = String::new();
+        let mut max_length: Option<u32> = None;
+        let mut style = "paragraph".to_string();
+
+        if let Some(opts) = args.get(1).and_then(|v| v.as_map_rc()) {
+            model = get_opt_string(&opts, "model").unwrap_or_default();
+            max_length = get_opt_u32(&opts, "max-length");
+            if let Some(s) = get_opt_string(&opts, "style") {
+                style = s;
+            }
+        }
+
+        let style_instruction = match style.as_str() {
+            "bullet-points" | "bullets" => "Use bullet points.",
+            "one-line" => "Respond with a single sentence summary.",
+            _ => "Write a concise paragraph summary.",
+        };
+        let length_instruction = match max_length {
+            Some(n) => format!(" Keep the summary under {} words.", n),
+            None => String::new(),
+        };
+        let system =
+            format!("Summarize the following text. {style_instruction}{length_instruction}");
+
+        let messages = vec![ChatMessage::new("user", text)];
+        let mut request = ChatRequest::new(model, messages);
+        request.system = Some(system);
+        request.max_tokens = Some(4096);
+
+        let response = do_complete(request)?;
+        track_usage(&response.usage)?;
+        Ok(Value::string(&response.content))
+    });
+
+    register_fn(env, "llm/compare", |args| {
+        if args.len() < 2 || args.len() > 3 {
+            return Err(SemaError::arity("llm/compare", "2-3", args.len()));
+        }
+        let text_a = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let text_b = args[1]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+
+        let mut model = String::new();
+        if let Some(opts) = args.get(2).and_then(|v| v.as_map_rc()) {
+            model = get_opt_string(&opts, "model").unwrap_or_default();
+        }
+
+        let system =
+            "Compare the following two texts. Respond with ONLY a JSON object containing:\n\
+            - \"similarity\": a number from 0.0 (completely different) to 1.0 (identical)\n\
+            - \"differences\": a list of key differences\n\
+            - \"summary\": a brief comparison summary\n\
+            Do not include any other text."
+                .to_string();
+
+        let user_msg = format!("Text A:\n{text_a}\n\nText B:\n{text_b}");
+        let messages = vec![ChatMessage::new("user", &user_msg)];
+        let mut request = ChatRequest::new(model, messages);
+        request.system = Some(system);
+
+        let response = do_complete(request)?;
+        track_usage(&response.usage)?;
+
+        let content = response.content.trim();
+        let json_str = if content.starts_with("```") {
+            content
+                .trim_start_matches("```json")
+                .trim_start_matches("```")
+                .trim_end_matches("```")
+                .trim()
+        } else {
+            content
+        };
+        let json: serde_json::Value = serde_json::from_str(json_str).map_err(|e| {
+            SemaError::Llm(format!(
+                "failed to parse comparison JSON: {e}\nResponse: {content}"
+            ))
+        })?;
+        Ok(json_to_sema_value(&json))
+    });
+}
+
+fn require_matching_bytevectors<'a>(
+    name: &str,
+    args: &'a [Value],
+) -> Result<(&'a [u8], &'a [u8]), SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity(name, "2", args.len()));
+    }
+    let a = args[0]
+        .as_bytevector()
+        .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
+    let b = args[1]
+        .as_bytevector()
+        .ok_or_else(|| SemaError::type_error("bytevector", args[1].type_name()))?;
+    if a.len() != b.len() {
+        return Err(SemaError::eval(format!(
+            "{name}: length mismatch ({} vs {})",
+            a.len() / 8,
+            b.len() / 8
+        )));
+    }
+    if a.is_empty() || a.len() % 8 != 0 {
+        return Err(SemaError::eval(format!(
+            "{name}: invalid bytevector length {}",
+            a.len()
+        )));
+    }
+    Ok((a, b))
 }
 
 fn extract_float_vec(val: &Value) -> Result<Vec<f64>, SemaError> {
@@ -2590,6 +3298,16 @@ fn extract_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
             val.type_name(),
         ))
     }
+}
+
+fn format_reask_prompt(prev_response: &str, errors: &str, schema_desc: &str) -> String {
+    format!(
+        "Your previous response did not match the required schema.\n\n\
+         Previous response:\n```json\n{prev_response}\n```\n\n\
+         Validation errors:\n{errors}\n\n\
+         Please respond with ONLY a corrected JSON object matching this schema:\n\
+         {schema_desc}\nDo not include any other text."
+    )
 }
 
 fn format_schema(val: &Value) -> String {
@@ -2678,8 +3396,167 @@ fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
     }
 }
 
-/// Send a ChatRequest via the default provider with model fallback and rate-limit retry.
+fn compute_cache_key(request: &ChatRequest) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(request.model.as_bytes());
+    if let Some(temp) = request.temperature {
+        hasher.update(temp.to_le_bytes());
+    }
+    if let Some(ref system) = request.system {
+        hasher.update(system.as_bytes());
+    }
+    for msg in &request.messages {
+        hasher.update(msg.role.as_bytes());
+        hasher.update(msg.content.to_text().as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn unix_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn cache_dir() -> std::path::PathBuf {
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join(".sema")
+        .join("cache")
+        .join("llm")
+}
+
+fn cache_file_path(key: &str) -> std::path::PathBuf {
+    cache_dir().join(format!("{key}.json"))
+}
+
+fn load_cached(key: &str) -> Option<CachedResponse> {
+    let mem_hit = CACHE_MEM.with(|c| c.borrow().get(key).cloned());
+    if let Some(cached) = mem_hit {
+        return Some(cached);
+    }
+    let path = cache_file_path(key);
+    let data = std::fs::read_to_string(&path).ok()?;
+    let cached: CachedResponse = serde_json::from_str(&data).ok()?;
+    CACHE_MEM.with(|c| c.borrow_mut().insert(key.to_string(), cached.clone()));
+    Some(cached)
+}
+
+fn store_cached(key: &str, response: &ChatResponse) {
+    let cached = CachedResponse {
+        content: response.content.clone(),
+        model: response.model.clone(),
+        prompt_tokens: response.usage.prompt_tokens,
+        completion_tokens: response.usage.completion_tokens,
+        cached_at: unix_timestamp(),
+    };
+    CACHE_MEM.with(|c| c.borrow_mut().insert(key.to_string(), cached.clone()));
+    let dir = cache_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_string(&cached) {
+        let _ = std::fs::write(cache_file_path(key), json);
+    }
+}
+
+fn is_cache_valid(cached: &CachedResponse) -> bool {
+    let ttl = CACHE_TTL_SECS.with(|c| c.get());
+    (unix_timestamp() - cached.cached_at) < ttl
+}
+
+/// Send a ChatRequest via the default provider with caching, fallback, and rate-limit retry.
 fn do_complete(mut request: ChatRequest) -> Result<ChatResponse, SemaError> {
+    let cache_enabled = CACHE_ENABLED.with(|c| c.get());
+    if cache_enabled {
+        if request.model.is_empty() {
+            let default_model = with_provider(|p| Ok(p.default_model().to_string()))?;
+            request.model = default_model;
+        }
+        let cache_key = compute_cache_key(&request);
+        if let Some(cached) = load_cached(&cache_key) {
+            if is_cache_valid(&cached) {
+                CACHE_HITS.with(|c| c.set(c.get() + 1));
+                return Ok(ChatResponse {
+                    content: cached.content,
+                    role: "assistant".to_string(),
+                    model: cached.model,
+                    tool_calls: vec![],
+                    usage: Usage {
+                        prompt_tokens: cached.prompt_tokens,
+                        completion_tokens: cached.completion_tokens,
+                        model: request.model.clone(),
+                    },
+                    stop_reason: Some("cache_hit".to_string()),
+                });
+            }
+        }
+        CACHE_MISSES.with(|c| c.set(c.get() + 1));
+        let response = do_complete_inner(request)?;
+        store_cached(&cache_key, &response);
+        Ok(response)
+    } else {
+        do_complete_inner(request)
+    }
+}
+
+fn do_complete_inner(request: ChatRequest) -> Result<ChatResponse, SemaError> {
+    let fallback_chain = FALLBACK_CHAIN.with(|c| c.borrow().clone());
+    match fallback_chain {
+        Some(chain) if !chain.is_empty() => {
+            let mut last_error = None;
+            for provider_name in &chain {
+                match do_complete_with_provider(provider_name, request.clone()) {
+                    Ok(resp) => return Ok(resp),
+                    Err(e) => {
+                        eprintln!("Provider '{}' failed: {}, trying next...", provider_name, e);
+                        last_error = Some(e);
+                    }
+                }
+            }
+            Err(last_error.unwrap_or_else(|| SemaError::Llm("all providers failed".into())))
+        }
+        _ => do_complete_uncached(request),
+    }
+}
+
+fn do_complete_with_provider(
+    provider_name: &str,
+    mut request: ChatRequest,
+) -> Result<ChatResponse, SemaError> {
+    PROVIDER_REGISTRY.with(|reg| {
+        let reg = reg.borrow();
+        let provider = reg.get(provider_name).ok_or_else(|| {
+            SemaError::Llm(format!("fallback provider '{}' not found", provider_name))
+        })?;
+        if request.model.is_empty() {
+            request.model = provider.default_model().to_string();
+        }
+        let mut retries = 0;
+        loop {
+            match provider.complete(request.clone()) {
+                Ok(resp) => return Ok(resp),
+                Err(crate::types::LlmError::RateLimited { retry_after_ms }) => {
+                    retries += 1;
+                    if retries > 3 {
+                        return Err(SemaError::Llm(format!(
+                            "provider '{}' rate limited after 3 retries",
+                            provider_name
+                        )));
+                    }
+                    let wait = std::cmp::min(retry_after_ms, 30000);
+                    std::thread::sleep(std::time::Duration::from_millis(wait));
+                }
+                Err(e) => return Err(SemaError::Llm(e.to_string())),
+            }
+        }
+    })
+}
+
+/// Original do_complete logic (provider dispatch + rate-limit retry).
+fn do_complete_uncached(mut request: ChatRequest) -> Result<ChatResponse, SemaError> {
+    enforce_rate_limit();
     with_provider(|p| {
         if request.model.is_empty() {
             request.model = p.default_model().to_string();
@@ -2701,6 +3578,27 @@ fn do_complete(mut request: ChatRequest) -> Result<ChatResponse, SemaError> {
             }
         }
     })
+}
+
+fn enforce_rate_limit() {
+    let rps = RATE_LIMIT_RPS.with(|r| r.get());
+    if let Some(rps) = rps {
+        let min_interval_ms = (1000.0 / rps) as u64;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let last = RATE_LIMIT_LAST.with(|l| l.get());
+        if last > 0 && now - last < min_interval_ms {
+            let sleep_ms = min_interval_ms - (now - last);
+            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+        }
+        let actual_now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        RATE_LIMIT_LAST.with(|l| l.set(actual_now));
+    }
 }
 
 /// Build ToolSchema list from Sema ToolDef values.
@@ -2826,7 +3724,10 @@ fn chat_messages_to_sema_list(messages: &[ChatMessage]) -> Value {
         .map(|msg| {
             let mut map = BTreeMap::new();
             map.insert(Value::keyword("role"), Value::string(&msg.role));
-            map.insert(Value::keyword("content"), Value::string(&msg.content.to_text()));
+            map.insert(
+                Value::keyword("content"),
+                Value::string(&msg.content.to_text()),
+            );
             Value::map(map)
         })
         .collect();
@@ -3327,6 +4228,83 @@ mod tests {
 
         // Lambda body returns z_last — must be "ZLAST", not "AFIRST"
         assert_eq!(result, "ZLAST");
+    }
+
+    #[test]
+    fn test_validate_extraction_missing_key() {
+        let schema = {
+            let mut map = BTreeMap::new();
+            let mut name_spec = BTreeMap::new();
+            name_spec.insert(Value::keyword("type"), Value::keyword("string"));
+            map.insert(Value::keyword("name"), Value::map(name_spec));
+            let mut age_spec = BTreeMap::new();
+            age_spec.insert(Value::keyword("type"), Value::keyword("number"));
+            map.insert(Value::keyword("age"), Value::map(age_spec));
+            Value::map(map)
+        };
+        let result = {
+            let mut map = BTreeMap::new();
+            map.insert(Value::keyword("name"), Value::string("Alice"));
+            Value::map(map)
+        };
+        let err = validate_extraction(&result, &schema).unwrap_err();
+        assert!(err.contains("missing key: age"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_extraction_wrong_type() {
+        let schema = {
+            let mut map = BTreeMap::new();
+            let mut name_spec = BTreeMap::new();
+            name_spec.insert(Value::keyword("type"), Value::keyword("string"));
+            map.insert(Value::keyword("name"), Value::map(name_spec));
+            Value::map(map)
+        };
+        let result = {
+            let mut map = BTreeMap::new();
+            map.insert(Value::keyword("name"), Value::int(42));
+            Value::map(map)
+        };
+        let err = validate_extraction(&result, &schema).unwrap_err();
+        assert!(err.contains("expected string"), "got: {err}");
+    }
+
+    #[test]
+    fn test_validate_extraction_valid() {
+        let schema = {
+            let mut map = BTreeMap::new();
+            let mut name_spec = BTreeMap::new();
+            name_spec.insert(Value::keyword("type"), Value::keyword("string"));
+            map.insert(Value::keyword("name"), Value::map(name_spec));
+            Value::map(map)
+        };
+        let result = {
+            let mut map = BTreeMap::new();
+            map.insert(Value::keyword("name"), Value::string("Alice"));
+            Value::map(map)
+        };
+        assert!(validate_extraction(&result, &schema).is_ok());
+    }
+
+    #[test]
+    fn test_format_reask_prompt() {
+        let prev_response = r#"{"name": 42}"#;
+        let errors = "key name: expected string, got integer";
+        let schema_desc = r#"{ "name": <string> }"#;
+        let result = format_reask_prompt(prev_response, errors, schema_desc);
+        assert!(result.contains("Previous response:"));
+        assert!(result.contains(prev_response));
+        assert!(result.contains(errors));
+    }
+
+    #[test]
+    fn test_fallback_chain_thread_local() {
+        FALLBACK_CHAIN.with(|chain| {
+            assert!(chain.borrow().is_none());
+            *chain.borrow_mut() = Some(vec!["openai".to_string(), "anthropic".to_string()]);
+            assert_eq!(chain.borrow().as_ref().unwrap().len(), 2);
+            *chain.borrow_mut() = None;
+        });
     }
 }
 

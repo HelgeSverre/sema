@@ -4399,8 +4399,8 @@ fn test_with_budget_restores_outer_scope() {
         r#"
         (begin
           (llm/set-budget 10.0)
-          (with-budget {:max-cost-usd 1.0}
-            (llm/budget-remaining))
+          (llm/with-budget {:max-cost-usd 1.0} (lambda ()
+            (llm/budget-remaining)))
           (llm/budget-remaining))
     "#,
     );
@@ -4418,6 +4418,43 @@ fn test_with_budget_restores_outer_scope() {
     } else {
         panic!("expected map");
     }
+}
+
+#[test]
+fn test_with_budget_max_tokens() {
+    let result = eval(r#"(llm/with-budget {:max-tokens 5000} (lambda () (llm/budget-remaining)))"#);
+    let map = result.as_map_rc().expect("expected map");
+    assert_eq!(
+        map.get(&Value::keyword("token-limit")),
+        Some(&Value::int(5000))
+    );
+    assert_eq!(
+        map.get(&Value::keyword("tokens-spent")),
+        Some(&Value::int(0))
+    );
+    assert_eq!(
+        map.get(&Value::keyword("tokens-remaining")),
+        Some(&Value::int(5000))
+    );
+}
+
+#[test]
+fn test_with_budget_both_limits() {
+    let result =
+        eval(r#"(llm/with-budget {:max-cost-usd 0.50 :max-tokens 10000} (lambda () (llm/budget-remaining)))"#);
+    let map = result.as_map_rc().expect("expected map");
+    assert_eq!(map.get(&Value::keyword("limit")), Some(&Value::float(0.5)));
+    assert_eq!(
+        map.get(&Value::keyword("token-limit")),
+        Some(&Value::int(10000))
+    );
+}
+
+#[test]
+fn test_with_budget_requires_at_least_one_limit() {
+    let result = eval_err(r#"(llm/with-budget {} (lambda () 42))"#);
+    let msg = format!("{}", result.inner());
+    assert!(msg.contains("requires at least"), "got: {msg}");
 }
 
 #[test]
@@ -6863,13 +6900,19 @@ fn test_path_ext() {
     assert_eq!(eval(r#"(path/ext "photo.jpg")"#), Value::string("jpg"));
     assert_eq!(eval(r#"(path/ext "archive.tar.gz")"#), Value::string("gz"));
     assert_eq!(eval(r#"(path/ext "Makefile")"#), Value::string(""));
-    assert_eq!(eval(r#"(path/ext "/home/user/.bashrc")"#), Value::string(""));
+    assert_eq!(
+        eval(r#"(path/ext "/home/user/.bashrc")"#),
+        Value::string("")
+    );
 }
 
 #[test]
 fn test_path_stem() {
     assert_eq!(eval(r#"(path/stem "photo.jpg")"#), Value::string("photo"));
-    assert_eq!(eval(r#"(path/stem "/tmp/data.csv")"#), Value::string("data"));
+    assert_eq!(
+        eval(r#"(path/stem "/tmp/data.csv")"#),
+        Value::string("data")
+    );
     assert_eq!(eval(r#"(path/stem "Makefile")"#), Value::string("Makefile"));
 }
 
@@ -6914,9 +6957,7 @@ fn test_path_absolute_predicate() {
         .eval_str(r#"(path/absolute? "/tmp/data.csv")"#)
         .unwrap();
     assert_eq!(result, Value::bool(true));
-    let result = interp
-        .eval_str(r#"(path/absolute? "data.csv")"#)
-        .unwrap();
+    let result = interp.eval_str(r#"(path/absolute? "data.csv")"#).unwrap();
     assert_eq!(result, Value::bool(false));
 }
 
@@ -7064,17 +7105,16 @@ fn test_list_reject() {
 #[test]
 fn test_list_pluck() {
     assert_eq!(
-        eval_to_string(r#"(list/pluck :name (list (hash-map :name "Alice" :age 30) (hash-map :name "Bob" :age 25)))"#),
+        eval_to_string(
+            r#"(list/pluck :name (list (hash-map :name "Alice" :age 30) (hash-map :name "Bob" :age 25)))"#
+        ),
         r#"("Alice" "Bob")"#
     );
     assert_eq!(
         eval_to_string(r#"(list/pluck :missing (list (hash-map :a 1)))"#),
         "(nil)"
     );
-    assert_eq!(
-        eval_to_string("(list/pluck :x (list))"),
-        "()"
-    );
+    assert_eq!(eval_to_string("(list/pluck :x (list))"), "()");
 }
 
 #[test]
@@ -7114,10 +7154,7 @@ fn test_list_mode() {
     // Single mode
     assert_eq!(eval("(list/mode (list 1 2 2 3 3 3))"), Value::int(3));
     // Multiple modes returns a list
-    assert_eq!(
-        eval_to_string("(list/mode (list 1 1 2 2 3))"),
-        "(1 2)"
-    );
+    assert_eq!(eval_to_string("(list/mode (list 1 1 2 2 3))"), "(1 2)");
     // All same
     assert_eq!(eval("(list/mode (list 5 5 5))"), Value::int(5));
 }
@@ -7166,19 +7203,18 @@ fn test_list_sliding() {
         "((1 2) (4 5))"
     );
     // Window larger than list
-    assert_eq!(
-        eval_to_string("(list/sliding (list 1 2) 5)"),
-        "()"
-    );
+    assert_eq!(eval_to_string("(list/sliding (list 1 2) 5)"), "()");
 }
 
 #[test]
 fn test_list_key_by() {
     assert_eq!(
-        eval(r#"(begin
+        eval(
+            r#"(begin
             (define people (list (hash-map :id 1 :name "Alice") (hash-map :id 2 :name "Bob")))
             (define keyed (list/key-by (fn (p) (get p :id)) people))
-            (get (get keyed 2) :name))"#),
+            (get (get keyed 2) :name))"#
+        ),
         Value::string("Bob")
     );
 }
@@ -7189,14 +7225,8 @@ fn test_list_times() {
         eval_to_string("(list/times 5 (fn (i) (* i i)))"),
         "(0 1 4 9 16)"
     );
-    assert_eq!(
-        eval_to_string("(list/times 3 (fn (i) (+ i 1)))"),
-        "(1 2 3)"
-    );
-    assert_eq!(
-        eval_to_string("(list/times 0 (fn (i) i))"),
-        "()"
-    );
+    assert_eq!(eval_to_string("(list/times 3 (fn (i) (+ i 1)))"), "(1 2 3)");
+    assert_eq!(eval_to_string("(list/times 0 (fn (i) i))"), "()");
 }
 
 #[test]
@@ -7205,14 +7235,8 @@ fn test_list_duplicates() {
         eval_to_string("(list/duplicates (list 1 2 2 3 3 3 4))"),
         "(2 3)"
     );
-    assert_eq!(
-        eval_to_string("(list/duplicates (list 1 2 3))"),
-        "()"
-    );
-    assert_eq!(
-        eval_to_string("(list/duplicates (list 1 1 1))"),
-        "(1)"
-    );
+    assert_eq!(eval_to_string("(list/duplicates (list 1 2 3))"), "()");
+    assert_eq!(eval_to_string("(list/duplicates (list 1 1 1))"), "(1)");
 }
 
 #[test]
@@ -7225,36 +7249,21 @@ fn test_list_cross_join() {
         eval_to_string(r#"(list/cross-join (list "a" "b") (list 1 2))"#),
         r#"(("a" 1) ("a" 2) ("b" 1) ("b" 2))"#
     );
-    assert_eq!(
-        eval_to_string("(list/cross-join (list) (list 1 2))"),
-        "()"
-    );
+    assert_eq!(eval_to_string("(list/cross-join (list) (list 1 2))"), "()");
 }
 
 #[test]
 fn test_list_page() {
-    assert_eq!(
-        eval_to_string("(list/page (range 20) 1 5)"),
-        "(0 1 2 3 4)"
-    );
-    assert_eq!(
-        eval_to_string("(list/page (range 20) 2 5)"),
-        "(5 6 7 8 9)"
-    );
+    assert_eq!(eval_to_string("(list/page (range 20) 1 5)"), "(0 1 2 3 4)");
+    assert_eq!(eval_to_string("(list/page (range 20) 2 5)"), "(5 6 7 8 9)");
     assert_eq!(
         eval_to_string("(list/page (range 20) 4 5)"),
         "(15 16 17 18 19)"
     );
     // Beyond last page
-    assert_eq!(
-        eval_to_string("(list/page (range 20) 5 5)"),
-        "()"
-    );
+    assert_eq!(eval_to_string("(list/page (range 20) 5 5)"), "()");
     // Partial last page
-    assert_eq!(
-        eval_to_string("(list/page (range 7) 2 5)"),
-        "(5 6)"
-    );
+    assert_eq!(eval_to_string("(list/page (range 7) 2 5)"), "(5 6)");
 }
 
 #[test]
@@ -7267,27 +7276,15 @@ fn test_list_find() {
         eval("(list/find (fn (x) (> x 10)) (list 1 2 3))"),
         Value::nil()
     );
-    assert_eq!(
-        eval("(list/find even? (list 1 3 4 5 6))"),
-        Value::int(4)
-    );
+    assert_eq!(eval("(list/find even? (list 1 3 4 5 6))"), Value::int(4));
 }
 
 #[test]
 fn test_list_pad() {
-    assert_eq!(
-        eval_to_string("(list/pad (list 1 2 3) 5 0)"),
-        "(1 2 3 0 0)"
-    );
+    assert_eq!(eval_to_string("(list/pad (list 1 2 3) 5 0)"), "(1 2 3 0 0)");
     // Already long enough
-    assert_eq!(
-        eval_to_string("(list/pad (list 1 2 3) 2 0)"),
-        "(1 2 3)"
-    );
-    assert_eq!(
-        eval_to_string("(list/pad (list) 3 nil)"),
-        "(nil nil nil)"
-    );
+    assert_eq!(eval_to_string("(list/pad (list 1 2 3) 2 0)"), "(1 2 3)");
+    assert_eq!(eval_to_string("(list/pad (list) 3 nil)"), "(nil nil nil)");
 }
 
 #[test]
@@ -7301,13 +7298,17 @@ fn test_list_sole() {
 #[test]
 fn test_list_sole_multiple_error() {
     let interp = Interpreter::new();
-    assert!(interp.eval_str("(list/sole (fn (x) (> x 2)) (list 1 2 3 4))").is_err());
+    assert!(interp
+        .eval_str("(list/sole (fn (x) (> x 2)) (list 1 2 3 4))")
+        .is_err());
 }
 
 #[test]
 fn test_list_sole_none_error() {
     let interp = Interpreter::new();
-    assert!(interp.eval_str("(list/sole (fn (x) (> x 10)) (list 1 2 3))").is_err());
+    assert!(interp
+        .eval_str("(list/sole (fn (x) (> x 10)) (list 1 2 3))")
+        .is_err());
 }
 
 #[test]
@@ -7324,10 +7325,7 @@ fn test_list_join() {
         eval(r#"(list/join (list "solo") ", ")"#),
         Value::string(r#""solo""#)
     );
-    assert_eq!(
-        eval(r#"(list/join (list) ", ")"#),
-        Value::string("")
-    );
+    assert_eq!(eval(r#"(list/join (list) ", ")"#), Value::string(""));
     // With numbers
     assert_eq!(
         eval(r#"(list/join (list 1 2 3) ", " " and ")"#),
@@ -7339,10 +7337,7 @@ fn test_list_join() {
 fn test_tap() {
     // tap should return the original value
     assert_eq!(eval("(tap 42 (fn (x) (+ x 1)))"), Value::int(42));
-    assert_eq!(
-        eval_to_string("(tap (list 1 2 3) (fn (x) nil))"),
-        "(1 2 3)"
-    );
+    assert_eq!(eval_to_string("(tap (list 1 2 3) (fn (x) nil))"), "(1 2 3)");
 }
 
 #[test]
@@ -7354,7 +7349,9 @@ fn test_map_sort_keys() {
     );
     // HashMap -> sorted map
     assert_eq!(
-        eval_to_string("(begin (define hm (hashmap/new :b 2 :a 1 :c 3)) (map/entries (map/sort-keys hm)))"),
+        eval_to_string(
+            "(begin (define hm (hashmap/new :b 2 :a 1 :c 3)) (map/entries (map/sort-keys hm)))"
+        ),
         "((:a 1) (:b 2) (:c 3))"
     );
 }
@@ -7377,6 +7374,952 @@ fn test_map_except() {
 }
 
 #[test]
+fn test_llm_cache_clear() {
+    let result = eval("(llm/cache-clear)");
+    assert_eq!(result, Value::int(0));
+}
+
+#[test]
+fn test_llm_cache_stats_empty() {
+    let result = eval("(llm/cache-stats)");
+    let map = result.as_map_rc().expect("should be a map");
+    assert!(map.contains_key(&Value::keyword("hits")));
+    assert!(map.contains_key(&Value::keyword("misses")));
+    assert!(map.contains_key(&Value::keyword("size")));
+}
+
+#[test]
+fn test_llm_cache_key_generation() {
+    let k1 = eval(r#"(llm/cache-key "hello" {:model "gpt-4" :temperature 0.5})"#);
+    let k2 = eval(r#"(llm/cache-key "hello" {:model "gpt-4" :temperature 0.5})"#);
+    assert_eq!(k1, k2);
+    let k3 = eval(r#"(llm/cache-key "world" {:model "gpt-4" :temperature 0.5})"#);
+    assert_ne!(k1, k3);
+}
+
+#[test]
+fn test_llm_cache_key_different_model() {
+    let k1 = eval(r#"(llm/cache-key "hello" {:model "gpt-4"})"#);
+    let k2 = eval(r#"(llm/cache-key "hello" {:model "claude-3"})"#);
+    assert_ne!(k1, k2);
+}
+
+#[test]
+fn test_llm_cache_key_different_temperature() {
+    let k1 = eval(r#"(llm/cache-key "hello" {:model "gpt-4" :temperature 0.0})"#);
+    let k2 = eval(r#"(llm/cache-key "hello" {:model "gpt-4" :temperature 0.7})"#);
+    assert_ne!(k1, k2);
+}
+
+#[test]
+fn test_llm_providers_list() {
+    let result = eval("(llm/providers)");
+    assert!(result.as_list().is_some());
+}
+
+#[test]
+fn test_llm_default_provider_none() {
+    let result = eval("(llm/default-provider)");
+    let is_valid = result.is_nil() || result.as_keyword().is_some();
+    assert!(is_valid, "expected nil or keyword, got: {result}");
+}
+
+// --- Vector store tests ---
+
+#[test]
+fn test_vector_store_create() {
+    let result = eval(r#"(vector-store/create "test-store")"#);
+    assert_eq!(result, Value::string("test-store"));
+}
+
+#[test]
+fn test_vector_store_count_empty() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(vector-store/create "ct")"#).unwrap();
+    assert_eq!(
+        interp.eval_str(r#"(vector-store/count "ct")"#).unwrap(),
+        Value::int(0)
+    );
+}
+
+#[test]
+fn test_vector_store_add_and_count() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(vector-store/create "add-t")"#).unwrap();
+    interp
+        .eval_str(
+            r#"(vector-store/add "add-t" "doc1" (embedding/list->embedding '(1.0 0.0 0.0)) {:title "Doc 1"})"#,
+        )
+        .unwrap();
+    assert_eq!(
+        interp.eval_str(r#"(vector-store/count "add-t")"#).unwrap(),
+        Value::int(1)
+    );
+}
+
+#[test]
+fn test_vector_store_search() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(vector-store/create "s-t")"#).unwrap();
+    interp
+        .eval_str(
+            r#"(vector-store/add "s-t" "x" (embedding/list->embedding '(1.0 0.0 0.0)) {:axis "x"})"#,
+        )
+        .unwrap();
+    interp
+        .eval_str(
+            r#"(vector-store/add "s-t" "y" (embedding/list->embedding '(0.0 1.0 0.0)) {:axis "y"})"#,
+        )
+        .unwrap();
+    interp
+        .eval_str(
+            r#"(vector-store/add "s-t" "z" (embedding/list->embedding '(0.0 0.0 1.0)) {:axis "z"})"#,
+        )
+        .unwrap();
+    let result = interp
+        .eval_str(r#"(vector-store/search "s-t" (embedding/list->embedding '(0.9 0.1 0.0)) 1)"#)
+        .unwrap();
+    let results = result.as_list().unwrap();
+    assert_eq!(results.len(), 1);
+    let first = results[0].as_map_rc().unwrap();
+    assert_eq!(
+        first.get(&Value::keyword("id")).unwrap().as_str().unwrap(),
+        "x"
+    );
+    let score = first
+        .get(&Value::keyword("score"))
+        .unwrap()
+        .as_float()
+        .unwrap();
+    assert!(score > 0.9);
+}
+
+#[test]
+fn test_vector_store_search_top_k() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(vector-store/create "tk")"#).unwrap();
+    interp
+        .eval_str(r#"(vector-store/add "tk" "a" (embedding/list->embedding '(1.0 0.0)) {})"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(vector-store/add "tk" "b" (embedding/list->embedding '(0.9 0.1)) {})"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(vector-store/add "tk" "c" (embedding/list->embedding '(0.0 1.0)) {})"#)
+        .unwrap();
+    let result = interp
+        .eval_str(r#"(vector-store/search "tk" (embedding/list->embedding '(1.0 0.0)) 2)"#)
+        .unwrap();
+    let results = result.as_list().unwrap();
+    assert_eq!(results.len(), 2);
+    assert_eq!(
+        results[0]
+            .as_map_rc()
+            .unwrap()
+            .get(&Value::keyword("id"))
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "a"
+    );
+}
+
+#[test]
+fn test_vector_store_delete() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(vector-store/create "del")"#).unwrap();
+    interp
+        .eval_str(r#"(vector-store/add "del" "d1" (embedding/list->embedding '(1.0 0.0)) {})"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(vector-store/add "del" "d2" (embedding/list->embedding '(0.0 1.0)) {})"#)
+        .unwrap();
+    assert_eq!(
+        interp
+            .eval_str(r#"(vector-store/delete "del" "d1")"#)
+            .unwrap(),
+        Value::bool(true)
+    );
+    assert_eq!(
+        interp.eval_str(r#"(vector-store/count "del")"#).unwrap(),
+        Value::int(1)
+    );
+}
+
+#[test]
+fn test_vector_store_delete_nonexistent() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(vector-store/create "dn")"#).unwrap();
+    assert_eq!(
+        interp
+            .eval_str(r#"(vector-store/delete "dn" "nope")"#)
+            .unwrap(),
+        Value::bool(false)
+    );
+}
+
+#[test]
+fn test_vector_store_not_found() {
+    let interp = Interpreter::new();
+    assert!(interp
+        .eval_str(r#"(vector-store/count "nonexistent")"#)
+        .is_err());
+}
+
+#[test]
+fn test_vector_store_save_and_open() {
+    let tmp = std::env::temp_dir().join("sema-vs-test-save.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+
+    // Create, add docs, save
+    {
+        let interp = Interpreter::new();
+        interp.eval_str(r#"(vector-store/create "sv")"#).unwrap();
+        interp
+            .eval_str(
+                r#"(vector-store/add "sv" "d1" (embedding/list->embedding '(1.0 0.0)) {:source "a.txt"})"#,
+            )
+            .unwrap();
+        interp
+            .eval_str(
+                r#"(vector-store/add "sv" "d2" (embedding/list->embedding '(0.0 1.0)) {:source "b.txt"})"#,
+            )
+            .unwrap();
+        interp
+            .eval_str(&format!(r#"(vector-store/save "sv" "{path}")"#))
+            .unwrap();
+    }
+
+    // Open from disk in a new interpreter
+    {
+        let interp = Interpreter::new();
+        interp
+            .eval_str(&format!(r#"(vector-store/open "loaded" "{path}")"#))
+            .unwrap();
+        assert_eq!(
+            interp.eval_str(r#"(vector-store/count "loaded")"#).unwrap(),
+            Value::int(2)
+        );
+        // Search should work on loaded store
+        let result = interp
+            .eval_str(r#"(vector-store/search "loaded" (embedding/list->embedding '(1.0 0.0)) 1)"#)
+            .unwrap();
+        let results = result.as_list().unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0]
+                .as_map_rc()
+                .unwrap()
+                .get(&Value::keyword("id"))
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "d1"
+        );
+    }
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_vector_store_open_nonexistent_creates_empty() {
+    let tmp = std::env::temp_dir().join("sema-vs-test-open-new.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+
+    let interp = Interpreter::new();
+    interp
+        .eval_str(&format!(r#"(vector-store/open "empty" "{path}")"#))
+        .unwrap();
+    assert_eq!(
+        interp.eval_str(r#"(vector-store/count "empty")"#).unwrap(),
+        Value::int(0)
+    );
+    // Save should work (path is associated)
+    interp.eval_str(r#"(vector-store/save "empty")"#).unwrap();
+    assert!(std::path::Path::new(path).exists());
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_vector_store_open_then_save_implicit_path() {
+    let tmp = std::env::temp_dir().join("sema-vs-test-implicit.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+
+    let interp = Interpreter::new();
+    interp
+        .eval_str(&format!(r#"(vector-store/open "imp" "{path}")"#))
+        .unwrap();
+    interp
+        .eval_str(r#"(vector-store/add "imp" "x" (embedding/list->embedding '(1.0 2.0)) {})"#)
+        .unwrap();
+    // Save without explicit path — should use the path from open
+    interp.eval_str(r#"(vector-store/save "imp")"#).unwrap();
+    assert!(std::path::Path::new(path).exists());
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_vector_store_search_returns_metadata() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(vector-store/create "mt")"#).unwrap();
+    interp
+        .eval_str(
+            r#"(vector-store/add "mt" "d1" (embedding/list->embedding '(1.0 0.0)) {:source "f.txt" :page 3})"#,
+        )
+        .unwrap();
+    let result = interp
+        .eval_str(r#"(vector-store/search "mt" (embedding/list->embedding '(1.0 0.0)) 1)"#)
+        .unwrap();
+    let meta = result.as_list().unwrap()[0]
+        .as_map_rc()
+        .unwrap()
+        .get(&Value::keyword("metadata"))
+        .unwrap()
+        .as_map_rc()
+        .unwrap();
+    assert_eq!(
+        meta.get(&Value::keyword("source"))
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "f.txt"
+    );
+}
+
+#[test]
+fn test_vector_store_overwrite_id() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(vector-store/create "ow")"#).unwrap();
+    interp
+        .eval_str(r#"(vector-store/add "ow" "d1" (embedding/list->embedding '(1.0 0.0)) {:v 1})"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(vector-store/add "ow" "d1" (embedding/list->embedding '(0.0 1.0)) {:v 2})"#)
+        .unwrap();
+    assert_eq!(
+        interp.eval_str(r#"(vector-store/count "ow")"#).unwrap(),
+        Value::int(1)
+    );
+}
+
+// --- Vector math tests ---
+
+#[test]
+fn test_vector_cosine_similarity() {
+    let r = eval(
+        r#"(vector/cosine-similarity (embedding/list->embedding '(1.0 0.0)) (embedding/list->embedding '(1.0 0.0)))"#,
+    );
+    assert!((r.as_float().unwrap() - 1.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_vector_cosine_orthogonal() {
+    let r = eval(
+        r#"(vector/cosine-similarity (embedding/list->embedding '(1.0 0.0)) (embedding/list->embedding '(0.0 1.0)))"#,
+    );
+    assert!(r.as_float().unwrap().abs() < 1e-10);
+}
+
+#[test]
+fn test_vector_dot_product() {
+    let r = eval(
+        r#"(vector/dot-product (embedding/list->embedding '(1.0 2.0 3.0)) (embedding/list->embedding '(4.0 5.0 6.0)))"#,
+    );
+    assert!((r.as_float().unwrap() - 32.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_vector_normalize() {
+    let r = eval(r#"(vector/normalize (embedding/list->embedding '(3.0 4.0)))"#);
+    let bv = r.as_bytevector().unwrap();
+    let x = f64::from_le_bytes(bv[0..8].try_into().unwrap());
+    let y = f64::from_le_bytes(bv[8..16].try_into().unwrap());
+    assert!((x - 0.6).abs() < 1e-10);
+    assert!((y - 0.8).abs() < 1e-10);
+}
+
+#[test]
+fn test_vector_normalize_zero() {
+    let r = eval(r#"(vector/normalize (embedding/list->embedding '(0.0 0.0)))"#);
+    let bv = r.as_bytevector().unwrap();
+    assert!(f64::from_le_bytes(bv[0..8].try_into().unwrap()).abs() < 1e-10);
+}
+
+#[test]
+fn test_vector_distance() {
+    let r = eval(
+        r#"(vector/distance (embedding/list->embedding '(0.0 0.0)) (embedding/list->embedding '(3.0 4.0)))"#,
+    );
+    assert!((r.as_float().unwrap() - 5.0).abs() < 1e-10);
+}
+
+#[test]
+fn test_vector_distance_same() {
+    let r = eval(
+        r#"(vector/distance (embedding/list->embedding '(1.0 2.0)) (embedding/list->embedding '(1.0 2.0)))"#,
+    );
+    assert!(r.as_float().unwrap().abs() < 1e-10);
+}
+
+#[test]
+// --- Text chunking tests ---
+
+fn test_text_chunk_basic() {
+    let result = eval(r#"(text/chunk "hello world foo bar" {:size 10})"#);
+    let chunks = result.as_list().expect("should be a list");
+    assert!(chunks.len() >= 2);
+    for chunk in chunks {
+        let s = chunk.as_str().expect("each chunk should be a string");
+        assert!(s.len() <= 10, "chunk too long: '{s}' ({})", s.len());
+    }
+}
+
+#[test]
+fn test_text_chunk_default_size() {
+    let result = eval(r#"(text/chunk "short text")"#);
+    let chunks = result.as_list().expect("should be a list");
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0].as_str().unwrap(), "short text");
+}
+
+#[test]
+fn test_text_chunk_with_overlap() {
+    let result = eval(r#"(text/chunk "aaaa bbbb cccc dddd" {:size 10 :overlap 4})"#);
+    let chunks = result.as_list().expect("should be a list");
+    assert!(chunks.len() >= 2);
+}
+
+#[test]
+fn test_text_chunk_empty() {
+    let result = eval(r#"(text/chunk "")"#);
+    let chunks = result.as_list().expect("should be a list");
+    assert_eq!(chunks.len(), 0);
+}
+
+#[test]
+fn test_text_chunk_by_separator() {
+    let result = eval(r#"(text/chunk-by-separator "a\nb\nc\nd" "\n")"#);
+    let chunks = result.as_list().expect("should be a list");
+    assert_eq!(chunks.len(), 4);
+    assert_eq!(chunks[0].as_str().unwrap(), "a");
+}
+
+#[test]
+fn test_text_chunk_by_separator_empty() {
+    let result = eval(r#"(text/chunk-by-separator "" "\n")"#);
+    let chunks = result.as_list().expect("should be a list");
+    assert_eq!(chunks.len(), 0);
+}
+
+#[test]
+fn test_text_split_sentences() {
+    let result = eval(r#"(text/split-sentences "Hello world. How are you? I am fine.")"#);
+    let chunks = result.as_list().expect("should be a list");
+    assert_eq!(chunks.len(), 3);
+}
+
+#[test]
+fn test_text_split_sentences_empty() {
+    let result = eval(r#"(text/split-sentences "")"#);
+    assert_eq!(result.as_list().unwrap().len(), 0);
+}
+
+#[test]
+fn test_text_split_sentences_no_punctuation() {
+    let result = eval(r#"(text/split-sentences "hello world")"#);
+    let chunks = result.as_list().unwrap();
+    assert_eq!(chunks.len(), 1);
+    assert_eq!(chunks[0].as_str().unwrap(), "hello world");
+}
+
+// --- Text cleaning tests ---
+
+#[test]
+fn test_text_clean_whitespace() {
+    assert_eq!(
+        eval(r#"(text/clean-whitespace "  hello   world  \n\n  foo  ")"#),
+        Value::string("hello world foo")
+    );
+}
+
+#[test]
+fn test_text_strip_html() {
+    assert_eq!(
+        eval(r#"(text/strip-html "<p>Hello <b>world</b></p>")"#),
+        Value::string("Hello world")
+    );
+}
+
+#[test]
+fn test_text_strip_html_entities() {
+    assert_eq!(
+        eval(r#"(text/strip-html "a &amp; b &lt; c")"#),
+        Value::string("a & b < c")
+    );
+}
+
+#[test]
+fn test_text_truncate_short() {
+    assert_eq!(
+        eval(r#"(text/truncate "hello" 10)"#),
+        Value::string("hello")
+    );
+}
+
+#[test]
+fn test_text_truncate_exact() {
+    assert_eq!(
+        eval(r#"(text/truncate "hello world" 5)"#),
+        Value::string("he...")
+    );
+}
+
+#[test]
+fn test_text_truncate_custom_suffix() {
+    assert_eq!(
+        eval(r#"(text/truncate "hello world" 8 "…")"#),
+        Value::string("hello w…")
+    );
+}
+
+#[test]
+fn test_text_word_count() {
+    assert_eq!(
+        eval(r#"(text/word-count "hello world foo bar")"#),
+        Value::int(4)
+    );
+}
+
+#[test]
+fn test_text_word_count_empty() {
+    assert_eq!(eval(r#"(text/word-count "")"#), Value::int(0));
+}
+
+#[test]
+fn test_text_word_count_extra_spaces() {
+    assert_eq!(
+        eval(r#"(text/word-count "  hello   world  ")"#),
+        Value::int(2)
+    );
+}
+
+#[test]
+fn test_text_trim_indent() {
+    assert_eq!(
+        eval(r#"(text/trim-indent "    hello\n    world")"#),
+        Value::string("hello\nworld")
+    );
+}
+
+#[test]
+fn test_text_trim_indent_mixed() {
+    assert_eq!(
+        eval(r#"(text/trim-indent "    hello\n      world")"#),
+        Value::string("hello\n  world")
+    );
+}
+
+#[test]
+fn test_text_trim_indent_empty() {
+    assert_eq!(eval(r#"(text/trim-indent "")"#), Value::string(""));
+}
+
+// --- Prompt template tests ---
+
+#[test]
+fn test_prompt_template_basic() {
+    let result = eval(r#"(prompt/template "Hello {{name}}")"#);
+    assert!(result.as_str().is_some());
+}
+
+#[test]
+fn test_prompt_render_basic() {
+    assert_eq!(
+        eval(
+            r#"(prompt/render "Hello {{name}}, welcome to {{place}}." {:name "Alice" :place "Wonderland"})"#
+        ),
+        Value::string("Hello Alice, welcome to Wonderland.")
+    );
+}
+
+#[test]
+fn test_prompt_render_missing_var() {
+    assert_eq!(
+        eval(r#"(prompt/render "Hello {{name}}, {{missing}}." {:name "Bob"})"#),
+        Value::string("Hello Bob, {{missing}}.")
+    );
+}
+
+#[test]
+fn test_prompt_render_no_vars() {
+    assert_eq!(
+        eval(r#"(prompt/render "Hello world." {})"#),
+        Value::string("Hello world.")
+    );
+}
+
+#[test]
+fn test_prompt_render_number_value() {
+    assert_eq!(
+        eval(r#"(prompt/render "Count: {{n}}" {:n 42})"#),
+        Value::string("Count: 42")
+    );
+}
+
+#[test]
+fn test_prompt_render_repeated_var() {
+    assert_eq!(
+        eval(r#"(prompt/render "{{x}} and {{x}}" {:x "hello"})"#),
+        Value::string("hello and hello")
+    );
+}
+
+#[test]
+fn test_prompt_render_adjacent_vars() {
+    assert_eq!(
+        eval(r#"(prompt/render "{{a}}{{b}}" {:a "hello" :b "world"})"#),
+        Value::string("helloworld")
+    );
+}
+
+// --- Token counting tests ---
+
+#[test]
+fn test_llm_token_count_basic() {
+    let result = eval(r#"(llm/token-count "hello world")"#);
+    let count = result.as_int().expect("should be integer");
+    assert!(count >= 2 && count <= 4, "unexpected count: {count}");
+}
+
+#[test]
+fn test_llm_token_count_empty() {
+    assert_eq!(eval(r#"(llm/token-count "")"#), Value::int(0));
+}
+
+#[test]
+fn test_llm_token_count_long() {
+    let result = eval(
+        r#"(llm/token-count (string-append "abcd" "abcd" "abcd" "abcd" "abcd" "abcd" "abcd" "abcd" "abcd" "abcd"))"#,
+    );
+    assert_eq!(result.as_int().unwrap(), 10);
+}
+
+#[test]
+fn test_llm_token_estimate_map() {
+    let result = eval(r#"(llm/token-estimate "hello world")"#);
+    let map = result.as_map_rc().expect("should be a map");
+    assert!(map.contains_key(&Value::keyword("tokens")));
+    assert!(map.contains_key(&Value::keyword("method")));
+    assert_eq!(
+        map.get(&Value::keyword("method"))
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "chars/4"
+    );
+}
+
+#[test]
+fn test_llm_token_count_list() {
+    let result = eval(r#"(llm/token-count '("hello" "world" "foo"))"#);
+    let count = result.as_int().expect("should be integer");
+    assert!(count >= 3);
+}
+
+// --- Rate limiting tests ---
+
+#[test]
+fn test_llm_with_rate_limit_type_check() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(llm/with-rate-limit 5 (lambda () 42))"#);
+    assert!(result.is_ok());
+    assert_eq!(result.unwrap(), Value::int(42));
+}
+
+// --- Retry tests ---
+
+#[test]
+fn test_retry_succeeds_first_try() {
+    let result = eval(r#"(retry (lambda () 42))"#);
+    assert_eq!(result, Value::int(42));
+}
+
+#[test]
+fn test_retry_with_options() {
+    let result = eval(r#"(retry (lambda () 42) {:max-attempts 3})"#);
+    assert_eq!(result, Value::int(42));
+}
+
+#[test]
+fn test_retry_counter() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"
+        (begin
+            (define counter 0)
+            (retry (lambda ()
+                (set! counter (+ counter 1))
+                (if (< counter 3)
+                    (error "not yet")
+                    counter))
+                {:max-attempts 5 :base-delay-ms 0}))
+    "#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(3));
+}
+
+#[test]
+fn test_retry_exhausted() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(retry (lambda () (error "always fails")) {:max-attempts 2 :base-delay-ms 0})"#,
+    );
+    assert!(result.is_err());
+}
+
+// --- LLM convenience tests ---
+
+#[test]
+fn test_llm_summarize_arity() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(llm/summarize)"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_llm_compare_arity() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(llm/compare "a")"#);
+    assert!(result.is_err());
+}
+
+// --- KV store tests ---
+
+#[test]
+fn test_kv_open_and_close() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-oc.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "test" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/close "test")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_set_and_get() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-sg.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "sg" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "sg" "name" "Alice")"#).unwrap();
+    let result = interp.eval_str(r#"(kv/get "sg" "name")"#).unwrap();
+    assert_eq!(result, Value::string("Alice"));
+    interp.eval_str(r#"(kv/close "sg")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_get_missing() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-gm.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "gm" "{path}")"#))
+        .unwrap();
+    let result = interp.eval_str(r#"(kv/get "gm" "missing")"#).unwrap();
+    assert!(result.is_nil());
+    interp.eval_str(r#"(kv/close "gm")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_delete() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-del.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "del" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "del" "k" "v")"#).unwrap();
+    interp.eval_str(r#"(kv/delete "del" "k")"#).unwrap();
+    let result = interp.eval_str(r#"(kv/get "del" "k")"#).unwrap();
+    assert!(result.is_nil());
+    interp.eval_str(r#"(kv/close "del")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_keys() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-keys.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "keys" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "keys" "a" 1)"#).unwrap();
+    interp.eval_str(r#"(kv/set "keys" "b" 2)"#).unwrap();
+    let result = interp.eval_str(r#"(kv/keys "keys")"#).unwrap();
+    let keys = result.as_list().unwrap();
+    assert_eq!(keys.len(), 2);
+    interp.eval_str(r#"(kv/close "keys")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_persistence() {
+    let tmp = std::env::temp_dir().join("sema-kv-test-persist.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    {
+        let interp = Interpreter::new();
+        interp
+            .eval_str(&format!(r#"(kv/open "p" "{path}")"#))
+            .unwrap();
+        interp.eval_str(r#"(kv/set "p" "key" "value")"#).unwrap();
+        interp.eval_str(r#"(kv/close "p")"#).unwrap();
+    }
+    {
+        let interp = Interpreter::new();
+        interp
+            .eval_str(&format!(r#"(kv/open "p" "{path}")"#))
+            .unwrap();
+        let result = interp.eval_str(r#"(kv/get "p" "key")"#).unwrap();
+        assert_eq!(result, Value::string("value"));
+        interp.eval_str(r#"(kv/close "p")"#).unwrap();
+    }
+    let _ = std::fs::remove_file(&tmp);
+}
+
+// --- Document metadata tests ---
+
+#[test]
+fn test_document_create() {
+    let result = eval(r#"(document/create "hello world" {:source "test.txt"})"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(
+        map.get(&Value::keyword("text")).unwrap().as_str().unwrap(),
+        "hello world"
+    );
+    let meta = map
+        .get(&Value::keyword("metadata"))
+        .unwrap()
+        .as_map_rc()
+        .unwrap();
+    assert_eq!(
+        meta.get(&Value::keyword("source"))
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "test.txt"
+    );
+}
+
+#[test]
+fn test_document_chunk_preserves_metadata() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"
+        (document/chunk
+            (document/create "aaaa bbbb cccc dddd" {:source "test.txt" :page 1})
+            {:size 10})
+    "#,
+        )
+        .unwrap();
+    let chunks = result.as_list().unwrap();
+    assert!(chunks.len() >= 2);
+    for chunk in chunks {
+        let map = chunk.as_map_rc().expect("chunk should be a map");
+        assert!(map.get(&Value::keyword("text")).unwrap().as_str().is_some());
+        let meta = map
+            .get(&Value::keyword("metadata"))
+            .unwrap()
+            .as_map_rc()
+            .unwrap();
+        assert_eq!(
+            meta.get(&Value::keyword("source"))
+                .unwrap()
+                .as_str()
+                .unwrap(),
+            "test.txt"
+        );
+    }
+}
+
+#[test]
+fn test_document_chunk_adds_chunk_index() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"
+        (document/chunk
+            (document/create "aaaa bbbb cccc dddd" {:source "f.txt"})
+            {:size 10})
+    "#,
+        )
+        .unwrap();
+    let chunks = result.as_list().unwrap();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let meta = chunk
+            .as_map_rc()
+            .unwrap()
+            .get(&Value::keyword("metadata"))
+            .unwrap()
+            .as_map_rc()
+            .unwrap();
+        assert_eq!(
+            meta.get(&Value::keyword("chunk-index"))
+                .unwrap()
+                .as_int()
+                .unwrap(),
+            i as i64
+        );
+    }
+}
+
+#[test]
+fn test_document_text() {
+    let result = eval(r#"(document/text (document/create "hello" {:source "x"}))"#);
+    assert_eq!(result, Value::string("hello"));
+}
+
+#[test]
+fn test_document_metadata() {
+    let result = eval(r#"(document/metadata (document/create "hello" {:source "x"}))"#);
+    let meta = result.as_map_rc().unwrap();
+    assert_eq!(
+        meta.get(&Value::keyword("source"))
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        "x"
+    );
+}
+
+#[test]
+fn test_vector_dimension_mismatch_error() {
+    let interp = Interpreter::new();
+    assert!(interp
+        .eval_str(
+            r#"(vector/dot-product (embedding/list->embedding '(1.0 2.0)) (embedding/list->embedding '(1.0 2.0 3.0)))"#,
+        )
+        .is_err());
+}
+
+#[test]
 fn test_map_zip() {
     assert_eq!(
         eval_to_string("(map/entries (map/zip (list :a :b :c) (list 1 2 3)))"),
@@ -7388,8 +8331,5 @@ fn test_map_zip() {
         Value::int(2)
     );
     // Empty
-    assert_eq!(
-        eval("(count (map/zip (list) (list)))"),
-        Value::int(0)
-    );
+    assert_eq!(eval("(count (map/zip (list) (list)))"), Value::int(0));
 }

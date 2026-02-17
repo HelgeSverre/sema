@@ -23,11 +23,14 @@
     "repl"
   ],
   "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs && npx serve -l 8787",
     "serve": "npx serve -l 8787",
     "test": "npx playwright test",
     "test:ui": "npx playwright test --ui"
   },
   "devDependencies": {
-    "@playwright/test": "^1.58.2"
+    "@playwright/test": "^1.58.2",
+    "esbuild": "^0.25.12"
   }
 }

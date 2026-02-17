@@ -1,0 +1,69 @@
+;;; List and map comprehensions via macros
+;;;
+;;; Implements Python/Haskell-style comprehensions:
+;;;   (for/list ((x xs) (y ys)) body)
+;;;   (for/list ((x xs) (:when pred)) body)
+
+;; Simple list comprehension
+(defmacro for/list (bindings body)
+  (define (expand bs)
+    (if (null? bs)
+      `(list ,body)
+      (let ((clause (car bs))
+            (rest (cdr bs)))
+        (if (and (list? clause) (= (car clause) :when))
+          `(let ((__result ,(expand rest)))
+             (if ,(cadr clause) __result '()))
+          (let ((var (car clause))
+                (seq (cadr clause)))
+            `(apply append
+               (map (fn (,var) ,(expand rest)) ,seq)))))))
+  (expand bindings))
+
+(defmacro for/sum (bindings body)
+  `(foldl + 0 (for/list ,bindings ,body)))
+
+(defmacro for/string (bindings body)
+  `(string/join (for/list ,bindings ,body) ""))
+
+(defmacro for/every? (bindings body)
+  `(null? (filter (fn (x) (not x)) (for/list ,bindings ,body))))
+
+(println "=== Comprehensions ===\n")
+
+;; Squares of 1..10
+(println (format "Squares: ~a"
+  (for/list ((x (range 1 11))) (* x x))))
+
+;; Cartesian product
+(println (format "Pairs: ~a"
+  (for/list ((x (list 1 2 3))
+             (y (list "a" "b")))
+    (list x y))))
+
+;; Even squares with filter
+(println (format "Even squares: ~a"
+  (for/list ((x (range 1 21))
+             (:when (even? x)))
+    (* x x))))
+
+;; Pythagorean triples
+(define triples
+  (for/list ((a (range 1 21))
+             (b (range a 21))
+             (:when (let ((c (sqrt (+ (* a a) (* b b)))))
+                      (= c (floor c)))))
+    (list a b (int (sqrt (+ (* a a) (* b b)))))))
+(println (format "\nPythagorean triples: ~a" triples))
+
+;; Sum of cubes
+(println (format "\nSum of cubes 1..10: ~a"
+  (for/sum ((n (range 1 11))) (* n n n))))
+
+;; Matrix transpose
+(define matrix (list (list 1 2 3) (list 4 5 6) (list 7 8 9)))
+(define transposed
+  (for/list ((col (range 3)))
+    (map (fn (row) (nth row col)) matrix)))
+(println (format "\nMatrix:     ~a" matrix))
+(println (format "Transposed: ~a" transposed))

@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.5.0
+
+### Breaking
+
+- **`llm/with-budget` demoted from special form to function** — now takes a thunk like the other `llm/with-*` functions: `(llm/with-budget {:max-cost-usd 0.50} (lambda () ...))` instead of `(with-budget {:max-cost-usd 0.50} body...)`.
+
+### Added
+
+- **LLM pipeline & resilience primitives** — `llm/with-cache`, `llm/with-budget`, `llm/with-rate-limit`, `llm/with-fallback`, `llm/cache-stats`, `llm/cache-clear`, `llm/cache-key` for response caching, cost limits, rate limiting, and provider fallback chains.
+- **LLM utility functions** — `llm/compare`, `llm/summarize`, `llm/token-count`, `llm/token-estimate`, `llm/default-provider`, `llm/providers`.
+- **Vision support** — `llm/extract-from-image` for vision-based structured data extraction.
+- **Vector store** — in-memory vector store with `vector-store/create`, `vector-store/add`, `vector-store/search`, `vector-store/delete`, `vector-store/count`, `vector-store/save`, `vector-store/open`, and vector math functions (`vector/cosine-similarity`, `vector/dot-product`, `vector/distance`, `vector/normalize`, `embedding/list->embedding`).
+- **Text processing module** (15 functions) — `text/chunk`, `text/chunk-by-separator`, `text/split-sentences`, `text/clean-whitespace`, `text/strip-html`, `text/truncate`, `text/word-count`, `text/trim-indent`, `prompt/template`, `prompt/render`, `document/create`, `document/text`, `document/metadata`, `document/chunk`.
+- **Key-value store** (6 functions) — persistent JSON-backed store with `kv/open`, `kv/set`, `kv/get`, `kv/delete`, `kv/keys`, `kv/close`. Sandboxed under `FS_WRITE`.
+- **`retry` function** — exponential backoff retry with configurable `:max-attempts`, `:base-delay-ms`, and `:backoff` multiplier.
+- **New examples** — `examples/llm/test-pipeline.sema`, `test-text-tools.sema`, `test-vector-store.sema`, `test-kv-store.sema` showcasing the new primitives.
+
+### Changed
+
+- **Playground build system** — examples are now separate `.sema` files in `playground/examples/` (7 categories, 46 files), injected at build time via an esbuild-based build script (`playground/build.mjs`). Replaced 2,351 lines of inline JS with a clean file-per-example structure.
+- **Special forms reorganized** — sorted into logical groups (Core language, Modules, LLM primitives) with alphabetical ordering within each group.
+
+### Internal
+
+- **Website docs** — added documentation pages for caching, resilience, vector stores, KV stores, text processing, embeddings, and cost management.
+- **Makefile** — `playground-build` now runs `node build.mjs` after wasm-pack.
+
 ## 1.4.0
 
 ### Changed

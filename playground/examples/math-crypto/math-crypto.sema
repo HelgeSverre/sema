@@ -1,0 +1,60 @@
+;; Math, crypto, base64, UUID, bitwise operations
+
+;; Prime sieve
+(define (sieve-primes n)
+  (let loop ((candidates (range 2 n)) (primes '()))
+    (if (null? candidates) (reverse primes)
+      (let ((p (first candidates)))
+        (loop (filter (fn (x) (not (= 0 (math/remainder x p)))) (rest candidates))
+              (cons p primes))))))
+
+(define primes-100 (sieve-primes 100))
+(println (format "Primes under 100 (~a total):" (length primes-100)))
+(println (format "  ~a" (string/join (map str primes-100) " ")))
+
+(println (format "\ngcd(12, 8) = ~a" (math/gcd 12 8)))
+(println (format "lcm(12, 8) = ~a" (math/lcm 12 8)))
+
+;; Trig identity
+(println "\nVerifying sin²(x) + cos²(x) = 1:")
+(for-each (fn (x)
+  (let ((s (sin x)) (c (cos x)))
+    (println (format "  x=~a → ~a ✓"
+      (string/pad-right (str (round (* x 100))) 4)
+      (+ (* s s) (* c c))))))
+  (list 0.0 0.5 1.0 1.5 2.0 pi))
+
+;; Bitwise IP parsing
+(define (ip-to-int a b c d)
+  (bit/or (bit/or (bit/shift-left a 24) (bit/shift-left b 16))
+          (bit/or (bit/shift-left c 8) d)))
+(define (int-to-ip n)
+  (format "~a.~a.~a.~a"
+    (bit/and (bit/shift-right n 24) 255)
+    (bit/and (bit/shift-right n 16) 255)
+    (bit/and (bit/shift-right n 8) 255)
+    (bit/and n 255)))
+
+(println (format "\n192.168.1.100 → ~a → ~a"
+  (ip-to-int 192 168 1 100)
+  (int-to-ip (ip-to-int 192 168 1 100))))
+
+;; UUID
+(println "\nUUIDs:")
+(for-each (fn (_) (println (format "  ~a" (uuid/v4)))) (range 3))
+
+;; Base64
+(println "\nBase64:")
+(for-each (fn (msg)
+  (let ((enc (base64/encode msg)))
+    (println (format "  ~a → ~a → ~a"
+      (string/pad-right msg 20) (string/pad-right enc 28) (base64/decode enc)))))
+  (list "Hello, World!" "Sema Lisp rocks" "data: 42"))
+
+;; SHA-256
+(println "\nSHA-256:")
+(for-each (fn (input)
+  (println (format "  sha256(~a) = ~a..."
+    (string/pad-right (format "\"~a\"" input) 15)
+    (substring (hash/sha256 input) 0 16))))
+  (list "" "hello" "Hello" "Sema"))

@@ -510,7 +510,8 @@ pub fn register(env: &sema_core::Env) {
         match args[0].view() {
             ValueView::Map(m) => Ok(Value::map(m.as_ref().clone())),
             ValueView::HashMap(m) => {
-                let sorted: BTreeMap<Value, Value> = m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                let sorted: BTreeMap<Value, Value> =
+                    m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 Ok(Value::map(sorted))
             }
             _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),

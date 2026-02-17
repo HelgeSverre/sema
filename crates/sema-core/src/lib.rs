@@ -13,5 +13,6 @@ pub use lasso::Spur;
 pub use sandbox::{Caps, Sandbox};
 pub use value::{
     compare_spurs, intern, resolve, with_resolved, Agent, Conversation, Env, ImageAttachment,
-    Lambda, Macro, Message, NativeFn, Prompt, Record, Role, Thunk, ToolDefinition, Value, ValueView,
+    Lambda, Macro, Message, NativeFn, Prompt, Record, Role, Thunk, ToolDefinition, Value,
+    ValueView,
 };

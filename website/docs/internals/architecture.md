@@ -361,12 +361,12 @@ Embedding providers (Jina, Voyage, Cohere) are registered separately and selecte
 
 ### Cost Tracking
 
-Every completion records token usage in `SESSION_USAGE` and computes dollar cost via a built-in pricing table (`pricing.rs`). The `with-budget` special form sets a spending cap:
+Every completion records token usage in `SESSION_USAGE` and computes dollar cost via a built-in pricing table (`pricing.rs`). The `llm/with-budget` function sets a scoped spending cap:
 
 ```scheme
-(with-budget 0.50
-  (complete "Summarize this document..." :model "claude-sonnet-4-20250514"))
-;; Raises an error if cumulative cost exceeds $0.50
+(llm/with-budget {:max-cost-usd 0.50 :max-tokens 10000} (lambda ()
+  (llm/complete "Summarize this document...")))
+;; Raises an error if cumulative cost exceeds $0.50 or 10000 tokens
 ```
 
 ## The Circular Dependency Problem

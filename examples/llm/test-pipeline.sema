@@ -1,0 +1,97 @@
+;; test-pipeline.sema — Test LLM pipeline resilience features
+;; Requires: ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable
+;; Usage: cargo run -- examples/llm/test-pipeline.sema
+;;
+;; Demonstrates: caching, fallback chains, rate limiting, retry,
+;;               budgeting, token estimation, and cost tracking.
+
+(define provider (llm/auto-configure))
+(when (nil? provider)
+  (println "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (exit 1))
+(println (format "Using provider: ~a" provider))
+
+;; --- 1. Response Caching ---
+(println "\n=== 1. Response Caching ===")
+(llm/with-cache (lambda ()
+  (define r1 (llm/complete "Say just: cached-test" {:max-tokens 20}))
+  (println (format "First call:  ~a" r1))
+  (define r2 (llm/complete "Say just: cached-test" {:max-tokens 20}))
+  (println (format "Second call: ~a (should be same — from cache)" r2))))
+(println (format "Cache stats: ~a" (llm/cache-stats)))
+
+;; --- 2. Cache with TTL ---
+(println "\n=== 2. Cache with TTL ===")
+(llm/with-cache {:ttl 60} (lambda ()
+  (define r (llm/complete "Say just: ttl-test" {:max-tokens 20}))
+  (println (format "Cached (60s TTL): ~a" r))))
+(println (format "Cache stats: ~a" (llm/cache-stats)))
+(llm/cache-clear)
+(println (format "After clear: ~a" (llm/cache-stats)))
+
+;; --- 3. Token Estimation ---
+(println "\n=== 3. Token Estimation ===")
+(define text "The quick brown fox jumps over the lazy dog")
+(println (format "Token count: ~a" (llm/token-count text)))
+(println (format "Token estimate: ~a" (llm/token-estimate text)))
+(println (format "Token count (list): ~a" (llm/token-count (list text text))))
+
+;; --- 4. Simple Budget ---
+(println "\n=== 4. Simple Budget ===")
+(llm/set-budget 1.00)
+(define r (llm/complete "Say just: budget-ok" {:max-tokens 20}))
+(println (format "Result: ~a" r))
+(println (format "Budget remaining: ~a" (llm/budget-remaining)))
+(llm/clear-budget)
+(println (format "After clear: ~a" (llm/budget-remaining)))
+
+;; --- 5. Scoped Budget (llm/with-budget) ---
+(println "\n=== 5. Scoped Budget ===")
+(llm/with-budget {:max-cost-usd 0.50} (lambda ()
+  (define r (llm/complete "Say just: scoped-budget" {:max-tokens 20}))
+  (println (format "Result: ~a" r))
+  (println (format "Budget in scope: ~a" (llm/budget-remaining)))))
+;; Budget is automatically cleared after the block
+(println (format "Budget after scope: ~a" (llm/budget-remaining)))
+
+;; --- 6. Rate Limiting ---
+(println "\n=== 6. Rate Limiting ===")
+(llm/with-rate-limit 2.0 (lambda ()
+  (define r1 (llm/complete "Say just: rate-1" {:max-tokens 20}))
+  (println (format "Call 1: ~a" r1))
+  (define r2 (llm/complete "Say just: rate-2" {:max-tokens 20}))
+  (println (format "Call 2: ~a" r2))))
+
+;; --- 7. Retry with Backoff ---
+(println "\n=== 7. Retry ===")
+;; Retry a function that succeeds on first try
+(define result (retry (lambda () "success")))
+(println (format "Retry (immediate): ~a" result))
+
+;; Retry with custom options
+(define counter 0)
+(define result
+  (retry
+    (lambda ()
+      (set! counter (+ counter 1))
+      (if (< counter 3)
+        (error "not yet")
+        (format "succeeded on attempt ~a" counter)))
+    {:max-attempts 5 :base-delay-ms 10 :backoff 1.5}))
+(println (format "Retry (with backoff): ~a" result))
+
+;; --- 8. Fallback Providers ---
+(println "\n=== 8. Fallback Providers ===")
+(println (format "Configured providers: ~a" (llm/providers)))
+(println (format "Default provider: ~a" (llm/default-provider)))
+;; Note: llm/with-fallback requires multiple providers to be configured
+;; Uncomment if you have both ANTHROPIC_API_KEY and OPENAI_API_KEY set:
+;; (llm/with-fallback [:anthropic :openai]
+;;   (lambda () (llm/complete "Hello from fallback" {:max-tokens 20})))
+
+;; --- 9. Session Stats ---
+(println "\n=== 9. Session Stats ===")
+(println (format "Session usage: ~a" (llm/session-usage)))
+(println (format "Last usage: ~a" (llm/last-usage)))
+
+(println "\nPipeline tests complete!")

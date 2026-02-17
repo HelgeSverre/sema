@@ -1,0 +1,91 @@
+;; text-tools.sema — Text processing and prompt template utilities
+;; No API key required — all functions run locally.
+;;
+;; Demonstrates: text chunking, sentence splitting, text cleaning,
+;;               and prompt templates.
+
+;; --- 1. Text Chunking ---
+(println "=== 1. Text Chunking ===")
+
+(define article
+  "Sema is a Lisp with first-class LLM primitives. It combines a Scheme core with Clojure-style keywords and map literals. Prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation.
+
+The language includes 350+ built-in functions across 19 modules. It supports tail-call optimization, macros, modules, error handling, HTTP, file I/O, regex, JSON, and much more.
+
+Sema runs on all major platforms. The interpreter is implemented in Rust, providing fast startup times and low memory usage. A WebAssembly build powers the browser-based playground at sema.run.")
+
+;; Chunk with custom size
+(define chunks (text/chunk article {:size 200 :overlap 0}))
+(println (format "Chunks (200 chars, no overlap): ~a chunks" (length chunks)))
+(for-each
+  (lambda (c) (println (format "  [~a chars] ~a" (string-length c) (text/truncate c 60))))
+  chunks)
+
+;; Chunk with overlap
+(define chunks-ov (text/chunk article {:size 200 :overlap 50}))
+(println (format "\nChunks (200 chars, 50 overlap): ~a chunks" (length chunks-ov)))
+
+;; Default chunking (1000 chars, 200 overlap)
+(define chunks-default (text/chunk article))
+(println (format "Default chunking: ~a chunk(s)" (length chunks-default)))
+
+;; --- 2. Chunk by Separator ---
+(println "\n=== 2. Chunk by Separator ===")
+(define csv-like "alice,bob,charlie,diana")
+(define parts (text/chunk-by-separator csv-like ","))
+(println (format "Split by comma: ~a" parts))
+
+(define paragraphs (text/chunk-by-separator article "\n\n"))
+(println (format "Paragraphs: ~a" (length paragraphs)))
+
+;; --- 3. Sentence Splitting ---
+(println "\n=== 3. Sentence Splitting ===")
+(define text "Hello world. How are you? I'm fine! This is great.")
+(define sentences (text/split-sentences text))
+(println (format "Sentences: ~a" sentences))
+(println (format "Count: ~a" (length sentences)))
+
+;; --- 4. Text Cleaning ---
+(println "\n=== 4. Text Cleaning ===")
+
+;; Clean whitespace
+(define messy "  Hello    world   from    Sema  ")
+(println (format "Clean whitespace: '~a' => '~a'"
+  messy (text/clean-whitespace messy)))
+
+;; Strip HTML
+(define html "<h1>Title</h1><p>Hello &amp; welcome to <b>Sema</b>!</p>")
+(println (format "Strip HTML: ~a => ~a" html (text/strip-html html)))
+
+;; Truncate
+(define long-text "This is a very long string that should be truncated")
+(println (format "Truncate (20): ~a" (text/truncate long-text 20)))
+(println (format "Truncate (20, '…'): ~a" (text/truncate long-text 20 "…")))
+(println (format "Truncate (100): ~a" (text/truncate long-text 100))) ;; no change
+
+;; Word count
+(println (format "Word count: ~a" (text/word-count article)))
+(println (format "Word count (empty): ~a" (text/word-count "")))
+
+;; Trim indent
+(define indented "    line one\n    line two\n      line three")
+(println (format "Trim indent:\n~a" (text/trim-indent indented)))
+
+;; --- 5. Prompt Templates ---
+(println "\n=== 5. Prompt Templates ===")
+
+(define tmpl (prompt/template "Hello {{name}}, you are a {{role}}."))
+(println (format "Template: ~a" tmpl))
+
+(define rendered (prompt/render tmpl {:name "Alice" :role "developer"}))
+(println (format "Rendered: ~a" rendered))
+
+;; Missing variable stays as-is
+(define partial (prompt/render "Hi {{name}}, your score is {{score}}" {:name "Bob"}))
+(println (format "Partial: ~a" partial))
+
+;; Numbers in templates
+(define with-num (prompt/render "Count: {{n}}" {:n 42}))
+(println (format "With number: ~a" with-num))
+
+(println "\nText tools demo complete!")

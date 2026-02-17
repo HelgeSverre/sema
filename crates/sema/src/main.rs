@@ -45,7 +45,6 @@ const SPECIAL_FORMS: &[&str] = &[
     "force",
     "eval",
     "macroexpand",
-    "with-budget",
     "prompt",
     "message",
     "else",

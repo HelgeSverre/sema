@@ -1,0 +1,117 @@
+;; test-vector-store.sema — In-memory vector store and vector math
+;; No API key required — uses synthetic embeddings.
+;; Usage: cargo run -- examples/llm/test-vector-store.sema
+;;
+;; Demonstrates: vector store CRUD, similarity search, vector math,
+;;               and disk persistence.
+
+;; --- 1. Vector Math ---
+(println "=== 1. Vector Math ===")
+
+(define v1 (embedding/list->embedding '(1.0 0.0 0.0)))
+(define v2 (embedding/list->embedding '(0.0 1.0 0.0)))
+(define v3 (embedding/list->embedding '(1.0 1.0 0.0)))
+(define v4 (embedding/list->embedding '(0.5 0.5 0.5)))
+
+;; Cosine similarity
+(println (format "cos(v1, v1) = ~a (identical)" (vector/cosine-similarity v1 v1)))
+(println (format "cos(v1, v2) = ~a (orthogonal)" (vector/cosine-similarity v1 v2)))
+(println (format "cos(v1, v3) = ~a (45 degrees)" (vector/cosine-similarity v1 v3)))
+
+;; Dot product
+(println (format "\ndot(v1, v3) = ~a" (vector/dot-product v1 v3)))
+(println (format "dot(v3, v4) = ~a" (vector/dot-product v3 v4)))
+
+;; Euclidean distance
+(println (format "\ndist(v1, v2) = ~a" (vector/distance v1 v2)))
+(println (format "dist(v1, v1) = ~a" (vector/distance v1 v1)))
+
+;; Normalize
+(define v3n (vector/normalize v3))
+(println (format "\nnormalize(v3): cos with self = ~a" (vector/cosine-similarity v3n v3n)))
+(println (format "cos(v3, v3n) = ~a (same direction)" (vector/cosine-similarity v3 v3n)))
+
+;; --- 2. Vector Store CRUD ---
+(println "\n=== 2. Vector Store CRUD ===")
+
+(vector-store/create "docs")
+(println (format "Created store, count: ~a" (vector-store/count "docs")))
+
+;; Add documents with metadata
+(vector-store/add "docs" "rust-intro"
+  (embedding/list->embedding '(0.9 0.1 0.0))
+  {:title "Intro to Rust" :category "programming"})
+
+(vector-store/add "docs" "lisp-guide"
+  (embedding/list->embedding '(0.8 0.3 0.1))
+  {:title "Lisp Guide" :category "programming"})
+
+(vector-store/add "docs" "cooking-101"
+  (embedding/list->embedding '(0.1 0.9 0.2))
+  {:title "Cooking 101" :category "cooking"})
+
+(vector-store/add "docs" "baking-bread"
+  (embedding/list->embedding '(0.1 0.8 0.3))
+  {:title "Baking Bread" :category "cooking"})
+
+(vector-store/add "docs" "ml-basics"
+  (embedding/list->embedding '(0.7 0.2 0.5))
+  {:title "ML Basics" :category "AI"})
+
+(println (format "Added 5 documents, count: ~a" (vector-store/count "docs")))
+
+;; --- 3. Similarity Search ---
+(println "\n=== 3. Similarity Search ===")
+
+;; Search for programming-related docs
+(define query (embedding/list->embedding '(0.9 0.1 0.0)))
+(define results (vector-store/search "docs" query 3))
+(println "Top 3 results for 'programming' query:")
+(for-each
+  (lambda (r)
+    (println (format "  ~a (score: ~a) — ~a"
+      (get r :id)
+      (get r :score)
+      (get (get r :metadata) :title))))
+  results)
+
+;; Search for cooking-related docs
+(define query2 (embedding/list->embedding '(0.1 0.9 0.2)))
+(define results2 (vector-store/search "docs" query2 2))
+(println "\nTop 2 results for 'cooking' query:")
+(for-each
+  (lambda (r)
+    (println (format "  ~a (score: ~a)" (get r :id) (get r :score))))
+  results2)
+
+;; --- 4. Delete ---
+(println "\n=== 4. Delete ===")
+(define deleted (vector-store/delete "docs" "cooking-101"))
+(println (format "Deleted 'cooking-101': ~a" deleted))
+(println (format "Count after delete: ~a" (vector-store/count "docs")))
+
+(define deleted2 (vector-store/delete "docs" "nonexistent"))
+(println (format "Delete nonexistent: ~a" deleted2))
+
+;; --- 5. Persistence ---
+(println "\n=== 5. Persistence ===")
+(define store-path "/tmp/sema-test-vectors.json")
+(vector-store/save "docs" store-path)
+(println (format "Saved to ~a" store-path))
+
+;; Load into a new store
+(vector-store/open "docs-loaded" store-path)
+(println (format "Loaded store count: ~a" (vector-store/count "docs-loaded")))
+
+;; Search the loaded store
+(define loaded-results (vector-store/search "docs-loaded" query 2))
+(println "Search loaded store:")
+(for-each
+  (lambda (r)
+    (println (format "  ~a (score: ~a)" (get r :id) (get r :score))))
+  loaded-results)
+
+;; Cleanup
+(file/delete store-path)
+
+(println "\nVector store tests complete!")

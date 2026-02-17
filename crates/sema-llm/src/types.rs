@@ -59,9 +59,9 @@ impl MessageContent {
     pub fn has_images(&self) -> bool {
         match self {
             MessageContent::Text(_) => false,
-            MessageContent::Blocks(blocks) => {
-                blocks.iter().any(|b| matches!(b, ContentBlock::Image { .. }))
-            }
+            MessageContent::Blocks(blocks) => blocks
+                .iter()
+                .any(|b| matches!(b, ContentBlock::Image { .. })),
         }
     }
 }

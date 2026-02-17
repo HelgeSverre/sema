@@ -46,6 +46,18 @@ Generate embeddings (as bytevectors), compute cosine similarity, and access embe
 
 Extract structured data from text and images, classify inputs, and work with multi-modal content.
 
+### [Vector Store & Math](./vector-store.md)
+
+In-memory vector store for semantic search, plus vector math utilities (cosine similarity, dot product, normalize, distance).
+
+### [Caching](./caching.md)
+
+In-memory LLM response caching for iterative development and deduplication.
+
+### [Resilience & Retry](./resilience.md)
+
+Fallback provider chains, rate limiting, generic retry with exponential backoff, and convenience functions (`llm/summarize`, `llm/compare`).
+
 ### [Provider Management](./providers.md)
 
 Auto-configuration, runtime provider switching, custom providers, and OpenAI-compatible endpoints.

@@ -139,11 +139,6 @@ pub enum CoreExpr {
     Delay(Box<CoreExpr>),
     /// Force (evaluate thunk)
     Force(Box<CoreExpr>),
-    /// With-budget scope
-    WithBudget {
-        options: Box<CoreExpr>,
-        body: Vec<CoreExpr>,
-    },
     /// Macroexpand
     Macroexpand(Box<CoreExpr>),
 }
@@ -270,10 +265,6 @@ pub enum ResolvedExpr {
     },
     Delay(Box<ResolvedExpr>),
     Force(Box<ResolvedExpr>),
-    WithBudget {
-        options: Box<ResolvedExpr>,
-        body: Vec<ResolvedExpr>,
-    },
     Macroexpand(Box<ResolvedExpr>),
 }
 

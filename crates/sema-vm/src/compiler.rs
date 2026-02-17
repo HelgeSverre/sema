@@ -201,7 +201,6 @@ impl Compiler {
             ResolvedExpr::Defagent { name, options } => self.compile_defagent(*name, options),
             ResolvedExpr::Delay(expr) => self.compile_delay(expr),
             ResolvedExpr::Force(expr) => self.compile_force(expr),
-            ResolvedExpr::WithBudget { options, body } => self.compile_with_budget(options, body),
             ResolvedExpr::Macroexpand(expr) => self.compile_macroexpand(expr),
         }
     }
@@ -937,20 +936,6 @@ impl Compiler {
         self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
-        Ok(())
-    }
-
-    fn compile_with_budget(
-        &mut self,
-        options: &ResolvedExpr,
-        body: &[ResolvedExpr],
-    ) -> Result<(), SemaError> {
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-with-budget")));
-        self.compile_expr(options)?;
-        self.compile_begin(body)?;
-        self.emit.emit_op(Op::Call);
-        self.emit.emit_u16(2);
         Ok(())
     }
 

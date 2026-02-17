@@ -1,0 +1,56 @@
+;; ASCII maze generator
+(define width 15)
+(define height 10)
+
+(define (pos x y) (str x "," y))
+
+(define (shuffle lst)
+  (if (<= (length lst) 1) lst
+    (let* ((i (math/random-int 0 (- (length lst) 1)))
+           (picked (nth lst i))
+           (rest (append (take i lst) (drop (+ i 1) lst))))
+      (cons picked (shuffle rest)))))
+
+(define directions (list (list 0 -1) (list 0 1) (list -1 0) (list 1 0)))
+
+(define (unvisited-neighbors grid cx cy)
+  (filter
+    (fn (entry)
+      (let ((nx (car entry)) (ny (cadr entry)))
+        (and (>= nx 0) (< nx width)
+             (>= ny 0) (< ny height)
+             (not (get grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #f)))))
+    (map (fn (dir)
+           (list (+ cx (car dir)) (+ cy (cadr dir)) (car dir) (cadr dir)))
+         (shuffle directions))))
+
+(define (generate-maze)
+  (let loop ((stack (list (list 0 0)))
+             (grid (assoc {} (pos 1 1) #t)))
+    (if (null? stack) grid
+      (let* ((cell (car stack))
+             (cx (car cell)) (cy (cadr cell))
+             (neighbors (unvisited-neighbors grid cx cy)))
+        (if (null? neighbors)
+          (loop (cdr stack) grid)
+          (let* ((next (car neighbors))
+                 (nx (car next)) (ny (cadr next))
+                 (dx (nth next 2)) (dy (nth next 3))
+                 (grid (assoc grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #t))
+                 (grid (assoc grid (pos (+ (* cx 2) 1 dx) (+ (* cy 2) 1 dy)) #t)))
+            (loop (cons (list nx ny) stack) grid)))))))
+
+(define grid-w (+ (* 2 width) 1))
+(define grid-h (+ (* 2 height) 1))
+
+(define (render grid)
+  (for-each
+    (fn (y)
+      (println
+        (string/join
+          (map (fn (x)
+                 (if (get grid (pos x y) #f) "  " "##"))
+               (range grid-w)) "")))
+    (range grid-h)))
+
+(render (generate-maze))

@@ -47,10 +47,10 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
    :max-turns 20})
 
 ;; Run it — budget is scoped, automatically restored after the block
-(with-budget {:max-cost-usd 0.50}
+(llm/with-budget {:max-cost-usd 0.50} (lambda ()
   (define result (agent/run coder "Add error handling to src/main.rs"))
   (println (:response result))
-  (println (format "Cost: $~a" (:spent (llm/budget-remaining)))))
+  (println (format "Cost: $~a" (:spent (llm/budget-remaining))))))
 ```
 
 ## Key Features
@@ -96,6 +96,31 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
 ;; Cost tracking
 (llm/set-budget 1.00)
 (llm/budget-remaining) ;; => {:limit 1.0 :spent 0.05 :remaining 0.95}
+
+;; Response caching — avoid duplicate API calls during development
+(llm/with-cache (lambda ()
+  (llm/complete "Explain monads")))
+
+;; Fallback chains — automatic provider failover
+(llm/with-fallback [:anthropic :openai :groq]
+  (lambda () (llm/complete "Hello")))
+
+;; In-memory vector store for semantic search (RAG)
+(vector-store/create "docs")
+(vector-store/add "docs" "id" (llm/embed "text") {:source "file.txt"})
+(vector-store/search "docs" (llm/embed "query") 5)
+
+;; Text chunking for LLM pipelines
+(text/chunk long-document {:size 500 :overlap 100})
+
+;; Prompt templates
+(prompt/render "Hello {{name}}" {:name "Alice"})
+; => "Hello Alice"
+
+;; Persistent key-value store
+(kv/open "cache" "cache.json")
+(kv/set "cache" "key" {:data "value"})
+(kv/get "cache" "key")
 ```
 
 ## Supported Providers
@@ -231,11 +256,16 @@ The [`examples/`](examples/) directory has 50+ programs:
 | [`test-vision.sema`](examples/llm/test-vision.sema) | Vision extraction and multi-modal chat tests |
 | [`test-extract.sema`](examples/llm/test-extract.sema) | Structured extraction and classification |
 | [`test-batch.sema`](examples/llm/test-batch.sema) | Batch/parallel LLM completions |
+| [`test-pipeline.sema`](examples/llm/test-pipeline.sema) | Caching, budgets, rate limiting, retry, fallback chains |
+| [`test-text-tools.sema`](examples/llm/test-text-tools.sema) | Text chunking, prompt templates, document abstraction |
+| [`test-vector-store.sema`](examples/llm/test-vector-store.sema) | In-memory vector store with similarity search |
+| [`test-kv-store.sema`](examples/llm/test-kv-store.sema) | Persistent JSON-backed key-value store |
 
 ## Why Sema?
 
 - **LLMs as language primitives** — prompts, messages, conversations, tools, and agents are first-class data types, not string templates bolted on
 - **Multi-provider** — swap between Anthropic, OpenAI, Gemini, Ollama, any OpenAI-compatible endpoint, or define your own provider in Sema
+- **Pipeline-ready** — response caching, fallback chains, rate limiting, retry with backoff, text chunking, prompt templates, vector store, and a persistent KV store
 - **Cost-aware** — built-in budget tracking with dynamic pricing from [llm-prices.com](https://www.llm-prices.com)
 - **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and 350+ stdlib functions
 - **Embeddable** — clean Rust crate structure with a builder API

@@ -116,8 +116,6 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             return lower_deftool(args);
         } else if s == sf("defagent") {
             return lower_defagent(args);
-        } else if s == sf("with-budget") {
-            return lower_with_budget(args);
         } else if s == sf("delay") {
             return lower_delay(args);
         } else if s == sf("force") {
@@ -906,18 +904,6 @@ fn lower_defagent(args: &[Value]) -> Result<CoreExpr, SemaError> {
     Ok(CoreExpr::Defagent {
         name,
         options: Box::new(options),
-    })
-}
-
-fn lower_with_budget(args: &[Value]) -> Result<CoreExpr, SemaError> {
-    if args.len() < 2 {
-        return Err(SemaError::arity("with-budget", "2+", args.len()));
-    }
-    let options = lower_expr(&args[0], false)?;
-    let body = lower_body(&args[1..], false)?;
-    Ok(CoreExpr::WithBudget {
-        options: Box::new(options),
-        body,
     })
 }
 

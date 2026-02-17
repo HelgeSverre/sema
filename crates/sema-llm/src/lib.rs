@@ -15,3 +15,4 @@ pub mod pricing;
 pub mod provider;
 pub mod sse;
 pub mod types;
+pub mod vector_store;

@@ -90,7 +90,7 @@ The compiler (`compiler.rs`) transforms `ResolvedExpr` into bytecode `Chunk`s. T
 | `define-record-type` | `__vm-define-record-type` |
 | `delay` | `__vm-delay` (passes unevaluated body as quoted constant) |
 | `force` | `__vm-force` |
-| `prompt`, `message`, `deftool`, `defagent`, `with-budget`, `macroexpand` | Corresponding `__vm-*` delegates |
+| `prompt`, `message`, `deftool`, `defagent`, `macroexpand` | Corresponding `__vm-*` delegates |
 
 **Public API**: `compile()`, `compile_many()`, `compile_with_locals()`, `compile_many_with_locals()` — all return `CompileResult { chunk, functions }`.
 

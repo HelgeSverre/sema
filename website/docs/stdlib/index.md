@@ -202,6 +202,24 @@ Sema's stdlib follows consistent naming patterns:
 | `term/strip` | Remove ANSI escape codes |
 | `term/spinner-start`, `term/spinner-stop`, `term/spinner-update` | Animated spinners |
 
+### [Text Processing](./text-processing)
+
+| Function | Description |
+|---|---|
+| `text/chunk`, `text/chunk-by-separator`, `text/split-sentences` | Text chunking |
+| `text/clean-whitespace`, `text/strip-html` | Text cleaning |
+| `text/truncate`, `text/word-count`, `text/trim-indent` | Text utilities |
+| `prompt/template`, `prompt/render` | Prompt templates |
+| `document/create`, `document/text`, `document/metadata`, `document/chunk` | Document metadata |
+
+### [Key-Value Store](./kv-store)
+
+| Function | Description |
+|---|---|
+| `kv/open`, `kv/close` | Open/close a JSON-backed store |
+| `kv/get`, `kv/set`, `kv/delete` | CRUD operations |
+| `kv/keys` | List all keys |
+
 ### [Playground & WASM](./playground)
 
 | Function | Description |

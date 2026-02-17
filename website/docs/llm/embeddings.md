@@ -90,6 +90,26 @@ Compute cosine similarity between two embedding vectors. Returns a value between
 (llm/similarity '(0.1 0.2 0.3) '(0.4 0.5 0.6))
 ```
 
+## Token Counting
+
+### `llm/token-count`
+
+Estimate the number of tokens in a string or list of strings. Uses a heuristic (chars/4) — no tokenizer dependency required.
+
+```scheme
+(llm/token-count "hello world")           ; => 3
+(llm/token-count '("hello" "world"))      ; => sum of individual counts
+```
+
+### `llm/token-estimate`
+
+Returns a detailed estimate map with the token count and the estimation method used.
+
+```scheme
+(llm/token-estimate "hello world")
+; => {:method "chars/4" :tokens 3}
+```
+
 ## Supported Embedding Providers
 
 | Provider  | Env Variable     |

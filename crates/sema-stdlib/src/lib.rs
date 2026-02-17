@@ -11,6 +11,8 @@ mod http;
 #[cfg(not(target_arch = "wasm32"))]
 mod io;
 pub(crate) mod json;
+#[cfg(not(target_arch = "wasm32"))]
+mod kv;
 mod list;
 mod map;
 mod math;
@@ -22,6 +24,7 @@ mod string;
 mod system;
 #[cfg(not(target_arch = "wasm32"))]
 mod terminal;
+mod text;
 
 use sema_core::{Caps, Env, Sandbox, Value};
 
@@ -49,6 +52,9 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     bytevector::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     terminal::register(env);
+    text::register(env);
+    #[cfg(not(target_arch = "wasm32"))]
+    kv::register(env, sandbox);
 }
 
 fn register_fn_gated(

@@ -1,0 +1,47 @@
+;; Standard Scheme features
+;; Car/cdr compositions, alists, do loops, characters, promises
+
+(println "=== Car/Cdr Compositions ===")
+(define nested '((1 2 3) (4 5 6) (7 8 9)))
+(println (format "nested:  ~s" nested))
+(println (format "caar:    ~a" (caar nested)))
+(println (format "cadr:    ~s" (cadr nested)))
+(println (format "caddr:   ~s" (caddr nested)))
+
+(println "\n=== Association Lists ===")
+(define phonebook
+  '(("Alice" "555-1234") ("Bob" "555-5678") ("Charlie" "555-9012")))
+(define entry (assoc "Bob" phonebook))
+(println (format "assoc \"Bob\": ~s" entry))
+(println (format "Bob's number: ~a" (cadr entry)))
+
+(println "\n=== Do Loops ===")
+(define sum
+  (do ((i 1 (+ i 1)) (acc 0 (+ acc i)))
+    ((> i 10) acc)))
+(println (format "Sum 1..10: ~a" sum))
+
+(define fact
+  (do ((n 10 (- n 1)) (acc 1 (* acc n)))
+    ((= n 0) acc)))
+(println (format "10!: ~a" fact))
+
+(println "\n=== Characters ===")
+(println (format "alphabetic? #\\A: ~a" (char-alphabetic? #\A)))
+(println (format "numeric? #\\5: ~a" (char-numeric? #\5)))
+(println (format "upcase #\\a: ~s" (char-upcase #\a)))
+(println (format "string->list: ~s" (string->list "Hello")))
+
+(println "\n=== Promises (delay/force) ===")
+(define p (delay (begin (println "  Computing...") (* 6 7))))
+(println (format "promise? p: ~a" (promise? p)))
+(println "Forcing p:")
+(define result (force p))
+(println (format "Result: ~a" result))
+(println (format "Forced? ~a" (promise-forced? p)))
+
+;; Memoization
+(define counter 0)
+(define memo-p (delay (begin (set! counter (+ counter 1)) counter)))
+(println (format "\nFirst force:  ~a" (force memo-p)))
+(println (format "Second force: ~a (same — memoized)" (force memo-p)))

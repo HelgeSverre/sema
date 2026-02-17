@@ -1,5 +1,6 @@
 {
-  "buildCommand": "",
+  "installCommand": "npm install",
+  "buildCommand": "node build.mjs",
   "outputDirectory": ".",
   "headers": [
     {

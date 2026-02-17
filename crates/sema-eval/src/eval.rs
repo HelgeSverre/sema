@@ -935,20 +935,4 @@ fn register_vm_delegates(env: &Rc<Env>) {
         })),
     );
 
-    // __vm-with-budget: delegate to tree-walker
-    let budget_env = env.clone();
-    env.set(
-        intern("__vm-with-budget"),
-        Value::native_fn(NativeFn::with_ctx("__vm-with-budget", move |ctx, args| {
-            if args.len() != 2 {
-                return Err(SemaError::arity("with-budget", "2", args.len()));
-            }
-            let form = Value::list(vec![
-                Value::symbol("with-budget"),
-                args[0].clone(),
-                args[1].clone(),
-            ]);
-            sema_core::eval_callback(ctx, &form, &budget_env)
-        })),
-    );
 }

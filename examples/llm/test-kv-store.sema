@@ -1,0 +1,74 @@
+;; test-kv-store.sema — Persistent JSON-backed key-value store
+;; No API key required.
+;; Usage: cargo run -- examples/llm/test-kv-store.sema
+;;
+;; Demonstrates: opening, reading, writing, deleting keys,
+;;               persistence across close/reopen, and multiple value types.
+
+(define store-path "/tmp/sema-test-kv.json")
+
+;; --- 1. Basic Operations ---
+(println "=== 1. Basic Operations ===")
+
+(kv/open "cache" store-path)
+(println "Opened store 'cache'")
+
+;; Set various types
+(kv/set "cache" "name" "Sema")
+(kv/set "cache" "version" 1)
+(kv/set "cache" "pi" 3.14159)
+(kv/set "cache" "features" '("lisp" "llm" "repl"))
+(kv/set "cache" "config" {:debug #f :max-tokens 1000})
+
+(println (format "name: ~a" (kv/get "cache" "name")))
+(println (format "version: ~a" (kv/get "cache" "version")))
+(println (format "pi: ~a" (kv/get "cache" "pi")))
+(println (format "features: ~a" (kv/get "cache" "features")))
+(println (format "config: ~a" (kv/get "cache" "config")))
+
+;; --- 2. Missing Keys ---
+(println "\n=== 2. Missing Keys ===")
+(println (format "missing key: ~a" (kv/get "cache" "nonexistent")))
+(println (format "is nil? ~a" (nil? (kv/get "cache" "nonexistent"))))
+
+;; --- 3. Keys Listing ---
+(println "\n=== 3. Keys ===")
+(println (format "All keys: ~a" (kv/keys "cache")))
+
+;; --- 4. Delete ---
+(println "\n=== 4. Delete ===")
+(define existed (kv/delete "cache" "pi"))
+(println (format "Deleted 'pi': ~a" existed))
+(define existed2 (kv/delete "cache" "nonexistent"))
+(println (format "Delete nonexistent: ~a" existed2))
+(println (format "Keys after delete: ~a" (kv/keys "cache")))
+
+;; --- 5. Persistence ---
+(println "\n=== 5. Persistence ===")
+(kv/close "cache")
+(println "Closed store")
+
+;; Reopen and verify data survived
+(kv/open "cache2" store-path)
+(println (format "Reopened — name: ~a" (kv/get "cache2" "name")))
+(println (format "Reopened — version: ~a" (kv/get "cache2" "version")))
+(println (format "Reopened — features: ~a" (kv/get "cache2" "features")))
+(println (format "Reopened — pi (deleted): ~a" (kv/get "cache2" "pi")))
+(println (format "Reopened — keys: ~a" (kv/keys "cache2")))
+(kv/close "cache2")
+
+;; --- 6. Update Pattern ---
+(println "\n=== 6. Update Pattern ===")
+(kv/open "counter" store-path)
+(kv/set "counter" "hits" 0)
+;; Increment pattern
+(kv/set "counter" "hits" (+ 1 (kv/get "counter" "hits")))
+(kv/set "counter" "hits" (+ 1 (kv/get "counter" "hits")))
+(kv/set "counter" "hits" (+ 1 (kv/get "counter" "hits")))
+(println (format "Counter after 3 increments: ~a" (kv/get "counter" "hits")))
+(kv/close "counter")
+
+;; Cleanup
+(file/delete store-path)
+
+(println "\nKV store tests complete!")

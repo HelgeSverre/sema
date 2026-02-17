@@ -1,0 +1,53 @@
+;; 1D Cellular Automata (Wolfram rules)
+
+(println "=== 1D Cellular Automata ===\n")
+
+(define WIDTH 61)
+(define ROWS 30)
+
+(define (rule-to-bits rule)
+  (map (fn (i) (if (= 0 (bit/and rule (bit/shift-left 1 i))) 0 1)) (range 8)))
+
+(define (format-rule-binary rule)
+  (string/join (reverse (map str (rule-to-bits rule))) ""))
+
+(define (apply-rule rule-bits left center right)
+  (nth rule-bits (+ (bit/shift-left left 2) (bit/shift-left center 1) right)))
+
+(define (make-initial-row width)
+  (map (fn (i) (if (= i (/ (- width 1) 2)) 1 0)) (range width)))
+
+(define (next-row rule-bits row)
+  (let ((len (length row)))
+    (map (fn (i)
+      (apply-rule rule-bits
+        (if (= i 0) 0 (nth row (- i 1)))
+        (nth row i)
+        (if (= i (- len 1)) 0 (nth row (+ i 1)))))
+      (range len))))
+
+(define (render-row row)
+  (string/join (map (fn (cell) (if (= cell 1) "█" " ")) row) ""))
+
+(define (run-automaton rule num-rows width)
+  (let ((bits (rule-to-bits rule)))
+    (println (format "Rule ~a (binary: ~a)" rule (format-rule-binary rule)))
+    (let ((border (string/repeat "─" width)))
+      (println (string-append "┌" border "┐"))
+      (let loop ((row (make-initial-row width)) (gen 0))
+        (println (string-append "│" (render-row row) "│"))
+        (if (< gen (- num-rows 1))
+          (loop (next-row bits row) (+ gen 1))))
+      (println (string-append "└" border "┘")))))
+
+;; Rule 90 — Sierpinski triangle
+(println "=== Rule 90 — Sierpinski ===\n")
+(run-automaton 90 ROWS WIDTH)
+
+;; Rule 30 — Chaotic
+(println "\n=== Rule 30 — Chaos ===\n")
+(run-automaton 30 ROWS WIDTH)
+
+;; Rule 110 — Turing-complete
+(println "\n=== Rule 110 — Complex ===\n")
+(run-automaton 110 ROWS WIDTH)

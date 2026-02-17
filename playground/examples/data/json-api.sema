@@ -1,0 +1,38 @@
+;; JSON processing and API response building
+
+(println "=== JSON Processing ===\n")
+
+(define user
+  (hash-map "name" "Alice" "age" 30 "email" "alice@example.com"
+            "tags" (list "admin" "verified")
+            "address" (hash-map "city" "Oslo" "country" "Norway")))
+
+(println "Pretty JSON:")
+(println (json/encode-pretty user))
+
+;; Decode JSON
+(define json-str "{\"id\":42,\"title\":\"Hello World\",\"published\":true,\"scores\":[95,87,92]}")
+(define parsed (json/decode json-str))
+(println (format "\nTitle: ~a" (get parsed :title)))
+(println (format "Avg score: ~a" (/ (list/sum (get parsed :scores)) (length (get parsed :scores)))))
+
+;; Roundtrip
+(define original (hash-map "x" 1 "y" (list 2 3) "z" (hash-map "nested" true)))
+(define rt (json/decode (json/encode original)))
+(println (format "\nRoundtrip match: ~a" (equal? (json/encode original) (json/encode rt))))
+
+;; Query & transform
+(define products (json/decode
+  "[{\"name\":\"Laptop\",\"price\":999,\"cat\":\"tech\"},{\"name\":\"Book\",\"price\":15,\"cat\":\"media\"},{\"name\":\"Phone\",\"price\":699,\"cat\":\"tech\"},{\"name\":\"Album\",\"price\":10,\"cat\":\"media\"}]"))
+
+(define tech (filter (fn (p) (equal? (get p :cat) "tech")) products))
+(println (format "\nTech items: ~a" (map (fn (p) (get p :name)) tech)))
+(println (format "Tech total: $~a" (list/sum (map (fn (p) (get p :price)) tech))))
+
+;; API response builder
+(define (api-ok data) (hash-map "status" 200 "ok" true "data" data))
+(define (api-error code msg) (hash-map "status" code "ok" false "error" msg))
+
+(println "\nAPI responses:")
+(println (json/encode-pretty (api-ok (hash-map "user" "Alice" "role" "admin"))))
+(println (json/encode-pretty (api-error 404 "Not found")))

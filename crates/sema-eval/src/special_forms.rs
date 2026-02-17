@@ -15,87 +15,95 @@ use crate::eval::{self, Trampoline};
 /// each name, we compare integers instead of resolving strings. This also avoids calling
 /// `resolve()` which allocates a `String` from the thread-local interner on every lookup.
 struct SpecialFormSpurs {
-    quote: Spur,
-    if_: Spur,
+    // Core language
+    and: Spur,
+    begin: Spur,
+    case: Spur,
+    catch: Spur,
     cond: Spur,
     define: Spur,
+    define_record_type: Spur,
+    defmacro: Spur,
     defun: Spur,
-    set_bang: Spur,
-    lambda: Spur,
+    delay: Spur,
+    do_: Spur,
+    else_: Spur,
+    eval: Spur,
+    export: Spur,
     fn_: Spur,
+    force: Spur,
+    if_: Spur,
+    lambda: Spur,
     let_: Spur,
     let_star: Spur,
     letrec: Spur,
-    begin: Spur,
-    do_: Spur,
-    and: Spur,
+    macroexpand: Spur,
     or: Spur,
-    when: Spur,
-    unless: Spur,
-    defmacro: Spur,
     quasiquote: Spur,
-    prompt: Spur,
-    message: Spur,
-    deftool: Spur,
-    defagent: Spur,
+    quote: Spur,
+    set_bang: Spur,
     throw: Spur,
     try_: Spur,
-    module: Spur,
+    unless: Spur,
+    when: Spur,
+
+    // Modules
     import: Spur,
     load: Spur,
-    case: Spur,
-    eval: Spur,
-    macroexpand: Spur,
-    with_budget: Spur,
-    delay: Spur,
-    force: Spur,
-    define_record_type: Spur,
-    else_: Spur,
-    catch: Spur,
-    export: Spur,
+    module: Spur,
+
+    // LLM primitives
+    defagent: Spur,
+    deftool: Spur,
+    message: Spur,
+    prompt: Spur,
 }
 
 impl SpecialFormSpurs {
     fn init() -> Self {
         Self {
-            quote: intern("quote"),
-            if_: intern("if"),
+            // Core language
+            and: intern("and"),
+            begin: intern("begin"),
+            case: intern("case"),
+            catch: intern("catch"),
             cond: intern("cond"),
             define: intern("define"),
+            define_record_type: intern("define-record-type"),
+            defmacro: intern("defmacro"),
             defun: intern("defun"),
-            set_bang: intern("set!"),
-            lambda: intern("lambda"),
+            delay: intern("delay"),
+            do_: intern("do"),
+            else_: intern("else"),
+            eval: intern("eval"),
+            export: intern("export"),
             fn_: intern("fn"),
+            force: intern("force"),
+            if_: intern("if"),
+            lambda: intern("lambda"),
             let_: intern("let"),
             let_star: intern("let*"),
             letrec: intern("letrec"),
-            begin: intern("begin"),
-            do_: intern("do"),
-            and: intern("and"),
+            macroexpand: intern("macroexpand"),
             or: intern("or"),
-            when: intern("when"),
-            unless: intern("unless"),
-            defmacro: intern("defmacro"),
             quasiquote: intern("quasiquote"),
-            prompt: intern("prompt"),
-            message: intern("message"),
-            deftool: intern("deftool"),
-            defagent: intern("defagent"),
+            quote: intern("quote"),
+            set_bang: intern("set!"),
             throw: intern("throw"),
             try_: intern("try"),
-            module: intern("module"),
+            unless: intern("unless"),
+            when: intern("when"),
+
+            // Modules
             import: intern("import"),
             load: intern("load"),
-            case: intern("case"),
-            eval: intern("eval"),
-            macroexpand: intern("macroexpand"),
-            with_budget: intern("with-budget"),
-            delay: intern("delay"),
-            force: intern("force"),
-            define_record_type: intern("define-record-type"),
-            else_: intern("else"),
-            catch: intern("catch"),
-            export: intern("export"),
+            module: intern("module"),
+
+            // LLM primitives
+            defagent: intern("defagent"),
+            deftool: intern("deftool"),
+            message: intern("message"),
+            prompt: intern("prompt"),
         }
     }
 }
@@ -123,74 +131,78 @@ pub fn try_eval_special(
     ctx: &EvalContext,
 ) -> Option<Result<Trampoline, SemaError>> {
     let sf = special_forms();
-    if head_spur == sf.quote {
-        Some(eval_quote(args))
-    } else if head_spur == sf.if_ {
+
+    // Core language — hot path forms first (if, define, let, begin, lambda)
+    if head_spur == sf.if_ {
         Some(eval_if(args, env, ctx))
-    } else if head_spur == sf.cond {
-        Some(eval_cond(args, env, ctx))
     } else if head_spur == sf.define {
         Some(eval_define(args, env, ctx))
-    } else if head_spur == sf.defun {
-        Some(eval_defun(args, env, ctx))
-    } else if head_spur == sf.set_bang {
-        Some(eval_set(args, env, ctx))
-    } else if head_spur == sf.lambda || head_spur == sf.fn_ {
-        Some(eval_lambda(args, env, None))
     } else if head_spur == sf.let_ {
         Some(eval_let(args, env, ctx))
+    } else if head_spur == sf.begin {
+        Some(eval_begin(args, env, ctx))
+    } else if head_spur == sf.lambda || head_spur == sf.fn_ {
+        Some(eval_lambda(args, env, None))
+    } else if head_spur == sf.and {
+        Some(eval_and(args, env, ctx))
+    } else if head_spur == sf.case {
+        Some(eval_case(args, env, ctx))
+    } else if head_spur == sf.cond {
+        Some(eval_cond(args, env, ctx))
+    } else if head_spur == sf.define_record_type {
+        Some(eval_define_record_type(args, env))
+    } else if head_spur == sf.defmacro {
+        Some(eval_defmacro(args, env))
+    } else if head_spur == sf.defun {
+        Some(eval_defun(args, env, ctx))
+    } else if head_spur == sf.delay {
+        Some(eval_delay(args, env))
+    } else if head_spur == sf.do_ {
+        Some(eval_do(args, env, ctx))
+    } else if head_spur == sf.eval {
+        Some(eval_eval(args, env, ctx))
+    } else if head_spur == sf.force {
+        Some(eval_force(args, env, ctx))
     } else if head_spur == sf.let_star {
         Some(eval_let_star(args, env, ctx))
     } else if head_spur == sf.letrec {
         Some(eval_letrec(args, env, ctx))
-    } else if head_spur == sf.begin {
-        Some(eval_begin(args, env, ctx))
-    } else if head_spur == sf.do_ {
-        Some(eval_do(args, env, ctx))
-    } else if head_spur == sf.and {
-        Some(eval_and(args, env, ctx))
+    } else if head_spur == sf.macroexpand {
+        Some(eval_macroexpand(args, env, ctx))
     } else if head_spur == sf.or {
         Some(eval_or(args, env, ctx))
-    } else if head_spur == sf.when {
-        Some(eval_when(args, env, ctx))
-    } else if head_spur == sf.unless {
-        Some(eval_unless(args, env, ctx))
-    } else if head_spur == sf.defmacro {
-        Some(eval_defmacro(args, env))
     } else if head_spur == sf.quasiquote {
         Some(eval_quasiquote(args, env, ctx))
-    } else if head_spur == sf.prompt {
-        Some(eval_prompt(args, env, ctx))
-    } else if head_spur == sf.message {
-        Some(eval_message(args, env, ctx))
-    } else if head_spur == sf.deftool {
-        Some(eval_deftool(args, env, ctx))
-    } else if head_spur == sf.defagent {
-        Some(eval_defagent(args, env, ctx))
+    } else if head_spur == sf.quote {
+        Some(eval_quote(args))
+    } else if head_spur == sf.set_bang {
+        Some(eval_set(args, env, ctx))
     } else if head_spur == sf.throw {
         Some(eval_throw(args, env, ctx))
     } else if head_spur == sf.try_ {
         Some(eval_try(args, env, ctx))
-    } else if head_spur == sf.module {
-        Some(eval_module(args, env, ctx))
+    } else if head_spur == sf.unless {
+        Some(eval_unless(args, env, ctx))
+    } else if head_spur == sf.when {
+        Some(eval_when(args, env, ctx))
+
+    // Modules
     } else if head_spur == sf.import {
         Some(eval_import(args, env, ctx))
     } else if head_spur == sf.load {
         Some(eval_load(args, env, ctx))
-    } else if head_spur == sf.case {
-        Some(eval_case(args, env, ctx))
-    } else if head_spur == sf.eval {
-        Some(eval_eval(args, env, ctx))
-    } else if head_spur == sf.macroexpand {
-        Some(eval_macroexpand(args, env, ctx))
-    } else if head_spur == sf.with_budget {
-        Some(eval_with_budget(args, env, ctx))
-    } else if head_spur == sf.delay {
-        Some(eval_delay(args, env))
-    } else if head_spur == sf.force {
-        Some(eval_force(args, env, ctx))
-    } else if head_spur == sf.define_record_type {
-        Some(eval_define_record_type(args, env))
+    } else if head_spur == sf.module {
+        Some(eval_module(args, env, ctx))
+
+    // LLM primitives
+    } else if head_spur == sf.defagent {
+        Some(eval_defagent(args, env, ctx))
+    } else if head_spur == sf.deftool {
+        Some(eval_deftool(args, env, ctx))
+    } else if head_spur == sf.message {
+        Some(eval_message(args, env, ctx))
+    } else if head_spur == sf.prompt {
+        Some(eval_prompt(args, env, ctx))
     } else {
         None
     }
@@ -704,7 +716,11 @@ fn eval_prompt(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                                 content.push_str(&part_val.to_string());
                             }
                         }
-                        messages.push(Message { role, content, images: Vec::new() });
+                        messages.push(Message {
+                            role,
+                            content,
+                            images: Vec::new(),
+                        });
                         continue;
                     }
                 }
@@ -751,7 +767,11 @@ fn eval_message(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoli
             content.push_str(&val.to_string());
         }
     }
-    Ok(Trampoline::Value(Value::message(Message { role, content, images: Vec::new() })))
+    Ok(Trampoline::Value(Value::message(Message {
+        role,
+        content,
+        images: Vec::new(),
+    })))
 }
 
 /// (deftool name "description" {:param {:type :string :description "..."}} handler-expr)
@@ -1300,44 +1320,6 @@ fn eval_macroexpand(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Tram
     }
     // Not a macro form — return as-is
     Ok(Trampoline::Value(form))
-}
-
-/// (with-budget {:max-cost-usd 0.50} body...)
-fn eval_with_budget(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
-    if args.len() < 2 {
-        return Err(SemaError::arity("with-budget", "2+", args.len()));
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let opts = eval::eval_value(ctx, &args[0], env)?;
-        let max_cost = match opts.as_map_rc() {
-            Some(m) => m
-                .get(&Value::keyword("max-cost-usd"))
-                .and_then(|v| v.as_float())
-                .ok_or_else(|| SemaError::eval("with-budget: missing :max-cost-usd"))?,
-            None => return Err(SemaError::type_error("map", opts.type_name())),
-        };
-
-        sema_llm::builtins::push_budget_scope(max_cost);
-
-        let mut result = Value::nil();
-        let body_result = (|| {
-            for expr in &args[1..] {
-                result = eval::eval_value(ctx, expr, env)?;
-            }
-            Ok(result.clone())
-        })();
-
-        sema_llm::builtins::pop_budget_scope();
-
-        body_result?;
-        Ok(Trampoline::Value(result))
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = (args, env, ctx);
-        Err(SemaError::eval("with-budget is not available in WASM"))
-    }
 }
 
 /// (do ((var init step) ...) (test result ...) body ...)

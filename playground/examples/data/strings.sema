@@ -1,0 +1,14 @@
+;; String operations
+(define text "Hello, Sema World!")
+
+(println "Upper:" (string/upper text))
+(println "Lower:" (string/lower text))
+(println "Words:" (string/split text " "))
+(println "Length:" (string-length text))
+(println "Reversed:" (string/reverse text))
+(println "Contains 'Sema':" (string/contains? text "Sema"))
+
+;; String formatting
+(define name "Sema")
+(define version "1.0.1")
+(format "~a v~a — A Lisp with LLM primitives" name version)

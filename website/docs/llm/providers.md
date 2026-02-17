@@ -200,6 +200,7 @@ List all configured providers.
 
 ```scheme
 (llm/list-providers)   ; => (:anthropic :gemini :openai ...)
+(llm/providers)        ; => same (alias)
 ```
 
 ### `llm/current-provider`
@@ -208,6 +209,7 @@ Get the currently active provider and model.
 
 ```scheme
 (llm/current-provider)   ; => {:name :anthropic :model "claude-sonnet-4-20250514"}
+(llm/default-provider)   ; => same (alias)
 ```
 
 ### `llm/set-default`

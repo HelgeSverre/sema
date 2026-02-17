@@ -930,7 +930,7 @@ pub fn register(env: &sema_core::Env) {
         }
         nums.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let mid = nums.len() / 2;
-        if nums.len() % 2 == 0 {
+        if nums.len().is_multiple_of(2) {
             Ok(Value::float((nums[mid - 1] + nums[mid]) / 2.0))
         } else {
             Ok(Value::float(nums[mid]))
@@ -946,7 +946,8 @@ pub fn register(env: &sema_core::Env) {
         if items.is_empty() {
             return Err(SemaError::eval("list/mode: empty list"));
         }
-        let mut counts: std::collections::BTreeMap<Value, usize> = std::collections::BTreeMap::new();
+        let mut counts: std::collections::BTreeMap<Value, usize> =
+            std::collections::BTreeMap::new();
         for item in &items {
             *counts.entry(item.clone()).or_insert(0) += 1;
         }
@@ -995,11 +996,13 @@ pub fn register(env: &sema_core::Env) {
         let items = get_sequence(&args[0], "list/sliding")?;
         let size = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as usize;
         let step = if args.len() == 3 {
             args[2]
                 .as_int()
-                .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))? as usize
+                .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?
+                as usize
         } else {
             1
         };
@@ -1039,7 +1042,8 @@ pub fn register(env: &sema_core::Env) {
         }
         let n = args[0]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
+            as usize;
         let mut result = Vec::with_capacity(n);
         for i in 0..n {
             result.push(call_function(&args[1], &[Value::int(i as i64)])?);
@@ -1090,7 +1094,8 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
         let per_page = args[2]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?
+            as usize;
         if page < 1 {
             return Err(SemaError::eval("list/page: page must be >= 1"));
         }
@@ -1125,7 +1130,8 @@ pub fn register(env: &sema_core::Env) {
         let mut items = get_sequence(&args[0], "list/pad")?;
         let target_len = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as usize;
         let fill = args[2].clone();
         while items.len() < target_len {
             items.push(fill.clone());
@@ -1178,7 +1184,12 @@ pub fn register(env: &sema_core::Env) {
             return Ok(Value::string(&strs[0]));
         }
         let init = strs[..strs.len() - 1].join(&sep);
-        Ok(Value::string(&format!("{}{}{}", init, final_sep, strs[strs.len() - 1])))
+        Ok(Value::string(&format!(
+            "{}{}{}",
+            init,
+            final_sep,
+            strs[strs.len() - 1]
+        )))
     });
 
     // tap — side-effect then return original

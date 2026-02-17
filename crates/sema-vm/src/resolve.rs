@@ -385,11 +385,6 @@ fn resolve_expr(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr, SemaE
         CoreExpr::Delay(expr) => Ok(ResolvedExpr::Delay(Box::new(resolve_expr(expr, r)?))),
         CoreExpr::Force(expr) => Ok(ResolvedExpr::Force(Box::new(resolve_expr(expr, r)?))),
 
-        CoreExpr::WithBudget { options, body } => Ok(ResolvedExpr::WithBudget {
-            options: Box::new(resolve_expr(options, r)?),
-            body: resolve_exprs(body, r)?,
-        }),
-
         CoreExpr::Macroexpand(expr) => {
             Ok(ResolvedExpr::Macroexpand(Box::new(resolve_expr(expr, r)?)))
         }

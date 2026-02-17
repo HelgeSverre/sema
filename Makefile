@@ -133,6 +133,7 @@ site-deploy: site-build
 
 playground-build:
 	cd crates/sema-wasm && wasm-pack build --target web --out-dir ../../playground/pkg
+	cd playground && node build.mjs
 
 playground-dev: playground-build
 	cd playground && npx serve -l 8787

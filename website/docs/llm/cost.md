@@ -71,6 +71,27 @@ Check current budget status.
 (llm/budget-remaining)   ; => {:limit 1.0 :spent 0.05 :remaining 0.95}
 ```
 
+### `llm/with-budget`
+
+Scoped budget — sets spending limits for the duration of a thunk, then restores the previous budget when done. At least one of `:max-cost-usd` or `:max-tokens` is required. When both are provided, **whichever limit is hit first** triggers the error.
+
+```scheme
+;; Cost-based budget
+(llm/with-budget {:max-cost-usd 0.50} (lambda ()
+  (llm/complete "Expensive operation")))
+
+;; Token-based budget (useful when pricing is unknown or stale)
+(llm/with-budget {:max-tokens 10000} (lambda ()
+  (llm/complete "Limited tokens")))
+
+;; Both limits — whichever is reached first stops execution
+(llm/with-budget {:max-cost-usd 1.00 :max-tokens 50000} (lambda ()
+  (llm/complete "Double-capped")
+  (println (format "Budget: ~a" (llm/budget-remaining)))))
+```
+
+When a token budget is active, `llm/budget-remaining` includes `:token-limit`, `:tokens-spent`, and `:tokens-remaining` in addition to the cost fields.
+
 ### `llm/clear-budget`
 
 Remove the spending limit.

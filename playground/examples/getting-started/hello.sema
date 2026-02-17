@@ -1,0 +1,5 @@
+;; Hello World
+(define (greet name)
+  (format "Hello, ~a!" name))
+
+(greet "world")
