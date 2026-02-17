@@ -934,5 +934,4 @@ fn register_vm_delegates(env: &Rc<Env>) {
             sema_core::eval_callback(ctx, &form, &agent_env)
         })),
     );
-
 }

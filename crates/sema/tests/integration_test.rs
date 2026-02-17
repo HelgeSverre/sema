@@ -4440,8 +4440,9 @@ fn test_with_budget_max_tokens() {
 
 #[test]
 fn test_with_budget_both_limits() {
-    let result =
-        eval(r#"(llm/with-budget {:max-cost-usd 0.50 :max-tokens 10000} (lambda () (llm/budget-remaining)))"#);
+    let result = eval(
+        r#"(llm/with-budget {:max-cost-usd 0.50 :max-tokens 10000} (lambda () (llm/budget-remaining)))"#,
+    );
     let map = result.as_map_rc().expect("expected map");
     assert_eq!(map.get(&Value::keyword("limit")), Some(&Value::float(0.5)));
     assert_eq!(
