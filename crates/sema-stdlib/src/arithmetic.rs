@@ -1,4 +1,4 @@
-use sema_core::{SemaError, Value};
+use sema_core::{SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -6,17 +6,17 @@ fn mod_impl(args: &[Value]) -> Result<Value, SemaError> {
     if args.len() != 2 {
         return Err(SemaError::arity("mod", "2", args.len()));
     }
-    match (&args[0], &args[1]) {
-        (Value::Int(a), Value::Int(b)) => {
-            if *b == 0 {
+    match (args[0].view(), args[1].view()) {
+        (ValueView::Int(a), ValueView::Int(b)) => {
+            if b == 0 {
                 Err(SemaError::eval("modulo by zero"))
             } else {
-                Ok(Value::Int(a % b))
+                Ok(Value::int(a % b))
             }
         }
-        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
-        (Value::Int(a), Value::Float(b)) => Ok(Value::Float(*a as f64 % b)),
-        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % *b as f64)),
+        (ValueView::Float(a), ValueView::Float(b)) => Ok(Value::float(a % b)),
+        (ValueView::Int(a), ValueView::Float(b)) => Ok(Value::float(a as f64 % b)),
+        (ValueView::Float(a), ValueView::Int(b)) => Ok(Value::float(a % b as f64)),
         _ => Err(SemaError::type_error("number", args[0].type_name())),
     }
 }
@@ -24,21 +24,21 @@ fn mod_impl(args: &[Value]) -> Result<Value, SemaError> {
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "+", |args| {
         if args.is_empty() {
-            return Ok(Value::Int(0));
+            return Ok(Value::int(0));
         }
         let mut has_float = false;
         let mut int_sum: i64 = 0;
         let mut float_sum: f64 = 0.0;
         for arg in args {
-            match arg {
-                Value::Int(n) => {
+            match arg.view() {
+                ValueView::Int(n) => {
                     if has_float {
-                        float_sum += *n as f64;
+                        float_sum += n as f64;
                     } else {
-                        int_sum = int_sum.wrapping_add(*n);
+                        int_sum = int_sum.wrapping_add(n);
                     }
                 }
-                Value::Float(f) => {
+                ValueView::Float(f) => {
                     if !has_float {
                         float_sum = int_sum as f64;
                         has_float = true;
@@ -49,9 +49,9 @@ pub fn register(env: &sema_core::Env) {
             }
         }
         if has_float {
-            Ok(Value::Float(float_sum))
+            Ok(Value::float(float_sum))
         } else {
-            Ok(Value::Int(int_sum))
+            Ok(Value::int(int_sum))
         }
     });
 
@@ -60,9 +60,9 @@ pub fn register(env: &sema_core::Env) {
             return Err(SemaError::arity("-", "1+", 0));
         }
         if args.len() == 1 {
-            return match &args[0] {
-                Value::Int(n) => Ok(Value::Int(n.wrapping_neg())),
-                Value::Float(f) => Ok(Value::Float(-f)),
+            return match args[0].view() {
+                ValueView::Int(n) => Ok(Value::int(n.wrapping_neg())),
+                ValueView::Float(f) => Ok(Value::float(-f)),
                 _ => Err(SemaError::type_error("number", args[0].type_name())),
             };
         }
@@ -70,27 +70,27 @@ pub fn register(env: &sema_core::Env) {
         let mut result_int: i64 = 0;
         let mut result_float: f64 = 0.0;
         for (i, arg) in args.iter().enumerate() {
-            match arg {
-                Value::Int(n) => {
+            match arg.view() {
+                ValueView::Int(n) => {
                     if i == 0 {
                         if has_float {
-                            result_float = *n as f64;
+                            result_float = n as f64;
                         } else {
-                            result_int = *n;
+                            result_int = n;
                         }
                     } else if has_float {
-                        result_float -= *n as f64;
+                        result_float -= n as f64;
                     } else {
-                        result_int = result_int.wrapping_sub(*n);
+                        result_int = result_int.wrapping_sub(n);
                     }
                 }
-                Value::Float(f) => {
+                ValueView::Float(f) => {
                     if !has_float {
                         result_float = result_int as f64;
                         has_float = true;
                     }
                     if i == 0 {
-                        result_float = *f;
+                        result_float = f;
                     } else {
                         result_float -= f;
                     }
@@ -99,29 +99,29 @@ pub fn register(env: &sema_core::Env) {
             }
         }
         if has_float {
-            Ok(Value::Float(result_float))
+            Ok(Value::float(result_float))
         } else {
-            Ok(Value::Int(result_int))
+            Ok(Value::int(result_int))
         }
     });
 
     register_fn(env, "*", |args| {
         if args.is_empty() {
-            return Ok(Value::Int(1));
+            return Ok(Value::int(1));
         }
         let mut has_float = false;
         let mut int_prod: i64 = 1;
         let mut float_prod: f64 = 1.0;
         for arg in args {
-            match arg {
-                Value::Int(n) => {
+            match arg.view() {
+                ValueView::Int(n) => {
                     if has_float {
-                        float_prod *= *n as f64;
+                        float_prod *= n as f64;
                     } else {
-                        int_prod = int_prod.wrapping_mul(*n);
+                        int_prod = int_prod.wrapping_mul(n);
                     }
                 }
-                Value::Float(f) => {
+                ValueView::Float(f) => {
                     if !has_float {
                         float_prod = int_prod as f64;
                         has_float = true;
@@ -132,9 +132,9 @@ pub fn register(env: &sema_core::Env) {
             }
         }
         if has_float {
-            Ok(Value::Float(float_prod))
+            Ok(Value::float(float_prod))
         } else {
-            Ok(Value::Int(int_prod))
+            Ok(Value::int(int_prod))
         }
     });
 
@@ -142,15 +142,15 @@ pub fn register(env: &sema_core::Env) {
         if args.len() < 2 {
             return Err(SemaError::arity("/", "2+", args.len()));
         }
-        let mut result = match &args[0] {
-            Value::Int(n) => *n as f64,
-            Value::Float(f) => *f,
+        let mut result = match args[0].view() {
+            ValueView::Int(n) => n as f64,
+            ValueView::Float(f) => f,
             _ => return Err(SemaError::type_error("number", args[0].type_name())),
         };
         for arg in &args[1..] {
-            let divisor = match arg {
-                Value::Int(n) => *n as f64,
-                Value::Float(f) => *f,
+            let divisor = match arg.view() {
+                ValueView::Int(n) => n as f64,
+                ValueView::Float(f) => f,
                 _ => return Err(SemaError::type_error("number", arg.type_name())),
             };
             if divisor == 0.0 {
@@ -159,10 +159,10 @@ pub fn register(env: &sema_core::Env) {
             result /= divisor;
         }
         // Return int if result is a whole number and inputs were ints
-        if result.fract() == 0.0 && args.iter().all(|a| matches!(a, Value::Int(_))) {
-            Ok(Value::Int(result as i64))
+        if result.fract() == 0.0 && args.iter().all(|a| a.is_int()) {
+            Ok(Value::int(result as i64))
         } else {
-            Ok(Value::Float(result))
+            Ok(Value::float(result))
         }
     });
 

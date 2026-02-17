@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use sema_core::{
     resolve, Conversation, Env, EvalContext, Message, NativeFn, Prompt, Role, SemaError, Value,
+    ValueView,
 };
 
 use crate::anthropic::AnthropicProvider;
@@ -80,7 +81,7 @@ fn full_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaEr
 fn register_fn(env: &Env, name: &str, f: impl Fn(&[Value]) -> Result<Value, SemaError> + 'static) {
     env.set(
         sema_core::intern(name),
-        Value::NativeFn(Rc::new(NativeFn::simple(name, f))),
+        Value::native_fn(NativeFn::simple(name, f)),
     );
 }
 
@@ -91,7 +92,7 @@ fn register_fn_ctx(
 ) {
     env.set(
         sema_core::intern(name),
-        Value::NativeFn(Rc::new(NativeFn::with_ctx(name, f))),
+        Value::native_fn(NativeFn::with_ctx(name, f)),
     );
 }
 
@@ -214,10 +215,8 @@ pub fn pop_budget_scope() {
 }
 
 fn get_opt_string(opts: &BTreeMap<Value, Value>, key: &str) -> Option<String> {
-    opts.get(&Value::keyword(key)).and_then(|v| match v {
-        Value::String(s) => Some(s.to_string()),
-        _ => None,
-    })
+    opts.get(&Value::keyword(key))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
 }
 
 fn get_opt_f64(opts: &BTreeMap<Value, Value>, key: &str) -> Option<f64> {
@@ -285,16 +284,16 @@ fn chat_request_to_value(request: &ChatRequest) -> Value {
             let mut msg_map = BTreeMap::new();
             msg_map.insert(Value::keyword("role"), Value::string(&m.role));
             msg_map.insert(Value::keyword("content"), Value::string(&m.content));
-            Value::Map(Rc::new(msg_map))
+            Value::map(msg_map)
         })
         .collect();
     map.insert(Value::keyword("messages"), Value::list(msgs));
 
     if let Some(max_tokens) = request.max_tokens {
-        map.insert(Value::keyword("max-tokens"), Value::Int(max_tokens as i64));
+        map.insert(Value::keyword("max-tokens"), Value::int(max_tokens as i64));
     }
     if let Some(temp) = request.temperature {
-        map.insert(Value::keyword("temperature"), Value::Float(temp));
+        map.insert(Value::keyword("temperature"), Value::float(temp));
     }
     if let Some(ref system) = request.system {
         map.insert(Value::keyword("system"), Value::string(system));
@@ -312,7 +311,7 @@ fn chat_request_to_value(request: &ChatRequest) -> Value {
                     Value::keyword("parameters"),
                     json_to_sema_value(&t.parameters),
                 );
-                Value::Map(Rc::new(tool_map))
+                Value::map(tool_map)
             })
             .collect();
         map.insert(Value::keyword("tools"), Value::list(tools));
@@ -327,13 +326,13 @@ fn chat_request_to_value(request: &ChatRequest) -> Value {
         map.insert(Value::keyword("stop-sequences"), Value::list(seqs));
     }
 
-    Value::Map(Rc::new(map))
+    Value::map(map)
 }
 
 /// Parse a Sema Value returned by a Lisp provider callback into a ChatResponse.
 fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse, LlmError> {
-    match val {
-        Value::String(s) => Ok(ChatResponse {
+    match val.view() {
+        ValueView::String(s) => Ok(ChatResponse {
             content: s.to_string(),
             role: "assistant".to_string(),
             model: model.to_string(),
@@ -341,7 +340,7 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
             usage: Usage::default(),
             stop_reason: Some("end_turn".to_string()),
         }),
-        Value::Map(map) => {
+        ValueView::Map(map) => {
             let content = map
                 .get(&Value::keyword("content"))
                 .and_then(|v| v.as_str())
@@ -363,19 +362,26 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
                 .map(|s| s.to_string())
                 .or(Some("end_turn".to_string()));
 
-            let usage = if let Some(Value::Map(usage_map)) = map.get(&Value::keyword("usage")) {
-                let prompt_tokens = usage_map
-                    .get(&Value::keyword("prompt-tokens"))
-                    .and_then(|v| v.as_int())
-                    .unwrap_or(0) as u32;
-                let completion_tokens = usage_map
-                    .get(&Value::keyword("completion-tokens"))
-                    .and_then(|v| v.as_int())
-                    .unwrap_or(0) as u32;
-                Usage {
-                    prompt_tokens,
-                    completion_tokens,
-                    model: resp_model.clone(),
+            let usage = if let Some(usage_val) = map.get(&Value::keyword("usage")) {
+                if let Some(usage_map) = usage_val.as_map_rc() {
+                    let prompt_tokens = usage_map
+                        .get(&Value::keyword("prompt-tokens"))
+                        .and_then(|v| v.as_int())
+                        .unwrap_or(0) as u32;
+                    let completion_tokens = usage_map
+                        .get(&Value::keyword("completion-tokens"))
+                        .and_then(|v| v.as_int())
+                        .unwrap_or(0) as u32;
+                    Usage {
+                        prompt_tokens,
+                        completion_tokens,
+                        model: resp_model.clone(),
+                    }
+                } else {
+                    Usage {
+                        model: resp_model.clone(),
+                        ..Default::default()
+                    }
                 }
             } else {
                 Usage {
@@ -384,11 +390,11 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
                 }
             };
 
-            let tool_calls = if let Some(Value::List(tcs)) = map.get(&Value::keyword("tool-calls"))
-            {
-                tcs.iter()
-                    .filter_map(|tc| {
-                        if let Value::Map(tc_map) = tc {
+            let tool_calls = if let Some(tcs_val) = map.get(&Value::keyword("tool-calls")) {
+                if let Some(tcs) = tcs_val.as_list() {
+                    tcs.iter()
+                        .filter_map(|tc| {
+                            let tc_map = tc.as_map_rc()?;
                             let id = tc_map
                                 .get(&Value::keyword("id"))
                                 .and_then(|v| v.as_str())
@@ -410,11 +416,11 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
                                 name,
                                 arguments,
                             })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect()
+                        })
+                        .collect()
+                } else {
+                    vec![]
+                }
             } else {
                 vec![]
             };
@@ -482,10 +488,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let provider_name = args[0]
             .as_keyword()
             .ok_or_else(|| SemaError::type_error("keyword", args[0].type_name()))?;
-        let opts = match &args[1] {
-            Value::Map(m) => m.as_ref().clone(),
-            _ => return Err(SemaError::type_error("map", args[1].type_name())),
-        };
+        let opts_rc = args[1]
+            .as_map_rc()
+            .ok_or_else(|| SemaError::type_error("map", args[1].type_name()))?;
+        let opts = opts_rc.as_ref().clone();
 
         let api_key = get_opt_string(&opts, "api-key");
 
@@ -667,7 +673,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     reg.set_default(other);
                 }
             }
-            Ok(Value::Nil)
+            Ok(Value::nil())
         })
     });
 
@@ -679,19 +685,18 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let provider_name = args[0]
             .as_keyword()
             .ok_or_else(|| SemaError::type_error("keyword", args[0].type_name()))?;
-        let opts = match &args[1] {
-            Value::Map(m) => m.as_ref().clone(),
-            _ => return Err(SemaError::type_error("map", args[1].type_name())),
-        };
+        let opts_rc = args[1]
+            .as_map_rc()
+            .ok_or_else(|| SemaError::type_error("map", args[1].type_name()))?;
+        let opts = opts_rc.as_ref().clone();
 
         let complete_fn = opts
             .get(&Value::keyword("complete"))
             .cloned()
             .ok_or_else(|| SemaError::eval("llm/define-provider requires :complete function"))?;
 
-        match &complete_fn {
-            Value::Lambda(_) | Value::NativeFn(_) => {}
-            _ => return Err(SemaError::type_error("function", complete_fn.type_name())),
+        if complete_fn.as_lambda_rc().is_none() && complete_fn.as_native_fn_rc().is_none() {
+            return Err(SemaError::type_error("function", complete_fn.type_name()));
         }
 
         let default_model =
@@ -917,7 +922,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
             match first_configured {
                 Some(name) => Ok(Value::keyword(&name)),
-                None => Ok(Value::Nil),
+                None => Ok(Value::nil()),
             }
         })?;
 
@@ -932,18 +937,15 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.is_empty() || args.len() > 2 {
             return Err(SemaError::arity("llm/complete", "1-2", args.len()));
         }
-        let prompt_text = match &args[0] {
-            Value::String(s) => s.to_string(),
-            Value::Prompt(p) => {
-                // Use the prompt's messages
-                return complete_with_prompt(p, args.get(1));
-            }
-            _ => {
-                return Err(SemaError::type_error(
-                    "string or prompt",
-                    args[0].type_name(),
-                ))
-            }
+        let prompt_text = if let Some(p) = args[0].as_prompt_rc() {
+            return complete_with_prompt(&p, args.get(1));
+        } else if let Some(s) = args[0].as_str() {
+            s.to_string()
+        } else {
+            return Err(SemaError::type_error(
+                "string or prompt",
+                args[0].type_name(),
+            ));
         };
 
         let mut model = String::new();
@@ -952,11 +954,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut system = None;
 
         if let Some(opts_val) = args.get(1) {
-            if let Value::Map(opts) = opts_val {
-                model = get_opt_string(opts, "model").unwrap_or_default();
-                max_tokens = get_opt_u32(opts, "max-tokens");
-                temperature = get_opt_f64(opts, "temperature");
-                system = get_opt_string(opts, "system");
+            if let Some(opts) = opts_val.as_map_rc() {
+                model = get_opt_string(&opts, "model").unwrap_or_default();
+                max_tokens = get_opt_u32(&opts, "max-tokens");
+                temperature = get_opt_f64(&opts, "temperature");
+                system = get_opt_string(&opts, "system");
             }
         }
 
@@ -972,7 +974,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
         let response = do_complete(request)?;
         track_usage(&response.usage)?;
-        Ok(Value::String(Rc::new(response.content)))
+        Ok(Value::string(&response.content))
     });
 
     // (llm/chat messages {:model "..." :tools [...] :tool-mode :auto ...})
@@ -997,15 +999,13 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             let mut max_tool_rounds = 10usize;
 
             if let Some(opts_val) = args.get(1) {
-                if let Value::Map(opts) = opts_val {
-                    model = get_opt_string(opts, "model").unwrap_or_default();
-                    max_tokens = get_opt_u32(opts, "max-tokens");
-                    temperature = get_opt_f64(opts, "temperature");
-                    system = get_opt_string(opts, "system");
-                    if let Some(Value::List(t)) = opts.get(&Value::keyword("tools")) {
-                        tools = t.as_ref().clone();
-                    } else if let Some(Value::Vector(t)) = opts.get(&Value::keyword("tools")) {
-                        tools = t.as_ref().clone();
+                if let Some(opts) = opts_val.as_map_rc() {
+                    model = get_opt_string(&opts, "model").unwrap_or_default();
+                    max_tokens = get_opt_u32(&opts, "max-tokens");
+                    temperature = get_opt_f64(&opts, "temperature");
+                    system = get_opt_string(&opts, "system");
+                    if let Some(t) = opts.get(&Value::keyword("tools")).and_then(|v| v.as_list()) {
+                        tools = t.to_vec();
                     }
                     if let Some(mode) = opts.get(&Value::keyword("tool-mode")) {
                         if let Some(s) = mode.as_keyword() {
@@ -1028,7 +1028,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 request.system = system;
                 let response = do_complete(request)?;
                 track_usage(&response.usage)?;
-                Ok(Value::String(Rc::new(response.content)))
+                Ok(Value::string(&response.content))
             } else {
                 // Chat with tool execution loop
                 let tool_schemas = build_tool_schemas(&tools)?;
@@ -1044,7 +1044,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     max_tool_rounds,
                     None,
                 )?;
-                Ok(Value::String(Rc::new(result)))
+                Ok(Value::string(&result))
             }
         },
     );
@@ -1054,10 +1054,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.is_empty() || args.len() > 2 {
             return Err(SemaError::arity("llm/send", "1-2", args.len()));
         }
-        let prompt = match &args[0] {
-            Value::Prompt(p) => p.clone(),
-            _ => return Err(SemaError::type_error("prompt", args[0].type_name())),
-        };
+        let prompt = args[0]
+            .as_prompt_rc()
+            .ok_or_else(|| SemaError::type_error("prompt", args[0].type_name()))?;
         complete_with_prompt(&prompt, args.get(1))
     });
 
@@ -1069,37 +1068,37 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         }
 
         // Parse the prompt/messages
-        let messages = match &args[0] {
-            Value::String(s) => vec![ChatMessage {
+        let messages = if let Some(s) = args[0].as_str() {
+            vec![ChatMessage {
                 role: "user".to_string(),
                 content: s.to_string(),
-            }],
-            Value::Prompt(p) => p
-                .messages
+            }]
+        } else if let Some(p) = args[0].as_prompt_rc() {
+            p.messages
                 .iter()
                 .map(|m| ChatMessage {
                     role: m.role.to_string(),
                     content: m.content.clone(),
                 })
-                .collect(),
-            Value::List(_) | Value::Vector(_) => extract_messages(&args[0])?,
-            _ => {
-                return Err(SemaError::type_error(
-                    "string, prompt, or messages",
-                    args[0].type_name(),
-                ))
-            }
+                .collect()
+        } else if args[0].as_list().is_some() {
+            extract_messages(&args[0])?
+        } else {
+            return Err(SemaError::type_error(
+                "string, prompt, or messages",
+                args[0].type_name(),
+            ));
         };
 
         // Parse optional callback and opts
         let mut callback: Option<Value> = None;
-        let mut opts_map: Option<&BTreeMap<Value, Value>> = None;
+        let mut opts_map: Option<Rc<BTreeMap<Value, Value>>> = None;
 
         for arg in &args[1..] {
-            match arg {
-                Value::Lambda(_) | Value::NativeFn(_) => callback = Some(arg.clone()),
-                Value::Map(m) => opts_map = Some(m.as_ref()),
-                _ => {}
+            if arg.as_lambda_rc().is_some() || arg.as_native_fn_rc().is_some() {
+                callback = Some(arg.clone());
+            } else if let Some(m) = arg.as_map_rc() {
+                opts_map = Some(m);
             }
         }
 
@@ -1108,7 +1107,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut temperature = None;
         let mut system = None;
 
-        if let Some(opts) = opts_map {
+        if let Some(ref opts) = opts_map {
             model = get_opt_string(opts, "model").unwrap_or_default();
             max_tokens = get_opt_u32(opts, "max-tokens");
             temperature = get_opt_f64(opts, "temperature");
@@ -1126,7 +1125,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 req.model = p.default_model().to_string();
                 let mut chunk_cb = |chunk: &str| -> Result<(), crate::types::LlmError> {
                     if let Some(ref cb) = callback {
-                        call_value_fn(ctx, cb, &[Value::String(Rc::new(chunk.to_string()))])
+                        call_value_fn(ctx, cb, &[Value::string(chunk)])
                             .map_err(|e| crate::types::LlmError::Config(e.to_string()))?;
                     } else {
                         print!("{}", chunk);
@@ -1140,7 +1139,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             } else {
                 let mut chunk_cb = |chunk: &str| -> Result<(), crate::types::LlmError> {
                     if let Some(ref cb) = callback {
-                        call_value_fn(ctx, cb, &[Value::String(Rc::new(chunk.to_string()))])
+                        call_value_fn(ctx, cb, &[Value::string(chunk)])
                             .map_err(|e| crate::types::LlmError::Config(e.to_string()))?;
                     } else {
                         print!("{}", chunk);
@@ -1160,7 +1159,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         }
 
         track_usage(&response.usage)?;
-        Ok(Value::String(Rc::new(response.content)))
+        Ok(Value::string(&response.content))
     });
 
     // (llm/extract schema text {:model "..." :validate true :retries 2})
@@ -1187,13 +1186,13 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut validate = false;
         let mut max_retries: u32 = 0;
         if let Some(opts_val) = args.get(2) {
-            if let Value::Map(opts) = opts_val {
-                model = get_opt_string(opts, "model").unwrap_or_default();
+            if let Some(opts) = opts_val.as_map_rc() {
+                model = get_opt_string(&opts, "model").unwrap_or_default();
                 validate = opts
                     .get(&Value::keyword("validate"))
                     .map(|v| v.is_truthy())
                     .unwrap_or(false);
-                max_retries = get_opt_u32(opts, "retries").unwrap_or(0);
+                max_retries = get_opt_u32(&opts, "retries").unwrap_or(0);
             }
         }
 
@@ -1260,21 +1259,24 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("llm/classify", "2-3", args.len()));
         }
-        let categories = match &args[0] {
-            Value::List(l) => l.as_ref().clone(),
-            Value::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
-        };
+        let categories = args[0]
+            .as_list()
+            .map(|l| l.to_vec())
+            .ok_or_else(|| SemaError::type_error("list or vector", args[0].type_name()))?;
         let text = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
 
         let cat_names: Vec<String> = categories
             .iter()
-            .map(|c| match c {
-                Value::Keyword(s) => resolve(*s),
-                Value::String(s) => s.to_string(),
-                other => other.to_string(),
+            .map(|c| {
+                if let Some(kw) = c.as_keyword() {
+                    kw
+                } else if let Some(s) = c.as_str() {
+                    s.to_string()
+                } else {
+                    c.to_string()
+                }
             })
             .collect();
 
@@ -1289,8 +1291,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
         let mut model = String::new();
         if let Some(opts_val) = args.get(2) {
-            if let Value::Map(opts) = opts_val {
-                model = get_opt_string(opts, "model").unwrap_or_default();
+            if let Some(opts) = opts_val.as_map_rc() {
+                model = get_opt_string(&opts, "model").unwrap_or_default();
             }
         }
 
@@ -1304,11 +1306,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         // Return as keyword if it was in the original list as keyword
         if categories
             .iter()
-            .any(|c| matches!(c, Value::Keyword(s) if resolve(*s) == category))
+            .any(|c| c.as_keyword().map(|kw| kw == category).unwrap_or(false))
         {
             Ok(Value::keyword(&category))
         } else {
-            Ok(Value::String(Rc::new(category)))
+            Ok(Value::string(&category))
         }
     });
 
@@ -1319,29 +1321,27 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut model = String::new();
         let mut metadata = BTreeMap::new();
         if let Some(opts_val) = args.first() {
-            if let Value::Map(opts) = opts_val {
-                model = get_opt_string(opts, "model").unwrap_or_default();
+            if let Some(opts) = opts_val.as_map_rc() {
+                model = get_opt_string(&opts, "model").unwrap_or_default();
                 for (k, v) in opts.iter() {
-                    if let Value::Keyword(key) = k {
-                        let key_str = resolve(*key);
+                    if let Some(key_str) = k.as_keyword() {
                         if key_str != "model" {
                             metadata.insert(
                                 key_str,
-                                match v {
-                                    Value::String(s) => s.to_string(),
-                                    other => other.to_string(),
-                                },
+                                v.as_str()
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| v.to_string()),
                             );
                         }
                     }
                 }
             }
         }
-        Ok(Value::Conversation(Rc::new(Conversation {
+        Ok(Value::conversation(Conversation {
             messages: Vec::new(),
             model,
             metadata,
-        })))
+        }))
     });
 
     // (conversation/say conv "message" {:temperature 0.5 :max-tokens 2048 :system "..."})
@@ -1349,24 +1349,23 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("conversation/say", "2-3", args.len()));
         }
-        let conv = match &args[0] {
-            Value::Conversation(c) => c.clone(),
-            _ => return Err(SemaError::type_error("conversation", args[0].type_name())),
-        };
-        let user_msg = match &args[1] {
-            Value::String(s) => s.to_string(),
-            other => other.to_string(),
-        };
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        let user_msg = args[1]
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| args[1].to_string());
 
         // Parse optional opts
         let mut temperature = None;
         let mut max_tokens = None;
         let mut system = None;
         if let Some(opts_val) = args.get(2) {
-            if let Value::Map(opts) = opts_val {
-                temperature = get_opt_f64(opts, "temperature");
-                max_tokens = get_opt_u32(opts, "max-tokens");
-                system = get_opt_string(opts, "system");
+            if let Some(opts) = opts_val.as_map_rc() {
+                temperature = get_opt_f64(&opts, "temperature");
+                max_tokens = get_opt_u32(&opts, "max-tokens");
+                system = get_opt_string(&opts, "system");
             }
         }
 
@@ -1403,11 +1402,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             content: response.content,
         });
 
-        Ok(Value::Conversation(Rc::new(Conversation {
+        Ok(Value::conversation(Conversation {
             messages: new_messages,
             model: conv.model.clone(),
             metadata: conv.metadata.clone(),
-        })))
+        }))
     });
 
     // (conversation/messages conv)
@@ -1415,14 +1414,13 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("conversation/messages", "1", args.len()));
         }
-        let conv = match &args[0] {
-            Value::Conversation(c) => c.clone(),
-            _ => return Err(SemaError::type_error("conversation", args[0].type_name())),
-        };
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
         let msgs: Vec<Value> = conv
             .messages
             .iter()
-            .map(|m| Value::Message(Rc::new(m.clone())))
+            .map(|m| Value::message(m.clone()))
             .collect();
         Ok(Value::list(msgs))
     });
@@ -1432,14 +1430,13 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("conversation/last-reply", "1", args.len()));
         }
-        let conv = match &args[0] {
-            Value::Conversation(c) => c.clone(),
-            _ => return Err(SemaError::type_error("conversation", args[0].type_name())),
-        };
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
         conv.messages
             .iter()
             .rfind(|m| m.role == Role::Assistant)
-            .map(|m| Value::String(Rc::new(m.content.clone())))
+            .map(|m| Value::string(&m.content))
             .ok_or_else(|| SemaError::eval("no assistant reply in conversation"))
     });
 
@@ -1459,17 +1456,15 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 2 {
             return Err(SemaError::arity("prompt/append", "2", args.len()));
         }
-        let p1 = match &args[0] {
-            Value::Prompt(p) => p.clone(),
-            _ => return Err(SemaError::type_error("prompt", args[0].type_name())),
-        };
-        let p2 = match &args[1] {
-            Value::Prompt(p) => p.clone(),
-            _ => return Err(SemaError::type_error("prompt", args[1].type_name())),
-        };
+        let p1 = args[0]
+            .as_prompt_rc()
+            .ok_or_else(|| SemaError::type_error("prompt", args[0].type_name()))?;
+        let p2 = args[1]
+            .as_prompt_rc()
+            .ok_or_else(|| SemaError::type_error("prompt", args[1].type_name()))?;
         let mut messages = p1.messages.clone();
         messages.extend(p2.messages.iter().cloned());
-        Ok(Value::Prompt(Rc::new(Prompt { messages })))
+        Ok(Value::prompt(Prompt { messages }))
     });
 
     // (prompt/messages prompt)
@@ -1477,14 +1472,13 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("prompt/messages", "1", args.len()));
         }
-        let p = match &args[0] {
-            Value::Prompt(p) => p.clone(),
-            _ => return Err(SemaError::type_error("prompt", args[0].type_name())),
-        };
+        let p = args[0]
+            .as_prompt_rc()
+            .ok_or_else(|| SemaError::type_error("prompt", args[0].type_name()))?;
         let msgs: Vec<Value> = p
             .messages
             .iter()
-            .map(|m| Value::Message(Rc::new(m.clone())))
+            .map(|m| Value::message(m.clone()))
             .collect();
         Ok(Value::list(msgs))
     });
@@ -1494,14 +1488,13 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 2 {
             return Err(SemaError::arity("prompt/set-system", "2", args.len()));
         }
-        let p = match &args[0] {
-            Value::Prompt(p) => p.clone(),
-            _ => return Err(SemaError::type_error("prompt", args[0].type_name())),
-        };
-        let new_system = match &args[1] {
-            Value::String(s) => s.to_string(),
-            other => other.to_string(),
-        };
+        let p = args[0]
+            .as_prompt_rc()
+            .ok_or_else(|| SemaError::type_error("prompt", args[0].type_name()))?;
+        let new_system = args[1]
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| args[1].to_string());
         let mut messages: Vec<Message> = p
             .messages
             .iter()
@@ -1515,7 +1508,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 content: new_system,
             },
         );
-        Ok(Value::Prompt(Rc::new(Prompt { messages })))
+        Ok(Value::prompt(Prompt { messages }))
     });
 
     // (message/role msg)
@@ -1523,10 +1516,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("message/role", "1", args.len()));
         }
-        let msg = match &args[0] {
-            Value::Message(m) => m.clone(),
-            _ => return Err(SemaError::type_error("message", args[0].type_name())),
-        };
+        let msg = args[0]
+            .as_message_rc()
+            .ok_or_else(|| SemaError::type_error("message", args[0].type_name()))?;
         Ok(Value::keyword(&msg.role.to_string()))
     });
 
@@ -1535,11 +1527,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("message/content", "1", args.len()));
         }
-        let msg = match &args[0] {
-            Value::Message(m) => m.clone(),
-            _ => return Err(SemaError::type_error("message", args[0].type_name())),
-        };
-        Ok(Value::String(Rc::new(msg.content.clone())))
+        let msg = args[0]
+            .as_message_rc()
+            .ok_or_else(|| SemaError::type_error("message", args[0].type_name()))?;
+        Ok(Value::string(&msg.content))
     });
 
     // Usage tracking
@@ -1553,26 +1544,23 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     let mut map = BTreeMap::new();
                     map.insert(
                         Value::keyword("prompt-tokens"),
-                        Value::Int(usage.prompt_tokens as i64),
+                        Value::int(usage.prompt_tokens as i64),
                     );
                     map.insert(
                         Value::keyword("completion-tokens"),
-                        Value::Int(usage.completion_tokens as i64),
+                        Value::int(usage.completion_tokens as i64),
                     );
                     map.insert(
                         Value::keyword("total-tokens"),
-                        Value::Int(usage.total_tokens() as i64),
+                        Value::int(usage.total_tokens() as i64),
                     );
-                    map.insert(
-                        Value::keyword("model"),
-                        Value::String(Rc::new(usage.model.clone())),
-                    );
+                    map.insert(Value::keyword("model"), Value::string(&usage.model));
                     if let Some(cost) = pricing::calculate_cost(usage) {
-                        map.insert(Value::keyword("cost-usd"), Value::Float(cost));
+                        map.insert(Value::keyword("cost-usd"), Value::float(cost));
                     }
-                    Ok(Value::Map(Rc::new(map)))
+                    Ok(Value::map(map))
                 }
-                None => Ok(Value::Nil),
+                None => Ok(Value::nil()),
             }
         })
     });
@@ -1584,19 +1572,19 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             let mut map = BTreeMap::new();
             map.insert(
                 Value::keyword("prompt-tokens"),
-                Value::Int(usage.prompt_tokens as i64),
+                Value::int(usage.prompt_tokens as i64),
             );
             map.insert(
                 Value::keyword("completion-tokens"),
-                Value::Int(usage.completion_tokens as i64),
+                Value::int(usage.completion_tokens as i64),
             );
             map.insert(
                 Value::keyword("total-tokens"),
-                Value::Int(usage.total_tokens() as i64),
+                Value::int(usage.total_tokens() as i64),
             );
             let session_cost = SESSION_COST.with(|sc| *sc.borrow());
-            map.insert(Value::keyword("cost-usd"), Value::Float(session_cost));
-            Ok(Value::Map(Rc::new(map)))
+            map.insert(Value::keyword("cost-usd"), Value::float(session_cost));
+            Ok(Value::map(map))
         })
     });
 
@@ -1606,21 +1594,16 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("agent/run", "2-3", args.len()));
         }
-        let agent = match &args[0] {
-            Value::Agent(a) => a.clone(),
-            _ => return Err(SemaError::type_error("agent", args[0].type_name())),
-        };
-        let user_msg = match &args[1] {
-            Value::String(s) => s.to_string(),
-            other => other.to_string(),
-        };
+        let agent = args[0]
+            .as_agent_rc()
+            .ok_or_else(|| SemaError::type_error("agent", args[0].type_name()))?;
+        let user_msg = args[1]
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| args[1].to_string());
 
         // Extract options from 3rd arg
-        let opts = if let Some(Value::Map(m)) = args.get(2) {
-            Some(m.clone())
-        } else {
-            None
-        };
+        let opts = args.get(2).and_then(|v| v.as_map_rc());
 
         let on_tool_call = opts
             .as_ref()
@@ -1664,15 +1647,15 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         // 3-arg form with opts: return {:response "..." :messages [...]}
         if opts.is_some() {
             let mut map = BTreeMap::new();
-            map.insert(Value::keyword("response"), Value::String(Rc::new(result)));
+            map.insert(Value::keyword("response"), Value::string(&result));
             map.insert(
                 Value::keyword("messages"),
                 chat_messages_to_sema_list(&final_messages),
             );
-            Ok(Value::Map(Rc::new(map)))
+            Ok(Value::map(map))
         } else {
             // 2-arg form: return string (backward compat)
-            Ok(Value::String(Rc::new(result)))
+            Ok(Value::string(&result))
         }
     });
 
@@ -1683,11 +1666,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             return Err(SemaError::arity("llm/pmap", "2-3", args.len()));
         }
         let func = &args[0];
-        let items = match &args[1] {
-            Value::List(l) => l.as_ref().clone(),
-            Value::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
-        };
+        let items = args[1]
+            .as_list()
+            .map(|l| l.to_vec())
+            .ok_or_else(|| SemaError::type_error("list or vector", args[1].type_name()))?;
 
         let mut model = String::new();
         let mut max_tokens = None;
@@ -1695,11 +1677,11 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut system = None;
 
         if let Some(opts_val) = args.get(2) {
-            if let Value::Map(opts) = opts_val {
-                model = get_opt_string(opts, "model").unwrap_or_default();
-                max_tokens = get_opt_u32(opts, "max-tokens");
-                temperature = get_opt_f64(opts, "temperature");
-                system = get_opt_string(opts, "system");
+            if let Some(opts) = opts_val.as_map_rc() {
+                model = get_opt_string(&opts, "model").unwrap_or_default();
+                max_tokens = get_opt_u32(&opts, "max-tokens");
+                temperature = get_opt_f64(&opts, "temperature");
+                system = get_opt_string(&opts, "system");
             }
         }
 
@@ -1707,10 +1689,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut prompts = Vec::with_capacity(items.len());
         for item in &items {
             let result = call_value_fn(ctx, func, &[item.clone()])?;
-            let prompt_str = match &result {
-                Value::String(s) => s.to_string(),
-                other => other.to_string(),
-            };
+            let prompt_str = result
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| result.to_string());
             prompts.push(prompt_str);
         }
 
@@ -1749,7 +1731,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         for resp_result in responses {
             let resp = resp_result.map_err(|e| SemaError::Llm(e.to_string()))?;
             track_usage(&resp.usage)?;
-            results.push(Value::String(Rc::new(resp.content)));
+            results.push(Value::string(&resp.content));
         }
         Ok(Value::list(results))
     });
@@ -1759,11 +1741,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.is_empty() || args.len() > 2 {
             return Err(SemaError::arity("llm/batch", "1-2", args.len()));
         }
-        let prompts = match &args[0] {
-            Value::List(l) => l.as_ref().clone(),
-            Value::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
-        };
+        let prompts = args[0]
+            .as_list()
+            .map(|l| l.to_vec())
+            .ok_or_else(|| SemaError::type_error("list or vector", args[0].type_name()))?;
 
         let mut model = String::new();
         let mut max_tokens = None;
@@ -1771,21 +1752,21 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let mut system = None;
 
         if let Some(opts_val) = args.get(1) {
-            if let Value::Map(opts) = opts_val {
-                model = get_opt_string(opts, "model").unwrap_or_default();
-                max_tokens = get_opt_u32(opts, "max-tokens");
-                temperature = get_opt_f64(opts, "temperature");
-                system = get_opt_string(opts, "system");
+            if let Some(opts) = opts_val.as_map_rc() {
+                model = get_opt_string(&opts, "model").unwrap_or_default();
+                max_tokens = get_opt_u32(&opts, "max-tokens");
+                temperature = get_opt_f64(&opts, "temperature");
+                system = get_opt_string(&opts, "system");
             }
         }
 
         let requests: Vec<ChatRequest> = prompts
             .iter()
             .map(|prompt_val| {
-                let prompt_text = match prompt_val {
-                    Value::String(s) => s.to_string(),
-                    other => other.to_string(),
-                };
+                let prompt_text = prompt_val
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| prompt_val.to_string());
                 let messages = vec![ChatMessage {
                     role: "user".to_string(),
                     content: prompt_text,
@@ -1815,7 +1796,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         for resp_result in responses {
             let resp = resp_result.map_err(|e| SemaError::Llm(e.to_string()))?;
             track_usage(&resp.usage)?;
-            results.push(Value::String(Rc::new(resp.content)));
+            results.push(Value::string(&resp.content));
         }
         Ok(Value::list(results))
     });
@@ -1835,7 +1816,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .as_float()
             .ok_or_else(|| SemaError::type_error("number", args[2].type_name()))?;
         pricing::set_custom_pricing(model_pattern, input_cost, output_cost);
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     // (llm/configure-embeddings :openai {:api-key "..." :base-url "..." :model "..."})
@@ -1853,10 +1834,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         let provider_name = args[0]
             .as_keyword()
             .ok_or_else(|| SemaError::type_error("keyword", args[0].type_name()))?;
-        let opts = match &args[1] {
-            Value::Map(m) => m.as_ref().clone(),
-            _ => return Err(SemaError::type_error("map", args[1].type_name())),
-        };
+        let opts_rc = args[1]
+            .as_map_rc()
+            .ok_or_else(|| SemaError::type_error("map", args[1].type_name()))?;
+        let opts = opts_rc.as_ref().clone();
 
         let api_key = get_opt_string(&opts, "api-key");
 
@@ -1918,7 +1899,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     reg.set_embedding_provider(&name);
                 }
             }
-            Ok(Value::Nil)
+            Ok(Value::nil())
         })
     });
 
@@ -1929,24 +1910,25 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             return Err(SemaError::arity("llm/embed", "1-2", args.len()));
         }
 
-        let (texts, single) = match &args[0] {
-            Value::String(s) => (vec![s.to_string()], true),
-            Value::List(l) | Value::Vector(l) => {
-                let texts: Vec<String> = l
-                    .iter()
-                    .map(|v| match v {
-                        Value::String(s) => Ok(s.to_string()),
-                        other => Ok(other.to_string()),
-                    })
-                    .collect::<Result<_, SemaError>>()?;
-                (texts, false)
-            }
-            _ => return Err(SemaError::type_error("string or list", args[0].type_name())),
+        let (texts, single) = if let Some(s) = args[0].as_str() {
+            (vec![s.to_string()], true)
+        } else if let Some(l) = args[0].as_list() {
+            let texts: Vec<String> = l
+                .iter()
+                .map(|v| {
+                    v.as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| v.to_string())
+                })
+                .collect();
+            (texts, false)
+        } else {
+            return Err(SemaError::type_error("string or list", args[0].type_name()));
         };
 
         let model = if let Some(opts_val) = args.get(1) {
-            if let Value::Map(opts) = opts_val {
-                get_opt_string(opts, "model")
+            if let Some(opts) = opts_val.as_map_rc() {
+                get_opt_string(&opts, "model")
             } else {
                 None
             }
@@ -1985,20 +1967,14 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             return Err(SemaError::arity("llm/similarity", "2", args.len()));
         }
 
-        let a_is_bv = matches!(&args[0], Value::Bytevector(_));
-        let b_is_bv = matches!(&args[1], Value::Bytevector(_));
-        let a_is_list = matches!(&args[0], Value::List(_) | Value::Vector(_));
-        let b_is_list = matches!(&args[1], Value::List(_) | Value::Vector(_));
+        let a_is_bv = args[0].as_bytevector().is_some();
+        let b_is_bv = args[1].as_bytevector().is_some();
+        let a_is_list = args[0].as_list().is_some();
+        let b_is_list = args[1].as_list().is_some();
 
         if a_is_bv && b_is_bv {
-            let ba = match &args[0] {
-                Value::Bytevector(b) => b,
-                _ => unreachable!(),
-            };
-            let bb = match &args[1] {
-                Value::Bytevector(b) => b,
-                _ => unreachable!(),
-            };
+            let ba = args[0].as_bytevector().unwrap();
+            let bb = args[1].as_bytevector().unwrap();
             if ba.len() != bb.len() {
                 return Err(SemaError::eval(format!(
                     "llm/similarity: bytevectors must have same length ({} vs {})",
@@ -2026,9 +2002,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 mag_b += fb * fb;
             }
             if mag_a == 0.0 || mag_b == 0.0 {
-                Ok(Value::Float(0.0))
+                Ok(Value::float(0.0))
             } else {
-                Ok(Value::Float(dot / (mag_a.sqrt() * mag_b.sqrt())))
+                Ok(Value::float(dot / (mag_a.sqrt() * mag_b.sqrt())))
             }
         } else if a_is_list && b_is_list {
             let va = extract_float_vec(&args[0])?;
@@ -2052,9 +2028,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 mag_b += vb[i] * vb[i];
             }
             if mag_a == 0.0 || mag_b == 0.0 {
-                Ok(Value::Float(0.0))
+                Ok(Value::float(0.0))
             } else {
-                Ok(Value::Float(dot / (mag_a.sqrt() * mag_b.sqrt())))
+                Ok(Value::float(dot / (mag_a.sqrt() * mag_b.sqrt())))
             }
         } else {
             Err(SemaError::eval(
@@ -2068,72 +2044,68 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("embedding/length", "1", args.len()));
         }
-        match &args[0] {
-            Value::Bytevector(bv) => {
-                if bv.len() % 8 != 0 {
-                    return Err(SemaError::eval(format!(
-                        "embedding/length: bytevector length {} is not divisible by 8",
-                        bv.len()
-                    )));
-                }
-                Ok(Value::Int((bv.len() / 8) as i64))
-            }
-            _ => Err(SemaError::type_error("bytevector", args[0].type_name())),
+        let bv = args[0]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
+        if bv.len() % 8 != 0 {
+            return Err(SemaError::eval(format!(
+                "embedding/length: bytevector length {} is not divisible by 8",
+                bv.len()
+            )));
         }
+        Ok(Value::int((bv.len() / 8) as i64))
     });
 
     register_fn(env, "embedding/ref", |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("embedding/ref", "2", args.len()));
         }
-        match (&args[0], &args[1]) {
-            (Value::Bytevector(bv), Value::Int(idx)) => {
-                if bv.len() % 8 != 0 {
-                    return Err(SemaError::eval(format!(
-                        "embedding/ref: bytevector length {} is not divisible by 8",
-                        bv.len()
-                    )));
-                }
-                let idx = *idx as usize;
-                let num_elements = bv.len() / 8;
-                if idx >= num_elements {
-                    return Err(SemaError::eval(format!(
-                        "embedding/ref: index {} out of bounds (length {})",
-                        idx, num_elements
-                    )));
-                }
-                let start = idx * 8;
-                let bytes: [u8; 8] = bv[start..start + 8].try_into().unwrap();
-                Ok(Value::Float(f64::from_le_bytes(bytes)))
-            }
-            (Value::Bytevector(_), _) => Err(SemaError::type_error("integer", args[1].type_name())),
-            _ => Err(SemaError::type_error("bytevector", args[0].type_name())),
+        let bv = args[0]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
+        let idx = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("integer", args[1].type_name()))?;
+        if bv.len() % 8 != 0 {
+            return Err(SemaError::eval(format!(
+                "embedding/ref: bytevector length {} is not divisible by 8",
+                bv.len()
+            )));
         }
+        let idx = idx as usize;
+        let num_elements = bv.len() / 8;
+        if idx >= num_elements {
+            return Err(SemaError::eval(format!(
+                "embedding/ref: index {} out of bounds (length {})",
+                idx, num_elements
+            )));
+        }
+        let start = idx * 8;
+        let bytes: [u8; 8] = bv[start..start + 8].try_into().unwrap();
+        Ok(Value::float(f64::from_le_bytes(bytes)))
     });
 
     register_fn(env, "embedding/->list", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("embedding/->list", "1", args.len()));
         }
-        match &args[0] {
-            Value::Bytevector(bv) => {
-                if bv.len() % 8 != 0 {
-                    return Err(SemaError::eval(format!(
-                        "embedding/->list: bytevector length {} is not divisible by 8",
-                        bv.len()
-                    )));
-                }
-                let floats: Vec<Value> = bv
-                    .chunks_exact(8)
-                    .map(|chunk| {
-                        let bytes: [u8; 8] = chunk.try_into().unwrap();
-                        Value::Float(f64::from_le_bytes(bytes))
-                    })
-                    .collect();
-                Ok(Value::list(floats))
-            }
-            _ => Err(SemaError::type_error("bytevector", args[0].type_name())),
+        let bv = args[0]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[0].type_name()))?;
+        if bv.len() % 8 != 0 {
+            return Err(SemaError::eval(format!(
+                "embedding/->list: bytevector length {} is not divisible by 8",
+                bv.len()
+            )));
         }
+        let floats: Vec<Value> = bv
+            .chunks_exact(8)
+            .map(|chunk| {
+                let bytes: [u8; 8] = chunk.try_into().unwrap();
+                Value::float(f64::from_le_bytes(bytes))
+            })
+            .collect();
+        Ok(Value::list(floats))
     });
 
     register_fn(env, "embedding/list->embedding", |args| {
@@ -2144,27 +2116,21 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 args.len(),
             ));
         }
-        match &args[0] {
-            Value::List(items) => {
-                let mut bytes = Vec::with_capacity(items.len() * 8);
-                for (i, item) in items.iter().enumerate() {
-                    let f = match item {
-                        Value::Float(f) => *f,
-                        Value::Int(n) => *n as f64,
-                        _ => {
-                            return Err(SemaError::eval(format!(
-                                "embedding/list->embedding: element {} is {}, expected number",
-                                i,
-                                item.type_name()
-                            )));
-                        }
-                    };
-                    bytes.extend_from_slice(&f.to_le_bytes());
-                }
-                Ok(Value::bytevector(bytes))
-            }
-            _ => Err(SemaError::type_error("list", args[0].type_name())),
+        let items = args[0]
+            .as_list()
+            .ok_or_else(|| SemaError::type_error("list", args[0].type_name()))?;
+        let mut bytes = Vec::with_capacity(items.len() * 8);
+        for (i, item) in items.iter().enumerate() {
+            let f = item.as_float().ok_or_else(|| {
+                SemaError::eval(format!(
+                    "embedding/list->embedding: element {} is {}, expected number",
+                    i,
+                    item.type_name()
+                ))
+            })?;
+            bytes.extend_from_slice(&f.to_le_bytes());
         }
+        Ok(Value::bytevector(bytes))
     });
 
     register_fn(env, "llm/reset-usage", |_args| {
@@ -2175,7 +2141,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         });
         LAST_USAGE.with(|u| *u.borrow_mut() = None);
         SESSION_COST.with(|sc| *sc.borrow_mut() = 0.0);
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     // Type predicates for LLM types
@@ -2183,35 +2149,35 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("prompt?", "1", args.len()));
         }
-        Ok(Value::Bool(matches!(args[0], Value::Prompt(_))))
+        Ok(Value::bool(args[0].as_prompt_rc().is_some()))
     });
 
     register_fn(env, "message?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("message?", "1", args.len()));
         }
-        Ok(Value::Bool(matches!(args[0], Value::Message(_))))
+        Ok(Value::bool(args[0].as_message_rc().is_some()))
     });
 
     register_fn(env, "conversation?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("conversation?", "1", args.len()));
         }
-        Ok(Value::Bool(matches!(args[0], Value::Conversation(_))))
+        Ok(Value::bool(args[0].as_conversation_rc().is_some()))
     });
 
     register_fn(env, "tool?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("tool?", "1", args.len()));
         }
-        Ok(Value::Bool(matches!(args[0], Value::ToolDef(_))))
+        Ok(Value::bool(args[0].as_tool_def_rc().is_some()))
     });
 
     register_fn(env, "agent?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("agent?", "1", args.len()));
         }
-        Ok(Value::Bool(matches!(args[0], Value::Agent(_))))
+        Ok(Value::bool(args[0].as_agent_rc().is_some()))
     });
 
     // Tool accessor functions
@@ -2219,30 +2185,30 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("tool/name", "1", args.len()));
         }
-        match &args[0] {
-            Value::ToolDef(t) => Ok(Value::string(&t.name)),
-            _ => Err(SemaError::type_error("tool", args[0].type_name())),
-        }
+        let t = args[0]
+            .as_tool_def_rc()
+            .ok_or_else(|| SemaError::type_error("tool", args[0].type_name()))?;
+        Ok(Value::string(&t.name))
     });
 
     register_fn(env, "tool/description", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("tool/description", "1", args.len()));
         }
-        match &args[0] {
-            Value::ToolDef(t) => Ok(Value::string(&t.description)),
-            _ => Err(SemaError::type_error("tool", args[0].type_name())),
-        }
+        let t = args[0]
+            .as_tool_def_rc()
+            .ok_or_else(|| SemaError::type_error("tool", args[0].type_name()))?;
+        Ok(Value::string(&t.description))
     });
 
     register_fn(env, "tool/parameters", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("tool/parameters", "1", args.len()));
         }
-        match &args[0] {
-            Value::ToolDef(t) => Ok(t.parameters.clone()),
-            _ => Err(SemaError::type_error("tool", args[0].type_name())),
-        }
+        let t = args[0]
+            .as_tool_def_rc()
+            .ok_or_else(|| SemaError::type_error("tool", args[0].type_name()))?;
+        Ok(t.parameters.clone())
     });
 
     // Agent accessor functions
@@ -2250,50 +2216,50 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("agent/name", "1", args.len()));
         }
-        match &args[0] {
-            Value::Agent(a) => Ok(Value::string(&a.name)),
-            _ => Err(SemaError::type_error("agent", args[0].type_name())),
-        }
+        let a = args[0]
+            .as_agent_rc()
+            .ok_or_else(|| SemaError::type_error("agent", args[0].type_name()))?;
+        Ok(Value::string(&a.name))
     });
 
     register_fn(env, "agent/system", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("agent/system", "1", args.len()));
         }
-        match &args[0] {
-            Value::Agent(a) => Ok(Value::string(&a.system)),
-            _ => Err(SemaError::type_error("agent", args[0].type_name())),
-        }
+        let a = args[0]
+            .as_agent_rc()
+            .ok_or_else(|| SemaError::type_error("agent", args[0].type_name()))?;
+        Ok(Value::string(&a.system))
     });
 
     register_fn(env, "agent/tools", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("agent/tools", "1", args.len()));
         }
-        match &args[0] {
-            Value::Agent(a) => Ok(Value::list(a.tools.clone())),
-            _ => Err(SemaError::type_error("agent", args[0].type_name())),
-        }
+        let a = args[0]
+            .as_agent_rc()
+            .ok_or_else(|| SemaError::type_error("agent", args[0].type_name()))?;
+        Ok(Value::list(a.tools.clone()))
     });
 
     register_fn(env, "agent/model", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("agent/model", "1", args.len()));
         }
-        match &args[0] {
-            Value::Agent(a) => Ok(Value::string(&a.model)),
-            _ => Err(SemaError::type_error("agent", args[0].type_name())),
-        }
+        let a = args[0]
+            .as_agent_rc()
+            .ok_or_else(|| SemaError::type_error("agent", args[0].type_name()))?;
+        Ok(Value::string(&a.model))
     });
 
     register_fn(env, "agent/max-turns", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("agent/max-turns", "1", args.len()));
         }
-        match &args[0] {
-            Value::Agent(a) => Ok(Value::Int(a.max_turns as i64)),
-            _ => Err(SemaError::type_error("agent", args[0].type_name())),
-        }
+        let a = args[0]
+            .as_agent_rc()
+            .ok_or_else(|| SemaError::type_error("agent", args[0].type_name()))?;
+        Ok(Value::int(a.max_turns as i64))
     });
 
     // (conversation/add-message conv :role "content")
@@ -2305,35 +2271,34 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 args.len(),
             ));
         }
-        let conv = match &args[0] {
-            Value::Conversation(c) => c.clone(),
-            _ => return Err(SemaError::type_error("conversation", args[0].type_name())),
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        let role_kw = args[1]
+            .as_keyword()
+            .ok_or_else(|| SemaError::type_error("keyword", args[1].type_name()))?;
+        let role = match role_kw.as_str() {
+            "system" => Role::System,
+            "user" => Role::User,
+            "assistant" => Role::Assistant,
+            "tool" => Role::Tool,
+            other => {
+                return Err(SemaError::eval(format!(
+                    "conversation/add-message: unknown role '{other}'"
+                )))
+            }
         };
-        let role = match &args[1] {
-            Value::Keyword(s) => match resolve(*s).as_str() {
-                "system" => Role::System,
-                "user" => Role::User,
-                "assistant" => Role::Assistant,
-                "tool" => Role::Tool,
-                other => {
-                    return Err(SemaError::eval(format!(
-                        "conversation/add-message: unknown role '{other}'"
-                    )))
-                }
-            },
-            _ => return Err(SemaError::type_error("keyword", args[1].type_name())),
-        };
-        let content = match &args[2] {
-            Value::String(s) => s.to_string(),
-            other => other.to_string(),
-        };
+        let content = args[2]
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| args[2].to_string());
         let mut new_messages = conv.messages.clone();
         new_messages.push(Message { role, content });
-        Ok(Value::Conversation(Rc::new(Conversation {
+        Ok(Value::conversation(Conversation {
             messages: new_messages,
             model: conv.model.clone(),
             metadata: conv.metadata.clone(),
-        })))
+        }))
     });
 
     // (conversation/model conv) — get the model name
@@ -2341,10 +2306,10 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if args.len() != 1 {
             return Err(SemaError::arity("conversation/model", "1", args.len()));
         }
-        match &args[0] {
-            Value::Conversation(c) => Ok(Value::string(&c.model)),
-            _ => Err(SemaError::type_error("conversation", args[0].type_name())),
-        }
+        let c = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        Ok(Value::string(&c.model))
     });
 
     // (llm/set-default :provider-name) — switch the active provider
@@ -2389,9 +2354,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     let mut map = BTreeMap::new();
                     map.insert(Value::keyword("name"), Value::keyword(p.name()));
                     map.insert(Value::keyword("model"), Value::string(p.default_model()));
-                    Ok(Value::Map(Rc::new(map)))
+                    Ok(Value::map(map))
                 }
-                None => Ok(Value::Nil),
+                None => Ok(Value::nil()),
             }
         })
     });
@@ -2404,7 +2369,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         if let Some(date) = updated_at {
             map.insert(Value::keyword("updated-at"), Value::string(&date));
         }
-        Ok(Value::Map(Rc::new(map)))
+        Ok(Value::map(map))
     });
 
     // (llm/set-budget max-cost-usd) — set a budget limit
@@ -2416,13 +2381,13 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .as_float()
             .ok_or_else(|| SemaError::type_error("number", args[0].type_name()))?;
         crate::builtins::set_budget(max_cost);
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     // (llm/clear-budget) — clear the budget limit
     register_fn(env, "llm/clear-budget", |_args| {
         crate::builtins::clear_budget();
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     // (llm/budget-remaining) — query budget status
@@ -2433,28 +2398,28 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 Some(max_cost) => {
                     let spent = BUDGET_SPENT.with(|s| *s.borrow());
                     let mut map = BTreeMap::new();
-                    map.insert(Value::keyword("limit"), Value::Float(max_cost));
-                    map.insert(Value::keyword("spent"), Value::Float(spent));
-                    map.insert(Value::keyword("remaining"), Value::Float(max_cost - spent));
-                    Ok(Value::Map(Rc::new(map)))
+                    map.insert(Value::keyword("limit"), Value::float(max_cost));
+                    map.insert(Value::keyword("spent"), Value::float(spent));
+                    map.insert(Value::keyword("remaining"), Value::float(max_cost - spent));
+                    Ok(Value::map(map))
                 }
-                None => Ok(Value::Nil),
+                None => Ok(Value::nil()),
             }
         })
     });
 }
 
 fn extract_float_vec(val: &Value) -> Result<Vec<f64>, SemaError> {
-    match val {
-        Value::List(l) | Value::Vector(l) => l
-            .iter()
-            .map(|v| {
-                v.as_float()
-                    .ok_or_else(|| SemaError::type_error("number", v.type_name()))
-            })
-            .collect(),
-        _ => Err(SemaError::type_error("list of numbers", val.type_name())),
-    }
+    let items = val
+        .as_list()
+        .ok_or_else(|| SemaError::type_error("list of numbers", val.type_name()))?;
+    items
+        .iter()
+        .map(|v| {
+            v.as_float()
+                .ok_or_else(|| SemaError::type_error("number", v.type_name()))
+        })
+        .collect()
 }
 
 fn complete_with_prompt(prompt: &Prompt, opts: Option<&Value>) -> Result<Value, SemaError> {
@@ -2471,10 +2436,10 @@ fn complete_with_prompt(prompt: &Prompt, opts: Option<&Value>) -> Result<Value, 
     let mut max_tokens = None;
     let mut temperature = None;
 
-    if let Some(Value::Map(opts)) = opts {
-        model = get_opt_string(opts, "model").unwrap_or_default();
-        max_tokens = get_opt_u32(opts, "max-tokens");
-        temperature = get_opt_f64(opts, "temperature");
+    if let Some(opts) = opts.and_then(|v| v.as_map_rc()) {
+        model = get_opt_string(&opts, "model").unwrap_or_default();
+        max_tokens = get_opt_u32(&opts, "max-tokens");
+        temperature = get_opt_f64(&opts, "temperature");
     }
 
     let mut request = ChatRequest::new(model, messages);
@@ -2483,70 +2448,62 @@ fn complete_with_prompt(prompt: &Prompt, opts: Option<&Value>) -> Result<Value, 
 
     let response = do_complete(request)?;
     track_usage(&response.usage)?;
-    Ok(Value::String(Rc::new(response.content)))
+    Ok(Value::string(&response.content))
 }
 
 fn extract_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
-    match val {
-        Value::List(items) | Value::Vector(items) => {
-            let mut messages = Vec::new();
-            for item in items.iter() {
-                match item {
-                    Value::Message(m) => {
-                        messages.push(ChatMessage {
-                            role: m.role.to_string(),
-                            content: m.content.clone(),
-                        });
-                    }
-                    _ => return Err(SemaError::type_error("message", item.type_name())),
-                }
-            }
-            Ok(messages)
+    if let Some(items) = val.as_list() {
+        let mut messages = Vec::new();
+        for item in items.iter() {
+            let m = item
+                .as_message_rc()
+                .ok_or_else(|| SemaError::type_error("message", item.type_name()))?;
+            messages.push(ChatMessage {
+                role: m.role.to_string(),
+                content: m.content.clone(),
+            });
         }
-        Value::Prompt(p) => Ok(p
-            .messages
+        Ok(messages)
+    } else if let Some(p) = val.as_prompt_rc() {
+        Ok(p.messages
             .iter()
             .map(|m| ChatMessage {
                 role: m.role.to_string(),
                 content: m.content.clone(),
             })
-            .collect()),
-        _ => Err(SemaError::type_error(
+            .collect())
+    } else {
+        Err(SemaError::type_error(
             "list of messages or prompt",
             val.type_name(),
-        )),
+        ))
     }
 }
 
 fn format_schema(val: &Value) -> String {
-    match val {
-        Value::Map(map) => {
-            let mut fields = Vec::new();
-            for (k, v) in map.iter() {
-                let key = match k {
-                    Value::Keyword(s) => resolve(*s),
-                    Value::String(s) => s.to_string(),
-                    other => other.to_string(),
-                };
-                let type_str = match v {
-                    Value::Map(inner) => {
-                        if let Some(t) = inner.get(&Value::keyword("type")) {
-                            match t {
-                                Value::Keyword(s) => resolve(*s),
-                                Value::String(s) => s.to_string(),
-                                other => other.to_string(),
-                            }
-                        } else {
-                            "any".to_string()
-                        }
-                    }
-                    _ => "any".to_string(),
-                };
-                fields.push(format!("  \"{key}\": <{type_str}>"));
-            }
-            format!("{{\n{}\n}}", fields.join(",\n"))
+    if let Some(map) = val.as_map_rc() {
+        let mut fields = Vec::new();
+        for (k, v) in map.iter() {
+            let key = k
+                .as_keyword()
+                .or_else(|| k.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| k.to_string());
+            let type_str = if let Some(inner) = v.as_map_rc() {
+                if let Some(t) = inner.get(&Value::keyword("type")) {
+                    t.as_keyword()
+                        .or_else(|| t.as_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| t.to_string())
+                } else {
+                    "any".to_string()
+                }
+            } else {
+                "any".to_string()
+            };
+            fields.push(format!("  \"{key}\": <{type_str}>"));
         }
-        _ => val.to_string(),
+        format!("{{\n{}\n}}", fields.join(",\n"))
+    } else {
+        val.to_string()
     }
 }
 
@@ -2554,23 +2511,22 @@ fn format_schema(val: &Value) -> String {
 /// The schema is a map of keyword keys to field descriptors (maps with `:type`).
 /// Returns Ok(()) if valid, or Err with a description of mismatches.
 fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
-    let schema_map = match schema {
-        Value::Map(m) => m,
-        _ => return Ok(()),
+    let schema_map = match schema.as_map_rc() {
+        Some(m) => m,
+        None => return Ok(()),
     };
-    let result_map = match result {
-        Value::Map(m) => m,
-        _ => return Err(format!("expected map result, got {}", result.type_name())),
+    let result_map = match result.as_map_rc() {
+        Some(m) => m,
+        None => return Err(format!("expected map result, got {}", result.type_name())),
     };
 
     let mut errors = Vec::new();
 
     for (key, field_spec) in schema_map.iter() {
-        let key_name = match key {
-            Value::Keyword(s) => resolve(*s),
-            Value::String(s) => s.to_string(),
-            other => other.to_string(),
-        };
+        let key_name = key
+            .as_keyword()
+            .or_else(|| key.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| key.to_string());
 
         let result_val = result_map.get(key);
         match result_val {
@@ -2578,20 +2534,17 @@ fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
                 errors.push(format!("missing key: {key_name}"));
             }
             Some(val) => {
-                if let Value::Map(spec) = field_spec {
+                if let Some(spec) = field_spec.as_map_rc() {
                     if let Some(type_val) = spec.get(&Value::keyword("type")) {
-                        let type_name = match type_val {
-                            Value::Keyword(s) => resolve(*s),
-                            Value::String(s) => s.to_string(),
-                            other => other.to_string(),
-                        };
+                        let type_name = type_val
+                            .as_keyword()
+                            .or_else(|| type_val.as_str().map(|s| s.to_string()))
+                            .unwrap_or_else(|| type_val.to_string());
                         let ok = match type_name.as_str() {
-                            "string" => matches!(val, Value::String(_)),
-                            "number" => matches!(val, Value::Int(_) | Value::Float(_)),
-                            "boolean" | "bool" => matches!(val, Value::Bool(_)),
-                            "list" | "array" => {
-                                matches!(val, Value::List(_) | Value::Vector(_))
-                            }
+                            "string" => val.as_str().is_some(),
+                            "number" => val.as_float().is_some(),
+                            "boolean" | "bool" => val.as_bool().is_some(),
+                            "list" | "array" => val.as_list().is_some(),
                             _ => true,
                         };
                         if !ok {
@@ -2642,128 +2595,115 @@ fn do_complete(mut request: ChatRequest) -> Result<ChatResponse, SemaError> {
 fn build_tool_schemas(tools: &[Value]) -> Result<Vec<ToolSchema>, SemaError> {
     let mut schemas = Vec::new();
     for tool in tools {
-        match tool {
-            Value::ToolDef(td) => {
-                let params_json = sema_value_to_json_schema(&td.parameters);
-                schemas.push(ToolSchema {
-                    name: td.name.clone(),
-                    description: td.description.clone(),
-                    parameters: params_json,
-                });
-            }
-            _ => return Err(SemaError::type_error("tool", tool.type_name())),
-        }
+        let td = tool
+            .as_tool_def_rc()
+            .ok_or_else(|| SemaError::type_error("tool", tool.type_name()))?;
+        let params_json = sema_value_to_json_schema(&td.parameters);
+        schemas.push(ToolSchema {
+            name: td.name.clone(),
+            description: td.description.clone(),
+            parameters: params_json,
+        });
     }
     Ok(schemas)
 }
 
 /// Convert a Sema schema map into a JSON Schema object for the LLM API.
 fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
-    match val {
-        Value::Map(map) => {
-            let mut properties = serde_json::Map::new();
-            let mut required = Vec::new();
-            for (k, v) in map.iter() {
-                let key = match k {
-                    Value::Keyword(s) => resolve(*s),
-                    Value::String(s) => s.to_string(),
-                    other => other.to_string(),
-                };
-                let prop = match v {
-                    Value::Map(inner) => {
-                        let mut prop_obj = serde_json::Map::new();
-                        if let Some(t) = inner.get(&Value::keyword("type")) {
-                            let type_str = match t {
-                                Value::Keyword(s) => resolve(*s),
-                                Value::String(s) => s.to_string(),
-                                _ => "string".to_string(),
-                            };
-                            prop_obj
-                                .insert("type".to_string(), serde_json::Value::String(type_str));
-                        }
-                        if let Some(d) = inner.get(&Value::keyword("description")) {
-                            let desc = match d {
-                                Value::String(s) => s.to_string(),
-                                other => other.to_string(),
-                            };
-                            prop_obj
-                                .insert("description".to_string(), serde_json::Value::String(desc));
-                        }
-                        if let Some(e) = inner.get(&Value::keyword("enum")) {
-                            if let Value::List(items) | Value::Vector(items) = e {
-                                let vals: Vec<serde_json::Value> = items
-                                    .iter()
-                                    .map(|v| match v {
-                                        Value::String(s) => {
-                                            serde_json::Value::String(s.to_string())
-                                        }
-                                        Value::Keyword(s) => serde_json::Value::String(resolve(*s)),
-                                        _ => serde_json::Value::String(v.to_string()),
-                                    })
-                                    .collect();
-                                prop_obj.insert("enum".to_string(), serde_json::Value::Array(vals));
-                            }
-                        }
-                        // Mark as required unless :optional #t
-                        let optional = inner
-                            .get(&Value::keyword("optional"))
-                            .map(|v| v.is_truthy())
-                            .unwrap_or(false);
-                        if !optional {
-                            required.push(serde_json::Value::String(key.clone()));
-                        }
-                        serde_json::Value::Object(prop_obj)
+    if let Some(map) = val.as_map_rc() {
+        let mut properties = serde_json::Map::new();
+        let mut required = Vec::new();
+        for (k, v) in map.iter() {
+            let key = k
+                .as_keyword()
+                .or_else(|| k.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| k.to_string());
+            let prop = if let Some(inner) = v.as_map_rc() {
+                let mut prop_obj = serde_json::Map::new();
+                if let Some(t) = inner.get(&Value::keyword("type")) {
+                    let type_str = t
+                        .as_keyword()
+                        .or_else(|| t.as_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| "string".to_string());
+                    prop_obj.insert("type".to_string(), serde_json::Value::String(type_str));
+                }
+                if let Some(d) = inner.get(&Value::keyword("description")) {
+                    let desc = d
+                        .as_str()
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| d.to_string());
+                    prop_obj.insert("description".to_string(), serde_json::Value::String(desc));
+                }
+                if let Some(e) = inner.get(&Value::keyword("enum")) {
+                    if let Some(items) = e.as_list() {
+                        let vals: Vec<serde_json::Value> = items
+                            .iter()
+                            .map(|v| {
+                                serde_json::Value::String(
+                                    v.as_str()
+                                        .map(|s| s.to_string())
+                                        .or_else(|| v.as_keyword())
+                                        .unwrap_or_else(|| v.to_string()),
+                                )
+                            })
+                            .collect();
+                        prop_obj.insert("enum".to_string(), serde_json::Value::Array(vals));
                     }
-                    _ => {
-                        required.push(serde_json::Value::String(key.clone()));
-                        serde_json::json!({"type": "string"})
-                    }
-                };
-                properties.insert(key, prop);
-            }
-            serde_json::json!({
-                "type": "object",
-                "properties": properties,
-                "required": required
-            })
+                }
+                // Mark as required unless :optional #t
+                let optional = inner
+                    .get(&Value::keyword("optional"))
+                    .map(|v| v.is_truthy())
+                    .unwrap_or(false);
+                if !optional {
+                    required.push(serde_json::Value::String(key.clone()));
+                }
+                serde_json::Value::Object(prop_obj)
+            } else {
+                required.push(serde_json::Value::String(key.clone()));
+                serde_json::json!({"type": "string"})
+            };
+            properties.insert(key, prop);
         }
-        _ => serde_json::json!({"type": "object", "properties": {}}),
+        serde_json::json!({
+            "type": "object",
+            "properties": properties,
+            "required": required
+        })
+    } else {
+        serde_json::json!({"type": "object", "properties": {}})
     }
 }
 
 fn sema_list_to_chat_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
-    let items = match val {
-        Value::List(l) => l.as_ref().clone(),
-        Value::Vector(v) => v.as_ref().clone(),
-        Value::Nil => return Ok(Vec::new()),
-        _ => {
-            return Err(SemaError::type_error(
-                "list of message maps",
-                val.type_name(),
-            ))
-        }
-    };
+    if val.is_nil() {
+        return Ok(Vec::new());
+    }
+    let items = val
+        .as_list()
+        .ok_or_else(|| SemaError::type_error("list of message maps", val.type_name()))?;
     let mut messages = Vec::with_capacity(items.len());
-    for item in &items {
-        if let Value::Map(m) = item {
-            let role = m
-                .get(&Value::keyword("role"))
-                .map(|v| match v {
-                    Value::String(s) => s.to_string(),
-                    other => other.to_string(),
-                })
-                .unwrap_or_default();
-            let content = m
-                .get(&Value::keyword("content"))
-                .map(|v| match v {
-                    Value::String(s) => s.to_string(),
-                    other => other.to_string(),
-                })
-                .unwrap_or_default();
-            messages.push(ChatMessage { role, content });
-        } else {
-            return Err(SemaError::type_error("message map", item.type_name()));
-        }
+    for item in items.iter() {
+        let m = item
+            .as_map_rc()
+            .ok_or_else(|| SemaError::type_error("message map", item.type_name()))?;
+        let role = m
+            .get(&Value::keyword("role"))
+            .map(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| v.to_string())
+            })
+            .unwrap_or_default();
+        let content = m
+            .get(&Value::keyword("content"))
+            .map(|v| {
+                v.as_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| v.to_string())
+            })
+            .unwrap_or_default();
+        messages.push(ChatMessage { role, content });
     }
     Ok(messages)
 }
@@ -2773,18 +2713,12 @@ fn chat_messages_to_sema_list(messages: &[ChatMessage]) -> Value {
         .iter()
         .map(|msg| {
             let mut map = BTreeMap::new();
-            map.insert(
-                Value::keyword("role"),
-                Value::String(Rc::new(msg.role.clone())),
-            );
-            map.insert(
-                Value::keyword("content"),
-                Value::String(Rc::new(msg.content.clone())),
-            );
-            Value::Map(Rc::new(map))
+            map.insert(Value::keyword("role"), Value::string(&msg.role));
+            map.insert(Value::keyword("content"), Value::string(&msg.content));
+            Value::map(map)
         })
         .collect();
-    Value::List(Rc::new(items))
+    Value::list(items)
 }
 
 /// The tool execution loop: send -> check for tool_calls -> execute -> send results -> repeat.
@@ -2841,16 +2775,10 @@ fn run_tool_loop(
             // Fire "start" event
             if let Some(callback) = on_tool_call {
                 let mut event_map = BTreeMap::new();
-                event_map.insert(
-                    Value::keyword("event"),
-                    Value::String(Rc::new("start".to_string())),
-                );
-                event_map.insert(
-                    Value::keyword("tool"),
-                    Value::String(Rc::new(tc.name.clone())),
-                );
+                event_map.insert(Value::keyword("event"), Value::string("start"));
+                event_map.insert(Value::keyword("tool"), Value::string(&tc.name));
                 event_map.insert(Value::keyword("args"), args_value.clone());
-                let _ = call_value_fn(ctx, callback, &[Value::Map(Rc::new(event_map))]);
+                let _ = call_value_fn(ctx, callback, &[Value::map(event_map)]);
             }
 
             let start_time = std::time::Instant::now();
@@ -2860,14 +2788,8 @@ fn run_tool_loop(
             // Fire "end" event
             if let Some(callback) = on_tool_call {
                 let mut event_map = BTreeMap::new();
-                event_map.insert(
-                    Value::keyword("event"),
-                    Value::String(Rc::new("end".to_string())),
-                );
-                event_map.insert(
-                    Value::keyword("tool"),
-                    Value::String(Rc::new(tc.name.clone())),
-                );
+                event_map.insert(Value::keyword("event"), Value::string("end"));
+                event_map.insert(Value::keyword("tool"), Value::string(&tc.name));
                 event_map.insert(Value::keyword("args"), args_value);
                 // Truncate result for the callback to avoid huge payloads
                 let result_preview = if result.len() > 200 {
@@ -2875,12 +2797,9 @@ fn run_tool_loop(
                 } else {
                     result.clone()
                 };
-                event_map.insert(
-                    Value::keyword("result"),
-                    Value::String(Rc::new(result_preview)),
-                );
-                event_map.insert(Value::keyword("duration-ms"), Value::Int(duration_ms));
-                let _ = call_value_fn(ctx, callback, &[Value::Map(Rc::new(event_map))]);
+                event_map.insert(Value::keyword("result"), Value::string(&result_preview));
+                event_map.insert(Value::keyword("duration-ms"), Value::int(duration_ms));
+                let _ = call_value_fn(ctx, callback, &[Value::map(event_map)]);
             }
 
             messages.push(ChatMessage {
@@ -2910,9 +2829,13 @@ fn execute_tool_call(
     // Find the tool definition
     let tool_def = tools
         .iter()
-        .find_map(|t| match t {
-            Value::ToolDef(td) if td.name == name => Some(td.clone()),
-            _ => None,
+        .find_map(|t| {
+            let td = t.as_tool_def_rc()?;
+            if td.name == name {
+                Some(td)
+            } else {
+                None
+            }
         })
         .ok_or_else(|| SemaError::Llm(format!("tool not found: {name}")))?;
 
@@ -2921,15 +2844,15 @@ fn execute_tool_call(
     let result = call_value_fn(ctx, &tool_def.handler, &sema_args)?;
 
     // Convert result to string for sending back to LLM
-    match &result {
-        Value::String(s) => Ok(s.to_string()),
-        Value::Map(_) | Value::List(_) | Value::Vector(_) => {
-            // JSON-encode complex results
-            let json =
-                crate::builtins::sema_value_to_json(&result).unwrap_or(serde_json::Value::Null);
-            Ok(serde_json::to_string(&json).unwrap_or_else(|_| result.to_string()))
-        }
-        other => Ok(other.to_string()),
+    if let Some(s) = result.as_str() {
+        return Ok(s.to_string());
+    }
+    if result.as_map_rc().is_some() || result.as_list().is_some() {
+        // JSON-encode complex results
+        let json = crate::builtins::sema_value_to_json(&result).unwrap_or(serde_json::Value::Null);
+        Ok(serde_json::to_string(&json).unwrap_or_else(|_| result.to_string()))
+    } else {
+        Ok(result.to_string())
     }
 }
 
@@ -2939,7 +2862,7 @@ fn execute_tool_call(
 fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Value) -> Vec<Value> {
     if let serde_json::Value::Object(json_obj) = arguments {
         // Prefer lambda param names (preserves declaration order) over BTreeMap keys
-        if let Value::Lambda(lambda) = handler {
+        if let Some(lambda) = handler.as_lambda_rc() {
             return lambda
                 .params
                 .iter()
@@ -2947,24 +2870,23 @@ fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Va
                     json_obj
                         .get(&resolve(*name))
                         .map(json_to_sema_value)
-                        .unwrap_or(Value::Nil)
+                        .unwrap_or(Value::nil())
                 })
                 .collect();
         }
         // Fallback: use param map keys (BTreeMap order — alphabetical)
-        if let Value::Map(param_map) = params {
+        if let Some(param_map) = params.as_map_rc() {
             return param_map
                 .keys()
                 .map(|k| {
-                    let key_str = match k {
-                        Value::Keyword(s) => resolve(*s),
-                        Value::String(s) => s.to_string(),
-                        other => other.to_string(),
-                    };
+                    let key_str = k
+                        .as_keyword()
+                        .or_else(|| k.as_str().map(|s| s.to_string()))
+                        .unwrap_or_else(|| k.to_string());
                     json_obj
                         .get(&key_str)
                         .map(json_to_sema_value)
-                        .unwrap_or(Value::Nil)
+                        .unwrap_or(Value::nil())
                 })
                 .collect();
         }
@@ -2974,77 +2896,77 @@ fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Va
 
 /// Call a Sema value as a function (lambda or native).
 fn call_value_fn(ctx: &EvalContext, func: &Value, args: &[Value]) -> Result<Value, SemaError> {
-    match func {
-        Value::NativeFn(native) => (native.func)(ctx, args),
-        Value::Lambda(lambda) => {
-            let env = Env::with_parent(Rc::new(lambda.env.clone()));
-            // Bind params
-            if let Some(ref rest) = lambda.rest_param {
-                if args.len() < lambda.params.len() {
-                    return Err(SemaError::arity(
-                        lambda
-                            .name
-                            .map(resolve)
-                            .unwrap_or_else(|| "lambda".to_string()),
-                        format!("{}+", lambda.params.len()),
-                        args.len(),
-                    ));
-                }
-                for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    env.set(*param, arg.clone());
-                }
-                let rest_args = args[lambda.params.len()..].to_vec();
-                env.set(*rest, Value::list(rest_args));
-            } else {
-                if args.len() != lambda.params.len() {
-                    return Err(SemaError::arity(
-                        lambda
-                            .name
-                            .map(resolve)
-                            .unwrap_or_else(|| "lambda".to_string()),
-                        lambda.params.len().to_string(),
-                        args.len(),
-                    ));
-                }
-                for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    env.set(*param, arg.clone());
-                }
-            }
-            // Self-reference
-            if let Some(name) = lambda.name {
-                env.set(
-                    name,
-                    Value::Lambda(Rc::new(sema_core::Lambda {
-                        params: lambda.params.clone(),
-                        rest_param: lambda.rest_param,
-                        body: lambda.body.clone(),
-                        env: lambda.env.clone(),
-                        name: lambda.name,
-                    })),
-                );
-            }
-            // Eval body using the full evaluator (supports let, if, cond, etc.)
-            let mut result = Value::Nil;
-            for expr in &lambda.body {
-                result = full_eval(ctx, expr, &env)?;
-            }
-            Ok(result)
-        }
-        _ => Err(SemaError::eval(format!(
-            "not callable: {} ({})",
-            func,
-            func.type_name()
-        ))),
+    if let Some(native) = func.as_native_fn_rc() {
+        return (native.func)(ctx, args);
     }
+    if let Some(lambda) = func.as_lambda_rc() {
+        let env = Env::with_parent(Rc::new(lambda.env.clone()));
+        // Bind params
+        if let Some(ref rest) = lambda.rest_param {
+            if args.len() < lambda.params.len() {
+                return Err(SemaError::arity(
+                    lambda
+                        .name
+                        .map(resolve)
+                        .unwrap_or_else(|| "lambda".to_string()),
+                    format!("{}+", lambda.params.len()),
+                    args.len(),
+                ));
+            }
+            for (param, arg) in lambda.params.iter().zip(args.iter()) {
+                env.set(*param, arg.clone());
+            }
+            let rest_args = args[lambda.params.len()..].to_vec();
+            env.set(*rest, Value::list(rest_args));
+        } else {
+            if args.len() != lambda.params.len() {
+                return Err(SemaError::arity(
+                    lambda
+                        .name
+                        .map(resolve)
+                        .unwrap_or_else(|| "lambda".to_string()),
+                    lambda.params.len().to_string(),
+                    args.len(),
+                ));
+            }
+            for (param, arg) in lambda.params.iter().zip(args.iter()) {
+                env.set(*param, arg.clone());
+            }
+        }
+        // Self-reference
+        if let Some(name) = lambda.name {
+            env.set(
+                name,
+                Value::lambda(sema_core::Lambda {
+                    params: lambda.params.clone(),
+                    rest_param: lambda.rest_param,
+                    body: lambda.body.clone(),
+                    env: lambda.env.clone(),
+                    name: lambda.name,
+                }),
+            );
+        }
+        // Eval body using the full evaluator (supports let, if, cond, etc.)
+        let mut result = Value::nil();
+        for expr in &lambda.body {
+            result = full_eval(ctx, expr, &env)?;
+        }
+        return Ok(result);
+    }
+    Err(SemaError::eval(format!(
+        "not callable: {} ({})",
+        func,
+        func.type_name()
+    )))
 }
 
 /// Minimal evaluator for use within LLM builtins (avoids circular dep with sema-eval).
 fn simple_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
-    match expr {
-        Value::Symbol(spur) => env
-            .get(*spur)
-            .ok_or_else(|| SemaError::Unbound(resolve(*spur))),
-        Value::List(items) if !items.is_empty() => {
+    match expr.view() {
+        ValueView::Symbol(spur) => env
+            .get(spur)
+            .ok_or_else(|| SemaError::Unbound(resolve(spur))),
+        ValueView::List(items) if !items.is_empty() => {
             let func_val = simple_eval(ctx, &items[0], env)?;
             let mut args = Vec::new();
             for arg in &items[1..] {
@@ -3057,40 +2979,40 @@ fn simple_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, Sema
 }
 
 pub fn sema_value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
-    match val {
-        Value::Nil => Ok(serde_json::Value::Null),
-        Value::Bool(b) => Ok(serde_json::Value::Bool(*b)),
-        Value::Int(n) => Ok(serde_json::Value::Number((*n).into())),
-        Value::Float(f) => serde_json::Number::from_f64(*f)
+    match val.view() {
+        ValueView::Nil => Ok(serde_json::Value::Null),
+        ValueView::Bool(b) => Ok(serde_json::Value::Bool(b)),
+        ValueView::Int(n) => Ok(serde_json::Value::Number(n.into())),
+        ValueView::Float(f) => serde_json::Number::from_f64(f)
             .map(serde_json::Value::Number)
             .ok_or_else(|| SemaError::eval("cannot encode NaN/Infinity as JSON")),
-        Value::String(s) => Ok(serde_json::Value::String(s.to_string())),
-        Value::Keyword(s) => Ok(serde_json::Value::String(resolve(*s))),
-        Value::Symbol(s) => Ok(serde_json::Value::String(resolve(*s))),
-        Value::List(items) | Value::Vector(items) => {
+        ValueView::String(s) => Ok(serde_json::Value::String(s.to_string())),
+        ValueView::Keyword(s) => Ok(serde_json::Value::String(resolve(s))),
+        ValueView::Symbol(s) => Ok(serde_json::Value::String(resolve(s))),
+        ValueView::List(items) | ValueView::Vector(items) => {
             let arr: Result<Vec<_>, _> = items.iter().map(sema_value_to_json).collect();
             Ok(serde_json::Value::Array(arr?))
         }
-        Value::Map(map) => {
+        ValueView::Map(map) => {
             let mut obj = serde_json::Map::new();
             for (k, v) in map.iter() {
-                let key = match k {
-                    Value::String(s) => s.to_string(),
-                    Value::Keyword(s) => resolve(*s),
-                    other => other.to_string(),
-                };
+                let key = k
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| k.as_keyword())
+                    .unwrap_or_else(|| k.to_string());
                 obj.insert(key, sema_value_to_json(v)?);
             }
             Ok(serde_json::Value::Object(obj))
         }
-        Value::HashMap(map) => {
+        ValueView::HashMap(map) => {
             let mut obj = serde_json::Map::new();
             for (k, v) in map.iter() {
-                let key = match k {
-                    Value::String(s) => s.to_string(),
-                    Value::Keyword(s) => resolve(*s),
-                    other => other.to_string(),
-                };
+                let key = k
+                    .as_str()
+                    .map(|s| s.to_string())
+                    .or_else(|| k.as_keyword())
+                    .unwrap_or_else(|| k.to_string());
                 obj.insert(key, sema_value_to_json(v)?);
             }
             Ok(serde_json::Value::Object(obj))
@@ -3104,25 +3026,25 @@ pub fn sema_value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
 
 pub fn json_to_sema_value(json: &serde_json::Value) -> Value {
     match json {
-        serde_json::Value::Null => Value::Nil,
-        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Null => Value::nil(),
+        serde_json::Value::Bool(b) => Value::bool(*b),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Value::Int(i)
+                Value::int(i)
             } else if let Some(f) = n.as_f64() {
-                Value::Float(f)
+                Value::float(f)
             } else {
-                Value::Nil
+                Value::nil()
             }
         }
-        serde_json::Value::String(s) => Value::String(Rc::new(s.clone())),
+        serde_json::Value::String(s) => Value::string(s),
         serde_json::Value::Array(arr) => Value::list(arr.iter().map(json_to_sema_value).collect()),
         serde_json::Value::Object(obj) => {
             let mut map = BTreeMap::new();
             for (k, v) in obj {
                 map.insert(Value::keyword(k), json_to_sema_value(v));
             }
-            Value::Map(Rc::new(map))
+            Value::map(map)
         }
     }
 }
@@ -3134,21 +3056,21 @@ mod tests {
     use serde_json::json;
 
     fn make_lambda(params: &[&str]) -> Value {
-        Value::Lambda(Rc::new(Lambda {
+        Value::lambda(Lambda {
             params: params.iter().map(|s| intern(s)).collect(),
             rest_param: None,
-            body: vec![Value::Nil],
+            body: vec![Value::nil()],
             env: Env::new(),
             name: None,
-        }))
+        })
     }
 
     fn make_param_map(keys: &[&str]) -> Value {
         let mut map = BTreeMap::new();
         for k in keys {
-            map.insert(Value::keyword(*k), Value::Map(Rc::new(BTreeMap::new())));
+            map.insert(Value::keyword(*k), Value::map(BTreeMap::new()));
         }
-        Value::Map(Rc::new(map))
+        Value::map(map)
     }
 
     // -- json_args_to_sema tests --
@@ -3199,13 +3121,13 @@ mod tests {
 
         assert_eq!(result.len(), 2);
         assert_eq!(result[0], Value::string("/tmp/test.txt"));
-        assert_eq!(result[1], Value::Nil);
+        assert_eq!(result[1], Value::nil());
     }
 
     #[test]
     fn test_json_args_to_sema_non_lambda_falls_back_to_btreemap() {
         // With a NativeFn handler, should fall back to param_map key order (alphabetical).
-        let handler = Value::NativeFn(Rc::new(NativeFn::simple("test", |_args| Ok(Value::Nil))));
+        let handler = Value::native_fn(NativeFn::simple("test", |_args| Ok(Value::nil())));
         let params = make_param_map(&["zebra", "apple"]);
         let args = json!({"zebra": "Z", "apple": "A"});
 
@@ -3239,8 +3161,8 @@ mod tests {
 
         // Declaration order: name, age, active
         assert_eq!(result[0], Value::string("Alice"));
-        assert_eq!(result[1], Value::Int(30));
-        assert_eq!(result[2], Value::Bool(true));
+        assert_eq!(result[1], Value::int(30));
+        assert_eq!(result[2], Value::bool(true));
     }
 
     // -- execute_tool_call tests --
@@ -3249,25 +3171,25 @@ mod tests {
     fn test_execute_tool_call_arg_ordering() {
         // Tool with params where alphabetical != declaration order.
         // Handler returns "path={path}, content={content}" to verify ordering.
-        let handler = Value::Lambda(Rc::new(Lambda {
+        let handler = Value::lambda(Lambda {
             params: vec![intern("path"), intern("content")],
             rest_param: None,
             body: vec![
                 // Body: (string-append path "|" content)
                 // We can't call string-append without a full evaluator,
                 // so just return the first param to verify it's the path.
-                Value::Symbol(intern("path")),
+                Value::symbol("path"),
             ],
             env: Env::new(),
             name: Some(intern("write-file-handler")),
-        }));
+        });
 
-        let tool = Value::ToolDef(Rc::new(sema_core::ToolDefinition {
+        let tool = Value::tool_def(sema_core::ToolDefinition {
             name: "write-file".to_string(),
             description: "Write content to a file".to_string(),
             parameters: make_param_map(&["path", "content"]),
             handler,
-        }));
+        });
 
         let args = json!({"path": "/tmp/test.txt", "content": "file body here"});
         let ctx = EvalContext::new();
@@ -3281,20 +3203,20 @@ mod tests {
     #[test]
     fn test_execute_tool_call_reverse_alpha_order() {
         // Declare params (z_last, a_first) — exact reverse of alphabetical.
-        let handler = Value::Lambda(Rc::new(Lambda {
+        let handler = Value::lambda(Lambda {
             params: vec![intern("z_last"), intern("a_first")],
             rest_param: None,
-            body: vec![Value::Symbol(intern("z_last"))],
+            body: vec![Value::symbol("z_last")],
             env: Env::new(),
             name: Some(intern("test-handler")),
-        }));
+        });
 
-        let tool = Value::ToolDef(Rc::new(sema_core::ToolDefinition {
+        let tool = Value::tool_def(sema_core::ToolDefinition {
             name: "test-tool".to_string(),
             description: "test".to_string(),
             parameters: make_param_map(&["z_last", "a_first"]),
             handler,
-        }));
+        });
 
         let args = json!({"z_last": "ZLAST", "a_first": "AFIRST"});
         let ctx = EvalContext::new();

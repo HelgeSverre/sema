@@ -15,7 +15,7 @@ fn make_f64_vec(dims: usize) -> Vec<f64> {
 
 /// Current approach: List of Value::Float
 fn embedding_as_value_list(data: &[f64]) -> Value {
-    Value::list(data.iter().map(|&f| Value::Float(f)).collect())
+    Value::list(data.iter().map(|&f| Value::float(f)).collect())
 }
 
 /// Alternative A: Bytevector storing IEEE 754 f64 bytes (little-endian)
@@ -26,21 +26,20 @@ fn embedding_as_bytevector(data: &[f64]) -> Value {
 
 /// Extract f64 values from a Value::List (current approach)
 fn extract_from_list(val: &Value) -> Vec<f64> {
-    match val {
-        Value::List(l) => l.iter().map(|v| v.as_float().unwrap()).collect(),
-        _ => panic!("expected list"),
-    }
+    val.as_list()
+        .map(|l| l.iter().map(|v| v.as_float().unwrap()).collect())
+        .expect("expected list")
 }
 
 /// Extract f64 values from a bytevector
 fn extract_from_bytevector(val: &Value) -> Vec<f64> {
-    match val {
-        Value::Bytevector(bv) => bv
-            .chunks_exact(8)
-            .map(|chunk| f64::from_le_bytes(chunk.try_into().unwrap()))
-            .collect(),
-        _ => panic!("expected bytevector"),
-    }
+    val.as_bytevector()
+        .map(|bv| {
+            bv.chunks_exact(8)
+                .map(|chunk| f64::from_le_bytes(chunk.try_into().unwrap()))
+                .collect()
+        })
+        .expect("expected bytevector")
 }
 
 /// Cosine similarity on Value::List (current approach — extracts then computes)

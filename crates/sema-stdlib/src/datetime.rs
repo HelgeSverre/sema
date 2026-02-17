@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
 use chrono::{DateTime, NaiveDateTime, TimeZone, Utc};
 use sema_core::{SemaError, Value};
@@ -13,7 +12,7 @@ pub fn register(env: &sema_core::Env) {
         }
         let now = Utc::now();
         let secs = now.timestamp() as f64 + now.timestamp_subsec_millis() as f64 / 1000.0;
-        Ok(Value::Float(secs))
+        Ok(Value::float(secs))
     });
 
     register_fn(env, "time/format", |args| {
@@ -43,7 +42,7 @@ pub fn register(env: &sema_core::Env) {
         let naive = NaiveDateTime::parse_from_str(s, fmt)
             .map_err(|e| SemaError::eval(format!("time/parse: {e}")))?;
         let dt: DateTime<Utc> = Utc.from_utc_datetime(&naive);
-        Ok(Value::Float(dt.timestamp() as f64))
+        Ok(Value::float(dt.timestamp() as f64))
     });
 
     register_fn(env, "time/date-parts", |args| {
@@ -57,17 +56,17 @@ pub fn register(env: &sema_core::Env) {
         use chrono::Datelike;
         use chrono::Timelike;
         let mut map = BTreeMap::new();
-        map.insert(Value::keyword("year"), Value::Int(dt.year() as i64));
-        map.insert(Value::keyword("month"), Value::Int(dt.month() as i64));
-        map.insert(Value::keyword("day"), Value::Int(dt.day() as i64));
-        map.insert(Value::keyword("hour"), Value::Int(dt.hour() as i64));
-        map.insert(Value::keyword("minute"), Value::Int(dt.minute() as i64));
-        map.insert(Value::keyword("second"), Value::Int(dt.second() as i64));
+        map.insert(Value::keyword("year"), Value::int(dt.year() as i64));
+        map.insert(Value::keyword("month"), Value::int(dt.month() as i64));
+        map.insert(Value::keyword("day"), Value::int(dt.day() as i64));
+        map.insert(Value::keyword("hour"), Value::int(dt.hour() as i64));
+        map.insert(Value::keyword("minute"), Value::int(dt.minute() as i64));
+        map.insert(Value::keyword("second"), Value::int(dt.second() as i64));
         map.insert(
             Value::keyword("weekday"),
             Value::string(&dt.format("%A").to_string()),
         );
-        Ok(Value::Map(Rc::new(map)))
+        Ok(Value::map(map))
     });
 
     register_fn(env, "time/add", |args| {
@@ -80,7 +79,7 @@ pub fn register(env: &sema_core::Env) {
         let secs = args[1]
             .as_float()
             .ok_or_else(|| SemaError::type_error("number", args[1].type_name()))?;
-        Ok(Value::Float(ts + secs))
+        Ok(Value::float(ts + secs))
     });
 
     register_fn(env, "time/diff", |args| {
@@ -93,7 +92,7 @@ pub fn register(env: &sema_core::Env) {
         let t2 = args[1]
             .as_float()
             .ok_or_else(|| SemaError::type_error("number", args[1].type_name()))?;
-        Ok(Value::Float(t1 - t2))
+        Ok(Value::float(t1 - t2))
     });
 }
 

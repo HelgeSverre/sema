@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
-use std::rc::Rc;
 use std::time::Duration;
 
-use sema_core::{Caps, SemaError, Value};
+use sema_core::{Caps, SemaError, Value, ValueView};
 
 thread_local! {
     static HTTP_RUNTIME: tokio::runtime::Runtime = tokio::runtime::Runtime::new()
@@ -30,45 +29,45 @@ fn http_request(
                 };
 
                 // Apply options
-                if let Some(Value::Map(opts_map)) = opts {
-                    if let Some(Value::Map(headers)) = opts_map.get(&Value::keyword("headers")) {
-                        for (k, v) in headers.iter() {
-                            let key = match k {
-                                Value::String(s) => s.to_string(),
-                                Value::Keyword(s) => sema_core::resolve(*s),
-                                other => other.to_string(),
-                            };
-                            let val = match v {
-                                Value::String(s) => s.to_string(),
-                                other => other.to_string(),
-                            };
-                            builder = builder.header(key, val);
+                if let Some(opts_val) = opts {
+                    if let Some(opts_map) = opts_val.as_map_rc() {
+                        if let Some(headers_val) = opts_map.get(&Value::keyword("headers")) {
+                            if let Some(headers) = headers_val.as_map_rc() {
+                                for (k, v) in headers.iter() {
+                                    let key = match k.view() {
+                                        ValueView::String(s) => s.to_string(),
+                                        ValueView::Keyword(s) => sema_core::resolve(s),
+                                        _ => k.to_string(),
+                                    };
+                                    let val = match v.as_str() {
+                                        Some(s) => s.to_string(),
+                                        None => v.to_string(),
+                                    };
+                                    builder = builder.header(key, val);
+                                }
+                            }
                         }
-                    }
-                    if let Some(timeout_val) = opts_map.get(&Value::keyword("timeout")) {
-                        if let Some(ms) = timeout_val.as_int() {
-                            builder = builder.timeout(Duration::from_millis(ms as u64));
+                        if let Some(timeout_val) = opts_map.get(&Value::keyword("timeout")) {
+                            if let Some(ms) = timeout_val.as_int() {
+                                builder = builder.timeout(Duration::from_millis(ms as u64));
+                            }
                         }
                     }
                 }
 
                 // Apply body
                 if let Some(body_val) = body {
-                    match body_val {
-                        Value::String(s) => {
-                            builder = builder.body(s.to_string());
-                        }
-                        Value::Map(_) => {
-                            let json = crate::json::value_to_json(body_val)?;
-                            let json_str = serde_json::to_string(&json)
-                                .map_err(|e| SemaError::eval(format!("http: json encode: {e}")))?;
-                            builder = builder
-                                .header("Content-Type", "application/json")
-                                .body(json_str);
-                        }
-                        _ => {
-                            builder = builder.body(body_val.to_string());
-                        }
+                    if let Some(s) = body_val.as_str() {
+                        builder = builder.body(s.to_string());
+                    } else if body_val.as_map_rc().is_some() {
+                        let json = crate::json::value_to_json(body_val)?;
+                        let json_str = serde_json::to_string(&json)
+                            .map_err(|e| SemaError::eval(format!("http: json encode: {e}")))?;
+                        builder = builder
+                            .header("Content-Type", "application/json")
+                            .body(json_str);
+                    } else {
+                        builder = builder.body(body_val.to_string());
                     }
                 }
 
@@ -90,10 +89,10 @@ fn http_request(
                     .map_err(|e| SemaError::Io(format!("http {method} {url}: read body: {e}")))?;
 
                 let mut result = BTreeMap::new();
-                result.insert(Value::keyword("status"), Value::Int(status));
-                result.insert(Value::keyword("headers"), Value::Map(Rc::new(headers_map)));
+                result.insert(Value::keyword("status"), Value::int(status));
+                result.insert(Value::keyword("headers"), Value::map(headers_map));
                 result.insert(Value::keyword("body"), Value::string(&body_text));
-                Ok(Value::Map(Rc::new(result)))
+                Ok(Value::map(result))
             })
         })
     })

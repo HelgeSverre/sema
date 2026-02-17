@@ -213,7 +213,7 @@ fn eval_if(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, S
     } else if args.len() == 3 {
         Ok(Trampoline::Eval(args[2].clone(), env.clone()))
     } else {
-        Ok(Trampoline::Value(Value::Nil))
+        Ok(Trampoline::Value(Value::nil()))
     }
 }
 
@@ -227,10 +227,10 @@ fn eval_cond(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
             return Err(SemaError::eval("cond clause must not be empty"));
         }
         // (else body...) or (test body...)
-        let is_else = matches!(&items[0], Value::Symbol(s) if *s == sf.else_);
+        let is_else = items[0].as_symbol_spur().is_some_and(|s| s == sf.else_);
         if is_else || eval::eval_value(ctx, &items[0], env)?.is_truthy() {
             if items.len() == 1 {
-                return Ok(Trampoline::Value(Value::Bool(true)));
+                return Ok(Trampoline::Value(Value::bool(true)));
             }
             // Eval all but last, tail-call last
             for expr in &items[1..items.len() - 1] {
@@ -239,55 +239,52 @@ fn eval_cond(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
             return Ok(Trampoline::Eval(items.last().unwrap().clone(), env.clone()));
         }
     }
-    Ok(Trampoline::Value(Value::Nil))
+    Ok(Trampoline::Value(Value::nil()))
 }
 
 fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
         return Err(SemaError::arity("define", "2+", 0));
     }
-    match &args[0] {
+    if let Some(spur) = args[0].as_symbol_spur() {
         // (define x expr)
-        Value::Symbol(spur) => {
-            if args.len() != 2 {
-                return Err(SemaError::arity("define", "2", args.len()));
-            }
-            let val = eval::eval_value(ctx, &args[1], env)?;
-            env.set(*spur, val);
-            Ok(Trampoline::Value(Value::Nil))
+        if args.len() != 2 {
+            return Err(SemaError::arity("define", "2", args.len()));
         }
+        let val = eval::eval_value(ctx, &args[1], env)?;
+        env.set(spur, val);
+        Ok(Trampoline::Value(Value::nil()))
+    } else if let Some(sig) = args[0].as_list() {
         // (define (f x y) body...) => (define f (lambda (x y) body...))
-        Value::List(sig) => {
-            if sig.is_empty() {
-                return Err(SemaError::eval("define: empty function signature"));
-            }
-            let name_spur = match &sig[0] {
-                Value::Symbol(s) => *s,
-                _ => return Err(SemaError::eval("define: function name must be a symbol")),
-            };
-            let param_names: Vec<Spur> = sig[1..]
-                .iter()
-                .map(|v| match v {
-                    Value::Symbol(s) => Ok(*s),
-                    _ => Err(SemaError::eval("define: parameter must be a symbol")),
-                })
-                .collect::<Result<_, _>>()?;
-            let (params, rest_param) = parse_params(&param_names);
-            let body = args[1..].to_vec();
-            if body.is_empty() {
-                return Err(SemaError::eval("define: function body cannot be empty"));
-            }
-            let lambda = Value::Lambda(Rc::new(Lambda {
-                params,
-                rest_param,
-                body,
-                env: env.clone(),
-                name: Some(name_spur),
-            }));
-            env.set(name_spur, lambda);
-            Ok(Trampoline::Value(Value::Nil))
+        if sig.is_empty() {
+            return Err(SemaError::eval("define: empty function signature"));
         }
-        other => Err(SemaError::type_error("symbol or list", other.type_name())),
+        let name_spur = sig[0]
+            .as_symbol_spur()
+            .ok_or_else(|| SemaError::eval("define: function name must be a symbol"))?;
+        let param_names: Vec<Spur> = sig[1..]
+            .iter()
+            .map(|v| {
+                v.as_symbol_spur()
+                    .ok_or_else(|| SemaError::eval("define: parameter must be a symbol"))
+            })
+            .collect::<Result<_, _>>()?;
+        let (params, rest_param) = parse_params(&param_names);
+        let body = args[1..].to_vec();
+        if body.is_empty() {
+            return Err(SemaError::eval("define: function body cannot be empty"));
+        }
+        let lambda = Value::lambda(Lambda {
+            params,
+            rest_param,
+            body,
+            env: env.clone(),
+            name: Some(name_spur),
+        });
+        env.set(name_spur, lambda);
+        Ok(Trampoline::Value(Value::nil()))
+    } else {
+        Err(SemaError::type_error("symbol or list", args[0].type_name()))
     }
 }
 
@@ -296,19 +293,18 @@ fn eval_defun(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
     if args.len() < 3 {
         return Err(SemaError::arity("defun", "3+", args.len()));
     }
-    let name = match &args[0] {
-        Value::Symbol(_) => args[0].clone(),
-        other => return Err(SemaError::type_error("symbol", other.type_name())),
-    };
-    let params = match &args[1] {
-        Value::List(p) => p.clone(),
-        other => return Err(SemaError::type_error("list", other.type_name())),
-    };
+    if args[0].as_symbol_spur().is_none() {
+        return Err(SemaError::type_error("symbol", args[0].type_name()));
+    }
+    let name = args[0].clone();
+    let params = args[1]
+        .as_list_rc()
+        .ok_or_else(|| SemaError::type_error("list", args[1].type_name()))?;
     // Build (name params...) signature list
     let mut sig = vec![name];
     sig.extend(params.iter().cloned());
     // Build transformed args: [(name params...), body...]
-    let mut define_args = vec![Value::List(sig.into())];
+    let mut define_args = vec![Value::list(sig)];
     define_args.extend_from_slice(&args[2..]);
     eval_define(&define_args, env, ctx)
 }
@@ -324,34 +320,36 @@ fn eval_set(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
     if !env.set_existing(spur, val) {
         return Err(SemaError::Unbound(resolve(spur)));
     }
-    Ok(Trampoline::Value(Value::Nil))
+    Ok(Trampoline::Value(Value::nil()))
 }
 
 fn eval_lambda(args: &[Value], env: &Env, name: Option<Spur>) -> Result<Trampoline, SemaError> {
     if args.len() < 2 {
         return Err(SemaError::arity("lambda", "2+", args.len()));
     }
-    let param_list = match &args[0] {
-        Value::List(params) => params.as_ref().clone(),
-        Value::Vector(params) => params.as_ref().clone(),
-        other => return Err(SemaError::type_error("list or vector", other.type_name())),
+    let param_list = if let Some(params) = args[0].as_list() {
+        params.to_vec()
+    } else if let Some(params) = args[0].as_vector() {
+        params.to_vec()
+    } else {
+        return Err(SemaError::type_error("list or vector", args[0].type_name()));
     };
     let param_names: Vec<Spur> = param_list
         .iter()
-        .map(|v| match v {
-            Value::Symbol(s) => Ok(*s),
-            _ => Err(SemaError::eval("lambda: parameter must be a symbol")),
+        .map(|v| {
+            v.as_symbol_spur()
+                .ok_or_else(|| SemaError::eval("lambda: parameter must be a symbol"))
         })
         .collect::<Result<_, _>>()?;
     let (params, rest_param) = parse_params(&param_names);
     let body = args[1..].to_vec();
-    Ok(Trampoline::Value(Value::Lambda(Rc::new(Lambda {
+    Ok(Trampoline::Value(Value::lambda(Lambda {
         params,
         rest_param,
         body,
         env: env.clone(),
         name,
-    }))))
+    })))
 }
 
 fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
@@ -360,8 +358,7 @@ fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
     }
 
     // Named let: (let name ((var init) ...) body...)
-    if let Value::Symbol(loop_name_spur) = &args[0] {
-        let loop_name_spur = *loop_name_spur;
+    if let Some(loop_name_spur) = args[0].as_symbol_spur() {
         if args.len() < 3 {
             return Err(SemaError::arity("named let", "3+", args.len()));
         }
@@ -380,10 +377,9 @@ fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
                     "named let: each binding must have 2 elements",
                 ));
             }
-            let pname = match &pair[0] {
-                Value::Symbol(s) => *s,
-                _ => return Err(SemaError::eval("named let: binding name must be a symbol")),
-            };
+            let pname = pair[0]
+                .as_symbol_spur()
+                .ok_or_else(|| SemaError::eval("named let: binding name must be a symbol"))?;
             let val = eval::eval_value(ctx, &pair[1], env)?;
             params.push(pname);
             init_vals.push(val);
@@ -405,13 +401,13 @@ fn eval_let(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
         }
         new_env.set(
             loop_name_spur,
-            Value::Lambda(Rc::new(Lambda {
+            Value::lambda(Lambda {
                 params: lambda.params.clone(),
                 rest_param: None,
                 body: lambda.body.clone(),
                 env: env.clone(),
                 name: lambda.name,
-            })),
+            }),
         );
 
         // Tail-call on last body expr
@@ -505,7 +501,7 @@ fn eval_letrec(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             .as_symbol_spur()
             .ok_or_else(|| SemaError::eval("letrec: binding name must be a symbol"))?;
         name_spurs.push(spur);
-        new_env.set(spur, Value::Nil);
+        new_env.set(spur, Value::nil());
     }
 
     // Pass 2: evaluate init exprs in new env, update bindings
@@ -524,7 +520,7 @@ fn eval_letrec(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
 
 fn eval_begin(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
-        return Ok(Trampoline::Value(Value::Nil));
+        return Ok(Trampoline::Value(Value::nil()));
     }
     for expr in &args[..args.len() - 1] {
         eval::eval_value(ctx, expr, env)?;
@@ -534,7 +530,7 @@ fn eval_begin(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
 
 fn eval_and(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
-        return Ok(Trampoline::Value(Value::Bool(true)));
+        return Ok(Trampoline::Value(Value::bool(true)));
     }
     for expr in &args[..args.len() - 1] {
         let val = eval::eval_value(ctx, expr, env)?;
@@ -547,7 +543,7 @@ fn eval_and(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
 
 fn eval_or(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
-        return Ok(Trampoline::Value(Value::Bool(false)));
+        return Ok(Trampoline::Value(Value::bool(false)));
     }
     for expr in &args[..args.len() - 1] {
         let val = eval::eval_value(ctx, expr, env)?;
@@ -569,7 +565,7 @@ fn eval_when(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
         }
         Ok(Trampoline::Eval(args.last().unwrap().clone(), env.clone()))
     } else {
-        Ok(Trampoline::Value(Value::Nil))
+        Ok(Trampoline::Value(Value::nil()))
     }
 }
 
@@ -584,7 +580,7 @@ fn eval_unless(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         }
         Ok(Trampoline::Eval(args.last().unwrap().clone(), env.clone()))
     } else {
-        Ok(Trampoline::Value(Value::Nil))
+        Ok(Trampoline::Value(Value::nil()))
     }
 }
 
@@ -592,31 +588,30 @@ fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if args.len() < 3 {
         return Err(SemaError::arity("defmacro", "3+", args.len()));
     }
-    let name_spur = match &args[0] {
-        Value::Symbol(s) => *s,
-        _ => return Err(SemaError::eval("defmacro: name must be a symbol")),
-    };
+    let name_spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::eval("defmacro: name must be a symbol"))?;
     let param_list = args[1]
         .as_list()
         .ok_or_else(|| SemaError::eval("defmacro: params must be a list"))?;
     let param_names: Vec<Spur> = param_list
         .iter()
-        .map(|v| match v {
-            Value::Symbol(s) => Ok(*s),
-            _ => Err(SemaError::eval("defmacro: parameter must be a symbol")),
+        .map(|v| {
+            v.as_symbol_spur()
+                .ok_or_else(|| SemaError::eval("defmacro: parameter must be a symbol"))
         })
         .collect::<Result<_, _>>()?;
     let (params, rest_param) = parse_params(&param_names);
     let body = args[2..].to_vec();
 
-    let mac = Value::Macro(Rc::new(Macro {
+    let mac = Value::macro_val(Macro {
         params,
         rest_param,
         body,
         name: name_spur,
-    }));
+    });
     env.set(name_spur, mac);
-    Ok(Trampoline::Value(Value::Nil))
+    Ok(Trampoline::Value(Value::nil()))
 }
 
 fn eval_quasiquote(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
@@ -628,60 +623,55 @@ fn eval_quasiquote(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Tramp
 }
 
 fn expand_quasiquote(val: &Value, env: &Env, ctx: &EvalContext) -> Result<Value, SemaError> {
-    match val {
-        Value::List(items) => {
-            if items.is_empty() {
-                return Ok(val.clone());
-            }
-            // Check for (unquote x)
-            if let Some(sym) = items[0].as_symbol() {
-                if sym == "unquote" {
-                    if items.len() != 2 {
-                        return Err(SemaError::arity("unquote", "1", items.len() - 1));
-                    }
-                    return eval::eval_value(ctx, &items[1], env);
+    if let Some(items) = val.as_list() {
+        if items.is_empty() {
+            return Ok(val.clone());
+        }
+        // Check for (unquote x)
+        if let Some(sym) = items[0].as_symbol() {
+            if sym == "unquote" {
+                if items.len() != 2 {
+                    return Err(SemaError::arity("unquote", "1", items.len() - 1));
                 }
+                return eval::eval_value(ctx, &items[1], env);
             }
-            // Expand each element, handling splicing
-            let mut result = Vec::new();
-            for item in items.iter() {
-                if let Value::List(inner) = item {
-                    if !inner.is_empty() {
-                        if let Some(sym) = inner[0].as_symbol() {
-                            if sym == "unquote-splicing" {
-                                if inner.len() != 2 {
-                                    return Err(SemaError::arity(
-                                        "unquote-splicing",
-                                        "1",
-                                        inner.len() - 1,
-                                    ));
-                                }
-                                let splice_val = eval::eval_value(ctx, &inner[1], env)?;
-                                if let Value::List(splice_items) = splice_val {
-                                    result.extend(splice_items.iter().cloned());
-                                } else {
-                                    return Err(SemaError::type_error(
-                                        "list",
-                                        splice_val.type_name(),
-                                    ));
-                                }
-                                continue;
+        }
+        // Expand each element, handling splicing
+        let mut result = Vec::new();
+        for item in items.iter() {
+            if let Some(inner) = item.as_list() {
+                if !inner.is_empty() {
+                    if let Some(sym) = inner[0].as_symbol() {
+                        if sym == "unquote-splicing" {
+                            if inner.len() != 2 {
+                                return Err(SemaError::arity(
+                                    "unquote-splicing",
+                                    "1",
+                                    inner.len() - 1,
+                                ));
                             }
+                            let splice_val = eval::eval_value(ctx, &inner[1], env)?;
+                            if let Some(splice_items) = splice_val.as_list() {
+                                result.extend(splice_items.iter().cloned());
+                            } else {
+                                return Err(SemaError::type_error("list", splice_val.type_name()));
+                            }
+                            continue;
                         }
                     }
                 }
-                result.push(expand_quasiquote(item, env, ctx)?);
             }
-            Ok(Value::list(result))
+            result.push(expand_quasiquote(item, env, ctx)?);
         }
-        Value::Vector(items) => {
-            let mut result = Vec::new();
-            for item in items.iter() {
-                result.push(expand_quasiquote(item, env, ctx)?);
-            }
-            Ok(Value::vector(result))
+        Ok(Value::list(result))
+    } else if let Some(items) = val.as_vector() {
+        let mut result = Vec::new();
+        for item in items.iter() {
+            result.push(expand_quasiquote(item, env, ctx)?);
         }
-        _ => Ok(val.clone()),
+        Ok(Value::vector(result))
+    } else {
+        Ok(val.clone())
     }
 }
 
@@ -693,7 +683,7 @@ fn eval_prompt(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     let mut messages = Vec::new();
     for arg in args {
         // Check if this is a (role content...) form BEFORE evaluating
-        if let Value::List(items) = arg {
+        if let Some(items) = arg.as_list() {
             if !items.is_empty() {
                 if let Some(role_str) = items[0].as_symbol() {
                     if role_names.contains(&role_str.as_str()) {
@@ -708,9 +698,10 @@ fn eval_prompt(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                         let mut content = String::new();
                         for part in &items[1..] {
                             let part_val = eval::eval_value(ctx, part, env)?;
-                            match &part_val {
-                                Value::String(s) => content.push_str(s),
-                                other => content.push_str(&other.to_string()),
+                            if let Some(s) = part_val.as_str() {
+                                content.push_str(s);
+                            } else {
+                                content.push_str(&part_val.to_string());
                             }
                         }
                         messages.push(Message { role, content });
@@ -721,18 +712,15 @@ fn eval_prompt(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         }
         // Not a role form — evaluate it and check if it's a Message value
         let val = eval::eval_value(ctx, arg, env)?;
-        match &val {
-            Value::Message(msg) => messages.push((**msg).clone()),
-            _ => {
-                return Err(SemaError::eval(
-                    "prompt: expected (role content...) or message value",
-                ))
-            }
+        if let Some(msg) = val.as_message_rc() {
+            messages.push((*msg).clone());
+        } else {
+            return Err(SemaError::eval(
+                "prompt: expected (role content...) or message value",
+            ));
         }
     }
-    Ok(Trampoline::Value(Value::Prompt(Rc::new(Prompt {
-        messages,
-    }))))
+    Ok(Trampoline::Value(Value::prompt(Prompt { messages })))
 }
 
 fn eval_message(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
@@ -742,31 +730,28 @@ fn eval_message(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoli
         return Err(SemaError::arity("message", "2+", args.len()));
     }
     let role_val = eval::eval_value(ctx, &args[0], env)?;
-    let role = match &role_val {
-        Value::Keyword(spur) => {
-            let s = resolve(*spur);
-            match s.as_str() {
-                "system" => Role::System,
-                "user" => Role::User,
-                "assistant" => Role::Assistant,
-                "tool" => Role::Tool,
-                other => return Err(SemaError::eval(format!("message: unknown role '{other}'"))),
-            }
+    let role = if let Some(spur) = role_val.as_keyword_spur() {
+        let s = resolve(spur);
+        match s.as_str() {
+            "system" => Role::System,
+            "user" => Role::User,
+            "assistant" => Role::Assistant,
+            "tool" => Role::Tool,
+            other => return Err(SemaError::eval(format!("message: unknown role '{other}'"))),
         }
-        other => return Err(SemaError::type_error("keyword", other.type_name())),
+    } else {
+        return Err(SemaError::type_error("keyword", role_val.type_name()));
     };
     let mut content = String::new();
     for part in &args[1..] {
         let val = eval::eval_value(ctx, part, env)?;
-        match &val {
-            Value::String(s) => content.push_str(s),
-            other => content.push_str(&other.to_string()),
+        if let Some(s) = val.as_str() {
+            content.push_str(s);
+        } else {
+            content.push_str(&val.to_string());
         }
     }
-    Ok(Trampoline::Value(Value::Message(Rc::new(Message {
-        role,
-        content,
-    }))))
+    Ok(Trampoline::Value(Value::message(Message { role, content })))
 }
 
 /// (deftool name "description" {:param {:type :string :description "..."}} handler-expr)
@@ -779,19 +764,19 @@ fn eval_deftool(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoli
         .ok_or_else(|| SemaError::eval("deftool: name must be a symbol"))?
         .to_string();
     let description = eval::eval_value(ctx, &args[1], env)?;
-    let description = match &description {
-        Value::String(s) => s.to_string(),
-        other => return Err(SemaError::type_error("string", other.type_name())),
-    };
+    let description = description
+        .as_str()
+        .ok_or_else(|| SemaError::type_error("string", description.type_name()))?
+        .to_string();
     let parameters = eval::eval_value(ctx, &args[2], env)?;
     let handler = eval::eval_value(ctx, &args[3], env)?;
 
-    let tool = Value::ToolDef(Rc::new(ToolDefinition {
+    let tool = Value::tool_def(ToolDefinition {
         name: name.clone(),
         description,
         parameters,
         handler,
-    }));
+    });
     env.set(intern(&name), tool.clone());
     Ok(Trampoline::Value(tool))
 }
@@ -806,10 +791,9 @@ fn eval_defagent(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampol
         .ok_or_else(|| SemaError::eval("defagent: name must be a symbol"))?
         .to_string();
     let opts = eval::eval_value(ctx, &args[1], env)?;
-    let opts_map = match &opts {
-        Value::Map(m) => m.as_ref(),
-        _ => return Err(SemaError::type_error("map", opts.type_name())),
-    };
+    let opts_map = opts
+        .as_map_rc()
+        .ok_or_else(|| SemaError::type_error("map", opts.type_name()))?;
 
     let system = opts_map
         .get(&Value::keyword("system"))
@@ -818,10 +802,14 @@ fn eval_defagent(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampol
 
     let tools = opts_map
         .get(&Value::keyword("tools"))
-        .map(|v| match v {
-            Value::List(l) => l.as_ref().clone(),
-            Value::Vector(v) => v.as_ref().clone(),
-            _ => vec![],
+        .map(|v| {
+            if let Some(l) = v.as_list() {
+                l.to_vec()
+            } else if let Some(v) = v.as_vector() {
+                v.to_vec()
+            } else {
+                vec![]
+            }
         })
         .unwrap_or_default();
 
@@ -835,13 +823,13 @@ fn eval_defagent(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampol
         .and_then(|v| v.as_str().map(|s| s.to_string()))
         .unwrap_or_default();
 
-    let agent = Value::Agent(Rc::new(Agent {
+    let agent = Value::agent(Agent {
         name: name.clone(),
         system,
         tools,
         max_turns,
         model,
-    }));
+    });
     env.set(intern(&name), agent.clone());
     Ok(Trampoline::Value(agent))
 }
@@ -870,7 +858,9 @@ fn eval_try(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
     if catch_form.is_empty() {
         return Err(SemaError::eval("try: catch form is empty"));
     }
-    let is_catch = matches!(&catch_form[0], Value::Symbol(s) if *s == sf.catch);
+    let is_catch = catch_form[0]
+        .as_symbol_spur()
+        .is_some_and(|s| s == sf.catch);
     if !is_catch {
         return Err(SemaError::eval(
             "try: last argument must be (catch var handler...)",
@@ -888,7 +878,7 @@ fn eval_try(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
     // Evaluate body exprs (not the catch form)
     let body = &args[..args.len() - 1];
     let body_result: Result<Value, SemaError> = (|| {
-        let mut result = Value::Nil;
+        let mut result = Value::nil();
         for expr in body {
             result = eval::eval_value(ctx, expr, env)?;
         }
@@ -1008,16 +998,16 @@ fn error_to_value(err: &SemaError) -> Value {
                         );
                     }
                     if let Some(ref span) = frame.span {
-                        fm.insert(Value::keyword("line"), Value::Int(span.line as i64));
-                        fm.insert(Value::keyword("col"), Value::Int(span.col as i64));
+                        fm.insert(Value::keyword("line"), Value::int(span.line as i64));
+                        fm.insert(Value::keyword("col"), Value::int(span.col as i64));
                     }
-                    Value::Map(Rc::new(fm))
+                    Value::map(fm)
                 })
                 .collect();
         map.insert(Value::keyword("stack-trace"), Value::list(frames));
     }
 
-    Value::Map(Rc::new(map))
+    Value::map(map)
 }
 
 /// (module name (export sym1 sym2 ...) body...)
@@ -1035,7 +1025,7 @@ fn eval_module(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     let export_list = args[1]
         .as_list()
         .ok_or_else(|| SemaError::eval("module: second argument must be (export sym1 sym2 ...)"))?;
-    if export_list.is_empty() || !matches!(&export_list[0], Value::Symbol(s) if *s == sf.export) {
+    if export_list.is_empty() || export_list[0].as_symbol_spur() != Some(sf.export) {
         return Err(SemaError::eval(
             "module: second argument must start with 'export'",
         ));
@@ -1054,7 +1044,7 @@ fn eval_module(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     // Evaluate body
     let body = &args[2..];
     if body.is_empty() {
-        return Ok(Trampoline::Value(Value::Nil));
+        return Ok(Trampoline::Value(Value::nil()));
     }
     for expr in &body[..body.len() - 1] {
         eval::eval_value(ctx, expr, env)?;
@@ -1097,7 +1087,7 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     // Check cache
     if let Some(cached) = ctx.get_cached_module(&canonical) {
         copy_exports_to_env(&cached, &selective, env)?;
-        return Ok(Trampoline::Value(Value::Nil));
+        return Ok(Trampoline::Value(Value::nil()));
     }
 
     ctx.begin_module_load(&canonical)?;
@@ -1138,7 +1128,7 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     // Copy to caller env
     copy_exports_to_env(&exports, &selective, env)?;
 
-    Ok(Trampoline::Value(Value::Nil))
+    Ok(Trampoline::Value(Value::nil()))
 }
 
 /// Collect exported bindings from a module env
@@ -1220,7 +1210,7 @@ fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
         ctx.push_file_path(path);
     }
 
-    let mut result = Value::Nil;
+    let mut result = Value::nil();
     let eval_result = (|| {
         for expr in &exprs {
             result = eval::eval_value(ctx, expr, env)?;
@@ -1253,10 +1243,10 @@ fn eval_case(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
             return Err(SemaError::eval("case: clause must not be empty"));
         }
         // (else body...)
-        let is_else = matches!(&items[0], Value::Symbol(s) if *s == sf.else_);
+        let is_else = items[0].as_symbol_spur() == Some(sf.else_);
         if is_else {
             if items.len() == 1 {
-                return Ok(Trampoline::Value(Value::Nil));
+                return Ok(Trampoline::Value(Value::nil()));
             }
             for expr in &items[1..items.len() - 1] {
                 eval::eval_value(ctx, expr, env)?;
@@ -1269,7 +1259,7 @@ fn eval_case(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
             .ok_or_else(|| SemaError::eval("case: datums must be a list"))?;
         if datums.contains(&key) {
             if items.len() == 1 {
-                return Ok(Trampoline::Value(Value::Nil));
+                return Ok(Trampoline::Value(Value::nil()));
             }
             for expr in &items[1..items.len() - 1] {
                 eval::eval_value(ctx, expr, env)?;
@@ -1277,7 +1267,7 @@ fn eval_case(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
             return Ok(Trampoline::Eval(items.last().unwrap().clone(), env.clone()));
         }
     }
-    Ok(Trampoline::Value(Value::Nil))
+    Ok(Trampoline::Value(Value::nil()))
 }
 
 /// (eval expr) — evaluate a quoted expression
@@ -1296,12 +1286,14 @@ fn eval_macroexpand(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Tram
     }
     let form = eval::eval_value(ctx, &args[0], env)?;
     // Check if it's a list starting with a macro name
-    if let Value::List(items) = &form {
+    if let Some(items) = form.as_list() {
         if !items.is_empty() {
-            if let Value::Symbol(spur) = &items[0] {
-                if let Some(Value::Macro(mac)) = env.get(*spur) {
-                    let expanded = eval::apply_macro(ctx, &mac, &items[1..], env)?;
-                    return Ok(Trampoline::Value(expanded));
+            if let Some(spur) = items[0].as_symbol_spur() {
+                if let Some(mac_val) = env.get(spur) {
+                    if let Some(mac) = mac_val.as_macro_rc() {
+                        let expanded = eval::apply_macro(ctx, &mac, &items[1..], env)?;
+                        return Ok(Trampoline::Value(expanded));
+                    }
                 }
             }
         }
@@ -1318,17 +1310,17 @@ fn eval_with_budget(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Tram
     #[cfg(not(target_arch = "wasm32"))]
     {
         let opts = eval::eval_value(ctx, &args[0], env)?;
-        let max_cost = match &opts {
-            Value::Map(m) => m
+        let max_cost = match opts.as_map_rc() {
+            Some(m) => m
                 .get(&Value::keyword("max-cost-usd"))
                 .and_then(|v| v.as_float())
                 .ok_or_else(|| SemaError::eval("with-budget: missing :max-cost-usd"))?,
-            _ => return Err(SemaError::type_error("map", opts.type_name())),
+            None => return Err(SemaError::type_error("map", opts.type_name())),
         };
 
         sema_llm::builtins::push_budget_scope(max_cost);
 
-        let mut result = Value::Nil;
+        let mut result = Value::nil();
         let body_result = (|| {
             for expr in &args[1..] {
                 result = eval::eval_value(ctx, expr, env)?;
@@ -1398,7 +1390,7 @@ fn eval_do(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, S
         let test_result = eval::eval_value(ctx, &test_clause[0], &loop_env)?;
         if test_result.is_truthy() {
             if test_clause.len() == 1 {
-                return Ok(Trampoline::Value(Value::Nil));
+                return Ok(Trampoline::Value(Value::nil()));
             }
             for expr in &test_clause[1..test_clause.len() - 1] {
                 eval::eval_value(ctx, expr, &loop_env)?;
@@ -1434,18 +1426,18 @@ fn eval_delay(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("delay", "1", args.len()));
     }
-    let lambda = Value::Lambda(Rc::new(Lambda {
+    let lambda = Value::lambda(Lambda {
         params: vec![],
         rest_param: None,
         body: vec![args[0].clone()],
         env: env.clone(),
         name: None,
-    }));
+    });
     let thunk = Thunk {
         body: lambda,
         forced: std::cell::RefCell::new(None),
     };
-    Ok(Trampoline::Value(Value::Thunk(Rc::new(thunk))))
+    Ok(Trampoline::Value(Value::thunk(thunk)))
 }
 
 /// (force promise) — evaluate a promise, memoizing the result
@@ -1454,26 +1446,24 @@ fn eval_force(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
         return Err(SemaError::arity("force", "1", args.len()));
     }
     let val = eval::eval_value(ctx, &args[0], env)?;
-    match &val {
-        Value::Thunk(thunk) => {
-            if let Some(cached) = &*thunk.forced.borrow() {
-                return Ok(Trampoline::Value(cached.clone()));
-            }
-            let result = match &thunk.body {
-                Value::Lambda(lambda) => {
-                    let thunk_env = Env::with_parent(Rc::new(lambda.env.clone()));
-                    let mut res = Value::Nil;
-                    for expr in &lambda.body {
-                        res = eval::eval_value(ctx, expr, &thunk_env)?;
-                    }
-                    res
-                }
-                other => eval::eval_value(ctx, other, env)?,
-            };
-            *thunk.forced.borrow_mut() = Some(result.clone());
-            Ok(Trampoline::Value(result))
+    if let Some(thunk) = val.as_thunk_rc() {
+        if let Some(cached) = &*thunk.forced.borrow() {
+            return Ok(Trampoline::Value(cached.clone()));
         }
-        _ => Ok(Trampoline::Value(val)),
+        let result = if let Some(lambda) = thunk.body.as_lambda_rc() {
+            let thunk_env = Env::with_parent(Rc::new(lambda.env.clone()));
+            let mut res = Value::nil();
+            for expr in &lambda.body {
+                res = eval::eval_value(ctx, expr, &thunk_env)?;
+            }
+            res
+        } else {
+            eval::eval_value(ctx, &thunk.body, env)?
+        };
+        *thunk.forced.borrow_mut() = Some(result.clone());
+        Ok(Trampoline::Value(result))
+    } else {
+        Ok(Trampoline::Value(val))
     }
 }
 
@@ -1517,7 +1507,7 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
     let ctor_name_clone = ctor_name.clone();
     env.set_str(
         &ctor_name,
-        Value::NativeFn(Rc::new(sema_core::NativeFn::simple(
+        Value::native_fn(sema_core::NativeFn::simple(
             ctor_name.clone(),
             move |args: &[Value]| {
                 if args.len() != field_count {
@@ -1527,29 +1517,29 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
                         args.len(),
                     ));
                 }
-                Ok(Value::Record(Rc::new(Record {
+                Ok(Value::record(Record {
                     type_tag,
                     fields: args.to_vec(),
-                })))
+                }))
             },
-        ))),
+        )),
     );
 
     let pred_name_for_closure = pred_name.clone();
     let pred_name_for_set = pred_name.clone();
     env.set_str(
         &pred_name_for_set,
-        Value::NativeFn(Rc::new(sema_core::NativeFn::simple(
+        Value::native_fn(sema_core::NativeFn::simple(
             pred_name,
             move |args: &[Value]| {
                 if args.len() != 1 {
                     return Err(SemaError::arity(&pred_name_for_closure, "1", args.len()));
                 }
-                Ok(Value::Bool(
-                    matches!(&args[0], Value::Record(r) if r.type_tag == type_tag),
+                Ok(Value::bool(
+                    args[0].as_record().is_some_and(|r| r.type_tag == type_tag),
                 ))
             },
-        ))),
+        )),
     );
 
     for field_spec_val in &args[3..] {
@@ -1584,7 +1574,7 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
         let type_name_for_err = type_name.clone();
         env.set_str(
             &accessor_name_for_set,
-            Value::NativeFn(Rc::new(sema_core::NativeFn::simple(
+            Value::native_fn(sema_core::NativeFn::simple(
                 accessor_name,
                 move |args: &[Value]| {
                     if args.len() != 1 {
@@ -1594,21 +1584,19 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
                             args.len(),
                         ));
                     }
-                    match &args[0] {
-                        Value::Record(r) if r.type_tag == type_tag => {
-                            Ok(r.fields[field_idx].clone())
-                        }
+                    match args[0].as_record() {
+                        Some(r) if r.type_tag == type_tag => Ok(r.fields[field_idx].clone()),
                         _ => Err(SemaError::type_error(
                             &type_name_for_err,
                             args[0].type_name(),
                         )),
                     }
                 },
-            ))),
+            )),
         );
     }
 
-    Ok(Trampoline::Value(Value::Nil))
+    Ok(Trampoline::Value(Value::nil()))
 }
 
 /// Parse parameter list, handling rest params (e.g., `(a b . rest)`)

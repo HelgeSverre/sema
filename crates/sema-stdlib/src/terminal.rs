@@ -5,7 +5,7 @@ use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use sema_core::{SemaError, Value};
+use sema_core::{SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -213,7 +213,7 @@ pub fn register(env: &sema_core::Env) {
             );
         });
 
-        Ok(Value::Int(id))
+        Ok(Value::int(id))
     });
 
     // (term/spinner-stop id) or (term/spinner-stop id {:symbol "✔" :text "Done" :color :green})
@@ -240,7 +240,7 @@ pub fn register(env: &sema_core::Env) {
 
                 // Print final status if options provided
                 if args.len() == 2 {
-                    if let Value::Map(opts) = &args[1] {
+                    if let ValueView::Map(opts) = args[1].view() {
                         let symbol = opts
                             .get(&Value::keyword("symbol"))
                             .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -258,7 +258,7 @@ pub fn register(env: &sema_core::Env) {
             }
         });
 
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 
     // (term/spinner-update id "new message")
@@ -281,6 +281,6 @@ pub fn register(env: &sema_core::Env) {
             }
         });
 
-        Ok(Value::Nil)
+        Ok(Value::nil())
     });
 }

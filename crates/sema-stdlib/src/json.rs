@@ -1,7 +1,6 @@
 use std::collections::BTreeMap;
-use std::rc::Rc;
 
-use sema_core::{SemaError, Value};
+use sema_core::{SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -40,41 +39,41 @@ pub fn register(env: &sema_core::Env) {
 }
 
 pub fn value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
-    match val {
-        Value::Nil => Ok(serde_json::Value::Null),
-        Value::Bool(b) => Ok(serde_json::Value::Bool(*b)),
-        Value::Int(n) => Ok(serde_json::Value::Number((*n).into())),
-        Value::Float(f) => serde_json::Number::from_f64(*f)
+    match val.view() {
+        ValueView::Nil => Ok(serde_json::Value::Null),
+        ValueView::Bool(b) => Ok(serde_json::Value::Bool(b)),
+        ValueView::Int(n) => Ok(serde_json::Value::Number(n.into())),
+        ValueView::Float(f) => serde_json::Number::from_f64(f)
             .map(serde_json::Value::Number)
             .ok_or_else(|| SemaError::eval("json/encode: cannot encode NaN/Infinity")),
-        Value::String(s) => Ok(serde_json::Value::String(s.to_string())),
-        Value::Keyword(s) => Ok(serde_json::Value::String(sema_core::resolve(*s))),
-        Value::Symbol(s) => Ok(serde_json::Value::String(sema_core::resolve(*s))),
-        Value::List(items) | Value::Vector(items) => {
+        ValueView::String(s) => Ok(serde_json::Value::String(s.to_string())),
+        ValueView::Keyword(s) => Ok(serde_json::Value::String(sema_core::resolve(s))),
+        ValueView::Symbol(s) => Ok(serde_json::Value::String(sema_core::resolve(s))),
+        ValueView::List(items) | ValueView::Vector(items) => {
             let arr: Result<Vec<_>, _> = items.iter().map(value_to_json).collect();
             Ok(serde_json::Value::Array(arr?))
         }
-        Value::Map(map) => {
+        ValueView::Map(map) => {
             let mut obj = serde_json::Map::new();
             for (k, v) in map.iter() {
-                let key = match k {
-                    Value::String(s) => s.to_string(),
-                    Value::Keyword(s) => sema_core::resolve(*s),
-                    Value::Symbol(s) => sema_core::resolve(*s),
-                    other => other.to_string(),
+                let key = match k.view() {
+                    ValueView::String(s) => s.to_string(),
+                    ValueView::Keyword(s) => sema_core::resolve(s),
+                    ValueView::Symbol(s) => sema_core::resolve(s),
+                    _ => k.to_string(),
                 };
                 obj.insert(key, value_to_json(v)?);
             }
             Ok(serde_json::Value::Object(obj))
         }
-        Value::HashMap(map) => {
+        ValueView::HashMap(map) => {
             let mut obj = serde_json::Map::new();
             for (k, v) in map.iter() {
-                let key = match k {
-                    Value::String(s) => s.to_string(),
-                    Value::Keyword(s) => sema_core::resolve(*s),
-                    Value::Symbol(s) => sema_core::resolve(*s),
-                    other => other.to_string(),
+                let key = match k.view() {
+                    ValueView::String(s) => s.to_string(),
+                    ValueView::Keyword(s) => sema_core::resolve(s),
+                    ValueView::Symbol(s) => sema_core::resolve(s),
+                    _ => k.to_string(),
                 };
                 obj.insert(key, value_to_json(v)?);
             }
@@ -89,15 +88,15 @@ pub fn value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
 
 pub fn json_to_value(json: &serde_json::Value) -> Value {
     match json {
-        serde_json::Value::Null => Value::Nil,
-        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Null => Value::nil(),
+        serde_json::Value::Bool(b) => Value::bool(*b),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Value::Int(i)
+                Value::int(i)
             } else if let Some(f) = n.as_f64() {
-                Value::Float(f)
+                Value::float(f)
             } else {
-                Value::Nil
+                Value::nil()
             }
         }
         serde_json::Value::String(s) => Value::string(s),
@@ -107,7 +106,7 @@ pub fn json_to_value(json: &serde_json::Value) -> Value {
             for (k, v) in obj {
                 map.insert(Value::keyword(k), json_to_value(v));
             }
-            Value::Map(Rc::new(map))
+            Value::map(map)
         }
     }
 }

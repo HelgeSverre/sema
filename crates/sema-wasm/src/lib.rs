@@ -1,6 +1,5 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::rc::Rc;
 
 use js_sys::Date;
 use sema_core::{Env, NativeFn, SemaError, Value};
@@ -57,7 +56,7 @@ fn register_wasm_io(env: &Env) {
     let register = |name: &str, f: Box<dyn Fn(&[Value]) -> Result<Value, SemaError>>| {
         env.set(
             sema_core::intern(name),
-            Value::NativeFn(Rc::new(NativeFn::simple(name, move |args| f(args)))),
+            Value::native_fn(NativeFn::simple(name, move |args| f(args))),
         );
     };
 
@@ -70,13 +69,14 @@ fn register_wasm_io(env: &Env) {
                 if i > 0 {
                     out.push(' ');
                 }
-                match arg {
-                    Value::String(s) => out.push_str(s),
-                    other => out.push_str(&format!("{other}")),
+                if let Some(s) = arg.as_str() {
+                    out.push_str(s);
+                } else {
+                    out.push_str(&format!("{arg}"));
                 }
             }
             append_output(&out);
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -92,7 +92,7 @@ fn register_wasm_io(env: &Env) {
                 out.push_str(&format!("{arg}"));
             }
             append_output(&out);
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -105,14 +105,15 @@ fn register_wasm_io(env: &Env) {
                 if i > 0 {
                     out.push(' ');
                 }
-                match arg {
-                    Value::String(s) => out.push_str(s),
-                    other => out.push_str(&format!("{other}")),
+                if let Some(s) = arg.as_str() {
+                    out.push_str(s);
+                } else {
+                    out.push_str(&format!("{arg}"));
                 }
             }
             append_output(&out);
             flush_line();
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -121,7 +122,7 @@ fn register_wasm_io(env: &Env) {
         "newline",
         Box::new(|_args: &[Value]| {
             flush_line();
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -137,7 +138,7 @@ fn register_wasm_io(env: &Env) {
             }
             append_output(&format!("[error] {out}"));
             flush_line();
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -153,7 +154,7 @@ fn register_wasm_io(env: &Env) {
             }
             append_output(&format!("[error] {out}"));
             flush_line();
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -164,7 +165,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("time-ms", "0", args.len()));
             }
-            Ok(Value::Int(Date::now() as i64))
+            Ok(Value::int(Date::now() as i64))
         }),
     );
 
@@ -197,7 +198,7 @@ fn register_wasm_io(env: &Env) {
                 let text = args[0]
                     .as_str()
                     .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-                Ok(Value::String(Rc::new(text.to_string())))
+                Ok(Value::string(text))
             }),
         );
     }
@@ -212,7 +213,7 @@ fn register_wasm_io(env: &Env) {
             let text = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::String(Rc::new(text.to_string())))
+            Ok(Value::string(text))
         }),
     );
 
@@ -226,7 +227,7 @@ fn register_wasm_io(env: &Env) {
             let text = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::String(Rc::new(text.to_string())))
+            Ok(Value::string(text))
         }),
     );
 
@@ -271,7 +272,7 @@ fn register_wasm_io(env: &Env) {
                 return Err(SemaError::arity("sys/elapsed", "0", args.len()));
             }
             let nanos = WASM_START_MS.with(|&start| ((Date::now() - start) * 1_000_000.0) as i64);
-            Ok(Value::Int(nanos))
+            Ok(Value::int(nanos))
         }),
     );
 
@@ -285,7 +286,7 @@ fn register_wasm_io(env: &Env) {
             args[0]
                 .as_int()
                 .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -299,7 +300,7 @@ fn register_wasm_io(env: &Env) {
             args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -316,7 +317,7 @@ fn register_wasm_io(env: &Env) {
             args[1]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -327,7 +328,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/env-all", "0", args.len()));
             }
-            Ok(Value::Map(Rc::new(std::collections::BTreeMap::new())))
+            Ok(Value::map(std::collections::BTreeMap::new()))
         }),
     );
 
@@ -344,7 +345,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/interactive?", "0", args.len()));
             }
-            Ok(Value::Bool(false))
+            Ok(Value::bool(false))
         }),
     );
 
@@ -390,7 +391,7 @@ fn register_wasm_io(env: &Env) {
             match trimmed.rfind('/') {
                 Some(0) => Ok(Value::string("/")),
                 Some(pos) => Ok(Value::string(&trimmed[..pos])),
-                None => Ok(Value::Nil),
+                None => Ok(Value::nil()),
             }
         }),
     );
@@ -429,7 +430,7 @@ fn register_wasm_io(env: &Env) {
                 None => trimmed,
             };
             match basename.rfind('.') {
-                Some(0) | None => Ok(Value::Nil),
+                Some(0) | None => Ok(Value::nil()),
                 Some(pos) => Ok(Value::string(&basename[pos + 1..])),
             }
         }),
@@ -459,10 +460,10 @@ fn register_wasm_io(env: &Env) {
             }
             match js_sys::eval("navigator.userAgent") {
                 Ok(val) => match val.as_string() {
-                    Some(s) => Ok(Value::String(Rc::new(s))),
-                    None => Ok(Value::Nil),
+                    Some(s) => Ok(Value::string(&s)),
+                    None => Ok(Value::nil()),
                 },
-                Err(_) => Ok(Value::Nil),
+                Err(_) => Ok(Value::nil()),
             }
         }),
     );
@@ -491,12 +492,12 @@ fn register_wasm_io(env: &Env) {
                         // Parse the JSON into a Sema map
                         match serde_json::from_str::<serde_json::Value>(&json_str) {
                             Ok(json) => Ok(json_to_value(&json)),
-                            Err(_) => Ok(Value::Nil),
+                            Err(_) => Ok(Value::nil()),
                         }
                     }
-                    None => Ok(Value::Nil),
+                    None => Ok(Value::nil()),
                 },
-                Err(_) => Ok(Value::Nil),
+                Err(_) => Ok(Value::nil()),
             }
         }),
     );
@@ -561,7 +562,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/args", "0", args.len()));
             }
-            Ok(Value::List(Rc::new(Vec::new())))
+            Ok(Value::list(Vec::new()))
         }),
     );
 
@@ -581,7 +582,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/home-dir", "0", args.len()));
             }
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -601,7 +602,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/hostname", "0", args.len()));
             }
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -611,7 +612,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/user", "0", args.len()));
             }
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -621,7 +622,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/pid", "0", args.len()));
             }
-            Ok(Value::Int(0))
+            Ok(Value::int(0))
         }),
     );
 
@@ -634,7 +635,7 @@ fn register_wasm_io(env: &Env) {
             args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -644,7 +645,7 @@ fn register_wasm_io(env: &Env) {
             if !args.is_empty() {
                 return Err(SemaError::arity("sys/tty", "0", args.len()));
             }
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -660,7 +661,7 @@ fn register_wasm_io(env: &Env) {
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             VFS.with(|vfs| match vfs.borrow().get(path) {
-                Some(content) => Ok(Value::String(Rc::new(content.clone()))),
+                Some(content) => Ok(Value::string(content)),
                 None => Err(SemaError::Io(format!("file/read {path}: No such file"))),
             })
         }),
@@ -682,7 +683,7 @@ fn register_wasm_io(env: &Env) {
                 vfs.borrow_mut()
                     .insert(path.to_string(), content.to_string());
             });
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -697,7 +698,7 @@ fn register_wasm_io(env: &Env) {
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let in_vfs = VFS.with(|vfs| vfs.borrow().contains_key(path));
             let in_dirs = VFS_DIRS.with(|dirs| dirs.borrow().contains(path));
-            Ok(Value::Bool(in_vfs || in_dirs))
+            Ok(Value::bool(in_vfs || in_dirs))
         }),
     );
 
@@ -711,7 +712,7 @@ fn register_wasm_io(env: &Env) {
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             VFS.with(|vfs| match vfs.borrow_mut().remove(path) {
-                Some(_) => Ok(Value::Nil),
+                Some(_) => Ok(Value::nil()),
                 None => Err(SemaError::Io(format!("file/delete {path}: No such file"))),
             })
         }),
@@ -734,7 +735,7 @@ fn register_wasm_io(env: &Env) {
                 match map.remove(from) {
                     Some(content) => {
                         map.insert(to.to_string(), content);
-                        Ok(Value::Nil)
+                        Ok(Value::nil())
                     }
                     None => Err(SemaError::Io(format!(
                         "file/rename {from} -> {to}: No such file"
@@ -808,7 +809,7 @@ fn register_wasm_io(env: &Env) {
                     set.insert(current.clone());
                 }
             });
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -821,7 +822,7 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::Bool(
+            Ok(Value::bool(
                 VFS_DIRS.with(|dirs| dirs.borrow().contains(path)),
             ))
         }),
@@ -836,7 +837,7 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::Bool(VFS.with(|vfs| vfs.borrow().contains_key(path))))
+            Ok(Value::bool(VFS.with(|vfs| vfs.borrow().contains_key(path))))
         }),
     );
 
@@ -849,7 +850,7 @@ fn register_wasm_io(env: &Env) {
             let _path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::Bool(false))
+            Ok(Value::bool(false))
         }),
     );
 
@@ -871,7 +872,7 @@ fn register_wasm_io(env: &Env) {
                     .and_modify(|existing| existing.push_str(content))
                     .or_insert_with(|| content.to_string());
             });
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -894,7 +895,7 @@ fn register_wasm_io(env: &Env) {
                         let content = content.clone();
                         drop(map);
                         vfs.borrow_mut().insert(dest.to_string(), content);
-                        Ok(Value::Nil)
+                        Ok(Value::nil())
                     }
                     None => Err(SemaError::Io(format!(
                         "file/copy {src} -> {dest}: No such file"
@@ -934,23 +935,28 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let lines = match &args[1] {
-                Value::List(l) => l.as_ref(),
-                Value::Vector(v) => v.as_ref(),
-                _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+            let lines = if let Some(l) = args[1].as_list() {
+                l
+            } else if let Some(v) = args[1].as_vector() {
+                v
+            } else {
+                return Err(SemaError::type_error("list or vector", args[1].type_name()));
             };
             let strs: Vec<String> = lines
                 .iter()
-                .map(|v| match v {
-                    Value::String(s) => s.to_string(),
-                    other => other.to_string(),
+                .map(|v| {
+                    if let Some(s) = v.as_str() {
+                        s.to_string()
+                    } else {
+                        v.to_string()
+                    }
                 })
                 .collect();
             let content = strs.join("\n");
             VFS.with(|vfs| {
                 vfs.borrow_mut().insert(path.to_string(), content);
             });
-            Ok(Value::Nil)
+            Ok(Value::nil())
         }),
     );
 
@@ -976,10 +982,10 @@ fn register_wasm_io(env: &Env) {
                 0
             };
             let mut map = BTreeMap::new();
-            map.insert(Value::keyword("size"), Value::Int(size));
-            map.insert(Value::keyword("is-dir"), Value::Bool(is_dir));
-            map.insert(Value::keyword("is-file"), Value::Bool(is_file));
-            Ok(Value::Map(Rc::new(map)))
+            map.insert(Value::keyword("size"), Value::int(size));
+            map.insert(Value::keyword("is-dir"), Value::bool(is_dir));
+            map.insert(Value::keyword("is-file"), Value::bool(is_file));
+            Ok(Value::map(map))
         }),
     );
 
@@ -1054,9 +1060,10 @@ fn register_wasm_io(env: &Env) {
             if args.is_empty() {
                 return Err(SemaError::eval("error called with no message"));
             }
-            let msg = match &args[0] {
-                Value::String(s) => s.to_string(),
-                other => other.to_string(),
+            let msg = if let Some(s) = args[0].as_str() {
+                s.to_string()
+            } else {
+                args[0].to_string()
             };
             Err(SemaError::eval(msg))
         }),
@@ -1090,7 +1097,7 @@ impl WasmInterpreter {
         match sema_eval::eval_string(&self.inner.ctx, code, &env) {
             Ok(val) => {
                 let output = take_output();
-                let val_str = if matches!(val, Value::Nil) {
+                let val_str = if val.is_nil() {
                     "null".to_string()
                 } else {
                     format!("\"{}\"", escape_json(&format!("{val}")))
@@ -1138,7 +1145,7 @@ impl WasmInterpreter {
         match sema_eval::eval_string(&self.inner.ctx, code, &self.inner.global_env) {
             Ok(val) => {
                 let output = take_output();
-                let val_str = if matches!(val, Value::Nil) {
+                let val_str = if val.is_nil() {
                     "null".to_string()
                 } else {
                     format!("\"{}\"", escape_json(&format!("{val}")))
@@ -1186,7 +1193,7 @@ impl WasmInterpreter {
         match self.inner.eval_str_compiled(code) {
             Ok(val) => {
                 let output = take_output();
-                let val_str = if matches!(val, Value::Nil) {
+                let val_str = if val.is_nil() {
                     "null".to_string()
                 } else {
                     format!("\"{}\"", escape_json(&format!("{val}")))
@@ -1234,15 +1241,15 @@ impl WasmInterpreter {
 
 fn json_to_value(json: &serde_json::Value) -> Value {
     match json {
-        serde_json::Value::Null => Value::Nil,
-        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Null => Value::nil(),
+        serde_json::Value::Bool(b) => Value::bool(*b),
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Value::Int(i)
+                Value::int(i)
             } else if let Some(f) = n.as_f64() {
-                Value::Float(f)
+                Value::float(f)
             } else {
-                Value::Nil
+                Value::nil()
             }
         }
         serde_json::Value::String(s) => Value::string(s),
@@ -1252,7 +1259,7 @@ fn json_to_value(json: &serde_json::Value) -> Value {
             for (k, v) in obj {
                 map.insert(Value::keyword(k), json_to_value(v));
             }
-            Value::Map(Rc::new(map))
+            Value::map(map)
         }
     }
 }

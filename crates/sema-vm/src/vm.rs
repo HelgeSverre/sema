@@ -68,7 +68,7 @@ impl VM {
         // Reserve space for locals
         let n_locals = closure.func.chunk.n_locals as usize;
         for _ in 0..n_locals {
-            self.stack.push(Value::Nil);
+            self.stack.push(Value::nil());
         }
         self.frames.push(CallFrame {
             closure,
@@ -101,15 +101,15 @@ impl VM {
                 }
                 Op::Nil => {
                     self.advance_pc(1);
-                    self.stack.push(Value::Nil);
+                    self.stack.push(Value::nil());
                 }
                 Op::True => {
                     self.advance_pc(1);
-                    self.stack.push(Value::Bool(true));
+                    self.stack.push(Value::bool(true));
                 }
                 Op::False => {
                     self.advance_pc(1);
-                    self.stack.push(Value::Bool(false));
+                    self.stack.push(Value::bool(false));
                 }
                 Op::Pop => {
                     self.advance_pc(1);
@@ -228,7 +228,7 @@ impl VM {
                     }
                 }
                 Op::Return => {
-                    let result = self.stack.pop().unwrap_or(Value::Nil);
+                    let result = self.stack.pop().unwrap_or(Value::nil());
                     let frame = self.frames.pop().unwrap();
                     // Discard locals and function slot
                     self.stack.truncate(frame.base);
@@ -254,13 +254,13 @@ impl VM {
                     let n = self.read_u16() as usize;
                     let start = self.stack.len() - n;
                     let items: Vec<Value> = self.stack.drain(start..).collect();
-                    self.stack.push(Value::List(Rc::new(items)));
+                    self.stack.push(Value::list(items));
                 }
                 Op::MakeVector => {
                     let n = self.read_u16() as usize;
                     let start = self.stack.len() - n;
                     let items: Vec<Value> = self.stack.drain(start..).collect();
-                    self.stack.push(Value::Vector(Rc::new(items)));
+                    self.stack.push(Value::vector(items));
                 }
                 Op::MakeMap => {
                     let n = self.read_u16() as usize;
@@ -270,7 +270,7 @@ impl VM {
                     for pair in items.chunks(2) {
                         map.insert(pair[0].clone(), pair[1].clone());
                     }
-                    self.stack.push(Value::Map(Rc::new(map)));
+                    self.stack.push(Value::map(map));
                 }
                 Op::MakeHashMap => {
                     let n = self.read_u16() as usize;
@@ -280,7 +280,7 @@ impl VM {
                     for pair in items.chunks(2) {
                         map.insert(pair[0].clone(), pair[1].clone());
                     }
-                    self.stack.push(Value::HashMap(Rc::new(map)));
+                    self.stack.push(Value::hashmap_from_rc(Rc::new(map)));
                 }
 
                 // --- Exceptions ---
@@ -347,10 +347,12 @@ impl VM {
                 Op::Negate => {
                     self.advance_pc(1);
                     let a = self.pop()?;
-                    match a {
-                        Value::Int(n) => self.stack.push(Value::Int(-n)),
-                        Value::Float(f) => self.stack.push(Value::Float(-f)),
-                        _ => {
+                    if let Some(n) = a.as_int() {
+                        self.stack.push(Value::int(-n));
+                    } else if let Some(f) = a.as_float() {
+                        self.stack.push(Value::float(-f));
+                    } else {
+                        {
                             let err = SemaError::type_error("number", a.type_name());
                             match self.handle_exception(err, pc)? {
                                 ExceptionAction::Handled => {}
@@ -362,20 +364,20 @@ impl VM {
                 Op::Not => {
                     self.advance_pc(1);
                     let a = self.pop()?;
-                    self.stack.push(Value::Bool(!a.is_truthy()));
+                    self.stack.push(Value::bool(!a.is_truthy()));
                 }
                 Op::Eq => {
                     self.advance_pc(1);
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    self.stack.push(Value::Bool(a == b));
+                    self.stack.push(Value::bool(a == b));
                 }
                 Op::Lt => {
                     self.advance_pc(1);
                     let b = self.pop()?;
                     let a = self.pop()?;
                     match vm_lt(&a, &b) {
-                        Ok(v) => self.stack.push(Value::Bool(v)),
+                        Ok(v) => self.stack.push(Value::bool(v)),
                         Err(err) => match self.handle_exception(err, pc)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
@@ -387,7 +389,7 @@ impl VM {
                     let b = self.pop()?;
                     let a = self.pop()?;
                     match vm_lt(&b, &a) {
-                        Ok(v) => self.stack.push(Value::Bool(v)),
+                        Ok(v) => self.stack.push(Value::bool(v)),
                         Err(err) => match self.handle_exception(err, pc)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
@@ -399,7 +401,7 @@ impl VM {
                     let b = self.pop()?;
                     let a = self.pop()?;
                     match vm_lt(&b, &a) {
-                        Ok(v) => self.stack.push(Value::Bool(!v)),
+                        Ok(v) => self.stack.push(Value::bool(!v)),
                         Err(err) => match self.handle_exception(err, pc)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
@@ -411,7 +413,7 @@ impl VM {
                     let b = self.pop()?;
                     let a = self.pop()?;
                     match vm_lt(&a, &b) {
-                        Ok(v) => self.stack.push(Value::Bool(!v)),
+                        Ok(v) => self.stack.push(Value::bool(!v)),
                         Err(err) => match self.handle_exception(err, pc)? {
                             ExceptionAction::Handled => {}
                             ExceptionAction::Propagate(e) => return Err(e),
@@ -424,79 +426,74 @@ impl VM {
                     self.advance_pc(1);
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    match (&a, &b) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            self.stack.push(Value::Int(x.wrapping_add(*y)));
-                        }
-                        _ => match vm_add(&a, &b) {
+                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
+                        self.stack.push(Value::int(x.wrapping_add(y)));
+                    } else {
+                        match vm_add(&a, &b) {
                             Ok(v) => self.stack.push(v),
                             Err(err) => match self.handle_exception(err, pc)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             },
-                        },
+                        }
                     }
                 }
                 Op::SubInt => {
                     self.advance_pc(1);
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    match (&a, &b) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            self.stack.push(Value::Int(x.wrapping_sub(*y)));
-                        }
-                        _ => match vm_sub(&a, &b) {
+                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
+                        self.stack.push(Value::int(x.wrapping_sub(y)));
+                    } else {
+                        match vm_sub(&a, &b) {
                             Ok(v) => self.stack.push(v),
                             Err(err) => match self.handle_exception(err, pc)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             },
-                        },
+                        }
                     }
                 }
                 Op::MulInt => {
                     self.advance_pc(1);
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    match (&a, &b) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            self.stack.push(Value::Int(x.wrapping_mul(*y)));
-                        }
-                        _ => match vm_mul(&a, &b) {
+                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
+                        self.stack.push(Value::int(x.wrapping_mul(y)));
+                    } else {
+                        match vm_mul(&a, &b) {
                             Ok(v) => self.stack.push(v),
                             Err(err) => match self.handle_exception(err, pc)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             },
-                        },
+                        }
                     }
                 }
                 Op::LtInt => {
                     self.advance_pc(1);
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    match (&a, &b) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            self.stack.push(Value::Bool(x < y));
-                        }
-                        _ => match vm_lt(&a, &b) {
-                            Ok(v) => self.stack.push(Value::Bool(v)),
+                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
+                        self.stack.push(Value::bool(x < y));
+                    } else {
+                        match vm_lt(&a, &b) {
+                            Ok(v) => self.stack.push(Value::bool(v)),
                             Err(err) => match self.handle_exception(err, pc)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             },
-                        },
+                        }
                     }
                 }
                 Op::EqInt => {
                     self.advance_pc(1);
                     let b = self.pop()?;
                     let a = self.pop()?;
-                    match (&a, &b) {
-                        (Value::Int(x), Value::Int(y)) => {
-                            self.stack.push(Value::Bool(x == y));
-                        }
-                        _ => self.stack.push(Value::Bool(a == b)),
+                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
+                        self.stack.push(Value::bool(x == y));
+                    } else {
+                        self.stack.push(Value::bool(a == b));
                     }
                 }
             }
@@ -563,55 +560,51 @@ impl VM {
         let func_idx = self.stack.len() - 1 - argc;
         let func_val = self.stack[func_idx].clone();
 
-        match func_val {
-            Value::NativeFn(ref native) => {
-                // Check for VM closure payload — call via frame push, not Rust recursion
-                if let Some(payload) = &native.payload {
-                    if let Some(vmc) = payload.downcast_ref::<VmClosurePayload>() {
-                        return self.call_vm_closure(vmc, argc);
-                    }
+        if let Some(native) = func_val.as_native_fn_rc() {
+            // Check for VM closure payload — call via frame push, not Rust recursion
+            if let Some(payload) = &native.payload {
+                if let Some(vmc) = payload.downcast_ref::<VmClosurePayload>() {
+                    return self.call_vm_closure(vmc, argc);
                 }
-                let args_start = func_idx + 1;
-                let args: Vec<Value> = self.stack[args_start..].to_vec();
-                self.stack.truncate(func_idx);
-                let result = (native.func)(ctx, &args)?;
-                self.stack.push(result);
-                Ok(())
             }
-            Value::Lambda(_) => {
-                // Lambda from tree-walker — call via call_callback
-                let args_start = func_idx + 1;
-                let args: Vec<Value> = self.stack[args_start..].to_vec();
-                self.stack.truncate(func_idx);
-                let result = sema_core::call_callback(ctx, &func_val, &args)?;
-                self.stack.push(result);
-                Ok(())
+            let args_start = func_idx + 1;
+            let args: Vec<Value> = self.stack[args_start..].to_vec();
+            self.stack.truncate(func_idx);
+            let result = (native.func)(ctx, &args)?;
+            self.stack.push(result);
+            Ok(())
+        } else if func_val.as_lambda_rc().is_some() {
+            // Lambda from tree-walker — call via call_callback
+            let args_start = func_idx + 1;
+            let args: Vec<Value> = self.stack[args_start..].to_vec();
+            self.stack.truncate(func_idx);
+            let result = sema_core::call_callback(ctx, &func_val, &args)?;
+            self.stack.push(result);
+            Ok(())
+        } else if let Some(kw) = func_val.as_keyword_spur() {
+            // Keyword as function: (kw map) -> map[kw]
+            if argc != 1 {
+                return Err(SemaError::arity(resolve_spur(kw), "1", argc));
             }
-            Value::Keyword(kw) => {
-                // Keyword as function: (kw map) -> map[kw]
-                if argc != 1 {
-                    return Err(SemaError::arity(resolve_spur(kw), "1", argc));
-                }
-                let arg = self.stack.pop().unwrap();
-                self.stack.pop(); // pop keyword
-                let result = match arg {
-                    Value::Map(ref m) => m.get(&Value::Keyword(kw)).cloned().unwrap_or(Value::Nil),
-                    Value::HashMap(ref m) => {
-                        m.get(&Value::Keyword(kw)).cloned().unwrap_or(Value::Nil)
-                    }
-                    _ => return Err(SemaError::type_error("map or hashmap", arg.type_name())),
-                };
-                self.stack.push(result);
-                Ok(())
-            }
-            _ => {
-                let args_start = func_idx + 1;
-                let args: Vec<Value> = self.stack[args_start..].to_vec();
-                self.stack.truncate(func_idx);
-                let result = sema_core::call_callback(ctx, &func_val, &args)?;
-                self.stack.push(result);
-                Ok(())
-            }
+            let arg = self.stack.pop().unwrap();
+            self.stack.pop(); // pop keyword
+            let kw_val = Value::keyword_from_spur(kw);
+            let result = if let Some(m) = arg.as_map_rc() {
+                m.get(&kw_val).cloned().unwrap_or(Value::nil())
+            } else if let Some(m) = arg.as_hashmap_rc() {
+                m.get(&kw_val).cloned().unwrap_or(Value::nil())
+            } else {
+                return Err(SemaError::type_error("map or hashmap", arg.type_name()));
+            };
+            self.stack.push(result);
+            Ok(())
+        } else {
+            let args_start = func_idx + 1;
+            let args: Vec<Value> = self.stack[args_start..].to_vec();
+            self.stack.truncate(func_idx);
+            let result = sema_core::call_callback(ctx, &func_val, &args)?;
+            self.stack.push(result);
+            Ok(())
         }
     }
 
@@ -620,7 +613,7 @@ impl VM {
         let func_val = self.stack[func_idx].clone();
 
         // Check for VM closure — reuse current frame for TCO
-        if let Value::NativeFn(ref native) = func_val {
+        if let Some(native) = func_val.as_native_fn_rc() {
             if let Some(payload) = &native.payload {
                 if let Some(vmc) = payload.downcast_ref::<VmClosurePayload>() {
                     return self.tail_call_vm_closure(vmc, argc);
@@ -669,18 +662,18 @@ impl VM {
 
         // Set up locals
         let base = self.stack.len();
-        self.stack.resize(base + n_locals, Value::Nil);
+        self.stack.resize(base + n_locals, Value::nil());
 
         // Write params into local slots
         if has_rest {
             for i in 0..arity {
-                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::Nil);
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
             }
             let rest: Vec<Value> = args[arity..].to_vec();
-            self.stack[base + arity] = Value::List(Rc::new(rest));
+            self.stack[base + arity] = Value::list(rest);
         } else {
             for i in 0..arity {
-                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::Nil);
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
             }
         }
 
@@ -739,18 +732,18 @@ impl VM {
 
         // Truncate stack back to current frame's base
         self.stack.truncate(base);
-        self.stack.resize(base + n_locals, Value::Nil);
+        self.stack.resize(base + n_locals, Value::nil());
 
         // Write params
         if has_rest {
             for i in 0..arity {
-                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::Nil);
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
             }
             let rest: Vec<Value> = args[arity..].to_vec();
-            self.stack[base + arity] = Value::List(Rc::new(rest));
+            self.stack[base + arity] = Value::list(rest);
         } else {
             for i in 0..arity {
-                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::Nil);
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
             }
         }
 
@@ -827,7 +820,7 @@ impl VM {
         // The NativeFn wrapper is used as a fallback when called from outside the VM
         // (e.g., from stdlib HOFs like map/filter). Inside the VM, call_value detects
         // the payload and pushes a CallFrame instead — no Rust recursion.
-        let native = Value::NativeFn(Rc::new(sema_core::NativeFn::with_payload(
+        let native = Value::native_fn_from_rc(Rc::new(sema_core::NativeFn::with_payload(
             closure_for_fallback
                 .func
                 .name
@@ -862,18 +855,18 @@ impl VM {
                 }
 
                 for _ in 0..n_locals {
-                    vm.stack.push(Value::Nil);
+                    vm.stack.push(Value::nil());
                 }
 
                 if has_rest {
                     for i in 0..arity {
-                        vm.stack[i] = args.get(i).cloned().unwrap_or(Value::Nil);
+                        vm.stack[i] = args.get(i).cloned().unwrap_or(Value::nil());
                     }
                     let rest: Vec<Value> = args[arity..].to_vec();
-                    vm.stack[arity] = Value::List(Rc::new(rest));
+                    vm.stack[arity] = Value::list(rest);
                 } else {
                     for i in 0..arity {
-                        vm.stack[i] = args.get(i).cloned().unwrap_or(Value::Nil);
+                        vm.stack[i] = args.get(i).cloned().unwrap_or(Value::nil());
                     }
                 }
 
@@ -1021,21 +1014,22 @@ fn error_to_value(err: &SemaError) -> Value {
             unreachable!("inner() already unwraps these")
         }
     }
-    Value::Map(Rc::new(map))
+    Value::map(map)
 }
 
 // --- Arithmetic helpers ---
 
 fn vm_add(a: &Value, b: &Value) -> Result<Value, SemaError> {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_add(*y))),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x + y)),
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 + y)),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x + *y as f64)),
-        (Value::String(x), Value::String(y)) => {
-            let mut s = (**x).clone();
-            s.push_str(y);
-            Ok(Value::String(Rc::new(s)))
+    use sema_core::ValueView;
+    match (a.view(), b.view()) {
+        (ValueView::Int(x), ValueView::Int(y)) => Ok(Value::int(x.wrapping_add(y))),
+        (ValueView::Float(x), ValueView::Float(y)) => Ok(Value::float(x + y)),
+        (ValueView::Int(x), ValueView::Float(y)) => Ok(Value::float(x as f64 + y)),
+        (ValueView::Float(x), ValueView::Int(y)) => Ok(Value::float(x + y as f64)),
+        (ValueView::String(x), ValueView::String(y)) => {
+            let mut s = (*x).clone();
+            s.push_str(&y);
+            Ok(Value::string(&s))
         }
         _ => Err(SemaError::type_error(
             "number or string",
@@ -1045,11 +1039,12 @@ fn vm_add(a: &Value, b: &Value) -> Result<Value, SemaError> {
 }
 
 fn vm_sub(a: &Value, b: &Value) -> Result<Value, SemaError> {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_sub(*y))),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x - y)),
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 - y)),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x - *y as f64)),
+    use sema_core::ValueView;
+    match (a.view(), b.view()) {
+        (ValueView::Int(x), ValueView::Int(y)) => Ok(Value::int(x.wrapping_sub(y))),
+        (ValueView::Float(x), ValueView::Float(y)) => Ok(Value::float(x - y)),
+        (ValueView::Int(x), ValueView::Float(y)) => Ok(Value::float(x as f64 - y)),
+        (ValueView::Float(x), ValueView::Int(y)) => Ok(Value::float(x - y as f64)),
         _ => Err(SemaError::type_error(
             "number",
             format!("{} and {}", a.type_name(), b.type_name()),
@@ -1058,11 +1053,12 @@ fn vm_sub(a: &Value, b: &Value) -> Result<Value, SemaError> {
 }
 
 fn vm_mul(a: &Value, b: &Value) -> Result<Value, SemaError> {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x.wrapping_mul(*y))),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x * y)),
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 * y)),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x * *y as f64)),
+    use sema_core::ValueView;
+    match (a.view(), b.view()) {
+        (ValueView::Int(x), ValueView::Int(y)) => Ok(Value::int(x.wrapping_mul(y))),
+        (ValueView::Float(x), ValueView::Float(y)) => Ok(Value::float(x * y)),
+        (ValueView::Int(x), ValueView::Float(y)) => Ok(Value::float(x as f64 * y)),
+        (ValueView::Float(x), ValueView::Int(y)) => Ok(Value::float(x * y as f64)),
         _ => Err(SemaError::type_error(
             "number",
             format!("{} and {}", a.type_name(), b.type_name()),
@@ -1071,12 +1067,13 @@ fn vm_mul(a: &Value, b: &Value) -> Result<Value, SemaError> {
 }
 
 fn vm_div(a: &Value, b: &Value) -> Result<Value, SemaError> {
-    match (a, b) {
-        (Value::Int(_), Value::Int(0)) => Err(SemaError::eval("division by zero")),
-        (Value::Int(x), Value::Int(y)) => Ok(Value::Int(x / y)),
-        (Value::Float(x), Value::Float(y)) => Ok(Value::Float(x / y)),
-        (Value::Int(x), Value::Float(y)) => Ok(Value::Float(*x as f64 / y)),
-        (Value::Float(x), Value::Int(y)) => Ok(Value::Float(x / *y as f64)),
+    use sema_core::ValueView;
+    match (a.view(), b.view()) {
+        (ValueView::Int(_), ValueView::Int(0)) => Err(SemaError::eval("division by zero")),
+        (ValueView::Int(x), ValueView::Int(y)) => Ok(Value::int(x / y)),
+        (ValueView::Float(x), ValueView::Float(y)) => Ok(Value::float(x / y)),
+        (ValueView::Int(x), ValueView::Float(y)) => Ok(Value::float(x as f64 / y)),
+        (ValueView::Float(x), ValueView::Int(y)) => Ok(Value::float(x / y as f64)),
         _ => Err(SemaError::type_error(
             "number",
             format!("{} and {}", a.type_name(), b.type_name()),
@@ -1085,12 +1082,13 @@ fn vm_div(a: &Value, b: &Value) -> Result<Value, SemaError> {
 }
 
 fn vm_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
-    match (a, b) {
-        (Value::Int(x), Value::Int(y)) => Ok(x < y),
-        (Value::Float(x), Value::Float(y)) => Ok(x < y),
-        (Value::Int(x), Value::Float(y)) => Ok((*x as f64) < *y),
-        (Value::Float(x), Value::Int(y)) => Ok(*x < (*y as f64)),
-        (Value::String(x), Value::String(y)) => Ok(x < y),
+    use sema_core::ValueView;
+    match (a.view(), b.view()) {
+        (ValueView::Int(x), ValueView::Int(y)) => Ok(x < y),
+        (ValueView::Float(x), ValueView::Float(y)) => Ok(x < y),
+        (ValueView::Int(x), ValueView::Float(y)) => Ok((x as f64) < y),
+        (ValueView::Float(x), ValueView::Int(y)) => Ok(x < (y as f64)),
+        (ValueView::String(x), ValueView::String(y)) => Ok(x < y),
         _ => Err(SemaError::type_error(
             "comparable values",
             format!("{} and {}", a.type_name(), b.type_name()),
@@ -1145,57 +1143,49 @@ mod tests {
         let env = Rc::new(Env::new());
         env.set(
             intern("+"),
-            Value::NativeFn(Rc::new(NativeFn::simple("+", |args| {
-                vm_add(&args[0], &args[1])
-            }))),
+            Value::native_fn(NativeFn::simple("+", |args| vm_add(&args[0], &args[1]))),
         );
         env.set(
             intern("-"),
-            Value::NativeFn(Rc::new(NativeFn::simple("-", |args| {
-                vm_sub(&args[0], &args[1])
-            }))),
+            Value::native_fn(NativeFn::simple("-", |args| vm_sub(&args[0], &args[1]))),
         );
         env.set(
             intern("*"),
-            Value::NativeFn(Rc::new(NativeFn::simple("*", |args| {
-                vm_mul(&args[0], &args[1])
-            }))),
+            Value::native_fn(NativeFn::simple("*", |args| vm_mul(&args[0], &args[1]))),
         );
         env.set(
             intern("/"),
-            Value::NativeFn(Rc::new(NativeFn::simple("/", |args| {
-                vm_div(&args[0], &args[1])
-            }))),
+            Value::native_fn(NativeFn::simple("/", |args| vm_div(&args[0], &args[1]))),
         );
         env.set(
             intern("="),
-            Value::NativeFn(Rc::new(NativeFn::simple("=", |args| {
-                Ok(Value::Bool(args[0] == args[1]))
-            }))),
+            Value::native_fn(NativeFn::simple("=", |args| {
+                Ok(Value::bool(args[0] == args[1]))
+            })),
         );
         env.set(
             intern("<"),
-            Value::NativeFn(Rc::new(NativeFn::simple("<", |args| {
-                Ok(Value::Bool(vm_lt(&args[0], &args[1])?))
-            }))),
+            Value::native_fn(NativeFn::simple("<", |args| {
+                Ok(Value::bool(vm_lt(&args[0], &args[1])?))
+            })),
         );
         env.set(
             intern(">"),
-            Value::NativeFn(Rc::new(NativeFn::simple(">", |args| {
-                Ok(Value::Bool(vm_lt(&args[1], &args[0])?))
-            }))),
+            Value::native_fn(NativeFn::simple(">", |args| {
+                Ok(Value::bool(vm_lt(&args[1], &args[0])?))
+            })),
         );
         env.set(
             intern("not"),
-            Value::NativeFn(Rc::new(NativeFn::simple("not", |args| {
-                Ok(Value::Bool(!args[0].is_truthy()))
-            }))),
+            Value::native_fn(NativeFn::simple("not", |args| {
+                Ok(Value::bool(!args[0].is_truthy()))
+            })),
         );
         env.set(
             intern("list"),
-            Value::NativeFn(Rc::new(NativeFn::simple("list", |args| {
-                Ok(Value::List(Rc::new(args.to_vec())))
-            }))),
+            Value::native_fn(NativeFn::simple("list", |args| {
+                Ok(Value::list(args.to_vec()))
+            })),
         );
         env
     }
@@ -1208,41 +1198,38 @@ mod tests {
 
     #[test]
     fn test_vm_int_literal() {
-        assert_eq!(eval("42").unwrap(), Value::Int(42));
+        assert_eq!(eval("42").unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_vm_nil() {
-        assert_eq!(eval("nil").unwrap(), Value::Nil);
+        assert_eq!(eval("nil").unwrap(), Value::nil());
     }
 
     #[test]
     fn test_vm_bool() {
-        assert_eq!(eval("#t").unwrap(), Value::Bool(true));
-        assert_eq!(eval("#f").unwrap(), Value::Bool(false));
+        assert_eq!(eval("#t").unwrap(), Value::bool(true));
+        assert_eq!(eval("#f").unwrap(), Value::bool(false));
     }
 
     #[test]
     fn test_vm_string() {
-        assert_eq!(
-            eval("\"hello\"").unwrap(),
-            Value::String(Rc::new("hello".to_string()))
-        );
+        assert_eq!(eval("\"hello\"").unwrap(), Value::string("hello"));
     }
 
     #[test]
     fn test_vm_if_true() {
-        assert_eq!(eval("(if #t 42 99)").unwrap(), Value::Int(42));
+        assert_eq!(eval("(if #t 42 99)").unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_vm_if_false() {
-        assert_eq!(eval("(if #f 42 99)").unwrap(), Value::Int(99));
+        assert_eq!(eval("(if #f 42 99)").unwrap(), Value::int(99));
     }
 
     #[test]
     fn test_vm_begin() {
-        assert_eq!(eval("(begin 1 2 3)").unwrap(), Value::Int(3));
+        assert_eq!(eval("(begin 1 2 3)").unwrap(), Value::int(3));
     }
 
     #[test]
@@ -1251,80 +1238,74 @@ mod tests {
         let ctx = EvalContext::new();
         eval_str("(define x 42)", &globals, &ctx).unwrap();
         let result = eval_str("x", &globals, &ctx).unwrap();
-        assert_eq!(result, Value::Int(42));
+        assert_eq!(result, Value::int(42));
     }
 
     #[test]
     fn test_vm_let() {
-        assert_eq!(eval("(let ((x 10)) x)").unwrap(), Value::Int(10));
+        assert_eq!(eval("(let ((x 10)) x)").unwrap(), Value::int(10));
     }
 
     #[test]
     fn test_vm_let_multiple() {
-        assert_eq!(eval("(let ((x 10) (y 20)) y)").unwrap(), Value::Int(20));
+        assert_eq!(eval("(let ((x 10) (y 20)) y)").unwrap(), Value::int(20));
     }
 
     #[test]
     fn test_vm_nested_if() {
-        assert_eq!(eval("(if (if #t #f #t) 1 2)").unwrap(), Value::Int(2));
+        assert_eq!(eval("(if (if #t #f #t) 1 2)").unwrap(), Value::int(2));
     }
 
     #[test]
     fn test_vm_lambda_call() {
-        assert_eq!(eval("((lambda (x) x) 42)").unwrap(), Value::Int(42));
+        assert_eq!(eval("((lambda (x) x) 42)").unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_vm_lambda_two_args() {
-        assert_eq!(eval("((lambda (x y) y) 1 2)").unwrap(), Value::Int(2));
+        assert_eq!(eval("((lambda (x y) y) 1 2)").unwrap(), Value::int(2));
     }
 
     #[test]
     fn test_vm_closure_capture() {
         assert_eq!(
             eval("(let ((x 10)) ((lambda () x)))").unwrap(),
-            Value::Int(10)
+            Value::int(10)
         );
     }
 
     #[test]
     fn test_vm_list_literal() {
         let result = eval("(list 1 2 3)").unwrap();
-        match result {
-            Value::List(items) => {
-                assert_eq!(items.len(), 3);
-                assert_eq!(items[0], Value::Int(1));
-            }
-            _ => panic!("Expected list, got {:?}", result),
-        }
+        let items = result.as_list().expect("Expected list");
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::int(1));
     }
 
     #[test]
     fn test_vm_make_vector() {
         let result = eval("[1 2 3]").unwrap();
-        match result {
-            Value::Vector(items) => assert_eq!(items.len(), 3),
-            _ => panic!("Expected vector"),
-        }
+        let items = result.as_vector().expect("Expected vector");
+        assert_eq!(items.len(), 3);
     }
 
     #[test]
     fn test_vm_and_short_circuit() {
-        assert_eq!(eval("(and #f 42)").unwrap(), Value::Bool(false));
-        assert_eq!(eval("(and #t 42)").unwrap(), Value::Int(42));
+        assert_eq!(eval("(and #f 42)").unwrap(), Value::bool(false));
+        assert_eq!(eval("(and #t 42)").unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_vm_or_short_circuit() {
-        assert_eq!(eval("(or 42 99)").unwrap(), Value::Int(42));
-        assert_eq!(eval("(or #f 99)").unwrap(), Value::Int(99));
+        assert_eq!(eval("(or 42 99)").unwrap(), Value::int(42));
+        assert_eq!(eval("(or #f 99)").unwrap(), Value::int(99));
     }
 
     #[test]
     fn test_vm_throw_catch() {
         // Caught value is now a map with :type, :message, :value keys
         let result = eval("(try (throw \"boom\") (catch e (:value e)))").unwrap();
-        assert_eq!(result, Value::String(Rc::new("boom".to_string())));
+        assert_eq!(result, Value::string("boom"));
     }
 
     #[test]
@@ -1335,23 +1316,21 @@ mod tests {
 
     #[test]
     fn test_vm_try_no_throw() {
-        assert_eq!(eval("(try 42 (catch e 99))").unwrap(), Value::Int(42));
+        assert_eq!(eval("(try 42 (catch e 99))").unwrap(), Value::int(42));
     }
 
     #[test]
     fn test_vm_try_catch_native_error() {
         // Division by zero from NativeFn should be caught
         let result = eval("(try (/ 1 0) (catch e \"caught\"))").unwrap();
-        assert_eq!(result, Value::String(Rc::new("caught".to_string())));
+        assert_eq!(result, Value::string("caught"));
     }
 
     #[test]
     fn test_vm_try_catch_native_error_message() {
         let result = eval("(try (/ 1 0) (catch e (:message e)))").unwrap();
-        match result {
-            Value::String(s) => assert!(s.contains("division by zero"), "got: {s}"),
-            other => panic!("Expected string, got: {other:?}"),
-        }
+        let s = result.as_str().expect("Expected string");
+        assert!(s.contains("division by zero"), "got: {s}");
     }
 
     #[test]
@@ -1363,10 +1342,8 @@ mod tests {
     #[test]
     fn test_vm_quote() {
         let result = eval("'(a b c)").unwrap();
-        match result {
-            Value::List(items) => assert_eq!(items.len(), 3),
-            _ => panic!("Expected list"),
-        }
+        let items = result.as_list().expect("Expected list");
+        assert_eq!(items.len(), 3);
     }
 
     #[test]
@@ -1376,7 +1353,7 @@ mod tests {
         eval_str("(define x 1)", &globals, &ctx).unwrap();
         eval_str("(set! x 42)", &globals, &ctx).unwrap();
         let result = eval_str("x", &globals, &ctx).unwrap();
-        assert_eq!(result, Value::Int(42));
+        assert_eq!(result, Value::int(42));
     }
 
     #[test]
@@ -1390,20 +1367,20 @@ mod tests {
         )
         .unwrap();
         let result = eval_str("(fact 5)", &globals, &ctx).unwrap();
-        assert_eq!(result, Value::Int(120));
+        assert_eq!(result, Value::int(120));
     }
 
     #[test]
     fn test_vm_do_loop() {
         let result = eval("(do ((i 0 (+ i 1))) ((= i 5) i))").unwrap();
-        assert_eq!(result, Value::Int(5));
+        assert_eq!(result, Value::int(5));
     }
 
     #[test]
     fn test_vm_named_let() {
         let result =
             eval("(let loop ((n 5) (acc 1)) (if (= n 0) acc (loop (- n 1) (* acc n))))").unwrap();
-        assert_eq!(result, Value::Int(120));
+        assert_eq!(result, Value::int(120));
     }
 
     #[test]
@@ -1415,20 +1392,16 @@ mod tests {
             &globals,
             &ctx,
         ).unwrap();
-        assert_eq!(result, Value::Bool(true));
+        assert_eq!(result, Value::bool(true));
     }
 
     #[test]
     fn test_vm_rest_params() {
         let result = eval("((lambda (x . rest) rest) 1 2 3)").unwrap();
-        match result {
-            Value::List(items) => {
-                assert_eq!(items.len(), 2);
-                assert_eq!(items[0], Value::Int(2));
-                assert_eq!(items[1], Value::Int(3));
-            }
-            _ => panic!("Expected list, got {:?}", result),
-        }
+        let items = result.as_list().expect("Expected list");
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0], Value::int(2));
+        assert_eq!(items[1], Value::int(3));
     }
 
     // --- Task 8: Mutable upvalue tests ---
@@ -1439,7 +1412,7 @@ mod tests {
         let result =
             eval("(let ((n 0)) (let ((inc (lambda () (set! n (+ n 1)) n))) (inc) (inc) (inc)))")
                 .unwrap();
-        assert_eq!(result, Value::Int(3));
+        assert_eq!(result, Value::int(3));
     }
 
     #[test]
@@ -1449,28 +1422,28 @@ mod tests {
             "(let ((n 0)) (let ((inc (lambda () (set! n (+ n 1)))) (get (lambda () n))) (inc) (inc) (get)))",
         )
         .unwrap();
-        assert_eq!(result, Value::Int(2));
+        assert_eq!(result, Value::int(2));
     }
 
     #[test]
     fn test_vm_set_local_in_let() {
         // set! on a local variable (not captured)
         let result = eval("(let ((x 1)) (set! x 42) x)").unwrap();
-        assert_eq!(result, Value::Int(42));
+        assert_eq!(result, Value::int(42));
     }
 
     #[test]
     fn test_vm_closure_captures_after_mutation() {
         // Closure captures value after mutation
         let result = eval("(let ((x 1)) (set! x 10) ((lambda () x)))").unwrap();
-        assert_eq!(result, Value::Int(10));
+        assert_eq!(result, Value::int(10));
     }
 
     #[test]
     fn test_vm_closure_returns_closure() {
         // A closure that returns another closure
         let result = eval("(let ((f (lambda () (lambda (x) x)))) ((f) 42))").unwrap();
-        assert_eq!(result, Value::Int(42));
+        assert_eq!(result, Value::int(42));
     }
 
     #[test]
@@ -1486,7 +1459,7 @@ mod tests {
         .unwrap();
         eval_str("(define add5 (make-adder 5))", &globals, &ctx).unwrap();
         let result = eval_str("(add5 3)", &globals, &ctx).unwrap();
-        assert_eq!(result, Value::Int(8));
+        assert_eq!(result, Value::int(8));
     }
 
     #[test]
@@ -1503,14 +1476,14 @@ mod tests {
         eval_str("(define inc (lambda (x) (+ x 1)))", &globals, &ctx).unwrap();
         eval_str("(define dbl (lambda (x) (* x 2)))", &globals, &ctx).unwrap();
         let result = eval_str("((compose dbl inc) 5)", &globals, &ctx).unwrap();
-        assert_eq!(result, Value::Int(12));
+        assert_eq!(result, Value::int(12));
     }
 
     #[test]
     fn test_vm_nested_make_closure() {
         // Three levels deep
         let result = eval("((((lambda () (lambda () (lambda () 42))))))").unwrap();
-        assert_eq!(result, Value::Int(42));
+        assert_eq!(result, Value::int(42));
     }
 
     #[test]
@@ -1519,13 +1492,9 @@ mod tests {
         let ctx = EvalContext::new();
         eval_str("(define (f . args) args)", &globals, &ctx).unwrap();
         let result = eval_str("(f 1 2 3)", &globals, &ctx).unwrap();
-        match result {
-            Value::List(items) => {
-                assert_eq!(items.len(), 3);
-                assert_eq!(items[0], Value::Int(1));
-            }
-            other => panic!("Expected list, got {:?}", other),
-        }
+        let items = result.as_list().expect("Expected list");
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::int(1));
     }
 
     #[test]
@@ -1538,7 +1507,7 @@ mod tests {
             &ctx,
         )
         .unwrap();
-        assert_eq!(result, Value::Int(120));
+        assert_eq!(result, Value::int(120));
     }
 
     #[test]
@@ -1553,6 +1522,6 @@ mod tests {
         )
         .unwrap();
         let result = eval_str("(((curry +) 3) 4)", &globals, &ctx).unwrap();
-        assert_eq!(result, Value::Int(7));
+        assert_eq!(result, Value::int(7));
     }
 }

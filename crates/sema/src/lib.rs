@@ -9,7 +9,7 @@
 //!
 //! let interp = InterpreterBuilder::new().build();
 //! let result = interp.eval_str("(+ 1 2)").unwrap();
-//! assert_eq!(result, Value::Int(3));
+//! assert_eq!(result, Value::int(3));
 //! ```
 
 use std::rc::Rc;
@@ -150,9 +150,10 @@ impl Interpreter {
     ///
     /// let interp = Interpreter::new();
     /// interp.register_fn("square", |args: &[Value]| {
-    ///     match &args[0] {
-    ///         Value::Int(n) => Ok(Value::Int(n * n)),
-    ///         other => Err(SemaError::type_error("integer", format!("{other}"))),
+    ///     if let Some(n) = args[0].as_int() {
+    ///         Ok(Value::int(n * n))
+    ///     } else {
+    ///         Err(SemaError::type_error("integer", args[0].type_name()))
     ///     }
     /// });
     /// ```
@@ -165,7 +166,7 @@ impl Interpreter {
         let native = NativeFn::simple(name, f);
         self.inner
             .global_env
-            .set_str(name, Value::NativeFn(Rc::new(native)));
+            .set_str(name, Value::native_fn(native));
     }
 
     /// Return a reference to the global environment.

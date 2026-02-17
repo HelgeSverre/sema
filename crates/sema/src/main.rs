@@ -6,7 +6,7 @@ use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use sema_core::{Env, SemaError, Value};
+use sema_core::{Env, SemaError, Value, ValueView};
 use sema_eval::Interpreter;
 
 const SPECIAL_FORMS: &[&str] = &[
@@ -291,7 +291,7 @@ fn main() {
     if let Some(expr) = &cli.eval {
         match eval_with_mode(&interpreter, expr, cli.vm) {
             Ok(val) => {
-                if !matches!(val, sema_core::Value::Nil) {
+                if !val.is_nil() {
                     println!("{val}");
                 }
             }
@@ -412,29 +412,29 @@ fn run_ast(file: Option<String>, eval: Option<String>, json: bool) {
 }
 
 fn value_to_ast_json(val: &Value) -> serde_json::Value {
-    match val {
-        Value::Nil => serde_json::Value::Object(
+    match val.view() {
+        ValueView::Nil => serde_json::Value::Object(
             [("type".to_string(), serde_json::Value::String("nil".into()))]
                 .into_iter()
                 .collect(),
         ),
-        Value::Bool(b) => serde_json::Value::Object(
+        ValueView::Bool(b) => serde_json::Value::Object(
             [
                 ("type".to_string(), serde_json::Value::String("bool".into())),
-                ("value".to_string(), serde_json::Value::Bool(*b)),
+                ("value".to_string(), serde_json::Value::Bool(b)),
             ]
             .into_iter()
             .collect(),
         ),
-        Value::Int(n) => serde_json::Value::Object(
+        ValueView::Int(n) => serde_json::Value::Object(
             [
                 ("type".to_string(), serde_json::Value::String("int".into())),
-                ("value".to_string(), serde_json::Value::Number((*n).into())),
+                ("value".to_string(), serde_json::Value::Number(n.into())),
             ]
             .into_iter()
             .collect(),
         ),
-        Value::Float(f) => serde_json::Value::Object(
+        ValueView::Float(f) => serde_json::Value::Object(
             [
                 (
                     "type".to_string(),
@@ -442,7 +442,7 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
                 ),
                 (
                     "value".to_string(),
-                    serde_json::Number::from_f64(*f)
+                    serde_json::Number::from_f64(f)
                         .map(serde_json::Value::Number)
                         .unwrap_or(serde_json::Value::Null),
                 ),
@@ -450,7 +450,7 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
             .into_iter()
             .collect(),
         ),
-        Value::String(s) => serde_json::Value::Object(
+        ValueView::String(s) => serde_json::Value::Object(
             [
                 (
                     "type".to_string(),
@@ -464,7 +464,7 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
             .into_iter()
             .collect(),
         ),
-        Value::Symbol(s) => serde_json::Value::Object(
+        ValueView::Symbol(s) => serde_json::Value::Object(
             [
                 (
                     "type".to_string(),
@@ -472,13 +472,13 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
                 ),
                 (
                     "value".to_string(),
-                    serde_json::Value::String(sema_core::resolve(*s)),
+                    serde_json::Value::String(sema_core::resolve(s)),
                 ),
             ]
             .into_iter()
             .collect(),
         ),
-        Value::Keyword(s) => serde_json::Value::Object(
+        ValueView::Keyword(s) => serde_json::Value::Object(
             [
                 (
                     "type".to_string(),
@@ -486,13 +486,13 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
                 ),
                 (
                     "value".to_string(),
-                    serde_json::Value::String(sema_core::resolve(*s)),
+                    serde_json::Value::String(sema_core::resolve(s)),
                 ),
             ]
             .into_iter()
             .collect(),
         ),
-        Value::List(items) => serde_json::Value::Object(
+        ValueView::List(items) => serde_json::Value::Object(
             [
                 ("type".to_string(), serde_json::Value::String("list".into())),
                 (
@@ -503,7 +503,7 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
             .into_iter()
             .collect(),
         ),
-        Value::Vector(items) => serde_json::Value::Object(
+        ValueView::Vector(items) => serde_json::Value::Object(
             [
                 (
                     "type".to_string(),
@@ -517,7 +517,7 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
             .into_iter()
             .collect(),
         ),
-        Value::Map(map) => serde_json::Value::Object(
+        ValueView::Map(map) => serde_json::Value::Object(
             [
                 ("type".to_string(), serde_json::Value::String("map".into())),
                 (
@@ -541,10 +541,10 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
             .into_iter()
             .collect(),
         ),
-        other => serde_json::Value::Object(
+        _ => serde_json::Value::Object(
             [(
                 "type".to_string(),
-                serde_json::Value::String(other.type_name().into()),
+                serde_json::Value::String(val.type_name().into()),
             )]
             .into_iter()
             .collect(),
@@ -554,27 +554,27 @@ fn value_to_ast_json(val: &Value) -> serde_json::Value {
 
 fn print_ast(val: &Value, indent: usize) {
     let pad = "  ".repeat(indent);
-    match val {
-        Value::Nil => println!("{pad}Nil"),
-        Value::Bool(b) => println!("{pad}Bool {b}"),
-        Value::Int(n) => println!("{pad}Int {n}"),
-        Value::Float(f) => println!("{pad}Float {f}"),
-        Value::String(s) => println!("{pad}String {s:?}"),
-        Value::Symbol(s) => println!("{pad}Symbol {}", sema_core::resolve(*s)),
-        Value::Keyword(s) => println!("{pad}Keyword :{}", sema_core::resolve(*s)),
-        Value::List(items) => {
+    match val.view() {
+        ValueView::Nil => println!("{pad}Nil"),
+        ValueView::Bool(b) => println!("{pad}Bool {b}"),
+        ValueView::Int(n) => println!("{pad}Int {n}"),
+        ValueView::Float(f) => println!("{pad}Float {f}"),
+        ValueView::String(s) => println!("{pad}String {s:?}"),
+        ValueView::Symbol(s) => println!("{pad}Symbol {}", sema_core::resolve(s)),
+        ValueView::Keyword(s) => println!("{pad}Keyword :{}", sema_core::resolve(s)),
+        ValueView::List(items) => {
             println!("{pad}List");
             for item in items.iter() {
                 print_ast(item, indent + 1);
             }
         }
-        Value::Vector(items) => {
+        ValueView::Vector(items) => {
             println!("{pad}Vector");
             for item in items.iter() {
                 print_ast(item, indent + 1);
             }
         }
-        Value::Map(map) => {
+        ValueView::Map(map) => {
             println!("{pad}Map");
             for (k, v) in map.iter() {
                 println!("{pad}  Entry");
@@ -582,7 +582,7 @@ fn print_ast(val: &Value, indent: usize) {
                 print_ast(v, indent + 2);
             }
         }
-        other => println!("{pad}{}", other.type_name()),
+        _ => println!("{pad}{}", val.type_name()),
     }
 }
 
@@ -671,7 +671,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
 
                 match eval_with_mode(&interpreter, &input, use_vm) {
                     Ok(val) => {
-                        if !matches!(val, sema_core::Value::Nil) {
+                        if !val.is_nil() {
                             println!("{val}");
                         }
                     }
@@ -752,7 +752,7 @@ fn print_env(interpreter: &Interpreter) {
     let bindings = interpreter.global_env.bindings.borrow();
     let mut user_bindings: Vec<_> = bindings
         .iter()
-        .filter(|(_, v)| !matches!(v, sema_core::Value::NativeFn(_)))
+        .filter(|(_, v)| v.as_native_fn_rc().is_none())
         .collect();
     user_bindings.sort_by_key(|(k, _)| *k);
     if user_bindings.is_empty() {
@@ -769,7 +769,7 @@ fn print_builtins(interpreter: &Interpreter) {
     let bindings = interpreter.global_env.bindings.borrow();
     let mut names: Vec<_> = bindings
         .iter()
-        .filter(|(_, v)| matches!(v, sema_core::Value::NativeFn(_)))
+        .filter(|(_, v)| v.as_native_fn_rc().is_some())
         .map(|(spur, _)| sema_core::resolve(*spur))
         .collect();
     names.sort();

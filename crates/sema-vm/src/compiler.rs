@@ -209,11 +209,14 @@ impl Compiler {
     // --- Constants ---
 
     fn compile_const(&mut self, val: &Value) -> Result<(), SemaError> {
-        match val {
-            Value::Nil => self.emit.emit_op(Op::Nil),
-            Value::Bool(true) => self.emit.emit_op(Op::True),
-            Value::Bool(false) => self.emit.emit_op(Op::False),
-            _ => self.emit.emit_const(val.clone()),
+        if val.is_nil() {
+            self.emit.emit_op(Op::Nil);
+        } else if val.as_bool() == Some(true) {
+            self.emit.emit_op(Op::True);
+        } else if val.as_bool() == Some(false) {
+            self.emit.emit_op(Op::False);
+        } else {
+            self.emit.emit_const(val.clone());
         }
         Ok(())
     }
@@ -750,8 +753,11 @@ impl Compiler {
     }
 
     fn compile_import(&mut self, path: &ResolvedExpr, selective: &[Spur]) -> Result<(), SemaError> {
-        let sel_list: Vec<Value> = selective.iter().map(|s| Value::Symbol(*s)).collect();
-        self.emit_runtime_call_with_const("__vm-import", path, &Value::List(sel_list.into()))
+        let sel_list: Vec<Value> = selective
+            .iter()
+            .map(|s| Value::symbol_from_spur(*s))
+            .collect();
+        self.emit_runtime_call_with_const("__vm-import", path, &Value::list(sel_list))
     }
 
     fn compile_module(
@@ -784,13 +790,13 @@ impl Compiler {
     ) -> Result<(), SemaError> {
         // Defmacro at compile time — emit as a call to __vm-defmacro
         // For now, compile the body as a lambda and register it
-        let param_vals: Vec<Value> = params.iter().map(|s| Value::Symbol(*s)).collect();
+        let param_vals: Vec<Value> = params.iter().map(|s| Value::symbol_from_spur(*s)).collect();
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-defmacro")));
-        self.emit.emit_const(Value::Symbol(name));
-        self.emit.emit_const(Value::List(param_vals.into()));
+        self.emit.emit_const(Value::symbol_from_spur(name));
+        self.emit.emit_const(Value::list(param_vals));
         if let Some(r) = rest {
-            self.emit.emit_const(Value::Symbol(*r));
+            self.emit.emit_const(Value::symbol_from_spur(*r));
         } else {
             self.emit.emit_op(Op::Nil);
         }
@@ -814,16 +820,24 @@ impl Compiler {
         self.emit.emit_op(Op::LoadGlobal);
         self.emit
             .emit_u32(spur_to_u32(intern("__vm-define-record-type")));
-        self.emit.emit_const(Value::Symbol(type_name));
-        self.emit.emit_const(Value::Symbol(ctor_name));
-        self.emit.emit_const(Value::Symbol(pred_name));
-        let fields: Vec<Value> = field_names.iter().map(|s| Value::Symbol(*s)).collect();
-        self.emit.emit_const(Value::List(fields.into()));
+        self.emit.emit_const(Value::symbol_from_spur(type_name));
+        self.emit.emit_const(Value::symbol_from_spur(ctor_name));
+        self.emit.emit_const(Value::symbol_from_spur(pred_name));
+        let fields: Vec<Value> = field_names
+            .iter()
+            .map(|s| Value::symbol_from_spur(*s))
+            .collect();
+        self.emit.emit_const(Value::list(fields));
         let specs: Vec<Value> = field_specs
             .iter()
-            .map(|(f, a)| Value::List(vec![Value::Symbol(*f), Value::Symbol(*a)].into()))
+            .map(|(f, a)| {
+                Value::list(vec![
+                    Value::symbol_from_spur(*f),
+                    Value::symbol_from_spur(*a),
+                ])
+            })
             .collect();
-        self.emit.emit_const(Value::List(specs.into()));
+        self.emit.emit_const(Value::list(specs));
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(5);
         Ok(())
@@ -837,7 +851,7 @@ impl Compiler {
         for entry in entries {
             match entry {
                 ResolvedPromptEntry::RoleContent { role, parts } => {
-                    self.emit.emit_const(Value::String(role.clone().into()));
+                    self.emit.emit_const(Value::string(role));
                     for part in parts {
                         self.compile_expr(part)?;
                     }
@@ -886,7 +900,7 @@ impl Compiler {
     ) -> Result<(), SemaError> {
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-deftool")));
-        self.emit.emit_const(Value::Symbol(name));
+        self.emit.emit_const(Value::symbol_from_spur(name));
         self.compile_expr(description)?;
         self.compile_expr(parameters)?;
         self.compile_expr(handler)?;
@@ -898,7 +912,7 @@ impl Compiler {
     fn compile_defagent(&mut self, name: Spur, options: &ResolvedExpr) -> Result<(), SemaError> {
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-defagent")));
-        self.emit.emit_const(Value::Symbol(name));
+        self.emit.emit_const(Value::symbol_from_spur(name));
         self.compile_expr(options)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(2);
@@ -1062,7 +1076,7 @@ mod tests {
         let result = compile_str("42");
         let ops = extract_ops(&result.chunk);
         assert_eq!(ops, vec![Op::Const, Op::Return]);
-        assert_eq!(result.chunk.consts[0], Value::Int(42));
+        assert_eq!(result.chunk.consts[0], Value::int(42));
     }
 
     #[test]
@@ -1086,7 +1100,7 @@ mod tests {
         let result = compile_str("\"hello\"");
         let ops = extract_ops(&result.chunk);
         assert_eq!(ops, vec![Op::Const, Op::Return]);
-        assert!(matches!(&result.chunk.consts[0], Value::String(s) if s.as_str() == "hello"));
+        assert_eq!(result.chunk.consts[0].as_str(), Some("hello"));
     }
 
     // --- Variable access ---
@@ -1456,12 +1470,12 @@ mod tests {
         let f1 = &result.functions[1];
         let f1_ops = extract_ops(&f1.chunk);
         assert_eq!(f1_ops, vec![Op::Const, Op::Return]);
-        assert_eq!(f1.chunk.consts[0], Value::Int(1));
+        assert_eq!(f1.chunk.consts[0], Value::int(1));
 
         let f2 = &result.functions[2];
         let f2_ops = extract_ops(&f2.chunk);
         assert_eq!(f2_ops, vec![Op::Const, Op::Return]);
-        assert_eq!(f2.chunk.consts[0], Value::Int(2));
+        assert_eq!(f2.chunk.consts[0], Value::int(2));
 
         // Verify the outer function has two MakeClosure instructions
         // with func_ids 1 and 2 (checking the raw bytes)

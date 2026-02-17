@@ -367,7 +367,7 @@ impl Value {
 
     #[inline(always)]
     pub fn int(n: i64) -> Value {
-        if n >= SMALL_INT_MIN && n <= SMALL_INT_MAX {
+        if (SMALL_INT_MIN..=SMALL_INT_MAX).contains(&n) {
             // Encode as small int (45-bit two's complement)
             let payload = (n as u64) & PAYLOAD_MASK;
             Value(make_boxed(TAG_INT_SMALL, payload))
@@ -584,16 +584,6 @@ impl Value {
         !is_boxed(self.0)
     }
 
-    /// Get the tag for boxed values, or None for floats.
-    #[inline(always)]
-    fn boxed_tag(&self) -> Option<u64> {
-        if is_boxed(self.0) {
-            Some(get_tag(self.0))
-        } else {
-            None
-        }
-    }
-
     /// Recover an Rc<T> pointer from the payload WITHOUT consuming ownership.
     /// This increments the refcount (returns a new Rc).
     #[inline(always)]
@@ -611,17 +601,6 @@ impl Value {
         let payload = get_payload(self.0);
         let ptr = payload_to_ptr(payload) as *const T;
         &*ptr
-    }
-
-    /// Borrow as &Rc<T> — gives access to Rc methods (clone, make_mut, etc.)
-    /// SAFETY: caller must ensure tag matches. The Rc lives in the heap allocation
-    /// and we synthesize a reference to it. We actually need to reconstruct an Rc
-    /// since we only have the raw pointer. Instead, we return a ManuallyDrop<Rc<T>>.
-    #[inline(always)]
-    unsafe fn borrow_rc<T>(&self) -> std::mem::ManuallyDrop<Rc<T>> {
-        let payload = get_payload(self.0);
-        let ptr = payload_to_ptr(payload) as *const T;
-        std::mem::ManuallyDrop::new(Rc::from_raw(ptr))
     }
 
     /// Pattern-match friendly view of this value.
@@ -667,18 +646,14 @@ impl Value {
             TAG_VECTOR => ValueView::Vector(unsafe { self.get_rc::<Vec<Value>>() }),
             TAG_MAP => ValueView::Map(unsafe { self.get_rc::<BTreeMap<Value, Value>>() }),
             TAG_HASHMAP => {
-                ValueView::HashMap(unsafe {
-                    self.get_rc::<hashbrown::HashMap<Value, Value>>()
-                })
+                ValueView::HashMap(unsafe { self.get_rc::<hashbrown::HashMap<Value, Value>>() })
             }
             TAG_LAMBDA => ValueView::Lambda(unsafe { self.get_rc::<Lambda>() }),
             TAG_MACRO => ValueView::Macro(unsafe { self.get_rc::<Macro>() }),
             TAG_NATIVE_FN => ValueView::NativeFn(unsafe { self.get_rc::<NativeFn>() }),
             TAG_PROMPT => ValueView::Prompt(unsafe { self.get_rc::<Prompt>() }),
             TAG_MESSAGE => ValueView::Message(unsafe { self.get_rc::<Message>() }),
-            TAG_CONVERSATION => {
-                ValueView::Conversation(unsafe { self.get_rc::<Conversation>() })
-            }
+            TAG_CONVERSATION => ValueView::Conversation(unsafe { self.get_rc::<Conversation>() }),
             TAG_TOOL_DEF => ValueView::ToolDef(unsafe { self.get_rc::<ToolDefinition>() }),
             TAG_AGENT => ValueView::Agent(unsafe { self.get_rc::<Agent>() }),
             TAG_THUNK => ValueView::Thunk(unsafe { self.get_rc::<Thunk>() }),
@@ -874,7 +849,7 @@ impl Value {
     pub fn as_symbol_spur(&self) -> Option<Spur> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_SYMBOL {
             let payload = get_payload(self.0);
-            Some(unsafe { std::mem::transmute(payload as u32) })
+            Some(unsafe { std::mem::transmute::<u32, Spur>(payload as u32) })
         } else {
             None
         }
@@ -887,7 +862,7 @@ impl Value {
     pub fn as_keyword_spur(&self) -> Option<Spur> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_KEYWORD {
             let payload = get_payload(self.0);
-            Some(unsafe { std::mem::transmute(payload as u32) })
+            Some(unsafe { std::mem::transmute::<u32, Spur>(payload as u32) })
         } else {
             None
         }
@@ -982,11 +957,9 @@ impl Value {
         }
     }
 
-    pub fn as_record(&self) -> Option<&Rc<Record>> {
+    pub fn as_record(&self) -> Option<&Record> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_RECORD {
-            // Return a reference to the ManuallyDrop<Rc<Record>>, which derefs to &Rc<Record>
-            // SAFETY: the Rc lives as long as self does, and ManuallyDrop is repr(transparent)
-            Some(unsafe { &*(&*self.borrow_rc::<Record>() as *const Rc<Record>) })
+            Some(unsafe { self.borrow_ref::<Record>() })
         } else {
             None
         }
@@ -1000,9 +973,9 @@ impl Value {
         }
     }
 
-    pub fn as_bytevector(&self) -> Option<&Rc<Vec<u8>>> {
+    pub fn as_bytevector(&self) -> Option<&[u8]> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_BYTEVECTOR {
-            Some(unsafe { &*(&*self.borrow_rc::<Vec<u8>>() as *const Rc<Vec<u8>>) })
+            Some(unsafe { self.borrow_ref::<Vec<u8>>() })
         } else {
             None
         }
@@ -1083,22 +1056,16 @@ impl Clone for Value {
                         TAG_LIST | TAG_VECTOR => {
                             Rc::increment_strong_count(ptr as *const Vec<Value>)
                         }
-                        TAG_MAP => {
-                            Rc::increment_strong_count(ptr as *const BTreeMap<Value, Value>)
-                        }
-                        TAG_HASHMAP => {
-                            Rc::increment_strong_count(
-                                ptr as *const hashbrown::HashMap<Value, Value>,
-                            )
-                        }
+                        TAG_MAP => Rc::increment_strong_count(ptr as *const BTreeMap<Value, Value>),
+                        TAG_HASHMAP => Rc::increment_strong_count(
+                            ptr as *const hashbrown::HashMap<Value, Value>,
+                        ),
                         TAG_LAMBDA => Rc::increment_strong_count(ptr as *const Lambda),
                         TAG_MACRO => Rc::increment_strong_count(ptr as *const Macro),
                         TAG_NATIVE_FN => Rc::increment_strong_count(ptr as *const NativeFn),
                         TAG_PROMPT => Rc::increment_strong_count(ptr as *const Prompt),
                         TAG_MESSAGE => Rc::increment_strong_count(ptr as *const Message),
-                        TAG_CONVERSATION => {
-                            Rc::increment_strong_count(ptr as *const Conversation)
-                        }
+                        TAG_CONVERSATION => Rc::increment_strong_count(ptr as *const Conversation),
                         TAG_TOOL_DEF => Rc::increment_strong_count(ptr as *const ToolDefinition),
                         TAG_AGENT => Rc::increment_strong_count(ptr as *const Agent),
                         TAG_THUNK => Rc::increment_strong_count(ptr as *const Thunk),
@@ -1134,9 +1101,7 @@ impl Drop for Value {
                     match tag {
                         TAG_INT_BIG => drop(Rc::from_raw(ptr as *const i64)),
                         TAG_STRING => drop(Rc::from_raw(ptr as *const String)),
-                        TAG_LIST | TAG_VECTOR => {
-                            drop(Rc::from_raw(ptr as *const Vec<Value>))
-                        }
+                        TAG_LIST | TAG_VECTOR => drop(Rc::from_raw(ptr as *const Vec<Value>)),
                         TAG_MAP => drop(Rc::from_raw(ptr as *const BTreeMap<Value, Value>)),
                         TAG_HASHMAP => {
                             drop(Rc::from_raw(ptr as *const hashbrown::HashMap<Value, Value>))
@@ -1146,9 +1111,7 @@ impl Drop for Value {
                         TAG_NATIVE_FN => drop(Rc::from_raw(ptr as *const NativeFn)),
                         TAG_PROMPT => drop(Rc::from_raw(ptr as *const Prompt)),
                         TAG_MESSAGE => drop(Rc::from_raw(ptr as *const Message)),
-                        TAG_CONVERSATION => {
-                            drop(Rc::from_raw(ptr as *const Conversation))
-                        }
+                        TAG_CONVERSATION => drop(Rc::from_raw(ptr as *const Conversation)),
                         TAG_TOOL_DEF => drop(Rc::from_raw(ptr as *const ToolDefinition)),
                         TAG_AGENT => drop(Rc::from_raw(ptr as *const Agent)),
                         TAG_THUNK => drop(Rc::from_raw(ptr as *const Thunk)),

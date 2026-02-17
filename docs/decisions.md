@@ -116,7 +116,7 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 
 ### 2. Macro Phase: Keep Runtime Semantics
 
-**Decision:** Macros remain runtime-expanded, exactly as today. When the VM encounters a `Value::Macro` callable, it delegates to the tree-walker for expansion, then compiles and executes the result.
+**Decision:** Macros remain runtime-expanded, exactly as today. When the VM encounters a Macro value, it delegates to the tree-walker for expansion, then compiles and executes the result.
 
 **Implication:** The tree-walker (`sema-eval`) is NOT deleted — it becomes the macro expansion engine. Both runtimes must coexist and interoperate. The compilation pipeline is: source → reader → macro expand (tree-walker) → lower to CoreExpr → resolve variables → compile to bytecode → VM execution.
 
@@ -133,9 +133,9 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 
 ### 4. VM Closure Execution: NativeFn with Payload (implemented)
 
-**Decision:** VM closures are wrapped as `Value::NativeFn` but carry an opaque `payload: Option<Rc<dyn Any>>` containing a `VmClosurePayload` (the compiled closure + function table). Inside the VM, `call_value` detects the payload, downcasts to `VmClosurePayload`, and pushes a `CallFrame` on the **same VM** — no Rust recursion and no native stack growth.
+**Decision:** VM closures are wrapped as NativeFn values but carry an opaque `payload: Option<Rc<dyn Any>>` containing a `VmClosurePayload` (the compiled closure + function table). Inside the VM, `call_value` detects the payload, downcasts to `VmClosurePayload`, and pushes a `CallFrame` on the **same VM** — no Rust recursion and no native stack growth.
 
-**Why not `Value::VmClosure`:** The originally planned approach was to add a new `Value::VmClosure(Rc<Closure>)` variant. Instead, the `NativeFn` payload field was used, which avoids adding a new Value variant and keeps the Value enum unchanged.
+**Why not a separate VmClosure type:** The originally planned approach was to add a dedicated VmClosure value type. Instead, the NativeFn payload field was used, which avoids adding a new type tag and keeps the Value type compact.
 
 **NativeFn fallback:** The NativeFn wrapper function is kept as a fallback for closures that cross the VM/tree-walker boundary (e.g., closures passed to stdlib HOFs like `map`, `filter`, `fold`). In that case the NativeFn callback fires, which spins up a fresh VM.
 
@@ -148,6 +148,41 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 **Rationale:** The special `compile_named_let` path duplicated `compile_lambda` logic but missed critical parts (func_id patching, upvalue support), causing bugs 1 and 3 from the original vm-status.md. Desugaring reuses the correct and tested `compile_letrec` + `compile_lambda` paths.
 
 **Note:** The `NamedLet` CoreExpr variant still exists, but the lowering pass converts named-let forms before they reach the resolver/compiler, so `compile_named_let` is no longer used for the actual implementation.
+
+## NaN-Boxing Value Representation
+
+**Decision:** Replace the 24-byte `enum Value` with an 8-byte NaN-boxed `struct Value(u64)`. All values are encoded in 8 bytes using IEEE 754 quiet NaN payload space.
+
+**Encoding scheme:**
+- **Floats:** Stored directly as `f64` bits. Canonical quiet NaN (`0x7FF8...`) used for NaN float values to avoid collision with boxed values.
+- **Boxed values:** sign=1, exponent=all 1s, quiet bit=1. Bits 50-45 = TAG (6 bits, up to 64 types), bits 44-0 = PAYLOAD (45 bits).
+- **Small integers:** 45-bit two's complement in the payload, range ±17.5 trillion. No heap allocation.
+- **Symbols/keywords:** `Spur` (interned string key, 32 bits) stored directly in the payload. No heap allocation.
+- **Chars:** Unicode codepoint (32 bits) stored directly in the payload.
+- **Booleans/nil:** Tag-only, zero payload. Constants `Value::NIL`, `Value::TRUE`, `Value::FALSE`.
+- **Heap types** (String, List, Vector, Map, Lambda, etc.): Rc pointer stored in the 45-bit payload (pointer >> 3, using 8-byte alignment guarantee). 23 heap-allocated types supported.
+
+**API change:** Value is no longer an enum — pattern matching uses `val.view()` → `ValueView` enum, or direct accessors (`as_int()`, `as_str()`, `as_list()`, `is_nil()`, etc.). Constructors are lowercase functions: `Value::int(n)`, `Value::string(s)`, `Value::list(v)`, etc.
+
+**Benchmark results (Apple M-series, release mode):**
+
+| Benchmark | Old (TW) | NaN-box (TW) | Δ TW | Old (VM) | NaN-box (VM) | Δ VM |
+|-----------|----------|-------------|------|----------|-------------|------|
+| tak       | 19.3s    | 21.1s       | −9%  | 9.09s    | 8.04s       | **+12%** |
+| nqueens   | 18.7s    | 20.8s       | −11% | <1ms     | <1ms        | —    |
+| deriv     | 2.97s    | 3.44s       | −16% | 1.99s    | 1.84s       | **+8%** |
+
+**Analysis:**
+- **VM mode sees 8-12% speedup** — the bytecode VM benefits from smaller Value size in its stack, constant pool, and register operations. Better cache locality.
+- **Tree-walker sees 9-16% regression** — the tree-walker's hot path now has additional cost from `view()` (refcount bump) and accessor overhead that the direct enum `match` didn't have. The tree-walker matches on Value types hundreds of millions of times in these benchmarks.
+- **Memory reduced ~5-10%** across all benchmarks (RSS), reflecting the 3× smaller Value type.
+- **Binary size unchanged** (~9.2MB).
+
+**Why keep it despite tree-walker regression:** The VM is the future execution path. Tree-walker regression is acceptable because (a) the VM is already 2× faster than the TW, (b) the TW will eventually only be used for macro expansion and REPL, (c) the VM gains compound with data-heavy workloads (lists, vectors, maps have 3× less per-element overhead).
+
+**Migration scope:** ~1,800 compile errors across 34 files in 8 crates. Purely mechanical: constructor renames, pattern match → accessor/view() conversion.
+
+**Safety fix during migration:** `as_bytevector()` and `as_record()` had dangling pointer UB — they used `borrow_rc()` which created a stack-local `ManuallyDrop<Rc<T>>` and returned a reference into it. Fixed to use `borrow_ref()` directly, returning `&[u8]` and `&Record`.
 
 ## Package System
 

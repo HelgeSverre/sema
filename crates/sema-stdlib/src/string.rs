@@ -1,4 +1,4 @@
-use sema_core::{SemaError, Value};
+use sema_core::{SemaError, Value, ValueView};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::register_fn;
@@ -7,9 +7,10 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "string-append", |args| {
         let mut result = String::new();
         for arg in args {
-            match arg {
-                Value::String(s) => result.push_str(s),
-                other => result.push_str(&other.to_string()),
+            if let Some(s) = arg.as_str() {
+                result.push_str(s);
+            } else {
+                result.push_str(&arg.to_string());
             }
         }
         Ok(Value::string(&result))
@@ -22,7 +23,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::Int(s.chars().count() as i64))
+        Ok(Value::int(s.chars().count() as i64))
     });
 
     register_fn(env, "string-ref", |args| {
@@ -38,7 +39,7 @@ pub fn register(env: &sema_core::Env) {
             as usize;
         s.chars()
             .nth(idx)
-            .map(Value::Char)
+            .map(Value::char)
             .ok_or_else(|| SemaError::eval(format!("string-ref: index {idx} out of bounds")))
     });
 
@@ -112,7 +113,7 @@ pub fn register(env: &sema_core::Env) {
         let sub = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        Ok(Value::Bool(s.contains(sub)))
+        Ok(Value::bool(s.contains(sub)))
     });
 
     register_fn(env, "string/starts-with?", |args| {
@@ -125,7 +126,7 @@ pub fn register(env: &sema_core::Env) {
         let prefix = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        Ok(Value::Bool(s.starts_with(prefix)))
+        Ok(Value::bool(s.starts_with(prefix)))
     });
 
     register_fn(env, "string/ends-with?", |args| {
@@ -138,7 +139,7 @@ pub fn register(env: &sema_core::Env) {
         let suffix = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        Ok(Value::Bool(s.ends_with(suffix)))
+        Ok(Value::bool(s.ends_with(suffix)))
     });
 
     register_fn(env, "string/upper", |args| {
@@ -184,16 +185,19 @@ pub fn register(env: &sema_core::Env) {
         let sep = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        let items = match &args[0] {
-            Value::List(l) => l.as_ref(),
-            Value::Vector(v) => v.as_ref(),
+        let items = match args[0].view() {
+            ValueView::List(l) => l,
+            ValueView::Vector(v) => v,
             _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
         };
         let strs: Vec<String> = items
             .iter()
-            .map(|v| match v {
-                Value::String(s) => s.to_string(),
-                other => other.to_string(),
+            .map(|v| {
+                if let Some(s) = v.as_str() {
+                    s.to_string()
+                } else {
+                    v.to_string()
+                }
             })
             .collect();
         Ok(Value::string(&strs.join(sep)))
@@ -215,9 +219,10 @@ pub fn register(env: &sema_core::Env) {
                     Some('a') | Some('A') => {
                         // ~a: display (no quotes)
                         if arg_idx < args.len() {
-                            match &args[arg_idx] {
-                                Value::String(s) => result.push_str(s),
-                                other => result.push_str(&other.to_string()),
+                            if let Some(s) = args[arg_idx].as_str() {
+                                result.push_str(s);
+                            } else {
+                                result.push_str(&args[arg_idx].to_string());
                             }
                             arg_idx += 1;
                         }
@@ -278,18 +283,19 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 1 {
             return Err(SemaError::arity("keyword->string", "1", args.len()));
         }
-        match &args[0] {
-            Value::Keyword(s) => Ok(Value::string(&sema_core::resolve(*s))),
-            other => Err(SemaError::type_error("keyword", other.type_name())),
-        }
+        let kw = args[0]
+            .as_keyword()
+            .ok_or_else(|| SemaError::type_error("keyword", args[0].type_name()))?;
+        Ok(Value::string(&kw))
     });
 
     register_fn(env, "str", |args| {
         let mut result = String::new();
         for arg in args {
-            match arg {
-                Value::String(s) => result.push_str(s),
-                other => result.push_str(&other.to_string()),
+            if let Some(s) = arg.as_str() {
+                result.push_str(s);
+            } else {
+                result.push_str(&arg.to_string());
             }
         }
         Ok(Value::string(&result))
@@ -299,9 +305,9 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 1 {
             return Err(SemaError::arity("number->string", "1", args.len()));
         }
-        match &args[0] {
-            Value::Int(n) => Ok(Value::string(&n.to_string())),
-            Value::Float(f) => Ok(Value::string(&f.to_string())),
+        match args[0].view() {
+            ValueView::Int(n) => Ok(Value::string(&n.to_string())),
+            ValueView::Float(f) => Ok(Value::string(&f.to_string())),
             _ => Err(SemaError::type_error("number", args[0].type_name())),
         }
     });
@@ -314,9 +320,9 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         if let Ok(n) = s.parse::<i64>() {
-            Ok(Value::Int(n))
+            Ok(Value::int(n))
         } else if let Ok(f) = s.parse::<f64>() {
-            Ok(Value::Float(f))
+            Ok(Value::float(f))
         } else {
             Err(SemaError::eval(format!("cannot parse '{s}' as number")))
         }
@@ -326,13 +332,13 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 1 {
             return Err(SemaError::arity("string->float", "1", args.len()));
         }
-        match &args[0] {
-            Value::String(s) => s
+        match args[0].view() {
+            ValueView::String(s) => s
                 .parse::<f64>()
-                .map(Value::Float)
+                .map(Value::float)
                 .map_err(|_| SemaError::eval(format!("cannot parse '{s}' as float"))),
-            Value::Int(n) => Ok(Value::Float(*n as f64)),
-            Value::Float(_) => Ok(args[0].clone()),
+            ValueView::Int(n) => Ok(Value::float(n as f64)),
+            ValueView::Float(_) => Ok(args[0].clone()),
             _ => Err(SemaError::type_error(
                 "string or number",
                 args[0].type_name(),
@@ -351,8 +357,8 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         match s.find(sub) {
-            Some(idx) => Ok(Value::Int(idx as i64)),
-            None => Ok(Value::Nil),
+            Some(idx) => Ok(Value::int(idx as i64)),
+            None => Ok(Value::nil()),
         }
     });
 
@@ -363,7 +369,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let chars: Vec<Value> = s.chars().map(Value::Char).collect();
+        let chars: Vec<Value> = s.chars().map(Value::char).collect();
         Ok(Value::list(chars))
     });
 
@@ -409,7 +415,7 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let is_num = s.parse::<i64>().is_ok() || s.parse::<f64>().is_ok();
-        Ok(Value::Bool(is_num))
+        Ok(Value::bool(is_num))
     });
 
     register_fn(env, "string/pad-left", |args| {
@@ -479,8 +485,8 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         match s.rfind(sub) {
-            Some(idx) => Ok(Value::Int(idx as i64)),
-            None => Ok(Value::Nil),
+            Some(idx) => Ok(Value::int(idx as i64)),
+            None => Ok(Value::nil()),
         }
     });
 
@@ -501,7 +507,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::Bool(s.is_empty()))
+        Ok(Value::bool(s.is_empty()))
     });
 
     register_fn(env, "string/capitalize", |args| {
@@ -560,7 +566,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::Int(c as i64))
+        Ok(Value::int(c as i64))
     });
 
     register_fn(env, "integer->char", |args| {
@@ -572,7 +578,7 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
         let c = char::from_u32(n as u32)
             .ok_or_else(|| SemaError::eval(format!("integer->char: invalid codepoint {n}")))?;
-        Ok(Value::Char(c))
+        Ok(Value::char(c))
     });
 
     register_fn(env, "char-alphabetic?", |args| {
@@ -582,7 +588,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::Bool(c.is_alphabetic()))
+        Ok(Value::bool(c.is_alphabetic()))
     });
 
     register_fn(env, "char-numeric?", |args| {
@@ -592,7 +598,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::Bool(c.is_numeric()))
+        Ok(Value::bool(c.is_numeric()))
     });
 
     register_fn(env, "char-whitespace?", |args| {
@@ -602,7 +608,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::Bool(c.is_whitespace()))
+        Ok(Value::bool(c.is_whitespace()))
     });
 
     register_fn(env, "char-upper-case?", |args| {
@@ -612,7 +618,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::Bool(c.is_uppercase()))
+        Ok(Value::bool(c.is_uppercase()))
     });
 
     register_fn(env, "char-lower-case?", |args| {
@@ -622,7 +628,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::Bool(c.is_lowercase()))
+        Ok(Value::bool(c.is_lowercase()))
     });
 
     register_fn(env, "char-upcase", |args| {
@@ -632,7 +638,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::Char(c.to_uppercase().next().unwrap_or(c)))
+        Ok(Value::char(c.to_uppercase().next().unwrap_or(c)))
     });
 
     register_fn(env, "char-downcase", |args| {
@@ -642,7 +648,7 @@ pub fn register(env: &sema_core::Env) {
         let c = args[0]
             .as_char()
             .ok_or_else(|| SemaError::type_error("char", args[0].type_name()))?;
-        Ok(Value::Char(c.to_lowercase().next().unwrap_or(c)))
+        Ok(Value::char(c.to_lowercase().next().unwrap_or(c)))
     });
 
     register_fn(env, "char->string", |args| {
@@ -671,7 +677,7 @@ pub fn register(env: &sema_core::Env) {
                 "string->char: string must have exactly one character",
             ));
         }
-        Ok(Value::Char(c))
+        Ok(Value::char(c))
     });
 
     register_fn(env, "string->list", |args| {
@@ -681,7 +687,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let chars: Vec<Value> = s.chars().map(Value::Char).collect();
+        let chars: Vec<Value> = s.chars().map(Value::char).collect();
         Ok(Value::list(chars))
     });
 
@@ -700,23 +706,23 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "char=?", |args| {
         let (a, b) = two_chars("char=?", args)?;
-        Ok(Value::Bool(a == b))
+        Ok(Value::bool(a == b))
     });
     register_fn(env, "char<?", |args| {
         let (a, b) = two_chars("char<?", args)?;
-        Ok(Value::Bool(a < b))
+        Ok(Value::bool(a < b))
     });
     register_fn(env, "char>?", |args| {
         let (a, b) = two_chars("char>?", args)?;
-        Ok(Value::Bool(a > b))
+        Ok(Value::bool(a > b))
     });
     register_fn(env, "char<=?", |args| {
         let (a, b) = two_chars("char<=?", args)?;
-        Ok(Value::Bool(a <= b))
+        Ok(Value::bool(a <= b))
     });
     register_fn(env, "char>=?", |args| {
         let (a, b) = two_chars("char>=?", args)?;
-        Ok(Value::Bool(a >= b))
+        Ok(Value::bool(a >= b))
     });
 
     fn two_chars_ci(op: &str, args: &[Value]) -> Result<(char, char), SemaError> {
@@ -728,33 +734,32 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "char-ci=?", |args| {
         let (a, b) = two_chars_ci("char-ci=?", args)?;
-        Ok(Value::Bool(a == b))
+        Ok(Value::bool(a == b))
     });
     register_fn(env, "char-ci<?", |args| {
         let (a, b) = two_chars_ci("char-ci<?", args)?;
-        Ok(Value::Bool(a < b))
+        Ok(Value::bool(a < b))
     });
     register_fn(env, "char-ci>?", |args| {
         let (a, b) = two_chars_ci("char-ci>?", args)?;
-        Ok(Value::Bool(a > b))
+        Ok(Value::bool(a > b))
     });
     register_fn(env, "char-ci<=?", |args| {
         let (a, b) = two_chars_ci("char-ci<=?", args)?;
-        Ok(Value::Bool(a <= b))
+        Ok(Value::bool(a <= b))
     });
     register_fn(env, "char-ci>=?", |args| {
         let (a, b) = two_chars_ci("char-ci>=?", args)?;
-        Ok(Value::Bool(a >= b))
+        Ok(Value::bool(a >= b))
     });
 
     register_fn(env, "list->string", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("list->string", "1", args.len()));
         }
-        let items = match &args[0] {
-            Value::List(l) => l.as_ref(),
-            _ => return Err(SemaError::type_error("list", args[0].type_name())),
-        };
+        let items = args[0]
+            .as_list()
+            .ok_or_else(|| SemaError::type_error("list", args[0].type_name()))?;
         let mut s = String::with_capacity(items.len());
         for item in items {
             let c = item
@@ -774,11 +779,13 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         let mut result = String::with_capacity(s.len());
         for ch in s.chars() {
-            let mapped = crate::list::call_function(&args[0], &[Value::Char(ch)])?;
-            match &mapped {
-                Value::Char(c) => result.push(*c),
-                Value::String(s) => result.push_str(s),
-                _ => return Err(SemaError::type_error("char or string", mapped.type_name())),
+            let mapped = crate::list::call_function(&args[0], &[Value::char(ch)])?;
+            if let Some(c) = mapped.as_char() {
+                result.push(c);
+            } else if let Some(s) = mapped.as_str() {
+                result.push_str(s);
+            } else {
+                return Err(SemaError::type_error("char or string", mapped.type_name()));
             }
         }
         Ok(Value::string(&result))
@@ -791,7 +798,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        Ok(Value::Int(s.len() as i64))
+        Ok(Value::int(s.len() as i64))
     });
 
     register_fn(env, "string/codepoints", |args| {
@@ -801,7 +808,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let codepoints: Vec<Value> = s.chars().map(|c| Value::Int(c as u32 as i64)).collect();
+        let codepoints: Vec<Value> = s.chars().map(|c| Value::int(c as u32 as i64)).collect();
         Ok(Value::list(codepoints))
     });
 
@@ -809,17 +816,16 @@ pub fn register(env: &sema_core::Env) {
         if args.len() != 1 {
             return Err(SemaError::arity("string/from-codepoints", "1", args.len()));
         }
-        let items = match &args[0] {
-            Value::List(l) => l.as_ref(),
-            Value::Vector(v) => v.as_ref(),
+        let items = match args[0].view() {
+            ValueView::List(l) => l,
+            ValueView::Vector(v) => v,
             _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
         };
         let mut s = String::with_capacity(items.len());
-        for item in items {
-            let n = match item {
-                Value::Int(n) => *n,
-                _ => return Err(SemaError::type_error("integer", item.type_name())),
-            };
+        for item in items.iter() {
+            let n = item
+                .as_int()
+                .ok_or_else(|| SemaError::type_error("integer", item.type_name()))?;
             let c = char::from_u32(n as u32).ok_or_else(|| {
                 SemaError::eval(format!("string/from-codepoints: invalid codepoint {n}"))
             })?;
@@ -875,6 +881,6 @@ pub fn register(env: &sema_core::Env) {
         let b = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        Ok(Value::Bool(a.to_lowercase() == b.to_lowercase()))
+        Ok(Value::bool(a.to_lowercase() == b.to_lowercase()))
     });
 }

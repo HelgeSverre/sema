@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use sema_core::{intern, SemaError, Spur, Value};
+use sema_core::{intern, SemaError, Spur, Value, ValueView};
 
 use crate::core_expr::{CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry};
 
@@ -20,23 +18,10 @@ pub fn lower_body(exprs: &[Value], tail: bool) -> Result<Vec<CoreExpr>, SemaErro
 }
 
 fn lower_expr(expr: &Value, tail: bool) -> Result<CoreExpr, SemaError> {
-    match expr {
-        Value::Nil
-        | Value::Bool(_)
-        | Value::Int(_)
-        | Value::Float(_)
-        | Value::String(_)
-        | Value::Char(_)
-        | Value::Keyword(_)
-        | Value::Bytevector(_)
-        | Value::NativeFn(_)
-        | Value::Lambda(_)
-        | Value::HashMap(_)
-        | Value::Thunk(_) => Ok(CoreExpr::Const(expr.clone())),
+    match expr.view() {
+        ValueView::Symbol(spur) => Ok(CoreExpr::Var(spur)),
 
-        Value::Symbol(spur) => Ok(CoreExpr::Var(*spur)),
-
-        Value::Vector(items) => {
+        ValueView::Vector(items) => {
             let exprs = items
                 .iter()
                 .map(|v| lower_expr(v, false))
@@ -44,7 +29,7 @@ fn lower_expr(expr: &Value, tail: bool) -> Result<CoreExpr, SemaError> {
             Ok(CoreExpr::MakeVector(exprs))
         }
 
-        Value::Map(map) => {
+        ValueView::Map(map) => {
             let pairs = map
                 .iter()
                 .map(|(k, v)| Ok((lower_expr(k, false)?, lower_expr(v, false)?)))
@@ -52,14 +37,15 @@ fn lower_expr(expr: &Value, tail: bool) -> Result<CoreExpr, SemaError> {
             Ok(CoreExpr::MakeMap(pairs))
         }
 
-        Value::List(items) => {
+        ValueView::List(items) => {
             if items.is_empty() {
-                return Ok(CoreExpr::Const(Value::Nil));
+                return Ok(CoreExpr::Const(Value::nil()));
             }
-            lower_list(items, tail)
+            lower_list(&items, tail)
         }
 
-        // Remaining types are self-evaluating
+        // Nil, Bool, Int, Float, String, Char, Keyword, Bytevector,
+        // NativeFn, Lambda, HashMap, Thunk, and remaining types are self-evaluating
         _ => Ok(CoreExpr::Const(expr.clone())),
     }
 }
@@ -68,8 +54,8 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     let head = &items[0];
     let args = &items[1..];
 
-    if let Value::Symbol(spur) = head {
-        let s = *spur;
+    if let Some(spur) = head.as_symbol_spur() {
+        let s = spur;
         if s == sf("quote") {
             return lower_quote(args);
         } else if s == sf("if") {
@@ -228,7 +214,7 @@ fn lower_if(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     let else_ = if args.len() == 3 {
         lower_expr(&args[2], tail)?
     } else {
-        CoreExpr::Const(Value::Nil)
+        CoreExpr::Const(Value::nil())
     };
     Ok(CoreExpr::If {
         test: Box::new(test),
@@ -249,18 +235,18 @@ fn lower_cond_clauses(
     else_spur: Spur,
 ) -> Result<CoreExpr, SemaError> {
     if idx >= clauses.len() {
-        return Ok(CoreExpr::Const(Value::Nil));
+        return Ok(CoreExpr::Const(Value::nil()));
     }
     let clause = require_list(&clauses[idx], "cond")?;
     if clause.is_empty() {
         return Err(SemaError::eval("cond clause must not be empty"));
     }
 
-    let is_else = matches!(&clause[0], Value::Symbol(s) if *s == else_spur);
+    let is_else = clause[0].as_symbol_spur().is_some_and(|s| s == else_spur);
     if is_else {
         let body = lower_body(&clause[1..], tail)?;
         return if body.is_empty() {
-            Ok(CoreExpr::Const(Value::Bool(true)))
+            Ok(CoreExpr::Const(Value::bool(true)))
         } else if body.len() == 1 {
             Ok(body.into_iter().next().unwrap())
         } else {
@@ -270,7 +256,7 @@ fn lower_cond_clauses(
 
     let test = lower_expr(&clause[0], false)?;
     let then = if clause.len() == 1 {
-        CoreExpr::Const(Value::Bool(true))
+        CoreExpr::Const(Value::bool(true))
     } else {
         let body = lower_body(&clause[1..], tail)?;
         if body.len() == 1 {
@@ -292,15 +278,15 @@ fn lower_define(args: &[Value]) -> Result<CoreExpr, SemaError> {
     if args.is_empty() {
         return Err(SemaError::arity("define", "2+", 0));
     }
-    match &args[0] {
-        Value::Symbol(spur) => {
+    match args[0].view() {
+        ValueView::Symbol(spur) => {
             if args.len() != 2 {
                 return Err(SemaError::arity("define", "2", args.len()));
             }
             let val = lower_expr(&args[1], false)?;
-            Ok(CoreExpr::Define(*spur, Box::new(val)))
+            Ok(CoreExpr::Define(spur, Box::new(val)))
         }
-        Value::List(sig) => {
+        ValueView::List(sig) => {
             if sig.is_empty() {
                 return Err(SemaError::eval("define: empty function signature"));
             }
@@ -321,7 +307,7 @@ fn lower_define(args: &[Value]) -> Result<CoreExpr, SemaError> {
                 })),
             ))
         }
-        other => Err(SemaError::type_error("symbol or list", other.type_name())),
+        _ => Err(SemaError::type_error("symbol or list", args[0].type_name())),
     }
 }
 
@@ -358,10 +344,10 @@ fn lower_lambda(args: &[Value], name: Option<Spur>) -> Result<CoreExpr, SemaErro
     if args.len() < 2 {
         return Err(SemaError::arity("lambda", "2+", args.len()));
     }
-    let param_vals = match &args[0] {
-        Value::List(params) => params.as_ref().clone(),
-        Value::Vector(params) => params.as_ref().clone(),
-        other => return Err(SemaError::type_error("list or vector", other.type_name())),
+    let param_vals = match args[0].view() {
+        ValueView::List(params) => params.as_ref().clone(),
+        ValueView::Vector(params) => params.as_ref().clone(),
+        _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
     };
     let param_spurs = extract_param_spurs(&param_vals, "lambda")?;
     let (params, rest) = parse_params(&param_spurs);
@@ -380,7 +366,7 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     }
 
     // Named let: (let name ((var init) ...) body...)
-    if let Value::Symbol(loop_name) = &args[0] {
+    if let Some(loop_name) = args[0].as_symbol_spur() {
         if args.len() < 3 {
             return Err(SemaError::arity("named let", "3+", args.len()));
         }
@@ -401,16 +387,16 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
         let (params, inits): (Vec<Spur>, Vec<CoreExpr>) = bindings.into_iter().unzip();
         return Ok(CoreExpr::Letrec {
             bindings: vec![(
-                *loop_name,
+                loop_name,
                 CoreExpr::Lambda(LambdaDef {
-                    name: Some(*loop_name),
+                    name: Some(loop_name),
                     params,
                     rest: None,
                     body,
                 }),
             )],
             body: vec![CoreExpr::Call {
-                func: Box::new(CoreExpr::Var(*loop_name)),
+                func: Box::new(CoreExpr::Var(loop_name)),
                 args: inits,
                 tail,
             }],
@@ -443,7 +429,7 @@ fn lower_letrec(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
 
 fn lower_begin(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     if args.is_empty() {
-        return Ok(CoreExpr::Const(Value::Nil));
+        return Ok(CoreExpr::Const(Value::nil()));
     }
     let body = lower_body(args, tail)?;
     if body.len() == 1 {
@@ -455,7 +441,7 @@ fn lower_begin(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
 
 fn lower_and(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     if args.is_empty() {
-        return Ok(CoreExpr::Const(Value::Bool(true)));
+        return Ok(CoreExpr::Const(Value::bool(true)));
     }
     let exprs = lower_body(args, tail)?;
     if exprs.len() == 1 {
@@ -467,7 +453,7 @@ fn lower_and(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
 
 fn lower_or(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     if args.is_empty() {
-        return Ok(CoreExpr::Const(Value::Bool(false)));
+        return Ok(CoreExpr::Const(Value::bool(false)));
     }
     let exprs = lower_body(args, tail)?;
     if exprs.len() == 1 {
@@ -491,7 +477,7 @@ fn lower_when(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     Ok(CoreExpr::If {
         test: Box::new(test),
         then: Box::new(then),
-        else_: Box::new(CoreExpr::Const(Value::Nil)),
+        else_: Box::new(CoreExpr::Const(Value::nil())),
     })
 }
 
@@ -508,7 +494,7 @@ fn lower_unless(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     };
     Ok(CoreExpr::If {
         test: Box::new(test),
-        then: Box::new(CoreExpr::Const(Value::Nil)),
+        then: Box::new(CoreExpr::Const(Value::nil())),
         else_: Box::new(else_),
     })
 }
@@ -519,11 +505,11 @@ fn lower_defmacro(args: &[Value]) -> Result<CoreExpr, SemaError> {
     }
     // Delegate defmacro entirely to the tree-walker: reconstruct the original
     // form and pass it quoted to __vm-defmacro-form so the body stays unevaluated.
-    let mut form = vec![Value::Symbol(intern("defmacro"))];
+    let mut form = vec![Value::symbol("defmacro")];
     form.extend(args.iter().cloned());
     Ok(CoreExpr::Call {
         func: Box::new(CoreExpr::Var(intern("__vm-defmacro-form"))),
-        args: vec![CoreExpr::Const(Value::List(Rc::new(form)))],
+        args: vec![CoreExpr::Const(Value::list(form))],
         tail: false,
     })
 }
@@ -536,8 +522,8 @@ fn lower_quasiquote(args: &[Value]) -> Result<CoreExpr, SemaError> {
 }
 
 fn expand_quasiquote(val: &Value) -> Result<CoreExpr, SemaError> {
-    match val {
-        Value::List(items) => {
+    match val.view() {
+        ValueView::List(items) => {
             if items.is_empty() {
                 return Ok(CoreExpr::Quote(val.clone()));
             }
@@ -553,7 +539,7 @@ fn expand_quasiquote(val: &Value) -> Result<CoreExpr, SemaError> {
             // Expand each element, handling unquote-splicing
             let mut has_splice = false;
             for item in items.iter() {
-                if let Value::List(inner) = item {
+                if let Some(inner) = item.as_list() {
                     if !inner.is_empty() {
                         if let Some(sym) = inner[0].as_symbol() {
                             if sym == "unquote-splicing" {
@@ -571,7 +557,7 @@ fn expand_quasiquote(val: &Value) -> Result<CoreExpr, SemaError> {
                 let mut current_list: Vec<CoreExpr> = Vec::new();
 
                 for item in items.iter() {
-                    if let Value::List(inner) = item {
+                    if let Some(inner) = item.as_list() {
                         if !inner.is_empty() {
                             if let Some(sym) = inner[0].as_symbol() {
                                 if sym == "unquote-splicing" {
@@ -620,7 +606,7 @@ fn expand_quasiquote(val: &Value) -> Result<CoreExpr, SemaError> {
                 Ok(CoreExpr::MakeList(exprs))
             }
         }
-        Value::Vector(items) => {
+        ValueView::Vector(items) => {
             let exprs = items
                 .iter()
                 .map(expand_quasiquote)
@@ -648,7 +634,9 @@ fn lower_try(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     if catch_form.is_empty() {
         return Err(SemaError::eval("try: catch form is empty"));
     }
-    let is_catch = matches!(&catch_form[0], Value::Symbol(s) if *s == catch_spur);
+    let is_catch = catch_form[0]
+        .as_symbol_spur()
+        .is_some_and(|s| s == catch_spur);
     if !is_catch {
         return Err(SemaError::eval(
             "try: last argument must be (catch var handler...)",
@@ -685,18 +673,18 @@ fn lower_case(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
 fn lower_case_clauses(clauses: &[Value], key_var: Spur, tail: bool) -> Result<CoreExpr, SemaError> {
     let else_spur = sf("else");
     if clauses.is_empty() {
-        return Ok(CoreExpr::Const(Value::Nil));
+        return Ok(CoreExpr::Const(Value::nil()));
     }
     let clause = require_list(&clauses[0], "case")?;
     if clause.is_empty() {
         return Err(SemaError::eval("case: clause must not be empty"));
     }
 
-    let is_else = matches!(&clause[0], Value::Symbol(s) if *s == else_spur);
+    let is_else = clause[0].as_symbol_spur().is_some_and(|s| s == else_spur);
     if is_else {
         let body = lower_body(&clause[1..], tail)?;
         return if body.is_empty() {
-            Ok(CoreExpr::Const(Value::Nil))
+            Ok(CoreExpr::Const(Value::nil()))
         } else if body.len() == 1 {
             Ok(body.into_iter().next().unwrap())
         } else {
@@ -727,7 +715,7 @@ fn lower_case_clauses(clauses: &[Value], key_var: Spur, tail: bool) -> Result<Co
 
     let then_body = lower_body(&clause[1..], tail)?;
     let then = if then_body.is_empty() {
-        CoreExpr::Const(Value::Nil)
+        CoreExpr::Const(Value::nil())
     } else if then_body.len() == 1 {
         then_body.into_iter().next().unwrap()
     } else {
@@ -809,7 +797,11 @@ fn lower_module(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     let name = require_symbol(&args[0], "module")?;
     let export_list = require_list(&args[1], "module")?;
     let export_spur = sf("export");
-    if export_list.is_empty() || !matches!(&export_list[0], Value::Symbol(s) if *s == export_spur) {
+    if export_list.is_empty()
+        || export_list[0]
+            .as_symbol_spur()
+            .is_none_or(|s| s != export_spur)
+    {
         return Err(SemaError::eval(
             "module: second argument must start with 'export'",
         ));
@@ -852,7 +844,7 @@ fn lower_prompt(args: &[Value]) -> Result<CoreExpr, SemaError> {
     let role_names = ["system", "user", "assistant", "tool"];
     let mut entries = Vec::new();
     for arg in args {
-        if let Value::List(items) = arg {
+        if let Some(items) = arg.as_list() {
             if !items.is_empty() {
                 if let Some(sym) = items[0].as_symbol() {
                     if role_names.contains(&sym.as_str()) {
@@ -1015,40 +1007,46 @@ mod tests {
 
     #[test]
     fn test_lower_int() {
-        assert!(matches!(lower_str("42"), CoreExpr::Const(Value::Int(42))));
+        match lower_str("42") {
+            CoreExpr::Const(v) => assert_eq!(v, Value::int(42)),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
     fn test_lower_string() {
-        assert!(matches!(
-            lower_str("\"hello\""),
-            CoreExpr::Const(Value::String(_))
-        ));
+        match lower_str("\"hello\"") {
+            CoreExpr::Const(v) => assert!(v.as_str().is_some()),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
     fn test_lower_bool() {
-        assert!(matches!(
-            lower_str("#t"),
-            CoreExpr::Const(Value::Bool(true))
-        ));
-        assert!(matches!(
-            lower_str("#f"),
-            CoreExpr::Const(Value::Bool(false))
-        ));
+        match lower_str("#t") {
+            CoreExpr::Const(v) => assert_eq!(v, Value::bool(true)),
+            other => panic!("expected Const, got {other:?}"),
+        }
+        match lower_str("#f") {
+            CoreExpr::Const(v) => assert_eq!(v, Value::bool(false)),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
     fn test_lower_nil() {
-        assert!(matches!(lower_str("nil"), CoreExpr::Const(Value::Nil)));
+        match lower_str("nil") {
+            CoreExpr::Const(v) => assert!(v.is_nil()),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
     fn test_lower_keyword() {
-        assert!(matches!(
-            lower_str(":key"),
-            CoreExpr::Const(Value::Keyword(_))
-        ));
+        match lower_str(":key") {
+            CoreExpr::Const(v) => assert!(v.as_keyword_spur().is_some()),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1058,7 +1056,10 @@ mod tests {
 
     #[test]
     fn test_lower_empty_list() {
-        assert!(matches!(lower_str("()"), CoreExpr::Const(Value::Nil)));
+        match lower_str("()") {
+            CoreExpr::Const(v) => assert!(v.is_nil()),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1080,9 +1081,18 @@ mod tests {
     fn test_lower_if() {
         match lower_str("(if #t 1 2)") {
             CoreExpr::If { test, then, else_ } => {
-                assert!(matches!(*test, CoreExpr::Const(Value::Bool(true))));
-                assert!(matches!(*then, CoreExpr::Const(Value::Int(1))));
-                assert!(matches!(*else_, CoreExpr::Const(Value::Int(2))));
+                match *test {
+                    CoreExpr::Const(v) => assert_eq!(v, Value::bool(true)),
+                    _ => panic!("expected bool"),
+                }
+                match *then {
+                    CoreExpr::Const(v) => assert_eq!(v, Value::int(1)),
+                    _ => panic!("expected int"),
+                }
+                match *else_ {
+                    CoreExpr::Const(v) => assert_eq!(v, Value::int(2)),
+                    _ => panic!("expected int"),
+                }
             }
             other => panic!("expected If, got {other:?}"),
         }
@@ -1091,9 +1101,10 @@ mod tests {
     #[test]
     fn test_lower_if_no_else() {
         match lower_str("(if #t 1)") {
-            CoreExpr::If { else_, .. } => {
-                assert!(matches!(*else_, CoreExpr::Const(Value::Nil)));
-            }
+            CoreExpr::If { else_, .. } => match *else_ {
+                CoreExpr::Const(v) => assert!(v.is_nil()),
+                _ => panic!("expected nil"),
+            },
             other => panic!("expected If, got {other:?}"),
         }
     }
@@ -1114,9 +1125,10 @@ mod tests {
     #[test]
     fn test_lower_define_simple() {
         match lower_str("(define x 42)") {
-            CoreExpr::Define(_, val) => {
-                assert!(matches!(*val, CoreExpr::Const(Value::Int(42))));
-            }
+            CoreExpr::Define(_, val) => match *val {
+                CoreExpr::Const(v) => assert_eq!(v, Value::int(42)),
+                _ => panic!("expected int"),
+            },
             other => panic!("expected Define, got {other:?}"),
         }
     }
@@ -1223,10 +1235,10 @@ mod tests {
     #[test]
     fn test_lower_begin_single() {
         // Single-expr begin unwraps
-        assert!(matches!(
-            lower_str("(begin 42)"),
-            CoreExpr::Const(Value::Int(42))
-        ));
+        match lower_str("(begin 42)") {
+            CoreExpr::Const(v) => assert_eq!(v, Value::int(42)),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1236,10 +1248,10 @@ mod tests {
 
     #[test]
     fn test_lower_and_empty() {
-        assert!(matches!(
-            lower_str("(and)"),
-            CoreExpr::Const(Value::Bool(true))
-        ));
+        match lower_str("(and)") {
+            CoreExpr::Const(v) => assert_eq!(v, Value::bool(true)),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1249,18 +1261,19 @@ mod tests {
 
     #[test]
     fn test_lower_or_empty() {
-        assert!(matches!(
-            lower_str("(or)"),
-            CoreExpr::Const(Value::Bool(false))
-        ));
+        match lower_str("(or)") {
+            CoreExpr::Const(v) => assert_eq!(v, Value::bool(false)),
+            other => panic!("expected Const, got {other:?}"),
+        }
     }
 
     #[test]
     fn test_lower_when() {
         match lower_str("(when #t 42)") {
-            CoreExpr::If { else_, .. } => {
-                assert!(matches!(*else_, CoreExpr::Const(Value::Nil)));
-            }
+            CoreExpr::If { else_, .. } => match *else_ {
+                CoreExpr::Const(v) => assert!(v.is_nil()),
+                _ => panic!("expected nil"),
+            },
             other => panic!("expected If from when, got {other:?}"),
         }
     }
@@ -1268,9 +1281,10 @@ mod tests {
     #[test]
     fn test_lower_unless() {
         match lower_str("(unless #f 42)") {
-            CoreExpr::If { then, .. } => {
-                assert!(matches!(*then, CoreExpr::Const(Value::Nil)));
-            }
+            CoreExpr::If { then, .. } => match *then {
+                CoreExpr::Const(v) => assert!(v.is_nil()),
+                _ => panic!("expected nil"),
+            },
             other => panic!("expected If from unless, got {other:?}"),
         }
     }
@@ -1459,7 +1473,10 @@ mod tests {
             CoreExpr::Call { func, args, .. } => {
                 assert!(matches!(*func, CoreExpr::Var(_)));
                 assert_eq!(args.len(), 1);
-                assert!(matches!(&args[0], CoreExpr::Const(Value::List(_))));
+                match &args[0] {
+                    CoreExpr::Const(v) => assert!(v.is_list()),
+                    _ => panic!("expected list const"),
+                }
             }
             other => panic!("expected Call, got {other:?}"),
         }

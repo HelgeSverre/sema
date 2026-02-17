@@ -102,7 +102,7 @@ mod tests {
     #[test]
     fn test_emit_const() {
         let mut e = Emitter::new();
-        e.emit_const(Value::Int(42));
+        e.emit_const(Value::int(42));
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
         assert_eq!(chunk.code[0], Op::Const as u8);
@@ -110,7 +110,7 @@ mod tests {
         assert_eq!(chunk.code[2], 0);
         assert_eq!(chunk.code[3], Op::Return as u8);
         assert_eq!(chunk.consts.len(), 1);
-        assert_eq!(chunk.consts[0], Value::Int(42));
+        assert_eq!(chunk.consts[0], Value::int(42));
     }
 
     #[test]
@@ -132,8 +132,8 @@ mod tests {
     #[test]
     fn test_const_dedup() {
         let mut e = Emitter::new();
-        let idx1 = e.add_const(Value::Int(42));
-        let idx2 = e.add_const(Value::Int(42));
+        let idx1 = e.add_const(Value::int(42));
+        let idx2 = e.add_const(Value::int(42));
         assert_eq!(idx1, idx2);
         assert_eq!(e.into_chunk().consts.len(), 1);
     }
