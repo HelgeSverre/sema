@@ -11,6 +11,12 @@ use lasso::{Rodeo, Spur};
 use crate::error::SemaError;
 use crate::EvalContext;
 
+// Compile-time check: NaN-boxing requires 64-bit pointers that fit in 48-bit VA space.
+// 32-bit platforms cannot use this representation (pointers don't fit the encoding).
+// wasm32 is exempted because its 32-bit pointers always fit in 45 bits.
+#[cfg(not(any(target_pointer_width = "64", target_arch = "wasm32")))]
+compile_error!("sema-core NaN-boxed Value requires a 64-bit platform (or wasm32)");
+
 // ── String interning ──────────────────────────────────────────────
 
 thread_local! {

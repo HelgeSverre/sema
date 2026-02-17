@@ -682,6 +682,7 @@ fn register_vm_delegates(env: &Rc<Env>) {
             if args.len() != 1 {
                 return Err(SemaError::arity("load", "1", args.len()));
             }
+            ctx.sandbox.check(sema_core::Caps::FS_READ, "load")?;
             let path = match args[0].as_str() {
                 Some(s) => s.to_string(),
                 None => return Err(SemaError::type_error("string", args[0].type_name())),
@@ -709,6 +710,7 @@ fn register_vm_delegates(env: &Rc<Env>) {
             if args.len() != 2 {
                 return Err(SemaError::arity("import", "2", args.len()));
             }
+            ctx.sandbox.check(sema_core::Caps::FS_READ, "import")?;
             let mut form = vec![Value::symbol("import"), args[0].clone()];
             if let Some(items) = args[1].as_list() {
                 if !items.is_empty() {

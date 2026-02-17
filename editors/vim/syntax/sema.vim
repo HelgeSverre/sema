@@ -11,6 +11,7 @@ syn match semaParens /[(){}\[\]]/
 " ---------- Comments ----------------------------------------------------
 
 syn match semaComment /;.*$/ contains=semaTodo
+syn region semaBlockComment start=/#|/ end=/|#/ contains=semaBlockComment,semaTodo
 syn keyword semaTodo TODO FIXME XXX HACK NOTE contained
 
 " ---------- Strings & Characters ----------------------------------------
@@ -49,9 +50,30 @@ syn keyword semaSpecial import module export load
 syn keyword semaSpecial delay force eval macroexpand with-budget else
 syn keyword semaSpecial prompt message
 
+" ---------- Definition Names --------------------------------------------
+
+" (define name ...) — simple variable
+syn match semaDefineVar /\v\(define\s+\zs[a-zA-Z!$%&*+\-./:<=>?@^~_][a-zA-Z0-9!$%&*+\-./:<=>?@^~_]*\ze[^(]/
+
+" (define (name ...) ...) — function definition
+syn match semaDefineFun /\v\(define\s+\(\zs[a-zA-Z!$%&*+\-./:<=>?@^~_][a-zA-Z0-9!$%&*+\-./:<=>?@^~_]*/
+
+" (defun name ...) / (defmacro name ...) / (defagent name ...) / (deftool name ...)
+syn match semaDefineFun /\v\(%(defun|defmacro|defagent|deftool)\s+\zs[a-zA-Z!$%&*+\-./:<=>?@^~_][a-zA-Z0-9!$%&*+\-./:<=>?@^~_]*/
+
+" (set! name value)
+syn match semaSetTarget /\v\(set!\s+\zs[a-zA-Z!$%&*+\-./:<=>?@^~_][a-zA-Z0-9!$%&*+\-./:<=>?@^~_]*/
+
 " ---------- Threading Macros --------------------------------------------
 
 syn match semaThreading /\v%(^|[( \t])\zs(-\>|-\>\>|as-\>)\ze%([) \t\n]|$)/
+
+" ---------- Operators ---------------------------------------------------
+
+syn match semaOperator /\v%(^|[( \t\[{])\zs[+\-*/%]\ze%([) \t\]}\n]|$)/
+syn match semaOperator /\v%(^|[( \t\[{])\zs[<>=]\ze%([) \t\]}\n]|$)/
+syn match semaOperator /\v%(^|[( \t\[{])\zs[<>]\=\ze%([) \t\]}\n]|$)/
+syn match semaOperator /\v<eqv\?>/
 
 " ---------- Builtin Functions -------------------------------------------
 
@@ -447,6 +469,7 @@ syn match semaUnquote /,@\?/
 " ---------- Highlight Links ---------------------------------------------
 
 hi def link semaComment Comment
+hi def link semaBlockComment Comment
 hi def link semaTodo Todo
 hi def link semaString String
 hi def link semaStringEscape SpecialChar
@@ -456,6 +479,10 @@ hi def link semaConstant Constant
 hi def link semaKeyword Type
 hi def link semaSpecial Keyword
 hi def link semaThreading Keyword
+hi def link semaOperator Operator
+hi def link semaDefineVar Identifier
+hi def link semaDefineFun Function
+hi def link semaSetTarget Identifier
 hi def link semaBuiltin Function
 hi def link semaQuote Special
 hi def link semaUnquote Special

@@ -33,6 +33,7 @@
 
 (comment) @comment.line
 (block_comment) @comment.block
+
 ; --- Punctuation ---
 
 ["(" ")" "[" "]" "{" "}"] @punctuation.bracket
@@ -44,20 +45,34 @@
 (unquote ",") @operator
 (quasiquote "`") @operator
 
-; --- Special variables ---
+; --- Dot as punctuation (variadic args, dotted pairs) ---
+
+((symbol) @punctuation.delimiter
+  (#eq? @punctuation.delimiter "."))
+
+; --- Ellipsis ---
 
 ((symbol) @variable.builtin
-  (#any-of? @variable.builtin "..." "."))
+  (#eq? @variable.builtin "..."))
 
 ; --- Operators ---
 
 ((symbol) @operator
-  (#any-of? @operator "+" "-" "*" "/" "=" ">" "<" ">=" "<=" "eq?" "equal?"))
+  (#any-of? @operator
+    "+" "-" "*" "/" "%" "=" ">" "<" ">=" "<="
+    "eq?" "equal?" "eqv?"))
 
-; --- Keyword literals :foo ---
+; --- Keyword literals :foo (map keys, keyword args) ---
 
 ((symbol) @string.special.symbol
   (#match? @string.special.symbol "^:"))
+
+; --- Keyword accessor in call position: (:name person) ---
+
+(list
+  .
+  ((symbol) @function.method
+    (#match? @function.method "^:")))
 
 ; --- nil ---
 
@@ -78,6 +93,15 @@
   (symbol) @variable
   (#eq? @_f "define"))
 
+; --- set! target: (set! name value) ---
+
+(list
+  .
+  (symbol) @_f
+  .
+  (symbol) @variable
+  (#eq? @_f "set!"))
+
 ; --- Define function: (defun name ...) ---
 
 (list
@@ -86,6 +110,33 @@
   .
   (symbol) @function
   (#eq? @_f "defun"))
+
+; --- Define macro: (defmacro name ...) ---
+
+(list
+  .
+  (symbol) @_f
+  .
+  (symbol) @function
+  (#eq? @_f "defmacro"))
+
+; --- Define agent: (defagent name ...) ---
+
+(list
+  .
+  (symbol) @_f
+  .
+  (symbol) @function
+  (#eq? @_f "defagent"))
+
+; --- Define tool: (deftool name ...) ---
+
+(list
+  .
+  (symbol) @_f
+  .
+  (symbol) @function
+  (#eq? @_f "deftool"))
 
 ; --- Lambda / fn parameter lists ---
 

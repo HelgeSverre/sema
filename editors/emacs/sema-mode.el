@@ -77,7 +77,9 @@
     (modify-syntax-entry ?> "_" table)
     (modify-syntax-entry ?= "_" table)
     (modify-syntax-entry ?: "_" table)
-    (modify-syntax-entry ?# "_" table)
+    ;; Block comments: #| ... |#
+    (modify-syntax-entry ?# "_ 14b" table)
+    (modify-syntax-entry ?| "_ 23b" table)
     ;; Quote-like prefixes for proper sexp handling
     (modify-syntax-entry ?' "'" table)
     (modify-syntax-entry ?` "'" table)
@@ -171,7 +173,7 @@
     ;; Math
     "abs" "min" "max" "round" "floor" "ceiling"
     "sqrt" "expt" "math/remainder" "modulo" "math/gcd" "math/lcm"
-    "pow" "log" "sin" "cos" "ceil" "int" "float" "truncate" "mod"
+    "pow" "log" "sin" "cos" "ceil" "int" "float" "truncate" "mod" "%"
     "math/pow" "math/tan" "math/random" "math/random-int"
     "math/clamp" "math/sign" "math/exp" "math/log10" "math/log2"
     "math/acos" "math/asin" "math/atan" "math/atan2"
@@ -190,7 +192,7 @@
     ;; Predicates
     "number?" "string?" "symbol?" "pair?" "boolean?"
     "procedure?" "char?" "vector?" "map?" "zero?"
-    "positive?" "negative?" "equal?" "eq?"
+    "positive?" "negative?" "equal?" "eq?" "eqv?"
     "integer?" "float?" "keyword?" "nil?" "fn?" "record?" "promise?"
     "bool?" "bytevector?" "even?" "odd?"
     "agent?" "conversation?" "message?" "prompt?" "tool?" "promise-forced?"
@@ -273,13 +275,16 @@
        1 font-lock-function-name-face)
       ;; defagent name
       ("(defagent\\s-+\\(\\(?:\\sw\\|\\s_\\)+\\)"
-       1 font-lock-variable-name-face)
+       1 font-lock-function-name-face)
       ;; deftool name
       ("(deftool\\s-+\\(\\(?:\\sw\\|\\s_\\)+\\)"
-       1 font-lock-variable-name-face)
+       1 font-lock-function-name-face)
       ;; define-record-type name
       ("(define-record-type\\s-+\\(\\(?:\\sw\\|\\s_\\)+\\)"
-       1 font-lock-type-face)))
+       1 font-lock-type-face)
+      ;; set! target name
+      ("(set!\\s-+\\(\\(?:\\sw\\|\\s_\\)+\\)"
+       1 font-lock-variable-name-face)))
   "Font-lock keywords for `sema-mode'.")
 
 ;; ── Indentation ────────────────────────────────────────────────────────

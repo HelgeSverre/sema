@@ -3,6 +3,7 @@
   "name": "Sema",
   "scopeName": "source.sema",
   "patterns": [
+    { "include": "#block-comment" },
     { "include": "#comment" },
     { "include": "#string" },
     { "include": "#quoted-expression" },
@@ -19,6 +20,14 @@
     { "include": "#paren" }
   ],
   "repository": {
+    "block-comment": {
+      "name": "comment.block.sema",
+      "begin": "#\\|",
+      "end": "\\|#",
+      "patterns": [
+        { "include": "#block-comment" }
+      ]
+    },
     "comment": {
       "name": "comment.line.semicolon.sema",
       "match": ";.*$"
@@ -65,22 +74,22 @@
     "definition": {
       "patterns": [
         {
-          "comment": "define with a simple name: (define name ...)",
-          "match": "(\\()\\s*(define)\\s+([\\w!$%&*+\\-./:<=>?@^~][\\w!$%&*+\\-./:<=>?@^~0-9]*)",
-          "captures": {
-            "1": { "name": "punctuation.paren.open.sema" },
-            "2": { "name": "keyword.control.definition.sema" },
-            "3": { "name": "entity.name.function.sema" }
-          }
-        },
-        {
-          "comment": "define with parens: (define (name args...) ...)",
+          "comment": "define with parens: (define (name args...) ...) — must come before simple define",
           "match": "(\\()\\s*(define)\\s+(\\()\\s*([\\w!$%&*+\\-./:<=>?@^~][\\w!$%&*+\\-./:<=>?@^~0-9]*)",
           "captures": {
             "1": { "name": "punctuation.paren.open.sema" },
             "2": { "name": "keyword.control.definition.sema" },
             "3": { "name": "punctuation.paren.open.sema" },
             "4": { "name": "entity.name.function.sema" }
+          }
+        },
+        {
+          "comment": "define with a simple name: (define name ...)",
+          "match": "(\\()\\s*(define)\\s+([\\w!$%&*+\\-./:<=>?@^~][\\w!$%&*+\\-./:<=>?@^~0-9]*)",
+          "captures": {
+            "1": { "name": "punctuation.paren.open.sema" },
+            "2": { "name": "keyword.control.definition.sema" },
+            "3": { "name": "variable.other.sema" }
           }
         },
         {
@@ -91,6 +100,15 @@
             "2": { "name": "keyword.control.definition.sema" },
             "3": { "name": "entity.name.function.sema" }
           }
+        },
+        {
+          "comment": "set! target: (set! name value)",
+          "match": "(\\()\\s*(set!)\\s+([\\w!$%&*+\\-./:<=>?@^~][\\w!$%&*+\\-./:<=>?@^~0-9]*)",
+          "captures": {
+            "1": { "name": "punctuation.paren.open.sema" },
+            "2": { "name": "keyword.control.sema" },
+            "3": { "name": "variable.other.sema" }
+          }
         }
       ]
     },
@@ -99,7 +117,7 @@
       "name": "keyword.control.sema"
     },
     "operator": {
-      "match": "(?<=[\\s(\\[{])(?:\\+|\\*|/|>=|<=|>(?!=)|<(?!=)|=|-)(?=[\\s)\\]}]|$)",
+      "match": "(?<=[\\s(\\[{])(?:\\+|\\*|/|%|>=|<=|>(?!=)|<(?!=)|=|-|eqv\\?)(?=[\\s)\\]}]|$)",
       "name": "keyword.operator.arithmetic.sema"
     },
     "threading-macro": {

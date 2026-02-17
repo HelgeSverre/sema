@@ -5,6 +5,7 @@ use std::rc::Rc;
 use sema_core::{resolve as resolve_spur, Env, EvalContext, SemaError, Spur, Value};
 
 use crate::chunk::Function;
+use crate::opcodes::Op;
 
 /// A mutable cell for captured variables (upvalues).
 #[derive(Debug)]
@@ -123,53 +124,46 @@ impl VM {
 
         loop {
             let fi = self.frames.len() - 1;
-            let code = unsafe {
-                &*(self
-                    .frames
-                    .get_unchecked(fi)
-                    .closure
-                    .func
-                    .chunk
-                    .code
-                    .as_slice() as *const [u8])
-            };
+            let code = &self.frames[fi].closure.func.chunk.code;
             let base = self.frames[fi].base;
             let mut pc = self.frames[fi].pc;
 
-            let opcode = code[pc];
+            let opcode = Op::from_u8(code[pc]).ok_or_else(|| {
+                SemaError::eval(format!("VM: invalid opcode {}", code[pc]))
+            })?;
             pc += 1; // skip opcode byte
 
             match opcode {
-                0 /* Const */ => {
+                Op::Const => {
                     let idx = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let val = self.frames[fi].closure.func.chunk.consts[idx].clone();
                     self.stack.push(val);
                 }
-                1 /* Nil */ => {
+                Op::Nil => {
                     self.frames[fi].pc = pc;
                     self.stack.push(Value::nil());
                 }
-                2 /* True */ => {
+                Op::True => {
                     self.frames[fi].pc = pc;
                     self.stack.push(Value::bool(true));
                 }
-                3 /* False */ => {
+                Op::False => {
                     self.frames[fi].pc = pc;
                     self.stack.push(Value::bool(false));
                 }
-                4 /* Pop */ => {
+                Op::Pop => {
                     self.frames[fi].pc = pc;
                     self.stack.pop();
                 }
-                5 /* Dup */ => {
+                Op::Dup => {
                     self.frames[fi].pc = pc;
                     let val = self.stack[self.stack.len() - 1].clone();
                     self.stack.push(val);
                 }
 
                 // --- Locals ---
-                6 /* LoadLocal */ => {
+                Op::LoadLocal => {
                     let slot = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let val = if let Some(Some(cell)) = self.frames[fi].open_upvalues.get(slot) {
@@ -179,7 +173,7 @@ impl VM {
                     };
                     self.stack.push(val);
                 }
-                7 /* StoreLocal */ => {
+                Op::StoreLocal => {
                     let slot = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let val = self.stack.pop().unwrap();
@@ -190,13 +184,13 @@ impl VM {
                 }
 
                 // --- Upvalues ---
-                8 /* LoadUpvalue */ => {
+                Op::LoadUpvalue => {
                     let idx = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let val = self.frames[fi].closure.upvalues[idx].value.borrow().clone();
                     self.stack.push(val);
                 }
-                9 /* StoreUpvalue */ => {
+                Op::StoreUpvalue => {
                     let idx = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let val = self.stack.pop().unwrap();
@@ -204,7 +198,7 @@ impl VM {
                 }
 
                 // --- Globals ---
-                10 /* LoadGlobal */ => {
+                Op::LoadGlobal => {
                     let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
                     self.frames[fi].pc = pc;
                     match self.globals.get(spur) {
@@ -218,7 +212,7 @@ impl VM {
                         }
                     }
                 }
-                11 /* StoreGlobal */ => {
+                Op::StoreGlobal => {
                     let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
                     self.frames[fi].pc = pc;
                     let val = self.stack.pop().unwrap();
@@ -226,7 +220,7 @@ impl VM {
                         self.globals.set(spur, val);
                     }
                 }
-                12 /* DefineGlobal */ => {
+                Op::DefineGlobal => {
                     let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
                     self.frames[fi].pc = pc;
                     let val = self.stack.pop().unwrap();
@@ -234,11 +228,11 @@ impl VM {
                 }
 
                 // --- Control flow ---
-                13 /* Jump */ => {
+                Op::Jump => {
                     let offset = read_i32_inline!(code, pc);
                     self.frames[fi].pc = (pc as i64 + offset as i64) as usize;
                 }
-                14 /* JumpIfFalse */ => {
+                Op::JumpIfFalse => {
                     let offset = read_i32_inline!(code, pc);
                     let val = self.stack.pop().unwrap();
                     if !val.is_truthy() {
@@ -247,7 +241,7 @@ impl VM {
                         self.frames[fi].pc = pc;
                     }
                 }
-                15 /* JumpIfTrue */ => {
+                Op::JumpIfTrue => {
                     let offset = read_i32_inline!(code, pc);
                     let val = self.stack.pop().unwrap();
                     if val.is_truthy() {
@@ -258,7 +252,7 @@ impl VM {
                 }
 
                 // --- Function calls ---
-                16 /* Call */ => {
+                Op::Call => {
                     let argc = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let saved_pc = pc - 3; // opcode byte + u16
@@ -269,7 +263,7 @@ impl VM {
                         }
                     }
                 }
-                17 /* TailCall */ => {
+                Op::TailCall => {
                     let argc = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let saved_pc = pc - 3;
@@ -280,7 +274,7 @@ impl VM {
                         }
                     }
                 }
-                18 /* Return */ => {
+                Op::Return => {
                     let result = self.stack.pop().unwrap_or(Value::nil());
                     let frame = self.frames.pop().unwrap();
                     self.stack.truncate(frame.base);
@@ -291,11 +285,11 @@ impl VM {
                 }
 
                 // --- Closures ---
-                19 /* MakeClosure */ => {
+                Op::MakeClosure => {
                     self.make_closure()?;
                 }
 
-                20 /* CallNative */ => {
+                Op::CallNative => {
                     let _native_id = read_u16_inline!(code, pc);
                     let _argc = read_u16_inline!(code, pc);
                     self.frames[fi].pc = pc;
@@ -303,21 +297,21 @@ impl VM {
                 }
 
                 // --- Data constructors ---
-                21 /* MakeList */ => {
+                Op::MakeList => {
                     let n = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let start = self.stack.len() - n;
                     let items: Vec<Value> = self.stack.drain(start..).collect();
                     self.stack.push(Value::list(items));
                 }
-                22 /* MakeVector */ => {
+                Op::MakeVector => {
                     let n = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let start = self.stack.len() - n;
                     let items: Vec<Value> = self.stack.drain(start..).collect();
                     self.stack.push(Value::vector(items));
                 }
-                23 /* MakeMap */ => {
+                Op::MakeMap => {
                     let n = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let start = self.stack.len() - n * 2;
@@ -328,7 +322,7 @@ impl VM {
                     }
                     self.stack.push(Value::map(map));
                 }
-                24 /* MakeHashMap */ => {
+                Op::MakeHashMap => {
                     let n = read_u16_inline!(code, pc) as usize;
                     self.frames[fi].pc = pc;
                     let start = self.stack.len() - n * 2;
@@ -341,7 +335,7 @@ impl VM {
                 }
 
                 // --- Exceptions ---
-                25 /* Throw */ => {
+                Op::Throw => {
                     self.frames[fi].pc = pc;
                     let val = self.stack.pop().unwrap();
                     let err = SemaError::UserException(val);
@@ -352,7 +346,7 @@ impl VM {
                 }
 
                 // --- Arithmetic ---
-                26 /* Add */ => {
+                Op::Add => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -364,7 +358,7 @@ impl VM {
                         },
                     }
                 }
-                27 /* Sub */ => {
+                Op::Sub => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -376,7 +370,7 @@ impl VM {
                         },
                     }
                 }
-                28 /* Mul */ => {
+                Op::Mul => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -388,7 +382,7 @@ impl VM {
                         },
                     }
                 }
-                29 /* Div */ => {
+                Op::Div => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -400,7 +394,7 @@ impl VM {
                         },
                     }
                 }
-                30 /* Negate */ => {
+                Op::Negate => {
                     self.frames[fi].pc = pc;
                     let a = self.stack.pop().unwrap();
                     if let Some(n) = a.as_int() {
@@ -415,18 +409,18 @@ impl VM {
                         }
                     }
                 }
-                31 /* Not */ => {
+                Op::Not => {
                     self.frames[fi].pc = pc;
                     let a = self.stack.pop().unwrap();
                     self.stack.push(Value::bool(!a.is_truthy()));
                 }
-                32 /* Eq */ => {
+                Op::Eq => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
                     self.stack.push(Value::bool(a == b));
                 }
-                33 /* Lt */ => {
+                Op::Lt => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -438,7 +432,7 @@ impl VM {
                         },
                     }
                 }
-                34 /* Gt */ => {
+                Op::Gt => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -450,7 +444,7 @@ impl VM {
                         },
                     }
                 }
-                35 /* Le */ => {
+                Op::Le => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -462,7 +456,7 @@ impl VM {
                         },
                     }
                 }
-                36 /* Ge */ => {
+                Op::Ge => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -476,7 +470,7 @@ impl VM {
                 }
 
                 // --- Specialized int fast paths ---
-                37 /* AddInt */ => {
+                Op::AddInt => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -492,7 +486,7 @@ impl VM {
                         }
                     }
                 }
-                38 /* SubInt */ => {
+                Op::SubInt => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -508,7 +502,7 @@ impl VM {
                         }
                     }
                 }
-                39 /* MulInt */ => {
+                Op::MulInt => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -524,7 +518,7 @@ impl VM {
                         }
                     }
                 }
-                40 /* LtInt */ => {
+                Op::LtInt => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -540,7 +534,7 @@ impl VM {
                         }
                     }
                 }
-                41 /* EqInt */ => {
+                Op::EqInt => {
                     self.frames[fi].pc = pc;
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -549,9 +543,6 @@ impl VM {
                     } else {
                         self.stack.push(Value::bool(a == b));
                     }
-                }
-                _ => {
-                    return Err(SemaError::eval(format!("VM: invalid opcode {opcode}")));
                 }
             }
         }
