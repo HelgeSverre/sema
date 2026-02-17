@@ -43,6 +43,29 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(ctx.context_remove(&args[0]).unwrap_or_else(Value::nil))
     });
+
+    // (context/with bindings-map thunk) -> result of thunk
+    register_fn_ctx(env, "context/with", |ctx, args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("context/with", "2", args.len()));
+        }
+        let bindings = args[0]
+            .as_map_rc()
+            .ok_or_else(|| SemaError::type_error("map", args[0].type_name()))?;
+        let thunk = &args[1];
+        if thunk.as_lambda_rc().is_none() && thunk.as_native_fn_rc().is_none() {
+            return Err(SemaError::type_error("function", thunk.type_name()));
+        }
+
+        let frame: std::collections::BTreeMap<Value, Value> = bindings
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        ctx.context_push_frame_with(frame);
+        let result = sema_core::call_callback(ctx, thunk, &[]);
+        ctx.context_pop_frame();
+        result
+    });
 }
 
 fn register_fn_ctx(

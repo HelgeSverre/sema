@@ -8376,3 +8376,36 @@ fn test_context_pull() {
         eval(r#"(list "value" #f)"#),
     );
 }
+
+#[test]
+fn test_context_with_scoped() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/set :x "outer")
+            (context/with {:x "inner" :y "only-inner"}
+                (lambda () (list (context/get :x) (context/get :y)))))"#),
+        eval(r#"(list "inner" "only-inner")"#),
+    );
+    // After context/with, :x is restored and :y is gone
+    assert_eq!(
+        eval(r#"(begin
+            (context/set :x "outer")
+            (context/with {:x "inner"} (lambda () nil))
+            (list (context/get :x) (context/get :y)))"#),
+        eval(r#"(list "outer" nil)"#),
+    );
+}
+
+#[test]
+fn test_context_with_nested() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/set :a 1)
+            (context/with {:b 2}
+                (lambda ()
+                    (context/with {:c 3}
+                        (lambda ()
+                            (list (context/get :a) (context/get :b) (context/get :c)))))))"#),
+        eval("(list 1 2 3)"),
+    );
+}
