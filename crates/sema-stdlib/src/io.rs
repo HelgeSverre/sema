@@ -363,6 +363,72 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(&abs.to_string_lossy()))
     });
 
+    register_fn(env, "path/ext", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/ext", "1", args.len()));
+        }
+        let p = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let ext = std::path::Path::new(p)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("");
+        Ok(Value::string(ext))
+    });
+
+    register_fn(env, "path/stem", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/stem", "1", args.len()));
+        }
+        let p = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let stem = std::path::Path::new(p)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        Ok(Value::string(stem))
+    });
+
+    register_fn(env, "path/dir", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/dir", "1", args.len()));
+        }
+        let p = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let dir = std::path::Path::new(p)
+            .parent()
+            .and_then(|d| d.to_str())
+            .unwrap_or("");
+        Ok(Value::string(dir))
+    });
+
+    register_fn(env, "path/filename", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/filename", "1", args.len()));
+        }
+        let p = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let name = std::path::Path::new(p)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        Ok(Value::string(name))
+    });
+
+    register_fn(env, "path/absolute?", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/absolute?", "1", args.len()));
+        }
+        let p = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        Ok(Value::bool(std::path::Path::new(p).is_absolute()))
+    });
+
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/read-lines", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/read-lines", "1", args.len()));

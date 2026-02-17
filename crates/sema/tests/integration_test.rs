@@ -7153,6 +7153,70 @@ fn test_sandbox_all_denied_safe_functions_comprehensive() {
         .is_ok());
 }
 
+// === Task 3: Path utilities ===
+
+#[test]
+fn test_path_ext() {
+    assert_eq!(eval(r#"(path/ext "photo.jpg")"#), Value::string("jpg"));
+    assert_eq!(eval(r#"(path/ext "archive.tar.gz")"#), Value::string("gz"));
+    assert_eq!(eval(r#"(path/ext "Makefile")"#), Value::string(""));
+    assert_eq!(eval(r#"(path/ext "/home/user/.bashrc")"#), Value::string(""));
+}
+
+#[test]
+fn test_path_stem() {
+    assert_eq!(eval(r#"(path/stem "photo.jpg")"#), Value::string("photo"));
+    assert_eq!(eval(r#"(path/stem "/tmp/data.csv")"#), Value::string("data"));
+    assert_eq!(eval(r#"(path/stem "Makefile")"#), Value::string("Makefile"));
+}
+
+#[test]
+fn test_path_dir() {
+    assert_eq!(eval(r#"(path/dir "/tmp/data.csv")"#), Value::string("/tmp"));
+    assert_eq!(eval(r#"(path/dir "data.csv")"#), Value::string(""));
+    assert_eq!(
+        eval(r#"(path/dir "/home/user/.config/app.toml")"#),
+        Value::string("/home/user/.config")
+    );
+}
+
+#[test]
+fn test_path_filename() {
+    assert_eq!(
+        eval(r#"(path/filename "/tmp/data.csv")"#),
+        Value::string("data.csv")
+    );
+    assert_eq!(
+        eval(r#"(path/filename "data.csv")"#),
+        Value::string("data.csv")
+    );
+}
+
+#[test]
+fn test_path_join_multi() {
+    assert_eq!(
+        eval(r#"(path/join "/tmp" "data.csv")"#),
+        Value::string("/tmp/data.csv")
+    );
+    assert_eq!(
+        eval(r#"(path/join "/home" "user" ".config")"#),
+        Value::string("/home/user/.config")
+    );
+}
+
+#[test]
+fn test_path_absolute_predicate() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(r#"(path/absolute? "/tmp/data.csv")"#)
+        .unwrap();
+    assert_eq!(result, Value::bool(true));
+    let result = interp
+        .eval_str(r#"(path/absolute? "data.csv")"#)
+        .unwrap();
+    assert_eq!(result, Value::bool(false));
+}
+
 // === Task 2: base64/encode-bytes and base64/decode-bytes ===
 
 #[test]
