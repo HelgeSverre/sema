@@ -1,4 +1,4 @@
-.PHONY: all build release install uninstall test test-embedding-bench test-http check clippy fmt fmt-check clean run lint examples examples-vm test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy coverage coverage-html bench bench-vm bench-tree bench-save profile profile-vm profile-tree
+.PHONY: all build release install uninstall test test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint examples examples-vm test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy coverage coverage-html bench bench-vm bench-tree bench-save profile profile-vm profile-tree
 
 build:
 	cargo build
@@ -19,7 +19,10 @@ test-embedding-bench:
 	cargo test -p sema --test embedding_bench -- --ignored --nocapture
 
 test-http:
-	cargo test -p sema --test integration_test test_http -- --ignored
+	cargo test -p sema --test http_test -- --ignored --nocapture
+
+test-llm:
+	cargo test -p sema --test llm_test -- --ignored --nocapture
 
 check:
 	cargo check
