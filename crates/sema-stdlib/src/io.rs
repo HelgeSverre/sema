@@ -79,6 +79,33 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::nil())
     });
 
+    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/read-bytes", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("file/read-bytes", "1", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let bytes = std::fs::read(path)
+            .map_err(|e| SemaError::Io(format!("file/read-bytes {path}: {e}")))?;
+        Ok(Value::bytevector(bytes))
+    });
+
+    crate::register_fn_gated(env, sandbox, Caps::FS_WRITE, "file/write-bytes", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("file/write-bytes", "2", args.len()));
+        }
+        let path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let bv = args[1]
+            .as_bytevector()
+            .ok_or_else(|| SemaError::type_error("bytevector", args[1].type_name()))?;
+        std::fs::write(path, bv)
+            .map_err(|e| SemaError::Io(format!("file/write-bytes {path}: {e}")))?;
+        Ok(Value::nil())
+    });
+
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "file/exists?", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("file/exists?", "1", args.len()));

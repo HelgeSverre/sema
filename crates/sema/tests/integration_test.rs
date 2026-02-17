@@ -7155,6 +7155,52 @@ fn test_sandbox_all_denied_safe_functions_comprehensive() {
 
 // === Sandbox: load is gated by fs-read ===
 
+// === Task 1: file/read-bytes and file/write-bytes ===
+
+#[test]
+fn test_file_read_bytes() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (file/write "/tmp/sema-test-bytes.txt" "ABC")
+                (define bv (file/read-bytes "/tmp/sema-test-bytes.txt"))
+                (list (bytevector-length bv)
+                      (bytevector-u8-ref bv 0)
+                      (bytevector-u8-ref bv 1)
+                      (bytevector-u8-ref bv 2)))"#,
+        )
+        .unwrap();
+    assert_eq!(result.to_string(), "(3 65 66 67)");
+}
+
+#[test]
+fn test_file_read_bytes_not_found() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(file/read-bytes "/tmp/sema-nonexistent-xyz.bin")"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_file_write_bytes() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (file/write-bytes "/tmp/sema-test-write-bytes.bin" (bytevector 72 101 108 108 111))
+                (file/read "/tmp/sema-test-write-bytes.bin"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("Hello"));
+}
+
+#[test]
+fn test_file_write_bytes_type_error() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(file/write-bytes "/tmp/foo.bin" "not a bytevector")"#);
+    assert!(result.is_err());
+}
+
 #[test]
 fn test_sandbox_load_denied_by_fs_read() {
     let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_READ);
