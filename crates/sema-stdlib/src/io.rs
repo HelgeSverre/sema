@@ -2,7 +2,7 @@ use std::io::BufRead;
 use std::io::Read as _;
 use std::io::Write as _;
 
-use sema_core::{Caps, SemaError, Value, ValueView};
+use sema_core::{Caps, NativeFn, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -607,6 +607,11 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(&buf))
     });
 
+    register_log_fn(env, "log/info", "INFO");
+    register_log_fn(env, "log/warn", "WARN");
+    register_log_fn(env, "log/error", "ERROR");
+    register_log_fn(env, "log/debug", "DEBUG");
+
     crate::register_fn_gated(env, sandbox, Caps::FS_READ, "load", |args| {
         if args.len() != 1 {
             return Err(SemaError::arity("load", "1", args.len()));
@@ -620,4 +625,33 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let exprs = sema_reader::read_many(&content)?;
         Ok(Value::list(exprs))
     });
+}
+
+fn register_log_fn(env: &sema_core::Env, name: &str, level: &'static str) {
+    let fn_name = name.to_string();
+    env.set(
+        sema_core::intern(name),
+        Value::native_fn(NativeFn::with_ctx(name, move |ctx, args| {
+            if args.is_empty() {
+                return Err(SemaError::arity(&fn_name, "1+", 0));
+            }
+            let mut msg = String::new();
+            for (i, arg) in args.iter().enumerate() {
+                if i > 0 {
+                    msg.push(' ');
+                }
+                match arg.as_str() {
+                    Some(s) => msg.push_str(s),
+                    None => msg.push_str(&arg.to_string()),
+                }
+            }
+            let context = ctx.context_all();
+            if context.is_empty() {
+                eprintln!("[{level}] {msg}");
+            } else {
+                eprintln!("[{level}] {msg} {}", Value::map(context));
+            }
+            Ok(Value::nil())
+        })),
+    );
 }
