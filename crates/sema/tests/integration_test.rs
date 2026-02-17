@@ -38,10 +38,10 @@ fn test_define_and_call() {
         eval("(begin (define (square x) (* x x)) (square 5))"),
         Value::int(25)
     );
-    }
+}
 
-    #[test]
-    fn test_defun_alias() {
+#[test]
+fn test_defun_alias() {
     let interp = Interpreter::new();
     let result = interp
         .eval_str("(defun square (x) (* x x)) (square 5)")
@@ -8438,4 +8438,41 @@ fn test_context_has_hidden() {
         Value::bool(true),
     );
     assert_eq!(eval("(context/has-hidden? :nope)"), Value::bool(false));
+}
+
+#[test]
+fn test_context_stack_push_get() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/push :breadcrumbs "first")
+            (context/push :breadcrumbs "second")
+            (context/push :breadcrumbs "third")
+            (context/stack :breadcrumbs))"#),
+        eval(r#"(list "first" "second" "third")"#),
+    );
+}
+
+#[test]
+fn test_context_stack_pop() {
+    assert_eq!(
+        eval(r#"(begin
+            (context/push :trail "a")
+            (context/push :trail "b")
+            (context/pop :trail))"#),
+        Value::string("b"),
+    );
+    assert_eq!(
+        eval(r#"(begin
+            (context/push :trail "a")
+            (context/push :trail "b")
+            (context/pop :trail)
+            (context/stack :trail))"#),
+        eval(r#"(list "a")"#),
+    );
+}
+
+#[test]
+fn test_context_stack_empty() {
+    assert_eq!(eval("(context/stack :empty)"), eval("(list)"));
+    assert_eq!(eval("(context/pop :empty)"), Value::nil());
 }
