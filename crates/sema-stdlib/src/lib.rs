@@ -3,6 +3,7 @@ mod arithmetic;
 mod bitwise;
 mod bytevector;
 mod comparison;
+mod context;
 mod crypto;
 mod csv_ops;
 mod datetime;
@@ -31,6 +32,7 @@ use sema_core::{Caps, Env, Sandbox, Value};
 pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     arithmetic::register(env);
     comparison::register(env);
+    context::register(env);
     list::register(env);
     string::register(env);
     predicates::register(env);

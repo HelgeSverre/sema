@@ -8334,3 +8334,45 @@ fn test_map_zip() {
     // Empty
     assert_eq!(eval("(count (map/zip (list) (list)))"), Value::int(0));
 }
+
+#[test]
+fn test_context_set_get() {
+    assert_eq!(
+        eval(r#"(begin (context/set :name "alice") (context/get :name))"#),
+        Value::string("alice")
+    );
+    assert_eq!(eval("(context/get :missing)"), Value::nil());
+}
+
+#[test]
+fn test_context_has() {
+    assert_eq!(
+        eval("(begin (context/set :x 1) (context/has? :x))"),
+        Value::bool(true)
+    );
+    assert_eq!(eval("(context/has? :nope)"), Value::bool(false));
+}
+
+#[test]
+fn test_context_remove() {
+    assert_eq!(
+        eval("(begin (context/set :x 1) (context/remove :x) (context/has? :x))"),
+        Value::bool(false)
+    );
+}
+
+#[test]
+fn test_context_all() {
+    let result = eval("(begin (context/set :a 1) (context/set :b 2) (context/all))");
+    let map = result.as_map_rc().expect("should be a map");
+    assert_eq!(map.get(&Value::keyword("a")), Some(&Value::int(1)));
+    assert_eq!(map.get(&Value::keyword("b")), Some(&Value::int(2)));
+}
+
+#[test]
+fn test_context_pull() {
+    assert_eq!(
+        eval(r#"(begin (context/set :temp "value") (define pulled (context/pull :temp)) (list pulled (context/has? :temp)))"#),
+        eval(r#"(list "value" #f)"#),
+    );
+}
