@@ -7,3 +7,4 @@ pub use eval::{
     Trampoline,
 };
 pub use sema_core::EvalContext;
+pub use special_forms::SPECIAL_FORM_NAMES;

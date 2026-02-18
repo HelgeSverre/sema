@@ -123,6 +123,51 @@ fn special_forms() -> &'static SpecialFormSpurs {
     })
 }
 
+/// Canonical list of all special form names recognized by the evaluator.
+///
+/// This is the single source of truth — used by the REPL for completion,
+/// the LSP for highlighting, and anywhere else that needs to enumerate special forms.
+pub const SPECIAL_FORM_NAMES: &[&str] = &[
+    // Core language
+    "and",
+    "begin",
+    "case",
+    "cond",
+    "define",
+    "define-record-type",
+    "defmacro",
+    "defun",
+    "delay",
+    "do",
+    "eval",
+    "fn",
+    "force",
+    "if",
+    "lambda",
+    "let",
+    "let*",
+    "letrec",
+    "macroexpand",
+    "or",
+    "quasiquote",
+    "quote",
+    "set!",
+    "throw",
+    "try",
+    "unless",
+    "when",
+    // Modules
+    "export",
+    "import",
+    "load",
+    "module",
+    // LLM primitives
+    "defagent",
+    "deftool",
+    "message",
+    "prompt",
+];
+
 /// Evaluate a special form. Returns Some(result) if the head is a special form, None otherwise.
 pub fn try_eval_special(
     head_spur: Spur,

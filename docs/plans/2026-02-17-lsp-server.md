@@ -1,9 +1,9 @@
-# Sema Developer Experience — Design Document (v2)
+# Sema Developer Experience — Design Document (v3)
 
-**Date:** 2026-02-17
+**Date:** 2026-02-18 (revised)
 **Status:** Draft
 **Supersedes:** `2026-02-16-lsp-server.v1.md`
-**Implementation:** Not started
+**Implementation:** Phase 0a complete (special forms export)
 **Goal:** World-class developer experience — tree-sitter grammar for instant structural editing + full LSP for semantic features.
 
 ## Overview
@@ -12,15 +12,15 @@ Two complementary systems:
 
 1. **`tree-sitter-sema`** — A dedicated tree-sitter grammar for Sema. Currently Helix piggybacks on the Scheme grammar (`grammar = "scheme"`), which doesn't understand Sema-specific syntax (keywords `:foo`, hash maps `{}`, vectors `[]`, `#t`/`#f` booleans, block comments `#| |#`, etc.). A proper grammar gives every tree-sitter-native editor (Neovim, Helix, Zed, Emacs 29+) accurate highlighting, folding, indentation, and text objects — instantly, with no server.
 
-2. **`sema-lsp`** — A Language Server Protocol server providing diagnostics, completions, go-to-definition, and hover. Uses `sema-reader` for parsing, `sema-eval::Interpreter` for semantic analysis, and the sandbox system for safety. The bytecode VM (`sema-vm`) is not used initially — all analysis runs through the tree-walker under a restrictive sandbox.
+2. **`sema-lsp`** — A Language Server Protocol server providing diagnostics, completions, go-to-definition, and hover. Uses `sema-reader` for parsing and `sema-eval::Interpreter` for semantic analysis under the sandbox system (`Sandbox::deny(Caps::ALL)`). The bytecode VM pipeline (`sema_vm::lower` → `resolve` → `compile`) can optionally be used for deeper static analysis (Phase 1b) — it catches unbound variables and arity errors without executing code. The VM pipeline now includes recursion depth limits (256) to safely handle malicious input.
 
 ## Prerequisites (Phase 0)
 
 Before starting either system:
 
-1. **Unify the special-forms list.** `SPECIAL_FORMS` in `main.rs` and `SpecialFormSpurs` in `special_forms.rs` are duplicated and out of sync. Export a canonical `SPECIAL_FORM_NAMES: &[&str]` from `sema-eval` and have both CLI completion and LSP consume it.
+1. ~~**Unify the special-forms list.**~~ ✅ **Done.** `SPECIAL_FORM_NAMES: &[&str]` is now exported from `sema_eval::special_forms` (re-exported from `sema_eval`). The duplicate `SPECIAL_FORMS` in `main.rs` has been removed — the REPL now uses `sema_eval::SPECIAL_FORM_NAMES`. The canonical list has 38 entries matching `SpecialFormSpurs`. Note: the VM lowerer (`sema-vm/src/lower.rs`) still has its own ad-hoc `sf("name")` calls — these can't easily share the const since they produce `Spur` values, but they match the canonical list.
 
-2. **Add end positions to `Span`** (recommended, not blocking Phase 1). Currently `Span { line, col }` is start-only. Adding `end_line`/`end_col` improves diagnostic underlines and is required for precise go-to-definition highlighting in Phase 3+.
+2. **Add end positions to `Span`** (recommended, not blocking Phase 1). Currently `Span { line, col }` is start-only. Adding `end_line`/`end_col` improves diagnostic underlines and is required for precise go-to-definition highlighting in Phase 3+. **Note:** Symbols are interned as `Spur` values and do not carry individual source spans. The `SpanMap` only tracks compound expressions (lists, vectors, maps) by `Rc` pointer address. This is a known limitation — it means top-level unbound variable errors lack line/col info for bare symbols. For the LSP, this affects Phase 3 (go-to-definition for symbol references) but not Phases 1–2.
 
 ---
 
@@ -230,7 +230,7 @@ Remove document from store and publish empty diagnostics to clear stale errors.
 On backend thread startup:
 
 ```rust
-let interpreter = Interpreter::new_with_sandbox(&Sandbox::deny_all());
+let interpreter = Interpreter::new_with_sandbox(&Sandbox::deny(Caps::ALL));
 let builtins: Vec<String> = interpreter.global_env
     .all_binding_names()  // or manual walk of bindings HashMap
     .collect();
@@ -352,36 +352,40 @@ The extension currently only provides TextMate grammar. Add LSP client:
 
 ## Summary
 
-| Phase | Feature | Complexity | Effort (agent) |
-|-------|---------|------------|----------------|
-| 0 | Prerequisites (special forms export, optional end spans) | Easy | ~30 min |
-| T | Tree-sitter grammar + queries + editor configs | Easy–Medium | ~2–3 hours |
-| 1 | LSP: Parse diagnostics | Easy | ~2 hours |
-| 2 | LSP: Completion | Medium | ~1–2 hours |
-| 3 | LSP: Go to definition | Hard | ~2–3 hours |
-| 4 | LSP: Hover docs | Medium–Hard | ~2–3 hours |
+| Phase | Feature | Complexity | Status |
+|-------|---------|------------|--------|
+| 0a | Special forms export | Easy | ✅ Done |
+| 0b | End positions on `Span` | Easy | Not started |
+| T | Tree-sitter grammar + queries + editor configs | Easy–Medium | Not started |
+| 1 | LSP: Parse diagnostics | Easy | Not started |
+| 1b | LSP: Compile-time diagnostics (via sema-vm pipeline) | Medium | Not started |
+| 2 | LSP: Completion | Medium | Not started |
+| 3 | LSP: Go to definition | Hard | Not started |
+| 4 | LSP: Hover docs | Medium–Hard | Not started |
 
 ### Implementation Order
 
-1. **Phase 0** — unify special forms list (small, unblocks Phase 2 + tree-sitter queries)
+1. ~~**Phase 0a**~~ ✅ — special forms list unified
 2. **Phase T** — tree-sitter grammar (immediate payoff across all modern editors, independent of LSP)
 3. **Phase 1** — LSP parse diagnostics (immediate value, validates tower-lsp plumbing)
-4. **Phase 2** — LSP completion (most-requested IDE feature)
-5. **Phase 3a** — import path resolution (easy, do alongside Phase 2)
-6. **Phase 3b/3c + Phase 4** — incrementally as LSP matures
-
-**Total estimated agent effort: ~10–14 hours for everything.** Phases 0+T+1+2 (~6–8 hours) deliver 90% of the daily-use value.
+4. **Phase 1b** — compile-time diagnostics via `sema_vm::lower` → `resolve` → `compile` (catches unbound vars, arity errors without execution)
+5. **Phase 2** — LSP completion (most-requested IDE feature)
+6. **Phase 0b** — end spans (do before Phase 3, improves diagnostics)
+7. **Phase 3a** — import path resolution (easy, do alongside Phase 2)
+8. **Phase 3b/3c + Phase 4** — incrementally as LSP matures
 
 ---
 
 ## Future Considerations
 
-- **Compile-time diagnostics:** The VM compiler (`sema_vm::compile_program`) could detect unbound variables and invalid forms without executing code. This would be a "Phase 1b" — parse → macroexpand → compile (no execute) → report compiler errors. Requires macro expansion under sandbox and honest span propagation from the compiler. Deferred until Phase 1 is stable.
+- **Phase 1b — Compile-time diagnostics:** The VM compiler (`sema_vm::compile_program`) can now detect unbound variables, arity mismatches, and invalid forms without executing code. The pipeline is: parse → lower (`sema_vm::lower`) → resolve (`sema_vm::resolve`) → compile (`sema_vm::compile`). The resolver catches unbound variables, the lowerer validates special form syntax, and the compiler catches structural issues. This would be extremely valuable for the LSP — catching errors the reader alone can't see. **Current limitation:** The VM `Chunk.spans` table is not yet populated during normal compilation (only during serialization), so compiler errors may lack precise source locations. Also, macro expansion happens in the tree-walker (`sema-eval`), so the LSP would need to macroexpand under sandbox before handing to the VM pipeline. The recursion depth limit (256) added to lower/resolve/compile passes prevents stack overflow from malicious input.
 
-- **Eval-level diagnostics:** Running the tree-walker for deeper analysis (type mismatches, arity errors at call sites). Must use `Sandbox::deny_all()` and add timeouts. High complexity, low priority.
+- **Eval-level diagnostics:** Running the tree-walker for deeper analysis (type mismatches, arity errors at call sites). Must use `Sandbox::deny(Caps::ALL)` and add timeouts. High complexity, low priority.
 
 - **Incremental parsing:** Phase 1 re-parses the full file on every keystroke. The reader is fast enough for typical Sema files. If performance becomes an issue, add debouncing (100–200ms via `tokio::time::sleep`) first, then consider `TextDocumentSyncKind::INCREMENTAL`.
 
 - **WASM LSP:** `sema-wasm` exists but `tower-lsp` is stdio-oriented. In-browser LSP would need a different transport (WebSocket/worker). Out of scope.
 
 - **Tree-sitter in LSP:** Once `tree-sitter-sema` exists, the LSP could optionally use it for faster incremental parsing instead of re-running `sema-reader` on every keystroke. Low priority — `sema-reader` is already fast for typical file sizes.
+
+- **Symbol span tracking:** To give bare symbols source locations (needed for precise go-to-definition of variable references), the reader/lexer would need to track span information per-atom, not just per-compound-expression. Options: (a) extend `SpanMap` to key on symbol `Spur` + occurrence index, (b) wrap `Value::Symbol(Spur)` to carry an optional span, or (c) use the tree-sitter CST for position lookups instead. Option (c) is cleanest long-term once `tree-sitter-sema` exists.

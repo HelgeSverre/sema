@@ -7,55 +7,7 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
 use sema_core::{pretty_print, Env, SemaError, Value, ValueView};
-use sema_eval::Interpreter;
-
-const SPECIAL_FORMS: &[&str] = &[
-    "define",
-    "defun",
-    "defmacro",
-    "deftool",
-    "defagent",
-    "lambda",
-    "fn",
-    "if",
-    "cond",
-    "let",
-    "let*",
-    "letrec",
-    "begin",
-    "do",
-    "quote",
-    "quasiquote",
-    "unquote",
-    "unquote-splicing",
-    "set!",
-    "and",
-    "or",
-    "when",
-    "unless",
-    "try",
-    "catch",
-    "throw",
-    "import",
-    "module",
-    "export",
-    "load",
-    "define-record-type",
-    "delay",
-    "force",
-    "eval",
-    "macroexpand",
-    "prompt",
-    "message",
-    "else",
-    "case",
-    "->",
-    "->>",
-    "as->",
-    "for-each",
-    "apply",
-    "map",
-];
+use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
 
 const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins"];
 
@@ -71,7 +23,7 @@ impl SemaCompleter {
         self.collect_env_bindings(&self.env, prefix, &mut candidates);
 
         // Special forms
-        for &sf in SPECIAL_FORMS {
+        for &sf in SPECIAL_FORM_NAMES {
             if sf.starts_with(prefix) {
                 candidates.push(sf.to_string());
             }
