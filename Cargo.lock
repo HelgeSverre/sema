@@ -2009,21 +2009,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sema"
-version = "1.6.0"
-dependencies = [
- "clap",
- "clap_complete",
- "rustyline",
- "sema-core",
- "sema-eval",
- "sema-llm",
- "sema-reader",
- "sema-stdlib",
- "serde_json",
-]
-
-[[package]]
 name = "sema-core"
 version = "1.6.0"
 dependencies = [
@@ -2043,6 +2028,21 @@ dependencies = [
  "sema-reader",
  "sema-stdlib",
  "sema-vm",
+]
+
+[[package]]
+name = "sema-lang"
+version = "1.6.0"
+dependencies = [
+ "clap",
+ "clap_complete",
+ "rustyline",
+ "sema-core",
+ "sema-eval",
+ "sema-llm",
+ "sema-reader",
+ "sema-stdlib",
+ "serde_json",
 ]
 
 [[package]]

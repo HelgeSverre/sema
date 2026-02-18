@@ -1,7 +1,11 @@
 [package]
 name = "sema-core"
-version = "1.6.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Core types and environment for the Sema programming language"
 
 [dependencies]
 thiserror.workspace = true

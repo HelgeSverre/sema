@@ -1,7 +1,11 @@
 [package]
 name = "sema-eval"
-version = "1.6.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Trampoline-based evaluator and module system for the Sema programming language"
 
 [dependencies]
 sema-core.workspace = true
