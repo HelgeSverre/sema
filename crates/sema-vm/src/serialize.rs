@@ -70,6 +70,8 @@ const VAL_MAP: u8 = 0x0A;
 const VAL_HASHMAP: u8 = 0x0B;
 const VAL_BYTEVECTOR: u8 = 0x0C;
 
+const MAX_VALUE_DEPTH: usize = 128;
+
 // ── Checked conversions ───────────────────────────────────────────
 
 fn checked_u16(n: usize, what: &str) -> Result<u16, SemaError> {
@@ -238,6 +240,21 @@ pub fn deserialize_value(
     table: &[String],
     remap: &[Spur],
 ) -> Result<Value, SemaError> {
+    deserialize_value_inner(buf, cursor, table, remap, 0)
+}
+
+fn deserialize_value_inner(
+    buf: &[u8],
+    cursor: &mut usize,
+    table: &[String],
+    remap: &[Spur],
+    depth: usize,
+) -> Result<Value, SemaError> {
+    if depth > MAX_VALUE_DEPTH {
+        return Err(SemaError::eval(format!(
+            "value nesting depth exceeds maximum ({MAX_VALUE_DEPTH})"
+        )));
+    }
     let tag = read_u8(buf, cursor)?;
     match tag {
         VAL_NIL => Ok(Value::nil()),
@@ -297,7 +314,13 @@ pub fn deserialize_value(
             let count = read_u16_le(buf, cursor)? as usize;
             let mut items = Vec::with_capacity(count);
             for _ in 0..count {
-                items.push(deserialize_value(buf, cursor, table, remap)?);
+                items.push(deserialize_value_inner(
+                    buf,
+                    cursor,
+                    table,
+                    remap,
+                    depth + 1,
+                )?);
             }
             Ok(Value::list(items))
         }
@@ -305,7 +328,13 @@ pub fn deserialize_value(
             let count = read_u16_le(buf, cursor)? as usize;
             let mut items = Vec::with_capacity(count);
             for _ in 0..count {
-                items.push(deserialize_value(buf, cursor, table, remap)?);
+                items.push(deserialize_value_inner(
+                    buf,
+                    cursor,
+                    table,
+                    remap,
+                    depth + 1,
+                )?);
             }
             Ok(Value::vector(items))
         }
@@ -313,8 +342,8 @@ pub fn deserialize_value(
             let n_pairs = read_u16_le(buf, cursor)? as usize;
             let mut map = std::collections::BTreeMap::new();
             for _ in 0..n_pairs {
-                let k = deserialize_value(buf, cursor, table, remap)?;
-                let v = deserialize_value(buf, cursor, table, remap)?;
+                let k = deserialize_value_inner(buf, cursor, table, remap, depth + 1)?;
+                let v = deserialize_value_inner(buf, cursor, table, remap, depth + 1)?;
                 map.insert(k, v);
             }
             Ok(Value::map(map))
@@ -323,8 +352,8 @@ pub fn deserialize_value(
             let n_pairs = read_u16_le(buf, cursor)? as usize;
             let mut entries = Vec::with_capacity(n_pairs);
             for _ in 0..n_pairs {
-                let k = deserialize_value(buf, cursor, table, remap)?;
-                let v = deserialize_value(buf, cursor, table, remap)?;
+                let k = deserialize_value_inner(buf, cursor, table, remap, depth + 1)?;
+                let v = deserialize_value_inner(buf, cursor, table, remap, depth + 1)?;
                 entries.push((k, v));
             }
             Ok(Value::hashmap(entries))
@@ -1766,6 +1795,28 @@ mod tests {
         // Roundtrip should work on valid data
         let result2 = deserialize_from_bytes(&bytes);
         assert!(result2.is_ok());
+    }
+
+    #[test]
+    fn test_deserialize_value_depth_limit() {
+        // Construct a deeply nested list: (list (list (list ... ))) 200 levels deep
+        let depth = 200;
+        let mut buf = Vec::new();
+        for _ in 0..depth {
+            buf.push(0x08); // VAL_LIST
+            buf.extend_from_slice(&1u16.to_le_bytes()); // 1 element
+        }
+        buf.push(0x00); // VAL_NIL at the bottom
+
+        let table = vec!["".to_string()];
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let result = deserialize_value(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err(), "should reject deeply nested values");
+        assert!(
+            result.unwrap_err().to_string().contains("depth"),
+            "error should mention depth limit"
+        );
     }
 
     #[test]
