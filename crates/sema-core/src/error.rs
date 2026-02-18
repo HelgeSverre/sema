@@ -47,6 +47,30 @@ macro_rules! check_arity {
 pub struct Span {
     pub line: usize,
     pub col: usize,
+    pub end_line: usize,
+    pub end_col: usize,
+}
+
+impl Span {
+    /// Create a point span (start == end).
+    pub fn point(line: usize, col: usize) -> Self {
+        Span {
+            line,
+            col,
+            end_line: line,
+            end_col: col,
+        }
+    }
+
+    /// Create a span with explicit start and end.
+    pub fn new(line: usize, col: usize, end_line: usize, end_col: usize) -> Self {
+        Span {
+            line,
+            col,
+            end_line,
+            end_col,
+        }
+    }
 }
 
 impl fmt::Display for Span {
@@ -252,7 +276,7 @@ mod tests {
     // 1. Span Display
     #[test]
     fn span_display() {
-        let span = Span { line: 1, col: 5 };
+        let span = Span::point(1, 5);
         assert_eq!(span.to_string(), "1:5");
     }
 
@@ -263,7 +287,7 @@ mod tests {
             CallFrame {
                 name: "foo".into(),
                 file: Some("/a/b.sema".into()),
-                span: Some(Span { line: 3, col: 7 }),
+                span: Some(Span::point(3, 7)),
             },
             CallFrame {
                 name: "bar".into(),
@@ -273,7 +297,7 @@ mod tests {
             CallFrame {
                 name: "baz".into(),
                 file: None,
-                span: Some(Span { line: 10, col: 1 }),
+                span: Some(Span::point(10, 1)),
             },
             CallFrame {
                 name: "qux".into(),

@@ -141,9 +141,9 @@ mod tests {
     #[test]
     fn test_emit_span() {
         let mut e = Emitter::new();
-        e.emit_span(Span { line: 1, col: 0 });
+        e.emit_span(Span::point(1, 0));
         e.emit_op(Op::Nil);
-        e.emit_span(Span { line: 2, col: 4 });
+        e.emit_span(Span::point(2, 4));
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
         assert_eq!(chunk.spans.len(), 2);

@@ -173,7 +173,9 @@ The main chunk contains the top-level bytecode and its constant pool.
 ├────────────────────────────────┤
 │  n_spans: u32                  │
 │  spans: [(u32 pc, u32 line,    │  PC → source location
-│           u32 col)]            │
+│           u32 col, u32         │
+│           end_line, u32        │
+│           end_col)]            │
 ├────────────────────────────────┤
 │  max_stack: u16                │
 │  n_locals: u16                 │

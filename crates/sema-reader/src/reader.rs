@@ -28,7 +28,7 @@ impl Parser {
         self.tokens
             .get(self.pos)
             .map(|t| t.span)
-            .unwrap_or(Span { line: 0, col: 0 })
+            .unwrap_or(Span::point(0, 0))
     }
 
     fn advance(&mut self) -> Option<&SpannedToken> {
@@ -125,6 +125,15 @@ impl Parser {
         Ok(Value::list_from_rc(rc))
     }
 
+    /// Get the span of the previously consumed token (the one at pos-1).
+    fn prev_span(&self) -> Span {
+        if self.pos > 0 {
+            self.tokens[self.pos - 1].span
+        } else {
+            Span::point(0, 0)
+        }
+    }
+
     fn parse_list(&mut self) -> Result<Value, SemaError> {
         let open_span = self.span();
         self.expect(&Token::LParen)?;
@@ -142,14 +151,18 @@ impl Parser {
                 self.advance(); // skip dot
                 let cdr = self.parse_expr()?;
                 self.expect(&Token::RParen)?;
+                let close = self.prev_span();
                 items.push(Value::symbol("."));
                 items.push(cdr);
-                return self.make_list_with_span(items, open_span);
+                let span = Span::new(open_span.line, open_span.col, close.end_line, close.end_col);
+                return self.make_list_with_span(items, span);
             }
             items.push(self.parse_expr()?);
         }
         self.expect(&Token::RParen)?;
-        self.make_list_with_span(items, open_span)
+        let close = self.prev_span();
+        let span = Span::new(open_span.line, open_span.col, close.end_line, close.end_col);
+        self.make_list_with_span(items, span)
     }
 
     fn parse_vector(&mut self) -> Result<Value, SemaError> {
@@ -167,9 +180,11 @@ impl Parser {
             items.push(self.parse_expr()?);
         }
         self.expect(&Token::RBracket)?;
+        let close = self.prev_span();
+        let span = Span::new(open_span.line, open_span.col, close.end_line, close.end_col);
         let rc = Rc::new(items);
         let ptr = Rc::as_ptr(&rc) as usize;
-        self.span_map.insert(ptr, open_span);
+        self.span_map.insert(ptr, span);
         Ok(Value::vector_from_rc(rc))
     }
 

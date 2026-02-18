@@ -38,7 +38,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
 
     while i < chars.len() {
         let ch = chars[i];
-        let span = Span { line, col };
+        let span = Span::point(line, col);
 
         match ch {
             // Whitespace
@@ -61,86 +61,86 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
 
             // Delimiters
             '(' => {
+                col += 1;
+                i += 1;
                 tokens.push(SpannedToken {
                     token: Token::LParen,
-                    span,
+                    span: Span::new(span.line, span.col, line, col),
                 });
-                col += 1;
-                i += 1;
             }
             ')' => {
+                col += 1;
+                i += 1;
                 tokens.push(SpannedToken {
                     token: Token::RParen,
-                    span,
+                    span: Span::new(span.line, span.col, line, col),
                 });
-                col += 1;
-                i += 1;
             }
             '[' => {
+                col += 1;
+                i += 1;
                 tokens.push(SpannedToken {
                     token: Token::LBracket,
-                    span,
+                    span: Span::new(span.line, span.col, line, col),
                 });
-                col += 1;
-                i += 1;
             }
             ']' => {
+                col += 1;
+                i += 1;
                 tokens.push(SpannedToken {
                     token: Token::RBracket,
-                    span,
+                    span: Span::new(span.line, span.col, line, col),
                 });
-                col += 1;
-                i += 1;
             }
             '{' => {
+                col += 1;
+                i += 1;
                 tokens.push(SpannedToken {
                     token: Token::LBrace,
-                    span,
+                    span: Span::new(span.line, span.col, line, col),
                 });
-                col += 1;
-                i += 1;
             }
             '}' => {
-                tokens.push(SpannedToken {
-                    token: Token::RBrace,
-                    span,
-                });
                 col += 1;
                 i += 1;
+                tokens.push(SpannedToken {
+                    token: Token::RBrace,
+                    span: Span::new(span.line, span.col, line, col),
+                });
             }
 
             // Quote forms
             '\'' => {
+                col += 1;
+                i += 1;
                 tokens.push(SpannedToken {
                     token: Token::Quote,
-                    span,
+                    span: Span::new(span.line, span.col, line, col),
                 });
-                col += 1;
-                i += 1;
             }
             '`' => {
-                tokens.push(SpannedToken {
-                    token: Token::Quasiquote,
-                    span,
-                });
                 col += 1;
                 i += 1;
+                tokens.push(SpannedToken {
+                    token: Token::Quasiquote,
+                    span: Span::new(span.line, span.col, line, col),
+                });
             }
             ',' => {
                 if i + 1 < chars.len() && chars[i + 1] == '@' {
-                    tokens.push(SpannedToken {
-                        token: Token::UnquoteSplice,
-                        span,
-                    });
                     col += 2;
                     i += 2;
-                } else {
                     tokens.push(SpannedToken {
-                        token: Token::Unquote,
-                        span,
+                        token: Token::UnquoteSplice,
+                        span: Span::new(span.line, span.col, line, col),
                     });
+                } else {
                     col += 1;
                     i += 1;
+                    tokens.push(SpannedToken {
+                        token: Token::Unquote,
+                        span: Span::new(span.line, span.col, line, col),
+                    });
                 }
             }
 
@@ -278,7 +278,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 col += 1;
                 tokens.push(SpannedToken {
                     token: Token::String(s),
-                    span,
+                    span: Span::new(span.line, span.col, line, col),
                 });
             }
 
@@ -287,20 +287,20 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 if i + 1 < chars.len() {
                     match chars[i + 1] {
                         't' => {
+                            i += 2;
+                            col += 2;
                             tokens.push(SpannedToken {
                                 token: Token::Bool(true),
-                                span,
+                                span: Span::new(span.line, span.col, line, col),
                             });
-                            i += 2;
-                            col += 2;
                         }
                         'f' => {
-                            tokens.push(SpannedToken {
-                                token: Token::Bool(false),
-                                span,
-                            });
                             i += 2;
                             col += 2;
+                            tokens.push(SpannedToken {
+                                token: Token::Bool(false),
+                                span: Span::new(span.line, span.col, line, col),
+                            });
                         }
                         '\\' => {
                             // Character literal: #\a, #\space, #\newline, etc.
@@ -339,19 +339,19 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             };
                             tokens.push(SpannedToken {
                                 token: Token::Char(c),
-                                span,
+                                span: Span::new(span.line, span.col, line, col),
                             });
                         }
                         'u' if i + 3 < chars.len()
                             && chars[i + 2] == '8'
                             && chars[i + 3] == '(' =>
                         {
-                            tokens.push(SpannedToken {
-                                token: Token::BytevectorStart,
-                                span,
-                            });
                             i += 4;
                             col += 4;
+                            tokens.push(SpannedToken {
+                                token: Token::BytevectorStart,
+                                span: Span::new(span.line, span.col, line, col),
+                            });
                         }
                         _ => {
                             return Err(SemaError::Reader {
@@ -390,7 +390,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 let name: String = chars[start..i].iter().collect();
                 tokens.push(SpannedToken {
                     token: Token::Keyword(name),
-                    span,
+                    span: Span::new(span.line, span.col, line, col),
                 });
             }
 
@@ -399,14 +399,20 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 if ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
                     // Negative number
                     let (tok, len) = read_number(&chars[i..], &span)?;
-                    tokens.push(SpannedToken { token: tok, span });
                     i += len;
                     col += len;
+                    tokens.push(SpannedToken {
+                        token: tok,
+                        span: Span::new(span.line, span.col, line, col),
+                    });
                 } else if ch.is_ascii_digit() {
                     let (tok, len) = read_number(&chars[i..], &span)?;
-                    tokens.push(SpannedToken { token: tok, span });
                     i += len;
                     col += len;
+                    tokens.push(SpannedToken {
+                        token: tok,
+                        span: Span::new(span.line, span.col, line, col),
+                    });
                 } else if is_symbol_start(ch) {
                     let start = i;
                     while i < chars.len() && is_symbol_char(chars[i]) {
@@ -414,27 +420,28 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                         col += 1;
                     }
                     let name: String = chars[start..i].iter().collect();
+                    let token_span = Span::new(span.line, span.col, line, col);
                     // Check for special symbol names
                     match name.as_str() {
                         "true" => tokens.push(SpannedToken {
                             token: Token::Bool(true),
-                            span,
+                            span: token_span,
                         }),
                         "false" => tokens.push(SpannedToken {
                             token: Token::Bool(false),
-                            span,
+                            span: token_span,
                         }),
                         "nil" => tokens.push(SpannedToken {
                             token: Token::Symbol("nil".to_string()),
-                            span,
+                            span: token_span,
                         }),
                         "." => tokens.push(SpannedToken {
                             token: Token::Dot,
-                            span,
+                            span: token_span,
                         }),
                         _ => tokens.push(SpannedToken {
                             token: Token::Symbol(name),
-                            span,
+                            span: token_span,
                         }),
                     }
                 } else {

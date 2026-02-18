@@ -389,15 +389,19 @@ pub fn serialize_chunk(
         serialize_value(val, buf, stb)?;
     }
 
-    // spans: Vec<(u32, Span)> where Span { line: usize, col: usize }
+    // spans: Vec<(u32, Span)> where Span { line, col, end_line, end_col }
     let n_spans = checked_u32(chunk.spans.len(), "span count")?;
     buf.extend_from_slice(&n_spans.to_le_bytes());
     for &(pc, ref span) in &chunk.spans {
         buf.extend_from_slice(&pc.to_le_bytes());
         let line = checked_u32(span.line, "span line")?;
         let col = checked_u32(span.col, "span col")?;
+        let end_line = checked_u32(span.end_line, "span end_line")?;
+        let end_col = checked_u32(span.end_col, "span end_col")?;
         buf.extend_from_slice(&line.to_le_bytes());
         buf.extend_from_slice(&col.to_le_bytes());
+        buf.extend_from_slice(&end_line.to_le_bytes());
+        buf.extend_from_slice(&end_col.to_le_bytes());
     }
 
     // max_stack, n_locals
@@ -442,11 +446,11 @@ pub fn deserialize_chunk(
         consts.push(deserialize_value(buf, cursor, table, remap)?);
     }
 
-    // spans (each span = 12 bytes: u32 pc + u32 line + u32 col)
+    // spans (each span = 20 bytes: u32 pc + u32 line + u32 col + u32 end_line + u32 end_col)
     let n_spans = read_u32_le(buf, cursor)? as usize;
     let span_remaining = buf.len().saturating_sub(*cursor);
     if n_spans
-        .checked_mul(12)
+        .checked_mul(20)
         .is_none_or(|need| need > span_remaining)
     {
         return Err(SemaError::eval(format!(
@@ -458,7 +462,9 @@ pub fn deserialize_chunk(
         let pc = read_u32_le(buf, cursor)?;
         let line = read_u32_le(buf, cursor)? as usize;
         let col = read_u32_le(buf, cursor)? as usize;
-        spans.push((pc, Span { line, col }));
+        let end_line = read_u32_le(buf, cursor)? as usize;
+        let end_col = read_u32_le(buf, cursor)? as usize;
+        spans.push((pc, Span::new(line, col, end_line, end_col)));
     }
 
     // max_stack, n_locals
@@ -1406,10 +1412,7 @@ mod tests {
         e.emit_op(Op::Nil);
         e.emit_op(Op::Return);
         let mut chunk = e.into_chunk();
-        chunk.spans = vec![
-            (0, Span { line: 1, col: 5 }),
-            (1, Span { line: 2, col: 10 }),
-        ];
+        chunk.spans = vec![(0, Span::point(1, 5)), (1, Span::new(2, 10, 3, 15))];
 
         let mut buf = Vec::new();
         let mut stb = StringTableBuilder::new();
@@ -1424,9 +1427,13 @@ mod tests {
         assert_eq!(chunk2.spans[0].0, 0);
         assert_eq!(chunk2.spans[0].1.line, 1);
         assert_eq!(chunk2.spans[0].1.col, 5);
+        assert_eq!(chunk2.spans[0].1.end_line, 1);
+        assert_eq!(chunk2.spans[0].1.end_col, 5);
         assert_eq!(chunk2.spans[1].0, 1);
         assert_eq!(chunk2.spans[1].1.line, 2);
         assert_eq!(chunk2.spans[1].1.col, 10);
+        assert_eq!(chunk2.spans[1].1.end_line, 3);
+        assert_eq!(chunk2.spans[1].1.end_col, 15);
     }
 
     #[test]
