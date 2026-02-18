@@ -586,11 +586,15 @@ pub fn deserialize_function(
 // ── Spur remapping in bytecode ────────────────────────────────────
 
 fn spur_to_u32(spur: Spur) -> u32 {
-    unsafe { std::mem::transmute::<Spur, u32>(spur) }
+    spur.into_inner().get()
 }
 
 fn u32_to_spur(bits: u32) -> Spur {
-    unsafe { std::mem::transmute::<u32, Spur>(bits) }
+    use lasso::Key;
+    let idx = bits
+        .checked_sub(1)
+        .expect("invalid Spur bits: 0 is not valid");
+    Spur::try_from_usize(idx as usize).expect("invalid Spur bits")
 }
 
 /// Compute the next PC after the instruction at `code[pc]`, validating operand bounds.
@@ -1731,5 +1735,24 @@ mod tests {
 
         let vec2 = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
         assert_eq!(vec2, vec);
+    }
+
+    #[test]
+    fn test_spur_u32_conversion_safe() {
+        let spur = intern("test-var");
+        let bits = spur_to_u32(spur);
+        assert_ne!(bits, 0, "Spur should never be zero (it's NonZeroU32)");
+        let spur2 = u32_to_spur(bits);
+        assert_eq!(spur, spur2);
+        assert_eq!(sema_core::resolve(spur2), "test-var");
+    }
+
+    #[test]
+    fn test_u32_to_spur_rejects_zero() {
+        let result = std::panic::catch_unwind(|| u32_to_spur(0));
+        assert!(
+            result.is_err(),
+            "u32_to_spur(0) should panic (was UB before fix)"
+        );
     }
 }

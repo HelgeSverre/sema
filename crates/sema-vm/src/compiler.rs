@@ -984,9 +984,7 @@ impl Compiler {
 }
 
 fn spur_to_u32(spur: Spur) -> u32 {
-    // Safety: Spur is repr(transparent) over a NonZeroU32.
-    // We transmute to get the raw bits for encoding in bytecode.
-    unsafe { std::mem::transmute::<Spur, u32>(spur) }
+    spur.into_inner().get()
 }
 
 #[cfg(test)]
