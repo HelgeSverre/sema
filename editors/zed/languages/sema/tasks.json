@@ -1,0 +1,8 @@
+[
+  {
+    "label": "sema run",
+    "command": "sema",
+    "args": ["$ZED_FILE"],
+    "tags": ["sema-run"]
+  }
+]
