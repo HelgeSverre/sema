@@ -426,6 +426,12 @@ pub fn deserialize_chunk(
 ) -> Result<Chunk, SemaError> {
     // code — remap string table indices back to process-local Spurs
     let code_len = read_u32_le(buf, cursor)? as usize;
+    let remaining = buf.len().saturating_sub(*cursor);
+    if code_len > remaining {
+        return Err(SemaError::eval(format!(
+            "bytecode code_len ({code_len}) exceeds remaining data ({remaining})"
+        )));
+    }
     let mut code = read_bytes(buf, cursor, code_len)?;
     remap_indices_to_spurs(&mut code, remap)?;
 
@@ -436,8 +442,14 @@ pub fn deserialize_chunk(
         consts.push(deserialize_value(buf, cursor, table, remap)?);
     }
 
-    // spans
+    // spans (each span = 12 bytes: u32 pc + u32 line + u32 col)
     let n_spans = read_u32_le(buf, cursor)? as usize;
+    let remaining = buf.len().saturating_sub(*cursor);
+    if n_spans > remaining / 12 {
+        return Err(SemaError::eval(format!(
+            "span count ({n_spans}) exceeds remaining data"
+        )));
+    }
     let mut spans = Vec::with_capacity(n_spans);
     for _ in 0..n_spans {
         let pc = read_u32_le(buf, cursor)?;
@@ -865,6 +877,12 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
                 let section_data = &bytes[cursor..cursor + section_len];
                 let mut sc = 0usize;
                 let count = read_u32_le(section_data, &mut sc)? as usize;
+                // Each string needs at least 4 bytes for its length prefix
+                if count > section_len / 4 {
+                    return Err(SemaError::eval(format!(
+                        "string table count ({count}) exceeds section capacity"
+                    )));
+                }
                 let mut table = Vec::with_capacity(count);
                 for _ in 0..count {
                     let len = read_u32_le(section_data, &mut sc)? as usize;
@@ -906,6 +924,12 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
     let func_section = &bytes[func_start..func_start + func_len];
     let mut fc = 0;
     let n_funcs = read_u32_le(func_section, &mut fc)? as usize;
+    // Each function needs at least several bytes; use 4 as minimum
+    if n_funcs > func_len / 4 {
+        return Err(SemaError::eval(format!(
+            "function count ({n_funcs}) exceeds section capacity"
+        )));
+    }
     let mut functions = Vec::with_capacity(n_funcs);
     for _ in 0..n_funcs {
         functions.push(deserialize_function(func_section, &mut fc, &table, &remap)?);
@@ -1826,5 +1850,48 @@ mod tests {
             result.is_err(),
             "u32_to_spur(0) should panic (was UB before fix)"
         );
+    }
+
+    // ── DoS limits on allocation sizes ──────────────────────────
+
+    #[test]
+    fn test_deserialize_rejects_huge_code_len() {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // code_len
+        let table = vec!["".to_string()];
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let result = deserialize_chunk(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_rejects_huge_string_count() {
+        let mut section = Vec::new();
+        section.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // count
+
+        let mut bytes = vec![0u8; 24];
+        bytes[0..4].copy_from_slice(&[0x00, b'S', b'E', b'M']);
+        bytes[4..6].copy_from_slice(&1u16.to_le_bytes()); // format version
+        bytes[14..16].copy_from_slice(&1u16.to_le_bytes()); // 1 section
+                                                            // Section header
+        bytes.extend_from_slice(&0x01u16.to_le_bytes()); // string table
+        bytes.extend_from_slice(&(section.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&section);
+
+        let result = deserialize_from_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_rejects_huge_bytevector() {
+        let mut buf = Vec::new();
+        buf.push(0x0C); // VAL_BYTEVECTOR
+        buf.extend_from_slice(&0xFFFFFFFFu32.to_le_bytes()); // length
+        let table = vec!["".to_string()];
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let result = deserialize_value(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err());
     }
 }
