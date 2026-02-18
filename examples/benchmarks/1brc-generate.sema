@@ -1,6 +1,6 @@
 ;; 1brc-generate.sema — Generate test data for the One Billion Row Challenge
 ;; Usage: sema examples/1brc-generate.sema [row-count] [output-file]
-;; Defaults: 10000 rows, measurements.txt
+;; Defaults: 10000 rows, benchmarks/data/measurements.txt
 
 ;; --- Weather stations: name, mean temp (tenths), variance (tenths) ---
 (define stations
@@ -78,7 +78,7 @@
 (define output-file
   (if (>= (length args) 2)
       (nth args 1)
-      "measurements.txt"))
+      "benchmarks/data/measurements.txt"))
 
 (println (format "Generating ~a rows to ~a (~a stations)" num-rows output-file num-stations))
 (define t-start (time-ms))

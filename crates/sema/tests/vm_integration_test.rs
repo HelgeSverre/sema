@@ -1625,3 +1625,19 @@ fn test_equiv_apply() {
     assert_equiv("(apply + '(1 2 3))");
     assert_equiv("(apply list '(1 2 3))");
 }
+
+// === Depth limit ===
+#[test]
+fn test_vm_compiler_depth_limit() {
+    // Build a deeply nested Value AST directly to avoid reader stack limits.
+    // (begin (begin (begin ... (+ 1 1) ...)))
+    let mut expr = Value::list(vec![Value::symbol("+"), Value::int(1), Value::int(1)]);
+    for _ in 0..600 {
+        expr = Value::list(vec![Value::symbol("begin"), expr]);
+    }
+    // Run through the VM compilation pipeline directly
+    let result = sema_vm::vm::compile_program(&[expr]);
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("depth"), "expected depth error, got: {err}");
+}

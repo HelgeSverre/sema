@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.8.0
+
+### Added
+
+- **Path sandboxing (`--allowed-paths`)** — restrict file operations to specific directories. Paths are canonicalized and lexically normalized to prevent traversal attacks (`../../etc/passwd`). Works with all file functions (`file/read`, `file/write`, `file/list`, `kv/open`, `pdf/*`, etc.) and composes with `--sandbox`. Embedding API: `Interpreter::builder().with_allowed_paths(vec![...])`.
+- **WASM VFS quotas** — the browser playground virtual filesystem now enforces limits: 1 MB per file, 16 MB total, 256 files max. Prevents runaway memory usage from scripts.
+- **VM compiler depth limit** — the bytecode compiler, resolver, and lowering passes now enforce a recursion depth limit (256), preventing stack overflows from deeply nested expressions. Uses RAII guard for panic-safe cleanup.
+- **Benchmarks README** — `benchmarks/README.md` documents how to generate test data and run tree-walker vs VM comparisons.
+
+### Changed
+
+- **Benchmark data files** moved from repo root to `benchmarks/data/` (gitignored). All doc references updated.
+
+### Security
+
+- **Fixed path traversal bypass** — `check_path` fallback for nonexistent paths now lexically normalizes `..` segments before the `starts_with` check, closing a bypass where `allowed/nonexistent/../../escape.txt` could escape the allowed directory.
+- **Fixed WASM VFS quota bypass** — `file/write-lines` was missing quota enforcement and `VFS_TOTAL_BYTES` tracking. All VFS mutators now use saturating arithmetic to prevent underflow.
+
 ## 1.7.0
 
 ### Added

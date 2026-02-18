@@ -1,4 +1,5 @@
 use std::fmt;
+use std::path::{Component, PathBuf};
 
 use crate::error::SemaError;
 
@@ -88,19 +89,50 @@ impl fmt::Display for Caps {
 #[derive(Debug, Clone)]
 pub struct Sandbox {
     pub denied: Caps,
+    allowed_paths: Option<Vec<PathBuf>>,
+}
+
+fn normalize_lexical(path: &std::path::Path) -> PathBuf {
+    let mut result = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::ParentDir => {
+                result.pop();
+            }
+            Component::CurDir => {}
+            other => result.push(other),
+        }
+    }
+    result
 }
 
 impl Sandbox {
     pub fn allow_all() -> Self {
-        Sandbox { denied: Caps::NONE }
+        Sandbox {
+            denied: Caps::NONE,
+            allowed_paths: None,
+        }
     }
 
     pub fn deny(caps: Caps) -> Self {
-        Sandbox { denied: caps }
+        Sandbox {
+            denied: caps,
+            allowed_paths: None,
+        }
+    }
+
+    pub fn with_allowed_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.allowed_paths = Some(
+            paths
+                .into_iter()
+                .map(|p| std::fs::canonicalize(&p).unwrap_or(p))
+                .collect(),
+        );
+        self
     }
 
     pub fn is_unrestricted(&self) -> bool {
-        self.denied == Caps::NONE
+        self.denied == Caps::NONE && self.allowed_paths.is_none()
     }
 
     pub fn check(&self, required: Caps, fn_name: &str) -> Result<(), SemaError> {
@@ -112,6 +144,56 @@ impl Sandbox {
         } else {
             Ok(())
         }
+    }
+
+    // NOTE: check_path validates the path before the file operation, not during it.
+    // This means a TOCTOU (time-of-check-to-time-of-use) window exists where an external
+    // process could swap a symlink between the check and the actual fs operation. Mitigating
+    // this properly requires OS-specific secure open patterns (openat with O_NOFOLLOW, dirfds)
+    // which is a significantly larger change. The current approach is on par with most
+    // scripting language sandboxes.
+    pub fn check_path(&self, path: &str, fn_name: &str) -> Result<(), SemaError> {
+        let allowed = match &self.allowed_paths {
+            Some(paths) => paths,
+            None => return Ok(()),
+        };
+        let p = std::path::Path::new(path);
+        let canonical = std::fs::canonicalize(p).unwrap_or_else(|_| {
+            if let Some(parent) = p.parent() {
+                if let Ok(canon_parent) = std::fs::canonicalize(parent) {
+                    return canon_parent.join(p.file_name().unwrap_or_default());
+                }
+            }
+            let abs = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(p)
+            };
+            normalize_lexical(&abs)
+        });
+        for allowed_path in allowed {
+            if canonical.starts_with(allowed_path) {
+                return Ok(());
+            }
+        }
+        Err(SemaError::PermissionDenied {
+            function: fn_name.to_string(),
+            capability: format!("path-restricted: {}", canonical.display()),
+        })
+    }
+
+    pub fn parse_allowed_paths(value: &str) -> Vec<PathBuf> {
+        value
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| {
+                let p = PathBuf::from(s);
+                std::fs::canonicalize(&p).unwrap_or(p)
+            })
+            .collect()
     }
 
     pub fn parse_cli(value: &str) -> Result<Self, String> {
@@ -349,5 +431,113 @@ mod tests {
     fn test_sandbox_parse_cli_invalid() {
         assert!(Sandbox::parse_cli("no-bogus").is_err());
         assert!(Sandbox::parse_cli("no-shell,no-bogus").is_err());
+    }
+
+    #[test]
+    fn test_check_path_none_allows_everything() {
+        let sb = Sandbox::allow_all();
+        assert!(sb.check_path("/etc/passwd", "file/read").is_ok());
+        assert!(sb.check_path("relative.txt", "file/read").is_ok());
+    }
+
+    #[test]
+    fn test_check_path_inside_allowed_dir() {
+        let tmp = std::env::temp_dir();
+        let sb = Sandbox::allow_all().with_allowed_paths(vec![tmp.clone()]);
+        let test_path = tmp.join("sema-test-file.txt");
+        std::fs::write(&test_path, "test").ok();
+        assert!(sb
+            .check_path(test_path.to_str().unwrap(), "file/read")
+            .is_ok());
+        let _ = std::fs::remove_file(&test_path);
+    }
+
+    #[test]
+    fn test_check_path_outside_allowed_dir() {
+        let tmp = std::env::temp_dir().join("sema-sandbox-test-dir");
+        std::fs::create_dir_all(&tmp).ok();
+        let sb = Sandbox::allow_all().with_allowed_paths(vec![tmp.clone()]);
+        let result = sb.check_path("/etc/hosts", "file/read");
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Permission denied"), "{err}");
+        assert!(err.to_string().contains("path-restricted"), "{err}");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_check_path_traversal_attempt() {
+        let tmp = std::env::temp_dir().join("sema-sandbox-traverse");
+        std::fs::create_dir_all(&tmp).ok();
+        let sb = Sandbox::allow_all().with_allowed_paths(vec![tmp.clone()]);
+        let evil = format!("{}/../../../etc/passwd", tmp.display());
+        let result = sb.check_path(&evil, "file/read");
+        assert!(result.is_err(), "path traversal should be denied");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_check_path_multiple_allowed() {
+        let dir_a = std::env::temp_dir().join("sema-sandbox-a");
+        let dir_b = std::env::temp_dir().join("sema-sandbox-b");
+        std::fs::create_dir_all(&dir_a).ok();
+        std::fs::create_dir_all(&dir_b).ok();
+        let sb = Sandbox::allow_all().with_allowed_paths(vec![dir_a.clone(), dir_b.clone()]);
+        let file_a = dir_a.join("ok.txt");
+        std::fs::write(&file_a, "a").ok();
+        let file_b = dir_b.join("ok.txt");
+        std::fs::write(&file_b, "b").ok();
+        assert!(sb.check_path(file_a.to_str().unwrap(), "file/read").is_ok());
+        assert!(sb.check_path(file_b.to_str().unwrap(), "file/read").is_ok());
+        assert!(sb.check_path("/etc/hosts", "file/read").is_err());
+        let _ = std::fs::remove_dir_all(&dir_a);
+        let _ = std::fs::remove_dir_all(&dir_b);
+    }
+
+    #[test]
+    fn test_parse_allowed_paths() {
+        let paths = Sandbox::parse_allowed_paths("/tmp, /var");
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_allowed_paths_empty_parts() {
+        let paths = Sandbox::parse_allowed_paths("/tmp,,/var,");
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn test_with_allowed_paths_makes_restricted() {
+        let sb = Sandbox::allow_all().with_allowed_paths(vec![std::path::PathBuf::from("/tmp")]);
+        assert!(!sb.is_unrestricted());
+    }
+
+    #[test]
+    fn test_check_path_nonexistent_component_escape() {
+        let tmp = std::env::temp_dir().join("sema-sandbox-escape");
+        std::fs::create_dir_all(&tmp).ok();
+        let sb = Sandbox::allow_all().with_allowed_paths(vec![tmp.clone()]);
+        let evil = format!("{}/nonexistent/../../etc/passwd", tmp.display());
+        let result = sb.check_path(&evil, "file/write");
+        assert!(
+            result.is_err(),
+            "nonexistent component escape should be denied"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_check_path_relative_nonexistent_escape() {
+        let tmp = std::env::temp_dir().join("sema-sandbox-rel-escape");
+        let allowed = tmp.join("allowed");
+        std::fs::create_dir_all(&allowed).ok();
+        let sb = Sandbox::allow_all().with_allowed_paths(vec![allowed.clone()]);
+        let evil = format!("{}/fake/../../../etc/hosts", allowed.display());
+        let result = sb.check_path(&evil, "file/write");
+        assert!(
+            result.is_err(),
+            "relative nonexistent escape should be denied"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

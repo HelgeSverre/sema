@@ -82,6 +82,34 @@ fn register_fn_gated(
     }
 }
 
+fn register_fn_path_gated(
+    env: &Env,
+    sandbox: &Sandbox,
+    cap: Caps,
+    name: &str,
+    path_args: &[usize],
+    f: impl Fn(&[Value]) -> Result<Value, sema_core::SemaError> + 'static,
+) {
+    if sandbox.is_unrestricted() {
+        register_fn(env, name, f);
+    } else {
+        let sandbox = sandbox.clone();
+        let fn_name = name.to_string();
+        let path_indices: Vec<usize> = path_args.to_vec();
+        register_fn(env, name, move |args| {
+            sandbox.check(cap, &fn_name)?;
+            for &idx in &path_indices {
+                if let Some(val) = args.get(idx) {
+                    if let Some(p) = val.as_str() {
+                        sandbox.check_path(p, &fn_name)?;
+                    }
+                }
+            }
+            f(args)
+        });
+    }
+}
+
 fn register_fn(
     env: &Env,
     name: &str,

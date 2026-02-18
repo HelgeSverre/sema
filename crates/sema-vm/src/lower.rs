@@ -1,6 +1,16 @@
+use std::cell::Cell;
+
 use sema_core::{intern, SemaError, Spur, Value, ValueView};
 
 use crate::core_expr::{CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry};
+
+/// Maximum recursion depth for the lowering pass.
+/// This prevents native stack overflow from deeply nested expressions.
+const MAX_LOWER_DEPTH: usize = 256;
+
+thread_local! {
+    static LOWER_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
 
 /// Lower a Value AST into CoreExpr IR.
 pub fn lower(expr: &Value) -> Result<CoreExpr, SemaError> {
@@ -17,7 +27,35 @@ pub fn lower_body(exprs: &[Value], tail: bool) -> Result<Vec<CoreExpr>, SemaErro
     Ok(result)
 }
 
+struct LowerDepthGuard;
+
+impl LowerDepthGuard {
+    fn new() -> Result<Self, SemaError> {
+        let depth = LOWER_DEPTH.with(|d| {
+            let v = d.get() + 1;
+            d.set(v);
+            v
+        });
+        if depth > MAX_LOWER_DEPTH {
+            LOWER_DEPTH.with(|d| d.set(d.get() - 1));
+            return Err(SemaError::eval("maximum lowering depth exceeded"));
+        }
+        Ok(LowerDepthGuard)
+    }
+}
+
+impl Drop for LowerDepthGuard {
+    fn drop(&mut self) {
+        LOWER_DEPTH.with(|d| d.set(d.get() - 1));
+    }
+}
+
 fn lower_expr(expr: &Value, tail: bool) -> Result<CoreExpr, SemaError> {
+    let _guard = LowerDepthGuard::new()?;
+    lower_expr_inner(expr, tail)
+}
+
+fn lower_expr_inner(expr: &Value, tail: bool) -> Result<CoreExpr, SemaError> {
     match expr.view() {
         ValueView::Symbol(spur) => Ok(CoreExpr::Var(spur)),
 
@@ -1499,5 +1537,17 @@ mod tests {
             }
             other => panic!("expected DefineRecordType, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_lower_depth_limit() {
+        let mut expr = Value::list(vec![Value::symbol("+"), Value::int(1), Value::int(1)]);
+        for _ in 0..600 {
+            expr = Value::list(vec![Value::symbol("begin"), expr]);
+        }
+        let result = lower(&expr);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("depth"), "expected depth error, got: {err}");
     }
 }

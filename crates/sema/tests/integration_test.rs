@@ -10652,3 +10652,81 @@ fn test_compile_with_macros() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_allowed_paths_read_inside() {
+    let dir = std::env::temp_dir().join("sema-allowed-paths-test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("hello.txt");
+    std::fs::write(&file, "hello from sandbox").unwrap();
+
+    let sandbox = sema_core::Sandbox::allow_all().with_allowed_paths(vec![dir.clone()]);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(&format!(r#"(file/read "{}")"#, file.display()));
+    assert!(
+        result.is_ok(),
+        "should read inside allowed path: {result:?}"
+    );
+    assert_eq!(result.unwrap(), Value::string("hello from sandbox"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_allowed_paths_read_outside_denied() {
+    let dir = std::env::temp_dir().join("sema-allowed-paths-outside");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let sandbox = sema_core::Sandbox::allow_all().with_allowed_paths(vec![dir.clone()]);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(file/exists? "/etc/hosts")"#);
+    assert!(result.is_err(), "should deny access outside allowed path");
+    let err = result.unwrap_err();
+    assert!(err.to_string().contains("Permission denied"), "{err}");
+    assert!(err.to_string().contains("path-restricted"), "{err}");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_allowed_paths_traversal_denied() {
+    let dir = std::env::temp_dir().join("sema-allowed-paths-trav");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let sandbox = sema_core::Sandbox::allow_all().with_allowed_paths(vec![dir.clone()]);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let evil = format!("{}/../../../etc/passwd", dir.display());
+    let result = interp.eval_str(&format!(r#"(file/read "{evil}")"#));
+    assert!(result.is_err(), "path traversal should be denied");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_allowed_paths_write_inside() {
+    let dir = std::env::temp_dir().join("sema-allowed-paths-write");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let sandbox = sema_core::Sandbox::allow_all().with_allowed_paths(vec![dir.clone()]);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let file = dir.join("output.txt");
+    let result = interp.eval_str(&format!(r#"(file/write "{}" "written")"#, file.display()));
+    assert!(
+        result.is_ok(),
+        "should write inside allowed path: {result:?}"
+    );
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "written");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_allowed_paths_none_allows_everything() {
+    let sandbox = sema_core::Sandbox::allow_all();
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(file/exists? "/tmp")"#);
+    assert!(
+        result.is_ok(),
+        "no allowed_paths should allow all: {result:?}"
+    );
+}

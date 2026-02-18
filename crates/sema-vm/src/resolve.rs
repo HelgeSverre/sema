@@ -118,15 +118,21 @@ impl FunctionScope {
     }
 }
 
+/// Maximum recursion depth for the resolver.
+/// This prevents native stack overflow from deeply nested expressions.
+const MAX_RESOLVE_DEPTH: usize = 256;
+
 /// The resolver maintains a stack of function scopes.
 struct Resolver {
     scopes: Vec<FunctionScope>,
+    depth: usize,
 }
 
 impl Resolver {
     fn new() -> Self {
         Resolver {
             scopes: vec![FunctionScope::new(true)],
+            depth: 0,
         }
     }
 
@@ -204,6 +210,17 @@ impl Resolver {
 }
 
 fn resolve_expr(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
+    r.depth += 1;
+    if r.depth > MAX_RESOLVE_DEPTH {
+        r.depth -= 1;
+        return Err(SemaError::eval("maximum resolution depth exceeded"));
+    }
+    let result = resolve_expr_inner(expr, r);
+    r.depth -= 1;
+    result
+}
+
+fn resolve_expr_inner(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
     match expr {
         CoreExpr::Const(v) => Ok(ResolvedExpr::Const(v.clone())),
 
@@ -1402,5 +1419,29 @@ mod tests {
             },
             other => panic!("expected Lambda, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_resolve_depth_limit() {
+        // Run on a thread with a larger stack to avoid native stack overflow
+        // from deeply nested CoreExpr construction/drop.
+        let result = std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(|| {
+                let mut expr = CoreExpr::Const(sema_core::Value::int(1));
+                for _ in 0..300 {
+                    expr = CoreExpr::Begin(vec![expr]);
+                }
+                let result = resolve(&expr);
+                assert!(result.is_err());
+                let err = result.unwrap_err().to_string();
+                assert!(
+                    err.contains("resolution depth"),
+                    "expected resolution depth error, got: {err}"
+                );
+            })
+            .unwrap()
+            .join();
+        result.unwrap();
     }
 }

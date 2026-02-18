@@ -234,15 +234,15 @@ This is one workload. Different benchmarks would produce different orderings:
 ```bash
 cd benchmarks/1brc
 
-# Generate test data (or use existing bench-10m.txt)
-python3 generate-test-data.py 10000000 measurements.txt
+# Generate test data (or use existing benchmarks/data/bench-10m.txt)
+python3 generate-test-data.py 10000000 benchmarks/data/measurements.txt
 
 # Build Docker image with all runtimes
 docker build --platform linux/amd64 -t sema-1brc-bench .
 
 # Run optimized benchmarks
 docker run --platform linux/amd64 --rm \
-  -v $(pwd)/../../bench-10m.txt:/data/measurements.txt:ro \
+  -v $(pwd)/../../benchmarks/data/bench-10m.txt:/data/measurements.txt:ro \
   -v $(pwd)/results:/results \
   sema-1brc-bench /data/measurements.txt
 
@@ -253,7 +253,7 @@ docker run ... sema-1brc-bench --simple /data/measurements.txt
 docker run ... sema-1brc-bench --all /data/measurements.txt
 
 # Run Sema natively for comparison
-cargo run --release -- --no-llm examples/benchmarks/1brc.sema -- bench-10m.txt
+cargo run --release -- --no-llm examples/benchmarks/1brc.sema -- benchmarks/data/bench-10m.txt
 ```
 
 Source code for all implementations is in [`benchmarks/1brc/`](https://github.com/HelgeSverre/sema/tree/main/benchmarks/1brc) (optimized) and [`benchmarks/1brc/simple/`](https://github.com/HelgeSverre/sema/tree/main/benchmarks/1brc/simple) (simple/idiomatic).

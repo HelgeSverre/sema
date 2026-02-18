@@ -26,8 +26,8 @@ lcov.info
 
 # Misc
 wip/
-bench-*.txt
-measurements.txt
+benchmarks/data/
 tools/token-usage.html
 tools/token-data.json
 
+reddit-scrutiny.json

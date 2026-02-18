@@ -64,6 +64,12 @@ impl InterpreterBuilder {
         self
     }
 
+    /// Restrict file operations to the given directories.
+    pub fn with_allowed_paths(mut self, paths: Vec<std::path::PathBuf>) -> Self {
+        self.sandbox = self.sandbox.with_allowed_paths(paths);
+        self
+    }
+
     /// Disable the standard library.
     pub fn without_stdlib(self) -> Self {
         self.with_stdlib(false)

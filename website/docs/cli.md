@@ -142,6 +142,12 @@ sema --sandbox=strict script.sema
 
 # Maximum restriction (deny all dangerous operations)
 sema --sandbox=all script.sema
+
+# Restrict file operations to specific directories
+sema --allowed-paths=./data,./output script.sema
+
+# Combine sandbox and path restrictions
+sema --sandbox=strict --allowed-paths=./data script.sema
 ```
 
 ## Sandbox
@@ -170,6 +176,22 @@ The `--sandbox` flag restricts access to dangerous operations. Functions remain 
 | `llm`       | `llm/complete`, `llm/chat`, `llm/send`                                     |
 
 Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, etc.) are never restricted.
+
+### Path Restrictions
+
+The `--allowed-paths` flag restricts all file operations to specific directories. Paths are canonicalized, so traversal attacks like `../../etc/passwd` are blocked.
+
+```bash
+# Only allow reading/writing within ./project and /tmp
+sema --allowed-paths=./project,/tmp script.sema
+```
+
+When `--allowed-paths` is set, any file operation (`file/read`, `file/write`, `file/list`, etc.) targeting a path outside the allowed directories returns a `PermissionDenied` error. This works independently of `--sandbox` — you can use both together:
+
+```bash
+# Allow filesystem but only within ./data
+sema --sandbox=no-shell,no-network --allowed-paths=./data script.sema
+```
 
 ## Environment Variables
 

@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
 
 use js_sys::Date;
@@ -24,6 +24,47 @@ thread_local! {
     });
     /// In-memory HTTP response cache for the replay-with-cache strategy
     static HTTP_CACHE: RefCell<BTreeMap<String, Value>> = const { RefCell::new(BTreeMap::new()) };
+    /// Total bytes currently stored in the VFS
+    static VFS_TOTAL_BYTES: Cell<usize> = const { Cell::new(0) };
+}
+
+const VFS_MAX_TOTAL_BYTES: usize = 16 * 1024 * 1024; // 16 MB total
+const VFS_MAX_FILE_BYTES: usize = 1024 * 1024; // 1 MB per file
+const VFS_MAX_FILES: usize = 256;
+
+fn vfs_check_quota(file_name: &str, new_content_len: usize) -> Result<(), SemaError> {
+    if new_content_len > VFS_MAX_FILE_BYTES {
+        return Err(SemaError::eval(format!(
+            "VFS quota exceeded: file '{}' is {} bytes, max {} bytes per file",
+            file_name, new_content_len, VFS_MAX_FILE_BYTES
+        )));
+    }
+
+    VFS.with(|vfs| {
+        let map = vfs.borrow();
+        let old_len = map.get(file_name).map_or(0, |s| s.len());
+        let is_new_file = !map.contains_key(file_name);
+
+        if is_new_file && map.len() >= VFS_MAX_FILES {
+            return Err(SemaError::eval(format!(
+                "VFS quota exceeded: max {} files",
+                VFS_MAX_FILES
+            )));
+        }
+
+        let total = VFS_TOTAL_BYTES.with(|t| t.get());
+        let new_total = total
+            .saturating_add(new_content_len)
+            .saturating_sub(old_len);
+        if new_total > VFS_MAX_TOTAL_BYTES {
+            return Err(SemaError::eval(format!(
+                "VFS quota exceeded: would use {} bytes, max {} bytes total",
+                new_total, VFS_MAX_TOTAL_BYTES
+            )));
+        }
+
+        Ok(())
+    })
 }
 
 /// Append text to the current line buffer (no newline).
@@ -1077,9 +1118,18 @@ fn register_wasm_io(env: &Env) {
             let content = args[1]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+            vfs_check_quota(path, content.len())?;
             VFS.with(|vfs| {
-                vfs.borrow_mut()
-                    .insert(path.to_string(), content.to_string());
+                let mut map = vfs.borrow_mut();
+                let old_len = map.get(path).map_or(0, |s| s.len());
+                map.insert(path.to_string(), content.to_string());
+                VFS_TOTAL_BYTES.with(|t| {
+                    t.set(
+                        t.get()
+                            .saturating_add(content.len())
+                            .saturating_sub(old_len),
+                    );
+                });
             });
             Ok(Value::nil())
         }),
@@ -1110,7 +1160,10 @@ fn register_wasm_io(env: &Env) {
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             VFS.with(|vfs| match vfs.borrow_mut().remove(path) {
-                Some(_) => Ok(Value::nil()),
+                Some(old) => {
+                    VFS_TOTAL_BYTES.with(|t| t.set(t.get().saturating_sub(old.len())));
+                    Ok(Value::nil())
+                }
                 None => Err(SemaError::Io(format!("file/delete {path}: No such file"))),
             })
         }),
@@ -1132,7 +1185,9 @@ fn register_wasm_io(env: &Env) {
                 let mut map = vfs.borrow_mut();
                 match map.remove(from) {
                     Some(content) => {
+                        let overwritten_len = map.get(to).map_or(0, |s| s.len());
                         map.insert(to.to_string(), content);
+                        VFS_TOTAL_BYTES.with(|t| t.set(t.get().saturating_sub(overwritten_len)));
                         Ok(Value::nil())
                     }
                     None => Err(SemaError::Io(format!(
@@ -1264,12 +1319,16 @@ fn register_wasm_io(env: &Env) {
             let content = args[1]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+            let combined_len =
+                VFS.with(|vfs| vfs.borrow().get(path).map_or(0, |s| s.len())) + content.len();
+            vfs_check_quota(path, combined_len)?;
             VFS.with(|vfs| {
                 let mut map = vfs.borrow_mut();
                 map.entry(path.to_string())
                     .and_modify(|existing| existing.push_str(content))
                     .or_insert_with(|| content.to_string());
             });
+            VFS_TOTAL_BYTES.with(|t| t.set(t.get() + content.len()));
             Ok(Value::nil())
         }),
     );
@@ -1292,7 +1351,17 @@ fn register_wasm_io(env: &Env) {
                     Some(content) => {
                         let content = content.clone();
                         drop(map);
-                        vfs.borrow_mut().insert(dest.to_string(), content);
+                        vfs_check_quota(dest, content.len())?;
+                        let mut map = vfs.borrow_mut();
+                        let old_len = map.get(dest).map_or(0, |s| s.len());
+                        map.insert(dest.to_string(), content.clone());
+                        VFS_TOTAL_BYTES.with(|t| {
+                            t.set(
+                                t.get()
+                                    .saturating_add(content.len())
+                                    .saturating_sub(old_len),
+                            );
+                        });
                         Ok(Value::nil())
                     }
                     None => Err(SemaError::Io(format!(
@@ -1351,8 +1420,15 @@ fn register_wasm_io(env: &Env) {
                 })
                 .collect();
             let content = strs.join("\n");
+            vfs_check_quota(path, content.len())?;
+            let content_len = content.len();
             VFS.with(|vfs| {
-                vfs.borrow_mut().insert(path.to_string(), content);
+                let mut map = vfs.borrow_mut();
+                let old_len = map.get(path).map_or(0, |s| s.len());
+                map.insert(path.to_string(), content);
+                VFS_TOTAL_BYTES.with(|t| {
+                    t.set(t.get().saturating_add(content_len).saturating_sub(old_len));
+                });
             });
             Ok(Value::nil())
         }),

@@ -68,6 +68,8 @@ File operations work against an **in-memory virtual filesystem** (VFS). Files pe
 
 All file functions are supported: `file/read`, `file/write`, `file/append`, `file/delete`, `file/rename`, `file/copy`, `file/exists?`, `file/list`, `file/mkdir`, `file/is-file?`, `file/is-directory?`, `file/is-symlink?`, `file/info`, `file/read-lines`, `file/write-lines`. Path functions (`path/join`, `path/dirname`, `path/basename`, `path/extension`, `path/absolute`) also work.
 
+**Quotas**: The VFS enforces limits to prevent runaway memory usage — 1 MB per file, 16 MB total, and 256 files max. Exceeding these limits returns an error.
+
 The `load` function reads from the VFS and evaluates the parsed expressions.
 
 ### Terminal Styling

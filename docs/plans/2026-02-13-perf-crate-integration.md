@@ -10,7 +10,7 @@
 
 **Tech Stack:** Rust, `memchr` 2.x, `lasso` 0.7, `hashbrown` 0.15 (includes ahash by default)
 
-**Baseline:** 1580ms for 1M rows (`./target/release/sema examples/1brc.sema -- bench-1m.txt`)
+**Baseline:** 1580ms for 1M rows (`./target/release/sema examples/1brc.sema -- benchmarks/data/bench-1m.txt`)
 
 ---
 
@@ -143,7 +143,7 @@ Expected: All PASS
 
 ### Step 7: Benchmark
 
-Run: `cargo build --release && ./target/release/sema examples/1brc.sema -- bench-1m.txt`
+Run: `cargo build --release && ./target/release/sema examples/1brc.sema -- benchmarks/data/bench-1m.txt`
 Expected: Small improvement (5-10%, ~1420-1500ms). Record the result.
 
 ### Step 8: Commit
@@ -592,7 +592,7 @@ Expected: All PASS. Fix any compile errors or test failures.
 
 ### Step 18: Benchmark
 
-Run: `cargo build --release && ./target/release/sema examples/1brc.sema -- bench-1m.txt`
+Run: `cargo build --release && ./target/release/sema examples/1brc.sema -- benchmarks/data/bench-1m.txt`
 Expected: 20-40% improvement (~950-1260ms). Record the result.
 
 ### Step 19: Commit
@@ -931,7 +931,7 @@ Expected: All PASS.
 
 ### Step 10: Benchmark
 
-Run: `cargo build --release && ./target/release/sema examples/1brc.sema -- bench-1m.txt`
+Run: `cargo build --release && ./target/release/sema examples/1brc.sema -- benchmarks/data/bench-1m.txt`
 Expected: Additional 10-25% improvement over Task 2. Record the result.
 
 ### Step 11: Commit
@@ -962,8 +962,8 @@ git commit -m "perf: add hashbrown HashMap variant for fast O(1) accumulator loo
 After all 3 tasks:
 
 1. `cargo test` — all tests pass
-2. `cargo build --release && ./target/release/sema examples/1brc.sema -- bench-1m.txt` — target ~1000ms
-3. `./target/release/sema examples/1brc.sema -- bench-10m.txt` — verify correctness on larger dataset
+2. `cargo build --release && ./target/release/sema examples/1brc.sema -- benchmarks/data/bench-1m.txt` — target ~1000ms
+3. `./target/release/sema examples/1brc.sema -- benchmarks/data/bench-10m.txt` — verify correctness on larger dataset
 4. Run the REPL (`cargo run --release`) and test interactively:
    - `(define m {:a 1 :b 2})` — BTreeMap still works
    - `(:a m)` — keyword-as-function still works

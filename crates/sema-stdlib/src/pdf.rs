@@ -3,23 +3,31 @@ use std::collections::BTreeMap;
 use sema_core::{check_arity, Caps, SemaError, Value};
 
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
-    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "pdf/extract-text", |args| {
-        check_arity!(args, "pdf/extract-text", 1);
-        let path = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let bytes = std::fs::read(path)
-            .map_err(|e| SemaError::Io(format!("pdf/extract-text {path}: {e}")))?;
-        let text = pdf_extract::extract_text_from_mem(&bytes)
-            .map_err(|e| SemaError::eval(format!("pdf/extract-text {path}: {e}")))?;
-        Ok(Value::string(&text))
-    });
+    crate::register_fn_path_gated(
+        env,
+        sandbox,
+        Caps::FS_READ,
+        "pdf/extract-text",
+        &[0],
+        |args| {
+            check_arity!(args, "pdf/extract-text", 1);
+            let path = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let bytes = std::fs::read(path)
+                .map_err(|e| SemaError::Io(format!("pdf/extract-text {path}: {e}")))?;
+            let text = pdf_extract::extract_text_from_mem(&bytes)
+                .map_err(|e| SemaError::eval(format!("pdf/extract-text {path}: {e}")))?;
+            Ok(Value::string(&text))
+        },
+    );
 
-    crate::register_fn_gated(
+    crate::register_fn_path_gated(
         env,
         sandbox,
         Caps::FS_READ,
         "pdf/extract-text-pages",
+        &[0],
         |args| {
             check_arity!(args, "pdf/extract-text-pages", 1);
             let path = args[0]
@@ -32,17 +40,24 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         },
     );
 
-    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "pdf/page-count", |args| {
-        check_arity!(args, "pdf/page-count", 1);
-        let path = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let doc = lopdf::Document::load(path)
-            .map_err(|e| SemaError::Io(format!("pdf/page-count {path}: {e}")))?;
-        Ok(Value::int(doc.get_pages().len() as i64))
-    });
+    crate::register_fn_path_gated(
+        env,
+        sandbox,
+        Caps::FS_READ,
+        "pdf/page-count",
+        &[0],
+        |args| {
+            check_arity!(args, "pdf/page-count", 1);
+            let path = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let doc = lopdf::Document::load(path)
+                .map_err(|e| SemaError::Io(format!("pdf/page-count {path}: {e}")))?;
+            Ok(Value::int(doc.get_pages().len() as i64))
+        },
+    );
 
-    crate::register_fn_gated(env, sandbox, Caps::FS_READ, "pdf/metadata", |args| {
+    crate::register_fn_path_gated(env, sandbox, Caps::FS_READ, "pdf/metadata", &[0], |args| {
         check_arity!(args, "pdf/metadata", 1);
         let path = args[0]
             .as_str()

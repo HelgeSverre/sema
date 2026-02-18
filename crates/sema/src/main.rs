@@ -186,6 +186,10 @@ struct Cli {
     #[arg(long)]
     provider: Option<String>,
 
+    /// Restrict file operations to these directories (comma-separated)
+    #[arg(long, value_name = "DIRS")]
+    allowed_paths: Option<String>,
+
     /// Use bytecode VM instead of tree-walker
     #[arg(long)]
     vm: bool,
@@ -248,6 +252,13 @@ fn main() {
             std::process::exit(1);
         }),
         None => sema_core::Sandbox::allow_all(),
+    };
+    let sandbox = match &cli.allowed_paths {
+        Some(value) => {
+            let paths = sema_core::Sandbox::parse_allowed_paths(value);
+            sandbox.with_allowed_paths(paths)
+        }
+        None => sandbox,
     };
 
     // Handle subcommands
@@ -539,10 +550,7 @@ fn run_disasm(file: &str, json: bool) {
     }
 }
 
-fn disassemble_to_json(
-    result: &sema_vm::CompileResult,
-    bytes: &[u8],
-) -> serde_json::Value {
+fn disassemble_to_json(result: &sema_vm::CompileResult, bytes: &[u8]) -> serde_json::Value {
     let format_version = u16::from_le_bytes([bytes[4], bytes[5]]);
     let major = u16::from_le_bytes([bytes[8], bytes[9]]);
     let minor = u16::from_le_bytes([bytes[10], bytes[11]]);
@@ -582,23 +590,40 @@ fn chunk_to_json(chunk: &sema_vm::Chunk, name: &str) -> serde_json::Value {
     while pc < code.len() {
         let op_byte = code[pc];
         let op = sema_vm::Op::from_u8(op_byte);
-        let op_name = op.map(|o| format!("{o:?}")).unwrap_or_else(|| format!("Unknown(0x{op_byte:02x})"));
+        let op_name = op
+            .map(|o| format!("{o:?}"))
+            .unwrap_or_else(|| format!("Unknown(0x{op_byte:02x})"));
 
         let (inst, next_pc) = match op {
             Some(sema_vm::Op::Const) => {
                 let idx = u16::from_le_bytes([code[pc + 1], code[pc + 2]]);
-                let val_str = chunk.consts.get(idx as usize)
+                let val_str = chunk
+                    .consts
+                    .get(idx as usize)
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "?".into());
-                (serde_json::json!({"pc": pc, "op": op_name, "index": idx, "value": val_str}), pc + 3)
+                (
+                    serde_json::json!({"pc": pc, "op": op_name, "index": idx, "value": val_str}),
+                    pc + 3,
+                )
             }
-            Some(sema_vm::Op::LoadLocal | sema_vm::Op::StoreLocal |
-                 sema_vm::Op::LoadUpvalue | sema_vm::Op::StoreUpvalue) => {
+            Some(
+                sema_vm::Op::LoadLocal
+                | sema_vm::Op::StoreLocal
+                | sema_vm::Op::LoadUpvalue
+                | sema_vm::Op::StoreUpvalue,
+            ) => {
                 let slot = u16::from_le_bytes([code[pc + 1], code[pc + 2]]);
-                (serde_json::json!({"pc": pc, "op": op_name, "slot": slot}), pc + 3)
+                (
+                    serde_json::json!({"pc": pc, "op": op_name, "slot": slot}),
+                    pc + 3,
+                )
             }
-            Some(sema_vm::Op::LoadGlobal | sema_vm::Op::StoreGlobal | sema_vm::Op::DefineGlobal) => {
-                let spur_bits = u32::from_le_bytes([code[pc+1], code[pc+2], code[pc+3], code[pc+4]]);
+            Some(
+                sema_vm::Op::LoadGlobal | sema_vm::Op::StoreGlobal | sema_vm::Op::DefineGlobal,
+            ) => {
+                let spur_bits =
+                    u32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]]);
                 // Safety: the deserialized bytecode has already remapped indices to valid Spurs
                 let name_str = if spur_bits != 0 {
                     let spur = unsafe { std::mem::transmute::<u32, sema_core::Spur>(spur_bits) };
@@ -606,21 +631,34 @@ fn chunk_to_json(chunk: &sema_vm::Chunk, name: &str) -> serde_json::Value {
                 } else {
                     format!("spur({spur_bits})")
                 };
-                (serde_json::json!({"pc": pc, "op": op_name, "name": name_str}), pc + 5)
+                (
+                    serde_json::json!({"pc": pc, "op": op_name, "name": name_str}),
+                    pc + 5,
+                )
             }
             Some(sema_vm::Op::Jump | sema_vm::Op::JumpIfFalse | sema_vm::Op::JumpIfTrue) => {
-                let offset = i32::from_le_bytes([code[pc+1], code[pc+2], code[pc+3], code[pc+4]]);
+                let offset =
+                    i32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]]);
                 let target = (pc as i32 + 5 + offset) as u32;
-                (serde_json::json!({"pc": pc, "op": op_name, "offset": offset, "target": target}), pc + 5)
+                (
+                    serde_json::json!({"pc": pc, "op": op_name, "offset": offset, "target": target}),
+                    pc + 5,
+                )
             }
             Some(sema_vm::Op::Call | sema_vm::Op::TailCall) => {
                 let argc = u16::from_le_bytes([code[pc + 1], code[pc + 2]]);
-                (serde_json::json!({"pc": pc, "op": op_name, "argc": argc}), pc + 3)
+                (
+                    serde_json::json!({"pc": pc, "op": op_name, "argc": argc}),
+                    pc + 3,
+                )
             }
             Some(sema_vm::Op::CallNative) => {
                 let native_id = u16::from_le_bytes([code[pc + 1], code[pc + 2]]);
                 let argc = u16::from_le_bytes([code[pc + 3], code[pc + 4]]);
-                (serde_json::json!({"pc": pc, "op": op_name, "native_id": native_id, "argc": argc}), pc + 5)
+                (
+                    serde_json::json!({"pc": pc, "op": op_name, "native_id": native_id, "argc": argc}),
+                    pc + 5,
+                )
             }
             Some(sema_vm::Op::MakeClosure) => {
                 let func_id = u16::from_le_bytes([code[pc + 1], code[pc + 2]]);
@@ -633,16 +671,24 @@ fn chunk_to_json(chunk: &sema_vm::Chunk, name: &str) -> serde_json::Value {
                     upvals.push(serde_json::json!({"is_local": is_local != 0, "index": idx}));
                     upc += 4;
                 }
-                (serde_json::json!({"pc": pc, "op": op_name, "func_id": func_id, "upvalues": upvals}), upc)
+                (
+                    serde_json::json!({"pc": pc, "op": op_name, "func_id": func_id, "upvalues": upvals}),
+                    upc,
+                )
             }
-            Some(sema_vm::Op::MakeList | sema_vm::Op::MakeVector |
-                 sema_vm::Op::MakeMap | sema_vm::Op::MakeHashMap) => {
+            Some(
+                sema_vm::Op::MakeList
+                | sema_vm::Op::MakeVector
+                | sema_vm::Op::MakeMap
+                | sema_vm::Op::MakeHashMap,
+            ) => {
                 let count = u16::from_le_bytes([code[pc + 1], code[pc + 2]]);
-                (serde_json::json!({"pc": pc, "op": op_name, "count": count}), pc + 3)
+                (
+                    serde_json::json!({"pc": pc, "op": op_name, "count": count}),
+                    pc + 3,
+                )
             }
-            _ => {
-                (serde_json::json!({"pc": pc, "op": op_name}), pc + 1)
-            }
+            _ => (serde_json::json!({"pc": pc, "op": op_name}), pc + 1),
         };
 
         instructions.push(inst);

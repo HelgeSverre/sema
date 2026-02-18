@@ -49,6 +49,7 @@ fn main() -> sema::Result<()> {
 | `.without_stdlib()` | —             | Shorthand for `.with_stdlib(false)`  |
 | `.without_llm()`    | —             | Shorthand for `.with_llm(false)`     |
 | `.with_sandbox(sb)` | `allow_all()` | Set sandbox to restrict capabilities |
+| `.with_allowed_paths(p)` | unrestricted | Restrict file ops to specific directories |
 
 ### Default Interpreter
 
@@ -97,6 +98,25 @@ let interp = Interpreter::builder()
 interp.eval_str("(+ 1 2)")?;             // => 3 (always works)
 interp.eval_str(r#"(shell "ls")"#)?;      // => PermissionDenied error
 interp.eval_str(r#"(http/get "...")"#)?;  // => PermissionDenied error
+```
+
+### Path-Restricted Interpreter
+
+Confine file operations to specific directories (e.g., for LLM agents):
+
+```rust
+use std::path::PathBuf;
+use sema::Interpreter;
+
+let interp = Interpreter::builder()
+    .with_allowed_paths(vec![
+        PathBuf::from("./workspace"),
+        PathBuf::from("/tmp"),
+    ])
+    .build();
+
+interp.eval_str(r#"(file/write "./workspace/out.txt" "ok")"#)?;  // works
+interp.eval_str(r#"(file/read "/etc/passwd")"#)?;                 // => PermissionDenied
 ```
 
 ### Multiple Interpreters

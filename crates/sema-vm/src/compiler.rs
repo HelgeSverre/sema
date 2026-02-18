@@ -15,6 +15,10 @@ pub struct CompileResult {
     pub functions: Vec<Function>,
 }
 
+/// Maximum recursion depth for the compiler.
+/// This prevents native stack overflow from deeply nested expressions.
+const MAX_COMPILE_DEPTH: usize = 256;
+
 /// Compile a resolved expression tree into bytecode.
 pub fn compile(expr: &ResolvedExpr) -> Result<CompileResult, SemaError> {
     compile_with_locals(expr, 0)
@@ -113,6 +117,7 @@ struct Compiler {
     functions: Vec<Function>,
     exception_entries: Vec<ExceptionEntry>,
     n_locals: u16,
+    depth: usize,
 }
 
 impl Compiler {
@@ -122,6 +127,7 @@ impl Compiler {
             functions: Vec::new(),
             exception_entries: Vec::new(),
             n_locals: 0,
+            depth: 0,
         }
     }
 
@@ -133,6 +139,17 @@ impl Compiler {
     }
 
     fn compile_expr(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
+        self.depth += 1;
+        if self.depth > MAX_COMPILE_DEPTH {
+            self.depth -= 1;
+            return Err(SemaError::eval("maximum compilation depth exceeded"));
+        }
+        let result = self.compile_expr_inner(expr);
+        self.depth -= 1;
+        result
+    }
+
+    fn compile_expr_inner(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
         match expr {
             ResolvedExpr::Const(val) => self.compile_const(val),
             ResolvedExpr::Var(vr) => self.compile_var_load(vr),
@@ -1576,6 +1593,22 @@ mod tests {
                 Op::MakeMap,
                 Op::Return
             ]
+        );
+    }
+
+    #[test]
+    fn test_compile_depth_limit() {
+        // Build deeply nested Begin(Begin(Begin(...Const(1)...))) bypassing lowering
+        let mut expr = ResolvedExpr::Const(Value::int(1));
+        for _ in 0..300 {
+            expr = ResolvedExpr::Begin(vec![expr]);
+        }
+        let result = compile(&expr);
+        let err = result.err().expect("expected compilation to fail");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("compilation depth"),
+            "expected compilation depth error, got: {msg}"
         );
     }
 }

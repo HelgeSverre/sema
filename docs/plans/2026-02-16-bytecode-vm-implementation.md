@@ -16,7 +16,7 @@
 - `cargo test -p sema --test integration_test` — all 545 integration tests
 - `cargo test` — all 712 tests
 - `make lint` — `cargo fmt --check` + `cargo clippy -- -D warnings`
-- Benchmark: `cargo run --release -- benchmarks/1brc/1brc.sema -- bench-1m.txt`
+- Benchmark: `cargo run --release -- benchmarks/1brc/1brc.sema -- benchmarks/data/bench-1m.txt`
 
 ---
 
@@ -1266,10 +1266,10 @@ cargo build --profile release-with-debug
 
 echo "Running 1BRC tree-walker (baseline)..."
 # On macOS, use samply or instruments
-samply record ./target/release-with-debug/sema benchmarks/1brc/1brc.sema -- bench-1m.txt
+samply record ./target/release-with-debug/sema benchmarks/1brc/1brc.sema -- benchmarks/data/bench-1m.txt
 
 # Or with cargo flamegraph:
-# cargo flamegraph --profile release-with-debug -- benchmarks/1brc/1brc.sema -- bench-1m.txt
+# cargo flamegraph --profile release-with-debug -- benchmarks/1brc/1brc.sema -- benchmarks/data/bench-1m.txt
 ```
 
 **Step 3: Run and capture baseline**
@@ -1310,13 +1310,13 @@ chore: add 1BRC profiling script and baseline flamegraph results
 **Step 1: Run tree-walker baseline (3 runs, take median)**
 
 ```bash
-time cargo run --release -- benchmarks/1brc/1brc.sema -- bench-1m.txt
+time cargo run --release -- benchmarks/1brc/1brc.sema -- benchmarks/data/bench-1m.txt
 ```
 
 **Step 2: Run VM (3 runs, take median)**
 
 ```bash
-time cargo run --release -- --vm benchmarks/1brc/1brc.sema -- bench-1m.txt
+time cargo run --release -- --vm benchmarks/1brc/1brc.sema -- benchmarks/data/bench-1m.txt
 ```
 
 **Step 3: Profile VM execution**

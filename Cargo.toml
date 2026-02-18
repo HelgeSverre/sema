@@ -12,19 +12,19 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "1.7.0"
+version = "1.8.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/helgesverre/sema"
 homepage = "https://sema-lang.com"
 
 [workspace.dependencies]
-sema-core = { version = "=1.7.0", path = "crates/sema-core" }
-sema-reader = { version = "=1.7.0", path = "crates/sema-reader" }
-sema-eval = { version = "=1.7.0", path = "crates/sema-eval" }
-sema-llm = { version = "=1.7.0", path = "crates/sema-llm" }
-sema-stdlib = { version = "=1.7.0", path = "crates/sema-stdlib" }
-sema-vm = { version = "=1.7.0", path = "crates/sema-vm" }
+sema-core = { version = "=1.8.0", path = "crates/sema-core" }
+sema-reader = { version = "=1.8.0", path = "crates/sema-reader" }
+sema-eval = { version = "=1.8.0", path = "crates/sema-eval" }
+sema-llm = { version = "=1.8.0", path = "crates/sema-llm" }
+sema-stdlib = { version = "=1.8.0", path = "crates/sema-stdlib" }
+sema-vm = { version = "=1.8.0", path = "crates/sema-vm" }
 
 regex = "1"
 thiserror = "2"
