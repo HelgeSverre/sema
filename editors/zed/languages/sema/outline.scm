@@ -26,3 +26,24 @@
   (symbol) @name
   (#eq? @_f "define")
 ) @item
+
+; (lambda (args) body) / (fn (args) body)
+(list
+  .
+  (symbol) @name
+  (#any-of? @name "lambda" "fn")
+) @item
+
+; Block forms: let, let*, letrec, begin, do, cond, case, when, unless, try
+(list
+  .
+  (symbol) @name
+  (#any-of? @name "let" "let*" "letrec" "begin" "do" "cond" "case" "when" "unless" "try")
+) @item
+
+; Module/import forms
+(list
+  .
+  (symbol) @name
+  (#any-of? @name "module" "import")
+) @item

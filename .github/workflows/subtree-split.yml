@@ -15,6 +15,7 @@
 name: Sync tree-sitter-sema
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     tags:
