@@ -1,0 +1,70 @@
+;; upvalue-counter.sema — Upvalue (captured variable) benchmark
+;; Tests: LOAD_UPVALUE and STORE_UPVALUE paths (closure capture with mutation).
+;;
+;; Usage: sema examples/benchmarks/upvalue-counter.sema
+
+(println "=== Upvalue Counter Benchmark ===")
+
+;; --- Part 1: Mutable upvalue (set! on captured variable) ---
+(println "Part 1: Mutable captured counter via set!")
+
+(define (make-counter)
+  (let ((count 0))
+    (fn ()
+      (set! count (+ count 1))
+      count)))
+
+(define counter (make-counter))
+
+(define t0 (time-ms))
+(let loop ((i 0))
+  (when (< i 2000000)
+    (counter)
+    (loop (+ i 1))))
+(define elapsed1 (- (time-ms) t0))
+
+(println (format "Final count: ~a" (counter)))
+(println (format "2,000,000 set! upvalue calls in ~a ms" elapsed1))
+
+;; --- Part 2: Read-only upvalue (captured but never mutated) ---
+(println "")
+(println "Part 2: Read-only captured variable")
+
+(define (make-adder n)
+  (fn (x) (+ x n)))
+
+(define add42 (make-adder 42))
+
+(define t1 (time-ms))
+(define result2
+  (let loop ((i 0) (acc 0))
+    (if (= i 2000000)
+        acc
+        (loop (+ i 1) (+ acc (add42 i))))))
+(define elapsed2 (- (time-ms) t1))
+
+(println (format "Result: ~a" result2))
+(println (format "2,000,000 read-only upvalue calls in ~a ms" elapsed2))
+
+;; --- Part 3: Nested upvalues (two levels deep) ---
+(println "")
+(println "Part 3: Nested upvalue capture (2 levels)")
+
+(define (make-nested a)
+  (let ((b 100))
+    (fn (x)
+      (let ((c (* a b)))
+        (+ c x)))))
+
+(define nested-fn (make-nested 3))
+
+(define t2 (time-ms))
+(define result3
+  (let loop ((i 0) (acc 0))
+    (if (= i 2000000)
+        acc
+        (loop (+ i 1) (+ acc (nested-fn i))))))
+(define elapsed3 (- (time-ms) t2))
+
+(println (format "Result: ~a" result3))
+(println (format "2,000,000 nested upvalue calls in ~a ms" elapsed3))

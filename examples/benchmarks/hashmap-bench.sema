@@ -1,0 +1,80 @@
+;; hashmap-bench.sema — HashMap and BTreeMap operations benchmark
+;; Tests: MAKE_HASH_MAP, get/assoc operations, keyword-as-function dispatch.
+;;
+;; Usage: sema examples/benchmarks/hashmap-bench.sema
+
+(println "=== HashMap Benchmark ===")
+
+;; ============ Helpers ============
+(define (bench name thunk iterations)
+  (let ((t0 (time-ms)))
+    (do ((i 0 (+ i 1)))
+        ((= i iterations))
+      (thunk))
+    (let ((elapsed (- (time-ms) t0)))
+      (println (format "  ~a: ~a ms (~a iterations)" name elapsed iterations)))))
+
+;; ============ Build maps of various sizes ============
+
+;; Build a BTreeMap with n keys (:k0, :k1, ... :kN-1)
+(define (build-btreemap n)
+  (let loop ((i 0) (m {}))
+    (if (= i n) m
+        (loop (+ i 1)
+              (assoc m (string->symbol (string-append "k" (number->string i))) i)))))
+
+;; Build a HashMap with n keys
+(define (build-hashmap n)
+  (let loop ((i 0) (m (hashmap/new)))
+    (if (= i n) m
+        (loop (+ i 1)
+              (assoc m (string->symbol (string-append "k" (number->string i))) i)))))
+
+;; --- Part 1: Map construction ---
+(println "Part 1: Map construction")
+
+(bench "BTreeMap build 10 keys" (fn () (build-btreemap 10)) 100000)
+(bench "HashMap build 10 keys" (fn () (build-hashmap 10)) 100000)
+(bench "BTreeMap build 100 keys" (fn () (build-btreemap 100)) 10000)
+(bench "HashMap build 100 keys" (fn () (build-hashmap 100)) 10000)
+(bench "BTreeMap build 1000 keys" (fn () (build-btreemap 1000)) 100)
+(bench "HashMap build 1000 keys" (fn () (build-hashmap 1000)) 100)
+
+;; --- Part 2: Lookups (hit and miss) ---
+(println "")
+(println "Part 2: Lookups")
+
+(define bt10 (build-btreemap 10))
+(define hm10 (build-hashmap 10))
+(define bt100 (build-btreemap 100))
+(define hm100 (build-hashmap 100))
+
+(bench "BTreeMap get hit (10 keys)" (fn () (get bt10 'k5)) 200000)
+(bench "HashMap get hit (10 keys)" (fn () (get hm10 'k5)) 200000)
+(bench "BTreeMap get hit (100 keys)" (fn () (get bt100 'k50)) 200000)
+(bench "HashMap get hit (100 keys)" (fn () (get hm100 'k50)) 200000)
+(bench "BTreeMap get miss" (fn () (get bt100 'missing)) 200000)
+(bench "HashMap get miss" (fn () (get hm100 'missing)) 200000)
+
+;; --- Part 3: Keyword-as-function ---
+(println "")
+(println "Part 3: Keyword-as-function lookup")
+
+(define kw-map {:a 1 :b 2 :c 3 :d 4 :e 5})
+(bench "keyword-as-fn (:c map)" (fn () (:c kw-map)) 200000)
+
+;; --- Part 4: assoc (immutable update) ---
+(println "")
+(println "Part 4: assoc (immutable update)")
+
+(bench "BTreeMap assoc (10 keys)" (fn () (assoc bt10 'k5 99)) 200000)
+(bench "HashMap assoc (10 keys)" (fn () (assoc hm10 'k5 99)) 200000)
+(bench "BTreeMap assoc (100 keys)" (fn () (assoc bt100 'k50 99)) 100000)
+(bench "HashMap assoc (100 keys)" (fn () (assoc hm100 'k50 99)) 100000)
+
+;; --- Part 5: dissoc ---
+(println "")
+(println "Part 5: dissoc")
+
+(bench "BTreeMap dissoc (100 keys)" (fn () (dissoc bt100 'k50)) 100000)
+(bench "HashMap dissoc (100 keys)" (fn () (dissoc hm100 'k50)) 100000)

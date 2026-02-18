@@ -1,0 +1,72 @@
+;; higher-order-fold.sema — Higher-order function dispatch benchmark
+;; Tests: foldl, map, filter with closure arguments on large lists.
+;;
+;; Usage: sema examples/benchmarks/higher-order-fold.sema
+
+(println "=== Higher-Order Fold Benchmark ===")
+
+;; Build a list of 10,000 elements
+(define big-list (range 10000))
+(println (format "List size: ~a elements" (length big-list)))
+
+;; --- Part 1: foldl (sum) ---
+(println "")
+(println "Part 1: foldl sum — 500 iterations")
+
+(define t0 (time-ms))
+(define result-fold
+  (let loop ((n 500) (v 0))
+    (if (= n 0) v
+        (loop (- n 1) (foldl (fn (acc x) (+ acc x)) 0 big-list)))))
+(define elapsed0 (- (time-ms) t0))
+
+(println (format "Result: ~a" result-fold))
+(println (format "500 iterations in ~a ms" elapsed0))
+
+;; --- Part 2: map (double) ---
+(println "")
+(println "Part 2: map double — 200 iterations")
+
+(define t1 (time-ms))
+(define result-map
+  (let loop ((n 200) (v '()))
+    (if (= n 0) v
+        (loop (- n 1) (map (fn (x) (* x 2)) big-list)))))
+(define elapsed1 (- (time-ms) t1))
+
+;; Print first 5 and last element for verification
+(println (format "First 5: ~a" (take 5 result-map)))
+(println (format "Last: ~a" (last result-map)))
+(println (format "200 iterations in ~a ms" elapsed1))
+
+;; --- Part 3: filter (keep evens) ---
+(println "")
+(println "Part 3: filter evens — 200 iterations")
+
+(define t2 (time-ms))
+(define result-filter
+  (let loop ((n 200) (v '()))
+    (if (= n 0) v
+        (loop (- n 1) (filter (fn (x) (= 0 (mod x 2))) big-list)))))
+(define elapsed2 (- (time-ms) t2))
+
+(println (format "Filtered count: ~a" (length result-filter)))
+(println (format "First 5: ~a" (take 5 result-filter)))
+(println (format "200 iterations in ~a ms" elapsed2))
+
+;; --- Part 4: Combined pipeline (map + filter + fold) ---
+(println "")
+(println "Part 4: Pipeline (map→filter→foldl) — 100 iterations")
+
+(define t3 (time-ms))
+(define result-pipeline
+  (let loop ((n 100) (v 0))
+    (if (= n 0) v
+        (loop (- n 1)
+              (foldl (fn (acc x) (+ acc x)) 0
+                     (filter (fn (x) (> x 5000))
+                             (map (fn (x) (* x 2)) big-list)))))))
+(define elapsed3 (- (time-ms) t3))
+
+(println (format "Result: ~a" result-pipeline))
+(println (format "100 iterations in ~a ms" elapsed3))

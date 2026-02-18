@@ -1,0 +1,86 @@
+;; throw-catch.sema — Exception handling benchmark
+;; Tests: throw + try/catch overhead on hot path, cold path, and deep unwind.
+;; Sema uses (try body... (catch e handler...)) and (throw value).
+;;
+;; Usage: sema examples/benchmarks/throw-catch.sema
+
+(println "=== Throw/Catch Benchmark ===")
+
+;; --- Part 1: Hot path — throw and catch every iteration ---
+(println "Part 1: Hot path — throw+catch every iteration (100,000 iterations)")
+
+(define t0 (time-ms))
+(define result1
+  (let loop ((i 0) (acc 0))
+    (if (= i 100000)
+        acc
+        (let ((v (try
+                   (throw i)
+                   (catch e (get e :value)))))
+          (loop (+ i 1) (+ acc v))))))
+(define elapsed1 (- (time-ms) t0))
+
+(println (format "Result: ~a" result1))
+(println (format "100,000 throw+catch in ~a ms" elapsed1))
+
+;; --- Part 2: Cold path — throw rarely (1 in 1000) ---
+(println "")
+(println "Part 2: Cold path — throw 1-in-1000 (1,000,000 iterations)")
+
+(define t1 (time-ms))
+(define result2
+  (let loop ((i 0) (acc 0))
+    (if (= i 1000000)
+        acc
+        (let ((v (try
+                   (if (= 0 (mod i 1000))
+                       (throw i)
+                       i)
+                   (catch e (get e :value)))))
+          (loop (+ i 1) (+ acc v))))))
+(define elapsed2 (- (time-ms) t1))
+
+(println (format "Result: ~a" result2))
+(println (format "1,000,000 iterations (1000 throws) in ~a ms" elapsed2))
+
+;; --- Part 3: Try with no throw (pure overhead of try block) ---
+(println "")
+(println "Part 3: Try with no throw — measuring try block overhead (500,000 iterations)")
+
+(define t2 (time-ms))
+(define result3
+  (let loop ((i 0) (acc 0))
+    (if (= i 500000)
+        acc
+        (let ((v (try
+                   (+ i 1)
+                   (catch e 0))))
+          (loop (+ i 1) (+ acc v))))))
+(define elapsed3 (- (time-ms) t2))
+
+(println (format "Result: ~a" result3))
+(println (format "500,000 try (no throw) in ~a ms" elapsed3))
+
+;; --- Part 4: Nested try/catch ---
+(println "")
+(println "Part 4: Nested try/catch — 3 layers deep (100,000 iterations)")
+
+(define t3 (time-ms))
+(define result4
+  (let loop ((i 0) (acc 0))
+    (if (= i 100000)
+        acc
+        (let ((v (try
+                   (try
+                     (try
+                       (if (= 0 (mod i 3))
+                           (throw i)
+                           (+ i 1))
+                       (catch e (get e :value)))
+                     (catch e (get e :value)))
+                   (catch e (get e :value)))))
+          (loop (+ i 1) (+ acc v))))))
+(define elapsed4 (- (time-ms) t3))
+
+(println (format "Result: ~a" result4))
+(println (format "100,000 nested try (3 deep) in ~a ms" elapsed4))
