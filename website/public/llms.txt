@@ -1,0 +1,76 @@
+# Sema
+
+> A Scheme-like Lisp with first-class LLM primitives, implemented in Rust.
+
+Sema is a Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. It combines a Scheme core with Clojure-style keywords (`:foo`), map literals (`{:key val}`), and vector literals (`[1 2 3]`).
+
+- 460+ built-in functions across 21 modules
+- Multi-provider LLM support (Anthropic, OpenAI, Gemini, Ollama, Groq, xAI, Mistral, and more)
+- Tools & agents, structured extraction, conversations, embeddings, vector store
+- Cost tracking, response caching, fallback chains, retry with backoff
+- Tail-call optimization, macros, modules, error handling
+- Available on [crates.io](https://crates.io/crates/sema-lang) as an embeddable Rust crate
+- Browser playground at [sema.run](https://sema.run) (WebAssembly)
+
+## Docs
+
+- [Introduction](https://sema-lang.com/docs/index.html): Getting started with Sema
+- [CLI Reference](https://sema-lang.com/docs/cli.html): Command-line flags, REPL commands
+- [Shell Completions](https://sema-lang.com/docs/shell-completions.html): Tab completion for bash, zsh, fish
+- [Editor Support](https://sema-lang.com/docs/editors.html): VS Code, Vim, Emacs, Helix, Zed
+- [Embedding in Rust](https://sema-lang.com/docs/embedding.html): Using Sema as a library in Rust projects
+
+## Language Reference
+
+- [Data Types](https://sema-lang.com/docs/language/data-types.html): Numbers, strings, keywords, lists, vectors, maps, etc.
+- [Special Forms](https://sema-lang.com/docs/language/special-forms.html): define, lambda, if, cond, let, begin, quote, etc.
+- [Macros & Modules](https://sema-lang.com/docs/language/macros-modules.html): defmacro, module system, imports
+
+## LLM Primitives
+
+- [Overview](https://sema-lang.com/docs/llm/index.html): LLM integration overview
+- [Completion & Chat](https://sema-lang.com/docs/llm/completion.html): llm/complete, llm/chat, llm/stream
+- [Prompts & Messages](https://sema-lang.com/docs/llm/prompts.html): Message construction, prompt templates
+- [Conversations](https://sema-lang.com/docs/llm/conversations.html): Multi-turn conversations as immutable data
+- [Structured Extraction](https://sema-lang.com/docs/llm/extraction.html): llm/extract, llm/classify, schema-driven output
+- [Tools & Agents](https://sema-lang.com/docs/llm/tools-agents.html): deftool, defagent, tool-use loops
+- [Embeddings](https://sema-lang.com/docs/llm/embeddings.html): llm/embed, embedding providers
+- [Vector Store & Math](https://sema-lang.com/docs/llm/vector-store.html): In-memory vector store, similarity search
+- [Caching](https://sema-lang.com/docs/llm/caching.html): Response caching to avoid duplicate API calls
+- [Resilience & Retry](https://sema-lang.com/docs/llm/resilience.html): Retry with backoff, rate limiting, fallback chains
+- [Providers](https://sema-lang.com/docs/llm/providers.html): Provider configuration, custom providers
+- [Cost & Budgets](https://sema-lang.com/docs/llm/cost.html): Budget tracking, dynamic pricing
+
+## Standard Library
+
+- [Overview](https://sema-lang.com/docs/stdlib/index.html): Standard library overview
+- [Math & Arithmetic](https://sema-lang.com/docs/stdlib/math.html): Numeric operations, math functions
+- [Strings & Characters](https://sema-lang.com/docs/stdlib/strings.html): String manipulation, character operations
+- [Lists](https://sema-lang.com/docs/stdlib/lists.html): List operations, higher-order functions
+- [Vectors](https://sema-lang.com/docs/stdlib/vectors.html): Mutable vector operations
+- [Maps & HashMaps](https://sema-lang.com/docs/stdlib/maps.html): Sorted maps, hash maps, keyword access
+- [Predicates](https://sema-lang.com/docs/stdlib/predicates.html): Type checking, equality, comparison
+- [File I/O & Paths](https://sema-lang.com/docs/stdlib/file-io.html): File reading/writing, path manipulation
+- [PDF Processing](https://sema-lang.com/docs/stdlib/pdf.html): PDF text extraction
+- [HTTP & JSON](https://sema-lang.com/docs/stdlib/http-json.html): HTTP client, JSON encode/decode
+- [Regex](https://sema-lang.com/docs/stdlib/regex.html): Regular expressions
+- [CSV & Encoding](https://sema-lang.com/docs/stdlib/csv-encoding.html): CSV parsing, base64, hex encoding
+- [Date & Time](https://sema-lang.com/docs/stdlib/datetime.html): Date/time operations
+- [System](https://sema-lang.com/docs/stdlib/system.html): Shell commands, environment, exit
+- [Bytevectors](https://sema-lang.com/docs/stdlib/bytevectors.html): Binary data operations
+- [Records](https://sema-lang.com/docs/stdlib/records.html): Record types (struct-like)
+- [Text Processing](https://sema-lang.com/docs/stdlib/text-processing.html): Text chunking, prompt templates
+- [Key-Value Store](https://sema-lang.com/docs/stdlib/kv-store.html): Persistent JSON-backed KV store
+- [Context](https://sema-lang.com/docs/stdlib/context.html): Dynamic context/configuration
+- [Terminal Styling](https://sema-lang.com/docs/stdlib/terminal.html): ANSI colors, text styling
+- [Playground & WASM](https://sema-lang.com/docs/stdlib/playground.html): WASM-specific functions
+
+## Internals
+
+- [Architecture](https://sema-lang.com/docs/internals/architecture.html): Crate structure, dependency flow
+- [Bytecode VM](https://sema-lang.com/docs/internals/bytecode-vm.html): Bytecode compiler and virtual machine
+- [Bytecode File Format](https://sema-lang.com/docs/internals/bytecode-format.html): .semac binary format specification
+- [Evaluator & TCO](https://sema-lang.com/docs/internals/evaluator.html): Trampoline-based tail-call optimization
+- [Reader & Spans](https://sema-lang.com/docs/internals/reader.html): Lexer, parser, source spans
+- [Performance](https://sema-lang.com/docs/internals/performance.html): Benchmarks, optimization notes
+- [Lisp Dialect Benchmark](https://sema-lang.com/docs/internals/lisp-comparison.html): Comparison with other Lisp implementations

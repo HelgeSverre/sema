@@ -7,6 +7,7 @@ pub mod emit;
 pub mod lower;
 pub mod opcodes;
 pub mod resolve;
+pub mod serialize;
 pub mod vm;
 
 pub use chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
@@ -22,4 +23,5 @@ pub use emit::Emitter;
 pub use lower::lower;
 pub use opcodes::Op;
 pub use resolve::{resolve, resolve_with_locals};
+pub use serialize::{deserialize_from_bytes, is_bytecode_file, serialize_to_bytes};
 pub use vm::{compile_program, Closure, UpvalueCell, VM};

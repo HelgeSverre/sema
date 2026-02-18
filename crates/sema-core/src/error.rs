@@ -244,144 +244,202 @@ impl SemaError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Value;
 
+    // 1. Span Display
     #[test]
     fn span_display() {
-        assert_eq!(format!("{}", Span { line: 1, col: 5 }), "1:5");
+        let span = Span { line: 1, col: 5 };
+        assert_eq!(span.to_string(), "1:5");
     }
 
-    #[test]
-    fn eval_error_display() {
-        let e = SemaError::eval("something broke");
-        assert!(e.to_string().contains("something broke"));
-    }
-
-    #[test]
-    fn type_error_display() {
-        let e = SemaError::type_error("number", "string");
-        let s = e.to_string();
-        assert!(s.contains("number") && s.contains("string"));
-    }
-
-    #[test]
-    fn arity_error_display() {
-        let e = SemaError::arity("foo", "2", 3);
-        let s = e.to_string();
-        assert!(s.contains("foo") && s.contains("2") && s.contains("3"));
-    }
-
-    #[test]
-    fn hint_and_note() {
-        let e = SemaError::eval("oops")
-            .with_hint("try this")
-            .with_note("fyi");
-        assert_eq!(e.hint(), Some("try this"));
-        assert_eq!(e.note(), Some("fyi"));
-    }
-
-    #[test]
-    fn hint_note_none_on_plain_error() {
-        let e = SemaError::eval("oops");
-        assert_eq!(e.hint(), None);
-        assert_eq!(e.note(), None);
-    }
-
-    #[test]
-    fn with_stack_trace_empty_is_noop() {
-        let e = SemaError::eval("x");
-        let wrapped = e.with_stack_trace(StackTrace(vec![]));
-        assert!(matches!(wrapped, SemaError::Eval(_)));
-    }
-
-    #[test]
-    fn with_stack_trace_wraps() {
-        let frame = CallFrame {
-            name: "foo".into(),
-            file: None,
-            span: Some(Span { line: 1, col: 1 }),
-        };
-        let e = SemaError::eval("x").with_stack_trace(StackTrace(vec![frame]));
-        assert!(e.stack_trace().is_some());
-        assert_eq!(e.stack_trace().unwrap().0.len(), 1);
-    }
-
-    #[test]
-    fn with_stack_trace_on_already_wrapped_is_noop() {
-        let frame = CallFrame {
-            name: "foo".into(),
-            file: None,
-            span: None,
-        };
-        let e = SemaError::eval("x").with_stack_trace(StackTrace(vec![frame.clone()]));
-        let e2 = e.with_stack_trace(StackTrace(vec![frame.clone(), frame]));
-        assert_eq!(e2.stack_trace().unwrap().0.len(), 1);
-    }
-
-    #[test]
-    fn inner_unwraps() {
-        let e = SemaError::eval("root")
-            .with_hint("h")
-            .with_stack_trace(StackTrace(vec![CallFrame {
-                name: "f".into(),
-                file: None,
-                span: None,
-            }]));
-        assert!(matches!(e.inner(), SemaError::Eval(_)));
-    }
-
+    // 2. StackTrace Display — file+span, file only, span only, neither
     #[test]
     fn stack_trace_display() {
         let trace = StackTrace(vec![
             CallFrame {
                 name: "foo".into(),
-                file: Some("test.sema".into()),
-                span: Some(Span { line: 1, col: 2 }),
+                file: Some("/a/b.sema".into()),
+                span: Some(Span { line: 3, col: 7 }),
             },
             CallFrame {
                 name: "bar".into(),
+                file: Some("/c/d.sema".into()),
+                span: None,
+            },
+            CallFrame {
+                name: "baz".into(),
+                file: None,
+                span: Some(Span { line: 10, col: 1 }),
+            },
+            CallFrame {
+                name: "qux".into(),
                 file: None,
                 span: None,
             },
         ]);
-        let s = format!("{trace}");
-        assert!(s.contains("foo") && s.contains("test.sema:1:2"));
-        assert!(s.contains("bar"));
+        let s = trace.to_string();
+        assert!(s.contains("at foo (/a/b.sema:3:7)"));
+        assert!(s.contains("at bar (/c/d.sema)"));
+        assert!(s.contains("at baz (<input>:10:1)"));
+        assert!(s.contains("at qux\n"));
     }
 
-    fn check_exact(args: &[Value]) -> Result<(), SemaError> {
-        check_arity!(args, "test-fn", 2);
-        Ok(())
+    // 3. SemaError::eval() constructor and Display
+    #[test]
+    fn eval_error() {
+        let e = SemaError::eval("something broke");
+        assert_eq!(e.to_string(), "Eval error: something broke");
     }
 
-    fn check_range(args: &[Value]) -> Result<(), SemaError> {
-        check_arity!(args, "test-fn", 1..=3);
-        Ok(())
+    // 4. SemaError::type_error() constructor and Display
+    #[test]
+    fn type_error() {
+        let e = SemaError::type_error("string", "integer");
+        assert_eq!(e.to_string(), "Type error: expected string, got integer");
     }
 
-    fn check_open(args: &[Value]) -> Result<(), SemaError> {
-        check_arity!(args, "test-fn", 2..);
-        Ok(())
+    // 5. SemaError::arity() constructor and Display
+    #[test]
+    fn arity_error() {
+        let e = SemaError::arity("my-fn", "2", 5);
+        assert_eq!(e.to_string(), "Arity error: my-fn expects 2 args, got 5");
     }
 
+    // 6. with_hint attaches hint retrievable via .hint()
+    #[test]
+    fn with_hint() {
+        let e = SemaError::eval("oops").with_hint("try this");
+        assert_eq!(e.hint(), Some("try this"));
+    }
+
+    // 7. with_note attaches note retrievable via .note()
+    #[test]
+    fn with_note() {
+        let e = SemaError::eval("oops").with_note("extra info");
+        assert_eq!(e.note(), Some("extra info"));
+    }
+
+    // 8. with_hint on already-wrapped WithContext preserves note
+    #[test]
+    fn with_hint_preserves_note() {
+        let e = SemaError::eval("oops")
+            .with_note("kept note")
+            .with_hint("new hint");
+        assert_eq!(e.hint(), Some("new hint"));
+        assert_eq!(e.note(), Some("kept note"));
+    }
+
+    // 9. with_note on already-wrapped WithContext preserves hint
+    #[test]
+    fn with_note_preserves_hint() {
+        let e = SemaError::eval("oops")
+            .with_hint("kept hint")
+            .with_note("new note");
+        assert_eq!(e.hint(), Some("kept hint"));
+        assert_eq!(e.note(), Some("new note"));
+    }
+
+    // 10. with_stack_trace wraps in WithTrace, retrievable via .stack_trace()
+    #[test]
+    fn with_stack_trace() {
+        let trace = StackTrace(vec![CallFrame {
+            name: "f".into(),
+            file: None,
+            span: None,
+        }]);
+        let e = SemaError::eval("err").with_stack_trace(trace);
+        let st = e.stack_trace().expect("should have stack trace");
+        assert_eq!(st.0.len(), 1);
+        assert_eq!(st.0[0].name, "f");
+    }
+
+    // 11. with_stack_trace with empty trace is no-op
+    #[test]
+    fn with_stack_trace_empty_is_noop() {
+        let e = SemaError::eval("err").with_stack_trace(StackTrace(vec![]));
+        assert!(e.stack_trace().is_none());
+        assert!(matches!(e, SemaError::Eval(_)));
+    }
+
+    // 12. with_stack_trace on already-wrapped WithTrace is no-op
+    #[test]
+    fn with_stack_trace_already_wrapped_is_noop() {
+        let frame = || CallFrame {
+            name: "first".into(),
+            file: None,
+            span: None,
+        };
+        let e = SemaError::eval("err").with_stack_trace(StackTrace(vec![frame()]));
+        let e2 = e.with_stack_trace(StackTrace(vec![CallFrame {
+            name: "second".into(),
+            file: None,
+            span: None,
+        }]));
+        let st = e2.stack_trace().unwrap();
+        assert_eq!(st.0.len(), 1);
+        assert_eq!(st.0[0].name, "first");
+    }
+
+    // 13. inner() unwraps through WithTrace and WithContext
+    #[test]
+    fn inner_unwraps() {
+        let e = SemaError::eval("root")
+            .with_hint("h")
+            .with_stack_trace(StackTrace(vec![CallFrame {
+                name: "x".into(),
+                file: None,
+                span: None,
+            }]));
+        let inner = e.inner();
+        assert!(matches!(inner, SemaError::Eval(msg) if msg == "root"));
+    }
+
+    // 14. hint() and note() return None on plain errors
+    #[test]
+    fn hint_note_none_on_plain() {
+        let e = SemaError::eval("plain");
+        assert!(e.hint().is_none());
+        assert!(e.note().is_none());
+    }
+
+    // 15. check_arity! exact match passes, mismatch returns error
     #[test]
     fn check_arity_exact() {
-        assert!(check_exact(&[Value::nil(), Value::nil()]).is_ok());
-        assert!(check_exact(&[Value::nil()]).is_err());
-        assert!(check_exact(&[Value::nil(), Value::nil(), Value::nil()]).is_err());
+        fn run(args: &[Value]) -> Result<(), SemaError> {
+            check_arity!(args, "test-fn", 2);
+            Ok(())
+        }
+        assert!(run(&[Value::nil(), Value::nil()]).is_ok());
+        let err = run(&[Value::nil()]).unwrap_err();
+        assert!(err.to_string().contains("test-fn"));
+        assert!(err.to_string().contains("2"));
     }
 
+    // 16. check_arity! range match (1..=3) passes and fails
     #[test]
     fn check_arity_range() {
-        assert!(check_range(&[Value::nil()]).is_ok());
-        assert!(check_range(&[Value::nil(), Value::nil(), Value::nil()]).is_ok());
-        assert!(check_range(&[]).is_err());
-        assert!(check_range(&[Value::nil(), Value::nil(), Value::nil(), Value::nil()]).is_err());
+        fn run(args: &[Value]) -> Result<(), SemaError> {
+            check_arity!(args, "range-fn", 1..=3);
+            Ok(())
+        }
+        assert!(run(&[Value::nil()]).is_ok());
+        assert!(run(&[Value::nil(), Value::nil()]).is_ok());
+        assert!(run(&[Value::nil(), Value::nil(), Value::nil()]).is_ok());
+        assert!(run(&[]).is_err());
+        assert!(run(&[Value::nil(), Value::nil(), Value::nil(), Value::nil()]).is_err());
     }
 
+    // 17. check_arity! open range (2..) passes and fails
     #[test]
-    fn check_arity_open() {
-        assert!(check_open(&[Value::nil(), Value::nil()]).is_ok());
-        assert!(check_open(&[Value::nil(), Value::nil(), Value::nil()]).is_ok());
-        assert!(check_open(&[Value::nil()]).is_err());
+    fn check_arity_open_range() {
+        fn run(args: &[Value]) -> Result<(), SemaError> {
+            check_arity!(args, "open-fn", 2..);
+            Ok(())
+        }
+        assert!(run(&[Value::nil(), Value::nil()]).is_ok());
+        assert!(run(&[Value::nil(), Value::nil(), Value::nil()]).is_ok());
+        assert!(run(&[Value::nil()]).is_err());
+        assert!(run(&[]).is_err());
     }
 }

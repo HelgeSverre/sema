@@ -185,7 +185,7 @@ The main chunk contains the top-level bytecode and its constant pool.
 └────────────────────────────────┘
 ```
 
-### Exception Entry (12 bytes each)
+### Exception Entry (16 bytes each)
 
 | Offset | Size | Field |
 |--------|------|-------|
@@ -223,6 +223,10 @@ The main chunk contains the top-level bytecode and its constant pool.
 |--------|------|-------|
 | 0 | 1 | `kind`: 0 = ParentLocal, 1 = ParentUpvalue |
 | 1 | 2 | `index`: slot/upvalue index in parent |
+
+::: warning Bytecode inline encoding differs
+The upvalue descriptors in the **function table** (above) use a compact 3-byte encoding (`u8` kind + `u16` index). However, the `MakeClosure` opcode in the **bytecode stream** uses a 4-byte encoding per upvalue: `u16` is_local + `u16` index. This wider encoding is used for alignment in the runtime bytecode.
+:::
 
 ## Serialized Values (Constant Pool)
 
