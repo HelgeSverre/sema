@@ -277,16 +277,70 @@ let interp = Interpreter::builder()
 
 See [CLI Sandbox docs](./cli.md#sandbox) for the full list of capabilities and affected functions.
 
+## Loading Files and Preloading Modules
+
+### Load a File
+
+`load_file` reads and evaluates a `.sema` file. Definitions persist in the global environment:
+
+```rust
+let interp = Interpreter::new();
+interp.load_file("prelude.sema")?;
+interp.eval_str("(my-prelude-fn 42)")?;
+```
+
+You can also embed files at compile time:
+
+```rust
+interp.eval_str(include_str!("../scripts/prelude.sema"))?;
+```
+
+### Preload Virtual Modules
+
+`preload_module` injects a module into the module cache so that `(import "name")` resolves without a file on disk. This is useful for bundling standard libraries, providing host APIs as importable modules, or testing:
+
+```rust
+let interp = Interpreter::new();
+
+// All top-level definitions are exported by default
+interp.preload_module("utils", r#"
+    (define (double x) (* x 2))
+    (define pi 3.14159)
+"#)?;
+
+// Use `(module ...)` with `(export ...)` for selective exports
+interp.preload_module("math", r#"
+    (module math (export square cube)
+      (define (square x) (* x x))
+      (define (cube x) (* x x x))
+      (define internal-helper 42))
+"#)?;
+```
+
+Scripts can then import these modules as if they were files:
+
+```scheme
+(import "utils")
+(double pi)  ; => 6.28318
+
+(import "math" square)
+(square 5)   ; => 25
+```
+
 ## API Reference
 
-| Type                 | Description                                                      |
-| -------------------- | ---------------------------------------------------------------- |
-| `Interpreter`        | Holds the global environment; evaluates code                     |
-| `InterpreterBuilder` | Configures and builds an `Interpreter`                           |
-| `Value`              | Core value enum — Int, Float, String, List, Map, etc.            |
-| `SemaError`          | Error type with `eval()`, `type_error()`, `arity()` constructors |
-| `Sandbox`            | Configures which capabilities are denied                         |
-| `Caps`               | Capability bitflags (FS_READ, SHELL, NETWORK, etc.)              |
-| `Env`                | Environment (scope chain backed by `Rc<RefCell<BTreeMap>>`)      |
-| `intern(s)`          | Intern a string, returning a `Spur` handle                       |
-| `resolve(spur)`      | Resolve a `Spur` back to a `&str`                                |
+| Type / Method                        | Description                                                      |
+| ------------------------------------ | ---------------------------------------------------------------- |
+| `Interpreter`                        | Holds the global environment; evaluates code                     |
+| `InterpreterBuilder`                 | Configures and builds an `Interpreter`                           |
+| `Value`                              | Core value enum — Int, Float, String, List, Map, etc.            |
+| `SemaError`                          | Error type with `eval()`, `type_error()`, `arity()` constructors |
+| `Sandbox`                            | Configures which capabilities are denied                         |
+| `Caps`                               | Capability bitflags (FS_READ, SHELL, NETWORK, etc.)              |
+| `Env`                                | Environment (scope chain backed by `Rc<RefCell<BTreeMap>>`)      |
+| `intern(s)`                          | Intern a string, returning a `Spur` handle                       |
+| `resolve(spur)`                      | Resolve a `Spur` back to a `&str`                                |
+| `interp.eval_str(code)`              | Parse and evaluate a string of Sema code                         |
+| `interp.load_file(path)`             | Read and evaluate a `.sema` file                                 |
+| `interp.preload_module(name, source)`| Inject a virtual module into the import cache                    |
+| `interp.register_fn(name, closure)`  | Register a native Rust function callable from Sema               |
