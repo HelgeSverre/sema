@@ -933,11 +933,23 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
     for _ in 0..n_funcs {
         functions.push(deserialize_function(func_section, &mut fc, &table, &remap)?);
     }
+    if fc != func_len {
+        return Err(SemaError::eval(format!(
+            "function table section has {} unconsumed trailing bytes",
+            func_len - fc
+        )));
+    }
 
     // Deserialize main chunk (sliced to section boundary)
     let chunk_section = &bytes[chunk_start..chunk_start + chunk_len];
     let mut cc = 0;
     let chunk = deserialize_chunk(chunk_section, &mut cc, &table, &remap)?;
+    if cc != chunk_len {
+        return Err(SemaError::eval(format!(
+            "main chunk section has {} unconsumed trailing bytes",
+            chunk_len - cc
+        )));
+    }
 
     Ok(CompileResult { chunk, functions })
 }
@@ -1958,5 +1970,67 @@ mod tests {
         );
         let err = result.err().unwrap();
         assert!(err.to_string().contains("index 0 must be the empty string"));
+    }
+
+    #[test]
+    fn test_deserialize_rejects_trailing_section_bytes() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let mut stb = StringTableBuilder::new();
+        let mut func_payload = Vec::new();
+        func_payload.extend_from_slice(&0u32.to_le_bytes()); // 0 functions
+        func_payload.extend_from_slice(&[0xDE, 0xAD]); // trailing garbage
+
+        let mut chunk_payload = Vec::new();
+        let mut e = Emitter::new();
+        e.emit_op(Op::Nil);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        serialize_chunk(&chunk, &mut chunk_payload, &mut stb).unwrap();
+
+        let string_table = stb.finish();
+        let mut strtab_payload = Vec::new();
+        strtab_payload.extend_from_slice(&(string_table.len() as u32).to_le_bytes());
+        for s in &string_table {
+            let sb = s.as_bytes();
+            strtab_payload.extend_from_slice(&(sb.len() as u32).to_le_bytes());
+            strtab_payload.extend_from_slice(sb);
+        }
+
+        let mut out = Vec::new();
+        out.extend_from_slice(&[0x00, b'S', b'E', b'M']);
+        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&0u16.to_le_bytes());
+        out.extend_from_slice(&3u16.to_le_bytes()); // 3 sections
+        out.extend_from_slice(&0u32.to_le_bytes()); // source_hash
+        out.extend_from_slice(&0u32.to_le_bytes()); // reserved
+
+        // String table section
+        out.extend_from_slice(&0x01u16.to_le_bytes());
+        out.extend_from_slice(&(strtab_payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(&strtab_payload);
+        // Function table section (with trailing bytes)
+        out.extend_from_slice(&0x02u16.to_le_bytes());
+        out.extend_from_slice(&(func_payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(&func_payload);
+        // Main chunk section
+        out.extend_from_slice(&0x03u16.to_le_bytes());
+        out.extend_from_slice(&(chunk_payload.len() as u32).to_le_bytes());
+        out.extend_from_slice(&chunk_payload);
+
+        match deserialize_from_bytes(&out) {
+            Ok(_) => panic!("should reject trailing bytes in function table section"),
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(
+                    msg.contains("trailing") || msg.contains("unconsumed"),
+                    "error should mention trailing/unconsumed bytes, got: {msg}"
+                );
+            }
+        }
     }
 }
