@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Editor Support
 
-Sema has editor plugins for VS Code, Vim/Neovim, Emacs, and Helix. All plugins provide syntax highlighting for the full standard library (350+ functions), special forms, keyword literals, character literals, strings, numbers, comments, and LLM primitives.
+Sema has editor plugins for VS Code, Vim/Neovim, Emacs, Helix, and Zed. All plugins provide syntax highlighting for the full standard library (350+ functions), special forms, keyword literals, character literals, strings, numbers, comments, and LLM primitives.
 
 Source code for all editor plugins is in the [`editors/`](https://github.com/HelgeSverre/sema/tree/main/editors) directory.
 
@@ -149,7 +149,7 @@ In `config.el`:
 
 ## Helix
 
-Tree-sitter queries layered on top of the built-in Scheme grammar, with Sema-specific highlighting, text objects, and indentation.
+Syntax highlighting using the dedicated [tree-sitter-sema](https://github.com/helgesverre/tree-sitter-sema) grammar, with Sema-specific highlight queries, text objects, and indentation.
 
 ### Install
 
@@ -160,7 +160,7 @@ Tree-sitter queries layered on top of the built-in Scheme grammar, with Sema-spe
    curl -fsSL "$BASE/languages.toml" >> ~/.config/helix/languages.toml
    ```
 
-   > If you already have a `languages.toml`, manually merge the `[[language]]` section.
+   > If you already have a `languages.toml`, manually merge the `[[language]]` and `[[grammar]]` sections.
 
 2. Download the query files:
 
@@ -172,7 +172,7 @@ Tree-sitter queries layered on top of the built-in Scheme grammar, with Sema-spe
    done
    ```
 
-3. Ensure the Scheme grammar is installed:
+3. Fetch and build the Sema grammar:
 
    ```bash
    hx --grammar fetch
@@ -195,4 +195,24 @@ Tree-sitter queries layered on top of the built-in Scheme grammar, with Sema-spe
 
 ### How It Works
 
-The `grammar = "scheme"` setting tells Helix to parse `.sema` files using the built-in Scheme tree-sitter grammar. Custom query files in `queries/sema/` override the default Scheme highlights with Sema-specific captures for LLM primitives, slash-namespaced builtins (`string/trim`, `llm/chat`), keyword literals (`:foo`), and special forms like `defagent` and `deftool`.
+The `grammar = "sema"` setting tells Helix to parse `.sema` files using the [tree-sitter-sema](https://github.com/helgesverre/tree-sitter-sema) grammar, which provides native support for Sema-specific syntax like keyword literals (`:name`), hash maps, and vectors. Custom query files in `queries/sema/` provide Sema-specific captures for LLM primitives, slash-namespaced builtins (`string/trim`, `llm/chat`), and special forms like `defagent` and `deftool`.
+
+## Zed
+
+Extension using the dedicated [tree-sitter-sema](https://github.com/helgesverre/tree-sitter-sema) grammar with full syntax highlighting, bracket matching, code outline, and auto-pairs.
+
+### Install
+
+1. Open Zed
+2. Go to **Zed → Extensions** (or <kbd>Cmd</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd>)
+3. Click **Install Dev Extension**
+4. Select the `editors/zed` directory from the Sema repository
+
+### Features
+
+- Syntax highlighting (special forms, 350+ builtins, LLM primitives, keyword literals, booleans, `nil`, strings, comments)
+- Smart auto-pairs for `()`, `[]`, `{}`, `""`
+- Code outline for `define`, `defun`, `defmacro`, `defagent`, `deftool`
+- Bracket matching
+- `;` line comments
+- 2-space indentation
