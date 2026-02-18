@@ -7,7 +7,7 @@ outline: [2, 3]
 Pure-Rust PDF text extraction, page counting, and metadata reading. No external tools required — works cross-platform including macOS, Linux, and Windows.
 
 ::: tip
-These functions use the `pdf-extract` and `lopdf` Rust crates internally. They work with text-based PDFs. For scanned/image-only PDFs, consider using [`llm/extract-from-image`](/docs/llm/extraction) with vision models instead.
+These functions use the `pdf-extract` and `lopdf` Rust crates internally. They work with text-based PDFs. For scanned/image-only PDFs, consider using [`llm/extract-from-image`](../llm/extraction) with vision models instead.
 :::
 
 ## Text Extraction
@@ -73,7 +73,7 @@ Return a map of PDF metadata fields. Always includes `:pages`; other fields (`:t
 
 ## Example: Receipt Processor
 
-Combine PDF extraction with [LLM structured extraction](/docs/llm/extraction) to build an intelligent document processor:
+Combine PDF extraction with [LLM structured extraction](../llm/extraction) to build an intelligent document processor:
 
 ```scheme
 ;; Extract text from a PDF invoice

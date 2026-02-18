@@ -188,7 +188,7 @@ if head_spur == sf.if_ {
 
 **Literature:**
 
-- memchr is maintained by Andrew Gallant (BurntSushi), author of ripgrep. It uses the [generic SIMD](https://github.com/BurntSushi/memchr/blob/master/src/arch/all/memchr/mod.rs) framework to dispatch to the best available instruction set at runtime
+- memchr is maintained by Andrew Gallant (BurntSushi), author of ripgrep. It uses a [generic SIMD](http://0x80.pl/articles/simd-strfind.html) framework to dispatch to the best available instruction set at runtime
 
 ## 7. Custom Number Parser _(removed)_
 

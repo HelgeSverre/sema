@@ -1,0 +1,34 @@
+# lychee link checker configuration
+# Run locally: lychee --config lychee.toml '**/*.md'
+
+# Don't check these URLs (rate-limited, ephemeral, or bot-unfriendly)
+exclude = [
+  "^https://crates\\.io/api/",
+  "^https://sema\\.run",
+  "^https://localhost",
+  "^https://127\\.0\\.0\\.1",
+  "^https://dev\\.azure\\.com",
+  # Academic sites that block bots or are unreliable
+  "^https://mitpress\\.mit\\.edu",
+  "^https://www\\.cambridge\\.org",
+  "^https://www\\.cs\\.indiana\\.edu",
+  "^https://infoscience\\.epfl\\.ch",
+]
+
+# Treat these as OK
+accept = [200, 429]
+
+# VitePress resolves ./foo to ./foo.md — tell lychee about this
+fallback_extensions = ["md"]
+
+# Max redirects
+max_redirects = 5
+
+# Timeout per request (seconds)
+timeout = 15
+
+# Skip checking mail addresses
+include_mail = false
+
+# Exclude plan docs (internal/WIP)
+exclude_path = ["docs/plans"]
