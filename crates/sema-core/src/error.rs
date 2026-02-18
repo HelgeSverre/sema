@@ -240,3 +240,148 @@ impl SemaError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn span_display() {
+        assert_eq!(format!("{}", Span { line: 1, col: 5 }), "1:5");
+    }
+
+    #[test]
+    fn eval_error_display() {
+        let e = SemaError::eval("something broke");
+        assert!(e.to_string().contains("something broke"));
+    }
+
+    #[test]
+    fn type_error_display() {
+        let e = SemaError::type_error("number", "string");
+        let s = e.to_string();
+        assert!(s.contains("number") && s.contains("string"));
+    }
+
+    #[test]
+    fn arity_error_display() {
+        let e = SemaError::arity("foo", "2", 3);
+        let s = e.to_string();
+        assert!(s.contains("foo") && s.contains("2") && s.contains("3"));
+    }
+
+    #[test]
+    fn hint_and_note() {
+        let e = SemaError::eval("oops")
+            .with_hint("try this")
+            .with_note("fyi");
+        assert_eq!(e.hint(), Some("try this"));
+        assert_eq!(e.note(), Some("fyi"));
+    }
+
+    #[test]
+    fn hint_note_none_on_plain_error() {
+        let e = SemaError::eval("oops");
+        assert_eq!(e.hint(), None);
+        assert_eq!(e.note(), None);
+    }
+
+    #[test]
+    fn with_stack_trace_empty_is_noop() {
+        let e = SemaError::eval("x");
+        let wrapped = e.with_stack_trace(StackTrace(vec![]));
+        assert!(matches!(wrapped, SemaError::Eval(_)));
+    }
+
+    #[test]
+    fn with_stack_trace_wraps() {
+        let frame = CallFrame {
+            name: "foo".into(),
+            file: None,
+            span: Some(Span { line: 1, col: 1 }),
+        };
+        let e = SemaError::eval("x").with_stack_trace(StackTrace(vec![frame]));
+        assert!(e.stack_trace().is_some());
+        assert_eq!(e.stack_trace().unwrap().0.len(), 1);
+    }
+
+    #[test]
+    fn with_stack_trace_on_already_wrapped_is_noop() {
+        let frame = CallFrame {
+            name: "foo".into(),
+            file: None,
+            span: None,
+        };
+        let e = SemaError::eval("x").with_stack_trace(StackTrace(vec![frame.clone()]));
+        let e2 = e.with_stack_trace(StackTrace(vec![frame.clone(), frame]));
+        assert_eq!(e2.stack_trace().unwrap().0.len(), 1);
+    }
+
+    #[test]
+    fn inner_unwraps() {
+        let e = SemaError::eval("root")
+            .with_hint("h")
+            .with_stack_trace(StackTrace(vec![CallFrame {
+                name: "f".into(),
+                file: None,
+                span: None,
+            }]));
+        assert!(matches!(e.inner(), SemaError::Eval(_)));
+    }
+
+    #[test]
+    fn stack_trace_display() {
+        let trace = StackTrace(vec![
+            CallFrame {
+                name: "foo".into(),
+                file: Some("test.sema".into()),
+                span: Some(Span { line: 1, col: 2 }),
+            },
+            CallFrame {
+                name: "bar".into(),
+                file: None,
+                span: None,
+            },
+        ]);
+        let s = format!("{trace}");
+        assert!(s.contains("foo") && s.contains("test.sema:1:2"));
+        assert!(s.contains("bar"));
+    }
+
+    fn check_exact(args: &[Value]) -> Result<(), SemaError> {
+        check_arity!(args, "test-fn", 2);
+        Ok(())
+    }
+
+    fn check_range(args: &[Value]) -> Result<(), SemaError> {
+        check_arity!(args, "test-fn", 1..=3);
+        Ok(())
+    }
+
+    fn check_open(args: &[Value]) -> Result<(), SemaError> {
+        check_arity!(args, "test-fn", 2..);
+        Ok(())
+    }
+
+    #[test]
+    fn check_arity_exact() {
+        assert!(check_exact(&[Value::nil(), Value::nil()]).is_ok());
+        assert!(check_exact(&[Value::nil()]).is_err());
+        assert!(check_exact(&[Value::nil(), Value::nil(), Value::nil()]).is_err());
+    }
+
+    #[test]
+    fn check_arity_range() {
+        assert!(check_range(&[Value::nil()]).is_ok());
+        assert!(check_range(&[Value::nil(), Value::nil(), Value::nil()]).is_ok());
+        assert!(check_range(&[]).is_err());
+        assert!(check_range(&[Value::nil(), Value::nil(), Value::nil(), Value::nil()]).is_err());
+    }
+
+    #[test]
+    fn check_arity_open() {
+        assert!(check_open(&[Value::nil(), Value::nil()]).is_ok());
+        assert!(check_open(&[Value::nil(), Value::nil(), Value::nil()]).is_ok());
+        assert!(check_open(&[Value::nil()]).is_err());
+    }
+}

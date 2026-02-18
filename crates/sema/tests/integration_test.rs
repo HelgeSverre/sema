@@ -10158,3 +10158,99 @@ fn test_preload_module_selective_import() {
     // sub1 was not selectively imported
     assert!(interp.eval_str("(sub1 10)").is_err());
 }
+
+// --- JSON coverage ---
+
+#[test]
+fn test_json_encode_nil() {
+    assert_eq!(eval_to_string(r#"(json/encode nil)"#), "\"null\"");
+}
+
+#[test]
+fn test_json_encode_bool() {
+    assert_eq!(eval_to_string(r#"(json/encode #t)"#), "\"true\"");
+    assert_eq!(eval_to_string(r#"(json/encode #f)"#), "\"false\"");
+}
+
+#[test]
+fn test_json_encode_vector() {
+    assert_eq!(eval_to_string(r#"(json/encode [1 2 3])"#), "\"[1,2,3]\"");
+}
+
+#[test]
+fn test_json_decode_array() {
+    assert_eq!(eval(r#"(length (json/decode "[1,2,3]"))"#), Value::int(3));
+}
+
+#[test]
+fn test_json_decode_null() {
+    assert_eq!(eval(r#"(json/decode "null")"#), Value::nil());
+}
+
+#[test]
+fn test_json_decode_bool() {
+    assert_eq!(eval(r#"(json/decode "true")"#), Value::bool(true));
+    assert_eq!(eval(r#"(json/decode "false")"#), Value::bool(false));
+}
+
+#[test]
+fn test_json_roundtrip() {
+    assert_eq!(
+        eval(r#"(json/decode (json/encode {:a 1 :b "two"}))"#).to_string().contains("a"),
+        true
+    );
+}
+
+#[test]
+fn test_json_encode_nested() {
+    let result = eval_to_string(r#"(json/encode {:a [1 2] :b {:c 3}})"#);
+    assert!(result.contains("\"a\"") && result.contains("\"c\""));
+}
+
+#[test]
+fn test_json_encode_pretty_has_newlines() {
+    let result = eval_to_string(r#"(json/encode-pretty {:a 1 :b 2})"#);
+    assert!(result.contains('\n'));
+}
+
+// --- KV coverage ---
+
+#[test]
+fn test_kv_overwrite() {
+    eval(r#"(begin (kv/open "test-ow" "/dev/null") (kv/set "test-ow" "k" 1) (kv/set "test-ow" "k" 2))"#);
+    assert_eq!(eval(r#"(kv/get "test-ow" "k")"#), Value::int(2));
+}
+
+// --- Bytevector coverage ---
+
+#[test]
+fn test_bytevector_to_list() {
+    assert_eq!(
+        eval_to_string(r#"(bytevector->list #u8(10 20 30))"#),
+        "(10 20 30)"
+    );
+}
+
+#[test]
+fn test_list_to_bytevector() {
+    assert_eq!(
+        eval_to_string(r#"(list->bytevector '(1 2 3))"#),
+        "#u8(1 2 3)"
+    );
+}
+
+#[test]
+fn test_make_bytevector_fill() {
+    assert_eq!(
+        eval_to_string(r#"(make-bytevector 3 255)"#),
+        "#u8(255 255 255)"
+    );
+}
+
+#[test]
+fn test_bytevector_u8_set_returns_modified() {
+    assert_eq!(
+        eval_to_string(r#"(bytevector-u8-set! (make-bytevector 3 0) 1 42)"#),
+        "#u8(0 42 0)"
+    );
+}

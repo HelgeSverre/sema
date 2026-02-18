@@ -179,3 +179,102 @@ pub enum LlmError {
     #[error("Rate limited: retry after {retry_after_ms}ms")]
     RateLimited { retry_after_ms: u64 },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_content_text_as_text() {
+        let mc = MessageContent::text("hello");
+        assert_eq!(mc.as_text(), Some("hello"));
+    }
+
+    #[test]
+    fn message_content_single_block_as_text() {
+        let mc = MessageContent::Blocks(vec![ContentBlock::Text {
+            text: "hi".into(),
+        }]);
+        assert_eq!(mc.as_text(), Some("hi"));
+    }
+
+    #[test]
+    fn message_content_multi_block_as_text_is_none() {
+        let mc = MessageContent::Blocks(vec![
+            ContentBlock::Text { text: "a".into() },
+            ContentBlock::Text { text: "b".into() },
+        ]);
+        assert_eq!(mc.as_text(), None);
+    }
+
+    #[test]
+    fn message_content_to_text_concatenates() {
+        let mc = MessageContent::Blocks(vec![
+            ContentBlock::Text {
+                text: "hello ".into(),
+            },
+            ContentBlock::Image {
+                media_type: None,
+                data: "base64".into(),
+            },
+            ContentBlock::Text {
+                text: "world".into(),
+            },
+        ]);
+        assert_eq!(mc.to_text(), "hello world");
+    }
+
+    #[test]
+    fn message_content_has_images() {
+        assert!(!MessageContent::text("hi").has_images());
+        let with_img = MessageContent::Blocks(vec![ContentBlock::Image {
+            media_type: Some("image/png".into()),
+            data: "abc".into(),
+        }]);
+        assert!(with_img.has_images());
+    }
+
+    #[test]
+    fn chat_message_new() {
+        let msg = ChatMessage::new("user", "hi");
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content.as_text(), Some("hi"));
+    }
+
+    #[test]
+    fn chat_request_defaults() {
+        let req = ChatRequest::new("gpt-4".into(), vec![]);
+        assert_eq!(req.max_tokens, Some(4096));
+        assert!(!req.json_mode);
+        assert!(req.tools.is_empty());
+        assert!(req.system.is_none());
+    }
+
+    #[test]
+    fn usage_total_tokens() {
+        let u = Usage {
+            prompt_tokens: 10,
+            completion_tokens: 20,
+            model: "test".into(),
+        };
+        assert_eq!(u.total_tokens(), 30);
+    }
+
+    #[test]
+    fn llm_error_display() {
+        let e = LlmError::Http("timeout".into());
+        assert!(e.to_string().contains("timeout"));
+
+        let e = LlmError::Api {
+            status: 429,
+            message: "rate limited".into(),
+        };
+        let s = e.to_string();
+        assert!(s.contains("429") && s.contains("rate limited"));
+
+        let e = LlmError::RateLimited {
+            retry_after_ms: 5000,
+        };
+        assert!(e.to_string().contains("5000"));
+    }
+}
