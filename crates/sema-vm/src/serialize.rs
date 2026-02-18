@@ -444,10 +444,13 @@ pub fn deserialize_chunk(
 
     // spans (each span = 12 bytes: u32 pc + u32 line + u32 col)
     let n_spans = read_u32_le(buf, cursor)? as usize;
-    let remaining = buf.len().saturating_sub(*cursor);
-    if n_spans > remaining / 12 {
+    let span_remaining = buf.len().saturating_sub(*cursor);
+    if n_spans
+        .checked_mul(12)
+        .is_none_or(|need| need > span_remaining)
+    {
         return Err(SemaError::eval(format!(
-            "span count ({n_spans}) exceeds remaining data"
+            "span count ({n_spans}) exceeds remaining data ({span_remaining} bytes)"
         )));
     }
     let mut spans = Vec::with_capacity(n_spans);
@@ -823,10 +826,11 @@ fn parse_sema_version() -> (u16, u16, u16) {
 
 /// Validate bytecode operand bounds after deserialization.
 fn validate_bytecode(result: &CompileResult) -> Result<(), SemaError> {
-    validate_chunk_bytecode(&result.chunk, result.functions.len(), "main chunk")?;
+    validate_chunk_bytecode(&result.chunk, result.functions.len(), 0, "main chunk")?;
     for (i, func) in result.functions.iter().enumerate() {
         let label = format!("function {i}");
-        validate_chunk_bytecode(&func.chunk, result.functions.len(), &label)?;
+        let n_upvalues = func.upvalue_descs.len();
+        validate_chunk_bytecode(&func.chunk, result.functions.len(), n_upvalues, &label)?;
     }
     Ok(())
 }
@@ -834,9 +838,11 @@ fn validate_bytecode(result: &CompileResult) -> Result<(), SemaError> {
 fn validate_chunk_bytecode(
     chunk: &Chunk,
     n_functions: usize,
+    n_upvalues: usize,
     label: &str,
 ) -> Result<(), SemaError> {
     let code = &chunk.code;
+    let n_locals = chunk.n_locals as usize;
     let mut pc = 0;
     while pc < code.len() {
         let (op, next) = advance_pc(code, pc)?;
@@ -855,6 +861,22 @@ fn validate_chunk_bytecode(
                 if func_id >= n_functions {
                     return Err(SemaError::eval(format!(
                         "in {label}: MakeClosure func_id {func_id} out of range ({n_functions} functions) at pc {pc}",
+                    )));
+                }
+            }
+            Op::LoadLocal | Op::StoreLocal => {
+                let slot = u16::from_le_bytes([code[pc + 1], code[pc + 2]]) as usize;
+                if slot >= n_locals {
+                    return Err(SemaError::eval(format!(
+                        "in {label}: local slot {slot} out of range (n_locals={n_locals}) at pc {pc}",
+                    )));
+                }
+            }
+            Op::LoadUpvalue | Op::StoreUpvalue => {
+                let slot = u16::from_le_bytes([code[pc + 1], code[pc + 2]]) as usize;
+                if slot >= n_upvalues {
+                    return Err(SemaError::eval(format!(
+                        "in {label}: upvalue slot {slot} out of range (n_upvalues={n_upvalues}) at pc {pc}",
                     )));
                 }
             }
@@ -927,8 +949,10 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
                 let section_data = &bytes[cursor..cursor + section_len];
                 let mut sc = 0usize;
                 let count = read_u32_le(section_data, &mut sc)? as usize;
-                // Each string needs at least 4 bytes for its length prefix
-                if count > section_len / 4 {
+                // Each string needs at least 4 bytes for its length prefix;
+                // use remaining bytes after reading count
+                let remaining_after_count = section_len.saturating_sub(sc);
+                if count > remaining_after_count / 4 {
                     return Err(SemaError::eval(format!(
                         "string table count ({count}) exceeds section capacity"
                     )));
