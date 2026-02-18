@@ -3,11 +3,12 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use sema_core::{
-    resolve as resolve_spur, Env, EvalContext, SemaError, Spur, Value, NAN_INT_SIGN_BIT,
-    NAN_INT_SMALL_PATTERN, NAN_PAYLOAD_MASK, NAN_TAG_MASK,
+    resolve as resolve_spur, Env, EvalContext, SemaError, Spur, Value, NAN_INT_SMALL_PATTERN,
+    NAN_PAYLOAD_BITS, NAN_PAYLOAD_MASK, NAN_TAG_MASK, TAG_NATIVE_FN,
 };
 
 use crate::chunk::Function;
+use crate::opcodes::op;
 
 /// A mutable cell for captured variables (upvalues).
 #[derive(Debug)]
@@ -136,6 +137,19 @@ impl VM {
             }};
         }
 
+        // Unsafe unchecked pop — valid when compiler guarantees stack correctness.
+        #[inline(always)]
+        unsafe fn pop_unchecked(stack: &mut Vec<Value>) -> Value {
+            let len = stack.len();
+            debug_assert!(len > 0, "pop_unchecked on empty stack");
+            let v = std::ptr::read(stack.as_ptr().add(len - 1));
+            stack.set_len(len - 1);
+            v
+        }
+
+        // Branchless sign-extension shift for NaN-boxed small ints
+        const SIGN_SHIFT: u32 = 64 - NAN_PAYLOAD_BITS;
+
         // Two-level dispatch: outer loop caches frame locals, inner loop dispatches opcodes.
         // We only break to the outer loop when frames change (Call/TailCall/Return/exceptions).
         'dispatch: loop {
@@ -145,6 +159,7 @@ impl VM {
             let consts: *const [Value] = frame.closure.func.chunk.consts.as_slice();
             let base = frame.base;
             let mut pc = frame.pc;
+            let has_open_upvalues = frame.open_upvalues.is_some();
             #[cfg(debug_assertions)]
             let code_len = frame.closure.func.chunk.code.len();
             let _ = frame; // release borrow so we can mutate self
@@ -157,67 +172,73 @@ impl VM {
 
                 match op {
                     // --- Constants & stack ---
-                    0 /* Const */ => {
+                    op::CONST => {
                         let idx = read_u16!(code, pc) as usize;
                         let val = unsafe { &*consts }[idx].clone();
                         self.stack.push(val);
                     }
-                    1 /* Nil */ => {
+                    op::NIL => {
                         self.stack.push(Value::nil());
                     }
-                    2 /* True */ => {
+                    op::TRUE => {
                         self.stack.push(Value::bool(true));
                     }
-                    3 /* False */ => {
+                    op::FALSE => {
                         self.stack.push(Value::bool(false));
                     }
-                    4 /* Pop */ => {
+                    op::POP => {
                         self.stack.pop();
                     }
-                    5 /* Dup */ => {
+                    op::DUP => {
                         let val = self.stack[self.stack.len() - 1].clone();
                         self.stack.push(val);
                     }
 
                     // --- Locals ---
-                    6 /* LoadLocal */ => {
+                    op::LOAD_LOCAL => {
                         let slot = read_u16!(code, pc) as usize;
-                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
-                            if let Some(Some(cell)) = open.get(slot) {
-                                cell.value.borrow().clone()
+                        let val = if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.get(slot) {
+                                    cell.value.borrow().clone()
+                                } else {
+                                    self.stack[base + slot].clone()
+                                }
                             } else {
-                                self.stack[base + slot].clone()
+                                unreachable!()
                             }
                         } else {
                             self.stack[base + slot].clone()
                         };
                         self.stack.push(val);
                     }
-                    7 /* StoreLocal */ => {
+                    op::STORE_LOCAL => {
                         let slot = read_u16!(code, pc) as usize;
-                        let val = self.stack.pop().unwrap();
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
                         self.stack[base + slot] = val.clone();
-                        if let Some(ref open) = self.frames[fi].open_upvalues {
-                            if let Some(Some(cell)) = open.get(slot) {
-                                *cell.value.borrow_mut() = val;
+                        if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.get(slot) {
+                                    *cell.value.borrow_mut() = val;
+                                }
                             }
                         }
                     }
 
                     // --- Upvalues ---
-                    8 /* LoadUpvalue */ => {
+                    op::LOAD_UPVALUE => {
                         let idx = read_u16!(code, pc) as usize;
                         let val = self.frames[fi].closure.upvalues[idx].value.borrow().clone();
                         self.stack.push(val);
                     }
-                    9 /* StoreUpvalue */ => {
+                    op::STORE_UPVALUE => {
                         let idx = read_u16!(code, pc) as usize;
-                        let val = self.stack.pop().unwrap();
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
                         *self.frames[fi].closure.upvalues[idx].value.borrow_mut() = val;
                     }
 
                     // --- Globals ---
-                    10 /* LoadGlobal */ => {
+                    op::LOAD_GLOBAL => {
                         let bits = read_u32!(code, pc);
                         let version = self.globals.version.get();
                         let slot = (bits as usize) & (GLOBAL_CACHE_SIZE - 1);
@@ -239,7 +260,7 @@ impl VM {
                                     // source spans through lowering → resolving → compiling,
                                     // we can look up chunk.spans here to include line:col info.
                                     let err = SemaError::Unbound(resolve_spur(spur));
-                                    match self.handle_exception(err, pc - 5)? {
+                                    match self.handle_exception(err, pc - op::SIZE_OP_U32)? {
                                         ExceptionAction::Handled => continue 'dispatch,
                                         ExceptionAction::Propagate(e) => return Err(e),
                                     }
@@ -247,46 +268,46 @@ impl VM {
                             }
                         }
                     }
-                    11 /* StoreGlobal */ => {
+                    op::STORE_GLOBAL => {
                         let bits = read_u32!(code, pc);
                         let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
-                        let val = self.stack.pop().unwrap();
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
                         if !self.globals.set_existing(spur, val.clone()) {
                             self.globals.set(spur, val);
                         }
                     }
-                    12 /* DefineGlobal */ => {
+                    op::DEFINE_GLOBAL => {
                         let bits = read_u32!(code, pc);
                         let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
-                        let val = self.stack.pop().unwrap();
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
                         self.globals.set(spur, val);
                     }
 
                     // --- Control flow ---
-                    13 /* Jump */ => {
+                    op::JUMP => {
                         let offset = read_i32!(code, pc);
                         pc = (pc as i64 + offset as i64) as usize;
                     }
-                    14 /* JumpIfFalse */ => {
+                    op::JUMP_IF_FALSE => {
                         let offset = read_i32!(code, pc);
-                        let val = self.stack.pop().unwrap();
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
                         if !val.is_truthy() {
                             pc = (pc as i64 + offset as i64) as usize;
                         }
                     }
-                    15 /* JumpIfTrue */ => {
+                    op::JUMP_IF_TRUE => {
                         let offset = read_i32!(code, pc);
-                        let val = self.stack.pop().unwrap();
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
                         if val.is_truthy() {
                             pc = (pc as i64 + offset as i64) as usize;
                         }
                     }
 
                     // --- Function calls ---
-                    16 /* Call */ => {
+                    op::CALL => {
                         let argc = read_u16!(code, pc) as usize;
                         self.frames[fi].pc = pc;
-                        let saved_pc = pc - 3;
+                        let saved_pc = pc - op::SIZE_OP_U16;
                         if let Err(err) = self.call_value(argc, ctx) {
                             match self.handle_exception(err, saved_pc)? {
                                 ExceptionAction::Handled => {}
@@ -295,10 +316,10 @@ impl VM {
                         }
                         continue 'dispatch;
                     }
-                    17 /* TailCall */ => {
+                    op::TAIL_CALL => {
                         let argc = read_u16!(code, pc) as usize;
                         self.frames[fi].pc = pc;
-                        let saved_pc = pc - 3;
+                        let saved_pc = pc - op::SIZE_OP_U16;
                         if let Err(err) = self.tail_call_value(argc, ctx) {
                             match self.handle_exception(err, saved_pc)? {
                                 ExceptionAction::Handled => {}
@@ -307,8 +328,12 @@ impl VM {
                         }
                         continue 'dispatch;
                     }
-                    18 /* Return */ => {
-                        let result = self.stack.pop().unwrap_or(Value::nil());
+                    op::RETURN => {
+                        let result = if !self.stack.is_empty() {
+                            unsafe { pop_unchecked(&mut self.stack) }
+                        } else {
+                            Value::nil()
+                        };
                         let frame = self.frames.pop().unwrap();
                         self.stack.truncate(frame.base);
                         if self.frames.is_empty() {
@@ -319,13 +344,13 @@ impl VM {
                     }
 
                     // --- Closures ---
-                    19 /* MakeClosure */ => {
-                        self.frames[fi].pc = pc - 1; // make_closure reads from frame.pc (the opcode position)
+                    op::MAKE_CLOSURE => {
+                        self.frames[fi].pc = pc - op::SIZE_OP; // make_closure reads from frame.pc (the opcode position)
                         self.make_closure()?;
                         continue 'dispatch;
                     }
 
-                    20 /* CallNative */ => {
+                    op::CALL_NATIVE => {
                         let _native_id = read_u16!(code, pc);
                         let _argc = read_u16!(code, pc);
                         self.frames[fi].pc = pc;
@@ -333,19 +358,19 @@ impl VM {
                     }
 
                     // --- Data constructors ---
-                    21 /* MakeList */ => {
+                    op::MAKE_LIST => {
                         let n = read_u16!(code, pc) as usize;
                         let start = self.stack.len() - n;
                         let items: Vec<Value> = self.stack.drain(start..).collect();
                         self.stack.push(Value::list(items));
                     }
-                    22 /* MakeVector */ => {
+                    op::MAKE_VECTOR => {
                         let n = read_u16!(code, pc) as usize;
                         let start = self.stack.len() - n;
                         let items: Vec<Value> = self.stack.drain(start..).collect();
                         self.stack.push(Value::vector(items));
                     }
-                    23 /* MakeMap */ => {
+                    op::MAKE_MAP => {
                         let n = read_u16!(code, pc) as usize;
                         let start = self.stack.len() - n * 2;
                         let items: Vec<Value> = self.stack.drain(start..).collect();
@@ -355,7 +380,7 @@ impl VM {
                         }
                         self.stack.push(Value::map(map));
                     }
-                    24 /* MakeHashMap */ => {
+                    op::MAKE_HASH_MAP => {
                         let n = read_u16!(code, pc) as usize;
                         let start = self.stack.len() - n * 2;
                         let items: Vec<Value> = self.stack.drain(start..).collect();
@@ -367,75 +392,75 @@ impl VM {
                     }
 
                     // --- Exceptions ---
-                    25 /* Throw */ => {
+                    op::THROW => {
                         self.frames[fi].pc = pc;
-                        let val = self.stack.pop().unwrap();
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
                         let err = SemaError::UserException(val);
-                        match self.handle_exception(err, pc - 1)? {
+                        match self.handle_exception(err, pc - op::SIZE_OP)? {
                             ExceptionAction::Handled => continue 'dispatch,
                             ExceptionAction::Propagate(e) => return Err(e),
                         }
                     }
 
                     // --- Arithmetic ---
-                    26 /* Add */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::ADD => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_add(&a, &b) {
                             Ok(v) => self.stack.push(v),
                             Err(err) => {
                                 self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - 1)? {
+                                match self.handle_exception(err, pc - op::SIZE_OP)? {
                                     ExceptionAction::Handled => continue 'dispatch,
                                     ExceptionAction::Propagate(e) => return Err(e),
                                 }
                             }
                         }
                     }
-                    27 /* Sub */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::SUB => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_sub(&a, &b) {
                             Ok(v) => self.stack.push(v),
                             Err(err) => {
                                 self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - 1)? {
+                                match self.handle_exception(err, pc - op::SIZE_OP)? {
                                     ExceptionAction::Handled => continue 'dispatch,
                                     ExceptionAction::Propagate(e) => return Err(e),
                                 }
                             }
                         }
                     }
-                    28 /* Mul */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::MUL => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_mul(&a, &b) {
                             Ok(v) => self.stack.push(v),
                             Err(err) => {
                                 self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - 1)? {
+                                match self.handle_exception(err, pc - op::SIZE_OP)? {
                                     ExceptionAction::Handled => continue 'dispatch,
                                     ExceptionAction::Propagate(e) => return Err(e),
                                 }
                             }
                         }
                     }
-                    29 /* Div */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::DIV => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_div(&a, &b) {
                             Ok(v) => self.stack.push(v),
                             Err(err) => {
                                 self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - 1)? {
+                                match self.handle_exception(err, pc - op::SIZE_OP)? {
                                     ExceptionAction::Handled => continue 'dispatch,
                                     ExceptionAction::Propagate(e) => return Err(e),
                                 }
                             }
                         }
                     }
-                    30 /* Negate */ => {
-                        let a = self.stack.pop().unwrap();
+                    op::NEGATE => {
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         if let Some(n) = a.as_int() {
                             self.stack.push(Value::int(-n));
                         } else if let Some(f) = a.as_float() {
@@ -443,71 +468,71 @@ impl VM {
                         } else {
                             self.frames[fi].pc = pc;
                             let err = SemaError::type_error("number", a.type_name());
-                            match self.handle_exception(err, pc - 1)? {
+                            match self.handle_exception(err, pc - op::SIZE_OP)? {
                                 ExceptionAction::Handled => continue 'dispatch,
                                 ExceptionAction::Propagate(e) => return Err(e),
                             }
                         }
                     }
-                    31 /* Not */ => {
-                        let a = self.stack.pop().unwrap();
+                    op::NOT => {
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         self.stack.push(Value::bool(!a.is_truthy()));
                     }
-                    32 /* Eq */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::EQ => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         self.stack.push(Value::bool(a == b));
                     }
-                    33 /* Lt */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::LT => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_lt(&a, &b) {
                             Ok(v) => self.stack.push(Value::bool(v)),
                             Err(err) => {
                                 self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - 1)? {
+                                match self.handle_exception(err, pc - op::SIZE_OP)? {
                                     ExceptionAction::Handled => continue 'dispatch,
                                     ExceptionAction::Propagate(e) => return Err(e),
                                 }
                             }
                         }
                     }
-                    34 /* Gt */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::GT => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_lt(&b, &a) {
                             Ok(v) => self.stack.push(Value::bool(v)),
                             Err(err) => {
                                 self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - 1)? {
+                                match self.handle_exception(err, pc - op::SIZE_OP)? {
                                     ExceptionAction::Handled => continue 'dispatch,
                                     ExceptionAction::Propagate(e) => return Err(e),
                                 }
                             }
                         }
                     }
-                    35 /* Le */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::LE => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_lt(&b, &a) {
                             Ok(v) => self.stack.push(Value::bool(!v)),
                             Err(err) => {
                                 self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - 1)? {
+                                match self.handle_exception(err, pc - op::SIZE_OP)? {
                                     ExceptionAction::Handled => continue 'dispatch,
                                     ExceptionAction::Propagate(e) => return Err(e),
                                 }
                             }
                         }
                     }
-                    36 /* Ge */ => {
-                        let b = self.stack.pop().unwrap();
-                        let a = self.stack.pop().unwrap();
+                    op::GE => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_lt(&a, &b) {
                             Ok(v) => self.stack.push(Value::bool(!v)),
                             Err(err) => {
                                 self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - 1)? {
+                                match self.handle_exception(err, pc - op::SIZE_OP)? {
                                     ExceptionAction::Handled => continue 'dispatch,
                                     ExceptionAction::Propagate(e) => return Err(e),
                                 }
@@ -519,7 +544,7 @@ impl VM {
                     // These operate directly on raw u64 bits to avoid Clone/Drop overhead.
                     // Small ints are immediates (no heap pointer), so we can safely
                     // overwrite stack slots and adjust length without running destructors.
-                    37 /* AddInt */ => {
+                    op::ADD_INT => {
                         let len = self.stack.len();
                         let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
                         let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
@@ -536,13 +561,13 @@ impl VM {
                                 self.stack.set_len(len - 1);
                             }
                         } else {
-                            let b = self.stack.pop().unwrap();
-                            let a = self.stack.pop().unwrap();
+                            let b = unsafe { pop_unchecked(&mut self.stack) };
+                            let a = unsafe { pop_unchecked(&mut self.stack) };
                             match vm_add(&a, &b) {
                                 Ok(v) => self.stack.push(v),
                                 Err(err) => {
                                     self.frames[fi].pc = pc;
-                                    match self.handle_exception(err, pc - 1)? {
+                                    match self.handle_exception(err, pc - op::SIZE_OP)? {
                                         ExceptionAction::Handled => continue 'dispatch,
                                         ExceptionAction::Propagate(e) => return Err(e),
                                     }
@@ -550,7 +575,7 @@ impl VM {
                             }
                         }
                     }
-                    38 /* SubInt */ => {
+                    op::SUB_INT => {
                         let len = self.stack.len();
                         let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
                         let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
@@ -567,13 +592,13 @@ impl VM {
                                 self.stack.set_len(len - 1);
                             }
                         } else {
-                            let b = self.stack.pop().unwrap();
-                            let a = self.stack.pop().unwrap();
+                            let b = unsafe { pop_unchecked(&mut self.stack) };
+                            let a = unsafe { pop_unchecked(&mut self.stack) };
                             match vm_sub(&a, &b) {
                                 Ok(v) => self.stack.push(v),
                                 Err(err) => {
                                     self.frames[fi].pc = pc;
-                                    match self.handle_exception(err, pc - 1)? {
+                                    match self.handle_exception(err, pc - op::SIZE_OP)? {
                                         ExceptionAction::Handled => continue 'dispatch,
                                         ExceptionAction::Propagate(e) => return Err(e),
                                     }
@@ -581,26 +606,18 @@ impl VM {
                             }
                         }
                     }
-                    39 /* MulInt */ => {
+                    op::MUL_INT => {
                         let len = self.stack.len();
                         let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
                         let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
                         if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                             && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                         {
-                            // Must sign-extend to i64 for correct multiplication
-                            let a_payload = a_bits & NAN_PAYLOAD_MASK;
-                            let b_payload = b_bits & NAN_PAYLOAD_MASK;
-                            let ax = if a_payload & NAN_INT_SIGN_BIT != 0 {
-                                (a_payload | !NAN_PAYLOAD_MASK) as i64
-                            } else {
-                                a_payload as i64
-                            };
-                            let bx = if b_payload & NAN_INT_SIGN_BIT != 0 {
-                                (b_payload | !NAN_PAYLOAD_MASK) as i64
-                            } else {
-                                b_payload as i64
-                            };
+                            // Branchless sign-extension to i64
+                            let ax =
+                                (((a_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
+                            let bx =
+                                (((b_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
                             // Use Value::int for multiplication — result may overflow 45 bits
                             unsafe {
                                 std::ptr::write(
@@ -610,13 +627,13 @@ impl VM {
                                 self.stack.set_len(len - 1);
                             }
                         } else {
-                            let b = self.stack.pop().unwrap();
-                            let a = self.stack.pop().unwrap();
+                            let b = unsafe { pop_unchecked(&mut self.stack) };
+                            let a = unsafe { pop_unchecked(&mut self.stack) };
                             match vm_mul(&a, &b) {
                                 Ok(v) => self.stack.push(v),
                                 Err(err) => {
                                     self.frames[fi].pc = pc;
-                                    match self.handle_exception(err, pc - 1)? {
+                                    match self.handle_exception(err, pc - op::SIZE_OP)? {
                                         ExceptionAction::Handled => continue 'dispatch,
                                         ExceptionAction::Propagate(e) => return Err(e),
                                     }
@@ -624,26 +641,18 @@ impl VM {
                             }
                         }
                     }
-                    40 /* LtInt */ => {
+                    op::LT_INT => {
                         let len = self.stack.len();
                         let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
                         let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
                         if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                             && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                         {
-                            // Sign-extend payloads and compare
-                            let a_payload = a_bits & NAN_PAYLOAD_MASK;
-                            let b_payload = b_bits & NAN_PAYLOAD_MASK;
-                            let ax = if a_payload & NAN_INT_SIGN_BIT != 0 {
-                                (a_payload | !NAN_PAYLOAD_MASK) as i64
-                            } else {
-                                a_payload as i64
-                            };
-                            let bx = if b_payload & NAN_INT_SIGN_BIT != 0 {
-                                (b_payload | !NAN_PAYLOAD_MASK) as i64
-                            } else {
-                                b_payload as i64
-                            };
+                            // Branchless sign-extension and compare
+                            let ax =
+                                (((a_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
+                            let bx =
+                                (((b_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
                             unsafe {
                                 std::ptr::write(
                                     self.stack.as_mut_ptr().add(len - 2),
@@ -652,13 +661,13 @@ impl VM {
                                 self.stack.set_len(len - 1);
                             }
                         } else {
-                            let b = self.stack.pop().unwrap();
-                            let a = self.stack.pop().unwrap();
+                            let b = unsafe { pop_unchecked(&mut self.stack) };
+                            let a = unsafe { pop_unchecked(&mut self.stack) };
                             match vm_lt(&a, &b) {
                                 Ok(v) => self.stack.push(Value::bool(v)),
                                 Err(err) => {
                                     self.frames[fi].pc = pc;
-                                    match self.handle_exception(err, pc - 1)? {
+                                    match self.handle_exception(err, pc - op::SIZE_OP)? {
                                         ExceptionAction::Handled => continue 'dispatch,
                                         ExceptionAction::Propagate(e) => return Err(e),
                                     }
@@ -666,7 +675,7 @@ impl VM {
                             }
                         }
                     }
-                    41 /* EqInt */ => {
+                    op::EQ_INT => {
                         let len = self.stack.len();
                         let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
                         let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
@@ -682,54 +691,70 @@ impl VM {
                                 self.stack.set_len(len - 1);
                             }
                         } else {
-                            let b = self.stack.pop().unwrap();
-                            let a = self.stack.pop().unwrap();
+                            let b = unsafe { pop_unchecked(&mut self.stack) };
+                            let a = unsafe { pop_unchecked(&mut self.stack) };
                             self.stack.push(Value::bool(a == b));
                         }
                     }
 
-                    42 /* LoadLocal0 */ => {
-                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
-                            if let Some(Some(cell)) = open.first() {
-                                cell.value.borrow().clone()
+                    op::LOAD_LOCAL0 => {
+                        let val = if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.first() {
+                                    cell.value.borrow().clone()
+                                } else {
+                                    self.stack[base].clone()
+                                }
                             } else {
-                                self.stack[base].clone()
+                                unreachable!()
                             }
                         } else {
                             self.stack[base].clone()
                         };
                         self.stack.push(val);
                     }
-                    43 /* LoadLocal1 */ => {
-                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
-                            if let Some(Some(cell)) = open.get(1) {
-                                cell.value.borrow().clone()
+                    op::LOAD_LOCAL1 => {
+                        let val = if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.get(1) {
+                                    cell.value.borrow().clone()
+                                } else {
+                                    self.stack[base + 1].clone()
+                                }
                             } else {
-                                self.stack[base + 1].clone()
+                                unreachable!()
                             }
                         } else {
                             self.stack[base + 1].clone()
                         };
                         self.stack.push(val);
                     }
-                    44 /* LoadLocal2 */ => {
-                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
-                            if let Some(Some(cell)) = open.get(2) {
-                                cell.value.borrow().clone()
+                    op::LOAD_LOCAL2 => {
+                        let val = if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.get(2) {
+                                    cell.value.borrow().clone()
+                                } else {
+                                    self.stack[base + 2].clone()
+                                }
                             } else {
-                                self.stack[base + 2].clone()
+                                unreachable!()
                             }
                         } else {
                             self.stack[base + 2].clone()
                         };
                         self.stack.push(val);
                     }
-                    45 /* LoadLocal3 */ => {
-                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
-                            if let Some(Some(cell)) = open.get(3) {
-                                cell.value.borrow().clone()
+                    op::LOAD_LOCAL3 => {
+                        let val = if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.get(3) {
+                                    cell.value.borrow().clone()
+                                } else {
+                                    self.stack[base + 3].clone()
+                                }
                             } else {
-                                self.stack[base + 3].clone()
+                                unreachable!()
                             }
                         } else {
                             self.stack[base + 3].clone()
@@ -751,19 +776,28 @@ impl VM {
         let func_idx = self.stack.len() - 1 - argc;
 
         // Fast path: peek at tag without Rc refcount bump.
-        // TAG_NATIVE_FN = 15 in the NaN-boxing layout.
-        if self.stack[func_idx].raw_tag() == Some(15) {
+        if self.stack[func_idx].raw_tag() == Some(TAG_NATIVE_FN) {
             // Check for VM closure payload without holding a borrow across mutation.
-            // Extract closure+functions (cloned Rc) in a block, then call with them.
+            // Extract closure (cloned Rc) in a block; only clone functions if different.
             let vm_closure_data = {
                 let native = self.stack[func_idx].as_native_fn_ref().unwrap();
                 native.payload.as_ref().and_then(|p| {
-                    p.downcast_ref::<VmClosurePayload>()
-                        .map(|vmc| (vmc.closure.clone(), vmc.functions.clone()))
+                    p.downcast_ref::<VmClosurePayload>().map(|vmc| {
+                        let closure = vmc.closure.clone();
+                        // Only clone functions Rc if it's a different table
+                        let functions = if Rc::ptr_eq(&vmc.functions, &self.functions) {
+                            None
+                        } else {
+                            Some(vmc.functions.clone())
+                        };
+                        (closure, functions)
+                    })
                 })
             };
             if let Some((closure, functions)) = vm_closure_data {
-                self.functions = functions;
+                if let Some(f) = functions {
+                    self.functions = f;
+                }
                 return self.call_vm_closure_from_rc(&closure, argc);
             }
             // Regular native fn — need Rc for the call
@@ -807,16 +841,25 @@ impl VM {
         let func_idx = self.stack.len() - 1 - argc;
 
         // Fast path: peek at tag without Rc refcount bump
-        if self.stack[func_idx].raw_tag() == Some(15) {
+        if self.stack[func_idx].raw_tag() == Some(TAG_NATIVE_FN) {
             let vm_closure_data = {
                 let native = self.stack[func_idx].as_native_fn_ref().unwrap();
                 native.payload.as_ref().and_then(|p| {
-                    p.downcast_ref::<VmClosurePayload>()
-                        .map(|vmc| (vmc.closure.clone(), vmc.functions.clone()))
+                    p.downcast_ref::<VmClosurePayload>().map(|vmc| {
+                        let closure = vmc.closure.clone();
+                        let functions = if Rc::ptr_eq(&vmc.functions, &self.functions) {
+                            None
+                        } else {
+                            Some(vmc.functions.clone())
+                        };
+                        (closure, functions)
+                    })
                 })
             };
             if let Some((closure, functions)) = vm_closure_data {
-                self.functions = functions;
+                if let Some(f) = functions {
+                    self.functions = f;
+                }
                 return self.tail_call_vm_closure_from_rc(&closure, argc);
             }
         }

@@ -79,55 +79,74 @@ pub enum Op {
 }
 
 impl Op {
+    /// Convert a raw byte to an Op. Valid because the enum is `#[repr(u8)]` with
+    /// dense variants from 0 through `LoadLocal3`. If new variants are added with
+    /// gaps, this must be updated.
     pub fn from_u8(byte: u8) -> Option<Op> {
-        match byte {
-            0 => Some(Op::Const),
-            1 => Some(Op::Nil),
-            2 => Some(Op::True),
-            3 => Some(Op::False),
-            4 => Some(Op::Pop),
-            5 => Some(Op::Dup),
-            6 => Some(Op::LoadLocal),
-            7 => Some(Op::StoreLocal),
-            8 => Some(Op::LoadUpvalue),
-            9 => Some(Op::StoreUpvalue),
-            10 => Some(Op::LoadGlobal),
-            11 => Some(Op::StoreGlobal),
-            12 => Some(Op::DefineGlobal),
-            13 => Some(Op::Jump),
-            14 => Some(Op::JumpIfFalse),
-            15 => Some(Op::JumpIfTrue),
-            16 => Some(Op::Call),
-            17 => Some(Op::TailCall),
-            18 => Some(Op::Return),
-            19 => Some(Op::MakeClosure),
-            20 => Some(Op::CallNative),
-            21 => Some(Op::MakeList),
-            22 => Some(Op::MakeVector),
-            23 => Some(Op::MakeMap),
-            24 => Some(Op::MakeHashMap),
-            25 => Some(Op::Throw),
-            26 => Some(Op::Add),
-            27 => Some(Op::Sub),
-            28 => Some(Op::Mul),
-            29 => Some(Op::Div),
-            30 => Some(Op::Negate),
-            31 => Some(Op::Not),
-            32 => Some(Op::Eq),
-            33 => Some(Op::Lt),
-            34 => Some(Op::Gt),
-            35 => Some(Op::Le),
-            36 => Some(Op::Ge),
-            37 => Some(Op::AddInt),
-            38 => Some(Op::SubInt),
-            39 => Some(Op::MulInt),
-            40 => Some(Op::LtInt),
-            41 => Some(Op::EqInt),
-            42 => Some(Op::LoadLocal0),
-            43 => Some(Op::LoadLocal1),
-            44 => Some(Op::LoadLocal2),
-            45 => Some(Op::LoadLocal3),
-            _ => None,
+        if byte <= Op::LoadLocal3 as u8 {
+            // SAFETY: Op is #[repr(u8)] with dense, contiguous variants 0..=LoadLocal3.
+            Some(unsafe { std::mem::transmute::<u8, Op>(byte) })
+        } else {
+            None
         }
     }
+}
+
+/// Opcode constants for use in match patterns (avoids `Op::from_u8` overhead).
+pub mod op {
+    use super::Op;
+    pub const CONST: u8 = Op::Const as u8;
+    pub const NIL: u8 = Op::Nil as u8;
+    pub const TRUE: u8 = Op::True as u8;
+    pub const FALSE: u8 = Op::False as u8;
+    pub const POP: u8 = Op::Pop as u8;
+    pub const DUP: u8 = Op::Dup as u8;
+    pub const LOAD_LOCAL: u8 = Op::LoadLocal as u8;
+    pub const STORE_LOCAL: u8 = Op::StoreLocal as u8;
+    pub const LOAD_UPVALUE: u8 = Op::LoadUpvalue as u8;
+    pub const STORE_UPVALUE: u8 = Op::StoreUpvalue as u8;
+    pub const LOAD_GLOBAL: u8 = Op::LoadGlobal as u8;
+    pub const STORE_GLOBAL: u8 = Op::StoreGlobal as u8;
+    pub const DEFINE_GLOBAL: u8 = Op::DefineGlobal as u8;
+    pub const JUMP: u8 = Op::Jump as u8;
+    pub const JUMP_IF_FALSE: u8 = Op::JumpIfFalse as u8;
+    pub const JUMP_IF_TRUE: u8 = Op::JumpIfTrue as u8;
+    pub const CALL: u8 = Op::Call as u8;
+    pub const TAIL_CALL: u8 = Op::TailCall as u8;
+    pub const RETURN: u8 = Op::Return as u8;
+    pub const MAKE_CLOSURE: u8 = Op::MakeClosure as u8;
+    pub const CALL_NATIVE: u8 = Op::CallNative as u8;
+    pub const MAKE_LIST: u8 = Op::MakeList as u8;
+    pub const MAKE_VECTOR: u8 = Op::MakeVector as u8;
+    pub const MAKE_MAP: u8 = Op::MakeMap as u8;
+    pub const MAKE_HASH_MAP: u8 = Op::MakeHashMap as u8;
+    pub const THROW: u8 = Op::Throw as u8;
+    pub const ADD: u8 = Op::Add as u8;
+    pub const SUB: u8 = Op::Sub as u8;
+    pub const MUL: u8 = Op::Mul as u8;
+    pub const DIV: u8 = Op::Div as u8;
+    pub const NEGATE: u8 = Op::Negate as u8;
+    pub const NOT: u8 = Op::Not as u8;
+    pub const EQ: u8 = Op::Eq as u8;
+    pub const LT: u8 = Op::Lt as u8;
+    pub const GT: u8 = Op::Gt as u8;
+    pub const LE: u8 = Op::Le as u8;
+    pub const GE: u8 = Op::Ge as u8;
+    pub const ADD_INT: u8 = Op::AddInt as u8;
+    pub const SUB_INT: u8 = Op::SubInt as u8;
+    pub const MUL_INT: u8 = Op::MulInt as u8;
+    pub const LT_INT: u8 = Op::LtInt as u8;
+    pub const EQ_INT: u8 = Op::EqInt as u8;
+    pub const LOAD_LOCAL0: u8 = Op::LoadLocal0 as u8;
+    pub const LOAD_LOCAL1: u8 = Op::LoadLocal1 as u8;
+    pub const LOAD_LOCAL2: u8 = Op::LoadLocal2 as u8;
+    pub const LOAD_LOCAL3: u8 = Op::LoadLocal3 as u8;
+
+    // Instruction sizes (opcode byte + operand bytes)
+    /// Size of a bare opcode with no operands: 1
+    pub const SIZE_OP: usize = 1;
+    /// Size of an instruction with a u16 operand (e.g., CALL, LOAD_LOCAL): 1 + 2 = 3
+    pub const SIZE_OP_U16: usize = 3;
+    /// Size of an instruction with a u32 operand (e.g., LOAD_GLOBAL): 1 + 4 = 5
+    pub const SIZE_OP_U32: usize = 5;
 }

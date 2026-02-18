@@ -257,6 +257,9 @@ const PAYLOAD_MASK: u64 = (1u64 << 45) - 1; // 0x1FFF_FFFF_FFFF
 /// Sign-extension bit for 45-bit signed integers
 const INT_SIGN_BIT: u64 = 1u64 << 44;
 
+/// 6-bit mask for extracting the tag from a boxed value (bits 50-45).
+const TAG_MASK_6BIT: u64 = 0x3F;
+
 /// Canonical quiet NaN (sign=0) — used for NaN float values to avoid collision with boxed
 const CANONICAL_NAN: u64 = 0x7FF8_0000_0000_0000;
 
@@ -276,7 +279,7 @@ const TAG_MAP: u64 = 11;
 const TAG_HASHMAP: u64 = 12;
 const TAG_LAMBDA: u64 = 13;
 const TAG_MACRO: u64 = 14;
-const TAG_NATIVE_FN: u64 = 15;
+pub const TAG_NATIVE_FN: u64 = 15;
 const TAG_PROMPT: u64 = 16;
 const TAG_MESSAGE: u64 = 17;
 const TAG_CONVERSATION: u64 = 18;
@@ -293,7 +296,7 @@ const SMALL_INT_MAX: i64 = (1i64 << 44) - 1;
 // ── Public NaN-boxing constants for VM use ────────────────────────
 
 /// Tag + box combined mask: upper 19 bits (sign + exponent + quiet + 6-bit tag).
-pub const NAN_TAG_MASK: u64 = BOX_MASK | (0x3F << 45); // 0xFFFF_E000_0000_0000
+pub const NAN_TAG_MASK: u64 = BOX_MASK | (TAG_MASK_6BIT << 45); // 0xFFFF_E000_0000_0000
 
 /// The expected upper bits for a small int value: BOX_MASK | (TAG_INT_SMALL << 45).
 pub const NAN_INT_SMALL_PATTERN: u64 = BOX_MASK | (TAG_INT_SMALL << 45);
@@ -303,6 +306,9 @@ pub const NAN_PAYLOAD_MASK: u64 = PAYLOAD_MASK;
 
 /// Sign bit within the 45-bit payload (bit 44) — for sign-extending small ints.
 pub const NAN_INT_SIGN_BIT: u64 = INT_SIGN_BIT;
+
+/// Number of payload bits in NaN-boxed values (45).
+pub const NAN_PAYLOAD_BITS: u32 = 45;
 
 // ── Helpers for encoding/decoding ─────────────────────────────────
 
@@ -318,7 +324,7 @@ fn is_boxed(bits: u64) -> bool {
 
 #[inline(always)]
 fn get_tag(bits: u64) -> u64 {
-    (bits >> 45) & 0x3F
+    (bits >> 45) & TAG_MASK_6BIT
 }
 
 #[inline(always)]
