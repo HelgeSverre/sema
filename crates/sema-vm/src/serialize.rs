@@ -1,7 +1,7 @@
 use hashbrown::HashMap;
 use sema_core::{intern, resolve, SemaError, Span, Spur, Value, ValueView};
 
-use crate::chunk::{Chunk, ExceptionEntry};
+use crate::chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
 
 /// Builds a deduplicated string table for serialization.
 pub struct StringTableBuilder {
@@ -439,6 +439,140 @@ pub fn deserialize_chunk(
     })
 }
 
+// ── Function serialization ────────────────────────────────────────
+
+const ANONYMOUS_NAME: u32 = 0xFFFF_FFFF;
+
+pub fn serialize_function(
+    func: &Function,
+    buf: &mut Vec<u8>,
+    stb: &mut StringTableBuilder,
+) -> Result<(), SemaError> {
+    // name: u32 string table index (0xFFFFFFFF = anonymous)
+    match func.name {
+        Some(spur) => {
+            let idx = stb.intern_spur(spur);
+            buf.extend_from_slice(&idx.to_le_bytes());
+        }
+        None => buf.extend_from_slice(&ANONYMOUS_NAME.to_le_bytes()),
+    }
+
+    // arity: u16
+    buf.extend_from_slice(&func.arity.to_le_bytes());
+
+    // has_rest: u8
+    buf.push(if func.has_rest { 1 } else { 0 });
+
+    // upvalue descriptors
+    let n_upvalues = checked_u16(func.upvalue_descs.len(), "upvalue descriptor count")?;
+    buf.extend_from_slice(&n_upvalues.to_le_bytes());
+    for desc in &func.upvalue_descs {
+        match desc {
+            UpvalueDesc::ParentLocal(idx) => {
+                buf.push(0);
+                buf.extend_from_slice(&idx.to_le_bytes());
+            }
+            UpvalueDesc::ParentUpvalue(idx) => {
+                buf.push(1);
+                buf.extend_from_slice(&idx.to_le_bytes());
+            }
+        }
+    }
+
+    // chunk
+    serialize_chunk(&func.chunk, buf, stb)?;
+
+    // local_names: Vec<(u16, Spur)>
+    let n_local_names = checked_u16(func.local_names.len(), "local name count")?;
+    buf.extend_from_slice(&n_local_names.to_le_bytes());
+    for &(slot, spur) in &func.local_names {
+        buf.extend_from_slice(&slot.to_le_bytes());
+        let idx = stb.intern_spur(spur);
+        buf.extend_from_slice(&idx.to_le_bytes());
+    }
+
+    Ok(())
+}
+
+pub fn deserialize_function(
+    buf: &[u8],
+    cursor: &mut usize,
+    table: &[String],
+    remap: &[Spur],
+) -> Result<Function, SemaError> {
+    // name
+    let name_idx = read_u32_le(buf, cursor)?;
+    let name = if name_idx == ANONYMOUS_NAME {
+        None
+    } else {
+        let idx = name_idx as usize;
+        if idx >= remap.len() {
+            return Err(SemaError::eval(format!(
+                "function name string table index {idx} out of range"
+            )));
+        }
+        Some(remap[idx])
+    };
+
+    // arity
+    let arity = read_u16_le(buf, cursor)?;
+
+    // has_rest
+    let has_rest_byte = read_u8(buf, cursor)?;
+    let has_rest = match has_rest_byte {
+        0 => false,
+        1 => true,
+        _ => {
+            return Err(SemaError::eval(format!(
+                "invalid has_rest byte: 0x{has_rest_byte:02x}"
+            )));
+        }
+    };
+
+    // upvalue descriptors
+    let n_upvalues = read_u16_le(buf, cursor)? as usize;
+    let mut upvalue_descs = Vec::with_capacity(n_upvalues);
+    for _ in 0..n_upvalues {
+        let kind = read_u8(buf, cursor)?;
+        let index = read_u16_le(buf, cursor)?;
+        match kind {
+            0 => upvalue_descs.push(UpvalueDesc::ParentLocal(index)),
+            1 => upvalue_descs.push(UpvalueDesc::ParentUpvalue(index)),
+            _ => {
+                return Err(SemaError::eval(format!(
+                    "invalid upvalue kind: 0x{kind:02x}"
+                )));
+            }
+        }
+    }
+
+    // chunk
+    let chunk = deserialize_chunk(buf, cursor, table, remap)?;
+
+    // local_names
+    let n_local_names = read_u16_le(buf, cursor)? as usize;
+    let mut local_names = Vec::with_capacity(n_local_names);
+    for _ in 0..n_local_names {
+        let slot = read_u16_le(buf, cursor)?;
+        let name_idx = read_u32_le(buf, cursor)? as usize;
+        if name_idx >= remap.len() {
+            return Err(SemaError::eval(format!(
+                "local name string table index {name_idx} out of range"
+            )));
+        }
+        local_names.push((slot, remap[name_idx]));
+    }
+
+    Ok(Function {
+        name,
+        chunk,
+        upvalue_descs,
+        arity,
+        has_rest,
+        local_names,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -839,6 +973,79 @@ mod tests {
         let mut cursor = 0;
         let result = deserialize_chunk(&buf, &mut cursor, &table, &remap);
         assert!(result.is_err());
+    }
+
+    // ── Function serialization ─────────────────────────────────
+
+    #[test]
+    fn test_function_roundtrip() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let mut e = Emitter::new();
+        e.emit_op(Op::LoadLocal0);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+
+        let func = Function {
+            name: Some(intern("my-func")),
+            chunk,
+            upvalue_descs: vec![UpvalueDesc::ParentLocal(0), UpvalueDesc::ParentUpvalue(1)],
+            arity: 2,
+            has_rest: true,
+            local_names: vec![(0, intern("x")), (1, intern("y"))],
+        };
+
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_function(&func, &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let func2 = deserialize_function(&buf, &mut cursor, &table, &remap).unwrap();
+
+        assert_eq!(func2.arity, 2);
+        assert!(func2.has_rest);
+        assert_eq!(func2.upvalue_descs.len(), 2);
+        assert_eq!(func2.local_names.len(), 2);
+        assert!(func2.name.is_some());
+        assert_eq!(sema_core::resolve(func2.name.unwrap()), "my-func");
+        assert_eq!(sema_core::resolve(func2.local_names[0].1), "x");
+        assert_eq!(sema_core::resolve(func2.local_names[1].1), "y");
+    }
+
+    #[test]
+    fn test_function_roundtrip_anonymous() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let mut e = Emitter::new();
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+
+        let func = Function {
+            name: None,
+            chunk,
+            upvalue_descs: vec![],
+            arity: 0,
+            has_rest: false,
+            local_names: vec![],
+        };
+
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_function(&func, &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let func2 = deserialize_function(&buf, &mut cursor, &table, &remap).unwrap();
+
+        assert!(func2.name.is_none());
+        assert_eq!(func2.arity, 0);
+        assert!(!func2.has_rest);
+        assert_eq!(func2.upvalue_descs.len(), 0);
     }
 
     // ── Unicode string table ─────────────────────────────────────
