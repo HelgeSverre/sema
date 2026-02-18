@@ -7,6 +7,7 @@ pub mod emit;
 pub mod lower;
 pub mod opcodes;
 pub mod resolve;
+pub mod serialize;
 pub mod vm;
 
 pub use chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
