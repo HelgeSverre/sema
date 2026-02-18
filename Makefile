@@ -131,7 +131,7 @@ site-preview: site-build
 	cd website && npm run preview
 
 site-deploy: site-build
-	cd website && npx vercel --prod
+	cd website && npx vercel --prod --yes
 
 # Playground
 deploy: site-deploy playground-deploy
@@ -146,7 +146,7 @@ playground-dev: playground-build
 	cd playground && npx serve -l 8787
 
 playground-deploy: playground-build
-	cd playground && npx vercel --prod
+	cd playground && npx vercel --prod --yes
 
 # Coverage
 coverage:
