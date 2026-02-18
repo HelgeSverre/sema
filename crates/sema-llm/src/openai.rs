@@ -38,18 +38,14 @@ impl OpenAiProvider {
         default_model: String,
         send_stream_options: bool,
     ) -> Result<Self, LlmError> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| LlmError::Config(format!("failed to create tokio runtime: {e}")))?;
+        let runtime = crate::http::create_runtime()?;
         Ok(OpenAiProvider {
             name,
             api_key,
             base_url,
             default_model,
             send_stream_options,
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
+            client: crate::http::create_client(None)?,
             runtime,
         })
     }

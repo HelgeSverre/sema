@@ -260,5 +260,9 @@ All providers are auto-configured from environment variables. Use `(llm/configur
 | `JINA_API_KEY`       | Jina embeddings API key                               |
 | `VOYAGE_API_KEY`     | Voyage embeddings API key                             |
 | `COHERE_API_KEY`     | Cohere embeddings API key                             |
-| `SEMA_DEFAULT_MODEL` | Default model name                                    |
-| `SEMA_LLM_PROVIDER`  | Preferred provider                                    |
+| `SEMA_CHAT_MODEL`        | Default chat model name                               |
+| `SEMA_CHAT_PROVIDER`     | Preferred chat provider                               |
+| `SEMA_EMBEDDING_MODEL`   | Default embedding model name                          |
+| `SEMA_EMBEDDING_PROVIDER` | Preferred embedding provider                          |
+
+> `SEMA_DEFAULT_MODEL` and `SEMA_LLM_PROVIDER` still work but are deprecated. Use the new names above.

@@ -53,12 +53,8 @@ pub struct OllamaProvider {
 
 impl OllamaProvider {
     pub fn new(host: Option<String>, default_model: Option<String>) -> Result<Self, LlmError> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| LlmError::Config(format!("failed to create tokio runtime: {e}")))?;
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
-            .build()
-            .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?;
+        let runtime = crate::http::create_runtime()?;
+        let client = crate::http::create_client(None)?;
         Ok(OllamaProvider {
             host: host.unwrap_or_else(|| {
                 std::env::var("OLLAMA_HOST")

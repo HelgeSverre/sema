@@ -819,22 +819,69 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
     // Auto-configure from environment variables
     register_fn(env, "llm/auto-configure", |_args| {
-        let forced_model = std::env::var("SEMA_DEFAULT_MODEL")
+        // New scoped env vars (preferred)
+        let chat_model = std::env::var("SEMA_CHAT_MODEL")
             .ok()
             .filter(|m| !m.is_empty());
-        let forced_provider = std::env::var("SEMA_LLM_PROVIDER")
+        let chat_provider = std::env::var("SEMA_CHAT_PROVIDER")
             .ok()
             .map(|p| p.trim().to_ascii_lowercase())
             .filter(|p| !p.is_empty());
+        let embedding_model = std::env::var("SEMA_EMBEDDING_MODEL")
+            .ok()
+            .filter(|m| !m.is_empty());
+        let embedding_provider = std::env::var("SEMA_EMBEDDING_PROVIDER")
+            .ok()
+            .map(|p| p.trim().to_ascii_lowercase())
+            .filter(|p| !p.is_empty());
+
+        // Backward compat: fall back to old env vars if new ones aren't set
+        let forced_chat_model = chat_model.or_else(|| {
+            let val = std::env::var("SEMA_DEFAULT_MODEL")
+                .ok()
+                .filter(|m| !m.is_empty());
+            if val.is_some() {
+                eprintln!("Warning: SEMA_DEFAULT_MODEL is deprecated, use SEMA_CHAT_MODEL instead");
+            }
+            val
+        });
+        let forced_chat_provider = chat_provider.or_else(|| {
+            let val = std::env::var("SEMA_LLM_PROVIDER")
+                .ok()
+                .map(|p| p.trim().to_ascii_lowercase())
+                .filter(|p| !p.is_empty());
+            if val.is_some() {
+                eprintln!(
+                    "Warning: SEMA_LLM_PROVIDER is deprecated, use SEMA_CHAT_PROVIDER instead"
+                );
+            }
+            val
+        });
 
         let result = PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();
             let mut first_configured: Option<String> = None;
 
+            // Determine which provider gets the chat model override.
+            // Only the provider that will become the default chat provider should
+            // receive forced_chat_model — not every provider.
+            let target_chat_provider = forced_chat_provider.as_deref();
+
+            // Inline to avoid borrow conflicts with first_configured.
+            macro_rules! model_for {
+                ($name:expr) => {{
+                    match target_chat_provider {
+                        Some(target) if target == $name => forced_chat_model.clone(),
+                        None if first_configured.is_none() => forced_chat_model.clone(),
+                        _ => None,
+                    }
+                }};
+            }
+
             // Try Anthropic first (preferred)
             if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
                 if !key.is_empty() {
-                    let provider = AnthropicProvider::new(key, forced_model.clone())
+                    let provider = AnthropicProvider::new(key, model_for!("anthropic"))
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
@@ -846,7 +893,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             // Try OpenAI
             if let Ok(key) = std::env::var("OPENAI_API_KEY") {
                 if !key.is_empty() {
-                    let provider = OpenAiProvider::new(key, None, forced_model.clone())
+                    let provider = OpenAiProvider::new(key, None, model_for!("openai"))
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
@@ -858,9 +905,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             // Try Groq
             if let Ok(key) = std::env::var("GROQ_API_KEY") {
                 if !key.is_empty() {
-                    let model = forced_model
-                        .clone()
-                        .unwrap_or_else(|| "llama-3.3-70b-versatile".to_string());
+                    let model =
+                        model_for!("groq").unwrap_or_else(|| "llama-3.3-70b-versatile".to_string());
                     let provider = OpenAiProvider::named(
                         "groq".to_string(),
                         key,
@@ -879,9 +925,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             // Try xAI
             if let Ok(key) = std::env::var("XAI_API_KEY") {
                 if !key.is_empty() {
-                    let model = forced_model
-                        .clone()
-                        .unwrap_or_else(|| "grok-3-mini-fast".to_string());
+                    let model = model_for!("xai").unwrap_or_else(|| "grok-3-mini-fast".to_string());
                     let provider = OpenAiProvider::named(
                         "xai".to_string(),
                         key,
@@ -900,9 +944,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             // Try Mistral
             if let Ok(key) = std::env::var("MISTRAL_API_KEY") {
                 if !key.is_empty() {
-                    let model = forced_model
-                        .clone()
-                        .unwrap_or_else(|| "mistral-small-latest".to_string());
+                    let model =
+                        model_for!("mistral").unwrap_or_else(|| "mistral-small-latest".to_string());
                     let provider = OpenAiProvider::named(
                         "mistral".to_string(),
                         key,
@@ -921,9 +964,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             // Try Moonshot
             if let Ok(key) = std::env::var("MOONSHOT_API_KEY") {
                 if !key.is_empty() {
-                    let model = forced_model
-                        .clone()
-                        .unwrap_or_else(|| "moonshot-v1-8k".to_string());
+                    let model =
+                        model_for!("moonshot").unwrap_or_else(|| "moonshot-v1-8k".to_string());
                     let provider = OpenAiProvider::named(
                         "moonshot".to_string(),
                         key,
@@ -942,7 +984,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             // Try Google Gemini
             if let Ok(key) = std::env::var("GOOGLE_API_KEY") {
                 if !key.is_empty() {
-                    let provider = GeminiProvider::new(key, forced_model.clone())
+                    let provider = GeminiProvider::new(key, model_for!("gemini"))
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if first_configured.is_none() {
@@ -953,7 +995,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             }
             // Try Ollama (local, no auth)
             if std::env::var("OLLAMA_HOST").is_ok() {
-                let provider = OllamaProvider::new(None, forced_model.clone())
+                let provider = OllamaProvider::new(None, model_for!("ollama"))
                     .map_err(|e| SemaError::Llm(e.to_string()))?;
                 reg.register(Box::new(provider));
                 if first_configured.is_none() {
@@ -963,13 +1005,32 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             }
 
             // Auto-configure embedding providers
+            // Determine the embedding model override for the target embedding provider.
+            // If --embedding-provider is set, only that provider gets the model override.
+            // Otherwise, the first successfully configured embedding provider gets it.
+            let target_embed_provider = embedding_provider.as_deref();
+
+            // Helper: should this embedding provider get the model override?
+            // Inline to avoid borrow conflicts with reg.
+            macro_rules! embed_model_for {
+                ($name:expr, $default:expr) => {{
+                    let model_override = match target_embed_provider {
+                        Some(target) if target == $name => embedding_model.clone(),
+                        None if reg.embedding_provider().is_none() => embedding_model.clone(),
+                        _ => None,
+                    };
+                    model_override.unwrap_or_else(|| $default.to_string())
+                }};
+            }
+
             if let Ok(key) = std::env::var("JINA_API_KEY") {
                 if !key.is_empty() {
+                    let model = embed_model_for!("jina", "jina-embeddings-v3");
                     let provider = OpenAiCompatEmbeddingProvider::new(
                         "jina".to_string(),
                         key,
                         "https://api.jina.ai/v1".to_string(),
-                        "jina-embeddings-v3".to_string(),
+                        model,
                     )
                     .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
@@ -978,15 +1039,16 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             }
             if let Ok(key) = std::env::var("VOYAGE_API_KEY") {
                 if !key.is_empty() {
+                    let model = embed_model_for!("voyage", "voyage-3");
                     let provider = OpenAiCompatEmbeddingProvider::new(
                         "voyage".to_string(),
                         key,
                         "https://api.voyageai.com/v1".to_string(),
-                        "voyage-3".to_string(),
+                        model,
                     )
                     .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
-                    // Only set as embedding provider if jina wasn't already set
+                    // Only set as embedding provider if not already set
                     if reg.embedding_provider().is_none() {
                         reg.set_embedding_provider("voyage");
                     }
@@ -994,7 +1056,12 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             }
             if let Ok(key) = std::env::var("COHERE_API_KEY") {
                 if !key.is_empty() {
-                    let provider = CohereEmbeddingProvider::new(key, None)
+                    let model_override = match target_embed_provider {
+                        Some("cohere") => embedding_model.clone(),
+                        None if reg.embedding_provider().is_none() => embedding_model.clone(),
+                        _ => None,
+                    };
+                    let provider = CohereEmbeddingProvider::new(key, model_override)
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                     reg.register(Box::new(provider));
                     if reg.embedding_provider().is_none() {
@@ -1007,11 +1074,12 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             if reg.embedding_provider().is_none() {
                 if let Ok(key) = std::env::var("OPENAI_API_KEY") {
                     if !key.is_empty() {
+                        let model = embed_model_for!("openai", "text-embedding-3-small");
                         let provider = OpenAiCompatEmbeddingProvider::new(
                             "openai-embeddings".to_string(),
                             key,
                             "https://api.openai.com/v1".to_string(),
-                            "text-embedding-3-small".to_string(),
+                            model,
                         )
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                         reg.register(Box::new(provider));
@@ -1020,13 +1088,25 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 }
             }
 
-            if let Some(requested_provider) = forced_provider.as_deref() {
+            // Apply forced chat provider override
+            if let Some(requested_provider) = forced_chat_provider.as_deref() {
                 if reg.get(requested_provider).is_some() {
                     reg.set_default(requested_provider);
                     first_configured = Some(requested_provider.to_string());
                 } else {
                     return Err(SemaError::Llm(format!(
                         "requested provider is not configured: {requested_provider}"
+                    )));
+                }
+            }
+
+            // Apply forced embedding provider override
+            if let Some(requested_embed) = target_embed_provider {
+                if reg.get(requested_embed).is_some() {
+                    reg.set_embedding_provider(requested_embed);
+                } else {
+                    return Err(SemaError::Llm(format!(
+                        "requested embedding provider is not configured: {requested_embed}"
                     )));
                 }
             }
@@ -1877,6 +1957,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         // Step 1: Map fn over items to produce prompt strings (sequentially, since Rc)
         let mut prompts = Vec::with_capacity(items.len());
         for item in &items {
+            #[allow(clippy::cloned_ref_to_slice_refs)] // clone needed: &Value -> [Value]
             let result = call_value_fn(ctx, func, &[item.clone()])?;
             let prompt_str = result
                 .as_str()
@@ -3752,6 +3833,7 @@ fn chat_messages_to_sema_list(messages: &[ChatMessage]) -> Value {
 }
 
 /// The tool execution loop: send -> check for tool_calls -> execute -> send results -> repeat.
+#[allow(clippy::too_many_arguments)]
 fn run_tool_loop(
     ctx: &EvalContext,
     initial_messages: Vec<ChatMessage>,

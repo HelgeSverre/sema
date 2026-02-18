@@ -130,12 +130,28 @@ struct Cli {
     #[arg(long)]
     sandbox: Option<String>,
 
-    /// Set default LLM model
+    /// Set default chat model
     #[arg(long)]
+    chat_model: Option<String>,
+
+    /// Set chat provider (anthropic, openai, gemini, groq, xai, mistral, moonshot, ollama)
+    #[arg(long)]
+    chat_provider: Option<String>,
+
+    /// Set embedding model
+    #[arg(long)]
+    embedding_model: Option<String>,
+
+    /// Set embedding provider (jina, voyage, cohere, openai)
+    #[arg(long)]
+    embedding_provider: Option<String>,
+
+    /// Deprecated: use --chat-model instead
+    #[arg(long, hide = true)]
     model: Option<String>,
 
-    /// Set LLM provider (anthropic, openai)
-    #[arg(long)]
+    /// Deprecated: use --chat-provider instead
+    #[arg(long, hide = true)]
     provider: Option<String>,
 
     /// Restrict file operations to these directories (comma-separated)
@@ -243,17 +259,34 @@ fn main() {
     let interpreter = Interpreter::new_with_sandbox(&sandbox);
 
     // Set LLM env vars before auto-configure
-    if let Some(model) = &cli.model {
-        std::env::set_var("SEMA_DEFAULT_MODEL", model);
+    // New scoped flags take priority; fall back to deprecated --model/--provider
+    let effective_chat_model = cli.chat_model.as_ref().or(cli.model.as_ref());
+    let effective_chat_provider = cli.chat_provider.as_ref().or(cli.provider.as_ref());
+
+    if cli.model.is_some() && cli.chat_model.is_none() {
+        eprintln!("Warning: --model is deprecated, use --chat-model instead");
     }
-    if let Some(provider) = &cli.provider {
-        std::env::set_var("SEMA_LLM_PROVIDER", provider);
+    if cli.provider.is_some() && cli.chat_provider.is_none() {
+        eprintln!("Warning: --provider is deprecated, use --chat-provider instead");
+    }
+
+    if let Some(model) = effective_chat_model {
+        std::env::set_var("SEMA_CHAT_MODEL", model);
+    }
+    if let Some(provider) = effective_chat_provider {
+        std::env::set_var("SEMA_CHAT_PROVIDER", provider);
+    }
+    if let Some(model) = &cli.embedding_model {
+        std::env::set_var("SEMA_EMBEDDING_MODEL", model);
+    }
+    if let Some(provider) = &cli.embedding_provider {
+        std::env::set_var("SEMA_EMBEDDING_PROVIDER", provider);
     }
 
     // Auto-configure LLM unless --no-init or --no-llm
     if !cli.no_init && !cli.no_llm {
         if let Err(e) = interpreter.eval_str("(llm/auto-configure)") {
-            if cli.provider.is_some() || cli.model.is_some() {
+            if effective_chat_provider.is_some() || effective_chat_model.is_some() {
                 print_error(&e);
                 std::process::exit(1);
             }

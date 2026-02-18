@@ -19,8 +19,10 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 | `-i, --interactive`  | Enter REPL after running file or eval        |
 | `--no-init`          | Skip LLM auto-configuration                  |
 | `--no-llm`           | Disable LLM features (same as `--no-init`)   |
-| `--model <NAME>`     | Set default LLM model                        |
-| `--provider <NAME>`  | Set LLM provider                             |
+| `--chat-model <NAME>`       | Set default chat model                |
+| `--chat-provider <NAME>`    | Set chat provider                     |
+| `--embedding-model <NAME>`  | Set embedding model                   |
+| `--embedding-provider <NAME>` | Set embedding provider              |
 | `--vm`               | Use bytecode VM instead of tree-walker       |
 | `--sandbox <MODE>`   | Restrict dangerous operations (see below)    |
 | `-V, --version`      | Print version                                |
@@ -126,7 +128,7 @@ sema compile script.sema
 sema script.semac
 
 # Use a specific model
-sema --model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
+sema --chat-model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
 
 # Shebang support in scripts
 #!/usr/bin/env sema
@@ -208,8 +210,14 @@ sema --sandbox=no-shell,no-network --allowed-paths=./data script.sema
 | `JINA_API_KEY`       | Jina embeddings API key (auto-detected)               |
 | `VOYAGE_API_KEY`     | Voyage embeddings API key (auto-detected)             |
 | `COHERE_API_KEY`     | Cohere embeddings API key (auto-detected)             |
-| `SEMA_DEFAULT_MODEL` | Default model name                                    |
-| `SEMA_LLM_PROVIDER`  | Preferred provider                                    |
+| `SEMA_CHAT_MODEL`    | Default chat model name                               |
+| `SEMA_CHAT_PROVIDER` | Preferred chat provider                               |
+| `SEMA_EMBEDDING_MODEL` | Default embedding model name                        |
+| `SEMA_EMBEDDING_PROVIDER` | Preferred embedding provider                    |
+
+::: tip Deprecated aliases
+`SEMA_DEFAULT_MODEL` and `SEMA_LLM_PROVIDER` still work but are deprecated. Use `SEMA_CHAT_MODEL` and `SEMA_CHAT_PROVIDER` instead.
+:::
 
 ## REPL Commands
 

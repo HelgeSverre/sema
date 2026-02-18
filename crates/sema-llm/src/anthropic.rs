@@ -12,16 +12,12 @@ pub struct AnthropicProvider {
 
 impl AnthropicProvider {
     pub fn new(api_key: String, default_model: Option<String>) -> Result<Self, LlmError> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| LlmError::Config(format!("failed to create tokio runtime: {e}")))?;
+        let runtime = crate::http::create_runtime()?;
         Ok(AnthropicProvider {
             api_key,
             default_model: default_model
                 .unwrap_or_else(|| "claude-sonnet-4-5-20250929".to_string()),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
+            client: crate::http::create_client(None)?,
             runtime,
         })
     }

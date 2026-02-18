@@ -19,17 +19,13 @@ impl OpenAiCompatEmbeddingProvider {
         base_url: String,
         default_model: String,
     ) -> Result<Self, LlmError> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| LlmError::Config(format!("failed to create tokio runtime: {e}")))?;
+        let runtime = crate::http::create_runtime()?;
         Ok(Self {
             name,
             api_key,
             base_url,
             default_model,
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
+            client: crate::http::create_client(None)?,
             runtime,
         })
     }
@@ -135,15 +131,11 @@ pub struct CohereEmbeddingProvider {
 
 impl CohereEmbeddingProvider {
     pub fn new(api_key: String, default_model: Option<String>) -> Result<Self, LlmError> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| LlmError::Config(format!("failed to create tokio runtime: {e}")))?;
+        let runtime = crate::http::create_runtime()?;
         Ok(Self {
             api_key,
             default_model: default_model.unwrap_or_else(|| "embed-english-v3.0".to_string()),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
+            client: crate::http::create_client(None)?,
             runtime,
         })
     }

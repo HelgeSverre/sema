@@ -11,16 +11,12 @@ pub struct GeminiProvider {
 
 impl GeminiProvider {
     pub fn new(api_key: String, default_model: Option<String>) -> Result<Self, LlmError> {
-        let runtime = tokio::runtime::Runtime::new()
-            .map_err(|e| LlmError::Config(format!("failed to create tokio runtime: {e}")))?;
+        let runtime = crate::http::create_runtime()?;
         Ok(GeminiProvider {
             api_key,
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
             default_model: default_model.unwrap_or_else(|| "gemini-2.0-flash".to_string()),
-            client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(120))
-                .build()
-                .map_err(|e| LlmError::Config(format!("failed to create http client: {e}")))?,
+            client: crate::http::create_client(None)?,
             runtime,
         })
     }

@@ -133,8 +133,10 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 | `-i, --interactive`  | Enter REPL after running file or eval        |
 | `--no-init`          | Skip LLM auto-configuration                  |
 | `--no-llm`           | Disable LLM features (same as `--no-init`)   |
-| `--model <NAME>`     | Set default LLM model                        |
-| `--provider <NAME>`  | Set LLM provider                             |
+| `--chat-model <NAME>`       | Set default chat model                |
+| `--chat-provider <NAME>`    | Set chat provider                     |
+| `--embedding-model <NAME>`  | Set embedding model                   |
+| `--embedding-provider <NAME>` | Set embedding provider              |
 | `--sandbox <MODE>`   | Restrict dangerous operations (see below)    |
 | `-V, --version`      | Print version                                |
 | `-h, --help`         | Print help                                   |
@@ -189,7 +191,7 @@ sema -p '(string/join (map str (range 10)) ",")'
 sema --no-llm script.sema
 
 # Use a specific model
-sema --model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
+sema --chat-model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
 
 # Shebang support in scripts
 #!/usr/bin/env sema
@@ -249,8 +251,10 @@ Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, 
 | `JINA_API_KEY`       | Jina embeddings API key (auto-detected)               |
 | `VOYAGE_API_KEY`     | Voyage embeddings API key (auto-detected)             |
 | `COHERE_API_KEY`     | Cohere embeddings API key (auto-detected)             |
-| `SEMA_DEFAULT_MODEL` | Default model name                                    |
-| `SEMA_LLM_PROVIDER`  | Preferred provider                                    |
+| `SEMA_CHAT_MODEL`       | Default chat model name                            |
+| `SEMA_CHAT_PROVIDER`    | Preferred chat provider                            |
+| `SEMA_EMBEDDING_MODEL`  | Default embedding model name                       |
+| `SEMA_EMBEDDING_PROVIDER` | Preferred embedding provider                     |
 
 ## REPL Commands
 
@@ -2866,8 +2870,10 @@ All providers are auto-configured from environment variables. Use `(llm/configur
 | `JINA_API_KEY`       | Jina embeddings API key                               |
 | `VOYAGE_API_KEY`     | Voyage embeddings API key                             |
 | `COHERE_API_KEY`     | Cohere embeddings API key                             |
-| `SEMA_DEFAULT_MODEL` | Default model name                                    |
-| `SEMA_LLM_PROVIDER`  | Preferred provider                                    |
+| `SEMA_CHAT_MODEL`       | Default chat model name                            |
+| `SEMA_CHAT_PROVIDER`    | Preferred chat provider                            |
+| `SEMA_EMBEDDING_MODEL`  | Default embedding model name                       |
+| `SEMA_EMBEDDING_PROVIDER` | Preferred embedding provider                     |
 
 ---
 
