@@ -1,0 +1,24 @@
+;; streaming-story.sema — Real-time LLM streaming demo
+;; Watch a short story appear token-by-token with a typewriter effect.
+;; Requires ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable.
+;; 
+;; To override the model being used, do this: 
+;; sema --vm streaming-story.sema --chat-model=claude-haiku-4-5
+
+(define provider (llm/auto-configure))
+(when (nil? provider)
+  (println "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (exit 1))
+
+(println (format "Provider: ~a\n" provider))
+(println "--- Streaming a short story ---\n")
+
+;; llm/stream prints each chunk to stdout as it arrives.
+;; No callback needed — the default behaviour is the typewriter effect.
+(llm/stream
+  "Write a vivid, atmospheric short story (roughly 500 words) about a lighthouse keeper who discovers a mysterious door at the base of the lighthouse that wasn't there before. Include sensory details — the sound of waves, the smell of salt air, the flicker of the lamp. End on an ambiguous, eerie note."
+  {:max-tokens 1024
+   :temperature 0.9})
+
+(println "\n\n--- Done ---")
+(pprint (llm/session-usage))
