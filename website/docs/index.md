@@ -15,10 +15,16 @@ Sema is a Scheme-like Lisp where prompts are s-expressions, conversations are pe
 
 ## Installation
 
-Install via Cargo:
+Install from [crates.io](https://crates.io/crates/sema-lang):
 
 ```bash
-cargo install --git https://github.com/HelgeSverre/sema sema
+cargo install sema-lang
+```
+
+Or install from git (latest unreleased):
+
+```bash
+cargo install --git https://github.com/HelgeSverre/sema sema-lang
 ```
 
 Or build from source:

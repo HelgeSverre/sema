@@ -186,8 +186,16 @@ All providers are auto-configured from environment variables — just set the AP
 
 ## Installation
 
+Install from [crates.io](https://crates.io/crates/sema-lang):
+
 ```bash
-cargo install --git https://github.com/HelgeSverre/sema sema
+cargo install sema-lang
+```
+
+Or install from git (latest unreleased):
+
+```bash
+cargo install --git https://github.com/HelgeSverre/sema sema-lang
 ```
 
 Or build from source:
@@ -268,7 +276,7 @@ The [`examples/`](examples/) directory has 50+ programs:
 - **Pipeline-ready** — response caching, fallback chains, rate limiting, retry with backoff, text chunking, prompt templates, vector store, and a persistent KV store
 - **Cost-aware** — built-in budget tracking with dynamic pricing from [llm-prices.com](https://www.llm-prices.com)
 - **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and 460+ stdlib functions
-- **Embeddable** — clean Rust crate structure with a builder API
+- **Embeddable** — [available on crates.io](https://crates.io/crates/sema-lang), clean Rust crate structure with a builder API
 - **Developer-friendly** — REPL with tab completion, structured error messages with hints, and 50+ example programs
 
 ### Why Not Sema?

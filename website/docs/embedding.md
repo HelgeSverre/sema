@@ -14,7 +14,14 @@ Add Sema to your project:
 
 ```toml
 [dependencies]
-sema = { git = "https://github.com/HelgeSverre/sema" }
+sema-lang = "1.6"
+```
+
+Or use the latest unreleased version from git:
+
+```toml
+[dependencies]
+sema-lang = { git = "https://github.com/HelgeSverre/sema" }
 ```
 
 Evaluate an expression in three lines:
