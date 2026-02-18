@@ -314,13 +314,7 @@ fn deserialize_value_inner(
             let count = read_u16_le(buf, cursor)? as usize;
             let mut items = Vec::with_capacity(count);
             for _ in 0..count {
-                items.push(deserialize_value_inner(
-                    buf,
-                    cursor,
-                    table,
-                    remap,
-                    depth + 1,
-                )?);
+                items.push(deserialize_value_inner(buf, cursor, table, remap, depth + 1)?);
             }
             Ok(Value::list(items))
         }
@@ -328,13 +322,7 @@ fn deserialize_value_inner(
             let count = read_u16_le(buf, cursor)? as usize;
             let mut items = Vec::with_capacity(count);
             for _ in 0..count {
-                items.push(deserialize_value_inner(
-                    buf,
-                    cursor,
-                    table,
-                    remap,
-                    depth + 1,
-                )?);
+                items.push(deserialize_value_inner(buf, cursor, table, remap, depth + 1)?);
             }
             Ok(Value::vector(items))
         }
@@ -919,6 +907,11 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
     // Validate required sections
     let table = string_table
         .ok_or_else(|| SemaError::eval("bytecode file missing string table section"))?;
+    if table.is_empty() || !table[0].is_empty() {
+        return Err(SemaError::eval(
+            "string table index 0 must be the empty string",
+        ));
+    }
     let (func_start, func_len) = func_table_data
         .ok_or_else(|| SemaError::eval("bytecode file missing function table section"))?;
     let (chunk_start, chunk_len) = main_chunk_data
@@ -1893,7 +1886,7 @@ mod tests {
         bytes[0..4].copy_from_slice(&[0x00, b'S', b'E', b'M']);
         bytes[4..6].copy_from_slice(&1u16.to_le_bytes()); // format version
         bytes[14..16].copy_from_slice(&1u16.to_le_bytes()); // 1 section
-                                                            // Section header
+                                                         // Section header
         bytes.extend_from_slice(&0x01u16.to_le_bytes()); // string table
         bytes.extend_from_slice(&(section.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&section);
@@ -1912,5 +1905,58 @@ mod tests {
         let mut cursor = 0;
         let result = deserialize_value(&buf, &mut cursor, &table, &remap);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_rejects_nonempty_string_zero() {
+        let mut bad_bytes = Vec::new();
+        // Header
+        bad_bytes.extend_from_slice(&[0x00, b'S', b'E', b'M']); // magic
+        bad_bytes.extend_from_slice(&1u16.to_le_bytes()); // format version
+        bad_bytes.extend_from_slice(&0u16.to_le_bytes()); // flags
+        bad_bytes.extend_from_slice(&0u16.to_le_bytes()); // sema_major
+        bad_bytes.extend_from_slice(&0u16.to_le_bytes()); // sema_minor
+        bad_bytes.extend_from_slice(&0u16.to_le_bytes()); // sema_patch
+        bad_bytes.extend_from_slice(&3u16.to_le_bytes()); // n_sections = 3
+        bad_bytes.extend_from_slice(&0u32.to_le_bytes()); // source_hash
+        bad_bytes.extend_from_slice(&0u32.to_le_bytes()); // reserved
+        assert_eq!(bad_bytes.len(), 24);
+
+        // String table section with index 0 = "bad" instead of ""
+        let mut strtab = Vec::new();
+        strtab.extend_from_slice(&1u32.to_le_bytes()); // 1 string
+        strtab.extend_from_slice(&3u32.to_le_bytes()); // length 3
+        strtab.extend_from_slice(b"bad"); // not empty!
+        bad_bytes.extend_from_slice(&0x01u16.to_le_bytes()); // section type
+        bad_bytes.extend_from_slice(&(strtab.len() as u32).to_le_bytes());
+        bad_bytes.extend_from_slice(&strtab);
+
+        // Empty function table section
+        let mut functab = Vec::new();
+        functab.extend_from_slice(&0u32.to_le_bytes()); // 0 functions
+        bad_bytes.extend_from_slice(&0x02u16.to_le_bytes());
+        bad_bytes.extend_from_slice(&(functab.len() as u32).to_le_bytes());
+        bad_bytes.extend_from_slice(&functab);
+
+        // Minimal main chunk section
+        let mut chunk_data = Vec::new();
+        chunk_data.extend_from_slice(&1u32.to_le_bytes()); // code_len = 1
+        chunk_data.push(Op::Return as u8);
+        chunk_data.extend_from_slice(&0u16.to_le_bytes()); // n_consts = 0
+        chunk_data.extend_from_slice(&0u32.to_le_bytes()); // n_spans = 0
+        chunk_data.extend_from_slice(&0u16.to_le_bytes()); // max_stack
+        chunk_data.extend_from_slice(&0u16.to_le_bytes()); // n_locals
+        chunk_data.extend_from_slice(&0u16.to_le_bytes()); // n_exceptions
+        bad_bytes.extend_from_slice(&0x03u16.to_le_bytes());
+        bad_bytes.extend_from_slice(&(chunk_data.len() as u32).to_le_bytes());
+        bad_bytes.extend_from_slice(&chunk_data);
+
+        let result = deserialize_from_bytes(&bad_bytes);
+        assert!(
+            result.is_err(),
+            "should reject string table with non-empty index 0"
+        );
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("index 0 must be the empty string"));
     }
 }
