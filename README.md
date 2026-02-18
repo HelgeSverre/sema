@@ -249,25 +249,25 @@ All editors provide syntax highlighting for 460+ builtins, special forms, keywor
 
 ## Example Programs
 
-The [`examples/`](examples/) directory has 50+ programs:
+The [`examples/`](https://github.com/helgesverre/sema/tree/main/examples) directory has 50+ programs:
 
-| Example                                                         | What it does                                                 |
-| --------------------------------------------------------------- | ------------------------------------------------------------ |
-| [`coding-agent.sema`](examples/ai-tools/coding-agent.sema)      | Full coding agent with file editing, search, and shell tools |
-| [`review.sema`](examples/ai-tools/review.sema)                  | AI code reviewer for git diffs                               |
-| [`commit-msg.sema`](examples/ai-tools/commit-msg.sema)          | Generate conventional commit messages from staged changes    |
-| [`summarize.sema`](examples/ai-tools/summarize.sema)            | Summarize files or piped input                               |
-| [`game-of-life.sema`](examples/game-of-life.sema)               | Conway's Game of Life                                        |
-| [`brainfuck.sema`](examples/brainfuck.sema)                     | Brainfuck interpreter                                        |
-| [`mandelbrot.sema`](examples/mandelbrot.sema)                   | ASCII Mandelbrot set                                         |
-| [`json-api.sema`](examples/json-api.sema)                       | Fetch and process JSON APIs                                  |
-| [`test-vision.sema`](examples/llm/test-vision.sema)             | Vision extraction and multi-modal chat tests                 |
-| [`test-extract.sema`](examples/llm/test-extract.sema)           | Structured extraction and classification                     |
-| [`test-batch.sema`](examples/llm/test-batch.sema)               | Batch/parallel LLM completions                               |
-| [`test-pipeline.sema`](examples/llm/test-pipeline.sema)         | Caching, budgets, rate limiting, retry, fallback chains      |
-| [`test-text-tools.sema`](examples/llm/test-text-tools.sema)     | Text chunking, prompt templates, document abstraction        |
-| [`test-vector-store.sema`](examples/llm/test-vector-store.sema) | In-memory vector store with similarity search                |
-| [`test-kv-store.sema`](examples/llm/test-kv-store.sema)         | Persistent JSON-backed key-value store                       |
+| Example                                                                                                       | What it does                                                 |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| [`coding-agent.sema`](https://github.com/helgesverre/sema/blob/main/examples/ai-tools/coding-agent.sema)      | Full coding agent with file editing, search, and shell tools |
+| [`review.sema`](https://github.com/helgesverre/sema/blob/main/examples/ai-tools/review.sema)                  | AI code reviewer for git diffs                               |
+| [`commit-msg.sema`](https://github.com/helgesverre/sema/blob/main/examples/ai-tools/commit-msg.sema)          | Generate conventional commit messages from staged changes    |
+| [`summarize.sema`](https://github.com/helgesverre/sema/blob/main/examples/ai-tools/summarize.sema)            | Summarize files or piped input                               |
+| [`game-of-life.sema`](https://github.com/helgesverre/sema/blob/main/examples/game-of-life.sema)               | Conway's Game of Life                                        |
+| [`brainfuck.sema`](https://github.com/helgesverre/sema/blob/main/examples/brainfuck.sema)                     | Brainfuck interpreter                                        |
+| [`mandelbrot.sema`](https://github.com/helgesverre/sema/blob/main/examples/mandelbrot.sema)                   | ASCII Mandelbrot set                                         |
+| [`json-api.sema`](https://github.com/helgesverre/sema/blob/main/examples/json-api.sema)                       | Fetch and process JSON APIs                                  |
+| [`test-vision.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-vision.sema)             | Vision extraction and multi-modal chat tests                 |
+| [`test-extract.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-extract.sema)           | Structured extraction and classification                     |
+| [`test-batch.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-batch.sema)               | Batch/parallel LLM completions                               |
+| [`test-pipeline.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-pipeline.sema)         | Caching, budgets, rate limiting, retry, fallback chains      |
+| [`test-text-tools.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-text-tools.sema)     | Text chunking, prompt templates, document abstraction        |
+| [`test-vector-store.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-vector-store.sema) | In-memory vector store with similarity search                |
+| [`test-kv-store.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-kv-store.sema)         | Persistent JSON-backed key-value store                       |
 
 ## Why Sema?
 
@@ -306,4 +306,4 @@ crates/
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/helgesverre/sema/blob/main/LICENSE).
