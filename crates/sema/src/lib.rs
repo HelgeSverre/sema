@@ -216,8 +216,8 @@ impl Interpreter {
     /// "#).unwrap();
     /// ```
     pub fn preload_module(&self, name: &str, source: &str) -> Result<()> {
-        use std::collections::BTreeMap;
         use sema_core::resolve;
+        use std::collections::BTreeMap;
 
         let (exprs, spans) = sema_reader::read_many_with_spans(source)?;
         self.inner.ctx.merge_span_table(spans);
