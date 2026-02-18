@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.7.0
+
+### Added
+
+- **Bytecode serialization (`.semac`)** — compile Sema source to a binary bytecode format for faster loading and source-free distribution. The format uses a 24-byte header with magic number `\x00SEM`, a deduplicated string table, function table, and main chunk section. See [Bytecode File Format](/docs/internals/bytecode-format.html) for the full spec.
+- **`sema compile` subcommand** — compile `.sema` source files to `.semac` bytecode. Supports `-o` for custom output path and `--check` for validation without execution.
+- **`sema disasm` subcommand** — disassemble `.semac` files to human-readable text or structured JSON (`--json`).
+- **Auto-detect `.semac` files** — running `sema script.semac` automatically detects the magic number and executes via the VM, no `--vm` flag needed.
+- **Embedding API: `load_file` and `preload_module`** — `Interpreter::load_file("prelude.sema")` evaluates a file with definitions persisting in the global environment. `Interpreter::preload_module("name", source)` caches a module so `(import "name")` resolves without disk access.
+- **Tree-sitter grammar** — full `tree-sitter-sema` grammar with external scanner for nestable block comments, 46 tests across 5 categories. Published to `helgesverre/tree-sitter-sema` mirror repo.
+- **Zed editor extension** — syntax highlighting, Go to Symbol (`define`, `defun`, `defmacro`, `defagent`, `deftool`), auto-indentation, bracket matching, and "Run Sema File" task.
+- **Homebrew tap** — `brew install helgesverre/tap/sema-lang`.
+- **cargo-dist** — automated multi-platform binary releases for Linux (x86_64/aarch64), macOS (Intel/Silicon), and Windows.
+- **`llms.txt` and `llms-full.txt`** — LLM-friendly documentation index and full concatenated docs for context ingestion.
+- **Smoke test suite** — `make smoke-bytecode` runs all 66 examples through compile → disasm → run (65/66 pass).
+- **Link checker CI** — lychee-based link checking workflow and `make lint-links` target.
+
+### Performance
+
+- **VM dispatch loop restructuring** — two-level loop with cached frame locals, raw pointer bytecode reads, direct u8 matching, and deferred PC writeback.
+- **Lazy upvalue allocation** — `open_upvalues` deferred until `MakeClosure` actually captures a local, eliminating heap allocation for non-capturing recursive functions.
+- **Rc avoidance in call dispatch** — NaN-boxed tag peek (`raw_tag()`, `as_native_fn_ref()`) identifies callables without Rc refcount bumps. Eliminates 60M+ refcount operations on `tak` benchmark (31.8M calls).
+- **Specialized opcodes `LoadLocal0..3`** — single-byte zero-operand instructions for the first four local variable slots.
+- **Global lookup cache** — 16-entry direct-mapped cache with versioned `Env`, avoiding `RefCell` borrow and hashmap lookup on hot global reads.
+- **Raw stack operations for integer arithmetic** — `AddInt`, `SubInt`, `MulInt`, `LtInt`, `EqInt` operate directly on raw u64 bits, bypassing Clone/Drop.
+- **Benchmark results**: `tak` 21% faster (5.97s → 4.70s), `deriv` 6% faster (1.60s → 1.51s). VM remains 2–4× faster than tree-walker across all benchmarks.
+
+### Security
+
+- **Bytecode hardening** — safe Spur conversion (no unsafe transmute), section boundary enforcement, recursion depth limits (128), DoS allocation limits, operand bounds validation, reserved header field checks, string table index 0 validation, section payload consumption verification.
+
+### Documentation
+
+- **CLI reference** — documented `compile`, `disasm`, `--vm`, `--check`, `--json` flags.
+- **Bytecode format spec** — updated status from "Design Phase" to "Implemented (Alpha)".
+- **OG social preview images** — branded images for website, playground, and GitHub.
+- **Editor support** — updated Helix config for native tree-sitter-sema grammar; documented Zed extension.
+
+### Internal
+
+- **crates.io publish workflow** — automated publishing of all 7 workspace crates in dependency order on version tag push.
+- **Subtree split CI** — auto-syncs `editors/tree-sitter-sema/` to mirror repo on push to main.
+- **Test coverage** — 36+ new unit/integration tests for error types, LLM types, JSON, KV, bytevectors, and bytecode serialization (37 serialization tests).
+
 ## 1.6.0
 
 ### Added
