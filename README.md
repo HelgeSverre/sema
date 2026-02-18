@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Sema" width="640">
+  <img src="https://raw.githubusercontent.com/helgesverre/sema/main/assets/logo.png" alt="Sema" width="640">
 </p>
 
 <p align="center">

@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Core types and environment for the Sema programming language"
+readme = "README.md"
 
 [dependencies]
 thiserror.workspace = true

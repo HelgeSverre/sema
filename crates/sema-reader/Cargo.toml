@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 description = "Lexer and s-expression parser for the Sema programming language"
+readme = "README.md"
 
 [dependencies]
 sema-core.workspace = true
