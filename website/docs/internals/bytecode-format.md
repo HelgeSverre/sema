@@ -185,7 +185,7 @@ The main chunk contains the top-level bytecode and its constant pool.
 └────────────────────────────────┘
 ```
 
-### Exception Entry (12 bytes each)
+### Exception Entry (16 bytes each)
 
 | Offset | Size | Field |
 |--------|------|-------|

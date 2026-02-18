@@ -62,6 +62,20 @@ const VAL_MAP: u8 = 0x0A;
 const VAL_HASHMAP: u8 = 0x0B;
 const VAL_BYTEVECTOR: u8 = 0x0C;
 
+// ── Checked conversions ───────────────────────────────────────────
+
+fn checked_u16(n: usize, what: &str) -> Result<u16, SemaError> {
+    u16::try_from(n).map_err(|_| {
+        SemaError::eval(format!("{what} exceeds u16::MAX ({n})"))
+    })
+}
+
+fn checked_u32(n: usize, what: &str) -> Result<u32, SemaError> {
+    u32::try_from(n).map_err(|_| {
+        SemaError::eval(format!("{what} exceeds u32::MAX ({n})"))
+    })
+}
+
 // ── Value serialization ───────────────────────────────────────────
 
 pub fn serialize_value(
@@ -103,38 +117,43 @@ pub fn serialize_value(
             buf.extend_from_slice(&(c as u32).to_le_bytes());
         }
         ValueView::List(items) => {
+            let len = checked_u16(items.len(), "list length")?;
             buf.push(VAL_LIST);
-            buf.extend_from_slice(&(items.len() as u16).to_le_bytes());
+            buf.extend_from_slice(&len.to_le_bytes());
             for item in items.iter() {
                 serialize_value(item, buf, stb)?;
             }
         }
         ValueView::Vector(items) => {
+            let len = checked_u16(items.len(), "vector length")?;
             buf.push(VAL_VECTOR);
-            buf.extend_from_slice(&(items.len() as u16).to_le_bytes());
+            buf.extend_from_slice(&len.to_le_bytes());
             for item in items.iter() {
                 serialize_value(item, buf, stb)?;
             }
         }
         ValueView::Map(map) => {
+            let len = checked_u16(map.len(), "map length")?;
             buf.push(VAL_MAP);
-            buf.extend_from_slice(&(map.len() as u16).to_le_bytes());
+            buf.extend_from_slice(&len.to_le_bytes());
             for (k, v) in map.iter() {
                 serialize_value(k, buf, stb)?;
                 serialize_value(v, buf, stb)?;
             }
         }
         ValueView::HashMap(map) => {
+            let len = checked_u16(map.len(), "hashmap length")?;
             buf.push(VAL_HASHMAP);
-            buf.extend_from_slice(&(map.len() as u16).to_le_bytes());
+            buf.extend_from_slice(&len.to_le_bytes());
             for (k, v) in map.iter() {
                 serialize_value(k, buf, stb)?;
                 serialize_value(v, buf, stb)?;
             }
         }
         ValueView::Bytevector(bv) => {
+            let len = checked_u32(bv.len(), "bytevector length")?;
             buf.push(VAL_BYTEVECTOR);
-            buf.extend_from_slice(&(bv.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&len.to_le_bytes());
             buf.extend_from_slice(&bv);
         }
         // Runtime-only types cannot appear in bytecode constant pools
@@ -215,7 +234,13 @@ pub fn deserialize_value(
         VAL_NIL => Ok(Value::nil()),
         VAL_BOOL => {
             let b = read_u8(buf, cursor)?;
-            Ok(Value::bool(b != 0))
+            match b {
+                0 => Ok(Value::bool(false)),
+                1 => Ok(Value::bool(true)),
+                _ => Err(SemaError::eval(format!(
+                    "invalid bool payload in bytecode: 0x{b:02x}"
+                ))),
+            }
         }
         VAL_INT => {
             let n = read_i64_le(buf, cursor)?;
@@ -315,21 +340,26 @@ pub fn serialize_chunk(
     stb: &mut StringTableBuilder,
 ) -> Result<(), SemaError> {
     // code
-    buf.extend_from_slice(&(chunk.code.len() as u32).to_le_bytes());
+    let code_len = checked_u32(chunk.code.len(), "bytecode length")?;
+    buf.extend_from_slice(&code_len.to_le_bytes());
     buf.extend_from_slice(&chunk.code);
 
     // constants
-    buf.extend_from_slice(&(chunk.consts.len() as u16).to_le_bytes());
+    let n_consts = checked_u16(chunk.consts.len(), "constant pool size")?;
+    buf.extend_from_slice(&n_consts.to_le_bytes());
     for val in &chunk.consts {
         serialize_value(val, buf, stb)?;
     }
 
     // spans: Vec<(u32, Span)> where Span { line: usize, col: usize }
-    buf.extend_from_slice(&(chunk.spans.len() as u32).to_le_bytes());
+    let n_spans = checked_u32(chunk.spans.len(), "span count")?;
+    buf.extend_from_slice(&n_spans.to_le_bytes());
     for &(pc, ref span) in &chunk.spans {
         buf.extend_from_slice(&pc.to_le_bytes());
-        buf.extend_from_slice(&(span.line as u32).to_le_bytes());
-        buf.extend_from_slice(&(span.col as u32).to_le_bytes());
+        let line = checked_u32(span.line, "span line")?;
+        let col = checked_u32(span.col, "span col")?;
+        buf.extend_from_slice(&line.to_le_bytes());
+        buf.extend_from_slice(&col.to_le_bytes());
     }
 
     // max_stack, n_locals
@@ -337,7 +367,8 @@ pub fn serialize_chunk(
     buf.extend_from_slice(&chunk.n_locals.to_le_bytes());
 
     // exception table
-    buf.extend_from_slice(&(chunk.exception_table.len() as u16).to_le_bytes());
+    let n_exceptions = checked_u16(chunk.exception_table.len(), "exception table size")?;
+    buf.extend_from_slice(&n_exceptions.to_le_bytes());
     for entry in &chunk.exception_table {
         buf.extend_from_slice(&entry.try_start.to_le_bytes());
         buf.extend_from_slice(&entry.try_end.to_le_bytes());
@@ -468,6 +499,361 @@ mod tests {
         assert_eq!(chunk2.consts.len(), chunk.consts.len());
         assert_eq!(chunk2.n_locals, 2);
         assert_eq!(chunk2.max_stack, 4);
+    }
+
+    // ── Float edge cases ────────────────────────────────────────
+
+    #[test]
+    fn test_serialize_float_nan() {
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_value(&Value::float(f64::NAN), &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let v = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert!(v.as_float().unwrap().is_nan());
+    }
+
+    #[test]
+    fn test_serialize_float_neg_zero() {
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        let neg_zero = Value::float(-0.0);
+        serialize_value(&neg_zero, &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let v = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        let f = v.as_float().unwrap();
+        assert!(f.is_sign_negative());
+        assert_eq!(f.to_bits(), (-0.0f64).to_bits());
+    }
+
+    #[test]
+    fn test_serialize_float_infinities() {
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_value(&Value::float(f64::INFINITY), &mut buf, &mut stb).unwrap();
+        serialize_value(&Value::float(f64::NEG_INFINITY), &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let v1 = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(v1.as_float(), Some(f64::INFINITY));
+        let v2 = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(v2.as_float(), Some(f64::NEG_INFINITY));
+    }
+
+    // ── Int edge cases ───────────────────────────────────────────
+
+    #[test]
+    fn test_serialize_int_extremes() {
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_value(&Value::int(i64::MIN), &mut buf, &mut stb).unwrap();
+        serialize_value(&Value::int(i64::MAX), &mut buf, &mut stb).unwrap();
+        serialize_value(&Value::int(0), &mut buf, &mut stb).unwrap();
+        serialize_value(&Value::int(-1), &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        assert_eq!(
+            deserialize_value(&buf, &mut cursor, &table, &remap).unwrap(),
+            Value::int(i64::MIN)
+        );
+        assert_eq!(
+            deserialize_value(&buf, &mut cursor, &table, &remap).unwrap(),
+            Value::int(i64::MAX)
+        );
+        assert_eq!(
+            deserialize_value(&buf, &mut cursor, &table, &remap).unwrap(),
+            Value::int(0)
+        );
+        assert_eq!(
+            deserialize_value(&buf, &mut cursor, &table, &remap).unwrap(),
+            Value::int(-1)
+        );
+    }
+
+    // ── Empty collections ────────────────────────────────────────
+
+    #[test]
+    fn test_serialize_empty_collections() {
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+
+        serialize_value(&Value::list(vec![]), &mut buf, &mut stb).unwrap();
+        serialize_value(&Value::vector(vec![]), &mut buf, &mut stb).unwrap();
+        serialize_value(
+            &Value::map(std::collections::BTreeMap::new()),
+            &mut buf,
+            &mut stb,
+        )
+        .unwrap();
+        serialize_value(&Value::hashmap(vec![]), &mut buf, &mut stb).unwrap();
+        serialize_value(&Value::bytevector(vec![]), &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+
+        let l = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(l.as_list().unwrap().len(), 0);
+        let v = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(v.as_vector().unwrap().len(), 0);
+        let m = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(m.as_map_rc().unwrap().len(), 0);
+        let hm = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(hm.as_hashmap_rc().unwrap().len(), 0);
+        let bv = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(bv.as_bytevector().unwrap().len(), 0);
+    }
+
+    // ── Nested collections ───────────────────────────────────────
+
+    #[test]
+    fn test_serialize_nested_collections() {
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+
+        // vector of lists
+        let nested = Value::vector(vec![
+            Value::list(vec![Value::int(1), Value::int(2)]),
+            Value::list(vec![Value::string("a"), Value::symbol("b")]),
+        ]);
+        serialize_value(&nested, &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let v = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(v, nested);
+    }
+
+    // ── Char roundtrip ───────────────────────────────────────────
+
+    #[test]
+    fn test_serialize_char() {
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_value(&Value::char('A'), &mut buf, &mut stb).unwrap();
+        serialize_value(&Value::char('🦀'), &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        assert_eq!(
+            deserialize_value(&buf, &mut cursor, &table, &remap).unwrap(),
+            Value::char('A')
+        );
+        assert_eq!(
+            deserialize_value(&buf, &mut cursor, &table, &remap).unwrap(),
+            Value::char('🦀')
+        );
+    }
+
+    // ── Bytevector roundtrip ─────────────────────────────────────
+
+    #[test]
+    fn test_serialize_bytevector() {
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        let data = vec![0u8, 1, 2, 255, 128, 64];
+        serialize_value(&Value::bytevector(data.clone()), &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let v = deserialize_value(&buf, &mut cursor, &table, &remap).unwrap();
+        assert_eq!(v.as_bytevector().unwrap(), &data);
+    }
+
+    // ── Invalid data deserialization ─────────────────────────────
+
+    #[test]
+    fn test_deserialize_invalid_bool() {
+        let buf = vec![VAL_BOOL, 0x02]; // invalid: not 0 or 1
+        let table: Vec<String> = vec![];
+        let remap: Vec<Spur> = vec![];
+        let mut cursor = 0;
+        let result = deserialize_value(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_invalid_char() {
+        // 0xD800 is a surrogate — not a valid Unicode scalar value
+        let mut buf = vec![VAL_CHAR];
+        buf.extend_from_slice(&0xD800u32.to_le_bytes());
+        let table: Vec<String> = vec![];
+        let remap: Vec<Spur> = vec![];
+        let mut cursor = 0;
+        let result = deserialize_value(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_unknown_tag() {
+        let buf = vec![0xFF];
+        let table: Vec<String> = vec![];
+        let remap: Vec<Spur> = vec![];
+        let mut cursor = 0;
+        let result = deserialize_value(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_truncated_data() {
+        // Int tag but only 3 bytes of payload instead of 8
+        let buf = vec![VAL_INT, 0x01, 0x02, 0x03];
+        let table: Vec<String> = vec![];
+        let remap: Vec<Spur> = vec![];
+        let mut cursor = 0;
+        let result = deserialize_value(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_string_index_out_of_range() {
+        let mut buf = vec![VAL_STRING];
+        buf.extend_from_slice(&99u32.to_le_bytes()); // index 99, but table is smaller
+        let table = vec!["".to_string()];
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let result = deserialize_value(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err());
+    }
+
+    // ── Runtime-only types rejected ──────────────────────────────
+
+    #[test]
+    fn test_serialize_runtime_only_type_rejected() {
+        use sema_core::{Env, Lambda};
+        let lambda = Value::lambda(Lambda {
+            params: vec![],
+            rest_param: None,
+            body: vec![],
+            env: Env::new(),
+            name: None,
+        });
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        let result = serialize_value(&lambda, &mut buf, &mut stb);
+        assert!(result.is_err());
+    }
+
+    // ── Chunk edge cases ─────────────────────────────────────────
+
+    #[test]
+    fn test_chunk_roundtrip_with_exceptions() {
+        use crate::chunk::ExceptionEntry;
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let mut e = Emitter::new();
+        e.emit_op(Op::Nil);
+        e.emit_op(Op::Return);
+        let mut chunk = e.into_chunk();
+        chunk.exception_table = vec![
+            ExceptionEntry {
+                try_start: 0,
+                try_end: 10,
+                handler_pc: 20,
+                stack_depth: 3,
+                catch_slot: 5,
+            },
+            ExceptionEntry {
+                try_start: 100,
+                try_end: 200,
+                handler_pc: 300,
+                stack_depth: 0,
+                catch_slot: 7,
+            },
+        ];
+
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_chunk(&chunk, &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let chunk2 = deserialize_chunk(&buf, &mut cursor, &table, &remap).unwrap();
+
+        assert_eq!(chunk2.exception_table.len(), 2);
+        assert_eq!(chunk2.exception_table[0].try_start, 0);
+        assert_eq!(chunk2.exception_table[0].try_end, 10);
+        assert_eq!(chunk2.exception_table[0].handler_pc, 20);
+        assert_eq!(chunk2.exception_table[0].stack_depth, 3);
+        assert_eq!(chunk2.exception_table[0].catch_slot, 5);
+        assert_eq!(chunk2.exception_table[1].try_start, 100);
+        assert_eq!(chunk2.exception_table[1].handler_pc, 300);
+    }
+
+    #[test]
+    fn test_chunk_roundtrip_with_spans() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let mut e = Emitter::new();
+        e.emit_op(Op::Nil);
+        e.emit_op(Op::Return);
+        let mut chunk = e.into_chunk();
+        chunk.spans = vec![
+            (0, Span { line: 1, col: 5 }),
+            (1, Span { line: 2, col: 10 }),
+        ];
+
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_chunk(&chunk, &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let chunk2 = deserialize_chunk(&buf, &mut cursor, &table, &remap).unwrap();
+
+        assert_eq!(chunk2.spans.len(), 2);
+        assert_eq!(chunk2.spans[0].0, 0);
+        assert_eq!(chunk2.spans[0].1.line, 1);
+        assert_eq!(chunk2.spans[0].1.col, 5);
+        assert_eq!(chunk2.spans[1].0, 1);
+        assert_eq!(chunk2.spans[1].1.line, 2);
+        assert_eq!(chunk2.spans[1].1.col, 10);
+    }
+
+    #[test]
+    fn test_chunk_deserialize_truncated() {
+        // A chunk with code_len=100 but only a few bytes in the buffer
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&100u32.to_le_bytes()); // claims 100 bytes of code
+        buf.extend_from_slice(&[0u8; 4]); // only 4 bytes, not 100
+
+        let table: Vec<String> = vec![];
+        let remap: Vec<Spur> = vec![];
+        let mut cursor = 0;
+        let result = deserialize_chunk(&buf, &mut cursor, &table, &remap);
+        assert!(result.is_err());
+    }
+
+    // ── Unicode string table ─────────────────────────────────────
+
+    #[test]
+    fn test_string_table_unicode() {
+        let mut builder = StringTableBuilder::new();
+        let idx1 = builder.intern_str("こんにちは");
+        let idx2 = builder.intern_str("🦀");
+        let idx3 = builder.intern_str("café");
+
+        let table = builder.finish();
+        assert_eq!(table[idx1 as usize], "こんにちは");
+        assert_eq!(table[idx2 as usize], "🦀");
+        assert_eq!(table[idx3 as usize], "café");
     }
 
     #[test]
