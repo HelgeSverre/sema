@@ -43,16 +43,16 @@ The extension includes a **run task** that lets you execute `.sema` files direct
 This requires the `sema` CLI to be installed and available on your `PATH`:
 
 ```sh
-cargo install sema
+cargo install sema-lang
 ```
 
-If you need a custom command (e.g. `cargo run --` during development), override the task in your project's `.zed/tasks.json`:
+If you need a custom command during development, override the task in your project's `.zed/tasks.json`:
 
 ```json
 [
   {
     "label": "sema run (dev)",
-    "command": "cargo run -- \"$ZED_FILE\"",
+    "command": "sema \"$ZED_FILE\"",
     "tags": ["sema-run"]
   }
 ]
