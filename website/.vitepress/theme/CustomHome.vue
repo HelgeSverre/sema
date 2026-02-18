@@ -1331,9 +1331,9 @@
   footer a:hover { color: var(--gold); }
 
   /* ——— Inline code in prose ——— */
-  .ic {
+  .custom-home code.ic {
     font-family: var(--mono);
-    font-size: 0.85rem;
+    font-size: 0.88em;
     color: var(--gold-dim);
   }
 
