@@ -841,6 +841,12 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
             "unsupported bytecode format version {format_version} (expected {FORMAT_VERSION}). Recompile from source."
         )));
     }
+    let reserved = u32::from_le_bytes([bytes[20], bytes[21], bytes[22], bytes[23]]);
+    if reserved != 0 {
+        return Err(SemaError::eval(format!(
+            "non-zero reserved header field (0x{reserved:08x}); file may be from a newer Sema version"
+        )));
+    }
     let n_sections = u16::from_le_bytes([bytes[14], bytes[15]]) as usize;
 
     // Read sections
@@ -1588,6 +1594,19 @@ mod tests {
         bytes[4..6].copy_from_slice(&99u16.to_le_bytes()); // unsupported version
         let result = deserialize_from_bytes(&bytes);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_rejects_nonzero_reserved() {
+        let mut bytes = vec![0u8; 24];
+        bytes[0..4].copy_from_slice(&MAGIC);
+        bytes[4..6].copy_from_slice(&FORMAT_VERSION.to_le_bytes());
+        // Set reserved field (offset 20-23) to non-zero
+        bytes[20] = 0xFF;
+        let result = deserialize_from_bytes(&bytes);
+        assert!(result.is_err(), "should reject non-zero reserved field");
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("reserved"));
     }
 
     #[test]
