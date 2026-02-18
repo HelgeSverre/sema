@@ -186,16 +186,23 @@ All providers are auto-configured from environment variables — just set the AP
 
 ## Installation
 
-Install from [crates.io](https://crates.io/crates/sema-lang):
+Install pre-built binaries (no Rust required):
+
+```bash
+# macOS / Linux
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/HelgeSverre/sema/releases/latest/download/sema-lang-installer.sh | sh
+
+# Windows (PowerShell)
+powershell -ExecutionPolicy ByPass -c "irm https://github.com/HelgeSverre/sema/releases/latest/download/sema-lang-installer.ps1 | iex"
+
+# Homebrew (macOS / Linux)
+brew install helgesverre/tap/sema-lang
+```
+
+Or install from [crates.io](https://crates.io/crates/sema-lang):
 
 ```bash
 cargo install sema-lang
-```
-
-Or install from git (latest unreleased):
-
-```bash
-cargo install --git https://github.com/HelgeSverre/sema sema-lang
 ```
 
 Or build from source:
