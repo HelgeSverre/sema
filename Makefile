@@ -1,4 +1,4 @@
-.PHONY: all build release install uninstall test test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint lint-links examples examples-vm smoke-bytecode test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy coverage coverage-html bench bench-vm bench-tree bench-save profile profile-vm profile-tree ts-setup ts-generate ts-test ts-playground
+.PHONY: all build release install uninstall test test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint lint-links examples examples-vm smoke-bytecode test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy deploy coverage coverage-html bench bench-vm bench-tree bench-save profile profile-vm profile-tree ts-setup ts-generate ts-test ts-playground
 build:
 	cargo build
 
@@ -134,7 +134,9 @@ site-deploy: site-build
 	cd website && npx vercel --prod
 
 # Playground
-.PHONY: playground-build playground-dev playground-deploy
+deploy: site-deploy playground-deploy
+
+.PHONY: playground-build playground-dev playground-deploy deploy
 
 playground-build:
 	cd crates/sema-wasm && wasm-pack build --target web --out-dir ../../playground/pkg
