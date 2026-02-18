@@ -37,7 +37,7 @@ pub enum Op {
     Return,   // return TOS
 
     // Closures
-    MakeClosure, // u16 func_id, u16 n_upvalues, then n * (u8 is_local, u16 idx)
+    MakeClosure, // u16 func_id, u16 n_upvalues, then n * (u16 is_local, u16 idx)
 
     // Native function calls (fast path)
     CallNative, // u16 native_id, u16 argc
