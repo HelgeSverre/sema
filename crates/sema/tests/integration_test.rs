@@ -10213,10 +10213,7 @@ fn test_bytecode_file_end_to_end() {
 
 #[test]
 fn test_json_encode_vector() {
-    assert_eq!(
-        eval(r#"(json/encode [1 2 3])"#),
-        Value::string("[1,2,3]")
-    );
+    assert_eq!(eval(r#"(json/encode [1 2 3])"#), Value::string("[1,2,3]"));
 }
 
 #[test]
@@ -10272,10 +10269,7 @@ fn test_json_decode_boolean() {
 
 #[test]
 fn test_json_decode_string() {
-    assert_eq!(
-        eval(r#"(json/decode "\"hello\"")"#),
-        Value::string("hello")
-    );
+    assert_eq!(eval(r#"(json/decode "\"hello\"")"#), Value::string("hello"));
 }
 
 #[test]
@@ -10298,9 +10292,7 @@ fn test_json_roundtrip_vector() {
 
 #[test]
 fn test_json_roundtrip_nested() {
-    let result = eval(
-        r#"(get (get (json/decode (json/encode {:a {:b 99}})) :a) :b)"#,
-    );
+    let result = eval(r#"(get (get (json/decode (json/encode {:a {:b 99}})) :a) :b)"#);
     assert_eq!(result, Value::int(99));
 }
 
@@ -10466,10 +10458,7 @@ fn test_bv_copy_full() {
 
 #[test]
 fn test_bv_append_empty() {
-    assert_eq!(
-        eval("(bytevector-append)"),
-        Value::bytevector(vec![])
-    );
+    assert_eq!(eval("(bytevector-append)"), Value::bytevector(vec![]));
 }
 
 #[test]
@@ -10490,10 +10479,7 @@ fn test_bv_list_roundtrip() {
 
 #[test]
 fn test_bv_make_zero_size() {
-    assert_eq!(
-        eval("(make-bytevector 0)"),
-        Value::bytevector(vec![])
-    );
+    assert_eq!(eval("(make-bytevector 0)"), Value::bytevector(vec![]));
 }
 
 #[test]
@@ -10536,18 +10522,12 @@ fn test_bv_copy_empty_range() {
 
 #[test]
 fn test_bv_bytevector_to_list_empty() {
-    assert_eq!(
-        eval("(bytevector->list #u8())"),
-        Value::list(vec![])
-    );
+    assert_eq!(eval("(bytevector->list #u8())"), Value::list(vec![]));
 }
 
 #[test]
 fn test_bv_list_to_bytevector_empty() {
-    assert_eq!(
-        eval("(list->bytevector (list))"),
-        Value::bytevector(vec![])
-    );
+    assert_eq!(eval("(list->bytevector (list))"), Value::bytevector(vec![]));
 }
 
 // --- JSON additional coverage (decode object, encode map) ---
@@ -10581,7 +10561,10 @@ fn test_json_decode_object() {
 fn test_json_roundtrip_primitives() {
     assert_eq!(eval(r#"(json/decode (json/encode nil))"#), Value::nil());
     assert_eq!(eval(r#"(json/decode (json/encode #t))"#), Value::bool(true));
-    assert_eq!(eval(r#"(json/decode (json/encode #f))"#), Value::bool(false));
+    assert_eq!(
+        eval(r#"(json/decode (json/encode #f))"#),
+        Value::bool(false)
+    );
     assert_eq!(eval(r#"(json/decode (json/encode 42))"#), Value::int(42));
     assert_eq!(
         eval(r#"(json/decode (json/encode "hello"))"#),
@@ -10625,4 +10608,47 @@ fn test_kv_set_get_roundtrip() {
     );
     interp.eval_str(r#"(kv/close "rt")"#).unwrap();
     let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_compile_with_macros() {
+    let dir = std::env::temp_dir().join("sema_test_compile_macros");
+    let _ = std::fs::create_dir_all(&dir);
+    let src = dir.join("macros.sema");
+    std::fs::write(
+        &src,
+        r#"
+        (defmacro my-when (test . body)
+          `(if ,test (begin ,@body) nil))
+        (my-when #t (println "macro-works"))
+    "#,
+    )
+    .unwrap();
+
+    // Compile
+    let output = sema_cmd()
+        .args(["compile", src.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "compile failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Run the compiled bytecode
+    let semac = dir.join("macros.semac");
+    let output = sema_cmd().arg(semac.to_str().unwrap()).output().unwrap();
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("macro-works"),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

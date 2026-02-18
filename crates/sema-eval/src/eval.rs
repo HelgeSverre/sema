@@ -147,6 +147,31 @@ impl Interpreter {
         vm.execute(closure, &self.ctx)
     }
 
+    /// Compile source code to bytecode without executing.
+    /// Handles macro expansion (defmacro + macro calls) before compilation.
+    pub fn compile_to_bytecode(&self, input: &str) -> Result<sema_vm::CompileResult, SemaError> {
+        let (exprs, spans) = sema_reader::read_many_with_spans(input)?;
+        self.ctx.merge_span_table(spans);
+
+        let mut expanded = Vec::new();
+        for expr in &exprs {
+            let exp = self.expand_for_vm(expr)?;
+            if !exp.is_nil() {
+                expanded.push(exp);
+            }
+        }
+
+        if expanded.is_empty() {
+            expanded.push(Value::nil());
+        }
+
+        let (closure, functions) = sema_vm::compile_program(&expanded)?;
+        Ok(sema_vm::CompileResult {
+            chunk: closure.func.chunk.clone(),
+            functions: functions.iter().map(|f| (**f).clone()).collect(),
+        })
+    }
+
     /// Pre-process a top-level expression for VM compilation.
     /// Evaluates `defmacro` forms via the tree-walker to register macros,
     /// then expands macro calls in all other forms.

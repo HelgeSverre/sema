@@ -415,24 +415,12 @@ fn run_compile(file: &str, output: Option<&str>) {
     // Compute source hash (CRC-32)
     let source_hash = crc32_simple(source.as_bytes());
 
-    // Parse
-    let exprs = match sema_reader::read_many(&source) {
-        Ok(exprs) => exprs,
-        Err(e) => {
-            eprintln!("Parse error: {}", e.inner());
-            std::process::exit(1);
-        }
-    };
+    // Use Interpreter for macro expansion before compilation
+    let sandbox = sema_core::Sandbox::allow_all();
+    let interpreter = Interpreter::new_with_sandbox(&sandbox);
 
-    // Compile via VM pipeline (lower → resolve → compile)
-    let result = match sema_vm::compile_program(&exprs) {
-        Ok((closure, functions)) => {
-            // Reconstruct CompileResult from the closure and functions
-            sema_vm::CompileResult {
-                chunk: closure.func.chunk.clone(),
-                functions: functions.iter().map(|f| (**f).clone()).collect(),
-            }
-        }
+    let result = match interpreter.compile_to_bytecode(&source) {
+        Ok(r) => r,
         Err(e) => {
             eprintln!("Compile error: {}", e.inner());
             std::process::exit(1);
