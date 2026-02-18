@@ -9,7 +9,7 @@ install:
 	cargo install --path crates/sema
 
 uninstall:
-	cargo uninstall sema
+	cargo uninstall sema-lang
 
 test:
 	cargo test
@@ -27,7 +27,7 @@ check:
 	cargo check
 
 clippy:
-	cargo clippy -p sema-core -p sema-reader -p sema-eval -p sema-llm -p sema-stdlib -p sema-vm -p sema-lang -- -D warnings
+	cargo clippy -p sema-core -p sema-reader -p sema-eval -p sema-llm -p sema-stdlib -p sema-vm -p sema-lang -p sema-wasm -- -D warnings
 
 fmt:
 	cargo fmt
