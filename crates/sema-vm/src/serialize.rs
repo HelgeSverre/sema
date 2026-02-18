@@ -1,5 +1,7 @@
 use hashbrown::HashMap;
-use sema_core::{intern, resolve, SemaError, Spur, Value, ValueView};
+use sema_core::{intern, resolve, SemaError, Span, Spur, Value, ValueView};
+
+use crate::chunk::{Chunk, ExceptionEntry};
 
 /// Builds a deduplicated string table for serialization.
 pub struct StringTableBuilder {
@@ -305,6 +307,107 @@ pub fn deserialize_value(
     }
 }
 
+// ── Chunk serialization ───────────────────────────────────────────
+
+pub fn serialize_chunk(
+    chunk: &Chunk,
+    buf: &mut Vec<u8>,
+    stb: &mut StringTableBuilder,
+) -> Result<(), SemaError> {
+    // code
+    buf.extend_from_slice(&(chunk.code.len() as u32).to_le_bytes());
+    buf.extend_from_slice(&chunk.code);
+
+    // constants
+    buf.extend_from_slice(&(chunk.consts.len() as u16).to_le_bytes());
+    for val in &chunk.consts {
+        serialize_value(val, buf, stb)?;
+    }
+
+    // spans: Vec<(u32, Span)> where Span { line: usize, col: usize }
+    buf.extend_from_slice(&(chunk.spans.len() as u32).to_le_bytes());
+    for &(pc, ref span) in &chunk.spans {
+        buf.extend_from_slice(&pc.to_le_bytes());
+        buf.extend_from_slice(&(span.line as u32).to_le_bytes());
+        buf.extend_from_slice(&(span.col as u32).to_le_bytes());
+    }
+
+    // max_stack, n_locals
+    buf.extend_from_slice(&chunk.max_stack.to_le_bytes());
+    buf.extend_from_slice(&chunk.n_locals.to_le_bytes());
+
+    // exception table
+    buf.extend_from_slice(&(chunk.exception_table.len() as u16).to_le_bytes());
+    for entry in &chunk.exception_table {
+        buf.extend_from_slice(&entry.try_start.to_le_bytes());
+        buf.extend_from_slice(&entry.try_end.to_le_bytes());
+        buf.extend_from_slice(&entry.handler_pc.to_le_bytes());
+        buf.extend_from_slice(&entry.stack_depth.to_le_bytes());
+        buf.extend_from_slice(&entry.catch_slot.to_le_bytes());
+    }
+
+    Ok(())
+}
+
+pub fn deserialize_chunk(
+    buf: &[u8],
+    cursor: &mut usize,
+    table: &[String],
+    remap: &[Spur],
+) -> Result<Chunk, SemaError> {
+    // code
+    let code_len = read_u32_le(buf, cursor)? as usize;
+    let code = read_bytes(buf, cursor, code_len)?;
+
+    // constants
+    let n_consts = read_u16_le(buf, cursor)? as usize;
+    let mut consts = Vec::with_capacity(n_consts);
+    for _ in 0..n_consts {
+        consts.push(deserialize_value(buf, cursor, table, remap)?);
+    }
+
+    // spans
+    let n_spans = read_u32_le(buf, cursor)? as usize;
+    let mut spans = Vec::with_capacity(n_spans);
+    for _ in 0..n_spans {
+        let pc = read_u32_le(buf, cursor)?;
+        let line = read_u32_le(buf, cursor)? as usize;
+        let col = read_u32_le(buf, cursor)? as usize;
+        spans.push((pc, Span { line, col }));
+    }
+
+    // max_stack, n_locals
+    let max_stack = read_u16_le(buf, cursor)?;
+    let n_locals = read_u16_le(buf, cursor)?;
+
+    // exception table
+    let n_exceptions = read_u16_le(buf, cursor)? as usize;
+    let mut exception_table = Vec::with_capacity(n_exceptions);
+    for _ in 0..n_exceptions {
+        let try_start = read_u32_le(buf, cursor)?;
+        let try_end = read_u32_le(buf, cursor)?;
+        let handler_pc = read_u32_le(buf, cursor)?;
+        let stack_depth = read_u16_le(buf, cursor)?;
+        let catch_slot = read_u16_le(buf, cursor)?;
+        exception_table.push(ExceptionEntry {
+            try_start,
+            try_end,
+            handler_pc,
+            stack_depth,
+            catch_slot,
+        });
+    }
+
+    Ok(Chunk {
+        code,
+        consts,
+        spans,
+        max_stack,
+        n_locals,
+        exception_table,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +439,35 @@ mod tests {
         assert!(idx > 0);
         let idx2 = builder.intern_spur(spur);
         assert_eq!(idx, idx2);
+    }
+
+    #[test]
+    fn test_chunk_roundtrip() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let mut e = Emitter::new();
+        e.emit_const(Value::int(42));
+        e.emit_const(Value::string("hello"));
+        e.emit_op(Op::Add);
+        e.emit_op(Op::Return);
+        let mut chunk = e.into_chunk();
+        chunk.n_locals = 2;
+        chunk.max_stack = 4;
+
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_chunk(&chunk, &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let chunk2 = deserialize_chunk(&buf, &mut cursor, &table, &remap).unwrap();
+
+        assert_eq!(chunk2.code, chunk.code);
+        assert_eq!(chunk2.consts.len(), chunk.consts.len());
+        assert_eq!(chunk2.n_locals, 2);
+        assert_eq!(chunk2.max_stack, 4);
     }
 
     #[test]
