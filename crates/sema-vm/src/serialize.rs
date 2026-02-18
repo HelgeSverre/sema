@@ -2,6 +2,7 @@ use hashbrown::HashMap;
 use sema_core::{intern, resolve, SemaError, Span, Spur, Value, ValueView};
 
 use crate::chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
+use crate::opcodes::Op;
 
 /// Builds a deduplicated string table for serialization.
 pub struct StringTableBuilder {
@@ -339,10 +340,11 @@ pub fn serialize_chunk(
     buf: &mut Vec<u8>,
     stb: &mut StringTableBuilder,
 ) -> Result<(), SemaError> {
-    // code
-    let code_len = checked_u32(chunk.code.len(), "bytecode length")?;
+    // code — remap Spur operands to string table indices before writing
+    let remapped_code = remap_spurs_to_indices(&chunk.code, stb)?;
+    let code_len = checked_u32(remapped_code.len(), "bytecode length")?;
     buf.extend_from_slice(&code_len.to_le_bytes());
-    buf.extend_from_slice(&chunk.code);
+    buf.extend_from_slice(&remapped_code);
 
     // constants
     let n_consts = checked_u16(chunk.consts.len(), "constant pool size")?;
@@ -386,9 +388,10 @@ pub fn deserialize_chunk(
     table: &[String],
     remap: &[Spur],
 ) -> Result<Chunk, SemaError> {
-    // code
+    // code — remap string table indices back to process-local Spurs
     let code_len = read_u32_le(buf, cursor)? as usize;
-    let code = read_bytes(buf, cursor, code_len)?;
+    let mut code = read_bytes(buf, cursor, code_len)?;
+    remap_indices_to_spurs(&mut code, remap)?;
 
     // constants
     let n_consts = read_u16_le(buf, cursor)? as usize;
@@ -571,6 +574,140 @@ pub fn deserialize_function(
         has_rest,
         local_names,
     })
+}
+
+// ── Spur remapping in bytecode ────────────────────────────────────
+
+fn spur_to_u32(spur: Spur) -> u32 {
+    unsafe { std::mem::transmute::<Spur, u32>(spur) }
+}
+
+fn u32_to_spur(bits: u32) -> Spur {
+    unsafe { std::mem::transmute::<u32, Spur>(bits) }
+}
+
+/// Walk bytecode and rewrite global opcodes: Spur u32 → string table index.
+/// Returns the rewritten code.
+pub fn remap_spurs_to_indices(
+    code: &[u8],
+    stb: &mut StringTableBuilder,
+) -> Result<Vec<u8>, SemaError> {
+    let mut out = code.to_vec();
+    let mut pc = 0;
+    while pc < out.len() {
+        let Some(op) = Op::from_u8(out[pc]) else {
+            return Err(SemaError::eval(format!(
+                "invalid opcode 0x{:02x} at pc {pc}",
+                out[pc]
+            )));
+        };
+        match op {
+            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => {
+                let spur_bits =
+                    u32::from_le_bytes([out[pc + 1], out[pc + 2], out[pc + 3], out[pc + 4]]);
+                let spur = u32_to_spur(spur_bits);
+                let s = resolve(spur);
+                let idx = stb.intern_str(&s);
+                let bytes = idx.to_le_bytes();
+                out[pc + 1] = bytes[0];
+                out[pc + 2] = bytes[1];
+                out[pc + 3] = bytes[2];
+                out[pc + 4] = bytes[3];
+                pc += 5;
+            }
+            Op::MakeClosure => {
+                let n_upvalues =
+                    u16::from_le_bytes([out[pc + 3], out[pc + 4]]) as usize;
+                pc += 1 + 2 + 2 + n_upvalues * 4;
+            }
+            Op::Const
+            | Op::LoadLocal
+            | Op::StoreLocal
+            | Op::LoadUpvalue
+            | Op::StoreUpvalue
+            | Op::Call
+            | Op::TailCall
+            | Op::MakeList
+            | Op::MakeVector
+            | Op::MakeMap
+            | Op::MakeHashMap => {
+                pc += 3; // op + u16
+            }
+            Op::CallNative => {
+                pc += 5; // op + u16 + u16
+            }
+            Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => {
+                pc += 5; // op + i32
+            }
+            _ => {
+                pc += 1;
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Walk bytecode and rewrite global opcodes: string table index → process-local Spur u32.
+pub fn remap_indices_to_spurs(
+    code: &mut [u8],
+    remap: &[Spur],
+) -> Result<(), SemaError> {
+    let mut pc = 0;
+    while pc < code.len() {
+        let Some(op) = Op::from_u8(code[pc]) else {
+            return Err(SemaError::eval(format!(
+                "invalid opcode 0x{:02x} at pc {pc}",
+                code[pc]
+            )));
+        };
+        match op {
+            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => {
+                let idx =
+                    u32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]])
+                        as usize;
+                if idx >= remap.len() {
+                    return Err(SemaError::eval(format!(
+                        "global spur remap index {idx} out of range at pc {pc}"
+                    )));
+                }
+                let spur_bits = spur_to_u32(remap[idx]);
+                let bytes = spur_bits.to_le_bytes();
+                code[pc + 1] = bytes[0];
+                code[pc + 2] = bytes[1];
+                code[pc + 3] = bytes[2];
+                code[pc + 4] = bytes[3];
+                pc += 5;
+            }
+            Op::MakeClosure => {
+                let n_upvalues =
+                    u16::from_le_bytes([code[pc + 3], code[pc + 4]]) as usize;
+                pc += 1 + 2 + 2 + n_upvalues * 4;
+            }
+            Op::Const
+            | Op::LoadLocal
+            | Op::StoreLocal
+            | Op::LoadUpvalue
+            | Op::StoreUpvalue
+            | Op::Call
+            | Op::TailCall
+            | Op::MakeList
+            | Op::MakeVector
+            | Op::MakeMap
+            | Op::MakeHashMap => {
+                pc += 3;
+            }
+            Op::CallNative => {
+                pc += 5;
+            }
+            Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => {
+                pc += 5;
+            }
+            _ => {
+                pc += 1;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -973,6 +1110,82 @@ mod tests {
         let mut cursor = 0;
         let result = deserialize_chunk(&buf, &mut cursor, &table, &remap);
         assert!(result.is_err());
+    }
+
+    // ── Spur remapping ─────────────────────────────────────────
+
+    #[test]
+    fn test_spur_remapping_in_bytecode() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let spur = intern("my-global");
+        let mut e = Emitter::new();
+        e.emit_op(Op::LoadGlobal);
+        e.emit_u32(spur_to_u32(spur));
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_chunk(&chunk, &mut buf, &mut stb).unwrap();
+
+        // Deserialize — the spur in the deserialized bytecode should resolve to "my-global"
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let chunk2 = deserialize_chunk(&buf, &mut cursor, &table, &remap).unwrap();
+
+        let spur2_bits = u32::from_le_bytes([
+            chunk2.code[1],
+            chunk2.code[2],
+            chunk2.code[3],
+            chunk2.code[4],
+        ]);
+        let spur2 = u32_to_spur(spur2_bits);
+        assert_eq!(sema_core::resolve(spur2), "my-global");
+    }
+
+    #[test]
+    fn test_spur_remapping_multiple_globals() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let spur_a = intern("alpha");
+        let spur_b = intern("beta");
+        let mut e = Emitter::new();
+        e.emit_op(Op::LoadGlobal);
+        e.emit_u32(spur_to_u32(spur_a));
+        e.emit_op(Op::DefineGlobal);
+        e.emit_u32(spur_to_u32(spur_b));
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+
+        let mut buf = Vec::new();
+        let mut stb = StringTableBuilder::new();
+        serialize_chunk(&chunk, &mut buf, &mut stb).unwrap();
+
+        let table = stb.finish();
+        let remap = build_remap_table(&table);
+        let mut cursor = 0;
+        let chunk2 = deserialize_chunk(&buf, &mut cursor, &table, &remap).unwrap();
+
+        // Check both globals resolved correctly
+        let bits_a = u32::from_le_bytes([
+            chunk2.code[1],
+            chunk2.code[2],
+            chunk2.code[3],
+            chunk2.code[4],
+        ]);
+        assert_eq!(sema_core::resolve(u32_to_spur(bits_a)), "alpha");
+
+        let bits_b = u32::from_le_bytes([
+            chunk2.code[6],
+            chunk2.code[7],
+            chunk2.code[8],
+            chunk2.code[9],
+        ]);
+        assert_eq!(sema_core::resolve(u32_to_spur(bits_b)), "beta");
     }
 
     // ── Function serialization ─────────────────────────────────
