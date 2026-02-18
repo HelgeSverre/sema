@@ -809,6 +809,50 @@ fn parse_sema_version() -> (u16, u16, u16) {
     (major, minor, patch)
 }
 
+/// Validate bytecode operand bounds after deserialization.
+fn validate_bytecode(result: &CompileResult) -> Result<(), SemaError> {
+    validate_chunk_bytecode(&result.chunk, result.functions.len(), "main chunk")?;
+    for (i, func) in result.functions.iter().enumerate() {
+        let label = format!("function {i}");
+        validate_chunk_bytecode(&func.chunk, result.functions.len(), &label)?;
+    }
+    Ok(())
+}
+
+fn validate_chunk_bytecode(
+    chunk: &Chunk,
+    n_functions: usize,
+    label: &str,
+) -> Result<(), SemaError> {
+    let code = &chunk.code;
+    let mut pc = 0;
+    while pc < code.len() {
+        let (op, next) = advance_pc(code, pc)?;
+        match op {
+            Op::Const => {
+                let idx = u16::from_le_bytes([code[pc + 1], code[pc + 2]]) as usize;
+                if idx >= chunk.consts.len() {
+                    return Err(SemaError::eval(format!(
+                        "in {label}: Const index {idx} out of range (pool has {} entries) at pc {pc}",
+                        chunk.consts.len()
+                    )));
+                }
+            }
+            Op::MakeClosure => {
+                let func_id = u16::from_le_bytes([code[pc + 1], code[pc + 2]]) as usize;
+                if func_id >= n_functions {
+                    return Err(SemaError::eval(format!(
+                        "in {label}: MakeClosure func_id {func_id} out of range ({n_functions} functions) at pc {pc}",
+                    )));
+                }
+            }
+            _ => {}
+        }
+        pc = next;
+    }
+    Ok(())
+}
+
 /// Deserialize a .semac file from bytes into a CompileResult.
 pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> {
     if bytes.len() < 24 {
@@ -951,7 +995,9 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
         )));
     }
 
-    Ok(CompileResult { chunk, functions })
+    let result = CompileResult { chunk, functions };
+    validate_bytecode(&result)?;
+    Ok(result)
 }
 
 /// Check if a byte buffer starts with the .semac magic number.
@@ -2032,5 +2078,50 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ── Post-deserialization bytecode validation ─────────────────
+
+    #[test]
+    fn test_validate_rejects_bad_const_index() {
+        let chunk = Chunk {
+            code: vec![Op::Const as u8, 0x03, 0x00, Op::Return as u8],
+            consts: vec![Value::int(1)],
+            spans: vec![],
+            max_stack: 1,
+            n_locals: 0,
+            exception_table: vec![],
+        };
+
+        let result = CompileResult {
+            chunk,
+            functions: vec![],
+        };
+        let bytes = serialize_to_bytes(&result, 0).unwrap();
+        let deser = deserialize_from_bytes(&bytes);
+        assert!(deser.is_err(), "should reject out-of-bounds const index");
+    }
+
+    #[test]
+    fn test_validate_rejects_bad_func_id() {
+        use crate::emit::Emitter;
+
+        let mut e = Emitter::new();
+        e.emit_op(Op::MakeClosure);
+        e.emit_u16(5); // func_id 5, but we'll have 0 functions
+        e.emit_u16(0); // 0 upvalues
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+
+        let result = CompileResult {
+            chunk,
+            functions: vec![],
+        };
+        let bytes = serialize_to_bytes(&result, 0).unwrap();
+        let deser = deserialize_from_bytes(&bytes);
+        assert!(
+            deser.is_err(),
+            "should reject out-of-bounds func_id in MakeClosure"
+        );
     }
 }
