@@ -832,16 +832,17 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
 
         match section_type {
             0x01 => {
-                // String Table
-                let mut sc = cursor;
-                let count = read_u32_le(bytes, &mut sc)? as usize;
+                // String Table — slice to section boundary
+                let section_data = &bytes[cursor..cursor + section_len];
+                let mut sc = 0usize;
+                let count = read_u32_le(section_data, &mut sc)? as usize;
                 let mut table = Vec::with_capacity(count);
                 for _ in 0..count {
-                    let len = read_u32_le(bytes, &mut sc)? as usize;
-                    if sc + len > cursor + section_len {
+                    let len = read_u32_le(section_data, &mut sc)? as usize;
+                    if sc + len > section_len {
                         return Err(SemaError::eval("string table entry extends past section"));
                     }
-                    let s = std::str::from_utf8(&bytes[sc..sc + len]).map_err(|e| {
+                    let s = std::str::from_utf8(&section_data[sc..sc + len]).map_err(|e| {
                         SemaError::eval(format!("invalid UTF-8 in string table: {e}"))
                     })?;
                     table.push(s.to_string());
@@ -1745,6 +1746,26 @@ mod tests {
         let spur2 = u32_to_spur(bits);
         assert_eq!(spur, spur2);
         assert_eq!(sema_core::resolve(spur2), "test-var");
+    }
+
+    #[test]
+    fn test_string_table_section_boundary() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let mut e = Emitter::new();
+        e.emit_const(Value::int(1));
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let result = CompileResult {
+            chunk,
+            functions: vec![],
+        };
+        let bytes = serialize_to_bytes(&result, 0).unwrap();
+
+        // Roundtrip should work on valid data
+        let result2 = deserialize_from_bytes(&bytes);
+        assert!(result2.is_ok());
     }
 
     #[test]
