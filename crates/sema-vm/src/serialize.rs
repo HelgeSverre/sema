@@ -314,7 +314,13 @@ fn deserialize_value_inner(
             let count = read_u16_le(buf, cursor)? as usize;
             let mut items = Vec::with_capacity(count);
             for _ in 0..count {
-                items.push(deserialize_value_inner(buf, cursor, table, remap, depth + 1)?);
+                items.push(deserialize_value_inner(
+                    buf,
+                    cursor,
+                    table,
+                    remap,
+                    depth + 1,
+                )?);
             }
             Ok(Value::list(items))
         }
@@ -322,7 +328,13 @@ fn deserialize_value_inner(
             let count = read_u16_le(buf, cursor)? as usize;
             let mut items = Vec::with_capacity(count);
             for _ in 0..count {
-                items.push(deserialize_value_inner(buf, cursor, table, remap, depth + 1)?);
+                items.push(deserialize_value_inner(
+                    buf,
+                    cursor,
+                    table,
+                    remap,
+                    depth + 1,
+                )?);
             }
             Ok(Value::vector(items))
         }
@@ -1944,7 +1956,7 @@ mod tests {
         bytes[0..4].copy_from_slice(&[0x00, b'S', b'E', b'M']);
         bytes[4..6].copy_from_slice(&1u16.to_le_bytes()); // format version
         bytes[14..16].copy_from_slice(&1u16.to_le_bytes()); // 1 section
-                                                         // Section header
+                                                            // Section header
         bytes.extend_from_slice(&0x01u16.to_le_bytes()); // string table
         bytes.extend_from_slice(&(section.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&section);

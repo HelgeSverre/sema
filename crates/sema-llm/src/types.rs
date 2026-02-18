@@ -257,9 +257,7 @@ mod tests {
     #[test]
     fn has_images_true_for_blocks_with_image() {
         let content = MessageContent::Blocks(vec![
-            ContentBlock::Text {
-                text: "hi".into(),
-            },
+            ContentBlock::Text { text: "hi".into() },
             ContentBlock::Image {
                 media_type: None,
                 data: "data".into(),
@@ -270,9 +268,7 @@ mod tests {
 
     #[test]
     fn has_images_false_for_text_only_blocks() {
-        let content = MessageContent::Blocks(vec![ContentBlock::Text {
-            text: "hi".into(),
-        }]);
+        let content = MessageContent::Blocks(vec![ContentBlock::Text { text: "hi".into() }]);
         assert!(!content.has_images());
     }
 
@@ -285,12 +281,8 @@ mod tests {
 
     #[test]
     fn chat_message_with_blocks() {
-        let msg = ChatMessage::with_blocks(
-            "assistant",
-            vec![ContentBlock::Text {
-                text: "hi".into(),
-            }],
-        );
+        let msg =
+            ChatMessage::with_blocks("assistant", vec![ContentBlock::Text { text: "hi".into() }]);
         assert_eq!(msg.role, "assistant");
         assert!(matches!(msg.content, MessageContent::Blocks(_)));
     }
@@ -319,7 +311,10 @@ mod tests {
 
     #[test]
     fn llm_error_display() {
-        assert_eq!(LlmError::Http("timeout".into()).to_string(), "HTTP error: timeout");
+        assert_eq!(
+            LlmError::Http("timeout".into()).to_string(),
+            "HTTP error: timeout"
+        );
         assert_eq!(
             LlmError::Api {
                 status: 429,
@@ -328,8 +323,14 @@ mod tests {
             .to_string(),
             "API error: 429 - too many"
         );
-        assert_eq!(LlmError::Parse("bad json".into()).to_string(), "Parse error: bad json");
-        assert_eq!(LlmError::Config("missing key".into()).to_string(), "Config error: missing key");
+        assert_eq!(
+            LlmError::Parse("bad json".into()).to_string(),
+            "Parse error: bad json"
+        );
+        assert_eq!(
+            LlmError::Config("missing key".into()).to_string(),
+            "Config error: missing key"
+        );
         assert_eq!(
             LlmError::RateLimited {
                 retry_after_ms: 5000
