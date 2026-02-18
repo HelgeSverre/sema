@@ -196,7 +196,7 @@ if head_spur == sf.if_ {
 
 **What it was:** A hand-rolled decimal parser that handled only `[-]digits[.digits]`, using a precomputed powers-of-10 lookup table for 1–4 fractional digits. It returned `None` for complex cases (scientific notation, infinity, NaN), falling back to the standard parser.
 
-**Impact when active:** Part of the combined mini-eval speedup. Difficult to isolate, but avoided the overhead of Rust's [dec2flt](https://github.com/rust-lang/rust/tree/master/library/core/src/num/dec2flt) algorithm.
+**Impact when active:** Part of the combined mini-eval speedup. Difficult to isolate, but avoided the overhead of Rust's [dec2flt](https://github.com/rust-lang/rust/tree/main/library/core/src/num/dec2flt) algorithm.
 
 **Literature:**
 
