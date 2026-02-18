@@ -15,13 +15,13 @@ test:
 	cargo test
 
 test-embedding-bench:
-	cargo test -p sema --test embedding_bench -- --ignored --nocapture
+	cargo test -p sema-lang --test embedding_bench -- --ignored --nocapture
 
 test-http:
-	cargo test -p sema --test http_test -- --ignored --nocapture
+	cargo test -p sema-lang --test http_test -- --ignored --nocapture
 
 test-llm:
-	cargo test -p sema --test llm_test -- --ignored --nocapture
+	cargo test -p sema-lang --test llm_test -- --ignored --nocapture
 
 check:
 	cargo check
@@ -179,7 +179,7 @@ PROFILE_MODE ?= vm
 
 profile:
 	@mkdir -p $(PROFILE_DIR)
-	RUSTFLAGS="-C force-frame-pointers=yes" cargo build --profile release-with-debug -p sema
+	RUSTFLAGS="-C force-frame-pointers=yes" cargo build --profile release-with-debug -p sema-lang
 	@modeflag=""; if [ "$(PROFILE_MODE)" = "vm" ]; then modeflag="--vm"; fi; \
 	samply record --save-only --output $(PROFILE_DIR)/$(PROFILE_BENCH)-$(PROFILE_MODE).json -- \
 		./target/release-with-debug/sema --no-llm $$modeflag examples/benchmarks/$(PROFILE_BENCH).sema
