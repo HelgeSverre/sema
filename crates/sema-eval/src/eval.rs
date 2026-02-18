@@ -265,7 +265,9 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
             if let Some(val) = env.get(spur) {
                 return Ok(val);
             }
-            return Err(SemaError::Unbound(resolve(spur)));
+            let err = SemaError::Unbound(resolve(spur));
+            let trace = ctx.capture_stack_trace();
+            return Err(err.with_stack_trace(trace));
         }
         _ => {}
     }

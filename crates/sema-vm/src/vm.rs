@@ -233,6 +233,11 @@ impl VM {
                                 }
                                 None => {
                                     self.frames[fi].pc = pc;
+                                    // TODO: attach source location to unbound variable errors.
+                                    // The chunk has a spans table (pc → Span) but the compiler
+                                    // doesn't populate it yet. Once the compile pipeline threads
+                                    // source spans through lowering → resolving → compiling,
+                                    // we can look up chunk.spans here to include line:col info.
                                     let err = SemaError::Unbound(resolve_spur(spur));
                                     match self.handle_exception(err, pc - 5)? {
                                         ExceptionAction::Handled => continue 'dispatch,
