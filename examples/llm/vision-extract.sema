@@ -1,0 +1,34 @@
+;; vision-extract.sema — Structured data extraction from images
+;; Requires: ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable
+;; Usage: cargo run -- examples/llm/vision-extract.sema
+;;
+;; Demonstrates: llm/extract-from-image returning typed Sema values
+;;               from image files (receipts, screenshots, forms).
+
+(llm/auto-configure)
+
+;; 1. Extract structured data from the project logo
+(println "=== Extract from image ===")
+(define result
+  (llm/extract-from-image
+    {:text        {:type :string :description "Any visible text"}
+     :colors      {:type :string :description "Dominant colors"}
+     :description {:type :string :description "Brief description"}}
+    "assets/logo.png"))
+
+(println "Extracted:")
+(println (format "  Text:        ~a" (:text result)))
+(println (format "  Colors:      ~a" (:colors result)))
+(println (format "  Description: ~a" (:description result)))
+
+;; 2. Vision in a conversation (multi-modal chat)
+(println "\n=== Multi-modal chat ===")
+(define img (file/read-bytes "assets/logo.png"))
+(define msg (message/with-image :user
+  "Describe this image in one sentence." img))
+(define reply (llm/chat (list msg) {:max-tokens 100}))
+(println (format "Reply: ~a" reply))
+
+;; 3. Session usage
+(println "\n=== Session Usage ===")
+(println (llm/session-usage))

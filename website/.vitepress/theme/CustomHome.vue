@@ -141,9 +141,8 @@
       management automatically.
     </p>
     <p>
-      Or skip the agent entirely&mdash;stream a summary from any file in 5 lines.
-      <code class="ic">prompt</code> composes roles as s-expressions,
-      <code class="ic">llm/stream</code> prints tokens as they arrive.
+      Or extract data from PDFs, build semantic search, analyze images&mdash;all
+      with builtins. No external databases or SDKs required.
     </p>
   </div>
   <div class="split-code">
@@ -173,33 +172,81 @@
   </div>
 </section>
 
-<!-- ——— Streaming Example ——— -->
+<!-- ——— Document Q&A (RAG) ——— -->
 <section class="split reverse compact">
   <div class="split-text">
-    <div class="label">Streaming</div>
-    <h2><span class="paren">(</span>Five-line LLM programs<span class="paren">)</span></h2>
+    <div class="label">Retrieval</div>
+    <h2><span class="paren">(</span>Document Q&amp;A<span class="paren">)</span></h2>
     <p>
-      The simplest possible LLM program: read a file, compose a prompt with
-      roles, stream the response. No boilerplate, no SDK initialization, no
-      async runtime to configure.
+      Ingest a PDF, embed each page into a vector store, and answer questions
+      with retrieval&mdash;no external database, no LangChain, no boilerplate.
     </p>
     <p>
-      <code class="ic">prompt</code> is a special form&mdash;role symbols like
-      <code class="ic">system</code> and <code class="ic">user</code> are syntax,
-      not strings. The result is a first-class value you can store, compose,
-      or pass to any LLM function.
+      Built-in PDF extraction with <code class="ic">pdf/extract-text-pages</code>,
+      embeddings via <code class="ic">llm/embed</code>, and an in-memory
+      vector store with cosine similarity search and disk persistence.
     </p>
   </div>
   <div class="split-code">
-<pre><code><span class="c">;; Summarize any file with streaming</span>
+<pre><code><span class="c">;; PDF → vector store → answer</span>
+<span class="p">(</span><span class="b">vector-store/create</span> <span class="s">"manual"</span><span class="p">)</span>
 
-<span class="p">(</span><span class="k">define</span> text <span class="p">(</span><span class="b">file/read</span> <span class="s">"article.md"</span><span class="p">))</span>
+<span class="p">(</span><span class="k">define</span> page-num <span class="n">0</span><span class="p">)</span>
+<span class="p">(</span><span class="b">for-each</span>
+  <span class="p">(</span><span class="k">lambda</span> <span class="p">(</span>page<span class="p">)</span>
+    <span class="p">(</span><span class="k">set!</span> page-num <span class="p">(</span><span class="b">+</span> page-num <span class="n">1</span><span class="p">))</span>
+    <span class="p">(</span><span class="b">vector-store/add</span> <span class="s">"manual"</span>
+      <span class="p">(</span><span class="b">format</span> <span class="s">"p~a"</span> page-num<span class="p">)</span>
+      <span class="p">(</span><span class="b">llm/embed</span> page<span class="p">)</span> <span class="p">{</span><span class="kw">:text</span> page<span class="p">}))</span>
+  <span class="p">(</span><span class="b">pdf/extract-text-pages</span> <span class="s">"manual.pdf"</span><span class="p">))</span>
 
-<span class="p">(</span><span class="b">llm/stream</span>
+<span class="c">;; Ask a question</span>
+<span class="p">(</span><span class="k">define</span> hits
+  <span class="p">(</span><span class="b">vector-store/search</span> <span class="s">"manual"</span>
+    <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"How do I configure providers?"</span><span class="p">)</span> <span class="n">3</span><span class="p">))</span>
+
+<span class="p">(</span><span class="b">llm/complete</span>
   <span class="p">(</span><span class="k">prompt</span>
-    <span class="p">(</span>system <span class="s">"Summarize concisely."</span><span class="p">)</span>
-    <span class="p">(</span>user text<span class="p">))</span>
-  <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">500</span><span class="p">})</span></code></pre>
+    <span class="p">(</span>system <span class="s">"Answer using only this context."</span><span class="p">)</span>
+    <span class="p">(</span>user <span class="p">(</span><span class="b">string/join</span>
+      <span class="p">(</span><span class="b">map</span> <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>h<span class="p">)</span> <span class="p">(</span><span class="kw">:text</span> <span class="p">(</span><span class="kw">:metadata</span> h<span class="p">)))</span> hits<span class="p">)</span>
+      <span class="s">"\n---\n"</span><span class="p">))</span>
+    <span class="p">(</span>user <span class="s">"How do I configure providers?"</span><span class="p">)))</span></code></pre>
+  </div>
+</section>
+
+<!-- ——— Vision Extraction ——— -->
+<section class="split compact">
+  <div class="split-text">
+    <div class="label">Multimodal</div>
+    <h2><span class="paren">(</span>Vision<span class="paren">)</span></h2>
+    <p>
+      Extract structured data from images with
+      <code class="ic">llm/extract-from-image</code>&mdash;same schema syntax as
+      <code class="ic">llm/extract</code>, but for receipts, screenshots, forms,
+      or any visual input.
+    </p>
+    <p>
+      Works with OpenAI, Anthropic, and Ollama vision models.
+      Images can also be attached to conversations with
+      <code class="ic">message/with-image</code>.
+    </p>
+  </div>
+  <div class="split-code">
+<pre><code><span class="c">;; Extract typed data from an image</span>
+<span class="p">(</span><span class="b">llm/extract-from-image</span>
+  <span class="p">{</span><span class="kw">:vendor</span> <span class="p">{</span><span class="kw">:type</span> <span class="kw">:string</span><span class="p">}</span>
+   <span class="kw">:total</span>  <span class="p">{</span><span class="kw">:type</span> <span class="kw">:number</span><span class="p">}</span>
+   <span class="kw">:date</span>   <span class="p">{</span><span class="kw">:type</span> <span class="kw">:string</span><span class="p">}}</span>
+  <span class="s">"receipt.jpg"</span><span class="p">)</span>
+<span class="c">; =&gt; {:vendor "Blue Bottle" :total 4.5 :date "2025-02-18"}</span>
+
+<span class="c">;; Vision in conversations</span>
+<span class="p">(</span><span class="k">define</span> img <span class="p">(</span><span class="b">file/read-bytes</span> <span class="s">"screenshot.png"</span><span class="p">))</span>
+<span class="p">(</span><span class="b">llm/chat</span>
+  <span class="p">[</span><span class="p">(</span><span class="b">message/with-image</span> <span class="kw">:user</span>
+     <span class="s">"What error is shown?"</span> img<span class="p">)]</span>
+  <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">200</span><span class="p">})</span></code></pre>
   </div>
 </section>
 
@@ -246,11 +293,11 @@
   </div>
 </section>
 
-<!-- ——— Embeddings ——— -->
+<!-- ——— Vector Store ——— -->
 <section class="split reverse compact">
   <div class="split-text">
     <div class="label">Semantic Search</div>
-    <h2><span class="paren">(</span>Embeddings<span class="paren">)</span></h2>
+    <h2><span class="paren">(</span>Vector Store<span class="paren">)</span></h2>
     <p>
       Generate embeddings with <code class="ic">llm/embed</code> and compute
       cosine similarity with <code class="ic">llm/similarity</code>.
@@ -260,30 +307,32 @@
       Built-in vector store with <code class="ic">vector-store/create</code>,
       <code class="ic">vector-store/add</code>, and
       <code class="ic">vector-store/search</code> for similarity search.
-      Disk persistence included.
+      Save to disk with <code class="ic">vector-store/save</code> and reload
+      with <code class="ic">vector-store/open</code>.
     </p>
   </div>
   <div class="split-code">
-<pre><code><span class="c">;; Generate embeddings</span>
-<span class="p">(</span><span class="k">define</span> v1 <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"hello world"</span><span class="p">))</span>
-<span class="p">(</span><span class="k">define</span> v2 <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"hi there"</span><span class="p">))</span>
-<span class="p">(</span><span class="b">llm/similarity</span> v1 v2<span class="p">)</span>  <span class="c">; =&gt; 0.87</span>
+<pre><code><span class="c">;; Create a store and add documents</span>
+<span class="p">(</span><span class="b">vector-store/create</span> <span class="s">"knowledge"</span><span class="p">)</span>
 
-<span class="c">;; Batch embeddings</span>
-<span class="p">(</span><span class="b">llm/embed</span> <span class="p">[</span><span class="s">"cat"</span> <span class="s">"dog"</span> <span class="s">"fish"</span><span class="p">])</span>
-<span class="c">; =&gt; ((...) (...) (...))</span>
+<span class="p">(</span><span class="b">for-each</span>
+  <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>doc<span class="p">)</span>
+    <span class="p">(</span><span class="b">vector-store/add</span> <span class="s">"knowledge"</span>
+      <span class="p">(</span><span class="b">car</span> doc<span class="p">)</span> <span class="p">(</span><span class="b">llm/embed</span> <span class="p">(</span><span class="b">cadr</span> doc<span class="p">))</span>
+      <span class="p">{</span><span class="kw">:text</span> <span class="p">(</span><span class="b">cadr</span> doc<span class="p">)}))</span>
+  '<span class="p">((</span><span class="s">"lisp"</span>    <span class="s">"Lisp is a family of programming languages"</span><span class="p">)</span>
+    <span class="p">(</span><span class="s">"rust"</span>    <span class="s">"Rust is a systems language focused on safety"</span><span class="p">)</span>
+    <span class="p">(</span><span class="s">"cooking"</span> <span class="s">"Italian cooking uses fresh ingredients"</span><span class="p">)))</span>
 
-<span class="c">;; Simple semantic search</span>
-<span class="p">(</span><span class="k">define</span> query <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"programming"</span><span class="p">))</span>
-<span class="p">(</span><span class="k">define</span> docs
-  <span class="p">(</span><span class="b">map</span> <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>d<span class="p">)</span> <span class="p">(</span><span class="b">hash-map</span> <span class="kw">:text</span> d
-                       <span class="kw">:vec</span>  <span class="p">(</span><span class="b">llm/embed</span> d<span class="p">)))</span>
-    <span class="p">(</span><span class="b">list</span> <span class="s">"Lisp is great"</span>
-          <span class="s">"cooking recipes"</span>
-          <span class="s">"Rust programming"</span><span class="p">)))</span>
-<span class="p">(</span><span class="b">sort-by</span>
-  <span class="p">(</span><span class="k">fn</span> <span class="p">(</span>d<span class="p">)</span> <span class="p">(</span><span class="b">-</span> <span class="p">(</span><span class="b">llm/similarity</span> query <span class="p">(</span><span class="kw">:vec</span> d<span class="p">))))</span>
-  docs<span class="p">)</span></code></pre>
+<span class="c">;; Similarity search</span>
+<span class="p">(</span><span class="b">vector-store/search</span> <span class="s">"knowledge"</span>
+  <span class="p">(</span><span class="b">llm/embed</span> <span class="s">"writing code"</span><span class="p">)</span> <span class="n">2</span><span class="p">)</span>
+<span class="c">; =&gt; ({:id "rust" :score 0.82 :metadata {...}}</span>
+<span class="c">;     {:id "lisp" :score 0.78 :metadata {...}})</span>
+
+<span class="c">;; Persist to disk and reload</span>
+<span class="p">(</span><span class="b">vector-store/save</span> <span class="s">"knowledge"</span> <span class="s">"knowledge.json"</span><span class="p">)</span>
+<span class="p">(</span><span class="b">vector-store/open</span> <span class="s">"reloaded"</span> <span class="s">"knowledge.json"</span><span class="p">)</span></code></pre>
   </div>
 </section>
 

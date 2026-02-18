@@ -1,0 +1,58 @@
+;; document-qa.sema — PDF → Vector Store → Answer (RAG pipeline)
+;; Requires: ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable
+;; Usage: cargo run -- examples/llm/document-qa.sema
+;;
+;; Demonstrates: PDF text extraction, embeddings, vector store,
+;;               and retrieval-augmented generation in ~15 lines.
+
+(llm/auto-configure)
+;; Override embedding provider (optional — auto-configure picks one automatically)
+;; (llm/configure-embeddings :openai {:model "text-embedding-3-small"})
+
+;; 1. Create a vector store and ingest PDF pages
+(define store-name "manual")
+(vector-store/create store-name)
+
+(define pages (pdf/extract-text-pages "examples/fixtures/sample.pdf"))
+(println (format "Ingested ~a pages from PDF" (length pages)))
+
+;; Add each page as a document with its embedding
+(define page-num 0)
+(for-each
+  (lambda (page)
+    (set! page-num (+ page-num 1))
+    (vector-store/add store-name
+      (format "page-~a" page-num)
+      (llm/embed page)
+      {:text page :page page-num}))
+  pages)
+
+(println (format "Vector store has ~a documents" (vector-store/count store-name)))
+
+;; 2. Ask a question with retrieval
+(define question "What is this document about?")
+(define hits (vector-store/search store-name (llm/embed question) 3))
+
+(println (format "\nTop ~a relevant pages:" (length hits)))
+(for-each
+  (lambda (hit)
+    (println (format "  Page ~a (score: ~a)"
+      (:page (:metadata hit))
+      (:score hit))))
+  hits)
+
+;; 3. Generate an answer using retrieved context
+(define context
+  (string/join
+    (map (lambda (h) (:text (:metadata h))) hits)
+    "\n---\n"))
+
+(define answer
+  (llm/complete
+    (prompt
+      (system "Answer using only the provided context. Be concise.")
+      (user (format "Context:\n~a\n\nQuestion: ~a" context question)))
+    {:max-tokens 200}))
+
+(println (format "\nQ: ~a" question))
+(println (format "A: ~a" answer))
