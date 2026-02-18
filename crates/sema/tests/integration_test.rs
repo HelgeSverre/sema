@@ -10081,3 +10081,548 @@ fn test_pprint_arity() {
     assert!(interp.eval_str("(pprint)").is_err());
     assert!(interp.eval_str("(pprint 1 2)").is_err());
 }
+
+// ── Bytecode serialization CLI tests ──────────────────────────────
+
+#[test]
+fn test_compile_subcommand() {
+    let dir = std::env::temp_dir().join("sema_test_compile");
+    let _ = std::fs::create_dir_all(&dir);
+    let src = dir.join("test.sema");
+    std::fs::write(&src, "(define x 42)").unwrap();
+
+    let output = sema_cmd()
+        .args(["compile", src.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let semac = dir.join("test.semac");
+    assert!(semac.exists());
+
+    // Verify magic number
+    let bytes = std::fs::read(&semac).unwrap();
+    assert_eq!(&bytes[0..4], b"\x00SEM");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_run_semac_file() {
+    let dir = std::env::temp_dir().join("sema_test_run_semac");
+    let _ = std::fs::create_dir_all(&dir);
+    let src = dir.join("hello.sema");
+    std::fs::write(&src, r#"(println "hello from bytecode")"#).unwrap();
+
+    // Compile
+    let output = sema_cmd()
+        .args(["compile", src.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    // Run the .semac file (auto-detected)
+    let semac = dir.join("hello.semac");
+    let output = sema_cmd().arg(semac.to_str().unwrap()).output().unwrap();
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("hello from bytecode"),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_disasm_subcommand() {
+    let dir = std::env::temp_dir().join("sema_test_disasm");
+    let _ = std::fs::create_dir_all(&dir);
+    let src = dir.join("dis.sema");
+    std::fs::write(&src, "(+ 1 2)").unwrap();
+
+    let _ = sema_cmd()
+        .args(["compile", src.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    let semac = dir.join("dis.semac");
+    let output = sema_cmd()
+        .args(["disasm", semac.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("CONST") || stdout.contains("RETURN"),
+        "disasm output: {stdout}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_bytecode_file_end_to_end() {
+    let dir = std::env::temp_dir().join("sema_test_e2e");
+    let _ = std::fs::create_dir_all(&dir);
+    let src = dir.join("e2e.sema");
+    std::fs::write(
+        &src,
+        r#"
+        (define (make-adder n)
+          (lambda (x) (+ n x)))
+        (define add5 (make-adder 5))
+        (println (add5 10))
+    "#,
+    )
+    .unwrap();
+
+    // Compile
+    let output = sema_cmd()
+        .args(["compile", src.to_str().unwrap()])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "compile failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Run from bytecode
+    let semac = dir.join("e2e.semac");
+    let output = sema_cmd().arg(semac.to_str().unwrap()).output().unwrap();
+    assert!(
+        output.status.success(),
+        "run failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("15"),
+        "expected 15, got: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// --- JSON additional coverage ---
+
+#[test]
+fn test_json_encode_vector() {
+    assert_eq!(
+        eval(r#"(json/encode [1 2 3])"#),
+        Value::string("[1,2,3]")
+    );
+}
+
+#[test]
+fn test_json_encode_nested() {
+    assert_eq!(
+        eval(r#"(json/encode {:items [1 2] :meta {:ok #t}})"#),
+        Value::string(r#"{"items":[1,2],"meta":{"ok":true}}"#)
+    );
+}
+
+#[test]
+fn test_json_encode_nil() {
+    assert_eq!(eval(r#"(json/encode nil)"#), Value::string("null"));
+}
+
+#[test]
+fn test_json_encode_booleans() {
+    assert_eq!(eval(r#"(json/encode #t)"#), Value::string("true"));
+    assert_eq!(eval(r#"(json/encode #f)"#), Value::string("false"));
+}
+
+#[test]
+fn test_json_encode_keywords() {
+    assert_eq!(eval(r#"(json/encode :hello)"#), Value::string(r#""hello""#));
+}
+
+#[test]
+fn test_json_encode_list() {
+    assert_eq!(
+        eval(r#"(json/encode (list "a" "b" "c"))"#),
+        Value::string(r#"["a","b","c"]"#)
+    );
+}
+
+#[test]
+fn test_json_decode_array() {
+    assert_eq!(
+        eval(r#"(json/decode "[1, 2, 3]")"#),
+        Value::list(vec![Value::int(1), Value::int(2), Value::int(3)])
+    );
+}
+
+#[test]
+fn test_json_decode_null() {
+    assert_eq!(eval(r#"(json/decode "null")"#), Value::nil());
+}
+
+#[test]
+fn test_json_decode_boolean() {
+    assert_eq!(eval(r#"(json/decode "true")"#), Value::bool(true));
+    assert_eq!(eval(r#"(json/decode "false")"#), Value::bool(false));
+}
+
+#[test]
+fn test_json_decode_string() {
+    assert_eq!(
+        eval(r#"(json/decode "\"hello\"")"#),
+        Value::string("hello")
+    );
+}
+
+#[test]
+fn test_json_decode_number() {
+    assert_eq!(eval(r#"(json/decode "42")"#), Value::int(42));
+    assert_eq!(eval(r#"(json/decode "3.14")"#), Value::float(3.14));
+}
+
+#[test]
+fn test_json_roundtrip_map() {
+    let result = eval(r#"(get (json/decode (json/encode {:x 10 :y 20})) :x)"#);
+    assert_eq!(result, Value::int(10));
+}
+
+#[test]
+fn test_json_roundtrip_vector() {
+    let result = eval(r#"(length (json/decode (json/encode [1 2 3 4 5])))"#);
+    assert_eq!(result, Value::int(5));
+}
+
+#[test]
+fn test_json_roundtrip_nested() {
+    let result = eval(
+        r#"(get (get (json/decode (json/encode {:a {:b 99}})) :a) :b)"#,
+    );
+    assert_eq!(result, Value::int(99));
+}
+
+#[test]
+fn test_json_encode_pretty_has_indentation() {
+    let result = eval(r#"(json/encode-pretty {:x 1})"#);
+    let s = result.as_str().unwrap();
+    assert!(s.contains("  "), "expected indentation in pretty output");
+    assert!(s.contains('\n'), "expected newlines in pretty output");
+    assert!(s.contains("\"x\": 1"));
+}
+
+#[test]
+fn test_json_encode_float() {
+    assert_eq!(eval(r#"(json/encode 3.14)"#), Value::string("3.14"));
+}
+
+#[test]
+fn test_json_encode_integer() {
+    assert_eq!(eval(r#"(json/encode 42)"#), Value::string("42"));
+}
+
+#[test]
+fn test_json_encode_string() {
+    assert_eq!(
+        eval(r#"(json/encode "hello")"#),
+        Value::string(r#""hello""#)
+    );
+}
+
+// --- KV additional coverage ---
+
+#[test]
+fn test_kv_delete_returns_bool() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-delbool.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "db" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "db" "k" "v")"#).unwrap();
+    let existed = interp.eval_str(r#"(kv/delete "db" "k")"#).unwrap();
+    assert_eq!(existed, Value::bool(true));
+    let not_existed = interp.eval_str(r#"(kv/delete "db" "k")"#).unwrap();
+    assert_eq!(not_existed, Value::bool(false));
+    interp.eval_str(r#"(kv/close "db")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_set_numeric_value() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-num.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "num" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "num" "count" 42)"#).unwrap();
+    let result = interp.eval_str(r#"(kv/get "num" "count")"#).unwrap();
+    assert_eq!(result, Value::int(42));
+    interp.eval_str(r#"(kv/close "num")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_set_boolean_value() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-bool.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "bv" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "bv" "flag" #t)"#).unwrap();
+    let result = interp.eval_str(r#"(kv/get "bv" "flag")"#).unwrap();
+    assert_eq!(result, Value::bool(true));
+    interp.eval_str(r#"(kv/close "bv")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_set_nil_value() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-nil.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "nv" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "nv" "empty" nil)"#).unwrap();
+    let result = interp.eval_str(r#"(kv/get "nv" "empty")"#).unwrap();
+    assert!(result.is_nil());
+    interp.eval_str(r#"(kv/close "nv")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_keys_empty() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-kempty.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "ek" "{path}")"#))
+        .unwrap();
+    let result = interp.eval_str(r#"(kv/keys "ek")"#).unwrap();
+    let keys = result.as_list().unwrap();
+    assert_eq!(keys.len(), 0);
+    interp.eval_str(r#"(kv/close "ek")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_overwrite_value() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-overwrite.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "ow" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "ow" "k" "old")"#).unwrap();
+    interp.eval_str(r#"(kv/set "ow" "k" "new")"#).unwrap();
+    let result = interp.eval_str(r#"(kv/get "ow" "k")"#).unwrap();
+    assert_eq!(result, Value::string("new"));
+    interp.eval_str(r#"(kv/close "ow")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_open_returns_name() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-ret.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    let result = interp
+        .eval_str(&format!(r#"(kv/open "mystore" "{path}")"#))
+        .unwrap();
+    assert_eq!(result, Value::string("mystore"));
+    interp.eval_str(r#"(kv/close "mystore")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+// --- Bytevector additional coverage ---
+
+#[test]
+fn test_bv_copy_with_start_only() {
+    assert_eq!(
+        eval("(bytevector-copy #u8(10 20 30 40 50) 2)"),
+        Value::bytevector(vec![30, 40, 50])
+    );
+}
+
+#[test]
+fn test_bv_copy_full() {
+    assert_eq!(
+        eval("(bytevector-copy #u8(1 2 3))"),
+        Value::bytevector(vec![1, 2, 3])
+    );
+}
+
+#[test]
+fn test_bv_append_empty() {
+    assert_eq!(
+        eval("(bytevector-append)"),
+        Value::bytevector(vec![])
+    );
+}
+
+#[test]
+fn test_bv_append_single() {
+    assert_eq!(
+        eval("(bytevector-append #u8(5 6 7))"),
+        Value::bytevector(vec![5, 6, 7])
+    );
+}
+
+#[test]
+fn test_bv_list_roundtrip() {
+    assert_eq!(
+        eval("(list->bytevector (bytevector->list #u8(100 200 255)))"),
+        Value::bytevector(vec![100, 200, 255])
+    );
+}
+
+#[test]
+fn test_bv_make_zero_size() {
+    assert_eq!(
+        eval("(make-bytevector 0)"),
+        Value::bytevector(vec![])
+    );
+}
+
+#[test]
+fn test_bv_make_with_fill() {
+    assert_eq!(
+        eval("(make-bytevector 5 255)"),
+        Value::bytevector(vec![255, 255, 255, 255, 255])
+    );
+}
+
+#[test]
+fn test_bv_u8_set_returns_new() {
+    assert_eq!(
+        eval("(bytevector-u8-ref (bytevector-u8-set! #u8(0 0 0) 1 42) 1)"),
+        Value::int(42)
+    );
+}
+
+#[test]
+fn test_bv_u8_set_does_not_mutate_original() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (define orig #u8(1 2 3))
+                (define copy (bytevector-u8-set! orig 0 99))
+                (bytevector-u8-ref orig 0))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_bv_copy_empty_range() {
+    assert_eq!(
+        eval("(bytevector-copy #u8(1 2 3) 1 1)"),
+        Value::bytevector(vec![])
+    );
+}
+
+#[test]
+fn test_bv_bytevector_to_list_empty() {
+    assert_eq!(
+        eval("(bytevector->list #u8())"),
+        Value::list(vec![])
+    );
+}
+
+#[test]
+fn test_bv_list_to_bytevector_empty() {
+    assert_eq!(
+        eval("(list->bytevector (list))"),
+        Value::bytevector(vec![])
+    );
+}
+
+// --- JSON additional coverage (decode object, encode map) ---
+
+#[test]
+fn test_json_encode_map() {
+    let result = eval(r#"(json/encode {:a 1 :b "two"})"#);
+    let s = result.as_str().unwrap();
+    assert!(s.contains(r#""a":1"#) || s.contains(r#""a": 1"#));
+    assert!(s.contains(r#""b":"two""#) || s.contains(r#""b": "two""#));
+}
+
+#[test]
+fn test_json_decode_object() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(r#"(json/decode "{\"name\": \"alice\", \"age\": 30}")"#)
+        .unwrap();
+    let name = interp
+        .eval_str(r#"(get (json/decode "{\"name\": \"alice\", \"age\": 30}") :name)"#)
+        .unwrap();
+    assert_eq!(name, Value::string("alice"));
+    let age = interp
+        .eval_str(r#"(get (json/decode "{\"name\": \"alice\", \"age\": 30}") :age)"#)
+        .unwrap();
+    assert_eq!(age, Value::int(30));
+    assert!(result.as_map_rc().is_some());
+}
+
+#[test]
+fn test_json_roundtrip_primitives() {
+    assert_eq!(eval(r#"(json/decode (json/encode nil))"#), Value::nil());
+    assert_eq!(eval(r#"(json/decode (json/encode #t))"#), Value::bool(true));
+    assert_eq!(eval(r#"(json/decode (json/encode #f))"#), Value::bool(false));
+    assert_eq!(eval(r#"(json/decode (json/encode 42))"#), Value::int(42));
+    assert_eq!(
+        eval(r#"(json/decode (json/encode "hello"))"#),
+        Value::string("hello")
+    );
+}
+
+#[test]
+fn test_json_pretty_map() {
+    let result = eval(r#"(json/encode-pretty {:a 1})"#);
+    let s = result.as_str().unwrap();
+    assert!(s.contains('\n'));
+    assert!(s.contains("  "));
+}
+
+// --- KV additional coverage (roundtrip, close+reopen) ---
+
+#[test]
+fn test_kv_set_get_roundtrip() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-rt.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "rt" "{path}")"#))
+        .unwrap();
+    interp.eval_str(r#"(kv/set "rt" "x" 42)"#).unwrap();
+    interp.eval_str(r#"(kv/set "rt" "y" "hello")"#).unwrap();
+    interp.eval_str(r#"(kv/set "rt" "z" #t)"#).unwrap();
+    assert_eq!(
+        interp.eval_str(r#"(kv/get "rt" "x")"#).unwrap(),
+        Value::int(42)
+    );
+    assert_eq!(
+        interp.eval_str(r#"(kv/get "rt" "y")"#).unwrap(),
+        Value::string("hello")
+    );
+    assert_eq!(
+        interp.eval_str(r#"(kv/get "rt" "z")"#).unwrap(),
+        Value::bool(true)
+    );
+    interp.eval_str(r#"(kv/close "rt")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}

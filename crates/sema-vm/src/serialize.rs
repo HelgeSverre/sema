@@ -11,6 +11,12 @@ pub struct StringTableBuilder {
     index: HashMap<String, u32>,
 }
 
+impl Default for StringTableBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StringTableBuilder {
     pub fn new() -> Self {
         let mut b = StringTableBuilder {
@@ -67,15 +73,11 @@ const VAL_BYTEVECTOR: u8 = 0x0C;
 // ── Checked conversions ───────────────────────────────────────────
 
 fn checked_u16(n: usize, what: &str) -> Result<u16, SemaError> {
-    u16::try_from(n).map_err(|_| {
-        SemaError::eval(format!("{what} exceeds u16::MAX ({n})"))
-    })
+    u16::try_from(n).map_err(|_| SemaError::eval(format!("{what} exceeds u16::MAX ({n})")))
 }
 
 fn checked_u32(n: usize, what: &str) -> Result<u32, SemaError> {
-    u32::try_from(n).map_err(|_| {
-        SemaError::eval(format!("{what} exceeds u32::MAX ({n})"))
-    })
+    u32::try_from(n).map_err(|_| SemaError::eval(format!("{what} exceeds u32::MAX ({n})")))
 }
 
 // ── Value serialization ───────────────────────────────────────────
@@ -193,7 +195,12 @@ fn read_u32_le(buf: &[u8], cursor: &mut usize) -> Result<u32, SemaError> {
     if *cursor + 4 > buf.len() {
         return Err(SemaError::eval("unexpected end of bytecode data"));
     }
-    let v = u32::from_le_bytes([buf[*cursor], buf[*cursor + 1], buf[*cursor + 2], buf[*cursor + 3]]);
+    let v = u32::from_le_bytes([
+        buf[*cursor],
+        buf[*cursor + 1],
+        buf[*cursor + 2],
+        buf[*cursor + 3],
+    ]);
     *cursor += 4;
     Ok(v)
 }
@@ -282,9 +289,8 @@ pub fn deserialize_value(
         }
         VAL_CHAR => {
             let cp = read_u32_le(buf, cursor)?;
-            let c = char::from_u32(cp).ok_or_else(|| {
-                SemaError::eval(format!("invalid unicode code point: {cp}"))
-            })?;
+            let c = char::from_u32(cp)
+                .ok_or_else(|| SemaError::eval(format!("invalid unicode code point: {cp}")))?;
             Ok(Value::char(c))
         }
         VAL_LIST => {
@@ -598,7 +604,7 @@ fn advance_pc(code: &[u8], pc: usize) -> Result<(Op, usize), SemaError> {
     let next = match op {
         Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => pc + 5, // op + u32
         Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => pc + 5,         // op + i32
-        Op::CallNative => pc + 5,                                       // op + u16 + u16
+        Op::CallNative => pc + 5,                                      // op + u16 + u16
         Op::MakeClosure => {
             if pc + 5 > code.len() {
                 return Err(SemaError::eval(format!(
@@ -619,7 +625,7 @@ fn advance_pc(code: &[u8], pc: usize) -> Result<(Op, usize), SemaError> {
         | Op::MakeVector
         | Op::MakeMap
         | Op::MakeHashMap => pc + 3, // op + u16
-        _ => pc + 1,                 // single-byte
+        _ => pc + 1, // single-byte
     };
     if next > code.len() {
         return Err(SemaError::eval(format!(
@@ -660,17 +666,13 @@ pub fn remap_spurs_to_indices(
 }
 
 /// Walk bytecode and rewrite global opcodes: string table index → process-local Spur u32.
-pub fn remap_indices_to_spurs(
-    code: &mut [u8],
-    remap: &[Spur],
-) -> Result<(), SemaError> {
+pub fn remap_indices_to_spurs(code: &mut [u8], remap: &[Spur]) -> Result<(), SemaError> {
     let mut pc = 0;
     while pc < code.len() {
         let (op, next) = advance_pc(code, pc)?;
         if matches!(op, Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal) {
-            let idx =
-                u32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]])
-                    as usize;
+            let idx = u32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]])
+                as usize;
             if idx >= remap.len() {
                 return Err(SemaError::eval(format!(
                     "global spur remap index {idx} out of range at pc {pc}"
@@ -738,7 +740,7 @@ pub fn serialize_to_bytes(result: &CompileResult, source_hash: u32) -> Result<Ve
     out.extend_from_slice(&MAGIC);
     out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     out.extend_from_slice(&0u16.to_le_bytes()); // flags
-    // Sema version — parse from Cargo.toml version at compile time
+                                                // Sema version — parse from Cargo.toml version at compile time
     let (major, minor, patch) = parse_sema_version();
     out.extend_from_slice(&major.to_le_bytes());
     out.extend_from_slice(&minor.to_le_bytes());
@@ -757,11 +759,7 @@ pub fn serialize_to_bytes(result: &CompileResult, source_hash: u32) -> Result<Ve
     Ok(out)
 }
 
-fn write_section(
-    out: &mut Vec<u8>,
-    section_type: u16,
-    payload: &[u8],
-) -> Result<(), SemaError> {
+fn write_section(out: &mut Vec<u8>, section_type: u16, payload: &[u8]) -> Result<(), SemaError> {
     let len = checked_u32(payload.len(), "section payload length")?;
     out.extend_from_slice(&section_type.to_le_bytes());
     out.extend_from_slice(&len.to_le_bytes());
@@ -781,12 +779,16 @@ fn parse_sema_version() -> (u16, u16, u16) {
 /// Deserialize a .semac file from bytes into a CompileResult.
 pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> {
     if bytes.len() < 24 {
-        return Err(SemaError::eval("bytecode file too short (< 24 bytes header)"));
+        return Err(SemaError::eval(
+            "bytecode file too short (< 24 bytes header)",
+        ));
     }
 
     // Validate header
-    if &bytes[0..4] != &MAGIC {
-        return Err(SemaError::eval("invalid bytecode magic number (expected \\x00SEM)"));
+    if bytes[0..4] != MAGIC {
+        return Err(SemaError::eval(
+            "invalid bytecode magic number (expected \\x00SEM)",
+        ));
     }
     let format_version = u16::from_le_bytes([bytes[4], bytes[5]]);
     if format_version != FORMAT_VERSION {
@@ -804,12 +806,17 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
 
     for _ in 0..n_sections {
         if cursor + 6 > bytes.len() {
-            return Err(SemaError::eval("unexpected end of bytecode file in section header"));
+            return Err(SemaError::eval(
+                "unexpected end of bytecode file in section header",
+            ));
         }
         let section_type = u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]);
-        let section_len =
-            u32::from_le_bytes([bytes[cursor + 2], bytes[cursor + 3], bytes[cursor + 4], bytes[cursor + 5]])
-                as usize;
+        let section_len = u32::from_le_bytes([
+            bytes[cursor + 2],
+            bytes[cursor + 3],
+            bytes[cursor + 4],
+            bytes[cursor + 5],
+        ]) as usize;
         cursor += 6;
 
         if cursor + section_len > bytes.len() {

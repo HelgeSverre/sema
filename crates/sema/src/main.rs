@@ -215,6 +215,20 @@ enum Commands {
         /// Shell to generate completions for
         shell: Shell,
     },
+    /// Compile source to bytecode (.semac)
+    Compile {
+        /// Source file to compile
+        file: String,
+
+        /// Output file path (default: input with .semac extension)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Disassemble a compiled bytecode file
+    Disasm {
+        /// Bytecode file to disassemble
+        file: String,
+    },
 }
 
 fn main() {
@@ -236,6 +250,12 @@ fn main() {
             }
             Commands::Completions { shell } => {
                 clap_complete::generate(shell, &mut Cli::command(), "sema", &mut std::io::stdout());
+            }
+            Commands::Compile { file, output } => {
+                run_compile(&file, output.as_deref());
+            }
+            Commands::Disasm { file } => {
+                run_disasm(&file);
             }
         }
         return;
@@ -323,6 +343,24 @@ fn main() {
     // Handle FILE
     if let Some(file) = &cli.file {
         let path = std::path::Path::new(file);
+
+        // Auto-detect .semac bytecode files
+        if let Ok(bytes) = std::fs::read(path) {
+            if sema_vm::is_bytecode_file(&bytes) {
+                match run_bytecode_bytes(&interpreter, &bytes) {
+                    Ok(_) => {}
+                    Err(e) => {
+                        print_error(&e);
+                        std::process::exit(1);
+                    }
+                }
+                if cli.interactive {
+                    repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
+                }
+                return;
+            }
+        }
+
         if let Ok(canonical) = path.canonicalize() {
             interpreter.ctx.push_file_path(canonical);
         }
@@ -362,6 +400,137 @@ fn eval_with_mode(
     } else {
         interpreter.eval_str(input)
     }
+}
+
+fn run_compile(file: &str, output: Option<&str>) {
+    let path = std::path::Path::new(file);
+    let source = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading {file}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Compute source hash (CRC-32)
+    let source_hash = crc32_simple(source.as_bytes());
+
+    // Parse
+    let exprs = match sema_reader::read_many(&source) {
+        Ok(exprs) => exprs,
+        Err(e) => {
+            eprintln!("Parse error: {}", e.inner());
+            std::process::exit(1);
+        }
+    };
+
+    // Compile via VM pipeline (lower → resolve → compile)
+    let result = match sema_vm::compile_program(&exprs) {
+        Ok((closure, functions)) => {
+            // Reconstruct CompileResult from the closure and functions
+            sema_vm::CompileResult {
+                chunk: closure.func.chunk.clone(),
+                functions: functions.iter().map(|f| (**f).clone()).collect(),
+            }
+        }
+        Err(e) => {
+            eprintln!("Compile error: {}", e.inner());
+            std::process::exit(1);
+        }
+    };
+
+    // Serialize
+    let bytes = match sema_vm::serialize_to_bytes(&result, source_hash) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("Serialization error: {}", e.inner());
+            std::process::exit(1);
+        }
+    };
+
+    // Write output
+    let out_path = match output {
+        Some(o) => std::path::PathBuf::from(o),
+        None => path.with_extension("semac"),
+    };
+    if let Err(e) = std::fs::write(&out_path, &bytes) {
+        eprintln!("Error writing {}: {e}", out_path.display());
+        std::process::exit(1);
+    }
+}
+
+fn run_disasm(file: &str) {
+    let bytes = match std::fs::read(file) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("Error reading {file}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    if !sema_vm::is_bytecode_file(&bytes) {
+        eprintln!("Error: {file} is not a valid .semac bytecode file");
+        std::process::exit(1);
+    }
+
+    let result = match sema_vm::deserialize_from_bytes(&bytes) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Deserialization error: {}", e.inner());
+            std::process::exit(1);
+        }
+    };
+
+    // Disassemble main chunk
+    print!("{}", sema_vm::disassemble(&result.chunk, Some("<main>")));
+
+    // Disassemble each function
+    for (i, func) in result.functions.iter().enumerate() {
+        let name = func
+            .name
+            .map(sema_core::resolve)
+            .unwrap_or_else(|| format!("<fn {i}>"));
+        print!("{}", sema_vm::disassemble(&func.chunk, Some(&name)));
+    }
+}
+
+fn run_bytecode_bytes(
+    interpreter: &Interpreter,
+    bytes: &[u8],
+) -> Result<sema_core::Value, SemaError> {
+    let result = sema_vm::deserialize_from_bytes(bytes)?;
+
+    let functions: Vec<std::rc::Rc<sema_vm::Function>> =
+        result.functions.into_iter().map(std::rc::Rc::new).collect();
+    let closure = std::rc::Rc::new(sema_vm::Closure {
+        func: std::rc::Rc::new(sema_vm::Function {
+            name: None,
+            chunk: result.chunk,
+            upvalue_descs: Vec::new(),
+            arity: 0,
+            has_rest: false,
+            local_names: Vec::new(),
+        }),
+        upvalues: Vec::new(),
+    });
+
+    let mut vm = sema_vm::VM::new(interpreter.global_env.clone(), functions);
+    vm.execute(closure, &interpreter.ctx)
+}
+
+fn crc32_simple(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &byte in data {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            if crc & 1 != 0 {
+                crc = (crc >> 1) ^ 0xEDB8_8320;
+            } else {
+                crc >>= 1;
+            }
+        }
+    }
+    !crc
 }
 
 fn run_ast(file: Option<String>, eval: Option<String>, json: bool) {

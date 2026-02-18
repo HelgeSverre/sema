@@ -22,6 +22,7 @@ path = "src/lib.rs"
 sema-core.workspace = true
 sema-reader.workspace = true
 sema-eval.workspace = true
+sema-vm.workspace = true
 sema-llm.workspace = true
 sema-stdlib.workspace = true
 rustyline.workspace = true

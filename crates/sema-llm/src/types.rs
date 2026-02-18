@@ -179,3 +179,163 @@ pub enum LlmError {
     #[error("Rate limited: retry after {retry_after_ms}ms")]
     RateLimited { retry_after_ms: u64 },
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_constructor() {
+        let content = MessageContent::text("hello");
+        assert!(matches!(content, MessageContent::Text(s) if s == "hello"));
+    }
+
+    #[test]
+    fn as_text_for_text_variant() {
+        let content = MessageContent::Text("hello".into());
+        assert_eq!(content.as_text(), Some("hello"));
+    }
+
+    #[test]
+    fn as_text_for_single_text_block() {
+        let content = MessageContent::Blocks(vec![ContentBlock::Text {
+            text: "hello".into(),
+        }]);
+        assert_eq!(content.as_text(), Some("hello"));
+    }
+
+    #[test]
+    fn as_text_for_multi_block_returns_none() {
+        let content = MessageContent::Blocks(vec![
+            ContentBlock::Text {
+                text: "hello".into(),
+            },
+            ContentBlock::Text {
+                text: "world".into(),
+            },
+        ]);
+        assert_eq!(content.as_text(), None);
+    }
+
+    #[test]
+    fn as_text_for_image_block_returns_none() {
+        let content = MessageContent::Blocks(vec![ContentBlock::Image {
+            media_type: Some("image/png".into()),
+            data: "abc".into(),
+        }]);
+        assert_eq!(content.as_text(), None);
+    }
+
+    #[test]
+    fn to_text_concatenates_text_blocks_ignores_images() {
+        let content = MessageContent::Blocks(vec![
+            ContentBlock::Text {
+                text: "hello ".into(),
+            },
+            ContentBlock::Image {
+                media_type: None,
+                data: "img".into(),
+            },
+            ContentBlock::Text {
+                text: "world".into(),
+            },
+        ]);
+        assert_eq!(content.to_text(), "hello world");
+    }
+
+    #[test]
+    fn to_text_for_text_variant() {
+        let content = MessageContent::Text("simple".into());
+        assert_eq!(content.to_text(), "simple");
+    }
+
+    #[test]
+    fn has_images_false_for_text() {
+        assert!(!MessageContent::Text("hi".into()).has_images());
+    }
+
+    #[test]
+    fn has_images_true_for_blocks_with_image() {
+        let content = MessageContent::Blocks(vec![
+            ContentBlock::Text {
+                text: "hi".into(),
+            },
+            ContentBlock::Image {
+                media_type: None,
+                data: "data".into(),
+            },
+        ]);
+        assert!(content.has_images());
+    }
+
+    #[test]
+    fn has_images_false_for_text_only_blocks() {
+        let content = MessageContent::Blocks(vec![ContentBlock::Text {
+            text: "hi".into(),
+        }]);
+        assert!(!content.has_images());
+    }
+
+    #[test]
+    fn chat_message_new() {
+        let msg = ChatMessage::new("user", "hello");
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content.as_text(), Some("hello"));
+    }
+
+    #[test]
+    fn chat_message_with_blocks() {
+        let msg = ChatMessage::with_blocks(
+            "assistant",
+            vec![ContentBlock::Text {
+                text: "hi".into(),
+            }],
+        );
+        assert_eq!(msg.role, "assistant");
+        assert!(matches!(msg.content, MessageContent::Blocks(_)));
+    }
+
+    #[test]
+    fn chat_request_defaults() {
+        let req = ChatRequest::new("model".into(), vec![]);
+        assert_eq!(req.model, "model");
+        assert_eq!(req.max_tokens, Some(4096));
+        assert!(req.temperature.is_none());
+        assert!(req.system.is_none());
+        assert!(req.tools.is_empty());
+        assert!(req.stop_sequences.is_empty());
+        assert!(!req.json_mode);
+    }
+
+    #[test]
+    fn usage_total_tokens() {
+        let usage = Usage {
+            prompt_tokens: 100,
+            completion_tokens: 50,
+            model: "m".into(),
+        };
+        assert_eq!(usage.total_tokens(), 150);
+    }
+
+    #[test]
+    fn llm_error_display() {
+        assert_eq!(LlmError::Http("timeout".into()).to_string(), "HTTP error: timeout");
+        assert_eq!(
+            LlmError::Api {
+                status: 429,
+                message: "too many".into()
+            }
+            .to_string(),
+            "API error: 429 - too many"
+        );
+        assert_eq!(LlmError::Parse("bad json".into()).to_string(), "Parse error: bad json");
+        assert_eq!(LlmError::Config("missing key".into()).to_string(), "Config error: missing key");
+        assert_eq!(
+            LlmError::RateLimited {
+                retry_after_ms: 5000
+            }
+            .to_string(),
+            "Rate limited: retry after 5000ms"
+        );
+    }
+}
