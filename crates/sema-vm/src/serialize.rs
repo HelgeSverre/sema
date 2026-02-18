@@ -587,6 +587,51 @@ fn u32_to_spur(bits: u32) -> Spur {
     unsafe { std::mem::transmute::<u32, Spur>(bits) }
 }
 
+/// Compute the next PC after the instruction at `code[pc]`, validating operand bounds.
+fn advance_pc(code: &[u8], pc: usize) -> Result<(Op, usize), SemaError> {
+    let Some(op) = Op::from_u8(code[pc]) else {
+        return Err(SemaError::eval(format!(
+            "invalid opcode 0x{:02x} at pc {pc}",
+            code[pc]
+        )));
+    };
+    let next = match op {
+        Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => pc + 5, // op + u32
+        Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => pc + 5,         // op + i32
+        Op::CallNative => pc + 5,                                       // op + u16 + u16
+        Op::MakeClosure => {
+            if pc + 5 > code.len() {
+                return Err(SemaError::eval(format!(
+                    "truncated MakeClosure operands at pc {pc}"
+                )));
+            }
+            let n_upvalues = u16::from_le_bytes([code[pc + 3], code[pc + 4]]) as usize;
+            pc + 5 + n_upvalues * 4
+        }
+        Op::Const
+        | Op::LoadLocal
+        | Op::StoreLocal
+        | Op::LoadUpvalue
+        | Op::StoreUpvalue
+        | Op::Call
+        | Op::TailCall
+        | Op::MakeList
+        | Op::MakeVector
+        | Op::MakeMap
+        | Op::MakeHashMap => pc + 3, // op + u16
+        _ => pc + 1,                 // single-byte
+    };
+    if next > code.len() {
+        return Err(SemaError::eval(format!(
+            "truncated operand for {:?} at pc {pc} (need {} bytes, have {})",
+            op,
+            next - pc,
+            code.len() - pc
+        )));
+    }
+    Ok((op, next))
+}
+
 /// Walk bytecode and rewrite global opcodes: Spur u32 → string table index.
 /// Returns the rewritten code.
 pub fn remap_spurs_to_indices(
@@ -596,54 +641,20 @@ pub fn remap_spurs_to_indices(
     let mut out = code.to_vec();
     let mut pc = 0;
     while pc < out.len() {
-        let Some(op) = Op::from_u8(out[pc]) else {
-            return Err(SemaError::eval(format!(
-                "invalid opcode 0x{:02x} at pc {pc}",
-                out[pc]
-            )));
-        };
-        match op {
-            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => {
-                let spur_bits =
-                    u32::from_le_bytes([out[pc + 1], out[pc + 2], out[pc + 3], out[pc + 4]]);
-                let spur = u32_to_spur(spur_bits);
-                let s = resolve(spur);
-                let idx = stb.intern_str(&s);
-                let bytes = idx.to_le_bytes();
-                out[pc + 1] = bytes[0];
-                out[pc + 2] = bytes[1];
-                out[pc + 3] = bytes[2];
-                out[pc + 4] = bytes[3];
-                pc += 5;
-            }
-            Op::MakeClosure => {
-                let n_upvalues =
-                    u16::from_le_bytes([out[pc + 3], out[pc + 4]]) as usize;
-                pc += 1 + 2 + 2 + n_upvalues * 4;
-            }
-            Op::Const
-            | Op::LoadLocal
-            | Op::StoreLocal
-            | Op::LoadUpvalue
-            | Op::StoreUpvalue
-            | Op::Call
-            | Op::TailCall
-            | Op::MakeList
-            | Op::MakeVector
-            | Op::MakeMap
-            | Op::MakeHashMap => {
-                pc += 3; // op + u16
-            }
-            Op::CallNative => {
-                pc += 5; // op + u16 + u16
-            }
-            Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => {
-                pc += 5; // op + i32
-            }
-            _ => {
-                pc += 1;
-            }
+        let (op, next) = advance_pc(&out, pc)?;
+        if matches!(op, Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal) {
+            let spur_bits =
+                u32::from_le_bytes([out[pc + 1], out[pc + 2], out[pc + 3], out[pc + 4]]);
+            let spur = u32_to_spur(spur_bits);
+            let s = resolve(spur);
+            let idx = stb.intern_str(&s);
+            let bytes = idx.to_le_bytes();
+            out[pc + 1] = bytes[0];
+            out[pc + 2] = bytes[1];
+            out[pc + 3] = bytes[2];
+            out[pc + 4] = bytes[3];
         }
+        pc = next;
     }
     Ok(out)
 }
@@ -655,58 +666,24 @@ pub fn remap_indices_to_spurs(
 ) -> Result<(), SemaError> {
     let mut pc = 0;
     while pc < code.len() {
-        let Some(op) = Op::from_u8(code[pc]) else {
-            return Err(SemaError::eval(format!(
-                "invalid opcode 0x{:02x} at pc {pc}",
-                code[pc]
-            )));
-        };
-        match op {
-            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => {
-                let idx =
-                    u32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]])
-                        as usize;
-                if idx >= remap.len() {
-                    return Err(SemaError::eval(format!(
-                        "global spur remap index {idx} out of range at pc {pc}"
-                    )));
-                }
-                let spur_bits = spur_to_u32(remap[idx]);
-                let bytes = spur_bits.to_le_bytes();
-                code[pc + 1] = bytes[0];
-                code[pc + 2] = bytes[1];
-                code[pc + 3] = bytes[2];
-                code[pc + 4] = bytes[3];
-                pc += 5;
+        let (op, next) = advance_pc(code, pc)?;
+        if matches!(op, Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal) {
+            let idx =
+                u32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]])
+                    as usize;
+            if idx >= remap.len() {
+                return Err(SemaError::eval(format!(
+                    "global spur remap index {idx} out of range at pc {pc}"
+                )));
             }
-            Op::MakeClosure => {
-                let n_upvalues =
-                    u16::from_le_bytes([code[pc + 3], code[pc + 4]]) as usize;
-                pc += 1 + 2 + 2 + n_upvalues * 4;
-            }
-            Op::Const
-            | Op::LoadLocal
-            | Op::StoreLocal
-            | Op::LoadUpvalue
-            | Op::StoreUpvalue
-            | Op::Call
-            | Op::TailCall
-            | Op::MakeList
-            | Op::MakeVector
-            | Op::MakeMap
-            | Op::MakeHashMap => {
-                pc += 3;
-            }
-            Op::CallNative => {
-                pc += 5;
-            }
-            Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => {
-                pc += 5;
-            }
-            _ => {
-                pc += 1;
-            }
+            let spur_bits = spur_to_u32(remap[idx]);
+            let bytes = spur_bits.to_le_bytes();
+            code[pc + 1] = bytes[0];
+            code[pc + 2] = bytes[1];
+            code[pc + 3] = bytes[2];
+            code[pc + 4] = bytes[3];
         }
+        pc = next;
     }
     Ok(())
 }
@@ -771,19 +748,25 @@ pub fn serialize_to_bytes(result: &CompileResult, source_hash: u32) -> Result<Ve
     out.extend_from_slice(&0u32.to_le_bytes()); // reserved
 
     // Section: String Table
-    write_section(&mut out, SECTION_STRING_TABLE, &strtab_payload);
+    write_section(&mut out, SECTION_STRING_TABLE, &strtab_payload)?;
     // Section: Function Table
-    write_section(&mut out, SECTION_FUNCTION_TABLE, &func_payload);
+    write_section(&mut out, SECTION_FUNCTION_TABLE, &func_payload)?;
     // Section: Main Chunk
-    write_section(&mut out, SECTION_MAIN_CHUNK, &chunk_payload);
+    write_section(&mut out, SECTION_MAIN_CHUNK, &chunk_payload)?;
 
     Ok(out)
 }
 
-fn write_section(out: &mut Vec<u8>, section_type: u16, payload: &[u8]) {
+fn write_section(
+    out: &mut Vec<u8>,
+    section_type: u16,
+    payload: &[u8],
+) -> Result<(), SemaError> {
+    let len = checked_u32(payload.len(), "section payload length")?;
     out.extend_from_slice(&section_type.to_le_bytes());
-    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.extend_from_slice(&len.to_le_bytes());
     out.extend_from_slice(payload);
+    Ok(())
 }
 
 fn parse_sema_version() -> (u16, u16, u16) {
@@ -871,24 +854,26 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
     // Validate required sections
     let table = string_table
         .ok_or_else(|| SemaError::eval("bytecode file missing string table section"))?;
-    let (func_start, _func_len) = func_table_data
+    let (func_start, func_len) = func_table_data
         .ok_or_else(|| SemaError::eval("bytecode file missing function table section"))?;
-    let (chunk_start, _chunk_len) = main_chunk_data
+    let (chunk_start, chunk_len) = main_chunk_data
         .ok_or_else(|| SemaError::eval("bytecode file missing main chunk section"))?;
 
     let remap = build_remap_table(&table);
 
-    // Deserialize function table
-    let mut fc = func_start;
-    let n_funcs = read_u32_le(bytes, &mut fc)? as usize;
+    // Deserialize function table (sliced to section boundary)
+    let func_section = &bytes[func_start..func_start + func_len];
+    let mut fc = 0;
+    let n_funcs = read_u32_le(func_section, &mut fc)? as usize;
     let mut functions = Vec::with_capacity(n_funcs);
     for _ in 0..n_funcs {
-        functions.push(deserialize_function(bytes, &mut fc, &table, &remap)?);
+        functions.push(deserialize_function(func_section, &mut fc, &table, &remap)?);
     }
 
-    // Deserialize main chunk
-    let mut cc = chunk_start;
-    let chunk = deserialize_chunk(bytes, &mut cc, &table, &remap)?;
+    // Deserialize main chunk (sliced to section boundary)
+    let chunk_section = &bytes[chunk_start..chunk_start + chunk_len];
+    let mut cc = 0;
+    let chunk = deserialize_chunk(chunk_section, &mut cc, &table, &remap)?;
 
     Ok(CompileResult { chunk, functions })
 }
@@ -1544,6 +1529,121 @@ mod tests {
     fn test_deserialize_too_short() {
         let result = deserialize_from_bytes(&[0x00, b'S', b'E']);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_full_file_roundtrip_with_globals() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        // Build a chunk with global opcodes and symbol/keyword constants
+        let spur_x = intern("my-var");
+        let spur_print = intern("println");
+        let mut e = Emitter::new();
+        // (define my-var 42)
+        e.emit_const(Value::int(42));
+        e.emit_op(Op::DefineGlobal);
+        e.emit_u32(spur_to_u32(spur_x));
+        // (println my-var) — load both globals
+        e.emit_op(Op::LoadGlobal);
+        e.emit_u32(spur_to_u32(spur_print));
+        e.emit_op(Op::LoadGlobal);
+        e.emit_u32(spur_to_u32(spur_x));
+        // symbol and keyword in constant pool
+        e.emit_const(Value::symbol("test-sym"));
+        e.emit_const(Value::keyword("test-kw"));
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+
+        let result = CompileResult {
+            chunk,
+            functions: vec![],
+        };
+
+        let bytes = serialize_to_bytes(&result, 0).unwrap();
+        let result2 = deserialize_from_bytes(&bytes).unwrap();
+
+        // Verify globals resolve correctly in the deserialized bytecode
+        // DefineGlobal "my-var" is at code offset 3 (after CONST(3 bytes))
+        let code = &result2.chunk.code;
+        // Find DefineGlobal
+        let mut found_define = false;
+        let mut found_load_print = false;
+        let mut pc = 0;
+        while pc < code.len() {
+            let (op, next) = advance_pc(code, pc).unwrap();
+            match op {
+                Op::DefineGlobal => {
+                    let bits = u32::from_le_bytes([
+                        code[pc + 1],
+                        code[pc + 2],
+                        code[pc + 3],
+                        code[pc + 4],
+                    ]);
+                    assert_eq!(sema_core::resolve(u32_to_spur(bits)), "my-var");
+                    found_define = true;
+                }
+                Op::LoadGlobal => {
+                    let bits = u32::from_le_bytes([
+                        code[pc + 1],
+                        code[pc + 2],
+                        code[pc + 3],
+                        code[pc + 4],
+                    ]);
+                    let name = sema_core::resolve(u32_to_spur(bits));
+                    if name == "println" {
+                        found_load_print = true;
+                    }
+                }
+                _ => {}
+            }
+            pc = next;
+        }
+        assert!(found_define, "DefineGlobal 'my-var' not found");
+        assert!(found_load_print, "LoadGlobal 'println' not found");
+
+        // Verify symbol/keyword constants survived
+        assert_eq!(result2.chunk.consts.len(), 3); // 42, test-sym, test-kw
+        assert!(result2.chunk.consts[1].as_symbol().is_some());
+        assert!(result2.chunk.consts[2].as_keyword().is_some());
+    }
+
+    #[test]
+    fn test_truncated_global_operand_errors_not_panics() {
+        // A LoadGlobal at the end with missing operand bytes
+        let code = vec![Op::LoadGlobal as u8, 0x01, 0x00]; // only 2 of 4 operand bytes
+        let mut stb = StringTableBuilder::new();
+        let result = remap_spurs_to_indices(&code, &mut stb);
+        assert!(result.is_err());
+
+        // Also test remap_indices_to_spurs
+        let mut code2 = vec![Op::LoadGlobal as u8, 0x01]; // only 1 operand byte
+        let remap = vec![intern("x")];
+        let result2 = remap_indices_to_spurs(&mut code2, &remap);
+        assert!(result2.is_err());
+    }
+
+    #[test]
+    fn test_truncated_make_closure_errors_not_panics() {
+        // MakeClosure with truncated operands
+        let code = vec![Op::MakeClosure as u8, 0x00]; // only 1 of 4 operand bytes
+        let mut stb = StringTableBuilder::new();
+        let result = remap_spurs_to_indices(&code, &mut stb);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_missing_required_section_errors() {
+        // Valid header but n_sections=0 → missing all required sections
+        let mut bytes = vec![0u8; 24];
+        bytes[0..4].copy_from_slice(&[0x00, b'S', b'E', b'M']);
+        bytes[4..6].copy_from_slice(&1u16.to_le_bytes()); // format version 1
+        bytes[14..16].copy_from_slice(&0u16.to_le_bytes()); // 0 sections
+        let result = deserialize_from_bytes(&bytes);
+        match &result {
+            Err(e) => assert!(e.to_string().contains("missing"), "unexpected error: {e}"),
+            Ok(_) => panic!("expected error for missing sections"),
+        }
     }
 
     // ── Unicode string table ─────────────────────────────────────
