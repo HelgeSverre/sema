@@ -14,5 +14,6 @@ pub use sandbox::{Caps, Sandbox};
 pub use value::{
     compare_spurs, intern, interner_stats, pretty_print, resolve, with_resolved, Agent,
     Conversation, Env, ImageAttachment, Lambda, Macro, Message, NativeFn, Prompt, Record, Role,
-    Thunk, ToolDefinition, Value, ValueView,
+    Thunk, ToolDefinition, Value, ValueView, NAN_INT_SIGN_BIT, NAN_INT_SMALL_PATTERN,
+    NAN_PAYLOAD_MASK, NAN_TAG_MASK,
 };

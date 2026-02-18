@@ -2,10 +2,12 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use sema_core::{resolve as resolve_spur, Env, EvalContext, SemaError, Spur, Value};
+use sema_core::{
+    resolve as resolve_spur, Env, EvalContext, SemaError, Spur, Value, NAN_INT_SIGN_BIT,
+    NAN_INT_SMALL_PATTERN, NAN_PAYLOAD_MASK, NAN_TAG_MASK,
+};
 
 use crate::chunk::Function;
-use crate::opcodes::Op;
 
 /// A mutable cell for captured variables (upvalues).
 #[derive(Debug)]
@@ -42,8 +44,12 @@ struct CallFrame {
     base: usize,
     /// Open upvalue cells for locals in this frame.
     /// Maps local slot → shared UpvalueCell. Created lazily when a local is captured.
-    open_upvalues: Vec<Option<Rc<UpvalueCell>>>,
+    /// `None` means no locals have been captured yet (avoids heap allocation).
+    open_upvalues: Option<Vec<Option<Rc<UpvalueCell>>>>,
 }
+
+/// Number of entries in the direct-mapped global cache (must be power of 2).
+const GLOBAL_CACHE_SIZE: usize = 16;
 
 /// The bytecode virtual machine.
 pub struct VM {
@@ -51,6 +57,8 @@ pub struct VM {
     frames: Vec<CallFrame>,
     globals: Rc<Env>,
     functions: Rc<Vec<Rc<Function>>>,
+    /// Direct-mapped cache for global lookups: (spur_bits, env_version, value)
+    global_cache: [(u32, u64, Value); GLOBAL_CACHE_SIZE],
 }
 
 impl VM {
@@ -60,6 +68,7 @@ impl VM {
             frames: Vec::with_capacity(64),
             globals,
             functions: Rc::new(functions),
+            global_cache: std::array::from_fn(|_| (u32::MAX, u64::MAX, Value::nil())),
         }
     }
 
@@ -69,6 +78,7 @@ impl VM {
             frames: Vec::with_capacity(64),
             globals,
             functions,
+            global_cache: std::array::from_fn(|_| (u32::MAX, u64::MAX, Value::nil())),
         }
     }
 
@@ -83,465 +93,647 @@ impl VM {
             closure,
             pc: 0,
             base,
-            open_upvalues: vec![None; n_locals],
+            open_upvalues: None,
         });
         self.run(ctx)
     }
 
     fn run(&mut self, ctx: &EvalContext) -> Result<Value, SemaError> {
-        // Inline helpers for reading operands from bytecode without method call overhead
-        macro_rules! read_u16_inline {
+        // Raw-pointer macros for reading operands without bounds checks in inner loop
+        macro_rules! read_u16 {
             ($code:expr, $pc:expr) => {{
-                let v = u16::from_le_bytes([$code[$pc], $code[$pc + 1]]);
+                let v = unsafe { u16::from_le_bytes([*$code.add($pc), *$code.add($pc + 1)]) };
                 $pc += 2;
                 v
             }};
         }
-        macro_rules! read_i32_inline {
+        macro_rules! read_i32 {
             ($code:expr, $pc:expr) => {{
-                let v = i32::from_le_bytes([
-                    $code[$pc],
-                    $code[$pc + 1],
-                    $code[$pc + 2],
-                    $code[$pc + 3],
-                ]);
+                let v = unsafe {
+                    i32::from_le_bytes([
+                        *$code.add($pc),
+                        *$code.add($pc + 1),
+                        *$code.add($pc + 2),
+                        *$code.add($pc + 3),
+                    ])
+                };
                 $pc += 4;
                 v
             }};
         }
-        macro_rules! read_u32_inline {
+        macro_rules! read_u32 {
             ($code:expr, $pc:expr) => {{
-                let v = u32::from_le_bytes([
-                    $code[$pc],
-                    $code[$pc + 1],
-                    $code[$pc + 2],
-                    $code[$pc + 3],
-                ]);
+                let v = unsafe {
+                    u32::from_le_bytes([
+                        *$code.add($pc),
+                        *$code.add($pc + 1),
+                        *$code.add($pc + 2),
+                        *$code.add($pc + 3),
+                    ])
+                };
                 $pc += 4;
                 v
             }};
         }
 
-        loop {
+        // Two-level dispatch: outer loop caches frame locals, inner loop dispatches opcodes.
+        // We only break to the outer loop when frames change (Call/TailCall/Return/exceptions).
+        'dispatch: loop {
             let fi = self.frames.len() - 1;
-            let code = &self.frames[fi].closure.func.chunk.code;
-            let base = self.frames[fi].base;
-            let mut pc = self.frames[fi].pc;
+            let frame = &self.frames[fi];
+            let code = frame.closure.func.chunk.code.as_ptr();
+            let consts: *const [Value] = frame.closure.func.chunk.consts.as_slice();
+            let base = frame.base;
+            let mut pc = frame.pc;
+            #[cfg(debug_assertions)]
+            let code_len = frame.closure.func.chunk.code.len();
+            let _ = frame; // release borrow so we can mutate self
 
-            let opcode = Op::from_u8(code[pc]).ok_or_else(|| {
-                SemaError::eval(format!("VM: invalid opcode {}", code[pc]))
-            })?;
-            pc += 1; // skip opcode byte
+            loop {
+                #[cfg(debug_assertions)]
+                debug_assert!(pc < code_len, "pc {pc} out of bounds (len {code_len})");
+                let op = unsafe { *code.add(pc) };
+                pc += 1;
 
-            match opcode {
-                Op::Const => {
-                    let idx = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let val = self.frames[fi].closure.func.chunk.consts[idx].clone();
-                    self.stack.push(val);
-                }
-                Op::Nil => {
-                    self.frames[fi].pc = pc;
-                    self.stack.push(Value::nil());
-                }
-                Op::True => {
-                    self.frames[fi].pc = pc;
-                    self.stack.push(Value::bool(true));
-                }
-                Op::False => {
-                    self.frames[fi].pc = pc;
-                    self.stack.push(Value::bool(false));
-                }
-                Op::Pop => {
-                    self.frames[fi].pc = pc;
-                    self.stack.pop();
-                }
-                Op::Dup => {
-                    self.frames[fi].pc = pc;
-                    let val = self.stack[self.stack.len() - 1].clone();
-                    self.stack.push(val);
-                }
-
-                // --- Locals ---
-                Op::LoadLocal => {
-                    let slot = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let val = if let Some(Some(cell)) = self.frames[fi].open_upvalues.get(slot) {
-                        cell.value.borrow().clone()
-                    } else {
-                        self.stack[base + slot].clone()
-                    };
-                    self.stack.push(val);
-                }
-                Op::StoreLocal => {
-                    let slot = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let val = self.stack.pop().unwrap();
-                    self.stack[base + slot] = val.clone();
-                    if let Some(Some(cell)) = self.frames[fi].open_upvalues.get(slot) {
-                        *cell.value.borrow_mut() = val;
+                match op {
+                    // --- Constants & stack ---
+                    0 /* Const */ => {
+                        let idx = read_u16!(code, pc) as usize;
+                        let val = unsafe { &*consts }[idx].clone();
+                        self.stack.push(val);
                     }
-                }
+                    1 /* Nil */ => {
+                        self.stack.push(Value::nil());
+                    }
+                    2 /* True */ => {
+                        self.stack.push(Value::bool(true));
+                    }
+                    3 /* False */ => {
+                        self.stack.push(Value::bool(false));
+                    }
+                    4 /* Pop */ => {
+                        self.stack.pop();
+                    }
+                    5 /* Dup */ => {
+                        let val = self.stack[self.stack.len() - 1].clone();
+                        self.stack.push(val);
+                    }
 
-                // --- Upvalues ---
-                Op::LoadUpvalue => {
-                    let idx = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let val = self.frames[fi].closure.upvalues[idx].value.borrow().clone();
-                    self.stack.push(val);
-                }
-                Op::StoreUpvalue => {
-                    let idx = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let val = self.stack.pop().unwrap();
-                    *self.frames[fi].closure.upvalues[idx].value.borrow_mut() = val;
-                }
+                    // --- Locals ---
+                    6 /* LoadLocal */ => {
+                        let slot = read_u16!(code, pc) as usize;
+                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
+                            if let Some(Some(cell)) = open.get(slot) {
+                                cell.value.borrow().clone()
+                            } else {
+                                self.stack[base + slot].clone()
+                            }
+                        } else {
+                            self.stack[base + slot].clone()
+                        };
+                        self.stack.push(val);
+                    }
+                    7 /* StoreLocal */ => {
+                        let slot = read_u16!(code, pc) as usize;
+                        let val = self.stack.pop().unwrap();
+                        self.stack[base + slot] = val.clone();
+                        if let Some(ref open) = self.frames[fi].open_upvalues {
+                            if let Some(Some(cell)) = open.get(slot) {
+                                *cell.value.borrow_mut() = val;
+                            }
+                        }
+                    }
 
-                // --- Globals ---
-                Op::LoadGlobal => {
-                    let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
-                    self.frames[fi].pc = pc;
-                    match self.globals.get(spur) {
-                        Some(val) => self.stack.push(val),
-                        None => {
-                            let err = SemaError::Unbound(resolve_spur(spur));
-                            match self.handle_exception(err, pc - 5)? {
+                    // --- Upvalues ---
+                    8 /* LoadUpvalue */ => {
+                        let idx = read_u16!(code, pc) as usize;
+                        let val = self.frames[fi].closure.upvalues[idx].value.borrow().clone();
+                        self.stack.push(val);
+                    }
+                    9 /* StoreUpvalue */ => {
+                        let idx = read_u16!(code, pc) as usize;
+                        let val = self.stack.pop().unwrap();
+                        *self.frames[fi].closure.upvalues[idx].value.borrow_mut() = val;
+                    }
+
+                    // --- Globals ---
+                    10 /* LoadGlobal */ => {
+                        let bits = read_u32!(code, pc);
+                        let version = self.globals.version.get();
+                        let slot = (bits as usize) & (GLOBAL_CACHE_SIZE - 1);
+                        let entry = &self.global_cache[slot];
+                        if entry.0 == bits && entry.1 == version {
+                            self.stack.push(entry.2.clone());
+                        } else {
+                            let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
+                            match self.globals.get(spur) {
+                                Some(val) => {
+                                    self.global_cache[slot] = (bits, version, val.clone());
+                                    self.stack.push(val);
+                                }
+                                None => {
+                                    self.frames[fi].pc = pc;
+                                    let err = SemaError::Unbound(resolve_spur(spur));
+                                    match self.handle_exception(err, pc - 5)? {
+                                        ExceptionAction::Handled => continue 'dispatch,
+                                        ExceptionAction::Propagate(e) => return Err(e),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    11 /* StoreGlobal */ => {
+                        let bits = read_u32!(code, pc);
+                        let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
+                        let val = self.stack.pop().unwrap();
+                        if !self.globals.set_existing(spur, val.clone()) {
+                            self.globals.set(spur, val);
+                        }
+                    }
+                    12 /* DefineGlobal */ => {
+                        let bits = read_u32!(code, pc);
+                        let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
+                        let val = self.stack.pop().unwrap();
+                        self.globals.set(spur, val);
+                    }
+
+                    // --- Control flow ---
+                    13 /* Jump */ => {
+                        let offset = read_i32!(code, pc);
+                        pc = (pc as i64 + offset as i64) as usize;
+                    }
+                    14 /* JumpIfFalse */ => {
+                        let offset = read_i32!(code, pc);
+                        let val = self.stack.pop().unwrap();
+                        if !val.is_truthy() {
+                            pc = (pc as i64 + offset as i64) as usize;
+                        }
+                    }
+                    15 /* JumpIfTrue */ => {
+                        let offset = read_i32!(code, pc);
+                        let val = self.stack.pop().unwrap();
+                        if val.is_truthy() {
+                            pc = (pc as i64 + offset as i64) as usize;
+                        }
+                    }
+
+                    // --- Function calls ---
+                    16 /* Call */ => {
+                        let argc = read_u16!(code, pc) as usize;
+                        self.frames[fi].pc = pc;
+                        let saved_pc = pc - 3;
+                        if let Err(err) = self.call_value(argc, ctx) {
+                            match self.handle_exception(err, saved_pc)? {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             }
                         }
+                        continue 'dispatch;
                     }
-                }
-                Op::StoreGlobal => {
-                    let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
-                    self.frames[fi].pc = pc;
-                    let val = self.stack.pop().unwrap();
-                    if !self.globals.set_existing(spur, val.clone()) {
-                        self.globals.set(spur, val);
-                    }
-                }
-                Op::DefineGlobal => {
-                    let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(read_u32_inline!(code, pc)) };
-                    self.frames[fi].pc = pc;
-                    let val = self.stack.pop().unwrap();
-                    self.globals.set(spur, val);
-                }
-
-                // --- Control flow ---
-                Op::Jump => {
-                    let offset = read_i32_inline!(code, pc);
-                    self.frames[fi].pc = (pc as i64 + offset as i64) as usize;
-                }
-                Op::JumpIfFalse => {
-                    let offset = read_i32_inline!(code, pc);
-                    let val = self.stack.pop().unwrap();
-                    if !val.is_truthy() {
-                        self.frames[fi].pc = (pc as i64 + offset as i64) as usize;
-                    } else {
+                    17 /* TailCall */ => {
+                        let argc = read_u16!(code, pc) as usize;
                         self.frames[fi].pc = pc;
+                        let saved_pc = pc - 3;
+                        if let Err(err) = self.tail_call_value(argc, ctx) {
+                            match self.handle_exception(err, saved_pc)? {
+                                ExceptionAction::Handled => {}
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            }
+                        }
+                        continue 'dispatch;
                     }
-                }
-                Op::JumpIfTrue => {
-                    let offset = read_i32_inline!(code, pc);
-                    let val = self.stack.pop().unwrap();
-                    if val.is_truthy() {
-                        self.frames[fi].pc = (pc as i64 + offset as i64) as usize;
-                    } else {
+                    18 /* Return */ => {
+                        let result = self.stack.pop().unwrap_or(Value::nil());
+                        let frame = self.frames.pop().unwrap();
+                        self.stack.truncate(frame.base);
+                        if self.frames.is_empty() {
+                            return Ok(result);
+                        }
+                        self.stack.push(result);
+                        continue 'dispatch;
+                    }
+
+                    // --- Closures ---
+                    19 /* MakeClosure */ => {
+                        self.frames[fi].pc = pc - 1; // make_closure reads from frame.pc (the opcode position)
+                        self.make_closure()?;
+                        continue 'dispatch;
+                    }
+
+                    20 /* CallNative */ => {
+                        let _native_id = read_u16!(code, pc);
+                        let _argc = read_u16!(code, pc);
                         self.frames[fi].pc = pc;
+                        return Err(SemaError::eval("VM: CallNative not yet implemented"));
                     }
-                }
 
-                // --- Function calls ---
-                Op::Call => {
-                    let argc = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let saved_pc = pc - 3; // opcode byte + u16
-                    if let Err(err) = self.call_value(argc, ctx) {
-                        match self.handle_exception(err, saved_pc)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
+                    // --- Data constructors ---
+                    21 /* MakeList */ => {
+                        let n = read_u16!(code, pc) as usize;
+                        let start = self.stack.len() - n;
+                        let items: Vec<Value> = self.stack.drain(start..).collect();
+                        self.stack.push(Value::list(items));
+                    }
+                    22 /* MakeVector */ => {
+                        let n = read_u16!(code, pc) as usize;
+                        let start = self.stack.len() - n;
+                        let items: Vec<Value> = self.stack.drain(start..).collect();
+                        self.stack.push(Value::vector(items));
+                    }
+                    23 /* MakeMap */ => {
+                        let n = read_u16!(code, pc) as usize;
+                        let start = self.stack.len() - n * 2;
+                        let items: Vec<Value> = self.stack.drain(start..).collect();
+                        let mut map = BTreeMap::new();
+                        for pair in items.chunks(2) {
+                            map.insert(pair[0].clone(), pair[1].clone());
                         }
+                        self.stack.push(Value::map(map));
                     }
-                }
-                Op::TailCall => {
-                    let argc = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let saved_pc = pc - 3;
-                    if let Err(err) = self.tail_call_value(argc, ctx) {
-                        match self.handle_exception(err, saved_pc)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
+                    24 /* MakeHashMap */ => {
+                        let n = read_u16!(code, pc) as usize;
+                        let start = self.stack.len() - n * 2;
+                        let items: Vec<Value> = self.stack.drain(start..).collect();
+                        let mut map = hashbrown::HashMap::new();
+                        for pair in items.chunks(2) {
+                            map.insert(pair[0].clone(), pair[1].clone());
                         }
+                        self.stack.push(Value::hashmap_from_rc(Rc::new(map)));
                     }
-                }
-                Op::Return => {
-                    let result = self.stack.pop().unwrap_or(Value::nil());
-                    let frame = self.frames.pop().unwrap();
-                    self.stack.truncate(frame.base);
-                    if self.frames.is_empty() {
-                        return Ok(result);
-                    }
-                    self.stack.push(result);
-                }
 
-                // --- Closures ---
-                Op::MakeClosure => {
-                    self.make_closure()?;
-                }
-
-                Op::CallNative => {
-                    let _native_id = read_u16_inline!(code, pc);
-                    let _argc = read_u16_inline!(code, pc);
-                    self.frames[fi].pc = pc;
-                    return Err(SemaError::eval("VM: CallNative not yet implemented"));
-                }
-
-                // --- Data constructors ---
-                Op::MakeList => {
-                    let n = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let start = self.stack.len() - n;
-                    let items: Vec<Value> = self.stack.drain(start..).collect();
-                    self.stack.push(Value::list(items));
-                }
-                Op::MakeVector => {
-                    let n = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let start = self.stack.len() - n;
-                    let items: Vec<Value> = self.stack.drain(start..).collect();
-                    self.stack.push(Value::vector(items));
-                }
-                Op::MakeMap => {
-                    let n = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let start = self.stack.len() - n * 2;
-                    let items: Vec<Value> = self.stack.drain(start..).collect();
-                    let mut map = BTreeMap::new();
-                    for pair in items.chunks(2) {
-                        map.insert(pair[0].clone(), pair[1].clone());
-                    }
-                    self.stack.push(Value::map(map));
-                }
-                Op::MakeHashMap => {
-                    let n = read_u16_inline!(code, pc) as usize;
-                    self.frames[fi].pc = pc;
-                    let start = self.stack.len() - n * 2;
-                    let items: Vec<Value> = self.stack.drain(start..).collect();
-                    let mut map = hashbrown::HashMap::new();
-                    for pair in items.chunks(2) {
-                        map.insert(pair[0].clone(), pair[1].clone());
-                    }
-                    self.stack.push(Value::hashmap_from_rc(Rc::new(map)));
-                }
-
-                // --- Exceptions ---
-                Op::Throw => {
-                    self.frames[fi].pc = pc;
-                    let val = self.stack.pop().unwrap();
-                    let err = SemaError::UserException(val);
-                    match self.handle_exception(err, pc - 1)? {
-                        ExceptionAction::Handled => {}
-                        ExceptionAction::Propagate(e) => return Err(e),
-                    }
-                }
-
-                // --- Arithmetic ---
-                Op::Add => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    match vm_add(&a, &b) {
-                        Ok(v) => self.stack.push(v),
-                        Err(err) => match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        },
-                    }
-                }
-                Op::Sub => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    match vm_sub(&a, &b) {
-                        Ok(v) => self.stack.push(v),
-                        Err(err) => match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        },
-                    }
-                }
-                Op::Mul => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    match vm_mul(&a, &b) {
-                        Ok(v) => self.stack.push(v),
-                        Err(err) => match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        },
-                    }
-                }
-                Op::Div => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    match vm_div(&a, &b) {
-                        Ok(v) => self.stack.push(v),
-                        Err(err) => match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        },
-                    }
-                }
-                Op::Negate => {
-                    self.frames[fi].pc = pc;
-                    let a = self.stack.pop().unwrap();
-                    if let Some(n) = a.as_int() {
-                        self.stack.push(Value::int(-n));
-                    } else if let Some(f) = a.as_float() {
-                        self.stack.push(Value::float(-f));
-                    } else {
-                        let err = SemaError::type_error("number", a.type_name());
+                    // --- Exceptions ---
+                    25 /* Throw */ => {
+                        self.frames[fi].pc = pc;
+                        let val = self.stack.pop().unwrap();
+                        let err = SemaError::UserException(val);
                         match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
+                            ExceptionAction::Handled => continue 'dispatch,
                             ExceptionAction::Propagate(e) => return Err(e),
                         }
                     }
-                }
-                Op::Not => {
-                    self.frames[fi].pc = pc;
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(Value::bool(!a.is_truthy()));
-                }
-                Op::Eq => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    self.stack.push(Value::bool(a == b));
-                }
-                Op::Lt => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    match vm_lt(&a, &b) {
-                        Ok(v) => self.stack.push(Value::bool(v)),
-                        Err(err) => match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        },
-                    }
-                }
-                Op::Gt => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    match vm_lt(&b, &a) {
-                        Ok(v) => self.stack.push(Value::bool(v)),
-                        Err(err) => match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        },
-                    }
-                }
-                Op::Le => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    match vm_lt(&b, &a) {
-                        Ok(v) => self.stack.push(Value::bool(!v)),
-                        Err(err) => match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        },
-                    }
-                }
-                Op::Ge => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    match vm_lt(&a, &b) {
-                        Ok(v) => self.stack.push(Value::bool(!v)),
-                        Err(err) => match self.handle_exception(err, pc - 1)? {
-                            ExceptionAction::Handled => {}
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        },
-                    }
-                }
 
-                // --- Specialized int fast paths ---
-                Op::AddInt => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
-                        self.stack.push(Value::int(x.wrapping_add(y)));
-                    } else {
+                    // --- Arithmetic ---
+                    26 /* Add */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
                         match vm_add(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => match self.handle_exception(err, pc - 1)? {
-                                ExceptionAction::Handled => {}
-                                ExceptionAction::Propagate(e) => return Err(e),
-                            },
+                            Err(err) => {
+                                self.frames[fi].pc = pc;
+                                match self.handle_exception(err, pc - 1)? {
+                                    ExceptionAction::Handled => continue 'dispatch,
+                                    ExceptionAction::Propagate(e) => return Err(e),
+                                }
+                            }
                         }
                     }
-                }
-                Op::SubInt => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
-                        self.stack.push(Value::int(x.wrapping_sub(y)));
-                    } else {
+                    27 /* Sub */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
                         match vm_sub(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => match self.handle_exception(err, pc - 1)? {
-                                ExceptionAction::Handled => {}
-                                ExceptionAction::Propagate(e) => return Err(e),
-                            },
+                            Err(err) => {
+                                self.frames[fi].pc = pc;
+                                match self.handle_exception(err, pc - 1)? {
+                                    ExceptionAction::Handled => continue 'dispatch,
+                                    ExceptionAction::Propagate(e) => return Err(e),
+                                }
+                            }
                         }
                     }
-                }
-                Op::MulInt => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
-                        self.stack.push(Value::int(x.wrapping_mul(y)));
-                    } else {
+                    28 /* Mul */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
                         match vm_mul(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => match self.handle_exception(err, pc - 1)? {
-                                ExceptionAction::Handled => {}
-                                ExceptionAction::Propagate(e) => return Err(e),
-                            },
+                            Err(err) => {
+                                self.frames[fi].pc = pc;
+                                match self.handle_exception(err, pc - 1)? {
+                                    ExceptionAction::Handled => continue 'dispatch,
+                                    ExceptionAction::Propagate(e) => return Err(e),
+                                }
+                            }
                         }
                     }
-                }
-                Op::LtInt => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
-                        self.stack.push(Value::bool(x < y));
-                    } else {
+                    29 /* Div */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        match vm_div(&a, &b) {
+                            Ok(v) => self.stack.push(v),
+                            Err(err) => {
+                                self.frames[fi].pc = pc;
+                                match self.handle_exception(err, pc - 1)? {
+                                    ExceptionAction::Handled => continue 'dispatch,
+                                    ExceptionAction::Propagate(e) => return Err(e),
+                                }
+                            }
+                        }
+                    }
+                    30 /* Negate */ => {
+                        let a = self.stack.pop().unwrap();
+                        if let Some(n) = a.as_int() {
+                            self.stack.push(Value::int(-n));
+                        } else if let Some(f) = a.as_float() {
+                            self.stack.push(Value::float(-f));
+                        } else {
+                            self.frames[fi].pc = pc;
+                            let err = SemaError::type_error("number", a.type_name());
+                            match self.handle_exception(err, pc - 1)? {
+                                ExceptionAction::Handled => continue 'dispatch,
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            }
+                        }
+                    }
+                    31 /* Not */ => {
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(Value::bool(!a.is_truthy()));
+                    }
+                    32 /* Eq */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        self.stack.push(Value::bool(a == b));
+                    }
+                    33 /* Lt */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
                         match vm_lt(&a, &b) {
                             Ok(v) => self.stack.push(Value::bool(v)),
-                            Err(err) => match self.handle_exception(err, pc - 1)? {
-                                ExceptionAction::Handled => {}
-                                ExceptionAction::Propagate(e) => return Err(e),
-                            },
+                            Err(err) => {
+                                self.frames[fi].pc = pc;
+                                match self.handle_exception(err, pc - 1)? {
+                                    ExceptionAction::Handled => continue 'dispatch,
+                                    ExceptionAction::Propagate(e) => return Err(e),
+                                }
+                            }
                         }
                     }
-                }
-                Op::EqInt => {
-                    self.frames[fi].pc = pc;
-                    let b = self.stack.pop().unwrap();
-                    let a = self.stack.pop().unwrap();
-                    if let (Some(x), Some(y)) = (a.as_int(), b.as_int()) {
-                        self.stack.push(Value::bool(x == y));
-                    } else {
-                        self.stack.push(Value::bool(a == b));
+                    34 /* Gt */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        match vm_lt(&b, &a) {
+                            Ok(v) => self.stack.push(Value::bool(v)),
+                            Err(err) => {
+                                self.frames[fi].pc = pc;
+                                match self.handle_exception(err, pc - 1)? {
+                                    ExceptionAction::Handled => continue 'dispatch,
+                                    ExceptionAction::Propagate(e) => return Err(e),
+                                }
+                            }
+                        }
+                    }
+                    35 /* Le */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        match vm_lt(&b, &a) {
+                            Ok(v) => self.stack.push(Value::bool(!v)),
+                            Err(err) => {
+                                self.frames[fi].pc = pc;
+                                match self.handle_exception(err, pc - 1)? {
+                                    ExceptionAction::Handled => continue 'dispatch,
+                                    ExceptionAction::Propagate(e) => return Err(e),
+                                }
+                            }
+                        }
+                    }
+                    36 /* Ge */ => {
+                        let b = self.stack.pop().unwrap();
+                        let a = self.stack.pop().unwrap();
+                        match vm_lt(&a, &b) {
+                            Ok(v) => self.stack.push(Value::bool(!v)),
+                            Err(err) => {
+                                self.frames[fi].pc = pc;
+                                match self.handle_exception(err, pc - 1)? {
+                                    ExceptionAction::Handled => continue 'dispatch,
+                                    ExceptionAction::Propagate(e) => return Err(e),
+                                }
+                            }
+                        }
+                    }
+
+                    // --- Specialized int fast paths ---
+                    // These operate directly on raw u64 bits to avoid Clone/Drop overhead.
+                    // Small ints are immediates (no heap pointer), so we can safely
+                    // overwrite stack slots and adjust length without running destructors.
+                    37 /* AddInt */ => {
+                        let len = self.stack.len();
+                        let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
+                        let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
+                        if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                            && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                        {
+                            let sum = (a_bits.wrapping_add(b_bits)) & NAN_PAYLOAD_MASK;
+                            let result = NAN_INT_SMALL_PATTERN | sum;
+                            unsafe {
+                                std::ptr::write(
+                                    self.stack.as_mut_ptr().add(len - 2),
+                                    Value::from_raw_bits(result),
+                                );
+                                self.stack.set_len(len - 1);
+                            }
+                        } else {
+                            let b = self.stack.pop().unwrap();
+                            let a = self.stack.pop().unwrap();
+                            match vm_add(&a, &b) {
+                                Ok(v) => self.stack.push(v),
+                                Err(err) => {
+                                    self.frames[fi].pc = pc;
+                                    match self.handle_exception(err, pc - 1)? {
+                                        ExceptionAction::Handled => continue 'dispatch,
+                                        ExceptionAction::Propagate(e) => return Err(e),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    38 /* SubInt */ => {
+                        let len = self.stack.len();
+                        let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
+                        let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
+                        if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                            && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                        {
+                            let diff = (a_bits.wrapping_sub(b_bits)) & NAN_PAYLOAD_MASK;
+                            let result = NAN_INT_SMALL_PATTERN | diff;
+                            unsafe {
+                                std::ptr::write(
+                                    self.stack.as_mut_ptr().add(len - 2),
+                                    Value::from_raw_bits(result),
+                                );
+                                self.stack.set_len(len - 1);
+                            }
+                        } else {
+                            let b = self.stack.pop().unwrap();
+                            let a = self.stack.pop().unwrap();
+                            match vm_sub(&a, &b) {
+                                Ok(v) => self.stack.push(v),
+                                Err(err) => {
+                                    self.frames[fi].pc = pc;
+                                    match self.handle_exception(err, pc - 1)? {
+                                        ExceptionAction::Handled => continue 'dispatch,
+                                        ExceptionAction::Propagate(e) => return Err(e),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    39 /* MulInt */ => {
+                        let len = self.stack.len();
+                        let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
+                        let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
+                        if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                            && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                        {
+                            // Must sign-extend to i64 for correct multiplication
+                            let a_payload = a_bits & NAN_PAYLOAD_MASK;
+                            let b_payload = b_bits & NAN_PAYLOAD_MASK;
+                            let ax = if a_payload & NAN_INT_SIGN_BIT != 0 {
+                                (a_payload | !NAN_PAYLOAD_MASK) as i64
+                            } else {
+                                a_payload as i64
+                            };
+                            let bx = if b_payload & NAN_INT_SIGN_BIT != 0 {
+                                (b_payload | !NAN_PAYLOAD_MASK) as i64
+                            } else {
+                                b_payload as i64
+                            };
+                            // Use Value::int for multiplication — result may overflow 45 bits
+                            unsafe {
+                                std::ptr::write(
+                                    self.stack.as_mut_ptr().add(len - 2),
+                                    Value::int(ax.wrapping_mul(bx)),
+                                );
+                                self.stack.set_len(len - 1);
+                            }
+                        } else {
+                            let b = self.stack.pop().unwrap();
+                            let a = self.stack.pop().unwrap();
+                            match vm_mul(&a, &b) {
+                                Ok(v) => self.stack.push(v),
+                                Err(err) => {
+                                    self.frames[fi].pc = pc;
+                                    match self.handle_exception(err, pc - 1)? {
+                                        ExceptionAction::Handled => continue 'dispatch,
+                                        ExceptionAction::Propagate(e) => return Err(e),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    40 /* LtInt */ => {
+                        let len = self.stack.len();
+                        let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
+                        let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
+                        if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                            && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                        {
+                            // Sign-extend payloads and compare
+                            let a_payload = a_bits & NAN_PAYLOAD_MASK;
+                            let b_payload = b_bits & NAN_PAYLOAD_MASK;
+                            let ax = if a_payload & NAN_INT_SIGN_BIT != 0 {
+                                (a_payload | !NAN_PAYLOAD_MASK) as i64
+                            } else {
+                                a_payload as i64
+                            };
+                            let bx = if b_payload & NAN_INT_SIGN_BIT != 0 {
+                                (b_payload | !NAN_PAYLOAD_MASK) as i64
+                            } else {
+                                b_payload as i64
+                            };
+                            unsafe {
+                                std::ptr::write(
+                                    self.stack.as_mut_ptr().add(len - 2),
+                                    Value::bool(ax < bx),
+                                );
+                                self.stack.set_len(len - 1);
+                            }
+                        } else {
+                            let b = self.stack.pop().unwrap();
+                            let a = self.stack.pop().unwrap();
+                            match vm_lt(&a, &b) {
+                                Ok(v) => self.stack.push(Value::bool(v)),
+                                Err(err) => {
+                                    self.frames[fi].pc = pc;
+                                    match self.handle_exception(err, pc - 1)? {
+                                        ExceptionAction::Handled => continue 'dispatch,
+                                        ExceptionAction::Propagate(e) => return Err(e),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    41 /* EqInt */ => {
+                        let len = self.stack.len();
+                        let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
+                        let b_bits = unsafe { (*self.stack.as_ptr().add(len - 1)).raw_bits() };
+                        if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                            && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
+                        {
+                            // Small ints: equal iff same bits
+                            unsafe {
+                                std::ptr::write(
+                                    self.stack.as_mut_ptr().add(len - 2),
+                                    Value::bool(a_bits == b_bits),
+                                );
+                                self.stack.set_len(len - 1);
+                            }
+                        } else {
+                            let b = self.stack.pop().unwrap();
+                            let a = self.stack.pop().unwrap();
+                            self.stack.push(Value::bool(a == b));
+                        }
+                    }
+
+                    42 /* LoadLocal0 */ => {
+                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
+                            if let Some(Some(cell)) = open.first() {
+                                cell.value.borrow().clone()
+                            } else {
+                                self.stack[base].clone()
+                            }
+                        } else {
+                            self.stack[base].clone()
+                        };
+                        self.stack.push(val);
+                    }
+                    43 /* LoadLocal1 */ => {
+                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
+                            if let Some(Some(cell)) = open.get(1) {
+                                cell.value.borrow().clone()
+                            } else {
+                                self.stack[base + 1].clone()
+                            }
+                        } else {
+                            self.stack[base + 1].clone()
+                        };
+                        self.stack.push(val);
+                    }
+                    44 /* LoadLocal2 */ => {
+                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
+                            if let Some(Some(cell)) = open.get(2) {
+                                cell.value.borrow().clone()
+                            } else {
+                                self.stack[base + 2].clone()
+                            }
+                        } else {
+                            self.stack[base + 2].clone()
+                        };
+                        self.stack.push(val);
+                    }
+                    45 /* LoadLocal3 */ => {
+                        let val = if let Some(ref open) = self.frames[fi].open_upvalues {
+                            if let Some(Some(cell)) = open.get(3) {
+                                cell.value.borrow().clone()
+                            } else {
+                                self.stack[base + 3].clone()
+                            }
+                        } else {
+                            self.stack[base + 3].clone()
+                        };
+                        self.stack.push(val);
+                    }
+
+                    _ => {
+                        return Err(SemaError::eval(format!("VM: invalid opcode {}", op)));
                     }
                 }
             }
@@ -552,30 +744,32 @@ impl VM {
 
     fn call_value(&mut self, argc: usize, ctx: &EvalContext) -> Result<(), SemaError> {
         let func_idx = self.stack.len() - 1 - argc;
-        let func_val = self.stack[func_idx].clone();
 
-        if let Some(native) = func_val.as_native_fn_rc() {
-            // Check for VM closure payload — call via frame push, not Rust recursion
-            if let Some(payload) = &native.payload {
-                if let Some(vmc) = payload.downcast_ref::<VmClosurePayload>() {
-                    return self.call_vm_closure(vmc, argc);
-                }
+        // Fast path: peek at tag without Rc refcount bump.
+        // TAG_NATIVE_FN = 15 in the NaN-boxing layout.
+        if self.stack[func_idx].raw_tag() == Some(15) {
+            // Check for VM closure payload without holding a borrow across mutation.
+            // Extract closure+functions (cloned Rc) in a block, then call with them.
+            let vm_closure_data = {
+                let native = self.stack[func_idx].as_native_fn_ref().unwrap();
+                native.payload.as_ref().and_then(|p| {
+                    p.downcast_ref::<VmClosurePayload>()
+                        .map(|vmc| (vmc.closure.clone(), vmc.functions.clone()))
+                })
+            };
+            if let Some((closure, functions)) = vm_closure_data {
+                self.functions = functions;
+                return self.call_vm_closure_from_rc(&closure, argc);
             }
+            // Regular native fn — need Rc for the call
+            let func_rc = self.stack[func_idx].as_native_fn_rc().unwrap();
             let args_start = func_idx + 1;
             let args: Vec<Value> = self.stack[args_start..].to_vec();
             self.stack.truncate(func_idx);
-            let result = (native.func)(ctx, &args)?;
+            let result = (func_rc.func)(ctx, &args)?;
             self.stack.push(result);
             Ok(())
-        } else if func_val.as_lambda_rc().is_some() {
-            // Lambda from tree-walker — call via call_callback
-            let args_start = func_idx + 1;
-            let args: Vec<Value> = self.stack[args_start..].to_vec();
-            self.stack.truncate(func_idx);
-            let result = sema_core::call_callback(ctx, &func_val, &args)?;
-            self.stack.push(result);
-            Ok(())
-        } else if let Some(kw) = func_val.as_keyword_spur() {
+        } else if let Some(kw) = self.stack[func_idx].as_keyword_spur() {
             // Keyword as function: (kw map) -> map[kw]
             if argc != 1 {
                 return Err(SemaError::arity(resolve_spur(kw), "1", argc));
@@ -593,6 +787,8 @@ impl VM {
             self.stack.push(result);
             Ok(())
         } else {
+            // Lambda or other callable — clone once and use call_callback
+            let func_val = self.stack[func_idx].clone();
             let args_start = func_idx + 1;
             let args: Vec<Value> = self.stack[args_start..].to_vec();
             self.stack.truncate(func_idx);
@@ -604,14 +800,19 @@ impl VM {
 
     fn tail_call_value(&mut self, argc: usize, ctx: &EvalContext) -> Result<(), SemaError> {
         let func_idx = self.stack.len() - 1 - argc;
-        let func_val = self.stack[func_idx].clone();
 
-        // Check for VM closure — reuse current frame for TCO
-        if let Some(native) = func_val.as_native_fn_rc() {
-            if let Some(payload) = &native.payload {
-                if let Some(vmc) = payload.downcast_ref::<VmClosurePayload>() {
-                    return self.tail_call_vm_closure(vmc, argc);
-                }
+        // Fast path: peek at tag without Rc refcount bump
+        if self.stack[func_idx].raw_tag() == Some(15) {
+            let vm_closure_data = {
+                let native = self.stack[func_idx].as_native_fn_ref().unwrap();
+                native.payload.as_ref().and_then(|p| {
+                    p.downcast_ref::<VmClosurePayload>()
+                        .map(|vmc| (vmc.closure.clone(), vmc.functions.clone()))
+                })
+            };
+            if let Some((closure, functions)) = vm_closure_data {
+                self.functions = functions;
+                return self.tail_call_vm_closure_from_rc(&closure, argc);
             }
         }
 
@@ -620,9 +821,13 @@ impl VM {
     }
 
     /// Push a new CallFrame for a VM closure (no Rust recursion).
-    fn call_vm_closure(&mut self, vmc: &VmClosurePayload, argc: usize) -> Result<(), SemaError> {
-        let closure = vmc.closure.clone();
-        self.functions = vmc.functions.clone();
+    /// Caller must set `self.functions` before calling this.
+    fn call_vm_closure_from_rc(
+        &mut self,
+        closure: &Rc<Closure>,
+        argc: usize,
+    ) -> Result<(), SemaError> {
+        let closure = closure.clone();
         let func = &closure.func;
         let arity = func.arity as usize;
         let has_rest = func.has_rest;
@@ -674,20 +879,20 @@ impl VM {
             closure,
             pc: 0,
             base,
-            open_upvalues: vec![None; n_locals],
+            open_upvalues: None,
         });
 
         Ok(())
     }
 
     /// Tail-call a VM closure: reuse the current frame's stack space.
-    fn tail_call_vm_closure(
+    /// Caller must set `self.functions` before calling this.
+    fn tail_call_vm_closure_from_rc(
         &mut self,
-        vmc: &VmClosurePayload,
+        closure: &Rc<Closure>,
         argc: usize,
     ) -> Result<(), SemaError> {
-        let closure = vmc.closure.clone();
-        self.functions = vmc.functions.clone();
+        let closure = closure.clone();
         let func = &closure.func;
         let arity = func.arity as usize;
         let has_rest = func.has_rest;
@@ -739,7 +944,7 @@ impl VM {
         frame.closure = closure;
         frame.pc = 0;
         // base stays the same
-        frame.open_upvalues = vec![None; n_locals];
+        frame.open_upvalues = None;
 
         Ok(())
     }
@@ -775,14 +980,19 @@ impl VM {
 
         for (is_local, idx) in &uv_descs {
             if *is_local {
-                // Capture from current frame's local slot using a shared UpvalueCell
+                // Capture from current frame's local slot using a shared UpvalueCell.
+                // Lazily allocate open_upvalues on first capture.
                 let frame = self.frames.last_mut().unwrap();
-                let cell = if let Some(existing) = &frame.open_upvalues[*idx] {
+                let n_locals = frame.closure.func.chunk.n_locals as usize;
+                let open = frame
+                    .open_upvalues
+                    .get_or_insert_with(|| vec![None; n_locals]);
+                let cell = if let Some(existing) = &open[*idx] {
                     existing.clone()
                 } else {
                     let val = self.stack[base + *idx].clone();
                     let cell = Rc::new(UpvalueCell::new(val));
-                    frame.open_upvalues[*idx] = Some(cell.clone());
+                    open[*idx] = Some(cell.clone());
                     cell
                 };
                 upvalues.push(cell);
@@ -861,7 +1071,7 @@ impl VM {
                     closure: closure_for_fallback.clone(),
                     pc: 0,
                     base: 0,
-                    open_upvalues: vec![None; n_locals],
+                    open_upvalues: None,
                 });
                 vm.run(ctx)
             },
@@ -1006,6 +1216,7 @@ fn error_to_value(err: &SemaError) -> Value {
 
 // --- Arithmetic helpers ---
 
+#[inline(always)]
 fn vm_add(a: &Value, b: &Value) -> Result<Value, SemaError> {
     use sema_core::ValueView;
     match (a.view(), b.view()) {
@@ -1025,6 +1236,7 @@ fn vm_add(a: &Value, b: &Value) -> Result<Value, SemaError> {
     }
 }
 
+#[inline(always)]
 fn vm_sub(a: &Value, b: &Value) -> Result<Value, SemaError> {
     use sema_core::ValueView;
     match (a.view(), b.view()) {
@@ -1039,6 +1251,7 @@ fn vm_sub(a: &Value, b: &Value) -> Result<Value, SemaError> {
     }
 }
 
+#[inline(always)]
 fn vm_mul(a: &Value, b: &Value) -> Result<Value, SemaError> {
     use sema_core::ValueView;
     match (a.view(), b.view()) {
@@ -1053,6 +1266,7 @@ fn vm_mul(a: &Value, b: &Value) -> Result<Value, SemaError> {
     }
 }
 
+#[inline(always)]
 fn vm_div(a: &Value, b: &Value) -> Result<Value, SemaError> {
     use sema_core::ValueView;
     match (a.view(), b.view()) {
@@ -1068,6 +1282,7 @@ fn vm_div(a: &Value, b: &Value) -> Result<Value, SemaError> {
     }
 }
 
+#[inline(always)]
 fn vm_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
     use sema_core::ValueView;
     match (a.view(), b.view()) {

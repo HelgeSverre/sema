@@ -1,5 +1,5 @@
 use std::any::Any;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::fmt;
 use std::hash::{Hash, Hasher};
@@ -289,6 +289,20 @@ const TAG_BYTEVECTOR: u64 = 23;
 /// Small-int range: [-2^44, 2^44 - 1] = [-17_592_186_044_416, +17_592_186_044_415]
 const SMALL_INT_MIN: i64 = -(1i64 << 44);
 const SMALL_INT_MAX: i64 = (1i64 << 44) - 1;
+
+// ── Public NaN-boxing constants for VM use ────────────────────────
+
+/// Tag + box combined mask: upper 19 bits (sign + exponent + quiet + 6-bit tag).
+pub const NAN_TAG_MASK: u64 = BOX_MASK | (0x3F << 45); // 0xFFFF_E000_0000_0000
+
+/// The expected upper bits for a small int value: BOX_MASK | (TAG_INT_SMALL << 45).
+pub const NAN_INT_SMALL_PATTERN: u64 = BOX_MASK | (TAG_INT_SMALL << 45);
+
+/// Public payload mask (45 bits).
+pub const NAN_PAYLOAD_MASK: u64 = PAYLOAD_MASK;
+
+/// Sign bit within the 45-bit payload (bit 44) — for sign-extending small ints.
+pub const NAN_INT_SIGN_BIT: u64 = INT_SIGN_BIT;
 
 // ── Helpers for encoding/decoding ─────────────────────────────────
 
@@ -601,6 +615,41 @@ impl Value {
     #[inline(always)]
     pub fn raw_bits(&self) -> u64 {
         self.0
+    }
+
+    /// Construct a Value from raw NaN-boxed bits.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure `bits` represents a valid NaN-boxed value.
+    /// For immediate types (nil, bool, int, symbol, keyword, char), this is always safe.
+    /// For heap-pointer types, the encoded pointer must be valid and have its Rc ownership
+    /// accounted for (i.e., the caller must ensure the refcount is correct).
+    #[inline(always)]
+    pub unsafe fn from_raw_bits(bits: u64) -> Value {
+        Value(bits)
+    }
+
+    /// Get the NaN-boxing tag of a boxed value (0-63).
+    /// Returns `None` for non-boxed values (floats).
+    #[inline(always)]
+    pub fn raw_tag(&self) -> Option<u64> {
+        if is_boxed(self.0) {
+            Some(get_tag(self.0))
+        } else {
+            None
+        }
+    }
+
+    /// Borrow the underlying NativeFn without bumping the Rc refcount.
+    /// SAFETY: The returned reference is valid as long as this Value is alive.
+    #[inline(always)]
+    pub fn as_native_fn_ref(&self) -> Option<&NativeFn> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_NATIVE_FN {
+            Some(unsafe { self.borrow_ref::<NativeFn>() })
+        } else {
+            None
+        }
     }
 
     /// Check if this is a float (non-boxed).
@@ -1588,6 +1637,7 @@ impl fmt::Debug for Value {
 pub struct Env {
     pub bindings: Rc<RefCell<SpurMap<Spur, Value>>>,
     pub parent: Option<Rc<Env>>,
+    pub version: Cell<u64>,
 }
 
 impl Env {
@@ -1595,6 +1645,7 @@ impl Env {
         Env {
             bindings: Rc::new(RefCell::new(SpurMap::new())),
             parent: None,
+            version: Cell::new(0),
         }
     }
 
@@ -1602,7 +1653,12 @@ impl Env {
         Env {
             bindings: Rc::new(RefCell::new(SpurMap::new())),
             parent: Some(parent),
+            version: Cell::new(0),
         }
+    }
+
+    fn bump_version(&self) {
+        self.version.set(self.version.get().wrapping_add(1));
     }
 
     pub fn get(&self, name: Spur) -> Option<Value> {
@@ -1621,6 +1677,7 @@ impl Env {
 
     pub fn set(&self, name: Spur, val: Value) {
         self.bindings.borrow_mut().insert(name, val);
+        self.bump_version();
     }
 
     pub fn set_str(&self, name: &str, val: Value) {
@@ -1635,16 +1692,23 @@ impl Env {
         } else {
             bindings.insert(name, val);
         }
+        drop(bindings);
+        self.bump_version();
     }
 
     /// Remove and return a binding from the current scope only.
     pub fn take(&self, name: Spur) -> Option<Value> {
-        self.bindings.borrow_mut().remove(&name)
+        let result = self.bindings.borrow_mut().remove(&name);
+        if result.is_some() {
+            self.bump_version();
+        }
+        result
     }
 
     /// Remove and return a binding from any scope in the parent chain.
     pub fn take_anywhere(&self, name: Spur) -> Option<Value> {
         if let Some(val) = self.bindings.borrow_mut().remove(&name) {
+            self.bump_version();
             Some(val)
         } else if let Some(parent) = &self.parent {
             parent.take_anywhere(name)
@@ -1658,6 +1722,8 @@ impl Env {
         let mut bindings = self.bindings.borrow_mut();
         if let Some(entry) = bindings.get_mut(&name) {
             *entry = val;
+            drop(bindings);
+            self.bump_version();
             true
         } else {
             drop(bindings);

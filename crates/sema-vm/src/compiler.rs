@@ -224,10 +224,16 @@ impl Compiler {
 
     fn compile_var_load(&mut self, vr: &VarRef) -> Result<(), SemaError> {
         match vr.resolution {
-            VarResolution::Local { slot } => {
-                self.emit.emit_op(Op::LoadLocal);
-                self.emit.emit_u16(slot);
-            }
+            VarResolution::Local { slot } => match slot {
+                0 => self.emit.emit_op(Op::LoadLocal0),
+                1 => self.emit.emit_op(Op::LoadLocal1),
+                2 => self.emit.emit_op(Op::LoadLocal2),
+                3 => self.emit.emit_op(Op::LoadLocal3),
+                _ => {
+                    self.emit.emit_op(Op::LoadLocal);
+                    self.emit.emit_u16(slot);
+                }
+            },
             VarResolution::Upvalue { index } => {
                 self.emit.emit_op(Op::LoadUpvalue);
                 self.emit.emit_u16(index);
@@ -1163,9 +1169,9 @@ mod tests {
         assert_eq!(func.arity, 1);
         assert!(!func.has_rest);
 
-        // Inner function: LoadLocal 0, Return
+        // Inner function: LoadLocal0, Return
         let inner_ops = extract_ops(&func.chunk);
-        assert_eq!(inner_ops, vec![Op::LoadLocal, Op::Return]);
+        assert_eq!(inner_ops, vec![Op::LoadLocal0, Op::Return]);
 
         // Top-level: MakeClosure, Return
         let top_ops = extract_ops(&result.chunk);
@@ -1239,7 +1245,7 @@ mod tests {
     fn test_compile_let() {
         let result = compile_str("(lambda () (let ((x 1) (y 2)) x))");
         let inner_ops = extract_ops(&result.functions[0].chunk);
-        // CONST(1), CONST(2), StoreLocal(y=1), StoreLocal(x=0), LoadLocal(x=0), Return
+        // CONST(1), CONST(2), StoreLocal(y=1), StoreLocal(x=0), LoadLocal0(x=0), Return
         assert_eq!(
             inner_ops,
             vec![
@@ -1247,7 +1253,7 @@ mod tests {
                 Op::Const,
                 Op::StoreLocal,
                 Op::StoreLocal,
-                Op::LoadLocal,
+                Op::LoadLocal0,
                 Op::Return
             ]
         );
@@ -1264,9 +1270,9 @@ mod tests {
             vec![
                 Op::Const,
                 Op::StoreLocal,
-                Op::LoadLocal,
+                Op::LoadLocal0,
                 Op::StoreLocal,
-                Op::LoadLocal,
+                Op::LoadLocal1,
                 Op::Return
             ]
         );
@@ -1284,7 +1290,7 @@ mod tests {
                 Op::StoreLocal,
                 Op::Const,
                 Op::StoreLocal,
-                Op::LoadLocal,
+                Op::LoadLocal0,
                 Op::Return
             ]
         );

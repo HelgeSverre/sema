@@ -71,6 +71,10 @@ fn op_name(op: Op) -> &'static str {
         Op::MulInt => "MUL_INT",
         Op::LtInt => "LT_INT",
         Op::EqInt => "EQ_INT",
+        Op::LoadLocal0 => "LOAD_LOCAL_0",
+        Op::LoadLocal1 => "LOAD_LOCAL_1",
+        Op::LoadLocal2 => "LOAD_LOCAL_2",
+        Op::LoadLocal3 => "LOAD_LOCAL_3",
     }
 }
 
@@ -188,7 +192,7 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
 }
 
 fn op_from_u8(byte: u8) -> Option<Op> {
-    const MAX_OP: u8 = Op::EqInt as u8;
+    const MAX_OP: u8 = Op::LoadLocal3 as u8;
     if byte > MAX_OP {
         return None;
     }

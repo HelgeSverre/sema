@@ -70,6 +70,12 @@ pub enum Op {
     MulInt,
     LtInt,
     EqInt,
+
+    // Specialized zero-operand locals (most common slots)
+    LoadLocal0, // = 42
+    LoadLocal1, // = 43
+    LoadLocal2, // = 44
+    LoadLocal3, // = 45
 }
 
 impl Op {
@@ -117,6 +123,10 @@ impl Op {
             39 => Some(Op::MulInt),
             40 => Some(Op::LtInt),
             41 => Some(Op::EqInt),
+            42 => Some(Op::LoadLocal0),
+            43 => Some(Op::LoadLocal1),
+            44 => Some(Op::LoadLocal2),
+            45 => Some(Op::LoadLocal3),
             _ => None,
         }
     }
