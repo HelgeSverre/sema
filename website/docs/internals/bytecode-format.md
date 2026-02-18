@@ -28,8 +28,12 @@ sema compile -o output.semac script.sema   # explicit output path
 # Run a bytecode file (auto-detected via magic number)
 sema script.semac
 
+# Validate a bytecode file
+sema compile --check script.semac
+
 # Disassemble a bytecode file
 sema disasm script.semac
+sema disasm --json script.semac            # structured JSON output
 ```
 
 ### Design Goals

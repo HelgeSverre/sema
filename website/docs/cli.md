@@ -52,6 +52,7 @@ sema compile [OPTIONS] <FILE>
 | Flag                  | Description                                          |
 | --------------------- | ---------------------------------------------------- |
 | `-o, --output <FILE>` | Output file path (default: input with `.semac` extension) |
+| `--check`             | Validate a `.semac` file without executing            |
 
 ```bash
 # Compile to bytecode
@@ -60,6 +61,10 @@ sema compile -o output.semac script.sema   # explicit output path
 
 # Run the compiled bytecode (auto-detected)
 sema script.semac
+
+# Validate a bytecode file
+sema compile --check script.semac
+# ✓ script.semac: valid (format v1, sema 1.6.2, 3 functions, 847 bytes)
 ```
 
 ### `sema disasm`
@@ -67,11 +72,16 @@ sema script.semac
 Disassemble a compiled `.semac` bytecode file, printing a human-readable listing of the main chunk and all function templates.
 
 ```
-sema disasm <FILE>
+sema disasm [OPTIONS] <FILE>
 ```
 
+| Flag     | Description    |
+| -------- | -------------- |
+| `--json` | Output as JSON |
+
 ```bash
-sema disasm script.semac
+sema disasm script.semac          # human-readable text
+sema disasm --json script.semac   # structured JSON output
 ```
 
 ### `sema completions`

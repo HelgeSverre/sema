@@ -674,19 +674,34 @@ git commit -m "test: add end-to-end bytecode file integration test"
 
 ## Task Summary
 
-| # | Task | Files | Estimated |
-|---|------|-------|-----------|
-| 1 | String Table Builder | `serialize.rs`, `lib.rs` | 10 min |
-| 2 | Value Serialization | `serialize.rs` | 20 min |
-| 3 | Chunk Serialization | `serialize.rs` | 15 min |
-| 4 | Function Table Serialization | `serialize.rs` | 15 min |
-| 5 | Spur Remapping in Bytecode | `serialize.rs` | 20 min |
-| 6 | Full File Serialization | `serialize.rs` | 15 min |
-| 7 | CLI `sema compile` | `main.rs` | 15 min |
-| 8 | CLI auto-detect + `sema run` | `main.rs` | 15 min |
-| 9 | CLI `sema disasm` | `main.rs` | 10 min |
-| 10 | Docs update | `cli.md`, `bytecode-vm.md`, `bytecode-format.md` | 10 min |
-| 11 | E2E integration test | `integration_test.rs` | 10 min |
+| # | Task | Files | Status |
+|---|------|-------|--------|
+| 1 | String Table Builder | `serialize.rs`, `lib.rs` | ✅ Done |
+| 2 | Value Serialization | `serialize.rs` | ✅ Done |
+| 3 | Chunk Serialization | `serialize.rs` | ✅ Done |
+| 4 | Function Table Serialization | `serialize.rs` | ✅ Done |
+| 5 | Spur Remapping in Bytecode | `serialize.rs` | ✅ Done |
+| 6 | Full File Serialization | `serialize.rs` | ✅ Done |
+| 7 | CLI `sema compile` | `main.rs` | ✅ Done (incl. `--check`) |
+| 8 | CLI auto-detect + `sema run` | `main.rs` | ✅ Done |
+| 9 | CLI `sema disasm` | `main.rs` | ✅ Done (incl. `--json`) |
+| 10 | Docs update | `cli.md`, `bytecode-vm.md`, `bytecode-format.md` | ✅ Done |
+| 11 | E2E integration test | `integration_test.rs` | ✅ Done |
+
+### Post-implementation hardening (code review)
+- ✅ Replaced unsafe Spur transmute with safe NonZeroU32 APIs
+- ✅ Section boundary enforcement during deserialization
+- ✅ Recursion depth limit for nested value deserialization
+- ✅ DoS allocation limits on attacker-controlled sizes
+- ✅ MakeClosure spec updated to match 4-byte encoding
+- ✅ Reserved header field validation
+- ✅ String table index 0 validation
+- ✅ Section payload consumption checks
+- ✅ Post-deserialization operand bounds validation
+- ✅ Macro expansion in compile subcommand
+- ✅ Capacity check fixes (off-by-one, stale remaining)
+- ✅ Local/upvalue slot bounds validation
+- ✅ Smoke test for all 66 examples (65/66 pass, 1 timeout skip)
 
 **Total: ~2.5 hours**
 
