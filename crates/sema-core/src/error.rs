@@ -118,6 +118,9 @@ pub enum SemaError {
         capability: String,
     },
 
+    #[error("Permission denied: {function} — path '{path}' is outside allowed directories")]
+    PathDenied { function: String, path: String },
+
     #[error("User exception: {0}")]
     UserException(Value),
 

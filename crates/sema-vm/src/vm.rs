@@ -1207,6 +1207,17 @@ fn error_to_value(err: &SemaError) -> Value {
             map.insert(Value::keyword("function"), Value::string(function));
             map.insert(Value::keyword("capability"), Value::string(capability));
         }
+        SemaError::PathDenied { function, path } => {
+            map.insert(Value::keyword("type"), Value::keyword("permission-denied"));
+            map.insert(
+                Value::keyword("message"),
+                Value::string(&format!(
+                    "Permission denied: {function} — path '{path}' is outside allowed directories"
+                )),
+            );
+            map.insert(Value::keyword("function"), Value::string(function));
+            map.insert(Value::keyword("path"), Value::string(path));
+        }
         SemaError::WithTrace { .. } | SemaError::WithContext { .. } => {
             unreachable!("inner() already unwraps these")
         }

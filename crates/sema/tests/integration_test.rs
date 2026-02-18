@@ -10683,7 +10683,10 @@ fn test_allowed_paths_read_outside_denied() {
     assert!(result.is_err(), "should deny access outside allowed path");
     let err = result.unwrap_err();
     assert!(err.to_string().contains("Permission denied"), "{err}");
-    assert!(err.to_string().contains("path-restricted"), "{err}");
+    assert!(
+        err.to_string().contains("outside allowed directories"),
+        "{err}"
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }

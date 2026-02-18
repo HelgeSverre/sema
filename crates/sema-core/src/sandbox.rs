@@ -178,9 +178,9 @@ impl Sandbox {
                 return Ok(());
             }
         }
-        Err(SemaError::PermissionDenied {
+        Err(SemaError::PathDenied {
             function: fn_name.to_string(),
-            capability: format!("path-restricted: {}", canonical.display()),
+            path: canonical.display().to_string(),
         })
     }
 
@@ -461,7 +461,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("Permission denied"), "{err}");
-        assert!(err.to_string().contains("path-restricted"), "{err}");
+        assert!(
+            err.to_string().contains("outside allowed directories"),
+            "{err}"
+        );
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
