@@ -6,6 +6,7 @@ export default defineConfig({
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
+    ['link', { rel: 'alternate', type: 'text/plain', href: '/llms.txt', title: 'LLM-friendly documentation index' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Sema — A Lisp with LLM Primitives' }],
     ['meta', { property: 'og:description', content: 'A Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. Implemented in Rust.' }],
