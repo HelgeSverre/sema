@@ -1,174 +1,120 @@
-; Sema highlight queries for Helix
-; Helix uses LAST-MATCH-WINS semantics, so generic fallbacks go FIRST
-; and increasingly specific patterns follow.
-; See: https://docs.helix-editor.com/themes.html for capture names.
+; Sema canonical highlight queries for tree-sitter-sema
+; Uses LAST-MATCH-WINS ordering: generic fallbacks first, specific overrides last.
+; Standard tree-sitter capture names for cross-editor compatibility
+; (Zed, Helix, Neovim, etc.)
 
 ; =====================================================================
-; GENERIC FALLBACKS (least specific — put first so they lose to later)
+; GENERIC FALLBACKS
 ; =====================================================================
-
-; --- Fallback: any remaining symbol is a variable ---
 
 (symbol) @variable
 
-; --- Generic function call ---
-
-(list
-  .
-  (symbol) @function)
+(list . (symbol) @function)
 
 ; =====================================================================
-; INCREASINGLY SPECIFIC PATTERNS (override the fallbacks above)
+; LITERALS
 ; =====================================================================
 
-; --- Literals ---
-
-(number) @constant.numeric
-(boolean) @constant.builtin.boolean
+(number) @number
+(boolean) @constant.builtin
 (character) @constant.character
 (string) @string
-(escape_sequence) @constant.character.escape
+(escape_sequence) @string.escape
+(keyword) @string.special.symbol
 
-; --- Comments ---
+; =====================================================================
+; COMMENTS
+; =====================================================================
 
-(comment) @comment.line
-(block_comment) @comment.block
+(comment) @comment
+(block_comment) @comment
 
-; --- Punctuation ---
+; =====================================================================
+; PUNCTUATION
+; =====================================================================
 
 ["(" ")" "[" "]" "{" "}"] @punctuation.bracket
 
-; --- Dot as punctuation (variadic args, dotted pairs) ---
+; =====================================================================
+; QUOTE OPERATORS
+; =====================================================================
 
-((symbol) @punctuation.delimiter
-  (#eq? @punctuation.delimiter "."))
-
-; --- Ellipsis ---
-
-((symbol) @variable.builtin
-  (#eq? @variable.builtin "..."))
-
-; --- Operators ---
-
-((symbol) @operator
-  (#any-of? @operator
-    "+" "-" "*" "/" "%" "=" ">" "<" ">=" "<="
-    "eq?" "equal?" "eqv?"))
-
-; --- Keyword literals :foo (map keys, keyword args) ---
-
-(keyword) @string.special.symbol
-
-; --- Keyword accessor in call position: (:name person) ---
-
-(list
-  .
-  (keyword) @function.method)
-
-; --- nil ---
-
-((symbol) @constant.builtin
-  (#eq? @constant.builtin "nil"))
-
-; --- Quote operators ---
-
+; The quote/quasiquote/unquote nodes themselves, target the punctuation
 (quote "'" @operator)
 (quasiquote "`" @operator)
 (unquote "," @operator)
 (unquote_splicing ",@" @operator)
 
-; --- Define simple variable: (define name value) ---
+; =====================================================================
+; OPERATORS
+; =====================================================================
 
-(list
-  .
-  (symbol) @_f
-  .
-  (symbol) @variable
-  (#eq? @_f "define"))
+(list . (symbol) @operator
+  (#any-of? @operator "+" "-" "*" "/" "%" "=" ">" "<" ">=" "<=" "eq?" "equal?" "eqv?"))
 
-; --- set! target: (set! name value) ---
+; =====================================================================
+; KEYWORD ACCESSOR IN CALL POSITION
+; =====================================================================
 
-(list
-  .
-  (symbol) @_f
-  .
-  (symbol) @variable
-  (#eq? @_f "set!"))
+; (:name person) — keyword used as function
+(list . (keyword) @function)
 
-; --- Define function: (defun name ...) ---
+; =====================================================================
+; SPECIAL SYMBOLS
+; =====================================================================
 
-(list
-  .
-  (symbol) @_f
-  .
-  (symbol) @function
-  (#eq? @_f "defun"))
+; nil
+((symbol) @constant.builtin (#eq? @constant.builtin "nil"))
 
-; --- Define macro: (defmacro name ...) ---
+; dot in dotted pairs
+((symbol) @punctuation.delimiter (#eq? @punctuation.delimiter "."))
 
-(list
-  .
-  (symbol) @_f
-  .
-  (symbol) @function
-  (#eq? @_f "defmacro"))
+; ellipsis
+((symbol) @variable.builtin (#eq? @variable.builtin "..."))
 
-; --- Define agent: (defagent name ...) ---
+; =====================================================================
+; DEFINITION NAMES
+; =====================================================================
 
-(list
-  .
-  (symbol) @_f
-  .
-  (symbol) @function
-  (#eq? @_f "defagent"))
+; (define name value)
+(list . (symbol) @_f . (symbol) @variable (#eq? @_f "define"))
 
-; --- Define tool: (deftool name ...) ---
+; (set! name value)
+(list . (symbol) @_f . (symbol) @variable (#eq? @_f "set!"))
 
-(list
-  .
-  (symbol) @_f
-  .
-  (symbol) @function
-  (#eq? @_f "deftool"))
+; (defun name ...)
+(list . (symbol) @_f . (symbol) @function (#eq? @_f "defun"))
 
-; --- Lambda / fn parameter lists ---
+; (defmacro name ...)
+(list . (symbol) @_f . (symbol) @function (#eq? @_f "defmacro"))
 
-(list
-  .
-  (symbol) @_f
-  .
-  (list
-    (symbol) @variable.parameter)
+; (defagent name ...)
+(list . (symbol) @_f . (symbol) @function (#eq? @_f "defagent"))
+
+; (deftool name ...)
+(list . (symbol) @_f . (symbol) @function (#eq? @_f "deftool"))
+
+; =====================================================================
+; PARAMETERS
+; =====================================================================
+
+; (lambda (x y) ...) / (fn (x y) ...)
+(list . (symbol) @_f . (list (symbol) @variable.parameter)
   (#any-of? @_f "lambda" "fn"))
 
-; --- let-binding variables ---
-
-(list
-  .
-  (symbol) @_f
-  .
-  (list
-    (list
-      (symbol) @variable.parameter))
+; (let ((x 1) (y 2)) ...)
+(list . (symbol) @_f . (list (list (symbol) @variable.parameter))
   (#any-of? @_f "let" "let*" "letrec" "do"))
 
-; --- Define with inline parameter list: (define (name args...) body) ---
-
-(list
-  .
-  (symbol) @_f
-  .
-  (list
-    .
-    (symbol) @function
-    (symbol) @variable.parameter)
+; (define (name x y) body)
+(list . (symbol) @_f . (list . (symbol) @function (symbol) @variable.parameter)
   (#eq? @_f "define"))
 
-; --- Sema builtin functions ---
+; =====================================================================
+; BUILTIN FUNCTIONS
+; =====================================================================
 
-(list
-  .
-  (symbol) @function.builtin
+(list . (symbol) @function.builtin
   (#any-of? @function.builtin
     ; Higher-order / functional
     "map" "filter" "foldl" "foldr" "reduce" "for-each" "apply"
@@ -305,57 +251,40 @@
     ; Misc
     "not" "error" "gensym"))
 
-; --- Threading macros ---
+; =====================================================================
+; THREADING MACROS
+; =====================================================================
 
-(list
-  .
-  (symbol) @keyword.operator
-  (#any-of? @keyword.operator
-    "->" "->>" "as->"))
+(list . (symbol) @keyword (#any-of? @keyword "->" "->>" "as->"))
 
-; --- Module / import ---
+; =====================================================================
+; MODULE / IMPORT
+; =====================================================================
 
-(list
-  .
-  (symbol) @keyword.import
-  (#any-of? @keyword.import
-    "import" "module" "export" "load"))
+(list . (symbol) @keyword (#any-of? @keyword "import" "module" "export" "load"))
 
-; --- Exception handling ---
+; =====================================================================
+; EXCEPTION HANDLING
+; =====================================================================
 
-(list
-  .
-  (symbol) @keyword.exception
-  (#any-of? @keyword.exception
-    "try" "catch" "throw"))
+(list . (symbol) @keyword (#any-of? @keyword "try" "catch" "throw"))
 
-; --- Conditionals ---
+; =====================================================================
+; CONDITIONALS
+; =====================================================================
 
-(list
-  .
-  (symbol) @keyword.conditional
-  (#any-of? @keyword.conditional
-    "if" "cond" "case" "when" "unless" "else"))
+(list . (symbol) @keyword (#any-of? @keyword "if" "cond" "case" "when" "unless" "else"))
 
-; --- LLM-specific special forms ---
+; =====================================================================
+; SPECIAL FORMS (most specific — last wins)
+; =====================================================================
 
-(list
-  .
-  (symbol) @keyword.function
-  (#any-of? @keyword.function
-    "defagent" "deftool"))
-
-; --- Sema keywords / special forms (most specific — last wins) ---
-
-(list
-  .
-  (symbol) @keyword
+(list . (symbol) @keyword
   (#any-of? @keyword
     "define" "defun" "lambda" "fn" "set!"
     "let" "let*" "letrec" "begin" "do"
     "and" "or"
     "quote" "quasiquote" "unquote" "unquote-splicing"
-    "define-record-type" "defmacro"
+    "define-record-type" "defmacro" "defagent" "deftool"
     "delay" "force" "eval" "macroexpand"
-    "with-budget"
-    "prompt" "message"))
+    "with-budget" "prompt" "message"))

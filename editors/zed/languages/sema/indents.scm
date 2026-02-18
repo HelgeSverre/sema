@@ -1,5 +1,3 @@
-; Sema indentation for Helix
-
 [
   (list)
   (vector)
