@@ -8,6 +8,8 @@ exclude = [
   "^https://localhost",
   "^https://127\\.0\\.0\\.1",
   "^https://dev\\.azure\\.com",
+  # GitHub badge redirects (releases/latest always 302s to the actual tag)
+  "^https://github\\.com/.*/releases/latest$",
   # Academic sites that block bots or are unreliable
   "^https://mitpress\\.mit\\.edu",
   "^https://www\\.cambridge\\.org",
