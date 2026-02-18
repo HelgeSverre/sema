@@ -1090,6 +1090,9 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     } else {
         std::path::PathBuf::from(path_str)
     };
+    let canonical = resolved
+        .canonicalize()
+        .map_err(|e| SemaError::Io(format!("import {path_str}: {e}")))?;
 
     // Selective import names
     let selective: Vec<String> = args[1..]
@@ -1101,17 +1104,7 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         })
         .collect::<Result<_, _>>()?;
 
-    // Check cache for preloaded modules (before canonicalize, which requires a real file).
-    if let Some(cached) = ctx.get_cached_module(&resolved) {
-        copy_exports_to_env(&cached, &selective, env)?;
-        return Ok(Trampoline::Value(Value::nil()));
-    }
-
-    let canonical = resolved
-        .canonicalize()
-        .map_err(|e| SemaError::Io(format!("import {path_str}: {e}")))?;
-
-    // Check cache for on-disk modules
+    // Check cache
     if let Some(cached) = ctx.get_cached_module(&canonical) {
         copy_exports_to_env(&cached, &selective, env)?;
         return Ok(Trampoline::Value(Value::nil()));
