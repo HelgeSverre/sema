@@ -31,6 +31,14 @@
 - All docs pages are under `/docs/`: `https://sema-lang.com/docs/...`
 - Playground at **sema.run** (WASM)
 
+## Bytecode File Format (.semac)
+
+- Spec: `website/docs/internals/bytecode-format.md` — **this is the single source of truth**
+- Serialization/deserialization lives in `crates/sema-vm/src/serialize.rs`
+- **Any change to opcodes, Chunk, Function, ExceptionEntry, or UpvalueDesc MUST update both the format spec and the serializer**
+- Format: 24-byte header (magic `\x00SEM` + version + flags), then sections (string table, function table, main chunk, optional debug sections)
+- Spur remapping: global opcodes use string table indices in the file, remapped to process-local Spurs on load
+
 ## Adding Functionality
 
 - **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in `register()`, add integration test.

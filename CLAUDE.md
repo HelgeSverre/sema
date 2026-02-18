@@ -78,6 +78,14 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 - **Arrow conversions**: `string->symbol`, `keyword->string`
 - **Predicates end in `?`**: `null?`, `list?`, `file/exists?`
 
+## Bytecode File Format (.semac)
+
+- Spec: `website/docs/internals/bytecode-format.md` — **this is the single source of truth**
+- Serialization/deserialization lives in `crates/sema-vm/src/serialize.rs`
+- **Any change to opcodes, Chunk, Function, ExceptionEntry, or UpvalueDesc MUST update both the format spec and the serializer**
+- Format: 24-byte header (magic `\x00SEM` + version + flags), then sections (string table, function table, main chunk, optional debug sections)
+- Spur remapping: global opcodes use string table indices in the file, remapped to process-local Spurs on load
+
 ## Adding New Functionality
 
 **New builtin function**: Add to appropriate `crates/sema-stdlib/src/*.rs`, register in that module's `register()` fn, add integration test.
