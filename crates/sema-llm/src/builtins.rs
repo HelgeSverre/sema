@@ -1002,19 +1002,20 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     }
                 }
             }
-            // Fallback: use OpenAI for embeddings if no dedicated provider was configured
+            // Fallback: use OpenAI for embeddings if no dedicated provider was configured.
+            // Use a distinct name to avoid overwriting the OpenAI chat provider.
             if reg.embedding_provider().is_none() {
                 if let Ok(key) = std::env::var("OPENAI_API_KEY") {
                     if !key.is_empty() {
                         let provider = OpenAiCompatEmbeddingProvider::new(
-                            "openai".to_string(),
+                            "openai-embeddings".to_string(),
                             key,
                             "https://api.openai.com/v1".to_string(),
                             "text-embedding-3-small".to_string(),
                         )
                         .map_err(|e| SemaError::Llm(e.to_string()))?;
                         reg.register(Box::new(provider));
-                        reg.set_embedding_provider("openai");
+                        reg.set_embedding_provider("openai-embeddings");
                     }
                 }
             }
