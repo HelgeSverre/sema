@@ -21,6 +21,7 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 | `--no-llm`           | Disable LLM features (same as `--no-init`)   |
 | `--model <NAME>`     | Set default LLM model                        |
 | `--provider <NAME>`  | Set LLM provider                             |
+| `--vm`               | Use bytecode VM instead of tree-walker       |
 | `--sandbox <MODE>`   | Restrict dangerous operations (see below)    |
 | `-V, --version`      | Print version                                |
 | `-h, --help`         | Print help                                   |
@@ -39,6 +40,39 @@ sema ast [OPTIONS] [FILE]
 | ------------------- | -------------------------------- |
 | `-e, --eval <EXPR>` | Parse expression instead of file |
 | `--json`            | Output AST as JSON               |
+
+### `sema compile`
+
+Compile a source file to a `.semac` bytecode file. The compiled file can be executed directly with `sema` (auto-detected via magic number). See [Bytecode File Format](/docs/internals/bytecode-format.html) for details on the format.
+
+```
+sema compile [OPTIONS] <FILE>
+```
+
+| Flag                  | Description                                          |
+| --------------------- | ---------------------------------------------------- |
+| `-o, --output <FILE>` | Output file path (default: input with `.semac` extension) |
+
+```bash
+# Compile to bytecode
+sema compile script.sema                   # → script.semac
+sema compile -o output.semac script.sema   # explicit output path
+
+# Run the compiled bytecode (auto-detected)
+sema script.semac
+```
+
+### `sema disasm`
+
+Disassemble a compiled `.semac` bytecode file, printing a human-readable listing of the main chunk and all function templates.
+
+```
+sema disasm <FILE>
+```
+
+```bash
+sema disasm script.semac
+```
 
 ### `sema completions`
 
@@ -73,6 +107,13 @@ sema -p '(string/join (map str (range 10)) ",")'
 
 # Run without LLM features (faster startup)
 sema --no-llm script.sema
+
+# Use the bytecode VM (faster execution for compute-heavy code)
+sema --vm script.sema
+
+# Compile to bytecode and run
+sema compile script.sema
+sema script.semac
 
 # Use a specific model
 sema --model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'

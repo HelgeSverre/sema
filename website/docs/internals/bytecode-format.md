@@ -4,8 +4,8 @@ outline: [2, 3]
 
 # Bytecode File Format (`.semac`)
 
-::: tip Status: Design Phase
-This document specifies the `.semac` bytecode file format. Implementation is planned. The format is not yet stable — breaking changes are expected before v1.0.
+::: tip Status: Implemented (Alpha)
+The `.semac` bytecode file format is implemented and available via `sema compile` and `sema disasm`. The format is not yet stable — breaking changes are expected before v1.0.
 :::
 
 ## Overview
@@ -24,18 +24,12 @@ Loading a `.semac` file skips parsing, lowering, resolution, and compilation —
 # Compile a source file to bytecode
 sema compile script.sema                   # → script.semac
 sema compile -o output.semac script.sema   # explicit output path
-sema compile --strip script.sema           # strip debug info
 
 # Run a bytecode file (auto-detected via magic number)
 sema script.semac
-sema run script.semac
 
 # Disassemble a bytecode file
 sema disasm script.semac
-sema disasm --json script.semac
-
-# Check a bytecode file without executing
-sema compile --check script.semac
 ```
 
 ### Design Goals
