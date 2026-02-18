@@ -21,7 +21,7 @@
       <a href="https://github.com/HelgeSverre/sema" class="hero-btn secondary">GitHub</a>
     </div>
     <div class="hero-install-inline">
-      <span class="prompt">$</span> cargo install --git https://github.com/HelgeSverre/sema sema
+      <span class="prompt">$</span> brew install helgesverre/tap/sema-lang
     </div>
   </div>
   <div class="hero-code">
@@ -584,20 +584,25 @@
 <!-- ——— Install ——— -->
 <section id="install" class="install-section">
   <h2><span class="paren">(</span>Install<span class="paren">)</span></h2>
-  <p>Get running in one command, or build from source.</p>
+  <p>Get running in one command.</p>
 
-  <div class="install-methods">
+  <div class="install-methods-col">
     <div class="install-card">
-      <h3>One-liner</h3>
-<pre><code><span class="prompt">$</span> cargo install \
-    --git https://github.com/HelgeSverre/sema \
-    sema</code></pre>
+      <h3>Homebrew</h3>
+<pre><code><span class="prompt">$</span> brew install helgesverre/tap/sema-lang</code></pre>
+    </div>
+    <div class="install-card">
+      <h3>Shell (macOS / Linux)</h3>
+<pre><code><span class="prompt">$</span> curl -fsSL https://sema-lang.com/install.sh | sh</code></pre>
+    </div>
+    <div class="install-card">
+      <h3>Cargo</h3>
+<pre><code><span class="prompt">$</span> cargo install sema-lang</code></pre>
     </div>
     <div class="install-card">
       <h3>From source</h3>
 <pre><code><span class="prompt">$</span> git clone https://github.com/HelgeSverre/sema
-<span class="prompt">$</span> cd sema
-<span class="prompt">$</span> cargo build --release</code></pre>
+<span class="prompt">$</span> cd sema && cargo build --release</code></pre>
     </div>
   </div>
 
@@ -608,6 +613,11 @@
 <span class="prompt">$</span> sema -e <span class="s">'(+ 1 2)'</span>                 <span class="comment"># Eval expression</span>
 <span class="prompt">$</span> sema -p <span class="s">'(filter even? (range 10))'</span> <span class="comment"># Eval &amp; print</span>
 <span class="prompt">$</span> sema -l prelude.sema script.sema  <span class="comment"># Load then run</span>
+<span class="prompt">$</span> sema --vm script.sema             <span class="comment"># Use the bytecode VM</span>
+<span class="prompt">$</span> sema compile script.sema          <span class="comment"># Compile to .semac bytecode</span>
+<span class="prompt">$</span> sema script.semac                 <span class="comment"># Run compiled bytecode</span>
+<span class="prompt">$</span> sema disasm script.semac          <span class="comment"># Disassemble bytecode</span>
+<span class="prompt">$</span> sema --sandbox=strict script.sema <span class="comment"># Sandboxed execution</span>
 <span class="prompt">$</span> sema --no-llm script.sema         <span class="comment"># No LLM features</span></code></pre>
   </div>
 </section>
@@ -1184,10 +1194,10 @@
     margin-bottom: 2rem;
   }
 
-  .install-methods {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 1.5rem;
+  .install-methods-col {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
     max-width: 52rem;
     margin: 0 auto 2.5rem;
   }
@@ -1307,7 +1317,7 @@
     .split.reverse .split-code { border-right: none; border-top: 1px solid var(--border); }
     .features-grid { grid-template-columns: 1fr; }
     .crate-grid { grid-template-columns: 1fr; }
-    .install-methods { grid-template-columns: 1fr; }
+    .install-methods-col { gap: 0.75rem; }
     .features-section, .arch-section, .install-section, .providers-strip { padding: 3rem 1.5rem; }
     .ref-section { padding: 3rem 1.5rem; }
     .section-divider { padding: 3rem 1.5rem 1.5rem; }

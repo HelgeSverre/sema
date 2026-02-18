@@ -190,7 +190,7 @@ Install pre-built binaries (no Rust required):
 
 ```bash
 # macOS / Linux
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/HelgeSverre/sema/releases/latest/download/sema-lang-installer.sh | sh
+curl -fsSL https://sema-lang.com/install.sh | sh
 
 # Windows (PowerShell)
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/HelgeSverre/sema/releases/latest/download/sema-lang-installer.ps1 | iex"

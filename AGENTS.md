@@ -24,12 +24,19 @@
 - Native fns: `NativeFn` takes `&[Value]` → `Result<Value, SemaError>`. Special forms return `Trampoline`.
 - Sema naming: slash-namespaced (`string/trim`, `file/read`), predicates end `?`, arrows for conversions (`string->symbol`). Legacy Scheme names kept (`string-append`, `substring`).
 
+## Playground
+
+- Hosted at **sema.run** (WASM)
+- Examples live as `.sema` files in `playground/examples/<category>/` subdirectories
+- `playground/build.mjs` auto-generates `playground/src/examples.js` from those files — **never edit `examples.js` by hand**
+- To add a playground example: add the `.sema` file to the appropriate category dir, then run `cd playground && node build.mjs`
+- Categories: `getting-started`, `functional`, `data`, `http`, `llm-tools`, `patterns`, `visuals`, `math-crypto`
+
 ## Website
 
 - Hosted at **sema-lang.com**, deployed via `cd website && vercel --prod`
 - VitePress site, URLs require `.html` suffix: e.g. `https://sema-lang.com/docs/internals/lisp-comparison.html`
 - All docs pages are under `/docs/`: `https://sema-lang.com/docs/...`
-- Playground at **sema.run** (WASM)
 
 ## Bytecode File Format (.semac)
 

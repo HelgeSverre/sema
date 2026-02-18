@@ -2,5 +2,12 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".vitepress/dist",
   "installCommand": "npm install",
-  "framework": null
+  "framework": null,
+  "redirects": [
+    {
+      "source": "/install.sh",
+      "destination": "https://github.com/HelgeSverre/sema/releases/latest/download/sema-lang-installer.sh",
+      "statusCode": 302
+    }
+  ]
 }
