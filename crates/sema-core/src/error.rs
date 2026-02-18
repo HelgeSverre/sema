@@ -71,6 +71,26 @@ impl Span {
             end_col,
         }
     }
+
+    /// Create a span from the start of `self` to the end of `other`.
+    pub fn to(self, other: &Span) -> Span {
+        Span {
+            line: self.line,
+            col: self.col,
+            end_line: other.end_line,
+            end_col: other.end_col,
+        }
+    }
+
+    /// Create a span from the start of `self` to an explicit end position.
+    pub fn with_end(self, end_line: usize, end_col: usize) -> Span {
+        Span {
+            line: self.line,
+            col: self.col,
+            end_line,
+            end_col,
+        }
+    }
 }
 
 impl fmt::Display for Span {

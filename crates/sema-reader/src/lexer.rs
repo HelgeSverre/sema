@@ -65,7 +65,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
                 tokens.push(SpannedToken {
                     token: Token::LParen,
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
             ')' => {
@@ -73,7 +73,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
                 tokens.push(SpannedToken {
                     token: Token::RParen,
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
             '[' => {
@@ -81,7 +81,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
                 tokens.push(SpannedToken {
                     token: Token::LBracket,
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
             ']' => {
@@ -89,7 +89,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
                 tokens.push(SpannedToken {
                     token: Token::RBracket,
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
             '{' => {
@@ -97,7 +97,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
                 tokens.push(SpannedToken {
                     token: Token::LBrace,
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
             '}' => {
@@ -105,7 +105,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
                 tokens.push(SpannedToken {
                     token: Token::RBrace,
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
 
@@ -115,7 +115,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
                 tokens.push(SpannedToken {
                     token: Token::Quote,
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
             '`' => {
@@ -123,7 +123,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
                 tokens.push(SpannedToken {
                     token: Token::Quasiquote,
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
             ',' => {
@@ -132,14 +132,14 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                     i += 2;
                     tokens.push(SpannedToken {
                         token: Token::UnquoteSplice,
-                        span: Span::new(span.line, span.col, line, col),
+                        span: span.with_end(line, col),
                     });
                 } else {
                     col += 1;
                     i += 1;
                     tokens.push(SpannedToken {
                         token: Token::Unquote,
-                        span: Span::new(span.line, span.col, line, col),
+                        span: span.with_end(line, col),
                     });
                 }
             }
@@ -278,7 +278,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 col += 1;
                 tokens.push(SpannedToken {
                     token: Token::String(s),
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
 
@@ -291,7 +291,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             col += 2;
                             tokens.push(SpannedToken {
                                 token: Token::Bool(true),
-                                span: Span::new(span.line, span.col, line, col),
+                                span: span.with_end(line, col),
                             });
                         }
                         'f' => {
@@ -299,7 +299,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             col += 2;
                             tokens.push(SpannedToken {
                                 token: Token::Bool(false),
-                                span: Span::new(span.line, span.col, line, col),
+                                span: span.with_end(line, col),
                             });
                         }
                         '\\' => {
@@ -339,7 +339,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             };
                             tokens.push(SpannedToken {
                                 token: Token::Char(c),
-                                span: Span::new(span.line, span.col, line, col),
+                                span: span.with_end(line, col),
                             });
                         }
                         'u' if i + 3 < chars.len()
@@ -350,7 +350,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             col += 4;
                             tokens.push(SpannedToken {
                                 token: Token::BytevectorStart,
-                                span: Span::new(span.line, span.col, line, col),
+                                span: span.with_end(line, col),
                             });
                         }
                         _ => {
@@ -390,7 +390,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 let name: String = chars[start..i].iter().collect();
                 tokens.push(SpannedToken {
                     token: Token::Keyword(name),
-                    span: Span::new(span.line, span.col, line, col),
+                    span: span.with_end(line, col),
                 });
             }
 
@@ -403,7 +403,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                     col += len;
                     tokens.push(SpannedToken {
                         token: tok,
-                        span: Span::new(span.line, span.col, line, col),
+                        span: span.with_end(line, col),
                     });
                 } else if ch.is_ascii_digit() {
                     let (tok, len) = read_number(&chars[i..], &span)?;
@@ -411,7 +411,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                     col += len;
                     tokens.push(SpannedToken {
                         token: tok,
-                        span: Span::new(span.line, span.col, line, col),
+                        span: span.with_end(line, col),
                     });
                 } else if is_symbol_start(ch) {
                     let start = i;
@@ -420,7 +420,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                         col += 1;
                     }
                     let name: String = chars[start..i].iter().collect();
-                    let token_span = Span::new(span.line, span.col, line, col);
+                    let token_span = span.with_end(line, col);
                     // Check for special symbol names
                     match name.as_str() {
                         "true" => tokens.push(SpannedToken {

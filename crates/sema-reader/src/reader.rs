@@ -154,15 +154,13 @@ impl Parser {
                 let close = self.prev_span();
                 items.push(Value::symbol("."));
                 items.push(cdr);
-                let span = Span::new(open_span.line, open_span.col, close.end_line, close.end_col);
-                return self.make_list_with_span(items, span);
+                return self.make_list_with_span(items, open_span.to(&close));
             }
             items.push(self.parse_expr()?);
         }
         self.expect(&Token::RParen)?;
         let close = self.prev_span();
-        let span = Span::new(open_span.line, open_span.col, close.end_line, close.end_col);
-        self.make_list_with_span(items, span)
+        self.make_list_with_span(items, open_span.to(&close))
     }
 
     fn parse_vector(&mut self) -> Result<Value, SemaError> {
@@ -181,10 +179,9 @@ impl Parser {
         }
         self.expect(&Token::RBracket)?;
         let close = self.prev_span();
-        let span = Span::new(open_span.line, open_span.col, close.end_line, close.end_col);
         let rc = Rc::new(items);
         let ptr = Rc::as_ptr(&rc) as usize;
-        self.span_map.insert(ptr, span);
+        self.span_map.insert(ptr, open_span.to(&close));
         Ok(Value::vector_from_rc(rc))
     }
 
