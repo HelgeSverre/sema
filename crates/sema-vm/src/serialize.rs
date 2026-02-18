@@ -2,6 +2,7 @@ use hashbrown::HashMap;
 use sema_core::{intern, resolve, SemaError, Span, Spur, Value, ValueView};
 
 use crate::chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
+use crate::compiler::CompileResult;
 use crate::opcodes::Op;
 
 /// Builds a deduplicated string table for serialization.
@@ -710,6 +711,193 @@ pub fn remap_indices_to_spurs(
     Ok(())
 }
 
+// ── File format constants ─────────────────────────────────────────
+
+const MAGIC: [u8; 4] = [0x00, b'S', b'E', b'M'];
+const FORMAT_VERSION: u16 = 1;
+const SECTION_STRING_TABLE: u16 = 0x01;
+const SECTION_FUNCTION_TABLE: u16 = 0x02;
+const SECTION_MAIN_CHUNK: u16 = 0x03;
+
+// ── Full file serialization ───────────────────────────────────────
+
+/// Serialize a CompileResult to the .semac binary format.
+pub fn serialize_to_bytes(result: &CompileResult, source_hash: u32) -> Result<Vec<u8>, SemaError> {
+    let mut stb = StringTableBuilder::new();
+
+    // Pre-serialize sections to get their bytes
+    // We need to serialize functions and main chunk first to populate the string table,
+    // then serialize the string table.
+
+    // Function table section payload
+    let mut func_payload = Vec::new();
+    let n_funcs = checked_u32(result.functions.len(), "function count")?;
+    func_payload.extend_from_slice(&n_funcs.to_le_bytes());
+    for func in &result.functions {
+        serialize_function(func, &mut func_payload, &mut stb)?;
+    }
+
+    // Main chunk section payload
+    let mut chunk_payload = Vec::new();
+    serialize_chunk(&result.chunk, &mut chunk_payload, &mut stb)?;
+
+    // Now build the string table section payload
+    let string_table = stb.finish();
+    let mut strtab_payload = Vec::new();
+    let n_strings = checked_u32(string_table.len(), "string table size")?;
+    strtab_payload.extend_from_slice(&n_strings.to_le_bytes());
+    for s in &string_table {
+        let bytes = s.as_bytes();
+        let len = checked_u32(bytes.len(), "string length")?;
+        strtab_payload.extend_from_slice(&len.to_le_bytes());
+        strtab_payload.extend_from_slice(bytes);
+    }
+
+    // Assemble the file
+    let n_sections: u16 = 3; // string table + function table + main chunk
+    let mut out = Vec::new();
+
+    // Header (24 bytes)
+    out.extend_from_slice(&MAGIC);
+    out.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes()); // flags
+    // Sema version — parse from Cargo.toml version at compile time
+    let (major, minor, patch) = parse_sema_version();
+    out.extend_from_slice(&major.to_le_bytes());
+    out.extend_from_slice(&minor.to_le_bytes());
+    out.extend_from_slice(&patch.to_le_bytes());
+    out.extend_from_slice(&n_sections.to_le_bytes());
+    out.extend_from_slice(&source_hash.to_le_bytes());
+    out.extend_from_slice(&0u32.to_le_bytes()); // reserved
+
+    // Section: String Table
+    write_section(&mut out, SECTION_STRING_TABLE, &strtab_payload);
+    // Section: Function Table
+    write_section(&mut out, SECTION_FUNCTION_TABLE, &func_payload);
+    // Section: Main Chunk
+    write_section(&mut out, SECTION_MAIN_CHUNK, &chunk_payload);
+
+    Ok(out)
+}
+
+fn write_section(out: &mut Vec<u8>, section_type: u16, payload: &[u8]) {
+    out.extend_from_slice(&section_type.to_le_bytes());
+    out.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+    out.extend_from_slice(payload);
+}
+
+fn parse_sema_version() -> (u16, u16, u16) {
+    let version = env!("CARGO_PKG_VERSION");
+    let parts: Vec<&str> = version.split('.').collect();
+    let major = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
+    let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
+    let patch = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0);
+    (major, minor, patch)
+}
+
+/// Deserialize a .semac file from bytes into a CompileResult.
+pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> {
+    if bytes.len() < 24 {
+        return Err(SemaError::eval("bytecode file too short (< 24 bytes header)"));
+    }
+
+    // Validate header
+    if &bytes[0..4] != &MAGIC {
+        return Err(SemaError::eval("invalid bytecode magic number (expected \\x00SEM)"));
+    }
+    let format_version = u16::from_le_bytes([bytes[4], bytes[5]]);
+    if format_version != FORMAT_VERSION {
+        return Err(SemaError::eval(format!(
+            "unsupported bytecode format version {format_version} (expected {FORMAT_VERSION}). Recompile from source."
+        )));
+    }
+    let n_sections = u16::from_le_bytes([bytes[14], bytes[15]]) as usize;
+
+    // Read sections
+    let mut cursor = 24;
+    let mut string_table: Option<Vec<String>> = None;
+    let mut func_table_data: Option<(usize, usize)> = None; // (start, len) in bytes
+    let mut main_chunk_data: Option<(usize, usize)> = None;
+
+    for _ in 0..n_sections {
+        if cursor + 6 > bytes.len() {
+            return Err(SemaError::eval("unexpected end of bytecode file in section header"));
+        }
+        let section_type = u16::from_le_bytes([bytes[cursor], bytes[cursor + 1]]);
+        let section_len =
+            u32::from_le_bytes([bytes[cursor + 2], bytes[cursor + 3], bytes[cursor + 4], bytes[cursor + 5]])
+                as usize;
+        cursor += 6;
+
+        if cursor + section_len > bytes.len() {
+            return Err(SemaError::eval(format!(
+                "section 0x{section_type:04x} claims {section_len} bytes but only {} remain",
+                bytes.len() - cursor
+            )));
+        }
+
+        match section_type {
+            0x01 => {
+                // String Table
+                let mut sc = cursor;
+                let count = read_u32_le(bytes, &mut sc)? as usize;
+                let mut table = Vec::with_capacity(count);
+                for _ in 0..count {
+                    let len = read_u32_le(bytes, &mut sc)? as usize;
+                    if sc + len > cursor + section_len {
+                        return Err(SemaError::eval("string table entry extends past section"));
+                    }
+                    let s = std::str::from_utf8(&bytes[sc..sc + len]).map_err(|e| {
+                        SemaError::eval(format!("invalid UTF-8 in string table: {e}"))
+                    })?;
+                    table.push(s.to_string());
+                    sc += len;
+                }
+                string_table = Some(table);
+            }
+            0x02 => {
+                func_table_data = Some((cursor, section_len));
+            }
+            0x03 => {
+                main_chunk_data = Some((cursor, section_len));
+            }
+            _ => {
+                // Unknown section — skip for forward compatibility
+            }
+        }
+        cursor += section_len;
+    }
+
+    // Validate required sections
+    let table = string_table
+        .ok_or_else(|| SemaError::eval("bytecode file missing string table section"))?;
+    let (func_start, _func_len) = func_table_data
+        .ok_or_else(|| SemaError::eval("bytecode file missing function table section"))?;
+    let (chunk_start, _chunk_len) = main_chunk_data
+        .ok_or_else(|| SemaError::eval("bytecode file missing main chunk section"))?;
+
+    let remap = build_remap_table(&table);
+
+    // Deserialize function table
+    let mut fc = func_start;
+    let n_funcs = read_u32_le(bytes, &mut fc)? as usize;
+    let mut functions = Vec::with_capacity(n_funcs);
+    for _ in 0..n_funcs {
+        functions.push(deserialize_function(bytes, &mut fc, &table, &remap)?);
+    }
+
+    // Deserialize main chunk
+    let mut cc = chunk_start;
+    let chunk = deserialize_chunk(bytes, &mut cc, &table, &remap)?;
+
+    Ok(CompileResult { chunk, functions })
+}
+
+/// Check if a byte buffer starts with the .semac magic number.
+pub fn is_bytecode_file(bytes: &[u8]) -> bool {
+    bytes.len() >= 4 && bytes[0..4] == MAGIC
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1259,6 +1447,103 @@ mod tests {
         assert_eq!(func2.arity, 0);
         assert!(!func2.has_rest);
         assert_eq!(func2.upvalue_descs.len(), 0);
+    }
+
+    // ── Full file serialization ─────────────────────────────────
+
+    #[test]
+    fn test_full_file_roundtrip() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let mut e = Emitter::new();
+        e.emit_const(Value::int(42));
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let result = CompileResult {
+            chunk,
+            functions: vec![],
+        };
+
+        let bytes = serialize_to_bytes(&result, 0).unwrap();
+        assert_eq!(&bytes[0..4], b"\x00SEM");
+
+        let result2 = deserialize_from_bytes(&bytes).unwrap();
+        assert_eq!(result2.chunk.consts.len(), 1);
+        assert_eq!(result2.functions.len(), 0);
+    }
+
+    #[test]
+    fn test_full_file_with_functions() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        // Main chunk
+        let mut e = Emitter::new();
+        e.emit_op(Op::MakeClosure);
+        e.emit_u16(0); // func_id
+        e.emit_u16(0); // n_upvalues
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+
+        // Function
+        let mut fe = Emitter::new();
+        fe.emit_op(Op::LoadLocal0);
+        fe.emit_op(Op::Return);
+        let func = Function {
+            name: Some(intern("add-one")),
+            chunk: fe.into_chunk(),
+            upvalue_descs: vec![],
+            arity: 1,
+            has_rest: false,
+            local_names: vec![(0, intern("x"))],
+        };
+
+        let result = CompileResult {
+            chunk,
+            functions: vec![func],
+        };
+
+        let bytes = serialize_to_bytes(&result, 0xDEAD_BEEF).unwrap();
+        let result2 = deserialize_from_bytes(&bytes).unwrap();
+
+        assert_eq!(result2.functions.len(), 1);
+        assert_eq!(result2.functions[0].arity, 1);
+        assert_eq!(
+            sema_core::resolve(result2.functions[0].name.unwrap()),
+            "add-one"
+        );
+    }
+
+    #[test]
+    fn test_magic_detection() {
+        assert!(is_bytecode_file(b"\x00SEM\x01\x00"));
+        assert!(!is_bytecode_file(b"(define x 1)"));
+        assert!(!is_bytecode_file(b""));
+        assert!(!is_bytecode_file(b"\x00SE")); // too short
+    }
+
+    #[test]
+    fn test_deserialize_bad_magic() {
+        let mut bytes = vec![0u8; 24];
+        bytes[0..4].copy_from_slice(b"NOPE");
+        let result = deserialize_from_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_bad_version() {
+        let mut bytes = vec![0u8; 24];
+        bytes[0..4].copy_from_slice(&[0x00, b'S', b'E', b'M']);
+        bytes[4..6].copy_from_slice(&99u16.to_le_bytes()); // unsupported version
+        let result = deserialize_from_bytes(&bytes);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_deserialize_too_short() {
+        let result = deserialize_from_bytes(&[0x00, b'S', b'E']);
+        assert!(result.is_err());
     }
 
     // ── Unicode string table ─────────────────────────────────────
