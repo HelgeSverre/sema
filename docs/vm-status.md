@@ -44,6 +44,11 @@ All 4 original bugs are fixed:
 - **CI:** GitHub Actions with `cargo-llvm-cov` → Codecov
 - **Local:** `make coverage` for lcov, `make coverage-html` for HTML report
 
+## Performance Profiling
+
+- **1BRC (10M rows, VM):** 14.9s — dominated by Rc/drop (~35%), VM dispatch (16.5%), HashMap::clone (5.8%). See [full profile](benchmarks/2026-02-19-1brc-vm-profile.md).
+- **tak (compute-heavy):** Covered in [VM Performance Plan](plans/2026-02-17-vm-performance.md) and [Performance Roadmap](plans/2026-02-17-vm-performance-roadmap.md).
+
 ## Deferred Work
 
 - **NaN boxing / tagged values:** Performance optimization for value representation
