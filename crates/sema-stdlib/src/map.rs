@@ -28,11 +28,13 @@ pub fn register(env: &sema_core::Env) {
         } else {
             Value::nil()
         };
-        match args[0].view() {
-            ValueView::Map(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
-            ValueView::HashMap(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+        if let Some(map) = args[0].as_hashmap_ref() {
+            return Ok(map.get(&args[1]).cloned().unwrap_or(default));
         }
+        if let Some(map) = args[0].as_map_ref() {
+            return Ok(map.get(&args[1]).cloned().unwrap_or(default));
+        }
+        Err(SemaError::type_error("map or hashmap", args[0].type_name()))
     });
 
     register_fn(env, "assoc", |args| {
@@ -56,62 +58,72 @@ pub fn register(env: &sema_core::Env) {
                 "assoc: requires (key alist) or (map key val ...)",
             ));
         }
-        // COW (copy-on-write) optimization: if this is the only reference to the map
-        // (Rc refcount == 1), Rc::try_unwrap gives us ownership and we mutate in place.
-        // Otherwise we clone. In practice, when used with Env::take() in accumulator
-        // patterns (e.g., 1BRC's fold-lines), the refcount is almost always 1, turning
-        // O(n) map clones into O(1) in-place inserts. This was the single biggest
-        // optimization in the 1BRC benchmark (~30% of the total speedup).
-        match args[0].view() {
-            ValueView::Map(m) => {
-                let mut map = match Rc::try_unwrap(m) {
-                    Ok(map) => map,
-                    Err(m) => m.as_ref().clone(),
-                };
-                for pair in args[1..].chunks(2) {
-                    map.insert(pair[0].clone(), pair[1].clone());
-                }
-                Ok(Value::map(map))
+        // COW fast path: if refcount==1, mutate in place without any Rc clone.
+        // This avoids the refcount inflation from view()/as_*_rc() that prevented
+        // try_unwrap from succeeding when args are borrowed (&[Value]).
+        if let Some(()) = args[0].with_hashmap_mut_if_unique(|map| {
+            for pair in args[1..].chunks(2) {
+                map.insert(pair[0].clone(), pair[1].clone());
             }
-            ValueView::HashMap(m) => {
-                let mut map = match Rc::try_unwrap(m) {
-                    Ok(map) => map,
-                    Err(m) => m.as_ref().clone(),
-                };
-                for pair in args[1..].chunks(2) {
-                    map.insert(pair[0].clone(), pair[1].clone());
-                }
-                Ok(Value::hashmap_from_rc(Rc::new(map)))
-            }
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+        }) {
+            return Ok(args[0].clone());
         }
+        if let Some(()) = args[0].with_map_mut_if_unique(|map| {
+            for pair in args[1..].chunks(2) {
+                map.insert(pair[0].clone(), pair[1].clone());
+            }
+        }) {
+            return Ok(args[0].clone());
+        }
+        // Shared path: clone the map data
+        if let Some(m) = args[0].as_hashmap_ref() {
+            let mut map = m.clone();
+            for pair in args[1..].chunks(2) {
+                map.insert(pair[0].clone(), pair[1].clone());
+            }
+            return Ok(Value::hashmap_from_rc(Rc::new(map)));
+        }
+        if let Some(m) = args[0].as_map_ref() {
+            let mut map = m.clone();
+            for pair in args[1..].chunks(2) {
+                map.insert(pair[0].clone(), pair[1].clone());
+            }
+            return Ok(Value::map(map));
+        }
+        Err(SemaError::type_error("map or hashmap", args[0].type_name()))
     });
 
     register_fn(env, "dissoc", |args| {
         check_arity!(args, "dissoc", 2..);
-        match args[0].view() {
-            ValueView::Map(m) => {
-                let mut map = match Rc::try_unwrap(m) {
-                    Ok(map) => map,
-                    Err(m) => m.as_ref().clone(),
-                };
-                for key in &args[1..] {
-                    map.remove(key);
-                }
-                Ok(Value::map(map))
+        if let Some(()) = args[0].with_hashmap_mut_if_unique(|map| {
+            for key in &args[1..] {
+                map.remove(key);
             }
-            ValueView::HashMap(m) => {
-                let mut map = match Rc::try_unwrap(m) {
-                    Ok(map) => map,
-                    Err(m) => m.as_ref().clone(),
-                };
-                for key in &args[1..] {
-                    map.remove(key);
-                }
-                Ok(Value::hashmap_from_rc(Rc::new(map)))
-            }
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+        }) {
+            return Ok(args[0].clone());
         }
+        if let Some(()) = args[0].with_map_mut_if_unique(|map| {
+            for key in &args[1..] {
+                map.remove(key);
+            }
+        }) {
+            return Ok(args[0].clone());
+        }
+        if let Some(m) = args[0].as_hashmap_ref() {
+            let mut map = m.clone();
+            for key in &args[1..] {
+                map.remove(key);
+            }
+            return Ok(Value::hashmap_from_rc(Rc::new(map)));
+        }
+        if let Some(m) = args[0].as_map_ref() {
+            let mut map = m.clone();
+            for key in &args[1..] {
+                map.remove(key);
+            }
+            return Ok(Value::map(map));
+        }
+        Err(SemaError::type_error("map or hashmap", args[0].type_name()))
     });
 
     register_fn(env, "keys", |args| {
@@ -413,11 +425,13 @@ pub fn register(env: &sema_core::Env) {
         } else {
             Value::nil()
         };
-        match args[0].view() {
-            ValueView::HashMap(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
-            ValueView::Map(map) => Ok(map.get(&args[1]).cloned().unwrap_or(default)),
-            _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
+        if let Some(map) = args[0].as_hashmap_ref() {
+            return Ok(map.get(&args[1]).cloned().unwrap_or(default));
         }
+        if let Some(map) = args[0].as_map_ref() {
+            return Ok(map.get(&args[1]).cloned().unwrap_or(default));
+        }
+        Err(SemaError::type_error("hashmap", args[0].type_name()))
     });
 
     register_fn(env, "hashmap/assoc", |args| {
@@ -426,12 +440,17 @@ pub fn register(env: &sema_core::Env) {
                 "hashmap/assoc: requires hashmap and even number of key-value pairs",
             ));
         }
-        let mut map = match args[0].view() {
-            ValueView::HashMap(m) => match Rc::try_unwrap(m) {
-                Ok(map) => map,
-                Err(m) => m.as_ref().clone(),
-            },
-            _ => return Err(SemaError::type_error("hashmap", args[0].type_name())),
+        if let Some(()) = args[0].with_hashmap_mut_if_unique(|map| {
+            for pair in args[1..].chunks(2) {
+                map.insert(pair[0].clone(), pair[1].clone());
+            }
+        }) {
+            return Ok(args[0].clone());
+        }
+        let mut map = if let Some(m) = args[0].as_hashmap_ref() {
+            m.clone()
+        } else {
+            return Err(SemaError::type_error("hashmap", args[0].type_name()));
         };
         for pair in args[1..].chunks(2) {
             map.insert(pair[0].clone(), pair[1].clone());
