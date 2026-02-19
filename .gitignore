@@ -31,3 +31,6 @@ tools/token-usage.html
 tools/token-data.json
 
 reddit-scrutiny.json
+
+# Worktrees
+.worktrees/
