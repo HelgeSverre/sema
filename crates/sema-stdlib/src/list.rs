@@ -410,11 +410,10 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "list/unique", |args| {
         check_arity!(args, "list/unique", 1);
         let items = get_sequence(&args[0], "list/unique")?;
-        let mut seen = Vec::new();
+        let mut seen: std::collections::BTreeSet<Value> = std::collections::BTreeSet::new();
         let mut result = Vec::new();
         for item in &items {
-            if !seen.contains(item) {
-                seen.push(item.clone());
+            if seen.insert(item.clone()) {
                 result.push(item.clone());
             }
         }
