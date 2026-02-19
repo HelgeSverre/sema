@@ -236,7 +236,7 @@ The compiler recognizes calls to known builtins and emits inline opcodes instead
 
 This eliminates global hash lookup, `Rc` downcast, argument `Vec` allocation, and function pointer dispatch — the entire call overhead — for the most common operations. The `*Int` opcodes include NaN-boxed small-int fast paths that operate directly on raw `u64` bits, avoiding `Clone`/`Drop` overhead entirely.
 
-**Excluded intrinsics:** `/` and `=` are not inlined because their VM opcode implementations have semantic mismatches with the stdlib (integer truncation for `/`, structural equality for `=`).
+All standard arithmetic and comparison operators are inlined. The `*Int` variants include NaN-boxed fast paths; the generic opcodes (`Div`, `Gt`, `Le`, `Ge`) handle int/float coercion correctly.
 
 **Impact:** TAK benchmark 4,352ms → 1,250ms (-71%), upvalue-counter 1,232ms → 450ms (-63%).
 
