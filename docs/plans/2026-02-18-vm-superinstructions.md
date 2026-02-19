@@ -1,8 +1,8 @@
 # VM Optimization: Superinstructions
 
-**Status:** Analysis needed — requires profiling instruction sequences  
-**Priority:** Medium  
-**Expected impact:** 5-15% on dispatch-bound benchmarks
+**Status:** Deprioritized — intrinsic recognition (completed) delivered 20-71% gains; superinstructions are incremental on top  
+**Priority:** Low  
+**Expected impact:** 5-15% on dispatch-bound benchmarks (now that intrinsics handle the bigger win)
 
 ---
 
@@ -48,10 +48,11 @@ The `Not + JumpIfFalse` case is interesting — we already have `JumpIfTrue` (op
 
 ## Approach
 
-### Phase 1: Peephole optimization in compiler
+### Phase 1: Peephole optimization in compiler ✅ DONE
 Before adding new opcodes, check if the compiler can use existing opcodes better:
 - `(not (< ...))` should emit `LtInt + JumpIfTrue` not `LtInt + Not + JumpIfFalse`
-- This is a free win — no VM changes needed
+- ✅ Implemented: `(if (not X) ...)` compiles to `JumpIfTrue` (commit f734515)
+- ✅ Intrinsic recognition also handles this: `<` now compiles to `LtInt` directly, and `not` to `Not`
 
 ### Phase 2: Add superinstructions
 Add fused opcodes for the most common sequences:

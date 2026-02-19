@@ -6,7 +6,7 @@ The bytecode VM is functional and available via the `--vm` CLI flag. The tree-wa
 
 ## Overview
 
-Sema includes a bytecode VM alongside the existing tree-walking interpreter, enabled with the `--vm` CLI flag. The VM compiles Sema source code into stack-based bytecode for faster execution, targeting **5–15× speedup** over the tree-walker on compute-heavy workloads.
+Sema includes a bytecode VM alongside the existing tree-walking interpreter, enabled with the `--vm` CLI flag. The VM compiles Sema source code into stack-based bytecode for faster execution, delivering **up to 17× speedup** over the tree-walker on compute-heavy workloads (e.g., TAK benchmark: 1.25s vs 21.4s).
 
 The tree-walking interpreter (`sema-eval`) is preserved as the default execution path, the macro expansion engine, and `eval` fallback — the two runtimes coexist, sharing the global environment and `EvalContext`.
 
@@ -94,6 +94,13 @@ The compiler (`compiler.rs`) transforms `ResolvedExpr` into bytecode `Chunk`s. T
 
 **Public API**: `compile()`, `compile_many()`, `compile_with_locals()`, `compile_many_with_locals()` — all return `CompileResult { chunk, functions }`.
 
+### Compiler Optimizations
+
+- **Intrinsic recognition**: Known builtins (`+`, `-`, `*`, `<`, `>`, `<=`, `>=`, `not`) are compiled to inline opcodes instead of function calls. `/` and `=` are excluded due to semantic mismatches between VM opcodes and the stdlib implementations.
+- **Peephole: `(if (not X) ...)`**: The pattern `(if (not X) A B)` compiles to `JumpIfTrue` instead of `Not` + `JumpIfFalse`, eliminating one instruction.
+- **Fused `CallGlobal`**: Non-tail calls to global functions use a fused `CallGlobal` instruction that combines `LoadGlobal` + `Call` into a single opcode with `(u32 spur, u16 argc)` operands.
+- **Specialized `LoadLocal`/`StoreLocal`**: Slots 0–3 have dedicated zero-operand opcodes (`LoadLocal0`..`LoadLocal3`, `StoreLocal0`..`StoreLocal3`), saving 2 bytes per instruction for the most frequently accessed locals.
+
 ### Phase 4: VM Execution
 
 The VM (`vm.rs`) is a stack-based dispatch loop.
@@ -107,12 +114,21 @@ CallFrame { closure: Rc<Closure>, pc: usize, base: usize, open_upvalues: Vec<Opt
 
 **Key design points:**
 
-- **Safe operations**: `pop()` and `peek()` return `Result` (no panicking on underflow). `Op::from_u8()` for opcode decoding (no unsafe transmute).
-- **Closure interop**: VM closures are wrapped as `Value::NativeFn` values so the tree-walker can call them. Each NativeFn wrapper creates a fresh VM instance to execute the closure's bytecode.
+- **Unsafe hot path**: The dispatch loop uses `unsafe` unchecked stack operations (`pop_unchecked`) and raw pointer bytecode reads via `read_u16!`/`read_i32!`/`read_u32!` macros for performance. Opcode decoding uses `std::mem::transmute` on the `#[repr(u8)]` `Op` enum. Debug builds retain bounds checks via `debug_assert!`.
+- **Closure interop**: VM closures are wrapped as `Value::NativeFn` values so the tree-walker can call them. Each NativeFn carries an `Rc<dyn Any>` payload containing `VmClosurePayload` (closure + function table), and the VM uses `raw_tag()` + `downcast_ref` to avoid `Rc` refcount bumps on the hot path. Each NativeFn wrapper creates a fresh VM instance to execute the closure's bytecode.
 - **Upvalue cells**: `UpvalueCell` with `Rc<RefCell<Value>>` for shared mutable state — `StoreLocal` syncs to open upvalue cells, `LoadLocal` reads from cells when present.
 - **Exception handling**: `Throw` opcode triggers handler search via the chunk's exception table. Stack is restored to saved depth, error value pushed, PC jumps to handler.
 
 **Entry points**: `VM::execute()` takes a closure and `EvalContext`. `eval_str()` is a convenience that parses, compiles, and runs. `compile_program()` is the shared pipeline: `Value AST → lower → resolve → compile → (Closure, Vec<Function>)`.
+
+### VM Optimizations
+
+- **Two-level dispatch loop**: An outer loop caches frame-local state (code pointer, constants pointer, base offset) into local variables. The inner loop dispatches opcodes without re-fetching frame data. Frame state is only reloaded when control flow changes frames (`Call`, `TailCall`, `Return`, exceptions).
+- **NaN-boxed int fast paths**: `AddInt`/`SubInt`/`MulInt`/`LtInt`/`EqInt` operate directly on raw NaN-boxed bits — sign-extending the payload, performing the arithmetic, and re-boxing, without ever constructing a `Value`.
+- **16-entry direct-mapped global cache**: Global lookups are cached in a `[(spur, env_version, Value); 16]` array indexed by `spur & 0xF`. Cache hits skip the `Env` hash-map lookup entirely; cache lines are invalidated by env version mismatch.
+- **Raw pointer bytecode reads**: `read_u16!`, `read_i32!`, and `read_u32!` macros read operands via raw pointer arithmetic on the code buffer, avoiding bounds checks in release builds.
+- **Unsafe unchecked stack operations**: `pop_unchecked` skips length checks (the compiler guarantees stack correctness). `debug_assert!` guards catch violations in debug builds.
+- **Cold path factoring**: The `handle_err!` macro factors exception handling out of the hot instruction sequence, keeping the fast path compact for better instruction-cache behavior.
 
 ## Opcode Set
 
@@ -140,6 +156,8 @@ The VM uses a stack-based instruction set with variable-length encoding. Each op
 | `LoadGlobal`   | u32 spur  | Push `globals[spur]`         |
 | `StoreGlobal`  | u32 spur  | `globals[spur] = pop`        |
 | `DefineGlobal` | u32 spur  | Define new global binding    |
+| `LoadLocal0`..`LoadLocal3` | — | Push `locals[0..3]` (zero-operand fast path) |
+| `StoreLocal0`..`StoreLocal3` | — | `locals[0..3] = pop` (zero-operand fast path) |
 
 ### Control Flow
 
@@ -158,6 +176,7 @@ The VM uses a stack-based instruction set with variable-length encoding. Each op
 | `Return`      | —                                | Return top of stack                   |
 | `MakeClosure` | u16 func_id, u16 n_upvalues, ... | Create closure from function template |
 | `CallNative`  | u16 native_id, u16 argc          | Direct native function call           |
+| `CallGlobal`  | u32 spur, u16 argc               | Fused global lookup + call            |
 
 ### Data Constructors
 
@@ -200,7 +219,7 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 
 | File           | Purpose                                                           |
 | -------------- | ----------------------------------------------------------------- |
-| `opcodes.rs`   | `Op` enum — 42 bytecode opcodes                                   |
+| `opcodes.rs`   | `Op` enum — 51 bytecode opcodes                                   |
 | `chunk.rs`     | `Chunk` (bytecode + constants + spans), `Function`, `UpvalueDesc` |
 | `emit.rs`      | `Emitter` — bytecode builder with jump backpatching               |
 | `disasm.rs`    | Human-readable bytecode disassembler                              |
@@ -216,9 +235,8 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 - `try`/`catch` doesn't catch runtime errors from native functions (e.g., division by zero)
 - `try`/`catch` error value format may differ from tree-walker
 - `define-record-type` bindings not visible to subsequent compiled code
-- Generic arithmetic opcodes (`Add`, `Sub`, etc.) are defined but currently dead code — arithmetic goes through `NativeFn` globals
+- The compiler emits inline opcodes for common builtins (`+`, `-`, `*`, `<`, `>`, `<=`, `>=`, `not`) via intrinsic recognition. `/` and `=` are excluded due to semantic mismatches between VM opcodes and stdlib implementations.
 - `CallNative` opcode is defined but not yet used (no native function registry)
-- `TailCall` falls back to regular `Call` (no frame reuse)
 
 ## CLI Usage
 

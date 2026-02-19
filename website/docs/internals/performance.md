@@ -19,6 +19,8 @@ All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset
 
 > **Note:** The mini-eval and its associated optimizations (env reuse, inlined builtins, custom number parser, SIMD split fast path) were removed to unblock the bytecode VM, which is now implemented and available via `--vm`. The bytecode VM provides a ~1.7× speedup over the tree-walker (~1,700ms vs ~2,900ms on 1M rows), recovering much of the mini-eval's performance through compilation. The tree-walker remains the default; the current architecture uses `sema_core::call_callback` to route stdlib → real evaluator. Fast-path optimizations (self-evaluating short-circuit, inline NativeFn dispatch, thread-local EvalContext, deferred cloning) partially recovered performance.
 
+> **VM compute benchmarks** (post-intrinsic recognition, Feb 2026): TAK (deep recursion) runs at 1,250ms (17× faster than tree-walker), upvalue-counter at 450ms (12.8× faster), deriv at 1,151ms (3× faster). The 1BRC numbers above are I/O-bound and less affected by VM compute optimizations.
+
 ## 1. Copy-on-Write Map Mutation
 
 **Problem:** Every `(assoc map key val)` call cloned the entire `BTreeMap`, even when no other reference existed. For the 1BRC accumulator (~400 weather stations), this was O(400) per row × millions of rows.
@@ -214,6 +216,46 @@ let mut reader = std::io::BufReader::with_capacity(256 * 1024, file);
 ```
 
 **Impact:** Minor. CPU was the bottleneck, not I/O. But it's a free win — larger buffers amortize syscall overhead and improve sequential read throughput on modern SSDs.
+
+## 9. Bytecode VM Optimizations
+
+The bytecode VM (`--vm`) applies several optimizations beyond basic bytecode compilation. These are documented in detail in [Bytecode VM](./bytecode-vm.md); highlights below.
+
+### Intrinsic Recognition
+
+The compiler recognizes calls to known builtins and emits inline opcodes instead of function calls:
+
+| Source | Compiled to | What it replaces |
+|--------|------------|-----------------|
+| `(+ a b)` | `AddInt` | `CallGlobal("+", 2)` → hash lookup → NativeFn downcast → args Vec → function call |
+| `(- a b)` | `SubInt` | Same overhead |
+| `(* a b)` | `MulInt` | Same overhead |
+| `(< a b)` | `LtInt` | Same overhead |
+| `(> a b)` | `Gt` | Same overhead |
+| `(not x)` | `Not` | Same overhead |
+
+This eliminates global hash lookup, `Rc` downcast, argument `Vec` allocation, and function pointer dispatch — the entire call overhead — for the most common operations. The `*Int` opcodes include NaN-boxed small-int fast paths that operate directly on raw `u64` bits, avoiding `Clone`/`Drop` overhead entirely.
+
+**Excluded intrinsics:** `/` and `=` are not inlined because their VM opcode implementations have semantic mismatches with the stdlib (integer truncation for `/`, structural equality for `=`).
+
+**Impact:** TAK benchmark 4,352ms → 1,250ms (-71%), upvalue-counter 1,232ms → 450ms (-63%).
+
+### Peephole: `(if (not X) ...)` → JumpIfTrue
+
+The compiler pattern-matches `(if (not expr) then else)` and emits the condition with an inverted jump, eliminating both the `not` call and one opcode dispatch:
+
+```
+;; Before: CallGlobal("not") + JumpIfFalse
+;; After:  JumpIfTrue (condition compiled directly)
+```
+
+### Fused CallGlobal
+
+Non-tail calls to global functions use a single `CallGlobal` instruction that combines `LoadGlobal + Call`, using `call_vm_closure_direct` to set up the call frame without needing the function value on the stack.
+
+### Specialized Local Access
+
+Slots 0–3 have dedicated zero-operand opcodes (`LoadLocal0`..`LoadLocal3`, `StoreLocal0`..`StoreLocal3`), saving 2 bytes per access to the most common local variable slots.
 
 ## Rejected Optimizations
 
