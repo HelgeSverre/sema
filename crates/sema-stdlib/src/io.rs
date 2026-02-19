@@ -2,7 +2,7 @@ use std::io::BufRead;
 use std::io::Read as _;
 use std::io::Write as _;
 
-use sema_core::{check_arity, Caps, NativeFn, SemaError, Value, ValueView};
+use sema_core::{check_arity, Caps, EvalContext, NativeFn, SemaError, Value, ValueView};
 
 use crate::register_fn;
 
@@ -505,6 +505,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
 
             sema_core::with_stdlib_ctx(|ctx| {
                 let mut line_buf = String::with_capacity(64);
+                // Fast path: if the callback is a NativeFn, call it directly.
+                // This avoids the call_callback indirection and, critically, avoids
+                // the VM closure fallback wrapper's clone of args (which prevents
+                // COW optimizations in functions like assoc).
+                let native: Option<&dyn Fn(&EvalContext, &[Value]) -> Result<Value, SemaError>> =
+                    func.as_native_fn_ref().map(|n| &*n.func);
                 loop {
                     line_buf.clear();
                     let n = reader
@@ -519,7 +525,13 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                             line_buf.pop();
                         }
                     }
-                    acc = sema_core::call_callback(ctx, &func, &[acc, Value::string(&line_buf)])?;
+                    let line_val = Value::string(&line_buf);
+                    let args = [std::mem::replace(&mut acc, Value::nil()), line_val];
+                    acc = if let Some(f) = native {
+                        f(ctx, &args)?
+                    } else {
+                        sema_core::call_callback(ctx, &func, &args)?
+                    };
                 }
                 Ok(acc)
             })
