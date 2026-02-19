@@ -20,12 +20,17 @@ export interface VFSHost {
  * The backend runs outside the eval loop, so async is allowed.
  *
  * Built-in implementations:
- * - {@link LocalStorageBackend} — persist to localStorage
+ * - {@link MemoryBackend} — ephemeral, no persistence
+ * - {@link LocalStorageBackend} — persist to localStorage (~5 MB limit)
+ * - {@link SessionStorageBackend} — persist within the tab session
+ * - {@link IndexedDBBackend} — persist to IndexedDB (recommended for production)
  *
  * @example
  * ```ts
+ * import { SemaInterpreter, IndexedDBBackend } from "@sema-lang/sema";
+ *
  * const sema = await SemaInterpreter.create({
- *   vfs: new LocalStorageBackend({ namespace: "my-app" }),
+ *   vfs: new IndexedDBBackend({ namespace: "my-app" }),
  * });
  * await sema.evalStrAsync(code);
  * await sema.flushVFS(); // persist changes
