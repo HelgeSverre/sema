@@ -225,10 +225,15 @@ impl Interpreter {
 pub fn eval_string(ctx: &EvalContext, input: &str, env: &Env) -> EvalResult {
     let (exprs, spans) = sema_reader::read_many_with_spans(input)?;
     ctx.merge_span_table(spans);
+    ctx.max_eval_depth.set(0);
     let mut result = Value::nil();
     for expr in &exprs {
         result = eval_value(ctx, expr, env)?;
     }
+    eprintln!(
+        "[debug] max eval_depth reached: {}",
+        ctx.max_eval_depth.get()
+    );
     Ok(result)
 }
 
@@ -274,6 +279,9 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
 
     let depth = ctx.eval_depth.get();
     ctx.eval_depth.set(depth + 1);
+    if depth + 1 > ctx.max_eval_depth.get() {
+        ctx.max_eval_depth.set(depth + 1);
+    }
     if depth == 0 {
         ctx.eval_steps.set(0);
     }
@@ -292,53 +300,16 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
 
 /// Call a function value with already-evaluated arguments.
 /// This is the public API for stdlib functions that need to invoke callbacks.
+///
+/// For lambdas, this delegates to `apply_lambda` + a trampoline loop so that
+/// subsequent evaluation happens iteratively rather than adding Rust stack
+/// frames.  This is critical for WASM where the call stack is limited (~5 MB).
 pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult {
     match func.view() {
         ValueView::NativeFn(native) => (native.func)(ctx, args),
         ValueView::Lambda(lambda) => {
-            let new_env = Env::with_parent(Rc::new(lambda.env.clone()));
-
-            if let Some(rest) = lambda.rest_param {
-                if args.len() < lambda.params.len() {
-                    return Err(SemaError::arity(
-                        lambda
-                            .name
-                            .map(resolve)
-                            .unwrap_or_else(|| "lambda".to_string()),
-                        format!("{}+", lambda.params.len()),
-                        args.len(),
-                    ));
-                }
-                for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    new_env.set(*param, arg.clone());
-                }
-                let rest_args = args[lambda.params.len()..].to_vec();
-                new_env.set(rest, Value::list(rest_args));
-            } else {
-                if args.len() != lambda.params.len() {
-                    return Err(SemaError::arity(
-                        lambda
-                            .name
-                            .map(resolve)
-                            .unwrap_or_else(|| "lambda".to_string()),
-                        lambda.params.len().to_string(),
-                        args.len(),
-                    ));
-                }
-                for (param, arg) in lambda.params.iter().zip(args.iter()) {
-                    new_env.set(*param, arg.clone());
-                }
-            }
-
-            if let Some(name) = lambda.name {
-                new_env.set(name, Value::lambda_from_rc(Rc::clone(&lambda)));
-            }
-
-            let mut result = Value::nil();
-            for expr in &lambda.body {
-                result = eval_value(ctx, expr, &new_env)?;
-            }
-            Ok(result)
+            let trampoline = apply_lambda(ctx, &lambda, args)?;
+            run_trampoline(ctx, trampoline)
         }
         ValueView::Keyword(spur) => {
             if args.len() != 1 {
@@ -356,6 +327,38 @@ pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult
             SemaError::eval(format!("not callable: {} ({})", func, func.type_name()))
                 .with_hint("expected a function, lambda, or keyword"),
         ),
+    }
+}
+
+/// Run a trampoline to completion iteratively.
+/// Used by `call_value` so that stdlib HOF callbacks (map, for-each, etc.)
+/// don't grow the Rust call stack for every evaluation step.
+fn run_trampoline(ctx: &EvalContext, trampoline: Trampoline) -> EvalResult {
+    let limit = ctx.eval_step_limit.get();
+    let mut current = trampoline;
+    loop {
+        match current {
+            Trampoline::Value(v) => return Ok(v),
+            Trampoline::Eval(expr, env) => {
+                if limit > 0 {
+                    let v = ctx.eval_steps.get() + 1;
+                    ctx.eval_steps.set(v);
+                    if v > limit {
+                        return Err(SemaError::eval("eval step limit exceeded".to_string()));
+                    }
+                }
+                match eval_step(ctx, &expr, &env) {
+                    Ok(t) => current = t,
+                    Err(e) => {
+                        if e.stack_trace().is_none() {
+                            let trace = ctx.capture_stack_trace();
+                            return Err(e.with_stack_trace(trace));
+                        }
+                        return Err(e);
+                    }
+                }
+            }
+        }
     }
 }
 
