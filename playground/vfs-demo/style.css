@@ -1,0 +1,411 @@
+:root {
+  --bg: #0c0c0c;
+  --bg-editor: #0a0a0a;
+  --bg-output: #080808;
+  --bg-toolbar: #111;
+  --border: #1e1e1e;
+  --border-focus: #333;
+  --gold: #c8a855;
+  --gold-dim: rgba(200, 168, 85, 0.5);
+  --gold-glow: rgba(200, 168, 85, 0.08);
+  --text: #a09888;
+  --text-bright: #d8d0c0;
+  --text-dim: #5a5448;
+  --error: #c85555;
+  --error-bg: rgba(200, 85, 85, 0.06);
+  --success: #6a9955;
+  --mono: 'JetBrains Mono', monospace;
+  --serif: 'Cormorant', Georgia, serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Header ── */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.25rem;
+  height: 48px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.logo {
+  font-family: var(--serif);
+  font-size: 1.4rem;
+  font-weight: 300;
+  letter-spacing: 0.06em;
+  color: var(--text-bright);
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.version-badge {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+}
+
+.header-link {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.header-link:hover { color: var(--gold); }
+
+/* ── Main layout ── */
+main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 220px 1fr 1fr;
+  min-height: 0;
+}
+
+/* ── File tree pane ── */
+.file-tree-pane {
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.file-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.tree-dir {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  user-select: none;
+  transition: color 0.1s;
+}
+.tree-dir:hover { color: var(--text); }
+
+.tree-chevron {
+  font-size: 0.6rem;
+  width: 0.8rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.tree-file {
+  display: block;
+  width: 100%;
+  padding: 0.2rem 0.75rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text);
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tree-file:hover { color: var(--text-bright); background: var(--gold-glow); }
+.tree-file.active { color: var(--gold); background: var(--gold-glow); }
+
+.tree-empty {
+  padding: 0.75rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── Pane shared ── */
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  height: 36px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-toolbar);
+  flex-shrink: 0;
+}
+
+.pane-title {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ── Editor pane ── */
+.editor-pane { border-right: 1px solid var(--border); }
+
+.editor-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.editor-wrap textarea {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  height: 100%;
+  padding: 1.25rem;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  border: none;
+  margin: 0;
+  color: var(--text-bright);
+  caret-color: var(--gold);
+  background: var(--bg-editor);
+  outline: none;
+  resize: none;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.editor-wrap textarea::placeholder { color: var(--text-dim); }
+.editor-wrap textarea::selection { background: var(--gold); color: var(--bg); }
+
+/* ── Right column (split vertically) ── */
+.right-column {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* ── Output pane ── */
+.output-pane {
+  flex: 1;
+  border-bottom: 1px solid var(--border);
+}
+
+#output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+  background: var(--bg-output);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.output-line { color: var(--text); white-space: pre-wrap; }
+.output-value {
+  color: var(--gold);
+  border-left: 2px solid var(--gold-dim);
+  padding-left: 0.75rem;
+  margin-top: 0.25rem;
+  white-space: pre-wrap;
+}
+.output-error {
+  color: var(--error);
+  background: var(--error-bg);
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  border-left: 2px solid var(--error);
+  white-space: pre-wrap;
+}
+.output-welcome {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── File viewer pane ── */
+.file-viewer-pane {
+  height: 40%;
+  flex-shrink: 0;
+}
+
+.file-viewer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+  background: #090909;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  color: var(--text);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+  margin: 0;
+}
+
+.viewer-placeholder {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* ── Status bar ── */
+.status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem;
+  height: 28px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+
+.status-text {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+}
+.status-ready { color: var(--success); }
+.status-loading { color: var(--gold); }
+
+/* ── Buttons ── */
+.btn-run {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  color: var(--bg);
+  background: var(--gold);
+  border: none;
+  padding: 0.3rem 0.9rem;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.btn-run:hover { opacity: 0.85; }
+.btn-run:active { opacity: 0.7; }
+.btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-run .shortcut {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.6rem;
+  opacity: 0.7;
+  margin-left: 0.5rem;
+  background: rgba(0, 0, 0, 0.2);
+  font-weight: bold;
+  line-height: 1;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.btn-clear {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.9rem;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.btn-clear:hover { color: var(--text); border-color: var(--border-focus); }
+
+/* ── Loading overlay ── */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: opacity 0.4s;
+}
+.loading-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.loading-title {
+  font-family: var(--serif);
+  font-size: 2.5rem;
+  font-weight: 300;
+  letter-spacing: 0.06em;
+  color: var(--text-bright);
+  margin-bottom: 1.5rem;
+}
+
+.loading-dots {
+  display: flex;
+  gap: 0.4rem;
+}
+.loading-dots span {
+  width: 6px;
+  height: 6px;
+  background: var(--gold);
+  border-radius: 50%;
+  animation: pulse 1.2s infinite;
+}
+.loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+.loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+
+/* ── Responsive ── */
+@media (max-width: 768px) {
+  main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr 1fr;
+  }
+  .file-tree-pane {
+    max-height: 200px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .editor-pane {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
