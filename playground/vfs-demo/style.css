@@ -144,6 +144,32 @@ main {
   font-style: italic;
 }
 
+/* ── Backend selector ── */
+.backend-select {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' fill='%235a5448'%3E%3Cpath d='M0 0l4 5 4-5z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.4rem center;
+  padding-right: 1.2rem;
+}
+.backend-select:hover { border-color: var(--border-focus); }
+.backend-select:focus { border-color: var(--gold-dim); }
+.backend-select option {
+  background: var(--bg);
+  color: var(--text);
+}
+
 /* ── Pane shared ── */
 .pane {
   display: flex;

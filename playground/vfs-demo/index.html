@@ -32,6 +32,12 @@
   <div class="file-tree-pane">
     <div class="pane-header">
       <span class="pane-title">File Explorer</span>
+      <select id="backend-select" class="backend-select" data-testid="backend-select">
+        <option value="memory">In-Memory</option>
+        <option value="local">LocalStorage</option>
+        <option value="session">SessionStorage</option>
+        <option value="indexeddb">IndexedDB</option>
+      </select>
     </div>
     <div class="file-tree" id="file-tree" data-testid="file-tree"></div>
   </div>
@@ -169,9 +175,10 @@
 
 <div class="status-bar" data-testid="status">
   <span class="status-text status-loading" id="status-text">Loading WASM module…</span>
+  <span class="status-text" id="backend-info" data-testid="backend-info"></span>
   <span class="status-text" id="vfs-stats" data-testid="vfs-stats"></span>
 </div>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="./app.js"></script>
 </body>
 </html>

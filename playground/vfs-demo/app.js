@@ -1,7 +1,13 @@
 import init, { SemaInterpreter } from '../pkg/sema_wasm.js';
+import { makeVfsHost, BACKENDS } from './vfs-backends.js';
 
 let interp = null;
 let activeFilePath = null;
+let vfsHost = null;
+let vfsBackend = null;
+let backendName = 'memory';
+
+const BACKEND_PREF_KEY = 'sema-vfs-demo:backend';
 
 const editorEl = document.getElementById('editor');
 const outputEl = document.getElementById('output');
@@ -15,13 +21,29 @@ const vfsStatsEl = document.getElementById('vfs-stats');
 const statusEl = document.getElementById('status-text');
 const versionEl = document.getElementById('version');
 const loadingEl = document.getElementById('loading');
+const backendSelect = document.getElementById('backend-select');
+const backendInfoEl = document.getElementById('backend-info');
 
 // --- Initialization ---
 
 async function start() {
   await init();
   interp = new SemaInterpreter();
+  vfsHost = makeVfsHost(interp);
   versionEl.textContent = `v${interp.version()}`;
+
+  // Restore backend preference
+  const storedBackend = localStorage.getItem(BACKEND_PREF_KEY) ?? 'memory';
+  if (BACKENDS[storedBackend]) {
+    backendName = storedBackend;
+    backendSelect.value = storedBackend;
+  }
+
+  // Initialize backend and hydrate
+  vfsBackend = BACKENDS[backendName]();
+  await vfsBackend.init?.();
+  await vfsBackend.hydrate(vfsHost);
+
   runBtn.disabled = false;
   clearVfsBtn.disabled = false;
   loadingEl.classList.add('hidden');
@@ -30,6 +52,7 @@ async function start() {
   outputEl.innerHTML = '<div class="output-welcome">Ready. Press Run to evaluate the script.</div>';
   refreshFileTree();
   refreshStats();
+  updateBackendInfo();
 }
 
 start();
@@ -82,6 +105,16 @@ async function run() {
   refreshFileTree();
   refreshStats();
 
+  // Auto-flush for persistent backends
+  if (backendName !== 'memory') {
+    try {
+      await vfsBackend.flush(vfsHost);
+    } catch (e) {
+      statusEl.textContent = `Persist failed: ${e.message}`;
+      statusEl.className = 'status-text status-loading';
+    }
+  }
+
   // Re-read active file in case it changed
   if (activeFilePath && interp.fileExists(activeFilePath)) {
     viewFile(activeFilePath);
@@ -104,6 +137,54 @@ editorEl.addEventListener('keydown', (e) => {
     editorEl.selectionStart = editorEl.selectionEnd = start + 2;
   }
 });
+
+// --- Backend Swapping ---
+
+backendSelect.addEventListener('change', async () => {
+  const newName = backendSelect.value;
+  if (newName === backendName) return;
+
+  statusEl.textContent = 'Switching backend…';
+  statusEl.className = 'status-text status-loading';
+
+  const newBackend = BACKENDS[newName]();
+  await newBackend.init?.();
+  interp.resetVFS();
+  await newBackend.hydrate(vfsHost);
+
+  vfsBackend = newBackend;
+  backendName = newName;
+  localStorage.setItem(BACKEND_PREF_KEY, newName);
+
+  activeFilePath = null;
+  viewerTitle.textContent = 'File Viewer';
+  fileViewerEl.innerHTML = '<span class="viewer-placeholder">Click a file in the explorer to view its contents.</span>';
+
+  refreshFileTree();
+  refreshStats();
+  updateBackendInfo();
+  statusEl.textContent = 'Ready';
+  statusEl.className = 'status-text status-ready';
+});
+
+// --- Clear VFS ---
+
+clearVfsBtn.addEventListener('click', async () => {
+  interp.resetVFS();
+  await vfsBackend.reset?.();
+  activeFilePath = null;
+  viewerTitle.textContent = 'File Viewer';
+  fileViewerEl.innerHTML = '<span class="viewer-placeholder">Click a file in the explorer to view its contents.</span>';
+  refreshFileTree();
+  refreshStats();
+});
+
+// --- Backend Info ---
+
+function updateBackendInfo() {
+  const labels = { memory: '⚡ In-Memory', local: '💾 LocalStorage', session: '📋 SessionStorage', indexeddb: '🗄️ IndexedDB' };
+  backendInfoEl.textContent = labels[backendName] ?? backendName;
+}
 
 // --- File Tree ---
 
@@ -203,14 +284,3 @@ function refreshStats() {
   const s = interp.vfsStats();
   vfsStatsEl.textContent = `${s.files} files · ${formatBytes(s.bytes)} / ${formatBytes(s.maxBytes)} · ${s.maxFiles} max`;
 }
-
-// --- Clear VFS ---
-
-clearVfsBtn.addEventListener('click', () => {
-  interp.resetVFS();
-  activeFilePath = null;
-  viewerTitle.textContent = 'File Viewer';
-  fileViewerEl.innerHTML = '<span class="viewer-placeholder">Click a file in the explorer to view its contents.</span>';
-  refreshFileTree();
-  refreshStats();
-});
