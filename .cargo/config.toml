@@ -1,2 +1,2 @@
 [target.wasm32-unknown-unknown]
-rustflags = ["-C", "link-args=--stack-first -z stack-size=5242880"]
+rustflags = ["-C", "link-args=--stack-first -z stack-size=16777216"]
