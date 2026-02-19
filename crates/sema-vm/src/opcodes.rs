@@ -72,19 +72,26 @@ pub enum Op {
     EqInt,
 
     // Specialized zero-operand locals (most common slots)
-    LoadLocal0, // = 42
-    LoadLocal1, // = 43
-    LoadLocal2, // = 44
-    LoadLocal3, // = 45
+    LoadLocal0,  // = 42
+    LoadLocal1,  // = 43
+    LoadLocal2,  // = 44
+    LoadLocal3,  // = 45
+    StoreLocal0, // = 46
+    StoreLocal1, // = 47
+    StoreLocal2, // = 48
+    StoreLocal3, // = 49
+
+    // Fused global call (LOAD_GLOBAL + CALL in one instruction)
+    CallGlobal, // u32 spur, u16 argc → lookup global, call with argc args
 }
 
 impl Op {
     /// Convert a raw byte to an Op. Valid because the enum is `#[repr(u8)]` with
-    /// dense variants from 0 through `LoadLocal3`. If new variants are added with
+    /// dense variants from 0 through `CallGlobal`. If new variants are added with
     /// gaps, this must be updated.
     pub fn from_u8(byte: u8) -> Option<Op> {
-        if byte <= Op::LoadLocal3 as u8 {
-            // SAFETY: Op is #[repr(u8)] with dense, contiguous variants 0..=LoadLocal3.
+        if byte <= Op::CallGlobal as u8 {
+            // SAFETY: Op is #[repr(u8)] with dense, contiguous variants 0..=CallGlobal.
             Some(unsafe { std::mem::transmute::<u8, Op>(byte) })
         } else {
             None
@@ -141,6 +148,11 @@ pub mod op {
     pub const LOAD_LOCAL1: u8 = Op::LoadLocal1 as u8;
     pub const LOAD_LOCAL2: u8 = Op::LoadLocal2 as u8;
     pub const LOAD_LOCAL3: u8 = Op::LoadLocal3 as u8;
+    pub const STORE_LOCAL0: u8 = Op::StoreLocal0 as u8;
+    pub const STORE_LOCAL1: u8 = Op::StoreLocal1 as u8;
+    pub const STORE_LOCAL2: u8 = Op::StoreLocal2 as u8;
+    pub const STORE_LOCAL3: u8 = Op::StoreLocal3 as u8;
+    pub const CALL_GLOBAL: u8 = Op::CallGlobal as u8;
 
     // Instruction sizes (opcode byte + operand bytes)
     /// Size of a bare opcode with no operands: 1
@@ -149,4 +161,6 @@ pub mod op {
     pub const SIZE_OP_U16: usize = 3;
     /// Size of an instruction with a u32 operand (e.g., LOAD_GLOBAL): 1 + 4 = 5
     pub const SIZE_OP_U32: usize = 5;
+    /// Size of CALL_GLOBAL: 1 + u32 spur + u16 argc = 7
+    pub const SIZE_CALL_GLOBAL: usize = 7;
 }

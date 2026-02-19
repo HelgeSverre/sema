@@ -75,6 +75,11 @@ fn op_name(op: Op) -> &'static str {
         Op::LoadLocal1 => "LOAD_LOCAL_1",
         Op::LoadLocal2 => "LOAD_LOCAL_2",
         Op::LoadLocal3 => "LOAD_LOCAL_3",
+        Op::StoreLocal0 => "STORE_LOCAL_0",
+        Op::StoreLocal1 => "STORE_LOCAL_1",
+        Op::StoreLocal2 => "STORE_LOCAL_2",
+        Op::StoreLocal3 => "STORE_LOCAL_3",
+        Op::CallGlobal => "CALL_GLOBAL",
     }
 }
 
@@ -174,6 +179,20 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
                 }
             }
 
+            Op::CallGlobal => {
+                let spur_bits = read_u32(code, pc + 1);
+                let argc = read_u16(code, pc + 5);
+                let spur = unsafe { std::mem::transmute::<u32, lasso::Spur>(spur_bits) };
+                let name_str = resolve(spur);
+                writeln!(
+                    out,
+                    "{pc:04}  {:<16} {spur_bits:<4} argc={argc} ; {name_str}",
+                    op_name(op)
+                )
+                .unwrap();
+                pc += 7;
+            }
+
             Op::MakeList | Op::MakeVector | Op::MakeMap | Op::MakeHashMap => {
                 let count = read_u16(code, pc + 1);
                 writeln!(out, "{pc:04}  {:<16} {count}", op_name(op)).unwrap();
@@ -192,7 +211,7 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
 }
 
 fn op_from_u8(byte: u8) -> Option<Op> {
-    const MAX_OP: u8 = Op::LoadLocal3 as u8;
+    const MAX_OP: u8 = Op::CallGlobal as u8;
     if byte > MAX_OP {
         return None;
     }

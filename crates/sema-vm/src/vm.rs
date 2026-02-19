@@ -87,9 +87,7 @@ impl VM {
         let base = self.stack.len();
         // Reserve space for locals
         let n_locals = closure.func.chunk.n_locals as usize;
-        for _ in 0..n_locals {
-            self.stack.push(Value::nil());
-        }
+        self.stack.resize(base + n_locals, Value::nil());
         self.frames.push(CallFrame {
             closure,
             pc: 0,
@@ -150,6 +148,18 @@ impl VM {
         // Branchless sign-extension shift for NaN-boxed small ints
         const SIGN_SHIFT: u32 = 64 - NAN_PAYLOAD_BITS;
 
+        // Cold-path macro: saves pc, handles exception, and dispatches or returns.
+        // Keeps the error path out of the hot instruction sequence.
+        macro_rules! handle_err {
+            ($self:expr, $fi:expr, $pc:expr, $err:expr, $saved_pc:expr, $label:tt) => {{
+                $self.frames[$fi].pc = $pc;
+                match $self.handle_exception($err, $saved_pc)? {
+                    ExceptionAction::Handled => continue $label,
+                    ExceptionAction::Propagate(e) => return Err(e),
+                }
+            }};
+        }
+
         // Two-level dispatch: outer loop caches frame locals, inner loop dispatches opcodes.
         // We only break to the outer loop when frames change (Call/TailCall/Return/exceptions).
         'dispatch: loop {
@@ -174,7 +184,7 @@ impl VM {
                     // --- Constants & stack ---
                     op::CONST => {
                         let idx = read_u16!(code, pc) as usize;
-                        let val = unsafe { &*consts }[idx].clone();
+                        let val = unsafe { (&(*consts)).get_unchecked(idx) }.clone();
                         self.stack.push(val);
                     }
                     op::NIL => {
@@ -187,10 +197,11 @@ impl VM {
                         self.stack.push(Value::bool(false));
                     }
                     op::POP => {
-                        self.stack.pop();
+                        unsafe { pop_unchecked(&mut self.stack) };
                     }
                     op::DUP => {
-                        let val = self.stack[self.stack.len() - 1].clone();
+                        let val =
+                            unsafe { &*self.stack.as_ptr().add(self.stack.len() - 1) }.clone();
                         self.stack.push(val);
                     }
 
@@ -253,17 +264,8 @@ impl VM {
                                     self.stack.push(val);
                                 }
                                 None => {
-                                    self.frames[fi].pc = pc;
-                                    // TODO: attach source location to unbound variable errors.
-                                    // The chunk has a spans table (pc → Span) but the compiler
-                                    // doesn't populate it yet. Once the compile pipeline threads
-                                    // source spans through lowering → resolving → compiling,
-                                    // we can look up chunk.spans here to include line:col info.
                                     let err = SemaError::Unbound(resolve_spur(spur));
-                                    match self.handle_exception(err, pc - op::SIZE_OP_U32)? {
-                                        ExceptionAction::Handled => continue 'dispatch,
-                                        ExceptionAction::Propagate(e) => return Err(e),
-                                    }
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP_U32, 'dispatch);
                                 }
                             }
                         }
@@ -393,13 +395,9 @@ impl VM {
 
                     // --- Exceptions ---
                     op::THROW => {
-                        self.frames[fi].pc = pc;
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         let err = SemaError::UserException(val);
-                        match self.handle_exception(err, pc - op::SIZE_OP)? {
-                            ExceptionAction::Handled => continue 'dispatch,
-                            ExceptionAction::Propagate(e) => return Err(e),
-                        }
+                        handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
                     }
 
                     // --- Arithmetic ---
@@ -408,13 +406,7 @@ impl VM {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_add(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => {
-                                self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                    ExceptionAction::Handled => continue 'dispatch,
-                                    ExceptionAction::Propagate(e) => return Err(e),
-                                }
-                            }
+                            Err(err) => handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch),
                         }
                     }
                     op::SUB => {
@@ -422,13 +414,7 @@ impl VM {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_sub(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => {
-                                self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                    ExceptionAction::Handled => continue 'dispatch,
-                                    ExceptionAction::Propagate(e) => return Err(e),
-                                }
-                            }
+                            Err(err) => handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch),
                         }
                     }
                     op::MUL => {
@@ -436,13 +422,7 @@ impl VM {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_mul(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => {
-                                self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                    ExceptionAction::Handled => continue 'dispatch,
-                                    ExceptionAction::Propagate(e) => return Err(e),
-                                }
-                            }
+                            Err(err) => handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch),
                         }
                     }
                     op::DIV => {
@@ -450,13 +430,7 @@ impl VM {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_div(&a, &b) {
                             Ok(v) => self.stack.push(v),
-                            Err(err) => {
-                                self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                    ExceptionAction::Handled => continue 'dispatch,
-                                    ExceptionAction::Propagate(e) => return Err(e),
-                                }
-                            }
+                            Err(err) => handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch),
                         }
                     }
                     op::NEGATE => {
@@ -466,12 +440,8 @@ impl VM {
                         } else if let Some(f) = a.as_float() {
                             self.stack.push(Value::float(-f));
                         } else {
-                            self.frames[fi].pc = pc;
                             let err = SemaError::type_error("number", a.type_name());
-                            match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                ExceptionAction::Handled => continue 'dispatch,
-                                ExceptionAction::Propagate(e) => return Err(e),
-                            }
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
                         }
                     }
                     op::NOT => {
@@ -488,13 +458,7 @@ impl VM {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_lt(&a, &b) {
                             Ok(v) => self.stack.push(Value::bool(v)),
-                            Err(err) => {
-                                self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                    ExceptionAction::Handled => continue 'dispatch,
-                                    ExceptionAction::Propagate(e) => return Err(e),
-                                }
-                            }
+                            Err(err) => handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch),
                         }
                     }
                     op::GT => {
@@ -502,13 +466,7 @@ impl VM {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_lt(&b, &a) {
                             Ok(v) => self.stack.push(Value::bool(v)),
-                            Err(err) => {
-                                self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                    ExceptionAction::Handled => continue 'dispatch,
-                                    ExceptionAction::Propagate(e) => return Err(e),
-                                }
-                            }
+                            Err(err) => handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch),
                         }
                     }
                     op::LE => {
@@ -516,13 +474,7 @@ impl VM {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_lt(&b, &a) {
                             Ok(v) => self.stack.push(Value::bool(!v)),
-                            Err(err) => {
-                                self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                    ExceptionAction::Handled => continue 'dispatch,
-                                    ExceptionAction::Propagate(e) => return Err(e),
-                                }
-                            }
+                            Err(err) => handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch),
                         }
                     }
                     op::GE => {
@@ -530,13 +482,7 @@ impl VM {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         match vm_lt(&a, &b) {
                             Ok(v) => self.stack.push(Value::bool(!v)),
-                            Err(err) => {
-                                self.frames[fi].pc = pc;
-                                match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                    ExceptionAction::Handled => continue 'dispatch,
-                                    ExceptionAction::Propagate(e) => return Err(e),
-                                }
-                            }
+                            Err(err) => handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch),
                         }
                     }
 
@@ -566,11 +512,7 @@ impl VM {
                             match vm_add(&a, &b) {
                                 Ok(v) => self.stack.push(v),
                                 Err(err) => {
-                                    self.frames[fi].pc = pc;
-                                    match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                        ExceptionAction::Handled => continue 'dispatch,
-                                        ExceptionAction::Propagate(e) => return Err(e),
-                                    }
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch)
                                 }
                             }
                         }
@@ -597,11 +539,7 @@ impl VM {
                             match vm_sub(&a, &b) {
                                 Ok(v) => self.stack.push(v),
                                 Err(err) => {
-                                    self.frames[fi].pc = pc;
-                                    match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                        ExceptionAction::Handled => continue 'dispatch,
-                                        ExceptionAction::Propagate(e) => return Err(e),
-                                    }
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch)
                                 }
                             }
                         }
@@ -632,11 +570,7 @@ impl VM {
                             match vm_mul(&a, &b) {
                                 Ok(v) => self.stack.push(v),
                                 Err(err) => {
-                                    self.frames[fi].pc = pc;
-                                    match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                        ExceptionAction::Handled => continue 'dispatch,
-                                        ExceptionAction::Propagate(e) => return Err(e),
-                                    }
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch)
                                 }
                             }
                         }
@@ -666,11 +600,7 @@ impl VM {
                             match vm_lt(&a, &b) {
                                 Ok(v) => self.stack.push(Value::bool(v)),
                                 Err(err) => {
-                                    self.frames[fi].pc = pc;
-                                    match self.handle_exception(err, pc - op::SIZE_OP)? {
-                                        ExceptionAction::Handled => continue 'dispatch,
-                                        ExceptionAction::Propagate(e) => return Err(e),
-                                    }
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch)
                                 }
                             }
                         }
@@ -762,6 +692,120 @@ impl VM {
                         self.stack.push(val);
                     }
 
+                    // Fused LOAD_GLOBAL + CALL: look up global, call without
+                    // pushing the function value onto the stack.
+                    op::CALL_GLOBAL => {
+                        let bits = read_u32!(code, pc);
+                        let argc = read_u16!(code, pc) as usize;
+                        self.frames[fi].pc = pc;
+                        let saved_pc = pc - op::SIZE_CALL_GLOBAL;
+
+                        // Look up the global (with cache)
+                        let version = self.globals.version.get();
+                        let slot = (bits as usize) & (GLOBAL_CACHE_SIZE - 1);
+                        let entry = &self.global_cache[slot];
+                        let func_val = if entry.0 == bits && entry.1 == version {
+                            entry.2.clone()
+                        } else {
+                            let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
+                            match self.globals.get(spur) {
+                                Some(val) => {
+                                    self.global_cache[slot] = (bits, version, val.clone());
+                                    val
+                                }
+                                None => {
+                                    let err = SemaError::Unbound(resolve_spur(spur));
+                                    handle_err!(self, fi, pc, err, saved_pc, 'dispatch);
+                                }
+                            }
+                        };
+
+                        // Fast path: VM closure — use direct call without function slot
+                        if func_val.raw_tag() == Some(TAG_NATIVE_FN) {
+                            let vm_closure_data = {
+                                let native = func_val.as_native_fn_ref().unwrap();
+                                native.payload.as_ref().and_then(|p| {
+                                    p.downcast_ref::<VmClosurePayload>().map(|vmc| {
+                                        let closure = vmc.closure.clone();
+                                        let functions =
+                                            if Rc::ptr_eq(&vmc.functions, &self.functions) {
+                                                None
+                                            } else {
+                                                Some(vmc.functions.clone())
+                                            };
+                                        (closure, functions)
+                                    })
+                                })
+                            };
+                            if let Some((closure, functions)) = vm_closure_data {
+                                if let Some(f) = functions {
+                                    self.functions = f;
+                                }
+                                if let Err(err) = self.call_vm_closure_direct(closure, argc) {
+                                    match self.handle_exception(err, saved_pc)? {
+                                        ExceptionAction::Handled => {}
+                                        ExceptionAction::Propagate(e) => return Err(e),
+                                    }
+                                }
+                                continue 'dispatch;
+                            }
+                        }
+
+                        // Slow path: non-VM callable — use call_value_with
+                        if let Err(err) = self.call_value_with(func_val, argc, ctx) {
+                            match self.handle_exception(err, saved_pc)? {
+                                ExceptionAction::Handled => {}
+                                ExceptionAction::Propagate(e) => return Err(e),
+                            }
+                        }
+                        continue 'dispatch;
+                    }
+
+                    op::STORE_LOCAL0 => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        self.stack[base] = val.clone();
+                        if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.first() {
+                                    *cell.value.borrow_mut() = val;
+                                }
+                            }
+                        }
+                    }
+                    op::STORE_LOCAL1 => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        self.stack[base + 1] = val.clone();
+                        if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.get(1) {
+                                    *cell.value.borrow_mut() = val;
+                                }
+                            }
+                        }
+                    }
+                    op::STORE_LOCAL2 => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        self.stack[base + 2] = val.clone();
+                        if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.get(2) {
+                                    *cell.value.borrow_mut() = val;
+                                }
+                            }
+                        }
+                    }
+                    op::STORE_LOCAL3 => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        self.stack[base + 3] = val.clone();
+                        if has_open_upvalues {
+                            if let Some(ref open) = self.frames[fi].open_upvalues {
+                                if let Some(Some(cell)) = open.get(3) {
+                                    *cell.value.borrow_mut() = val;
+                                }
+                            }
+                        }
+                    }
+
                     _ => {
                         return Err(SemaError::eval(format!("VM: invalid opcode {}", op)));
                     }
@@ -798,7 +842,7 @@ impl VM {
                 if let Some(f) = functions {
                     self.functions = f;
                 }
-                return self.call_vm_closure_from_rc(&closure, argc);
+                return self.call_vm_closure(closure, argc);
             }
             // Regular native fn — need Rc for the call
             let func_rc = self.stack[func_idx].as_native_fn_rc().unwrap();
@@ -860,7 +904,7 @@ impl VM {
                 if let Some(f) = functions {
                     self.functions = f;
                 }
-                return self.tail_call_vm_closure_from_rc(&closure, argc);
+                return self.tail_call_vm_closure(closure, argc);
             }
         }
 
@@ -868,14 +912,109 @@ impl VM {
         self.call_value(argc, ctx)
     }
 
-    /// Push a new CallFrame for a VM closure (no Rust recursion).
-    /// Caller must set `self.functions` before calling this.
-    fn call_vm_closure_from_rc(
+    /// Call a function value that's NOT on the stack (for CALL_GLOBAL slow path).
+    /// The args are on top of the stack.
+    fn call_value_with(
         &mut self,
-        closure: &Rc<Closure>,
+        func_val: Value,
+        argc: usize,
+        ctx: &EvalContext,
+    ) -> Result<(), SemaError> {
+        if func_val.raw_tag() == Some(TAG_NATIVE_FN) {
+            let func_rc = func_val.as_native_fn_rc().unwrap();
+            let args_start = self.stack.len() - argc;
+            let args: Vec<Value> = self.stack[args_start..].to_vec();
+            self.stack.truncate(args_start);
+            let result = (func_rc.func)(ctx, &args)?;
+            self.stack.push(result);
+            Ok(())
+        } else if let Some(kw) = func_val.as_keyword_spur() {
+            if argc != 1 {
+                return Err(SemaError::arity(resolve_spur(kw), "1", argc));
+            }
+            let arg = self.stack.pop().unwrap();
+            let kw_val = Value::keyword_from_spur(kw);
+            let result = if let Some(m) = arg.as_map_rc() {
+                m.get(&kw_val).cloned().unwrap_or(Value::nil())
+            } else if let Some(m) = arg.as_hashmap_rc() {
+                m.get(&kw_val).cloned().unwrap_or(Value::nil())
+            } else {
+                return Err(SemaError::type_error("map or hashmap", arg.type_name()));
+            };
+            self.stack.push(result);
+            Ok(())
+        } else {
+            let args_start = self.stack.len() - argc;
+            let args: Vec<Value> = self.stack[args_start..].to_vec();
+            self.stack.truncate(args_start);
+            let result = sema_core::call_callback(ctx, &func_val, &args)?;
+            self.stack.push(result);
+            Ok(())
+        }
+    }
+
+    /// Push a new CallFrame for a VM closure called via CALL_GLOBAL.
+    /// No function value is on the stack — only args. `base = stack.len() - argc`.
+    /// Args are already in place; we just extend the stack for remaining locals.
+    fn call_vm_closure_direct(
+        &mut self,
+        closure: Rc<Closure>,
         argc: usize,
     ) -> Result<(), SemaError> {
-        let closure = closure.clone();
+        let func = &closure.func;
+        let arity = func.arity as usize;
+        let has_rest = func.has_rest;
+        let n_locals = func.chunk.n_locals as usize;
+
+        // Arity check
+        if has_rest {
+            if argc < arity {
+                return Err(SemaError::arity(
+                    func.name
+                        .map(resolve_spur)
+                        .unwrap_or_else(|| "<lambda>".to_string()),
+                    format!("{}+", arity),
+                    argc,
+                ));
+            }
+        } else if argc != arity {
+            return Err(SemaError::arity(
+                func.name
+                    .map(resolve_spur)
+                    .unwrap_or_else(|| "<lambda>".to_string()),
+                arity.to_string(),
+                argc,
+            ));
+        }
+
+        // Args are already at stack[base..base+argc] in the right order.
+        // base = stack.len() - argc
+        let base = self.stack.len() - argc;
+
+        if has_rest {
+            // Collect extra args into a rest list
+            let rest: Vec<Value> = self.stack[base + arity..base + argc].to_vec();
+            self.stack.truncate(base + arity);
+            self.stack.push(Value::list(rest));
+        }
+
+        // Resize to exact local count (pads with nil or truncates)
+        self.stack.resize(base + n_locals, Value::nil());
+
+        self.frames.push(CallFrame {
+            closure,
+            pc: 0,
+            base,
+            open_upvalues: None,
+        });
+
+        Ok(())
+    }
+
+    /// Push a new CallFrame for a VM closure (no Rust recursion).
+    /// Caller must set `self.functions` before calling this.
+    /// Takes ownership of the Rc to avoid an extra clone.
+    fn call_vm_closure(&mut self, closure: Rc<Closure>, argc: usize) -> Result<(), SemaError> {
         let func = &closure.func;
         let arity = func.arity as usize;
         let has_rest = func.has_rest;
@@ -906,18 +1045,9 @@ impl VM {
         let func_idx = self.stack.len() - 1 - argc;
         let base = func_idx; // reuse the callee's slot as new frame base
 
-        // Copy params first (forward copy: dest[base+i] < src[func_idx+1+i], always safe)
-        if has_rest {
-            let rest: Vec<Value> = self.stack[func_idx + 1 + arity..func_idx + 1 + argc].to_vec();
-            for i in 0..arity {
-                self.stack[base + i] = self.stack[func_idx + 1 + i].clone();
-            }
-            self.stack[base + arity] = Value::list(rest);
-        } else {
-            for i in 0..arity {
-                self.stack[base + i] = self.stack[func_idx + 1 + i].clone();
-            }
-        }
+        // Copy params: clone each arg into its local slot.
+        // dest (base+i) < src (func_idx+1+i) so forward copy is safe.
+        Self::copy_args_to_locals(&mut self.stack, base, func_idx + 1, arity, argc, has_rest);
 
         // Now resize to exact local count (pads with nil or truncates excess args)
         self.stack.resize(base + n_locals, Value::nil());
@@ -935,12 +1065,8 @@ impl VM {
 
     /// Tail-call a VM closure: reuse the current frame's stack space.
     /// Caller must set `self.functions` before calling this.
-    fn tail_call_vm_closure_from_rc(
-        &mut self,
-        closure: &Rc<Closure>,
-        argc: usize,
-    ) -> Result<(), SemaError> {
-        let closure = closure.clone();
+    /// Takes ownership of the Rc to avoid an extra clone.
+    fn tail_call_vm_closure(&mut self, closure: Rc<Closure>, argc: usize) -> Result<(), SemaError> {
         let func = &closure.func;
         let arity = func.arity as usize;
         let has_rest = func.has_rest;
@@ -972,17 +1098,7 @@ impl VM {
         let base = self.frames.last().unwrap().base;
 
         // Copy args into base slots (args are above base, no overlap issues)
-        if has_rest {
-            let rest: Vec<Value> = self.stack[func_idx + 1 + arity..func_idx + 1 + argc].to_vec();
-            for i in 0..arity {
-                self.stack[base + i] = self.stack[func_idx + 1 + i].clone();
-            }
-            self.stack[base + arity] = Value::list(rest);
-        } else {
-            for i in 0..arity {
-                self.stack[base + i] = self.stack[func_idx + 1 + i].clone();
-            }
-        }
+        Self::copy_args_to_locals(&mut self.stack, base, func_idx + 1, arity, argc, has_rest);
 
         // Resize to exact local count (pads with nil or truncates excess)
         self.stack.resize(base + n_locals, Value::nil());
@@ -995,6 +1111,30 @@ impl VM {
         frame.open_upvalues = None;
 
         Ok(())
+    }
+
+    /// Copy args from the stack into local slots, handling rest params.
+    /// `dst` is the base index for destination, `src` is the start of args.
+    #[inline(always)]
+    fn copy_args_to_locals(
+        stack: &mut [Value],
+        dst: usize,
+        src: usize,
+        arity: usize,
+        argc: usize,
+        has_rest: bool,
+    ) {
+        if has_rest {
+            let rest: Vec<Value> = stack[src + arity..src + argc].to_vec();
+            for i in 0..arity {
+                stack[dst + i] = stack[src + i].clone();
+            }
+            stack[dst + arity] = Value::list(rest);
+        } else {
+            for i in 0..arity {
+                stack[dst + i] = stack[src + i].clone();
+            }
+        }
     }
 
     // --- MakeClosure ---
@@ -1099,9 +1239,7 @@ impl VM {
                     ));
                 }
 
-                for _ in 0..n_locals {
-                    vm.stack.push(Value::nil());
-                }
+                vm.stack.resize(n_locals, Value::nil());
 
                 if has_rest {
                     for i in 0..arity {
@@ -1131,6 +1269,8 @@ impl VM {
 
     // --- Exception handling ---
 
+    #[cold]
+    #[inline(never)]
     fn handle_exception(
         &mut self,
         err: SemaError,
@@ -1168,9 +1308,13 @@ impl VM {
             // No handler in this frame, pop it and try parent
             let frame = self.frames.pop().unwrap();
             self.stack.truncate(frame.base);
-            // Parent frames use their own pc for lookup
+            // Parent frames use their own pc for lookup.
+            // parent.pc is the *resume* PC (the byte after the CALL instruction).
+            // Exception table intervals are half-open [try_start, try_end), so if the
+            // CALL was the last instruction in the try body, parent.pc == try_end and
+            // the lookup would miss. Subtract 1 to land inside the CALL instruction.
             if let Some(parent) = self.frames.last() {
-                pc_for_lookup = parent.pc as u32;
+                pc_for_lookup = parent.pc.saturating_sub(1) as u32;
             }
         }
 
@@ -1598,6 +1742,72 @@ mod tests {
     fn test_vm_try_catch_type_error() {
         let result = eval("(try (+ 1 \"a\") (catch e (:type e)))").unwrap();
         assert_eq!(result, Value::keyword("type-error"));
+    }
+
+    #[test]
+    fn test_vm_try_catch_from_closure_call() {
+        // Regression: throw inside a called VM closure must be caught by try/catch
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str("(define (thrower) (throw \"boom\"))", &globals, &ctx).unwrap();
+        let result = eval_str("(try (thrower) (catch e \"caught\"))", &globals, &ctx).unwrap();
+        assert_eq!(result, Value::string("caught"));
+    }
+
+    #[test]
+    fn test_vm_try_catch_from_lambda_call() {
+        // Throw from an immediately-called lambda
+        let result = eval("(try ((fn () (throw 42))) (catch e (:value e)))").unwrap();
+        assert_eq!(result, Value::int(42));
+    }
+
+    #[test]
+    fn test_vm_try_catch_nested_call() {
+        // Throw two calls deep
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str("(define (inner) (throw \"deep\"))", &globals, &ctx).unwrap();
+        eval_str("(define (outer) (inner))", &globals, &ctx).unwrap();
+        let result = eval_str("(try (outer) (catch e \"caught\"))", &globals, &ctx).unwrap();
+        assert_eq!(result, Value::string("caught"));
+    }
+
+    #[test]
+    fn test_vm_try_catch_in_call_arg() {
+        // Regression: try/catch as argument to another function must preserve stack
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str("(define (thrower) (throw \"boom\"))", &globals, &ctx).unwrap();
+        // try result used as arg to +
+        let result = eval_str("(+ 1 (try (thrower) (catch e 2)))", &globals, &ctx).unwrap();
+        assert_eq!(result, Value::int(3));
+    }
+
+    #[test]
+    fn test_vm_try_catch_in_list_constructor() {
+        // try/catch as one of several args — stack must be preserved for all
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str("(define (thrower) (throw \"boom\"))", &globals, &ctx).unwrap();
+        let result = eval_str("(list 1 2 (try (thrower) (catch e 3)) 4)", &globals, &ctx).unwrap();
+        let items = result.as_list().expect("list");
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[2], Value::int(3));
+    }
+
+    #[test]
+    fn test_vm_try_catch_call_not_last() {
+        // Call is not the last instruction in the try body
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str("(define (thrower) (throw \"boom\"))", &globals, &ctx).unwrap();
+        let result = eval_str(
+            "(try (begin (thrower) 123) (catch e \"caught\"))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::string("caught"));
     }
 
     #[test]

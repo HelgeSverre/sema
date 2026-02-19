@@ -657,6 +657,7 @@ fn advance_pc(code: &[u8], pc: usize) -> Result<(Op, usize), SemaError> {
     };
     let next = match op {
         Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => pc + 5, // op + u32
+        Op::CallGlobal => pc + 7,                                      // op + u32 + u16
         Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => pc + 5,         // op + i32
         Op::CallNative => pc + 5,                                      // op + u16 + u16
         Op::MakeClosure => {
@@ -702,7 +703,10 @@ pub fn remap_spurs_to_indices(
     let mut pc = 0;
     while pc < out.len() {
         let (op, next) = advance_pc(&out, pc)?;
-        if matches!(op, Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal) {
+        if matches!(
+            op,
+            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal | Op::CallGlobal
+        ) {
             let spur_bits =
                 u32::from_le_bytes([out[pc + 1], out[pc + 2], out[pc + 3], out[pc + 4]]);
             let spur = u32_to_spur(spur_bits);
@@ -724,7 +728,10 @@ pub fn remap_indices_to_spurs(code: &mut [u8], remap: &[Spur]) -> Result<(), Sem
     let mut pc = 0;
     while pc < code.len() {
         let (op, next) = advance_pc(code, pc)?;
-        if matches!(op, Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal) {
+        if matches!(
+            op,
+            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal | Op::CallGlobal
+        ) {
             let idx = u32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]])
                 as usize;
             if idx >= remap.len() {

@@ -101,6 +101,9 @@ fn patch_closure_func_ids(chunk: &mut Chunk, offset: u16) {
             Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => {
                 pc += 1 + 4; // op + u32
             }
+            Op::CallGlobal => {
+                pc += 1 + 4 + 2; // op + u32 spur + u16 argc
+            }
             Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => {
                 pc += 1 + 4; // op + i32
             }
@@ -117,6 +120,8 @@ struct Compiler {
     functions: Vec<Function>,
     exception_entries: Vec<ExceptionEntry>,
     n_locals: u16,
+    /// Current operand stack depth above locals (for exception handler stack restore).
+    stack_height: u16,
     depth: usize,
 }
 
@@ -127,6 +132,7 @@ impl Compiler {
             functions: Vec::new(),
             exception_entries: Vec::new(),
             n_locals: 0,
+            stack_height: 0,
             depth: 0,
         }
     }
@@ -144,6 +150,10 @@ impl Compiler {
             self.depth -= 1;
             return Err(SemaError::eval("maximum compilation depth exceeded"));
         }
+        // Track operand stack: every expression has a net effect of +1
+        // (pushes exactly one result value). We save before and restore
+        // the +1 after, so inner recursive calls accumulate correctly
+        // for compile_try's stack_depth calculation.
         let result = self.compile_expr_inner(expr);
         self.depth -= 1;
         result
@@ -265,10 +275,16 @@ impl Compiler {
 
     fn compile_var_store(&mut self, vr: &VarRef) {
         match vr.resolution {
-            VarResolution::Local { slot } => {
-                self.emit.emit_op(Op::StoreLocal);
-                self.emit.emit_u16(slot);
-            }
+            VarResolution::Local { slot } => match slot {
+                0 => self.emit.emit_op(Op::StoreLocal0),
+                1 => self.emit.emit_op(Op::StoreLocal1),
+                2 => self.emit.emit_op(Op::StoreLocal2),
+                3 => self.emit.emit_op(Op::StoreLocal3),
+                _ => {
+                    self.emit.emit_op(Op::StoreLocal);
+                    self.emit.emit_u16(slot);
+                }
+            },
             VarResolution::Upvalue { index } => {
                 self.emit.emit_op(Op::StoreUpvalue);
                 self.emit.emit_u16(index);
@@ -307,7 +323,9 @@ impl Compiler {
             self.compile_expr(expr)?;
             if i < exprs.len() - 1 {
                 self.emit.emit_op(Op::Pop);
+                // compile_expr pushed +1, Pop removes it
             }
+            // Last expr's value stays on stack (net +1 for the whole begin)
         }
         Ok(())
     }
@@ -405,11 +423,35 @@ impl Compiler {
         args: &[ResolvedExpr],
         tail: bool,
     ) -> Result<(), SemaError> {
-        // Compile function expression
+        // Fused CALL_GLOBAL for non-tail calls to global functions.
+        // Tail calls can't use this because CALL_GLOBAL pushes a new frame
+        // (tail calls need to reuse the current frame).
+        if !tail {
+            if let ResolvedExpr::Var(vr) = func {
+                if let VarResolution::Global { spur } = vr.resolution {
+                    // Compile arguments (each pushes 1 value)
+                    for arg in args {
+                        self.compile_expr(arg)?;
+                        self.stack_height += 1;
+                    }
+                    let argc = args.len() as u16;
+                    self.emit.emit_op(Op::CallGlobal);
+                    self.emit.emit_u32(spur_to_u32(spur));
+                    self.emit.emit_u16(argc);
+                    // CALL_GLOBAL pops argc args, pushes 1 result
+                    self.stack_height -= argc;
+                    return Ok(());
+                }
+            }
+        }
+
+        // General path: compile function expression (pushes 1 value onto operand stack)
         self.compile_expr(func)?;
-        // Compile arguments
+        self.stack_height += 1;
+        // Compile arguments (each pushes 1 value)
         for arg in args {
             self.compile_expr(arg)?;
+            self.stack_height += 1;
         }
         let argc = args.len() as u16;
         if tail {
@@ -418,6 +460,9 @@ impl Compiler {
             self.emit.emit_op(Op::Call);
         }
         self.emit.emit_u16(argc);
+        // CALL pops func + args, pushes 1 result. Net from our perspective:
+        // we pushed (1 + argc) above, result is handled by our caller.
+        self.stack_height -= 1 + argc;
         Ok(())
     }
 
@@ -654,7 +699,11 @@ impl Compiler {
             try_start,
             try_end,
             handler_pc,
-            stack_depth: self.n_locals,
+            // Restore stack to locals + any operand values pushed before the try.
+            // Without this, unwinding from a callee frame would discard operand
+            // values belonging to a surrounding expression (e.g., a function being
+            // called with the try result as an argument).
+            stack_depth: self.n_locals + self.stack_height,
             catch_slot,
         });
 
@@ -1050,6 +1099,7 @@ mod tests {
                 | Op::MakeMap
                 | Op::MakeHashMap => pc += 2,
                 Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => pc += 4,
+                Op::CallGlobal => pc += 6, // u32 spur + u16 argc
                 Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => pc += 4,
                 Op::CallNative => pc += 4,
                 Op::MakeClosure => {
@@ -1207,14 +1257,12 @@ mod tests {
     #[test]
     fn test_compile_non_tail_call() {
         // Top-level call is NOT in tail position of a lambda
+        // Non-tail global calls use fused CallGlobal
         let result = compile_str("(+ 1 2)");
         let ops = extract_ops(&result.chunk);
-        // LoadGlobal(+), Const(1), Const(2), Call(2), Return
-        assert_eq!(
-            ops,
-            vec![Op::LoadGlobal, Op::Const, Op::Const, Op::Call, Op::Return]
-        );
-        // Verify it's Call, not TailCall
+        // Const(1), Const(2), CallGlobal(+, 2), Return
+        assert_eq!(ops, vec![Op::Const, Op::Const, Op::CallGlobal, Op::Return]);
+        // Verify it's CallGlobal, not TailCall
         assert!(!ops.contains(&Op::TailCall));
     }
 
@@ -1237,14 +1285,13 @@ mod tests {
         // (lambda () (f 1) (g 2)) — first call is NOT tail, second IS tail
         let result = compile_str("(lambda () (f 1) (g 2))");
         let inner_ops = extract_ops(&result.functions[0].chunk);
-        // f call: LoadGlobal, Const, Call, Pop
-        // g call: LoadGlobal, Const, TailCall, Return
+        // f call: Const, CallGlobal(f, 1), Pop  (non-tail uses fused CallGlobal)
+        // g call: LoadGlobal, Const, TailCall, Return  (tail call can't use CallGlobal)
         assert_eq!(
             inner_ops,
             vec![
-                Op::LoadGlobal,
                 Op::Const,
-                Op::Call,
+                Op::CallGlobal,
                 Op::Pop,
                 Op::LoadGlobal,
                 Op::Const,
@@ -1260,14 +1307,14 @@ mod tests {
     fn test_compile_let() {
         let result = compile_str("(lambda () (let ((x 1) (y 2)) x))");
         let inner_ops = extract_ops(&result.functions[0].chunk);
-        // CONST(1), CONST(2), StoreLocal(y=1), StoreLocal(x=0), LoadLocal0(x=0), Return
+        // CONST(1), CONST(2), StoreLocal1(y=1), StoreLocal0(x=0), LoadLocal0(x=0), Return
         assert_eq!(
             inner_ops,
             vec![
                 Op::Const,
                 Op::Const,
-                Op::StoreLocal,
-                Op::StoreLocal,
+                Op::StoreLocal1,
+                Op::StoreLocal0,
                 Op::LoadLocal0,
                 Op::Return
             ]
@@ -1279,14 +1326,14 @@ mod tests {
         // let* stores sequentially so later bindings see earlier ones
         let result = compile_str("(lambda () (let* ((x 1) (y x)) y))");
         let inner_ops = extract_ops(&result.functions[0].chunk);
-        // CONST(1), StoreLocal(x), LoadLocal(x), StoreLocal(y), LoadLocal(y), Return
+        // CONST(1), StoreLocal0(x), LoadLocal0(x), StoreLocal1(y), LoadLocal1(y), Return
         assert_eq!(
             inner_ops,
             vec![
                 Op::Const,
-                Op::StoreLocal,
+                Op::StoreLocal0,
                 Op::LoadLocal0,
-                Op::StoreLocal,
+                Op::StoreLocal1,
                 Op::LoadLocal1,
                 Op::Return
             ]
@@ -1297,14 +1344,14 @@ mod tests {
     fn test_compile_letrec() {
         let result = compile_str("(lambda () (letrec ((x 1)) x))");
         let inner_ops = extract_ops(&result.functions[0].chunk);
-        // Nil, StoreLocal(x), CONST(1), StoreLocal(x), LoadLocal(x), Return
+        // Nil, StoreLocal0(x), CONST(1), StoreLocal0(x), LoadLocal0(x), Return
         assert_eq!(
             inner_ops,
             vec![
                 Op::Nil,
-                Op::StoreLocal,
+                Op::StoreLocal0,
                 Op::Const,
-                Op::StoreLocal,
+                Op::StoreLocal0,
                 Op::LoadLocal0,
                 Op::Return
             ]
@@ -1317,10 +1364,10 @@ mod tests {
     fn test_compile_set_local() {
         let result = compile_str("(lambda (x) (set! x 42))");
         let inner_ops = extract_ops(&result.functions[0].chunk);
-        // CONST(42), Dup, StoreLocal(0), Return
+        // CONST(42), Dup, StoreLocal0(0), Return
         assert_eq!(
             inner_ops,
-            vec![Op::Const, Op::Dup, Op::StoreLocal, Op::Return]
+            vec![Op::Const, Op::Dup, Op::StoreLocal0, Op::Return]
         );
     }
 

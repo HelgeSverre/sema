@@ -40,10 +40,11 @@
 - **VM dispatch loop restructuring** — two-level loop with cached frame locals, raw pointer bytecode reads, direct u8 matching, and deferred PC writeback.
 - **Lazy upvalue allocation** — `open_upvalues` deferred until `MakeClosure` actually captures a local, eliminating heap allocation for non-capturing recursive functions.
 - **Rc avoidance in call dispatch** — NaN-boxed tag peek (`raw_tag()`, `as_native_fn_ref()`) identifies callables without Rc refcount bumps. Eliminates 60M+ refcount operations on `tak` benchmark (31.8M calls).
-- **Specialized opcodes `LoadLocal0..3`** — single-byte zero-operand instructions for the first four local variable slots.
+- **Specialized opcodes `LoadLocal0..3`, `StoreLocal0..3`** — single-byte zero-operand instructions for the first four local variable load/store slots, eliminating 2-byte operand decode.
+- **Fused `CallGlobal` opcode** — combines `LOAD_GLOBAL` + `CALL` into a single instruction for non-tail calls to global functions. Avoids pushing/popping the function value on the stack and uses a direct call path (`call_vm_closure_direct`) that skips the function-slot convention entirely.
 - **Global lookup cache** — 16-entry direct-mapped cache with versioned `Env`, avoiding `RefCell` borrow and hashmap lookup on hot global reads.
 - **Raw stack operations for integer arithmetic** — `AddInt`, `SubInt`, `MulInt`, `LtInt`, `EqInt` operate directly on raw u64 bits, bypassing Clone/Drop.
-- **Benchmark results**: `tak` 21% faster (5.97s → 4.70s), `deriv` 6% faster (1.60s → 1.51s). VM remains 2–4× faster than tree-walker across all benchmarks.
+- **Benchmark results**: `tak` 9% faster (4.77s → 4.35s), `deriv` 6% faster (1.53s → 1.45s), `upvalue-counter` 15% faster (1.44s → 1.23s). VM remains 2–4× faster than tree-walker across all benchmarks.
 
 ### Security
 
