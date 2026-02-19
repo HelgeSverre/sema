@@ -67,11 +67,17 @@ export interface InterpreterOptions {
   /**
    * Optional VFS backend for persisting files across page reloads.
    *
+   * Built-in backends:
+   * - {@link MemoryBackend} — ephemeral, no persistence (default behavior)
+   * - {@link LocalStorageBackend} — persist to localStorage (~5 MB limit)
+   * - {@link SessionStorageBackend} — persist within the tab session
+   * - {@link IndexedDBBackend} — persist to IndexedDB (recommended for production)
+   *
    * @example
    * ```js
-   * import { SemaInterpreter, LocalStorageBackend } from "@sema-lang/sema";
+   * import { SemaInterpreter, IndexedDBBackend } from "@sema-lang/sema";
    * const sema = await SemaInterpreter.create({
-   *   vfs: new LocalStorageBackend({ namespace: "my-project" }),
+   *   vfs: new IndexedDBBackend({ namespace: "my-project" }),
    * });
    * ```
    */
@@ -426,8 +432,13 @@ export class SemaInterpreter {
 }
 
 export type { VFSBackend, VFSHost } from "./vfs.js";
+export { MemoryBackend } from "./backends/memory.js";
 export { LocalStorageBackend } from "./backends/local-storage.js";
 export type { LocalStorageBackendOptions } from "./backends/local-storage.js";
+export { SessionStorageBackend } from "./backends/session-storage.js";
+export type { SessionStorageBackendOptions } from "./backends/session-storage.js";
+export { IndexedDBBackend } from "./backends/indexed-db.js";
+export type { IndexedDBBackendOptions } from "./backends/indexed-db.js";
 
 /** @deprecated Use `SemaInterpreter` instead. */
 export { SemaInterpreter as Interpreter };
