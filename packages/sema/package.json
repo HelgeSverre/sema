@@ -1,0 +1,49 @@
+{
+  "name": "@sema-lang/sema",
+  "version": "1.9.0",
+  "description": "Sema Lisp interpreter for JavaScript — client-side scripting engine powered by WebAssembly",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@sema-lang/sema-wasm": "^1.9.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/helgesverre/sema",
+    "directory": "packages/sema"
+  },
+  "homepage": "https://sema-lang.com/docs/embedding-js.html",
+  "keywords": [
+    "sema",
+    "lisp",
+    "scripting",
+    "wasm",
+    "webassembly",
+    "interpreter",
+    "embedded",
+    "scripting-engine"
+  ],
+  "author": {
+    "name": "Helge Sverre",
+    "url": "https://helgesver.re"
+  }
+}
