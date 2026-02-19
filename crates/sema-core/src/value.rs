@@ -1005,6 +1005,95 @@ impl Value {
         }
     }
 
+    /// Borrow the underlying HashMap without bumping the Rc refcount.
+    #[inline(always)]
+    pub fn as_hashmap_ref(&self) -> Option<&hashbrown::HashMap<Value, Value>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_HASHMAP {
+            Some(unsafe { self.borrow_ref::<hashbrown::HashMap<Value, Value>>() })
+        } else {
+            None
+        }
+    }
+
+    /// Borrow the underlying BTreeMap without bumping the Rc refcount.
+    #[inline(always)]
+    pub fn as_map_ref(&self) -> Option<&BTreeMap<Value, Value>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_MAP {
+            Some(unsafe { self.borrow_ref::<BTreeMap<Value, Value>>() })
+        } else {
+            None
+        }
+    }
+
+    /// If this is a hashmap with refcount==1, mutate it in place.
+    /// Returns `None` if not a hashmap or if shared (refcount > 1).
+    /// SAFETY: relies on no other references to the inner data existing.
+    #[inline(always)]
+    pub fn with_hashmap_mut_if_unique<R>(
+        &self,
+        f: impl FnOnce(&mut hashbrown::HashMap<Value, Value>) -> R,
+    ) -> Option<R> {
+        if !is_boxed(self.0) || get_tag(self.0) != TAG_HASHMAP {
+            return None;
+        }
+        let payload = get_payload(self.0);
+        let ptr = payload_to_ptr(payload) as *const hashbrown::HashMap<Value, Value>;
+        let rc = std::mem::ManuallyDrop::new(unsafe { Rc::from_raw(ptr) });
+        if Rc::strong_count(&rc) != 1 {
+            return None;
+        }
+        // strong_count==1: we are the sole owner, safe to mutate
+        let ptr_mut = ptr as *mut hashbrown::HashMap<Value, Value>;
+        Some(f(unsafe { &mut *ptr_mut }))
+    }
+
+    /// If this is a map (BTreeMap) with refcount==1, mutate it in place.
+    /// Returns `None` if not a map or if shared (refcount > 1).
+    #[inline(always)]
+    pub fn with_map_mut_if_unique<R>(
+        &self,
+        f: impl FnOnce(&mut BTreeMap<Value, Value>) -> R,
+    ) -> Option<R> {
+        if !is_boxed(self.0) || get_tag(self.0) != TAG_MAP {
+            return None;
+        }
+        let payload = get_payload(self.0);
+        let ptr = payload_to_ptr(payload) as *const BTreeMap<Value, Value>;
+        let rc = std::mem::ManuallyDrop::new(unsafe { Rc::from_raw(ptr) });
+        if Rc::strong_count(&rc) != 1 {
+            return None;
+        }
+        let ptr_mut = ptr as *mut BTreeMap<Value, Value>;
+        Some(f(unsafe { &mut *ptr_mut }))
+    }
+
+    /// Consume this Value and extract the inner Rc without a refcount bump.
+    /// Returns `Err(self)` if not a hashmap.
+    pub fn into_hashmap_rc(self) -> Result<Rc<hashbrown::HashMap<Value, Value>>, Value> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_HASHMAP {
+            let payload = get_payload(self.0);
+            let ptr = payload_to_ptr(payload) as *const hashbrown::HashMap<Value, Value>;
+            // Prevent Drop from decrementing the refcount — we're taking ownership
+            std::mem::forget(self);
+            Ok(unsafe { Rc::from_raw(ptr) })
+        } else {
+            Err(self)
+        }
+    }
+
+    /// Consume this Value and extract the inner Rc without a refcount bump.
+    /// Returns `Err(self)` if not a map.
+    pub fn into_map_rc(self) -> Result<Rc<BTreeMap<Value, Value>>, Value> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_MAP {
+            let payload = get_payload(self.0);
+            let ptr = payload_to_ptr(payload) as *const BTreeMap<Value, Value>;
+            std::mem::forget(self);
+            Ok(unsafe { Rc::from_raw(ptr) })
+        } else {
+            Err(self)
+        }
+    }
+
     pub fn as_lambda_rc(&self) -> Option<Rc<Lambda>> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_LAMBDA {
             Some(unsafe { self.get_rc::<Lambda>() })
