@@ -25,7 +25,7 @@ How does Sema compare to other Lisp dialects on a real-world I/O-heavy workload?
 | **Sema**          | Bytecode VM (`--vm`)     | 23,117    | 11.2x    | Interpreted  |
 | **Sema**          | Tree-walking interpreter | 46,291    | 22.4x    | Interpreted  |
 
-Racket was excluded — both the CS (Chez Scheme) and BC (bytecode) backends crash under x86-64 emulation on Apple Silicon. This is a Docker/emulation issue, not a Racket performance issue; Racket CS would likely land between Chez and Clojure.
+Racket was excluded — we encountered crashes with both the CS (Chez Scheme) and BC (bytecode) backends in our Docker Desktop x86-64 emulation setup on Apple Silicon. This appears to be a [Docker/Rosetta emulation issue](https://racket.discourse.group/t/racket-docker-m1-rosetta/2947), not a Racket performance issue; Racket CS would likely land between Chez and Clojure.
 
 ::: info Compiled mode
 Gambit, Chicken, and ECL are now benchmarked in compiled mode (compiling to native code via C), not interpreter mode. Previous versions of this benchmark ran them as interpreters, which was 3–6x slower. Guile now runs with bytecode auto-compilation enabled.
@@ -68,14 +68,14 @@ Clojure's 2.7x result includes JVM startup and JIT warmup. The actual steady-sta
 
 - **Startup:** ~1–2 seconds just to load the Clojure runtime
 - **`line-seq` + `reduce`:** Lazy line reading with a transient map for accumulation — idiomatic but not zero-cost
-- **`Double/parseDouble`:** JVM's float parser handles the full spec (scientific notation, hex floats), more work than a hand-rolled decimal parser
+- **`Double/parseDouble`:** JVM's float parser handles scientific notation and the full IEEE 754 spec, more work than a hand-rolled decimal parser
 - **GC pauses:** The JVM's garbage collector adds latency variance
 
 Clojure's strength is that this code is _15 lines_ — the most concise implementation in the benchmark. It trades raw speed for developer productivity.
 
 ## PicoLisp: Integer Arithmetic Pays Off
 
-PicoLisp's 4.6x result is impressive for a pure interpreter with no bytecode compilation. PicoLisp has no native floating-point — all arithmetic is integer-based. The benchmark uses temperatures multiplied by 10 (e.g., "12.3" → 123), avoiding float parsing entirely. PicoLisp's idx trees (balanced binary trees) provide O(log n) lookup and keep results sorted for free. The lack of float overhead gives it a significant edge over implementations that parse and accumulate floats on every row.
+PicoLisp's 4.6x result is impressive for a pure interpreter with no bytecode compilation. PicoLisp has no native floating-point — all arithmetic is integer-based, using scaled fixed-point representation. The benchmark uses temperatures multiplied by 10 (e.g., "12.3" → 123), avoiding float parsing entirely. PicoLisp's `idx` binary search trees provide O(log n) average-case lookup and keep results sorted via in-order traversal. The lack of float overhead gives it a significant edge over implementations that parse and accumulate floats on every row.
 
 ## newLISP: Simple but Effective
 
@@ -94,7 +94,7 @@ Chicken at 3.7x compiles Scheme to C via `csc -O3`. The optimized implementation
 Janet is the most architecturally comparable to Sema — both are:
 
 - Embeddable scripting languages written in C/Rust
-- Single-threaded with reference counting (Janet) / `Rc` (Sema)
+- GC-based memory management — Janet uses a tracing mark-and-sweep GC (with isolated per-thread heaps), Sema uses `Rc` reference counting
 - Focused on practical scripting rather than language theory
 - No JIT, no native compilation
 
@@ -104,7 +104,7 @@ Janet's implementation is straightforward: `file/read :line` in a loop, `string/
 
 ## Guile and Gauche: Scheme Bytecode VMs
 
-Guile (7.0x) and Gauche (10.9x) are both R7RS-compliant Scheme implementations with bytecode VMs. Guile runs with bytecode auto-compilation enabled, which compiles source to bytecode on first execution and caches it for subsequent runs. Guile's optimized implementation uses a hand-rolled integer×10 parser, saving ~7% vs `string->number`. Gauche uses `string->number` in both versions — a hand-rolled char-by-char parser is actually _slower_ in Gauche because `string-ref` has O(n) cost in its internal UTF-32 representation, while `string->number` is implemented in C.
+Guile (7.0x) and Gauche (10.9x) are both R7RS Scheme implementations with bytecode VMs. Guile runs with bytecode auto-compilation enabled, which compiles source to bytecode on first execution and caches it for subsequent runs. Guile's optimized implementation uses a hand-rolled integer×10 parser, saving ~7% vs `string->number`. Gauche uses `string->number` in both versions — a hand-rolled char-by-char parser is actually _slower_ in Gauche because `string-ref` has O(k) cost in its multibyte (UTF-8) string representation, while `string->number` is implemented in C.
 
 ## Sema: The Interpreter Tax
 
@@ -187,7 +187,7 @@ Comparing simple vs optimized times shows where optimization effort pays off and
 - **SBCL's 3.5x optimization gain is the largest** — block I/O + `(safety 0)` + type declarations transform it from 1.9x to 1.0x relative. Without its optimizations, SBCL would rank 5th, behind Fennel, Chez, Gambit, and Clojure.
 - **Number parsing is the dominant optimization** — every dialect that benefits from optimization does so primarily by replacing the language's built-in number parser with a hand-rolled integer×10 parser. This avoids the overhead of handling the full numeric tower, scientific notation, and float precision.
 - **Fennel/LuaJIT is the fastest with zero optimization effort.** The simple and optimized versions are nearly identical — LuaJIT's tracing JIT does all the work. This makes Fennel the clear winner in "performance per line of code."
-- **Gauche's `string-ref` is O(n)** — a hand-rolled char-by-char parser is actually _slower_ than `string->number` (C implementation) because Gauche uses a UTF-32 internal representation where `string-ref` must scan from the beginning.
+- **Gauche's `string-ref` is O(k) on multibyte strings** — a hand-rolled char-by-char parser is actually _slower_ than `string->number` (C implementation) because Gauche stores strings in UTF-8, where `string-ref` must scan forward from the nearest index point.
 - **Sema's optimization gain is very small** (46.3s vs 50.1s = 1.1x), because `file/fold-lines` and COW mutation work in both versions. The difference is just `string->float` + hashmap vs `string->number` + sorted map. The VM provides the same ~2× speedup in both modes.
 
 ## What This Benchmark Doesn't Show
