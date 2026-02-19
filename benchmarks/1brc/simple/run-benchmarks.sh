@@ -83,6 +83,7 @@ run_bench "kawa"     kawa --script /bench/simple/1brc.kawa.scm "$DATA_FILE"
 
 # ── Tree-walking interpreters ──
 run_bench "sema"     sema --no-llm /bench/simple/1brc.sema -- "$DATA_FILE"
+run_bench "sema-vm"  sema --no-llm --vm /bench/simple/1brc.sema -- "$DATA_FILE"
 
 # ── Bytecode VMs / Interpreters ──
 run_bench "guile"    guile /bench/simple/1brc.scm "$DATA_FILE"

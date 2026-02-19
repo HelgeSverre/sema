@@ -8,21 +8,22 @@ How does Sema compare to other Lisp dialects on a real-world I/O-heavy workload?
 
 | Dialect           | Implementation           | Time (ms) | Relative | Category     |
 | ----------------- | ------------------------ | --------- | -------- | ------------ |
-| **SBCL**          | Native compiler          | 2,115     | 1.0x     | Compiled     |
-| **Chez Scheme**   | Native compiler          | 2,873     | 1.4x     | Compiled     |
-| **Fennel/LuaJIT** | JIT compiler             | 3,330     | 1.6x     | JIT-compiled |
-| **Clojure**       | JVM (JIT)                | 5,487     | 2.6x     | JIT-compiled |
-| **Gambit**        | Native compiler (gsc)    | 5,553     | 2.6x     | Compiled     |
-| **Chicken**       | Native compiler (csc)    | 7,605     | 3.6x     | Compiled     |
-| **PicoLisp**      | Interpreter              | 9,780     | 4.6x     | Interpreted  |
-| **newLISP**       | Interpreter              | 12,330    | 5.8x     | Interpreted  |
-| **Emacs Lisp**    | Bytecode VM              | 13,807    | 6.5x     | Interpreted  |
-| **Janet**         | Bytecode VM              | 14,192    | 6.7x     | Interpreted  |
-| **ECL**           | Native compiler          | 14,974    | 7.1x     | Compiled     |
-| **Guile**         | Bytecode VM              | 15,487    | 7.3x     | Interpreted  |
-| **Kawa**          | JVM (JIT)                | 16,611    | 7.9x     | JIT-compiled |
-| **Gauche**        | Bytecode VM              | 23,252    | 11.0x    | Interpreted  |
-| **Sema**          | Tree-walking interpreter | 48,042    | 22.7x    | Interpreted  |
+| **SBCL**          | Native compiler          | 2,068     | 1.0x     | Compiled     |
+| **Chez Scheme**   | Native compiler          | 2,777     | 1.3x     | Compiled     |
+| **Fennel/LuaJIT** | JIT compiler             | 3,254     | 1.6x     | JIT-compiled |
+| **Clojure**       | JVM (JIT)                | 5,576     | 2.7x     | JIT-compiled |
+| **Gambit**        | Native compiler (gsc)    | 5,608     | 2.7x     | Compiled     |
+| **Chicken**       | Native compiler (csc)    | 7,579     | 3.7x     | Compiled     |
+| **PicoLisp**      | Interpreter              | 9,611     | 4.6x     | Interpreted  |
+| **newLISP**       | Interpreter              | 12,657    | 6.1x     | Interpreted  |
+| **Janet**         | Bytecode VM              | 13,426    | 6.5x     | Interpreted  |
+| **Emacs Lisp**    | Bytecode VM              | 13,438    | 6.5x     | Interpreted  |
+| **ECL**           | Native compiler          | 14,416    | 7.0x     | Compiled     |
+| **Guile**         | Bytecode VM              | 14,564    | 7.0x     | Interpreted  |
+| **Kawa**          | JVM (JIT)                | 16,900    | 8.2x     | JIT-compiled |
+| **Gauche**        | Bytecode VM              | 22,534    | 10.9x    | Interpreted  |
+| **Sema**          | Bytecode VM (`--vm`)     | 23,117    | 11.2x    | Interpreted  |
+| **Sema**          | Tree-walking interpreter | 46,291    | 22.4x    | Interpreted  |
 
 Racket was excluded — both the CS (Chez Scheme) and BC (bytecode) backends crash under x86-64 emulation on Apple Silicon. This is a Docker/emulation issue, not a Racket performance issue; Racket CS would likely land between Chez and Clojure.
 
@@ -31,7 +32,7 @@ Gambit, Chicken, and ECL are now benchmarked in compiled mode (compiling to nati
 :::
 
 ::: info Native performance
-Sema runs significantly faster natively on Apple Silicon: ~29.6s (tree-walker) and ~17.1s (VM mode with `--vm`) on 10M rows, compared to 48.0s under x86-64 emulation. NaN-boxing (introduced in v1.5.0) adds overhead to the tree-walker that is amplified by x86-64 emulation. All dialects in this table were measured under the same Docker/emulation environment for a fair comparison.
+Sema runs significantly faster natively on Apple Silicon: ~28.4s (tree-walker) and ~15.9s (VM mode with `--vm`) on 10M rows, compared to 46.3s / 23.1s under x86-64 emulation. NaN-boxing (introduced in v1.5.0) adds overhead that is amplified by x86-64 emulation. All dialects in this table were measured under the same Docker/emulation environment for a fair comparison.
 :::
 
 ## Why SBCL Wins
@@ -47,7 +48,7 @@ SBCL's compiler has had 25+ years of optimization work (descended from CMUCL, wh
 
 ## Chez Scheme: The Other Native Compiler
 
-Chez Scheme compiles to native code via a [nanopass compiler framework](https://nanopass.org/). It's 1.4x behind SBCL here, which is consistent with typical benchmarks — Chez tends to be slightly slower than SBCL on I/O-heavy workloads but competitive on computation.
+Chez Scheme compiles to native code via a [nanopass compiler framework](https://nanopass.org/). It's 1.3x behind SBCL here, which is consistent with typical benchmarks — Chez tends to be slightly slower than SBCL on I/O-heavy workloads but competitive on computation.
 
 The implementation uses:
 
@@ -59,7 +60,7 @@ The gap to SBCL is likely explained by the per-line I/O — `get-line` allocates
 
 ## Fennel/LuaJIT: The JIT Surprise
 
-Fennel compiling to LuaJIT at 1.7x is the biggest surprise — faster than both Clojure and compiled Gambit. LuaJIT's tracing JIT compiler generates native code for the hot loop after a few iterations, and Lua's table implementation (used for both hash maps and arrays) is famously efficient. The implementation is straightforward Fennel: `string.find` for semicolons, `tonumber` for parsing, Lua tables for accumulation. No special optimization tricks — LuaJIT's JIT does the heavy lifting.
+Fennel compiling to LuaJIT at 1.6x is the biggest surprise — faster than both Clojure and compiled Gambit. LuaJIT's tracing JIT compiler generates native code for the hot loop after a few iterations, and Lua's table implementation (used for both hash maps and arrays) is famously efficient. The implementation is straightforward Fennel: `string.find` for semicolons, `tonumber` for parsing, Lua tables for accumulation. No special optimization tricks — LuaJIT's JIT does the heavy lifting.
 
 ## Clojure: JVM Tax + Warmup
 
@@ -74,11 +75,11 @@ Clojure's strength is that this code is _15 lines_ — the most concise implemen
 
 ## PicoLisp: Integer Arithmetic Pays Off
 
-PicoLisp's 4.7x result is impressive for a pure interpreter with no bytecode compilation. PicoLisp has no native floating-point — all arithmetic is integer-based. The benchmark uses temperatures multiplied by 10 (e.g., "12.3" → 123), avoiding float parsing entirely. PicoLisp's idx trees (balanced binary trees) provide O(log n) lookup and keep results sorted for free. The lack of float overhead gives it a significant edge over implementations that parse and accumulate floats on every row.
+PicoLisp's 4.6x result is impressive for a pure interpreter with no bytecode compilation. PicoLisp has no native floating-point — all arithmetic is integer-based. The benchmark uses temperatures multiplied by 10 (e.g., "12.3" → 123), avoiding float parsing entirely. PicoLisp's idx trees (balanced binary trees) provide O(log n) lookup and keep results sorted for free. The lack of float overhead gives it a significant edge over implementations that parse and accumulate floats on every row.
 
 ## newLISP: Simple but Effective
 
-newLISP at 5.9x is surprisingly competitive. Its association-list-based accumulation has O(n) lookup per station, but with only 40 stations, the list stays small enough that linear search is fast. newLISP's `read-line`/`current-line` idiom and `find`/`slice` string operations are efficient C implementations. The language's simplicity — no complex type system, no numeric tower — means less overhead per operation.
+newLISP at 6.1x is surprisingly competitive. Its association-list-based accumulation has O(n) lookup per station, but with only 40 stations, the list stays small enough that linear search is fast. newLISP's `read-line`/`current-line` idiom and `find`/`slice` string operations are efficient C implementations. The language's simplicity — no complex type system, no numeric tower — means less overhead per operation.
 
 ## Gambit: Compiled Scheme via C
 
@@ -86,7 +87,7 @@ Gambit at 2.7x — virtually tied with Clojure — is the standout result among 
 
 ## Chicken: Compiled Scheme, I/O Bound
 
-Chicken at 3.6x compiles Scheme to C via `csc -O3`. The optimized implementation uses a hand-rolled integer×10 temperature parser that avoids float parsing entirely — without it, Chicken drops to 13.6s (1.8x slower). The remaining gap to SBCL/Chez is due to per-line I/O allocation and Chicken's compilation strategy (continuation-passing style C), which produces correct but not maximally optimized code for this I/O-heavy workload.
+Chicken at 3.7x compiles Scheme to C via `csc -O3`. The optimized implementation uses a hand-rolled integer×10 temperature parser that avoids float parsing entirely — without it, Chicken drops to 13.6s (1.8x slower). The remaining gap to SBCL/Chez is due to per-line I/O allocation and Chicken's compilation strategy (continuation-passing style C), which produces correct but not maximally optimized code for this I/O-heavy workload.
 
 ## Janet: A Fair Comparison
 
@@ -97,19 +98,19 @@ Janet is the most architecturally comparable to Sema — both are:
 - Focused on practical scripting rather than language theory
 - No JIT, no native compilation
 
-Janet compiles to bytecode and runs on a register-based VM, which should be faster than tree-walking. Under the same Docker environment, Janet is ~3.4x faster than Sema's tree-walker (14.2s vs 48.0s). However, Sema's bytecode VM mode (`--vm`) at ~17.1s natively is competitive with Janet's 14.2s under emulation.
+Janet compiles to bytecode and runs on a register-based VM, which should be faster than tree-walking. Under the same Docker environment, Janet is ~3.4x faster than Sema's tree-walker (13.4s vs 46.3s). Sema's bytecode VM (`--vm`) at 23.1s under emulation (~15.9s natively) is closing the gap — 1.7x behind Janet, down from 3.4x with the tree-walker.
 
 Janet's implementation is straightforward: `file/read :line` in a loop, `string/find` + `string/slice` for parsing, mutable tables for accumulation. No special optimizations.
 
 ## Guile and Gauche: Scheme Bytecode VMs
 
-Guile (7.2x) and Gauche (10.9x) are both R7RS-compliant Scheme implementations with bytecode VMs. Guile runs with bytecode auto-compilation enabled, which compiles source to bytecode on first execution and caches it for subsequent runs. Guile's optimized implementation uses a hand-rolled integer×10 parser, saving ~7% vs `string->number`. Gauche uses `string->number` in both versions — a hand-rolled char-by-char parser is actually _slower_ in Gauche because `string-ref` has O(n) cost in its internal UTF-32 representation, while `string->number` is implemented in C.
+Guile (7.0x) and Gauche (10.9x) are both R7RS-compliant Scheme implementations with bytecode VMs. Guile runs with bytecode auto-compilation enabled, which compiles source to bytecode on first execution and caches it for subsequent runs. Guile's optimized implementation uses a hand-rolled integer×10 parser, saving ~7% vs `string->number`. Gauche uses `string->number` in both versions — a hand-rolled char-by-char parser is actually _slower_ in Gauche because `string-ref` has O(n) cost in its internal UTF-32 representation, while `string->number` is implemented in C.
 
 ## Sema: The Interpreter Tax
 
-Sema's 22.7x result (48.0s under emulation, ~29.6s native tree-walker, ~17.1s native VM) reflects the fundamental cost of tree-walking interpretation, amplified by NaN-boxing overhead under x86-64 emulation. Every operation — reading a line, splitting a string, parsing a number, updating a map — is a function call through the evaluator, with environment lookup, `Rc` reference counting, and trampoline dispatch.
+Sema's tree-walker at 22.4x (46.3s under emulation, ~28.4s native) reflects the fundamental cost of tree-walking interpretation, amplified by NaN-boxing overhead under x86-64 emulation. Every operation — reading a line, splitting a string, parsing a number, updating a map — is a function call through the evaluator, with environment lookup, `Rc` reference counting, and trampoline dispatch.
 
-The 22.7x relative result reflects tree-walking + NaN-boxing overhead amplified by x86-64 emulation on Apple Silicon. Natively, the tree-walker runs at ~29.6s, and the bytecode VM (`--vm`, available since v1.5.0) brings this down to ~17.1s — which would be competitive with Janet (14.2s Docker) and Guile (15.5s Docker).
+The bytecode VM (`--vm`, available since v1.5.0) cuts this to 11.2x (23.1s under emulation, ~15.9s native) — a **2× speedup** over the tree-walker. Under emulation, Sema's VM lands just behind Gauche (22.5s) and ahead of where the tree-walker was. Natively, the VM at ~15.9s is competitive with Janet (13.4s Docker) and Guile (14.6s Docker).
 
 Key optimizations that remain in the runtime:
 
@@ -122,15 +123,15 @@ See the [Performance Internals](./performance.md) page for the optimization jour
 
 ## Kawa: JVM Scheme, Slower Than Expected
 
-Kawa at 8.1x is slower than Clojure despite both running on the JVM. Kawa compiles Scheme to JVM bytecode, but its `string->number` implementation handles the full Scheme numeric tower (exact rationals, complex numbers), which is more expensive than Clojure's `Double/parseDouble`. The `java.util.HashMap` usage should be fast, but Kawa's compilation model introduces overhead for Scheme-specific features like tail-call optimization and continuations that the JVM doesn't natively support.
+Kawa at 8.2x is slower than Clojure despite both running on the JVM. Kawa compiles Scheme to JVM bytecode, but its `string->number` implementation handles the full Scheme numeric tower (exact rationals, complex numbers), which is more expensive than Clojure's `Double/parseDouble`. The `java.util.HashMap` usage should be fast, but Kawa's compilation model introduces overhead for Scheme-specific features like tail-call optimization and continuations that the JVM doesn't natively support.
 
 ## ECL: Common Lisp via C
 
-ECL at 7.1x compiles Common Lisp to C via `compile-file`, producing a native FASL. The optimized implementation uses a hand-rolled integer×10 parser; without it (using `read-from-string` instead), ECL drops to 21.5s — a 1.4x slowdown. The remaining gap to SBCL is due to ECL's less aggressive native code generation compared to SBCL's mature optimizer.
+ECL at 7.0x compiles Common Lisp to C via `compile-file`, producing a native FASL. The optimized implementation uses a hand-rolled integer×10 parser; without it (using `read-from-string` instead), ECL drops to 21.5s — a 1.4x slowdown. The remaining gap to SBCL is due to ECL's less aggressive native code generation compared to SBCL's mature optimizer.
 
 ## Emacs Lisp: Buffer-Based I/O
 
-Emacs Lisp at 6.4x loads the entire file into a buffer with `insert-file-contents-literally`, then parses temperatures using a manual integer×10 parser that reads characters directly from the buffer without extracting substrings. Without this optimization (using `string-to-number` on extracted substrings instead), Emacs drops to 22.2s — a 1.6x slowdown. The in-buffer parsing avoids both string allocation and float overhead, which matters over 10 million rows.
+Emacs Lisp at 6.5x loads the entire file into a buffer with `insert-file-contents-literally`, then parses temperatures using a manual integer×10 parser that reads characters directly from the buffer without extracting substrings. Without this optimization (using `string-to-number` on extracted substrings instead), Emacs drops to 22.2s — a 1.6x slowdown. The in-buffer parsing avoids both string allocation and float overhead, which matters over 10 million rows.
 
 ## Results (Simple/Idiomatic)
 
@@ -140,21 +141,22 @@ To measure raw language runtime speed — independent of implementation tricks �
 
 | Dialect           | Implementation           | Time (ms) | Relative | vs Optimized |
 | ----------------- | ------------------------ | --------- | -------- | ------------ |
-| **Fennel/LuaJIT** | JIT compiler             | 3,640     | 1.0x     | 1.1x slower  |
-| **Chez Scheme**   | Native compiler          | 4,320     | 1.2x     | 1.5x slower  |
-| **Gambit**        | Native compiler (gsc)    | 5,714     | 1.6x     | ~same        |
-| **Clojure**       | JVM (JIT)                | 5,913     | 1.6x     | ~same        |
-| **SBCL**          | Native compiler          | 7,404     | 2.0x     | 3.5x slower  |
-| **PicoLisp**      | Interpreter              | 9,839     | 2.7x     | ~same        |
-| **newLISP**       | Interpreter              | 12,320    | 3.4x     | ~same        |
-| **Chicken**       | Native compiler (csc)    | 13,371    | 3.7x     | 1.8x slower  |
-| **Janet**         | Bytecode VM              | 14,406    | 4.0x     | ~same        |
-| **Guile**         | Bytecode VM              | 16,628    | 4.6x     | 1.1x slower  |
-| **Kawa**          | JVM (JIT)                | 16,874    | 4.6x     | ~same        |
-| **ECL**           | Native compiler          | 22,961    | 6.3x     | 1.5x slower  |
-| **Gauche**        | Bytecode VM              | 23,019    | 6.3x     | ~same        |
-| **Emacs Lisp**    | Bytecode VM              | 24,293    | 6.7x     | 1.8x slower  |
-| **Sema**          | Tree-walking interpreter | 52,060    | 14.3x    | 1.1x slower  |
+| **Fennel/LuaJIT** | JIT compiler             | 3,805     | 1.0x     | 1.2x slower  |
+| **Chez Scheme**   | Native compiler          | 4,253     | 1.1x     | 1.5x slower  |
+| **Gambit**        | Native compiler (gsc)    | 5,634     | 1.5x     | ~same        |
+| **Clojure**       | JVM (JIT)                | 5,634     | 1.5x     | ~same        |
+| **SBCL**          | Native compiler          | 7,342     | 1.9x     | 3.5x slower  |
+| **PicoLisp**      | Interpreter              | 9,542     | 2.5x     | ~same        |
+| **newLISP**       | Interpreter              | 12,193    | 3.2x     | ~same        |
+| **Chicken**       | Native compiler (csc)    | 13,486    | 3.5x     | 1.8x slower  |
+| **Janet**         | Bytecode VM              | 14,178    | 3.7x     | ~same        |
+| **Guile**         | Bytecode VM              | 16,723    | 4.4x     | 1.1x slower  |
+| **Kawa**          | JVM (JIT)                | 17,938    | 4.7x     | ~same        |
+| **ECL**           | Native compiler          | 22,607    | 5.9x     | 1.6x slower  |
+| **Emacs Lisp**    | Bytecode VM              | 22,627    | 5.9x     | 1.7x slower  |
+| **Gauche**        | Bytecode VM              | 23,016    | 6.0x     | ~same        |
+| **Sema**          | Bytecode VM (`--vm`)     | 25,841    | 6.8x     | 1.1x slower  |
+| **Sema**          | Tree-walking interpreter | 50,123    | 13.2x    | 1.1x slower  |
 
 The simple results are normalized to Fennel (the fastest simple implementation) rather than SBCL, since SBCL benefits the most from its optimizations.
 
@@ -164,29 +166,29 @@ Comparing simple vs optimized times shows where optimization effort pays off and
 
 | Dialect      | Optimized | Simple | Slowdown | What the Optimized Version Does                                  |
 | ------------ | --------- | ------ | -------- | ---------------------------------------------------------------- |
-| **SBCL**     | 2,115     | 7,404  | **3.5x** | Block I/O, `(safety 0)`, custom int×10 parser, typed structs     |
-| **Chicken**  | 7,605     | 13,371 | **1.8x** | Custom int×10 parser avoids `string->number` numeric tower       |
-| **Emacs**    | 13,807    | 24,293 | **1.8x** | In-buffer int×10 parser avoids string extraction + float parsing |
-| **Chez**     | 2,873     | 4,320  | **1.5x** | Custom char-by-char parser avoids `string->number`               |
-| **ECL**      | 14,974    | 22,961 | **1.5x** | Custom int×10 parser avoids `read-from-string` (full CL reader)  |
-| **Guile**    | 15,487    | 16,628 | **1.1x** | Custom int×10 parser, modest improvement                         |
-| **Fennel**   | 3,330     | 3,640  | **1.1x** | Already simple — LuaJIT's JIT optimizes it                       |
-| **Sema**     | 48,042    | 52,060 | **1.1x** | `string->float` + hashmap vs `string->number` + sorted map       |
-| **Gambit**   | 5,553     | 5,714  | ~same    | Already uses `string->number`                                    |
-| **Clojure**  | 5,487     | 5,913  | ~same    | Only transient→persistent map optimization                       |
-| **Janet**    | 14,192    | 14,406 | ~same    | Already simple                                                   |
-| **Kawa**     | 16,611    | 16,874 | ~same    | `Double/parseDouble` → `string->number` (similar cost)           |
-| **PicoLisp** | 9,780     | 9,839  | ~same    | No floats — int×10 is the only option                            |
-| **newLISP**  | 12,330    | 12,320 | ~same    | Already simple                                                   |
-| **Gauche**   | 23,252    | 23,019 | ~same    | `string->number` (C impl) is faster than hand-rolled Scheme      |
+| **SBCL**     | 2,068     | 7,342  | **3.5x** | Block I/O, `(safety 0)`, custom int×10 parser, typed structs     |
+| **Chicken**  | 7,579     | 13,486 | **1.8x** | Custom int×10 parser avoids `string->number` numeric tower       |
+| **Emacs**    | 13,438    | 22,627 | **1.7x** | In-buffer int×10 parser avoids string extraction + float parsing |
+| **ECL**      | 14,416    | 22,607 | **1.6x** | Custom int×10 parser avoids `read-from-string` (full CL reader)  |
+| **Chez**     | 2,777     | 4,253  | **1.5x** | Custom char-by-char parser avoids `string->number`               |
+| **Fennel**   | 3,254     | 3,805  | **1.2x** | Already simple — LuaJIT's JIT optimizes it                       |
+| **Guile**    | 14,564    | 16,723 | **1.1x** | Custom int×10 parser, modest improvement                         |
+| **Sema**     | 46,291    | 50,123 | **1.1x** | `string->float` + hashmap vs `string->number` + sorted map       |
+| **Gambit**   | 5,608     | 5,634  | ~same    | Already uses `string->number`                                    |
+| **Clojure**  | 5,576     | 5,634  | ~same    | Only transient→persistent map optimization                       |
+| **Janet**    | 13,426    | 14,178 | ~same    | Already simple                                                   |
+| **Kawa**     | 16,900    | 17,938 | ~same    | `Double/parseDouble` → `string->number` (similar cost)           |
+| **PicoLisp** | 9,611     | 9,542  | ~same    | No floats — int×10 is the only option                            |
+| **newLISP**  | 12,657    | 12,193 | ~same    | Already simple                                                   |
+| **Gauche**   | 22,534    | 23,016 | ~same    | `string->number` (C impl) is faster than hand-rolled Scheme      |
 
 **Key takeaways:**
 
-- **SBCL's 3.5x optimization gain is the largest** — block I/O + `(safety 0)` + type declarations transform it from 2.0x to 1.0x relative. Without its optimizations, SBCL would rank 5th, behind Fennel, Chez, Gambit, and Clojure.
+- **SBCL's 3.5x optimization gain is the largest** — block I/O + `(safety 0)` + type declarations transform it from 1.9x to 1.0x relative. Without its optimizations, SBCL would rank 5th, behind Fennel, Chez, Gambit, and Clojure.
 - **Number parsing is the dominant optimization** — every dialect that benefits from optimization does so primarily by replacing the language's built-in number parser with a hand-rolled integer×10 parser. This avoids the overhead of handling the full numeric tower, scientific notation, and float precision.
 - **Fennel/LuaJIT is the fastest with zero optimization effort.** The simple and optimized versions are nearly identical — LuaJIT's tracing JIT does all the work. This makes Fennel the clear winner in "performance per line of code."
 - **Gauche's `string-ref` is O(n)** — a hand-rolled char-by-char parser is actually _slower_ than `string->number` (C implementation) because Gauche uses a UTF-32 internal representation where `string-ref` must scan from the beginning.
-- **Sema's optimization gain is very small** (48.0s vs 52.1s = 1.1x), because `file/fold-lines` and COW mutation work in both versions. The difference is just `string->float` + hashmap vs `string->number` + sorted map.
+- **Sema's optimization gain is very small** (46.3s vs 50.1s = 1.1x), because `file/fold-lines` and COW mutation work in both versions. The difference is just `string->float` + hashmap vs `string->number` + sorted map. The VM provides the same ~2× speedup in both modes.
 
 ## What This Benchmark Doesn't Show
 
@@ -219,7 +221,7 @@ This is one workload. Different benchmarks would produce different orderings:
 | Clojure     | 1.12.0  | CLI tools                                              |
 | PicoLisp    | 23.2    | `picolisp` (Debian bookworm)                           |
 | newLISP     | 10.7.5  | `newlisp` (Debian bookworm)                            |
-| Sema        | 1.5.0   | Built from source (Docker)                             |
+| Sema        | 1.8.0   | Built from source (Docker)                             |
 | Janet       | 1.37.1  | Built from source                                      |
 | Kawa        | 3.1.1   | JAR from Maven Central                                 |
 | Gauche      | 0.9.15  | Built from source                                      |
@@ -252,8 +254,9 @@ docker run ... sema-1brc-bench --simple /data/measurements.txt
 # Run both
 docker run ... sema-1brc-bench --all /data/measurements.txt
 
-# Run Sema natively for comparison
+# Run Sema natively for comparison (tree-walker and VM)
 cargo run --release -- --no-llm examples/benchmarks/1brc.sema -- benchmarks/data/bench-10m.txt
+cargo run --release -- --no-llm --vm examples/benchmarks/1brc.sema -- benchmarks/data/bench-10m.txt
 ```
 
 Source code for all implementations is in [`benchmarks/1brc/`](https://github.com/HelgeSverre/sema/tree/main/benchmarks/1brc) (optimized) and [`benchmarks/1brc/simple/`](https://github.com/HelgeSverre/sema/tree/main/benchmarks/1brc/simple) (simple/idiomatic).
@@ -264,7 +267,7 @@ import { onMounted } from 'vue'
 onMounted(() => {
   document.querySelectorAll('table tr').forEach(row => {
     const firstCell = row.querySelector('td:first-child')
-    if (firstCell && firstCell.textContent.trim() === 'Sema') {
+    if (firstCell && firstCell.textContent.trim().startsWith('Sema')) {
       row.classList.add('sema-row')
     }
   })

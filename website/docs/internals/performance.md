@@ -1,6 +1,6 @@
 # Performance Internals
 
-Sema's default execution path is a tree-walking interpreter. A bytecode VM is available via `--vm` (see [Bytecode VM](./bytecode-vm.md)) and is significantly faster. Early optimizations brought the [1 Billion Row Challenge](https://github.com/gunnarmorling/1brc) benchmark from **~25s to ~9.6s** on 10M rows using a "mini-eval" — a minimal evaluator inlined in the stdlib that bypassed the full trampoline. The mini-eval was later **removed** for architectural reasons (semantic drift from the real evaluator, and blocking the path to a bytecode VM). Fast-path optimizations in the real evaluator partially recovered performance, bringing the tree-walker benchmark to **~2,900ms on 1M rows** (vs ~960ms with the mini-eval). The bytecode VM (`--vm`) now achieves **~1,700ms on 1M rows** and **~17,100ms on 10M rows**, recovering much of the mini-eval's performance through compilation rather than inlining. This page documents each optimization, its history, and measured impact.
+Sema's default execution path is a tree-walking interpreter. A bytecode VM is available via `--vm` (see [Bytecode VM](./bytecode-vm.md)) and is significantly faster. Early optimizations brought the [1 Billion Row Challenge](https://github.com/gunnarmorling/1brc) benchmark from **~25s to ~9.6s** on 10M rows using a "mini-eval" — a minimal evaluator inlined in the stdlib that bypassed the full trampoline. The mini-eval was later **removed** for architectural reasons (semantic drift from the real evaluator, and blocking the path to a bytecode VM). Fast-path optimizations in the real evaluator partially recovered performance, bringing the tree-walker benchmark to **~2,900ms on 1M rows** (vs ~960ms with the mini-eval). The bytecode VM (`--vm`) now achieves **~1,700ms on 1M rows** and **~15,900ms on 10M rows**, recovering much of the mini-eval's performance through compilation rather than inlining. This page documents each optimization, its history, and measured impact.
 
 All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset (semicolon-delimited weather station readings, one per line).
 
@@ -14,8 +14,8 @@ All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset
 | + Mini-eval        | ~960 ms       | ~9,600 ms      | Inlined builtins, custom parser    | ❌ Removed               |
 | + String interning | —             | —              | Spur-based dispatch                | ✅ Active                |
 | + hashbrown        | —             | —              | Amortized O(1) accumulator         | ✅ Active                |
-| **Post-removal**   | **~2,900 ms** | **~29,600 ms** | Callback architecture + fast paths | ✅ Current (tree-walker) |
-| **Bytecode VM**    | **~1,700 ms** | **~17,100 ms** | Bytecode VM (`--vm`)               | ✅ Active                |
+| **Post-removal**   | **~2,900 ms** | **~28,400 ms** | Callback architecture + fast paths | ✅ Current (tree-walker) |
+| **Bytecode VM**    | **~1,700 ms** | **~15,900 ms** | Bytecode VM (`--vm`)               | ✅ Active                |
 
 > **Note:** The mini-eval and its associated optimizations (env reuse, inlined builtins, custom number parser, SIMD split fast path) were removed to unblock the bytecode VM, which is now implemented and available via `--vm`. The bytecode VM provides a ~1.7× speedup over the tree-walker (~1,700ms vs ~2,900ms on 1M rows), recovering much of the mini-eval's performance through compilation. The tree-walker remains the default; the current architecture uses `sema_core::call_callback` to route stdlib → real evaluator. Fast-path optimizations (self-evaluating short-circuit, inline NativeFn dispatch, thread-local EvalContext, deferred cloning) partially recovered performance.
 
