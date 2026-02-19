@@ -1,4 +1,4 @@
-use sema_core::{intern, SemaError, Spur, Value};
+use sema_core::{intern, resolve as resolve_spur, SemaError, Spur, Value};
 
 use crate::chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
 use crate::core_expr::{
@@ -304,6 +304,27 @@ impl Compiler {
         then: &ResolvedExpr,
         else_: &ResolvedExpr,
     ) -> Result<(), SemaError> {
+        // Peephole: (if (not X) then else) → compile X, JumpIfTrue to else
+        // Avoids emitting NOT + JumpIfFalse, saving one opcode dispatch.
+        if let ResolvedExpr::Call { func, args, .. } = test {
+            if args.len() == 1 {
+                if let ResolvedExpr::Var(vr) = func.as_ref() {
+                    if let VarResolution::Global { spur } = vr.resolution {
+                        if resolve_spur(spur) == "not" {
+                            self.compile_expr(&args[0])?;
+                            let else_jump = self.emit.emit_jump(Op::JumpIfTrue);
+                            self.compile_expr(then)?;
+                            let end_jump = self.emit.emit_jump(Op::Jump);
+                            self.emit.patch_jump(else_jump);
+                            self.compile_expr(else_)?;
+                            self.emit.patch_jump(end_jump);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
         self.compile_expr(test)?;
         let else_jump = self.emit.emit_jump(Op::JumpIfFalse);
         self.compile_expr(then)?;
@@ -417,12 +438,65 @@ impl Compiler {
 
     // --- Function calls ---
 
+    /// Try to compile a call to a known global as an inline opcode.
+    /// Returns `true` if the intrinsic was emitted, `false` if not recognized.
+    fn try_compile_intrinsic(
+        &mut self,
+        spur: Spur,
+        args: &[ResolvedExpr],
+    ) -> Result<bool, SemaError> {
+        let name = resolve_spur(spur);
+        let argc = args.len();
+
+        let op = match (name.as_str(), argc) {
+            // Unary
+            ("not", 1) => Op::Not,
+            ("-", 1) => Op::Negate,
+            // Binary arithmetic
+            ("+", 2) => Op::AddInt,
+            ("-", 2) => Op::SubInt,
+            ("*", 2) => Op::MulInt,
+            // NOTE: `/` is NOT inlined — vm_div does integer truncation for int/int,
+            // but stdlib `/` does float division (e.g., (/ 3 2) → 1.5 not 1).
+            // NOTE: `=` is NOT inlined — EqInt fallback uses structural equality,
+            // but stdlib `=` does numeric coercion (e.g., (= 1 1.0) → #t).
+            // Binary comparison
+            ("<", 2) => Op::LtInt,
+            (">", 2) => Op::Gt,
+            ("<=", 2) => Op::Le,
+            (">=", 2) => Op::Ge,
+            _ => return Ok(false),
+        };
+
+        // Compile all arguments, tracking stack height for exception handlers.
+        for arg in args {
+            self.compile_expr(arg)?;
+            self.stack_height += 1;
+        }
+        self.emit.emit_op(op);
+        // Opcode consumes all args and produces 1 result.
+        // stack_height tracks intermediate operands (for exception handler restore),
+        // not including the final result — same convention as compile_call.
+        self.stack_height -= argc as u16;
+        Ok(true)
+    }
+
     fn compile_call(
         &mut self,
         func: &ResolvedExpr,
         args: &[ResolvedExpr],
         tail: bool,
     ) -> Result<(), SemaError> {
+        // Intrinsic recognition: emit inline opcodes for known builtins.
+        // This applies regardless of tail position since intrinsics don't create frames.
+        if let ResolvedExpr::Var(vr) = func {
+            if let VarResolution::Global { spur } = vr.resolution {
+                if self.try_compile_intrinsic(spur, args)? {
+                    return Ok(());
+                }
+            }
+        }
+
         // Fused CALL_GLOBAL for non-tail calls to global functions.
         // Tail calls can't use this because CALL_GLOBAL pushes a new frame
         // (tail calls need to reuse the current frame).
@@ -1257,13 +1331,11 @@ mod tests {
     #[test]
     fn test_compile_non_tail_call() {
         // Top-level call is NOT in tail position of a lambda
-        // Non-tail global calls use fused CallGlobal
+        // Intrinsic builtins like + compile to inline opcodes
         let result = compile_str("(+ 1 2)");
         let ops = extract_ops(&result.chunk);
-        // Const(1), Const(2), CallGlobal(+, 2), Return
-        assert_eq!(ops, vec![Op::Const, Op::Const, Op::CallGlobal, Op::Return]);
-        // Verify it's CallGlobal, not TailCall
-        assert!(!ops.contains(&Op::TailCall));
+        // Const(1), Const(2), AddInt, Return
+        assert_eq!(ops, vec![Op::Const, Op::Const, Op::AddInt, Op::Return]);
     }
 
     #[test]
@@ -1299,6 +1371,76 @@ mod tests {
                 Op::Return
             ]
         );
+    }
+
+    // --- Intrinsic recognition ---
+
+    #[test]
+    fn test_compile_intrinsic_sub() {
+        let result = compile_str("(- 5 3)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Const, Op::Const, Op::SubInt, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_intrinsic_lt() {
+        let result = compile_str("(< 1 2)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Const, Op::Const, Op::LtInt, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_intrinsic_not() {
+        let result = compile_str("(not #t)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::True, Op::Not, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_intrinsic_negate() {
+        let result = compile_str("(- 5)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Const, Op::Negate, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_intrinsic_in_tail_position() {
+        // Intrinsics work in tail position too (they don't create frames)
+        let result = compile_str("(lambda (x y) (+ x y))");
+        let inner_ops = extract_ops(&result.functions[0].chunk);
+        assert_eq!(
+            inner_ops,
+            vec![Op::LoadLocal0, Op::LoadLocal1, Op::AddInt, Op::Return]
+        );
+    }
+
+    #[test]
+    fn test_compile_non_intrinsic_still_uses_call_global() {
+        // Non-intrinsic globals still use CallGlobal
+        let result = compile_str("(foo 1 2)");
+        let ops = extract_ops(&result.chunk);
+        assert_eq!(ops, vec![Op::Const, Op::Const, Op::CallGlobal, Op::Return]);
+    }
+
+    #[test]
+    fn test_compile_if_not_peephole() {
+        // (if (not x) then else) → compile x, JumpIfTrue
+        let result = compile_str("(lambda (x) (if (not x) 1 2))");
+        let inner_ops = extract_ops(&result.functions[0].chunk);
+        // LoadLocal0(x), JumpIfTrue, Const(1), Jump, Const(2), Return
+        assert_eq!(
+            inner_ops,
+            vec![
+                Op::LoadLocal0,
+                Op::JumpIfTrue,
+                Op::Const,
+                Op::Jump,
+                Op::Const,
+                Op::Return
+            ]
+        );
+        // Should NOT contain Not opcode
+        assert!(!inner_ops.contains(&Op::Not));
     }
 
     // --- Let forms ---
