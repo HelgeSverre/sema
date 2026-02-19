@@ -847,7 +847,7 @@ impl VM {
             // Regular native fn — need Rc for the call
             let func_rc = self.stack[func_idx].as_native_fn_rc().unwrap();
             let args_start = func_idx + 1;
-            let args: Vec<Value> = self.stack[args_start..].to_vec();
+            let args: Vec<Value> = self.stack.drain(args_start..).collect();
             self.stack.truncate(func_idx);
             let result = (func_rc.func)(ctx, &args)?;
             self.stack.push(result);
@@ -873,7 +873,7 @@ impl VM {
             // Lambda or other callable — clone once and use call_callback
             let func_val = self.stack[func_idx].clone();
             let args_start = func_idx + 1;
-            let args: Vec<Value> = self.stack[args_start..].to_vec();
+            let args: Vec<Value> = self.stack.drain(args_start..).collect();
             self.stack.truncate(func_idx);
             let result = sema_core::call_callback(ctx, &func_val, &args)?;
             self.stack.push(result);
@@ -923,8 +923,7 @@ impl VM {
         if func_val.raw_tag() == Some(TAG_NATIVE_FN) {
             let func_rc = func_val.as_native_fn_rc().unwrap();
             let args_start = self.stack.len() - argc;
-            let args: Vec<Value> = self.stack[args_start..].to_vec();
-            self.stack.truncate(args_start);
+            let args: Vec<Value> = self.stack.drain(args_start..).collect();
             let result = (func_rc.func)(ctx, &args)?;
             self.stack.push(result);
             Ok(())
@@ -945,8 +944,7 @@ impl VM {
             Ok(())
         } else {
             let args_start = self.stack.len() - argc;
-            let args: Vec<Value> = self.stack[args_start..].to_vec();
-            self.stack.truncate(args_start);
+            let args: Vec<Value> = self.stack.drain(args_start..).collect();
             let result = sema_core::call_callback(ctx, &func_val, &args)?;
             self.stack.push(result);
             Ok(())
