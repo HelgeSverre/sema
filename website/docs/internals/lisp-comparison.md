@@ -221,7 +221,7 @@ This is one workload. Different benchmarks would produce different orderings:
 | Clojure     | 1.12.0  | CLI tools                                              |
 | PicoLisp    | 23.2    | `picolisp` (Debian bookworm)                           |
 | newLISP     | 10.7.5  | `newlisp` (Debian bookworm)                            |
-| Sema        | 1.8.0   | Built from source (Docker)                             |
+| Sema        | 1.9.0   | Built from source (Docker)                             |
 | Janet       | 1.37.1  | Built from source                                      |
 | Kawa        | 3.1.1   | JAR from Maven Central                                 |
 | Gauche      | 0.9.15  | Built from source                                      |

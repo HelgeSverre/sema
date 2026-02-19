@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.9.0
+
+### Performance
+
+- **VM intrinsic recognition** — the bytecode compiler now recognizes calls to common builtins (`+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `=`, `not`) and emits specialized inline opcodes instead of `CallGlobal`. This eliminates global hash lookup, `Rc` downcast, argument `Vec` allocation, and function pointer dispatch for the most frequent operations. **TAK benchmark: 4,352ms → 1,250ms (−71%). Upvalue-counter: 1,232ms → 450ms (−63%).** The `*Int` opcodes include NaN-boxed small-int fast paths that operate directly on raw `u64` bits without constructing a `Value`.
+- **Peephole optimization: `(if (not X) ...)`** — the compiler pattern-matches `(if (not expr) then else)` and emits `JumpIfTrue` instead of `Not` + `JumpIfFalse`, saving one instruction per branch.
+- **1BRC benchmark re-run** — all 15 Lisp dialect benchmarks re-run in Docker with Sema VM (`--vm`) included. VM result: 23.1s (11.2x vs SBCL), a 2× speedup over the tree-walker (46.3s). Natively: ~15.9s, competitive with Janet and Guile.
+
+### Fixed
+
+- **VM division semantics** — `vm_div` now returns float results for non-whole integer divisions (e.g., `(/ 7 2)` → `3.5`), matching the stdlib `div` function.
+- **VM equality semantics** — `vm_eq` now handles mixed int/float comparison correctly (e.g., `(= 1 1.0)` → `#t`), matching the stdlib `eq` function.
+- **OpenAI embedding fallback** — configuring an OpenAI embedding model no longer overwrites the chat provider setting.
+- **Path denial error messages** — improved error messages when `--allowed-paths` blocks a file operation.
+
+### Added
+
+- **Span end positions** — `Span` now tracks `end_line` and `end_col` in addition to start positions, enabling precise range highlighting in future tooling (LSP, error reporting). Added `Span::to()` and `Span::with_end()` convenience constructors.
+- **Stack traces on unbound variable errors** — the tree-walker now attaches a call stack trace to unbound variable errors for easier debugging.
+- **Scoped LLM CLI flags** — CLI flags and environment variables for LLM providers are now scoped to chat vs embeddings, allowing independent configuration of each.
+
+### Internal
+
+- **Named constants** — replaced magic numbers across VM and value system with named constants.
+- **Exported `SPECIAL_FORM_NAMES`** — canonical list of special form names exported from `sema-eval` for use by tooling.
+- **`make deploy`** — combined website and playground deployment target.
+
 ## 1.8.0
 
 ### Added
