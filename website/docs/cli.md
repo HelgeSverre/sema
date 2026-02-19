@@ -45,7 +45,7 @@ sema ast [OPTIONS] [FILE]
 
 ### `sema compile`
 
-Compile a source file to a `.semac` bytecode file. The compiled file can be executed directly with `sema` (auto-detected via magic number). See [Bytecode File Format](/docs/internals/bytecode-format.html) for details on the format.
+Compile a source file to a `.semac` bytecode file. The compiled file can be executed directly with `sema` (auto-detected via magic number). See [Bytecode File Format](./internals/bytecode-format.md) for details on the format.
 
 ```
 sema compile [OPTIONS] <FILE>

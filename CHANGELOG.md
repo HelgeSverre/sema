@@ -49,7 +49,7 @@
 
 ### Added
 
-- **Bytecode serialization (`.semac`)** — compile Sema source to a binary bytecode format for faster loading and source-free distribution. The format uses a 24-byte header with magic number `\x00SEM`, a deduplicated string table, function table, and main chunk section. See [Bytecode File Format](/docs/internals/bytecode-format.html) for the full spec.
+- **Bytecode serialization (`.semac`)** — compile Sema source to a binary bytecode format for faster loading and source-free distribution. The format uses a 24-byte header with magic number `\x00SEM`, a deduplicated string table, function table, and main chunk section. See [Bytecode File Format](https://sema-lang.com/docs/internals/bytecode-format.html) for the full spec.
 - **`sema compile` subcommand** — compile `.sema` source files to `.semac` bytecode. Supports `-o` for custom output path and `--check` for validation without execution.
 - **`sema disasm` subcommand** — disassemble `.semac` files to human-readable text or structured JSON (`--json`).
 - **Auto-detect `.semac` files** — running `sema script.semac` automatically detects the magic number and executes via the VM, no `--vm` flag needed.

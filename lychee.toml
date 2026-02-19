@@ -15,6 +15,8 @@ exclude = [
   "^https://www\\.cambridge\\.org",
   "^https://www\\.cs\\.indiana\\.edu",
   "^https://infoscience\\.epfl\\.ch",
+  # Root-relative VitePress links in CHANGELOG (valid on deployed site, unresolvable locally)
+  "^/docs/",
 ]
 
 # Treat these as OK
@@ -32,5 +34,13 @@ timeout = 15
 # Skip checking mail addresses
 include_mail = false
 
-# Exclude plan docs (internal/WIP)
-exclude_path = ["docs/plans"]
+# Exclude directories from scanning
+exclude_path = [
+  "docs/plans",
+  "target",
+  "node_modules",
+  "playground/node_modules",
+  "website/node_modules",
+  "benchmarks/1brc/sema-src",
+  ".git",
+]

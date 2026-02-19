@@ -52,7 +52,7 @@ The `fold-lines` implementation moves (not clones) `acc` into the lambda env on 
 **Literature:**
 
 - This is the same copy-on-write strategy used by Swift's value types. (Clojure's persistent data structures solve a related problem — avoiding full copies — but via structural sharing rather than refcount-based COW.)
-- Phil Bagwell, ["Ideal Hash Trees"](https://infoscience.epfl.ch/entities/publication/64410) (2001) — the paper behind Clojure/Scala persistent collections
+- Phil Bagwell, ["Ideal Hash Trees"](https://lampwww.epfl.ch/papers/idealhashtrees.pdf) (2001) — the paper behind Clojure/Scala persistent collections
 - Rust's `Rc::make_mut` provides the same semantics with less ceremony
 
 ## 2. Lambda Environment Reuse _(removed)_
