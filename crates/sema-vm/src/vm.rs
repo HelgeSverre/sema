@@ -451,7 +451,7 @@ impl VM {
                     op::EQ => {
                         let b = unsafe { pop_unchecked(&mut self.stack) };
                         let a = unsafe { pop_unchecked(&mut self.stack) };
-                        self.stack.push(Value::bool(a == b));
+                        self.stack.push(Value::bool(vm_eq(&a, &b)));
                     }
                     op::LT => {
                         let b = unsafe { pop_unchecked(&mut self.stack) };
@@ -623,7 +623,7 @@ impl VM {
                         } else {
                             let b = unsafe { pop_unchecked(&mut self.stack) };
                             let a = unsafe { pop_unchecked(&mut self.stack) };
-                            self.stack.push(Value::bool(a == b));
+                            self.stack.push(Value::bool(vm_eq(&a, &b)));
                         }
                     }
 
@@ -1474,7 +1474,14 @@ fn vm_div(a: &Value, b: &Value) -> Result<Value, SemaError> {
     use sema_core::ValueView;
     match (a.view(), b.view()) {
         (ValueView::Int(_), ValueView::Int(0)) => Err(SemaError::eval("division by zero")),
-        (ValueView::Int(x), ValueView::Int(y)) => Ok(Value::int(x / y)),
+        (ValueView::Int(x), ValueView::Int(y)) => {
+            let result = x as f64 / y as f64;
+            if result.fract() == 0.0 {
+                Ok(Value::int(result as i64))
+            } else {
+                Ok(Value::float(result))
+            }
+        }
         (ValueView::Float(x), ValueView::Float(y)) => Ok(Value::float(x / y)),
         (ValueView::Int(x), ValueView::Float(y)) => Ok(Value::float(x as f64 / y)),
         (ValueView::Float(x), ValueView::Int(y)) => Ok(Value::float(x / y as f64)),
@@ -1485,7 +1492,20 @@ fn vm_div(a: &Value, b: &Value) -> Result<Value, SemaError> {
     }
 }
 
+/// Numeric-coercing equality: matches stdlib `=` semantics.
 #[inline(always)]
+fn vm_eq(a: &Value, b: &Value) -> bool {
+    use sema_core::ValueView;
+    match (a.view(), b.view()) {
+        (ValueView::Int(x), ValueView::Int(y)) => x == y,
+        (ValueView::Float(x), ValueView::Float(y)) => x == y,
+        (ValueView::Int(x), ValueView::Float(y)) | (ValueView::Float(y), ValueView::Int(x)) => {
+            (x as f64) == y
+        }
+        _ => a == b,
+    }
+}
+
 fn vm_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
     use sema_core::ValueView;
     match (a.view(), b.view()) {
@@ -1565,7 +1585,7 @@ mod tests {
         env.set(
             intern("="),
             Value::native_fn(NativeFn::simple("=", |args| {
-                Ok(Value::bool(args[0] == args[1]))
+                Ok(Value::bool(vm_eq(&args[0], &args[1])))
             })),
         );
         env.set(
@@ -1994,5 +2014,150 @@ mod tests {
         .unwrap();
         let result = eval_str("(((curry +) 3) 4)", &globals, &ctx).unwrap();
         assert_eq!(result, Value::int(7));
+    }
+
+    // --- Regression tests: division and equality semantics ---
+
+    #[test]
+    fn test_vm_div_int_returns_float_when_non_whole() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str("(/ 3 2)", &globals, &ctx).unwrap();
+        assert_eq!(result, Value::float(1.5));
+    }
+
+    #[test]
+    fn test_vm_div_int_returns_int_when_whole() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str("(/ 4 2)", &globals, &ctx).unwrap();
+        assert_eq!(result, Value::int(2));
+    }
+
+    #[test]
+    fn test_vm_div_int_negative_non_whole() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str("(/ 7 3)", &globals, &ctx).unwrap();
+        assert!(
+            result.as_float().is_some(),
+            "expected float, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_vm_div_by_zero() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        assert!(eval_str("(/ 1 0)", &globals, &ctx).is_err());
+    }
+
+    #[test]
+    fn test_vm_eq_int_float_coercion() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        assert_eq!(
+            eval_str("(= 1 1.0)", &globals, &ctx).unwrap(),
+            Value::bool(true)
+        );
+    }
+
+    #[test]
+    fn test_vm_eq_float_int_coercion() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        assert_eq!(
+            eval_str("(= 1.0 1)", &globals, &ctx).unwrap(),
+            Value::bool(true)
+        );
+    }
+
+    #[test]
+    fn test_vm_eq_int_float_not_equal() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        assert_eq!(
+            eval_str("(= 1 2.0)", &globals, &ctx).unwrap(),
+            Value::bool(false)
+        );
+    }
+
+    #[test]
+    fn test_vm_eq_same_type_int() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        assert_eq!(
+            eval_str("(= 1 1)", &globals, &ctx).unwrap(),
+            Value::bool(true)
+        );
+        assert_eq!(
+            eval_str("(= 1 2)", &globals, &ctx).unwrap(),
+            Value::bool(false)
+        );
+    }
+
+    #[test]
+    fn test_vm_eq_opcode_direct() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+        let globals = Rc::new(Env::new());
+        let ctx = EvalContext::new();
+        let mut e = Emitter::new();
+        e.emit_const(Value::int(1));
+        e.emit_const(Value::float(1.0));
+        e.emit_op(Op::Eq);
+        e.emit_op(Op::Return);
+        let func = Rc::new(crate::chunk::Function {
+            name: None,
+            chunk: e.into_chunk(),
+            upvalue_descs: vec![],
+            arity: 0,
+            has_rest: false,
+            local_names: vec![],
+        });
+        let closure = Rc::new(Closure {
+            func,
+            upvalues: vec![],
+        });
+        let mut vm = VM::new(globals, vec![]);
+        let result = vm.execute(closure, &ctx).unwrap();
+        assert_eq!(
+            result,
+            Value::bool(true),
+            "Op::Eq should coerce int 1 == float 1.0"
+        );
+    }
+
+    #[test]
+    fn test_vm_div_opcode_direct() {
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+        let globals = Rc::new(Env::new());
+        let ctx = EvalContext::new();
+        let mut e = Emitter::new();
+        e.emit_const(Value::int(3));
+        e.emit_const(Value::int(2));
+        e.emit_op(Op::Div);
+        e.emit_op(Op::Return);
+        let func = Rc::new(crate::chunk::Function {
+            name: None,
+            chunk: e.into_chunk(),
+            upvalue_descs: vec![],
+            arity: 0,
+            has_rest: false,
+            local_names: vec![],
+        });
+        let closure = Rc::new(Closure {
+            func,
+            upvalues: vec![],
+        });
+        let mut vm = VM::new(globals, vec![]);
+        let result = vm.execute(closure, &ctx).unwrap();
+        assert_eq!(
+            result,
+            Value::float(1.5),
+            "Op::Div 3/2 should return 1.5, not 1"
+        );
     }
 }

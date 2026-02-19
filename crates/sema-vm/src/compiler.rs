@@ -456,15 +456,13 @@ impl Compiler {
             ("+", 2) => Op::AddInt,
             ("-", 2) => Op::SubInt,
             ("*", 2) => Op::MulInt,
-            // NOTE: `/` is NOT inlined — vm_div does integer truncation for int/int,
-            // but stdlib `/` does float division (e.g., (/ 3 2) → 1.5 not 1).
-            // NOTE: `=` is NOT inlined — EqInt fallback uses structural equality,
-            // but stdlib `=` does numeric coercion (e.g., (= 1 1.0) → #t).
+            ("/", 2) => Op::Div,
             // Binary comparison
             ("<", 2) => Op::LtInt,
             (">", 2) => Op::Gt,
             ("<=", 2) => Op::Le,
             (">=", 2) => Op::Ge,
+            ("=", 2) => Op::EqInt,
             _ => return Ok(false),
         };
 
