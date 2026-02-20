@@ -1,25 +1,23 @@
-;; Generate random user profiles from randomuser.me
+;; Generate random user profiles from dummyjson.com
 ;;
-;; randomuser.me is a free API that generates fake user data
+;; dummyjson.com is a free API that provides fake user data
 ;; (CORS-enabled, no API key needed)
 
 (println "=== Random User Profiles ===\n")
 
-(define resp (http/get "https://randomuser.me/api/?results=5&nat=us,gb,no,de,fr"))
+(define resp (http/get "https://dummyjson.com/users?limit=5"))
 
 (if (= (:status resp) 200)
   (let ((data (json/decode (:body resp))))
     (for-each (fn (user)
-      (let* ((name (get user :name))
-             (loc  (get user :location))
-             (full-name (format "~a ~a" (get name :first) (get name :last)))
-             (city (get loc :city))
-             (country (get loc :country))
+      (let* ((full-name (format "~a ~a" (get user :firstName) (get user :lastName)))
+             (city (get (get user :address) :city))
+             (state (get (get user :address) :state))
              (email (get user :email))
-             (age (get (get user :dob) :age)))
+             (age (get user :age)))
         (println (format "  ~a (~a)" full-name age))
         (println (format "    📧 ~a" email))
-        (println (format "    📍 ~a, ~a" city country))
+        (println (format "    📍 ~a, ~a" city state))
         (println "")))
-      (get data :results)))
+      (get data :users)))
   (println (format "Failed: ~a" (:status resp))))
