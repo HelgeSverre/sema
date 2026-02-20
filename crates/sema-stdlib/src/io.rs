@@ -61,6 +61,11 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        if let Some(data) = sema_core::vfs::vfs_read(path) {
+            return String::from_utf8(data)
+                .map(|s| Value::string(&s))
+                .map_err(|e| SemaError::Io(format!("file/read {path}: invalid UTF-8 in VFS: {e}")));
+        }
         let content = std::fs::read_to_string(path)
             .map_err(|e| SemaError::Io(format!("file/read {path}: {e}")))?;
         Ok(Value::string(&content))
@@ -90,6 +95,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            if let Some(data) = sema_core::vfs::vfs_read(path) {
+                return Ok(Value::bytevector(data));
+            }
             let bytes = std::fs::read(path)
                 .map_err(|e| SemaError::Io(format!("file/read-bytes {path}: {e}")))?;
             Ok(Value::bytevector(bytes))
@@ -121,6 +129,11 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let path = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        if let Some(exists) = sema_core::vfs::vfs_exists(path) {
+            if exists {
+                return Ok(Value::bool(true));
+            }
+        }
         Ok(Value::bool(std::path::Path::new(path).exists()))
     });
 
@@ -439,8 +452,13 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let content = std::fs::read_to_string(path)
-                .map_err(|e| SemaError::Io(format!("file/read-lines {path}: {e}")))?;
+            let content = if let Some(data) = sema_core::vfs::vfs_read(path) {
+                String::from_utf8(data)
+                    .map_err(|e| SemaError::Io(format!("file/read-lines {path}: invalid UTF-8 in VFS: {e}")))?
+            } else {
+                std::fs::read_to_string(path)
+                    .map_err(|e| SemaError::Io(format!("file/read-lines {path}: {e}")))?
+            };
             let lines: Vec<Value> = content.split('\n').map(Value::string).collect();
             Ok(Value::list(lines))
         },
