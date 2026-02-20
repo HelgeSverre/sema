@@ -22,37 +22,24 @@ function saveState(patch) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-// ── Sidebar tabs ──
+// ── Files panel collapse ──
 
-const sidebarTabs = document.getElementById('sidebar-tabs');
-const sidebarTree = document.getElementById('sidebar-tree');
-const sidebarFiles = document.getElementById('sidebar-files');
-const fileTreeEl = document.getElementById('file-tree');
+const filesPanel = document.getElementById('files-panel');
+const filesBody = document.getElementById('files-body');
+const collapseBtn = document.getElementById('files-collapse-btn');
 
-sidebarTabs.addEventListener('change', (e) => {
-  const tab = e.target.value;
-  sidebarTabs.querySelectorAll('label').forEach(l => {
-    l.classList.toggle('active', l.querySelector('input').value === tab);
-  });
-  sidebarTree.classList.toggle('hidden', tab !== 'examples');
-  sidebarFiles.classList.toggle('hidden', tab !== 'files');
-  if (tab === 'files') refreshFileTree();
+collapseBtn.addEventListener('click', () => {
+  const collapsed = filesBody.classList.toggle('collapsed');
+  collapseBtn.textContent = collapsed ? '▸' : '▾';
+  saveState({ filesCollapsed: collapsed });
 });
 
-// ── Output tabs ──
-
-const outputTabs = document.getElementById('output-tabs');
-const outputEl = document.getElementById('output');
-const fileViewerEl = document.getElementById('file-viewer');
-
-outputTabs.addEventListener('change', (e) => {
-  const tab = e.target.value;
-  outputTabs.querySelectorAll('label').forEach(l => {
-    l.classList.toggle('active', l.querySelector('input').value === tab);
-  });
-  outputEl.classList.toggle('hidden', tab !== 'output');
-  fileViewerEl.classList.toggle('hidden', tab !== 'viewer');
-});
+// Restore collapsed state
+const savedFilesCollapsed = loadState().filesCollapsed;
+if (savedFilesCollapsed) {
+  filesBody.classList.add('collapsed');
+  collapseBtn.textContent = '▸';
+}
 
 // ── Example sidebar ──
 
@@ -146,6 +133,9 @@ function buildSidebar() {
 
 // ── VFS File Tree ──
 
+const fileTreeEl = document.getElementById('file-tree');
+const fileViewerEl = document.getElementById('file-viewer');
+
 function buildVfsTree(dir) {
   let entries;
   try { entries = interp.listFiles(dir); } catch { return []; }
@@ -229,10 +219,12 @@ function viewFile(path) {
   fileViewerEl.innerHTML = '';
   fileViewerEl.textContent = content ?? '(empty file)';
 
-  // Switch to File Viewer tab
-  const viewerRadio = outputTabs.querySelector('input[value="viewer"]');
-  viewerRadio.checked = true;
-  viewerRadio.dispatchEvent(new Event('change', { bubbles: true }));
+  // Expand files panel if collapsed
+  if (filesBody.classList.contains('collapsed')) {
+    filesBody.classList.remove('collapsed');
+    collapseBtn.textContent = '▾';
+    saveState({ filesCollapsed: false });
+  }
 
   refreshFileTree();
 }
@@ -250,7 +242,7 @@ function formatBytes(bytes) {
 function refreshVfsStats() {
   if (!interp) return;
   const s = interp.vfsStats();
-  vfsStatsEl.textContent = `${s.files} files · ${formatBytes(s.bytes)}`;
+  vfsStatsEl.textContent = s.files > 0 ? `${s.files} files · ${formatBytes(s.bytes)}` : '';
 }
 
 // ── Upload files into VFS ──
@@ -269,16 +261,16 @@ uploadInput.addEventListener('change', async () => {
   }
 });
 
-// Drag and drop on the sidebar-files area
+// Drag and drop on the files panel
 let dragCounter = 0;
 
-sidebarFiles.addEventListener('dragenter', (e) => {
+filesPanel.addEventListener('dragenter', (e) => {
   e.preventDefault();
   dragCounter++;
   dropOverlay.classList.remove('hidden');
 });
 
-sidebarFiles.addEventListener('dragleave', (e) => {
+filesPanel.addEventListener('dragleave', (e) => {
   e.preventDefault();
   dragCounter--;
   if (dragCounter <= 0) {
@@ -287,11 +279,11 @@ sidebarFiles.addEventListener('dragleave', (e) => {
   }
 });
 
-sidebarFiles.addEventListener('dragover', (e) => {
+filesPanel.addEventListener('dragover', (e) => {
   e.preventDefault();
 });
 
-sidebarFiles.addEventListener('drop', async (e) => {
+filesPanel.addEventListener('drop', async (e) => {
   e.preventDefault();
   dragCounter = 0;
   dropOverlay.classList.add('hidden');
@@ -303,7 +295,6 @@ sidebarFiles.addEventListener('drop', async (e) => {
 async function uploadFiles(fileList) {
   if (!interp) return;
 
-  // Ensure /uploads/ directory exists
   interp.mkdir('/uploads');
 
   let uploaded = 0;
@@ -326,9 +317,15 @@ async function uploadFiles(fileList) {
     document.getElementById('status').textContent = `Uploaded ${uploaded} file(s) to /uploads/`;
     document.getElementById('status').className = 'status-text status-ready';
 
-    // Auto-flush for persistent backends
     if (backendName !== 'memory' && vfsBackend) {
       try { await vfsBackend.flush(vfsHost); } catch {}
+    }
+
+    // Expand files panel to show uploaded files
+    if (filesBody.classList.contains('collapsed')) {
+      filesBody.classList.remove('collapsed');
+      collapseBtn.textContent = '▾';
+      saveState({ filesCollapsed: false });
     }
   }
 
@@ -342,7 +339,7 @@ clearVfsBtn.addEventListener('click', async () => {
   interp.resetVFS();
   if (vfsBackend?.reset) await vfsBackend.reset();
   activeFilePath = null;
-  fileViewerEl.innerHTML = '<div class="viewer-placeholder">Click a file in the Files tab to view its contents.</div>';
+  fileViewerEl.innerHTML = '<div class="viewer-placeholder">Click a file to preview</div>';
   refreshFileTree();
   refreshVfsStats();
 });
@@ -369,7 +366,7 @@ backendToggle.addEventListener('change', async (e) => {
   });
 
   activeFilePath = null;
-  fileViewerEl.innerHTML = '<div class="viewer-placeholder">Click a file in the Files tab to view its contents.</div>';
+  fileViewerEl.innerHTML = '<div class="viewer-placeholder">Click a file to preview</div>';
   refreshFileTree();
   refreshVfsStats();
 });
@@ -414,13 +411,15 @@ async function main() {
   document.getElementById('status').textContent = 'Ready';
   document.getElementById('status').className = 'status-text status-ready';
   document.getElementById('run-btn').disabled = false;
-  outputEl.innerHTML = '<div class="output-welcome">Ready. Write some Sema code and press Run.</div>';
+  document.getElementById('output').innerHTML = '<div class="output-welcome">Ready. Write some Sema code and press Run.</div>';
 
   document.getElementById('loading').classList.add('hidden');
   refreshVfsStats();
 }
 
 // ── Run ──
+
+const outputEl = document.getElementById('output');
 
 async function run() {
   if (!interp) return;
@@ -431,26 +430,20 @@ async function run() {
   const runBtn = document.getElementById('run-btn');
   runBtn.disabled = true;
 
-  // Switch to output tab
-  const outputRadio = outputTabs.querySelector('input[value="output"]');
-  outputRadio.checked = true;
-  outputRadio.dispatchEvent(new Event('change', { bubbles: true }));
-
   const t0 = performance.now();
   const result = useVM ? await interp.evalVMAsync(code) : await interp.evalAsync(code);
   const elapsed = performance.now() - t0;
 
   runBtn.disabled = false;
 
-  const out = outputEl;
-  out.innerHTML = '';
+  outputEl.innerHTML = '';
 
   if (result.output && result.output.length > 0) {
     for (const line of result.output) {
       const div = document.createElement('div');
       div.className = 'output-line';
       div.textContent = line;
-      out.appendChild(div);
+      outputEl.appendChild(div);
     }
   }
 
@@ -458,18 +451,18 @@ async function run() {
     const div = document.createElement('div');
     div.className = 'output-error';
     div.textContent = result.error;
-    out.appendChild(div);
+    outputEl.appendChild(div);
   } else if (result.value !== null) {
     const div = document.createElement('div');
     div.className = 'output-value';
     div.textContent = `=> ${result.value}`;
-    out.appendChild(div);
+    outputEl.appendChild(div);
   }
 
   const timing = document.createElement('div');
   timing.className = 'output-timing';
   timing.textContent = `Evaluated in ${elapsed.toFixed(1)}ms · ${engine === 'vm' ? 'bytecode VM' : 'tree-walker'}`;
-  out.appendChild(timing);
+  outputEl.appendChild(timing);
 
   // Refresh VFS state
   refreshFileTree();

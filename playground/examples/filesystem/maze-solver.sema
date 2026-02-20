@@ -1,0 +1,107 @@
+;; Maze Solver — reads maze from VFS, solves with BFS
+;; Run maze-generator.sema first to create the maze files!
+
+(println "=== Maze Solver ===\n")
+
+;; Check if maze data exists
+(if (not (file/exists? "mazes/grid-data.txt"))
+  (begin
+    (println "⚠️  No maze found! Generating one first...\n")
+    (for-each eval (load "maze-generator.sema"))
+    (println "\n--- Now solving ---\n")))
+
+;; Read grid data
+(define raw (file/read "mazes/grid-data.txt"))
+(define lines (string-split raw "\n"))
+(define grid-w (int (first lines)))
+(define grid-h (int (nth lines 1)))
+
+;; Rebuild grid map from passable cells
+(define grid
+  (foldl (fn (g cell) (assoc g cell #t))
+    {} (drop 2 lines)))
+
+(define directions (list (list 0 1) (list 0 -1) (list 1 0) (list -1 0)))
+(define (pos x y) (str x "," y))
+
+;; BFS solver
+(define (reconstruct-path parent start-key end-key)
+  (let loop ((key end-key)
+             (path (assoc {} end-key #t)))
+    (if (equal? key start-key) path
+      (let ((prev (get parent key #f)))
+        (if prev
+          (loop prev (assoc path prev #t))
+          path)))))
+
+(define (solve start-x start-y end-x end-y)
+  (let ((start-key (pos start-x start-y))
+        (end-key (pos end-x end-y)))
+    (let bfs ((queue (list (list start-x start-y)))
+              (visited (assoc {} start-key #t))
+              (parent {}))
+      (if (null? queue) {}
+        (let* ((current (car queue))
+               (rest-queue (cdr queue))
+               (cx (car current)) (cy (cadr current)))
+          (if (and (= cx end-x) (= cy end-y))
+            (reconstruct-path parent start-key end-key)
+            (let* ((nbrs (filter
+                           (fn (n)
+                             (let ((nx (car n)) (ny (cadr n)))
+                               (and (>= nx 0) (< nx grid-w)
+                                    (>= ny 0) (< ny grid-h)
+                                    (get grid (pos nx ny) #f)
+                                    (not (get visited (pos nx ny) #f)))))
+                           (map (fn (d) (list (+ cx (car d)) (+ cy (cadr d))))
+                                directions)))
+                   (state (foldl
+                            (fn (acc n)
+                              (let ((nkey (pos (car n) (cadr n))))
+                                (list (append (car acc) (list n))
+                                      (assoc (cadr acc) nkey #t)
+                                      (assoc (nth acc 2) nkey (pos cx cy)))))
+                            (list rest-queue visited parent)
+                            nbrs)))
+              (bfs (car state) (cadr state) (nth state 2)))))))))
+
+;; Box drawing for walls
+(define (wall? x y)
+  (and (>= x 0) (< x grid-w) (>= y 0) (< y grid-h)
+       (not (get grid (pos x y) #f))))
+
+(define (box-char x y)
+  (let* ((u (wall? x (- y 1)))
+         (d (wall? x (+ y 1)))
+         (l (wall? (- x 1) y))
+         (r (wall? (+ x 1) y))
+         (bits (+ (if u 1 0) (if d 2 0) (if l 4 0) (if r 8 0))))
+    (cond
+      ((= bits 15) "┼─")  ((= bits 14) "┬─")  ((= bits 13) "┴─")
+      ((= bits 11) "├─")  ((= bits  7) "┤ ")  ((= bits  6) "┐ ")
+      ((= bits 10) "┌─")  ((= bits  5) "┘ ")  ((= bits  9) "└─")
+      ((= bits 12) "──")  ((= bits  3) "│ ")  ((= bits  1) "│ ")
+      ((= bits  2) "│ ")  ((= bits  4) "─ ")  ((= bits  8) "──")
+      (else "· "))))
+
+;; Render with solution path
+(define (render-solved path)
+  (string/join
+    (map (fn (y)
+      (string/join
+        (map (fn (x)
+               (if (get grid (pos x y) #f)
+                 (if (get path (pos x y) #f) "· " "  ")
+                 (box-char x y)))
+             (range grid-w)) ""))
+    (range grid-h)) "\n"))
+
+;; Solve from top-left to bottom-right
+(define path (solve 1 1 (- grid-w 2) (- grid-h 2)))
+(define solved-text (render-solved path))
+
+(file/write "mazes/solved.txt" solved-text)
+
+(println solved-text)
+(println (format "\n📁 Solution saved to mazes/solved.txt"))
+(println "💡 Switch to the Files tab to browse all maze files!")

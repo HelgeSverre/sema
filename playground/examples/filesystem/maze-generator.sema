@@ -1,0 +1,102 @@
+;; Maze Generator — writes maze data to VFS files
+;; Run this first, then run maze-solver.sema!
+
+(define width 12)
+(define height 8)
+
+(define (pos x y) (str x "," y))
+
+(define (shuffle lst)
+  (if (<= (length lst) 1) lst
+    (let* ((i (math/random-int 0 (- (length lst) 1)))
+           (picked (nth lst i))
+           (rest (append (take i lst) (drop (+ i 1) lst))))
+      (cons picked (shuffle rest)))))
+
+(define directions (list (list 0 -1) (list 0 1) (list -1 0) (list 1 0)))
+
+(define (unvisited-neighbors grid cx cy)
+  (filter
+    (fn (entry)
+      (let ((nx (car entry)) (ny (cadr entry)))
+        (and (>= nx 0) (< nx width)
+             (>= ny 0) (< ny height)
+             (not (get grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #f)))))
+    (map (fn (dir)
+           (list (+ cx (car dir)) (+ cy (cadr dir)) (car dir) (cadr dir)))
+         (shuffle directions))))
+
+(define (generate-maze)
+  (let loop ((stack (list (list 0 0)))
+             (grid (assoc {} (pos 1 1) #t)))
+    (if (null? stack) grid
+      (let* ((cell (car stack))
+             (cx (car cell)) (cy (cadr cell))
+             (neighbors (unvisited-neighbors grid cx cy)))
+        (if (null? neighbors)
+          (loop (cdr stack) grid)
+          (let* ((next (car neighbors))
+                 (nx (car next)) (ny (cadr next))
+                 (dx (nth next 2)) (dy (nth next 3))
+                 (grid (assoc grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #t))
+                 (grid (assoc grid (pos (+ (* cx 2) 1 dx) (+ (* cy 2) 1 dy)) #t)))
+            (loop (cons (list nx ny) stack) grid)))))))
+
+(define grid-w (+ (* 2 width) 1))
+(define grid-h (+ (* 2 height) 1))
+
+(define (wall? grid x y)
+  (and (>= x 0) (< x grid-w) (>= y 0) (< y grid-h)
+       (not (get grid (pos x y) #f))))
+
+(define (box-char grid x y)
+  (let* ((u (wall? grid x (- y 1)))
+         (d (wall? grid x (+ y 1)))
+         (l (wall? grid (- x 1) y))
+         (r (wall? grid (+ x 1) y))
+         (bits (+ (if u 1 0) (if d 2 0) (if l 4 0) (if r 8 0))))
+    (cond
+      ((= bits 15) "┼─")  ((= bits 14) "┬─")  ((= bits 13) "┴─")
+      ((= bits 11) "├─")  ((= bits  7) "┤ ")  ((= bits  6) "┐ ")
+      ((= bits 10) "┌─")  ((= bits  5) "┘ ")  ((= bits  9) "└─")
+      ((= bits 12) "──")  ((= bits  3) "│ ")  ((= bits  1) "│ ")
+      ((= bits  2) "│ ")  ((= bits  4) "─ ")  ((= bits  8) "──")
+      (else "· "))))
+
+(define (render grid)
+  (string/join
+    (map (fn (y)
+      (string/join
+        (map (fn (x)
+               (if (get grid (pos x y) #f) "  " (box-char grid x y)))
+             (range grid-w)) ""))
+    (range grid-h)) "\n"))
+
+;; Generate and save
+(define grid (generate-maze))
+(define maze-text (render grid))
+
+(file/mkdir "mazes")
+
+;; Save the grid as a serialized map (passable cells)
+(define passable-cells
+  (filter (fn (key) (get grid key #f))
+    (apply append
+      (map (fn (y)
+        (map (fn (x) (pos x y)) (range grid-w)))
+        (range grid-h)))))
+
+(file/write "mazes/grid-data.txt"
+  (string-append
+    (str grid-w) "\n"
+    (str grid-h) "\n"
+    (string/join passable-cells "\n")))
+
+(file/write "mazes/maze.txt" maze-text)
+
+(println "=== Maze Generator ===\n")
+(println maze-text)
+(println "\n📁 Saved to VFS:")
+(println "   mazes/maze.txt      — ASCII rendering")
+(println "   mazes/grid-data.txt — grid data for solver")
+(println "\n💡 Now run maze-solver.sema to solve it!")

@@ -44,21 +44,9 @@
 <main>
   <div class="sidebar">
     <div class="sidebar-header">
-      <div class="sidebar-tabs" id="sidebar-tabs">
-        <label class="active"><input type="radio" name="sidebar-tab" value="examples" checked>Examples</label>
-        <label><input type="radio" name="sidebar-tab" value="files">Files</label>
-      </div>
+      <span class="sidebar-title">Examples</span>
     </div>
     <div class="sidebar-tree" id="sidebar-tree" data-testid="sidebar-tree"></div>
-    <div class="sidebar-files hidden" id="sidebar-files">
-      <div class="file-tree-header">
-        <button class="btn-upload" id="upload-btn" title="Upload files into /uploads/">Upload…</button>
-        <button class="btn-clear-vfs" id="clear-vfs-btn" title="Clear all VFS files">Clear</button>
-      </div>
-      <div class="sidebar-tree" id="file-tree" data-testid="file-tree"></div>
-      <div class="drop-overlay hidden" id="drop-overlay">Drop files here</div>
-    </div>
-    <input type="file" id="vfs-upload" multiple hidden>
   </div>
   <div class="pane editor-pane">
     <div class="pane-header">
@@ -91,26 +79,42 @@
       <pre class="editor-highlight" id="editor-highlight" aria-hidden="true"></pre>
     </div>
   </div>
-  <div class="pane output-pane">
-    <div class="pane-header">
-      <div class="engine-toggle" id="output-tabs" data-testid="output-tabs">
-        <label class="active"><input type="radio" name="output-tab" value="output" checked>Output</label>
-        <label><input type="radio" name="output-tab" value="viewer">File Viewer</label>
+  <div class="right-column">
+    <div class="pane output-pane">
+      <div class="pane-header">
+        <span class="pane-title">Output</span>
+        <button class="run-btn" id="clear-btn" data-testid="clear-btn" style="background: transparent; color: var(--text-dim); border: 1px solid var(--border);">Clear</button>
       </div>
-      <button class="run-btn" id="clear-btn" data-testid="clear-btn" style="background: transparent; color: var(--text-dim); border: 1px solid var(--border);">Clear</button>
+      <div id="output" data-testid="output">
+        <div class="output-welcome">Initializing Sema interpreter…</div>
+      </div>
     </div>
-    <div id="output" data-testid="output">
-      <div class="output-welcome">Initializing Sema interpreter…</div>
+    <div class="files-panel" id="files-panel" data-testid="files-panel">
+      <div class="pane-header files-panel-header">
+        <span class="pane-title">Files</span>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span class="vfs-stats" id="vfs-stats" data-testid="vfs-stats"></span>
+          <button class="btn-upload" id="upload-btn" title="Upload files into /uploads/">Upload…</button>
+          <button class="btn-clear-vfs" id="clear-vfs-btn" title="Clear all VFS files">Clear</button>
+          <button class="btn-collapse" id="files-collapse-btn" title="Collapse files panel">▾</button>
+        </div>
+      </div>
+      <div class="files-body" id="files-body">
+        <div class="file-tree-pane" id="file-tree" data-testid="file-tree">
+          <div class="vfs-tree-empty">(empty — run code to create files)</div>
+        </div>
+        <div class="file-preview-pane" id="file-viewer" data-testid="file-viewer">
+          <div class="viewer-placeholder">Click a file to preview</div>
+        </div>
+        <div class="drop-overlay hidden" id="drop-overlay">Drop files here</div>
+      </div>
     </div>
-    <div id="file-viewer" data-testid="file-viewer" class="hidden">
-      <div class="viewer-placeholder">Click a file in the Files tab to view its contents.</div>
-    </div>
+    <input type="file" id="vfs-upload" multiple hidden>
   </div>
 </main>
 
 <div class="status-bar">
   <span class="status-text status-loading" id="status" data-testid="status">Loading WASM module…</span>
-  <span class="status-text" id="vfs-stats" data-testid="vfs-stats"></span>
 </div>
 
 <script type="module" src="dist/app.js"></script>
