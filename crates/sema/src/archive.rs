@@ -71,6 +71,7 @@ pub fn crc32(data: &[u8]) -> u32 {
 
 /// An in-memory representation of a VFS archive.
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Archive {
     pub format_version: u16,
     pub flags: u16,
@@ -80,6 +81,7 @@ pub struct Archive {
 
 impl Archive {
     /// Create a new empty archive with the current format version.
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self {
             format_version: FORMAT_VERSION,
@@ -115,6 +117,7 @@ pub fn has_embedded_archive(path: &Path) -> io::Result<bool> {
 
 /// Read a bundled executable at `path`, locate the embedded archive using the
 /// trailer, and deserialize it.
+#[allow(dead_code)]
 pub fn extract_archive(path: &Path) -> io::Result<Archive> {
     let data = std::fs::read(path)?;
     let len = data.len();
@@ -402,6 +405,7 @@ pub fn serialize_archive(
 
 /// Copy the runtime binary at `runtime_path` to `output_path`, then append the
 /// archive bytes and a 16-byte trailer. On Unix, the output is made executable.
+#[allow(dead_code)]
 pub fn write_bundled_executable(
     runtime_path: &Path,
     output_path: &Path,
