@@ -9,6 +9,7 @@ use rustyline::Editor;
 use sema_core::{pretty_print, Env, SemaError, Value, ValueView};
 use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
 
+mod archive;
 mod import_tracer;
 
 const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins"];
