@@ -1,0 +1,167 @@
+;; session.sema — Session persistence for pi-sema coding agent
+;; Append-only NDJSON files: one JSON object per line per session.
+;; Since file/write overwrites, append = read + concat + write.
+
+(load "util.sema")
+
+;; ============================================================
+;; Section 1: Sessions Directory
+;; ============================================================
+
+(define (sessions-dir)
+  (string-append (env "HOME") "/.pi-sema/sessions/"))
+
+;; ============================================================
+;; Section 2: Create New Session
+;; ============================================================
+
+(define (session/new cwd model)
+  (let* ((id (uuid))
+         (dir (sessions-dir))
+         (path (string-append dir id ".ndjson"))
+         (header {:type "session"
+                  :id id
+                  :cwd cwd
+                  :model model
+                  :timestamp (timestamp)}))
+    (ensure-dir dir)
+    (file/write path (string-append (json/encode header) "\n"))
+    {:id id
+     :path path
+     :messages '()
+     :model model
+     :cwd cwd}))
+
+;; ============================================================
+;; Section 3: Append Entry to Session File
+;; ============================================================
+
+(define (session/append session entry-map)
+  (let* ((path (get session :path))
+         (existing (try
+                     (file/read path)
+                     (catch e "")))
+         (line (string-append (json/encode entry-map) "\n")))
+    (file/write path (string-append existing line))))
+
+;; ============================================================
+;; Section 4: Save Message (Convenience)
+;; ============================================================
+
+(define (session/save-message session role content)
+  (session/append session
+    {:type "message"
+     :role role
+     :content content
+     :timestamp (timestamp)}))
+
+;; ============================================================
+;; Section 5: Load Session from NDJSON File
+;; ============================================================
+
+(define (session/load path)
+  (let* ((raw (file/read path))
+         (lines (filter
+                  (fn (s) (> (string-length (string/trim s)) 0))
+                  (string/split raw "\n")))
+         (entries (map json/decode lines)))
+    ;; Extract session header
+    (let* ((header (car (filter (fn (e) (equal? (get e :type) "session")) entries)))
+           ;; Find last compaction index (if any)
+           (compaction-idx
+             (let loop ((i 0) (found -1) (rest entries))
+               (if (null? rest)
+                 found
+                 (loop (+ i 1)
+                       (if (equal? (get (car rest) :type) "compaction") i found)
+                       (cdr rest)))))
+           ;; Build messages: if compaction exists, start from its summary
+           (messages
+             (if (= compaction-idx -1)
+               ;; No compaction — collect all message entries
+               (map (fn (e) {:role (get e :role) :content (get e :content)})
+                    (filter (fn (e) (equal? (get e :type) "message")) entries))
+               ;; Compaction found — summary + messages after it
+               (let* ((compaction-entry (nth entries compaction-idx))
+                      (summary (get compaction-entry :summary))
+                      (after (filter
+                               (fn (e) (equal? (get e :type) "message"))
+                               (drop entries (+ compaction-idx 1)))))
+                 (cons {:role "user" :content summary}
+                       (map (fn (e) {:role (get e :role) :content (get e :content)})
+                            after)))))
+           ;; Find latest plan entry (if any)
+           (plan
+             (let loop ((rest (reverse entries)) (found ""))
+               (if (null? rest)
+                 found
+                 (if (equal? (get (car rest) :type) "plan")
+                   (get (car rest) :content "")
+                   (loop (cdr rest) found)))))
+           ;; Detect latest model (from header or model-change entries)
+           (model
+             (let loop ((rest entries) (m (get header :model)))
+               (if (null? rest)
+                 m
+                 (loop (cdr rest)
+                       (if (equal? (get (car rest) :type) "model-change")
+                         (get (car rest) :model)
+                         m))))))
+      {:id (get header :id)
+       :path path
+       :messages messages
+       :model model
+       :plan plan
+       :cwd (get header :cwd)})))
+
+;; ============================================================
+;; Section 6: List All Sessions
+;; ============================================================
+
+(define (session/list)
+  (let ((dir (sessions-dir)))
+    (if (not (file/exists? dir))
+      '()
+      (let* ((files (filter
+                      (fn (f) (string/ends-with? f ".ndjson"))
+                      (file/list dir))))
+        (map
+          (fn (f)
+            (try
+              (let* ((path (string-append dir f))
+                     (raw (file/read path))
+                     (lines (filter
+                              (fn (s) (> (string-length (string/trim s)) 0))
+                              (string/split raw "\n")))
+                     (header (json/decode (car lines)))
+                     ;; Find first user message for preview
+                     (msg-lines (filter
+                                  (fn (s)
+                                    (let ((parsed (json/decode s)))
+                                      (and (equal? (get parsed :type) "message")
+                                           (equal? (get parsed :role) "user"))))
+                                  lines))
+                     (preview (if (null? msg-lines)
+                                ""
+                                (truncate-str
+                                  (get (json/decode (car msg-lines)) :content)
+                                  80))))
+                {:id (get header :id)
+                 :path path
+                 :timestamp (get header :timestamp)
+                 :cwd (get header :cwd)
+                 :preview preview})
+              (catch e
+                {:id f :path (string-append dir f)
+                 :timestamp 0 :cwd "" :preview "(error reading session)"})))
+          files)))))
+
+;; ============================================================
+;; Section 7: Resume Session by ID
+;; ============================================================
+
+(define (session/resume id)
+  (let ((path (string-append (sessions-dir) id ".ndjson")))
+    (if (file/exists? path)
+      (session/load path)
+      (error (string-append "Session not found: " id)))))

@@ -1,0 +1,111 @@
+;; util.sema — Utility module for pi-sema coding agent
+;;
+;; Provides path resolution, safety checks, and string helpers
+;; used by all other modules.
+
+;; ──────────────────────────────────────────────
+;; Path utilities
+;; ──────────────────────────────────────────────
+
+(define (resolve-path root path)
+  "Join root and path with /, rejecting absolute or traversal paths."
+  (when (string/starts-with? path "/")
+    (error (format "Absolute path not allowed: ~a" path)))
+  (when (string/contains? path "..")
+    (error (format "Path traversal not allowed: ~a" path)))
+  (define joined (string-append root "/" path))
+  ;; Trim trailing slashes
+  (let loop ((s joined))
+    (if (and (> (string-length s) 1) (string/ends-with? s "/"))
+      (loop (substring s 0 (- (string-length s) 1)))
+      s)))
+
+(define (safe-path? root path)
+  "Return #t if path doesn't contain '..' and doesn't start with '/'."
+  (try
+    (resolve-path root path)
+    #t
+    (catch e #f)))
+
+(define (basename path)
+  "Extract filename from path (e.g., \"/foo/bar/baz.rs\" → \"baz.rs\")."
+  (define parts (string/split path "/"))
+  (define filtered (filter (lambda (s) (> (string-length s) 0)) parts))
+  (if (null? filtered)
+    ""
+    (last filtered)))
+
+(define (dirname path)
+  "Extract directory from path (e.g., \"/foo/bar/baz.rs\" → \"/foo/bar\")."
+  (define idx (string/last-index-of path "/"))
+  (if (nil? idx)
+    "."
+    (let ((dir (substring path 0 idx)))
+      (if (= dir "") "/" dir))))
+
+(define (file-extension path)
+  "Extract file extension (e.g., \"foo.rs\" → \"rs\"). Returns \"\" if none."
+  (define name (basename path))
+  (define idx (string/last-index-of name "."))
+  (if (nil? idx)
+    ""
+    (substring name (+ idx 1) (string-length name))))
+
+(define (path/join . parts)
+  "Join path components with /."
+  (string/join (filter (lambda (s) (> (string-length s) 0)) parts) "/"))
+
+(define (path/dirname path)
+  "Alias for dirname."
+  (dirname path))
+
+(define (ensure-dir path)
+  "Create directory if it doesn't exist."
+  (unless (file/exists? path)
+    (file/mkdir path)))
+
+;; ──────────────────────────────────────────────
+;; String helpers
+;; ──────────────────────────────────────────────
+
+(define (truncate-str s max-len)
+  "If string is longer than max-len, truncate and append '…'."
+  (if (> (string-length s) max-len)
+    (string-append (substring s 0 max-len) "…")
+    s))
+
+(define (lines->numbered text)
+  "Split text on newlines and prepend 1-indexed line numbers."
+  (define lines (string/split text "\n"))
+  (define numbered
+    (map (lambda (pair)
+           (format "~a\t~a" (+ 1 (car pair)) (cdr pair)))
+         (zip (range 0 (length lines)) lines)))
+  (string/join numbered "\n"))
+
+(define (count-lines text)
+  "Count number of lines in text."
+  (length (string/split text "\n")))
+
+;; ──────────────────────────────────────────────
+;; Identity / time helpers
+;; ──────────────────────────────────────────────
+
+(define (timestamp)
+  "Return current time as epoch milliseconds string."
+  (number->string (time-ms)))
+
+(define (uuid)
+  "Generate a simple unique ID using gensym."
+  (symbol->string (gensym "id")))
+
+;; ──────────────────────────────────────────────
+;; Safety checks
+;; ──────────────────────────────────────────────
+
+(define banned-patterns
+  '("rm -rf /" "rm -rf ~" "mkfs" "dd if=" "> /dev/sd" ":(){" "format c:"))
+
+(define (banned-command? cmd)
+  "Return #t if cmd contains any dangerous shell patterns."
+  (any (lambda (pat) (string/contains? cmd pat)) banned-patterns))

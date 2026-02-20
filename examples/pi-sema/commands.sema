@@ -1,0 +1,346 @@
+;; commands.sema — Slash commands for pi-sema coding agent REPL
+;;
+;; Parses and dispatches /commands typed at the prompt.
+;; Each handler receives the current state map and returns
+;; an updated state (or 'quit to exit).
+
+(load "util.sema")
+(load "display.sema")
+(load "session.sema")
+(load "compact.sema")
+
+;; ============================================================
+;; Section 1: Command Parsing
+;; ============================================================
+
+(define (slash-command? input)
+  "Return #t if input starts with /."
+  (string/starts-with? (string/trim input) "/"))
+
+(define (parse-command input)
+  "Parse \"/command arg1 arg2\" into {:name \"command\" :args \"arg1 arg2\"}."
+  (let* ((trimmed (string/trim input))
+         (without-slash (substring trimmed 1 (string-length trimmed)))
+         (parts (string/split without-slash " "))
+         (name (car parts))
+         (rest (cdr parts))
+         (args (string/trim (string/join rest " "))))
+    {:name name :args args}))
+
+;; ============================================================
+;; Section 2: Command Dispatch
+;; ============================================================
+
+(define (dispatch-command cmd state)
+  "Dispatch a parsed command to its handler. Returns updated state or 'quit."
+  (let ((name (get cmd :name ""))
+        (args (get cmd :args "")))
+    (cond
+      ((equal? name "help")    (cmd-help state))
+      ((equal? name "clear")   (cmd-clear state))
+      ((equal? name "model")   (cmd-model args state))
+      ((equal? name "compact") (cmd-compact state))
+      ((equal? name "session") (cmd-session args state))
+      ((equal? name "usage")   (cmd-usage state))
+      ((equal? name "status")  (cmd-status state))
+      ((equal? name "plan")    (cmd-plan args state))
+      ((equal? name "approve") (cmd-approve state))
+      ((equal? name "next")    (cmd-next state))
+      ((equal? name "quit")    'quit)
+      ((equal? name "exit")    'quit)
+      (else
+        (show-error (format "Unknown command: /~a. Type /help for available commands." name))
+        state))))
+
+;; ============================================================
+;; Section 3: /help
+;; ============================================================
+
+(define (cmd-help state)
+  (println-error "")
+  (println-error (term/style "  Commands:" :bold))
+  (println-error (format "    ~a  Show this help"
+    (term/cyan (format "~a" "/help            "))))
+  (println-error (format "    ~a  Clear conversation history"
+    (term/cyan (format "~a" "/clear           "))))
+  (println-error (format "    ~a  Show or switch model"
+    (term/cyan (format "~a" "/model [name]    "))))
+  (println-error (format "    ~a  Compact conversation context"
+    (term/cyan (format "~a" "/compact         "))))
+  (println-error "")
+  (println-error (term/style "  Plan Mode:" :bold))
+  (println-error (format "    ~a  Investigate and create a plan"
+    (term/cyan (format "~a" "/plan <goal>     "))))
+  (println-error (format "    ~a  Show current plan"
+    (term/cyan (format "~a" "/plan show       "))))
+  (println-error (format "    ~a  Discard plan, return to normal"
+    (term/cyan (format "~a" "/plan clear      "))))
+  (println-error (format "    ~a  Approve plan, start execution"
+    (term/cyan (format "~a" "/approve         "))))
+  (println-error (format "    ~a  Execute next batch of steps"
+    (term/cyan (format "~a" "/next            "))))
+  (println-error "")
+  (println-error (term/style "  Sessions:" :bold))
+  (println-error (format "    ~a  List saved sessions"
+    (term/cyan (format "~a" "/session list    "))))
+  (println-error (format "    ~a  Start new session"
+    (term/cyan (format "~a" "/session new     "))))
+  (println-error (format "    ~a  Resume a session"
+    (term/cyan (format "~a" "/session resume ID"))))
+  (println-error (format "    ~a  Show token usage"
+    (term/cyan (format "~a" "/usage           "))))
+  (println-error (format "    ~a  Show current status"
+    (term/cyan (format "~a" "/status          "))))
+  (println-error (format "    ~a  Exit pi-sema"
+    (term/cyan (format "~a" "/quit            "))))
+  (println-error "")
+  state)
+
+;; ============================================================
+;; Section 4: /clear
+;; ============================================================
+
+(define (cmd-clear state)
+  (let ((new-session (session/new (get state :cwd ".") (get state :model ""))))
+    (show-info "Conversation cleared.")
+    (assoc (assoc state :messages '()) :session new-session)))
+
+;; ============================================================
+;; Section 5: /model [name]
+;; ============================================================
+
+(define (cmd-model args state)
+  (if (equal? args "")
+    (begin
+      (show-info (format "Current model: ~a" (get state :model "")))
+      state)
+    (begin
+      (show-info (format "Model switched to: ~a" args))
+      (assoc state :model args))))
+
+;; ============================================================
+;; Section 6: /compact
+;; ============================================================
+
+(define (cmd-compact state)
+  (let* ((messages (get state :messages '()))
+         (before-count (length messages))
+         (compacted (compact-messages messages))
+         (after-count (length compacted)))
+    (show-info (format "Compacted: ~a messages → ~a messages" before-count after-count))
+    (assoc state :messages compacted)))
+
+;; ============================================================
+;; Section 7: /session
+;; ============================================================
+
+(define (cmd-session args state)
+  (let* ((parts (string/split (string/trim args) " "))
+         (sub (if (null? parts) "" (car parts)))
+         (sub-args (if (or (null? parts) (null? (cdr parts)))
+                     ""
+                     (string/trim (string/join (cdr parts) " ")))))
+    (cond
+      ((equal? sub "list")   (cmd-session-list state))
+      ((equal? sub "new")    (cmd-session-new state))
+      ((equal? sub "resume") (cmd-session-resume sub-args state))
+      (else
+        (show-error "Usage: /session list | /session new | /session resume <id>")
+        state))))
+
+(define (cmd-session-list state)
+  (let ((sessions (session/list)))
+    (if (null? sessions)
+      (show-info "No saved sessions.")
+      (begin
+        (println-error "")
+        (println-error (term/style "  Saved Sessions:" :bold))
+        (for-each
+          (lambda (s)
+            (println-error (format "    ~a  ~a  ~a"
+              (term/cyan (truncate-str (get s :id "") 12))
+              (term/dim (get s :timestamp ""))
+              (term/dim (truncate-str (get s :preview "") 50)))))
+          sessions)
+        (println-error ""))))
+  state)
+
+(define (cmd-session-new state)
+  (let ((new-session (session/new (get state :cwd ".") (get state :model ""))))
+    (show-info "New session started.")
+    (assoc (assoc state :messages '()) :session new-session)))
+
+(define (cmd-session-resume id state)
+  (if (equal? id "")
+    (begin
+      (show-error "Usage: /session resume <id>")
+      state)
+    (try
+      (let ((session (session/resume id)))
+        (show-info (format "Resumed session ~a" id))
+        (assoc (assoc state :messages (get session :messages '())) :session session))
+      (catch e
+        (show-error (format "~a" e))
+        state))))
+
+;; ============================================================
+;; Section 8: /usage
+;; ============================================================
+
+(define (cmd-usage state)
+  (let ((usage (llm/session-usage))
+        (messages (get state :messages '()))
+        (est-tokens (estimate-tokens messages)))
+    (show-usage usage)
+    (show-info (format "Estimated tokens in conversation: ~a" est-tokens)))
+  state)
+
+;; ============================================================
+;; Section 9: /status
+;; ============================================================
+
+(define (cmd-status state)
+  (let* ((messages (get state :messages '()))
+         (session (get state :session {}))
+         (est-tokens (estimate-tokens messages)))
+    (println-error "")
+    (println-error (term/style "  Status:" :bold))
+    (println-error (term/dim (format "  Model:          ~a" (get state :model ""))))
+    (println-error (term/dim (format "  Mode:           ~a" (get state :mode :normal))))
+    (when (not (= (get state :plan "") ""))
+      (println-error (term/dim (format "  Plan:           ~a" (truncate-str (get state :plan "") 50)))))
+    (println-error (term/dim (format "  Session ID:     ~a" (get session :id ""))))
+    (println-error (term/dim (format "  Messages:       ~a" (length messages))))
+    (println-error (term/dim (format "  Est. tokens:    ~a" est-tokens)))
+    (println-error (term/dim (format "  Working dir:    ~a" (get state :cwd ""))))
+    (println-error ""))
+  state)
+
+;; ============================================================
+;; Section 10: /plan [goal]
+;; ============================================================
+
+(define (cmd-plan args state)
+  (cond
+    ;; /plan show — display current plan
+    ((equal? args "show")
+     (let ((plan (get state :plan "")))
+       (if (= plan "")
+         (show-info "No active plan.")
+         (begin
+           (println-error "")
+           (println-error (term/style "  Active Plan:" :bold))
+           (println-error "")
+           (println plan)
+           (println-error ""))))
+     state)
+
+    ;; /plan clear — discard plan and return to normal mode
+    ((equal? args "clear")
+     (show-info "Plan cleared. Returning to normal mode.")
+     (assoc (assoc state :mode :normal) :plan ""))
+
+    ;; /plan <goal> — enter planning mode and generate a plan
+    ((not (= args ""))
+     (show-info (format "Entering planning mode: ~a" args))
+     (show-info "Investigating codebase with read-only tools...")
+     (println-error "")
+     (try
+       (let* ((result (run-plan-turn state args))
+              (plan-text (get result :plan "")))
+         (show-response plan-text)
+         (show-info "Plan generated. Type /approve to execute, /plan clear to discard.")
+         ;; Save plan to session
+         (try
+           (session/append (get state :session)
+             {:type "plan"
+              :goal args
+              :content plan-text
+              :timestamp (timestamp)})
+           (catch e #f))
+         (assoc (assoc state :mode :plan) :plan plan-text))
+       (catch e
+         (show-error (format "Planning failed: ~a" (get e :message (str e))))
+         state)))
+
+    ;; /plan with no args — show usage
+    (else
+      (show-info "Usage: /plan <goal> | /plan show | /plan clear")
+      state)))
+
+;; ============================================================
+;; Section 11: /approve
+;; ============================================================
+
+(define (cmd-approve state)
+  (let ((mode (get state :mode :normal))
+        (plan (get state :plan "")))
+    (cond
+      ((= plan "")
+       (show-error "No plan to approve. Use /plan <goal> first.")
+       state)
+      ((equal? mode :execute)
+       (show-info "Already in execution mode. Use /next to continue.")
+       state)
+      (else
+       (show-info "Plan approved. Entering execution mode.")
+       (show-info "Starting execution — the agent will do 2-3 steps then pause.")
+       (show-info "Type /next to continue, /plan show to review, /plan clear to abort.")
+       (println-error "")
+       (try
+         (let* ((exec-state (assoc state :mode :execute))
+                (result (run-execute-turn exec-state))
+                (response (get result :response ""))
+                (messages (get result :messages '())))
+           (show-response response)
+           ;; Save to session
+           (try
+             (begin
+               (session/save-message (get state :session) "user" "[plan execution: initial batch]")
+               (session/save-message (get state :session) "assistant" response))
+             (catch e #f))
+           (show-info "Batch complete. Type /next to continue, /plan clear to stop.")
+           (assoc (assoc (assoc state :mode :execute) :messages messages) :plan plan))
+         (catch e
+           (show-error (format "Execution error: ~a" (get e :message (str e))))
+           state))))))
+
+;; ============================================================
+;; Section 12: /next
+;; ============================================================
+
+(define (cmd-next state)
+  (let ((mode (get state :mode :normal))
+        (plan (get state :plan "")))
+    (cond
+      ((not (equal? mode :execute))
+       (show-error "Not in execution mode. Use /plan <goal> then /approve first.")
+       state)
+      ((= plan "")
+       (show-error "No active plan. Use /plan <goal> to create one.")
+       state)
+      (else
+       (show-info "Continuing execution...")
+       (println-error "")
+       (try
+         (let* ((result (run-execute-turn state))
+                (response (get result :response ""))
+                (messages (get result :messages '())))
+           (show-response response)
+           ;; Save to session
+           (try
+             (begin
+               (session/save-message (get state :session) "user" "[plan execution: next batch]")
+               (session/save-message (get state :session) "assistant" response))
+             (catch e #f))
+           ;; Auto-compact if needed
+           (let ((compacted (auto-compact
+                              (get state :session)
+                              messages
+                              (get state :model)
+                              80000)))
+             (show-info "Batch complete. Type /next to continue, /plan clear when done.")
+             (assoc (assoc state :messages compacted) :plan plan)))
+         (catch e
+           (show-error (format "Execution error: ~a" (get e :message (str e))))
+           state))))))

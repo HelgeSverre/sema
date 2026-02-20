@@ -1,0 +1,241 @@
+;; tools.sema — LLM-callable tools for the pi-sema coding agent
+;;
+;; Defines 7 tools: read-file, write-file, edit-file, bash, grep, find-files, list-dir
+;; All file paths are resolved relative to workspace-root.
+
+(load "util.sema")
+
+;; ---- Workspace root ----
+
+(define workspace-root ".")
+(define (set-workspace-root! path) (set! workspace-root path))
+
+;; ============================================================
+;; Tool 1: read-file
+;; ============================================================
+
+(deftool read-file
+  "Read a file and return its contents with line numbers. Use offset and limit for large files. Always read a file before editing it."
+  {:path {:type :string :description "Path to the file to read"}}
+  (lambda (path)
+    (try
+      (let ((resolved (resolve-path workspace-root path)))
+        (if (file/exists? resolved)
+          (let* ((content (file/read resolved))
+                 (total (count-lines content))
+                 (numbered (lines->numbered content)))
+            (if (> total 2000)
+              (let* ((lines (string/split numbered "\n"))
+                     (truncated (string/join (take lines 2000) "\n")))
+                (string-append truncated
+                  (format "\n\n[truncated — showing first 2000 of ~a lines]" total)))
+              numbered))
+          (format "Error: File not found: ~a" path)))
+      (catch e
+        (format "Error reading file ~a: ~a" path e)))))
+
+;; ============================================================
+;; Tool 2: write-file
+;; ============================================================
+
+(deftool write-file
+  "Create or overwrite a file with the given content. Creates parent directories automatically."
+  {:path {:type :string :description "Path to the file to write"}
+   :content {:type :string :description "Content to write to the file"}}
+  (lambda (path content)
+    (try
+      (let ((resolved (resolve-path workspace-root path)))
+        (ensure-dir (dirname resolved))
+        (file/write resolved content)
+        (format "Wrote ~a bytes to ~a" (string-length content) path))
+      (catch e
+        (format "Error writing file ~a: ~a" path e)))))
+
+;; ============================================================
+;; Tool 3: edit-file
+;; ============================================================
+
+(define (count-occurrences haystack needle)
+  "Count how many times needle appears in haystack."
+  (let loop ((pos 0) (count 0))
+    (let ((idx (string/index-of haystack needle pos)))
+      (if (not idx)
+        count
+        (loop (+ idx (string-length needle)) (+ count 1))))))
+
+(define (make-diff-preview old-content new-content old-str new-str)
+  "Generate a simple diff preview showing context around the change."
+  (let* ((lines (string/split old-content "\n"))
+         (old-lines (string/split old-str "\n"))
+         (new-lines (string/split new-str "\n"))
+         ;; Find the line number where old-str starts
+         (before (substring old-content 0
+                   (let ((idx (string/index-of old-content old-str)))
+                     (if idx idx 0))))
+         (start-line (count-lines before))
+         (result '()))
+    ;; Show a few context lines before
+    (let ((ctx-start (max 0 (- start-line 3))))
+      (let ctx-loop ((i ctx-start))
+        (when (and (< i start-line) (< i (length lines)))
+          (set! result (append result (list (format " ~a" (nth lines i)))))
+          (ctx-loop (+ i 1)))))
+    ;; Show removed lines
+    (for-each
+      (lambda (line) (set! result (append result (list (format "-~a" line)))))
+      old-lines)
+    ;; Show added lines
+    (for-each
+      (lambda (line) (set! result (append result (list (format "+~a" line)))))
+      new-lines)
+    ;; Show a few context lines after
+    (let ((after-start (+ start-line (length old-lines))))
+      (let ctx-loop ((i after-start))
+        (when (and (< i (+ after-start 3)) (< i (length lines)))
+          (set! result (append result (list (format " ~a" (nth lines i)))))
+          (ctx-loop (+ i 1)))))
+    (string/join result "\n")))
+
+(deftool edit-file
+  "Edit a file by replacing an exact string match. You MUST read the file first. The old_string must match exactly including whitespace. Fails if old_string is not found or matches multiple times."
+  {:path {:type :string :description "Path to the file to edit"}
+   :old_string {:type :string :description "Exact string to find and replace"}
+   :new_string {:type :string :description "Replacement string"}}
+  (lambda (path old_string new_string)
+    (try
+      (let ((resolved (resolve-path workspace-root path)))
+        (if (not (file/exists? resolved))
+          (format "Error: File not found: ~a" path)
+          (let* ((content (file/read resolved))
+                 (occurrences (count-occurrences content old_string)))
+            (cond
+              ((= occurrences 0)
+               (format "Error: old_string not found in ~a. Read the file first to get exact content." path))
+              ((> occurrences 1)
+               (format "Error: old_string matches ~a times in ~a. Make it more specific to match exactly once." occurrences path))
+              (else
+               (let* ((new-content (string/replace content old_string new_string))
+                      (diff (make-diff-preview content new-content old_string new_string)))
+                 (file/write resolved new-content)
+                 (format "Edited ~a:\n~a" path diff)))))))
+      (catch e
+        (format "Error editing file ~a: ~a" path e)))))
+
+;; ============================================================
+;; Tool 4: bash
+;; ============================================================
+
+(deftool bash
+  "Run a shell command in the working directory. Returns stdout, stderr, and exit code. Do not use for reading files (use read-file) or searching (use grep). Useful for: running tests, builds, git, installing packages."
+  {:command {:type :string :description "The shell command to run"}}
+  (lambda (command)
+    (if (banned-command? command)
+      (format "Error: Command blocked for safety: ~a" command)
+      (try
+        (let* ((result (shell "sh" "-c" (string-append "cd " workspace-root " && " command)))
+               (stdout (:stdout result))
+               (stderr (:stderr result))
+               (exit-code (:exit-code result))
+               ;; Build output parts
+               (output-parts '()))
+          ;; Add stdout
+          (when (not (= (string/trim stdout) ""))
+            (set! output-parts (append output-parts (list stdout))))
+          ;; Add stderr if present
+          (when (not (= (string/trim stderr) ""))
+            (set! output-parts (append output-parts (list (format "stderr:\n~a" stderr)))))
+          ;; Add exit code if non-zero
+          (when (not (= exit-code 0))
+            (set! output-parts (append output-parts (list (format "Exit code: ~a" exit-code)))))
+          ;; Combine and truncate
+          (let* ((combined (if (null? output-parts)
+                             "Command completed successfully (no output)."
+                             (string/join output-parts "\n")))
+                 (lines (string/split combined "\n")))
+            (if (> (length lines) 500)
+              (string-append
+                (string/join (take lines 500) "\n")
+                (format "\n\n[truncated — showing first 500 of ~a lines]" (length lines)))
+              combined)))
+        (catch e
+          (format "Error running command: ~a" e))))))
+
+;; ============================================================
+;; Tool 5: grep
+;; ============================================================
+
+(deftool grep
+  "Search for a pattern in files. Returns matching lines with file paths and line numbers. Respects .gitignore."
+  {:pattern {:type :string :description "Search pattern (text or regex)"}
+   :path {:type :string :description "Directory or file to search in (default: current directory)"}}
+  (lambda (pattern path)
+    (try
+      (let* ((search-path (if (= path "") "." path))
+             (resolved (resolve-path workspace-root search-path))
+             ;; Try ripgrep first, fall back to grep
+             (rg-result (shell "sh" "-c"
+                          (format "cd ~a && rg -n --max-count=10 '~a' '~a' 2>/dev/null | head -100"
+                            workspace-root pattern resolved)))
+             (result (if (and (= (:exit-code rg-result) 0)
+                              (not (= (string/trim (:stdout rg-result)) "")))
+                       rg-result
+                       (shell "sh" "-c"
+                         (format "cd ~a && grep -rn --include='*' -m 10 '~a' '~a' 2>/dev/null | head -100"
+                           workspace-root pattern resolved))))
+             (output (string/trim (:stdout result))))
+        (if (= output "")
+          "No matches found."
+          output))
+      (catch e
+        (format "Error searching: ~a" e)))))
+
+;; ============================================================
+;; Tool 6: find-files
+;; ============================================================
+
+(deftool find-files
+  "Find files by name pattern (glob). Useful for discovering project structure."
+  {:pattern {:type :string :description "Glob pattern to match file names (e.g. '*.rs', 'Cargo.toml')"}
+   :path {:type :string :description "Directory to search in (default: current directory)"}}
+  (lambda (pattern path)
+    (try
+      (let* ((search-path (if (= path "") "." path))
+             (resolved (resolve-path workspace-root search-path))
+             (result (shell "sh" "-c"
+                       (format "find '~a' -name '~a' -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/target/*' | head -200"
+                         resolved pattern)))
+             (output (string/trim (:stdout result))))
+        (if (= output "")
+          "No files found."
+          output))
+      (catch e
+        (format "Error finding files: ~a" e)))))
+
+;; ============================================================
+;; Tool 7: list-dir
+;; ============================================================
+
+(deftool list-dir
+  "List directory contents with file types and sizes."
+  {:path {:type :string :description "Directory path to list (default: current directory)"}}
+  (lambda (path)
+    (try
+      (let* ((target (if (= path "") "." path))
+             (resolved (resolve-path workspace-root target))
+             (result (shell "sh" "-c" (format "ls -la '~a'" resolved)))
+             (output (string/trim (:stdout result))))
+        (if (= output "")
+          (format "Error: Directory is empty or not found: ~a" path)
+          output))
+      (catch e
+        (format "Error listing directory ~a: ~a" path e)))))
+
+;; ============================================================
+;; All tools export
+;; ============================================================
+
+(define (all-tools)
+  (list read-file write-file edit-file bash grep find-files list-dir))
+
+(define (read-only-tools)
+  (list read-file grep find-files list-dir))

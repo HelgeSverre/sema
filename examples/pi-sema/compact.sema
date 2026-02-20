@@ -1,0 +1,63 @@
+;; compact.sema — Conversation compaction for pi-sema coding agent
+;;
+;; Summarizes older messages to keep context within token limits.
+;; Uses LLM to produce a concise summary of old conversation history.
+
+(load "util.sema")
+(load "session.sema")
+
+;; ============================================================
+;; Section 1: Token Estimation
+;; ============================================================
+
+(define (estimate-tokens messages)
+  (let ((total-chars (foldl (fn (acc msg)
+                              (+ acc (string-length (get msg :content ""))))
+                            0 messages)))
+    (/ total-chars 4)))
+
+;; ============================================================
+;; Section 2: Compaction Check
+;; ============================================================
+
+(define (needs-compaction? messages max-tokens)
+  (> (estimate-tokens messages) max-tokens))
+
+;; ============================================================
+;; Section 3: Compact Messages
+;; ============================================================
+
+(define (compact-messages messages model)
+  (if (< (length messages) 15)
+    messages
+    (let* ((recent-count 10)
+           (old-count (- (length messages) recent-count))
+           (old-messages (take old-count messages))
+           (recent-messages (drop old-count messages))
+           (formatted (string/join
+                        (map (fn (msg)
+                               (format "~a: ~a"
+                                       (get msg :role "unknown")
+                                       (get msg :content "")))
+                             old-messages)
+                        "\n\n"))
+           (summary (llm/chat
+                      (list {:role "user" :content formatted})
+                      {:system "Summarize the following conversation concisely. Focus on:\n- What files were read, edited, or created\n- What commands were run and their results\n- Key decisions and context the user provided\n- Current state of the task\nKeep it factual and brief. This summary will replace the old messages in the conversation context."
+                       :model model})))
+      (cons {:role "user" :content (string-append "[Conversation summary]: " summary)}
+            recent-messages))))
+
+;; ============================================================
+;; Section 4: Auto-Compact
+;; ============================================================
+
+(define (auto-compact session messages model max-tokens)
+  (if (needs-compaction? messages max-tokens)
+    (let ((compacted (compact-messages messages model)))
+      (session/append session
+        {:type "compaction"
+         :summary (get (car compacted) :content)
+         :timestamp (timestamp)})
+      compacted)
+    messages))

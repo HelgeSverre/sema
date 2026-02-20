@@ -1,0 +1,191 @@
+;; agent.sema — Agent construction and execution for pi-sema
+;;
+;; Builds the system prompt from environment, context files, and skills,
+;; then creates and runs the LLM-backed coding agent.
+
+(load "util.sema")
+(load "tools.sema")
+(load "context.sema")
+(load "display.sema")
+
+;; ============================================================
+;; Section 1: System Prompt Construction
+;; ============================================================
+
+(define (build-system-prompt cwd platform context-content skills-xml)
+  (let ((sections '()))
+
+    ;; Persona
+    (set! sections (append sections (list
+      "You are pi-sema, an expert coding agent operating in the terminal. You help users with software engineering tasks by reading, writing, and editing code, running commands, and searching codebases.")))
+
+    ;; Tool rules
+    (set! sections (append sections (list
+      "## Tool Usage Rules
+
+1. ALWAYS read a file before editing it — never assume or hallucinate file contents.
+2. Use grep and find-files to discover relevant code before making changes.
+3. Use edit-file for surgical changes. Use write-file only for new files or complete rewrites.
+4. After making changes, verify them — read the file back or run tests.
+5. When running bash commands, explain what you're doing and why.
+6. Make minimal, focused changes. Don't rewrite entire files when a small edit suffices.
+7. If a task is unclear, ask the user for clarification before proceeding.
+8. Follow existing code conventions — match style, naming, indentation of surrounding code.
+9. When showing file paths, use relative paths from the working directory.
+10. Be concise in explanations. Show code, not prose about code.")))
+
+    ;; Workflow
+    (set! sections (append sections (list
+      "## Recommended Workflow
+
+For code changes: search → read → edit → verify
+For new features: understand → plan → implement → test
+For debugging: reproduce → investigate → fix → verify")))
+
+    ;; Environment
+    (set! sections (append sections (list
+      (format "## Environment
+
+Working directory: ~a
+Platform: ~a
+Date: ~a" cwd platform (timestamp)))))
+
+    ;; Project context (if any)
+    (when (not (= context-content ""))
+      (set! sections (append sections (list
+        (string-append "## Project Context\n\n" context-content)))))
+
+    ;; Skills (if any)
+    (when (not (= skills-xml ""))
+      (set! sections (append sections (list skills-xml))))
+
+    (string/join sections "\n\n")))
+
+;; ============================================================
+;; Section 1b: Planning System Prompt
+;; ============================================================
+
+(define (build-planning-prompt cwd platform context-content skills-xml goal)
+  (let ((sections '()))
+
+    ;; Persona — planning mode
+    (set! sections (append sections (list
+      "You are pi-sema in PLANNING MODE. You are investigating a codebase and creating an implementation plan. You MUST NOT make any changes — only read, search, and analyze.")))
+
+    ;; Planning rules
+    (set! sections (append sections (list
+      "## Planning Rules
+
+1. Investigate the codebase thoroughly before writing the plan.
+2. Use read-file, grep, find-files, and list-dir to understand the code.
+3. You have NO write tools — you cannot edit files or run commands.
+4. Your final output must be a concrete implementation plan with:
+   - Exact file paths to create or modify
+   - What changes to make in each file (specific, not vague)
+   - Verification steps (commands to run, tests to check)
+   - Steps ordered by dependency
+5. Keep the plan concise — each step should be 2-5 minutes of work.
+6. If anything is unclear, ask the user before finalizing the plan.")))
+
+    ;; Environment
+    (set! sections (append sections (list
+      (format "## Environment
+
+Working directory: ~a
+Platform: ~a
+Date: ~a" cwd platform (timestamp)))))
+
+    ;; Goal
+    (set! sections (append sections (list
+      (format "## Goal
+
+~a" goal))))
+
+    ;; Project context
+    (when (not (= context-content ""))
+      (set! sections (append sections (list
+        (string-append "## Project Context\n\n" context-content)))))
+
+    ;; Skills
+    (when (not (= skills-xml ""))
+      (set! sections (append sections (list skills-xml))))
+
+    (string/join sections "\n\n")))
+
+;; ============================================================
+;; Section 1c: Execution Preamble
+;; ============================================================
+
+(define (build-execution-preamble plan)
+  (format "## Active Plan
+
+You are executing the following plan. Do the next 2-3 steps, then STOP and report what you completed. Do not continue beyond 3 steps — the user will type /next to continue.
+
+If you encounter a blocker (missing dependency, test failure, unclear instruction), STOP immediately and explain the issue. Do not guess.
+
+---
+
+~a
+
+---
+
+Execute the next unfinished steps now." plan))
+
+;; ============================================================
+;; Section 2: Agent Creation
+;; ============================================================
+
+(define (create-agent cwd model)
+  (set-workspace-root! cwd)
+  (let* ((platform (format "~a (~a)" (sys/os) (sys/arch)))
+         (context (load-context-files cwd))
+         (skills (discover-skills cwd))
+         (skills-xml (format-skills-xml skills))
+         (prompt (build-system-prompt cwd platform context skills-xml)))
+    (defagent pi-sema-agent
+      {:system prompt
+       :tools (all-tools)
+       :max-turns 50
+       :model model})))
+
+(define (create-planning-agent cwd model goal)
+  (set-workspace-root! cwd)
+  (let* ((platform (format "~a (~a)" (sys/os) (sys/arch)))
+         (context (load-context-files cwd))
+         (skills (discover-skills cwd))
+         (skills-xml (format-skills-xml skills))
+         (prompt (build-planning-prompt cwd platform context skills-xml goal)))
+    (defagent pi-sema-planner
+      {:system prompt
+       :tools (read-only-tools)
+       :max-turns 30
+       :model model})))
+
+;; ============================================================
+;; Section 3: Run Turn
+;; ============================================================
+
+(define (run-turn agent input messages)
+  (agent/run agent input {:on-tool-call on-tool-call :messages messages}))
+
+(define (run-plan-turn state input)
+  "Run a turn in planning mode with a fresh planning agent."
+  (let* ((planning-agent (create-planning-agent
+                           (get state :cwd)
+                           (get state :model)
+                           input))
+         (result (agent/run planning-agent input {:on-tool-call on-tool-call})))
+    {:response result :plan result}))
+
+(define (run-execute-turn state)
+  "Run an execution turn, injecting the plan as context."
+  (let* ((plan (get state :plan ""))
+         (preamble (build-execution-preamble plan))
+         (messages (get state :messages '()))
+         (exec-messages (if (null? messages)
+                          (list {:role "user" :content preamble})
+                          (cons {:role "user" :content preamble}
+                                (cdr messages))))
+         (agent (get state :agent)))
+    (agent/run agent "Continue executing the plan. Do the next 2-3 steps."
+      {:on-tool-call on-tool-call :messages exec-messages})))
