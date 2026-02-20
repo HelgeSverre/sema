@@ -1,16 +1,15 @@
 ;; Look up your public IP and geolocation
 ;;
-;; Uses ip-api.com (free, no key, CORS-enabled)
+;; Uses ipinfo.io (free, no key, HTTPS + CORS-enabled)
 
 (println "=== IP Geolocation ===\n")
 
-(define resp (http/get "http://ip-api.com/json/?fields=query,country,regionName,city,timezone,isp,org"))
+(define resp (http/get "https://ipinfo.io/json"))
 
 (if (= (:status resp) 200)
   (let ((info (json/decode (:body resp))))
-    (println (format "  IP:       ~a" (get info :query)))
-    (println (format "  Location: ~a, ~a, ~a" (get info :city) (get info :regionName) (get info :country)))
+    (println (format "  IP:       ~a" (get info :ip)))
+    (println (format "  Location: ~a, ~a, ~a" (get info :city) (get info :region) (get info :country)))
     (println (format "  Timezone: ~a" (get info :timezone)))
-    (println (format "  ISP:      ~a" (get info :isp)))
     (println (format "  Org:      ~a" (get info :org))))
   (println (format "Request failed with status ~a" (:status resp))))
