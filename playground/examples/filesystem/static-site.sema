@@ -1,0 +1,48 @@
+;; Mini static site generator using the VFS
+
+(println "=== Static Site Generator ===\n")
+
+;; Scaffold
+(file/mkdir "site")
+(file/mkdir "site/src")
+(file/mkdir "site/dist")
+
+;; Write source pages
+(file/write "site/src/index.md"
+  "# Welcome\nThis site was built entirely in the VFS!")
+
+(file/write "site/src/about.md"
+  "# About\nPowered by Sema running in WebAssembly.")
+
+;; HTML template
+(define (wrap-html title body)
+  (string-append
+    "<!doctype html>\n<html>\n<head><title>" title "</title>\n"
+    "<style>body{font:16px/1.6 system-ui;max-width:640px;margin:2rem auto;color:#333}"
+    "h1{color:#c8a855}a{color:#7aacb8}nav{margin-bottom:2rem}</style>\n"
+    "</head>\n<body>\n"
+    "<nav><a href=\"index.html\">Home</a> · <a href=\"about.html\">About</a></nav>\n"
+    "<pre>" body "</pre>\n"
+    "</body>\n</html>\n"))
+
+;; Build pages
+(define pages '(("index" "Welcome") ("about" "About")))
+
+(for-each
+  (lambda (page)
+    (let* ((slug (car page))
+           (title (cadr page))
+           (src (file/read (format "site/src/~a.md" slug)))
+           (html (wrap-html title src)))
+      (file/write (format "site/dist/~a.html" slug) html)
+      (println (format "  Built site/dist/~a.html" slug))))
+  pages)
+
+;; Build log
+(file/write "site/build.log" "Build complete!\n")
+(for-each
+  (lambda (p) (file/append "site/build.log" (format "  - ~a.html\n" (car p))))
+  pages)
+
+(println (format "\n~a" (file/read "site/build.log")))
+(println "Click files in the Files tab to view the generated HTML!")

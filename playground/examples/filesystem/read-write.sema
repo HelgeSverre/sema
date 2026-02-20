@@ -1,0 +1,21 @@
+;; Reading and writing files in the VFS
+
+(println "=== File Read & Write ===\n")
+
+;; Write a file
+(file/write "hello.txt" "Hello from the Virtual Filesystem!")
+(println "Wrote hello.txt")
+
+;; Read it back
+(define content (file/read "hello.txt"))
+(println (format "Read back: ~a" content))
+
+;; Overwrite with new content
+(file/write "hello.txt" "Updated content!")
+(println (format "After update: ~a" (file/read "hello.txt")))
+
+;; Append to a file
+(file/write "log.txt" "Line 1\n")
+(file/append "log.txt" "Line 2\n")
+(file/append "log.txt" "Line 3\n")
+(println (format "\nLog contents:\n~a" (file/read "log.txt")))

@@ -1,0 +1,37 @@
+;; Word frequency counter — works great with uploaded files!
+;; Upload a .txt file to /uploads/ then change the path below.
+
+(println "=== Word Frequency Counter ===\n")
+
+;; Create a sample text file to analyze
+(file/write "sample.txt"
+  "the quick brown fox jumps over the lazy dog
+the dog barked at the fox and the fox ran away
+the quick fox was too quick for the lazy dog")
+
+(define text (file/read "sample.txt"))
+
+;; Split into words and count
+(define words
+  (map string/downcase
+    (filter (lambda (w) (> (string-length w) 0))
+      (string-split text " \n\t"))))
+
+(define counts
+  (foldl (lambda (acc word)
+    (assoc acc word (+ 1 (or (map-get acc word) 0))))
+    {} words))
+
+;; Sort by frequency (descending)
+(define sorted
+  (sort (map->list counts)
+    (lambda (a b) (> (cdr a) (cdr b)))))
+
+(println (format "Total words: ~a" (length words)))
+(println (format "Unique words: ~a\n" (length sorted)))
+
+(println "Top words:")
+(for-each
+  (lambda (pair)
+    (println (format "  ~a: ~a" (car pair) (cdr pair))))
+  (take sorted 10))

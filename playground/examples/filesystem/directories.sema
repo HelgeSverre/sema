@@ -1,0 +1,29 @@
+;; Creating and navigating directories
+
+(println "=== Directories ===\n")
+
+;; Create nested directories
+(file/mkdir "project")
+(file/mkdir "project/src")
+(file/mkdir "project/docs")
+(file/mkdir "project/tests")
+
+;; Write files into the structure
+(file/write "project/README.md" "# My Project\nA demo project in the VFS.")
+(file/write "project/src/main.sema" "(println \"hello\")")
+(file/write "project/src/utils.sema" "(define (add a b) (+ a b))")
+(file/write "project/docs/guide.md" "# User Guide\nGetting started...")
+(file/write "project/tests/test1.sema" "(assert (= 2 (+ 1 1)))")
+
+;; Check types
+(println (format "project/ is directory? ~a" (file/is-directory? "project")))
+(println (format "project/README.md is file? ~a" (file/is-file? "project/README.md")))
+(println (format "project/src is directory? ~a" (file/is-directory? "project/src")))
+
+;; List directory contents
+(for-each
+  (lambda (dir)
+    (let ((items (file/list dir)))
+      (println (format "\n~a/ (~a items)" dir (length items)))
+      (for-each (lambda (f) (println (format "  ~a" f))) items)))
+  (list "project" "project/src" "project/docs" "project/tests"))

@@ -10,12 +10,12 @@ const DIST_DIR = 'dist';
 const categoryNames = {
   'getting-started': 'Getting Started',
   'functional': 'Functional',
-  'data': 'Data',
+  'data': 'Data & Text',
+  'filesystem': 'Filesystem',
   'patterns': 'Patterns',
   'visuals': 'Visuals',
   'math-crypto': 'Math & Crypto',
-  'llm-tools': 'LLM Tools',
-  'http': 'HTTP',
+  'http': 'HTTP & APIs',
 };
 
 // Category display order
@@ -23,8 +23,8 @@ const categoryOrder = [
   'getting-started',
   'functional',
   'data',
+  'filesystem',
   'http',
-  'llm-tools',
   'patterns',
   'visuals',
   'math-crypto',
@@ -51,7 +51,7 @@ for (const dir of dirs) {
 
   const fileEntries = files.map(f => {
     const code = readFileSync(join(dirPath, f), 'utf-8');
-    return `    { name: ${JSON.stringify(f)}, code: ${JSON.stringify(code)} }`;
+    return `    { id: ${JSON.stringify(dir + '/' + f)}, name: ${JSON.stringify(f)}, code: ${JSON.stringify(code)} }`;
   });
 
   const displayName = categoryNames[dir] || dir.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());

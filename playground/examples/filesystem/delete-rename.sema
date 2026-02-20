@@ -1,0 +1,28 @@
+;; Deleting and renaming files
+
+(println "=== Delete & Rename ===\n")
+
+;; Create some files
+(file/write "draft.txt" "Work in progress...")
+(file/write "old-name.txt" "I will be renamed!")
+(file/write "temp.txt" "Delete me!")
+
+(println "Before:")
+(for-each
+  (lambda (f) (println (format "  ~a" f)))
+  (file/list "/"))
+
+;; Delete a file
+(file/delete "temp.txt")
+(println (format "\ntemp.txt exists after delete? ~a" (file/exists? "temp.txt")))
+
+;; Rename a file
+(file/rename "old-name.txt" "new-name.txt")
+(println (format "old-name.txt exists? ~a" (file/exists? "old-name.txt")))
+(println (format "new-name.txt exists? ~a" (file/exists? "new-name.txt")))
+(println (format "new-name.txt content: ~a" (file/read "new-name.txt")))
+
+(println "\nAfter:")
+(for-each
+  (lambda (f) (println (format "  ~a" f)))
+  (file/list "/"))

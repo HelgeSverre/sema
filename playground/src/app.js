@@ -11,12 +11,22 @@ let vfsBackend = null;
 let backendName = 'memory';
 let activeFilePath = null;
 
-const BACKEND_PREF_KEY = 'sema-playground:backend';
+const STORAGE_KEY = 'sema-playground';
+
+function loadState() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+}
+
+function saveState(patch) {
+  const state = { ...loadState(), ...patch };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+}
 
 // ── Sidebar tabs ──
 
 const sidebarTabs = document.getElementById('sidebar-tabs');
 const sidebarTree = document.getElementById('sidebar-tree');
+const sidebarFiles = document.getElementById('sidebar-files');
 const fileTreeEl = document.getElementById('file-tree');
 
 sidebarTabs.addEventListener('change', (e) => {
@@ -25,7 +35,7 @@ sidebarTabs.addEventListener('change', (e) => {
     l.classList.toggle('active', l.querySelector('input').value === tab);
   });
   sidebarTree.classList.toggle('hidden', tab !== 'examples');
-  fileTreeEl.classList.toggle('hidden', tab !== 'files');
+  sidebarFiles.classList.toggle('hidden', tab !== 'files');
   if (tab === 'files') refreshFileTree();
 });
 
@@ -46,8 +56,13 @@ outputTabs.addEventListener('change', (e) => {
 
 // ── Example sidebar ──
 
+const collapsedCategories = new Set();
+
 function buildSidebar() {
   const tree = document.getElementById('sidebar-tree');
+  const saved = loadState();
+  const savedCollapsed = saved.collapsed || [];
+
   for (const cat of examples) {
     const catDiv = document.createElement('div');
 
@@ -55,27 +70,49 @@ function buildSidebar() {
     header.className = 'tree-category';
     const chevron = document.createElement('span');
     chevron.className = 'tree-chevron';
-    chevron.textContent = '▾';
     header.appendChild(chevron);
     header.appendChild(document.createTextNode(cat.category));
 
     const items = document.createElement('div');
     items.className = 'tree-items';
 
+    // Determine initial collapsed state
+    const isGettingStarted = cat.category === 'Getting Started';
+    let collapsed;
+    if (savedCollapsed.length > 0) {
+      collapsed = savedCollapsed.includes(cat.category);
+    } else {
+      collapsed = !isGettingStarted;
+    }
+
+    if (collapsed) {
+      items.classList.add('collapsed');
+      collapsedCategories.add(cat.category);
+    }
+    chevron.textContent = collapsed ? '▸' : '▾';
+
     header.onclick = () => {
       items.classList.toggle('collapsed');
-      chevron.textContent = items.classList.contains('collapsed') ? '▸' : '▾';
+      const nowCollapsed = items.classList.contains('collapsed');
+      chevron.textContent = nowCollapsed ? '▸' : '▾';
+      if (nowCollapsed) collapsedCategories.add(cat.category);
+      else collapsedCategories.delete(cat.category);
+      saveState({ collapsed: [...collapsedCategories] });
     };
 
     for (const file of cat.files) {
       const btn = document.createElement('button');
       btn.className = 'tree-file';
       btn.textContent = file.name;
+      btn.dataset.exampleId = file.id;
       btn.onclick = () => {
-        document.getElementById('editor').value = file.code;
+        editorEl.value = file.code;
         if (activeBtn) activeBtn.classList.remove('active');
         btn.classList.add('active');
         activeBtn = btn;
+        saveState({ lastExampleId: file.id, editorContent: file.code });
+        editorUndo.reset();
+        scheduleHighlight();
       };
       items.appendChild(btn);
     }
@@ -83,6 +120,27 @@ function buildSidebar() {
     catDiv.appendChild(header);
     catDiv.appendChild(items);
     tree.appendChild(catDiv);
+  }
+
+  // Restore last selected example or editor content
+  if (saved.editorContent) {
+    editorEl.value = saved.editorContent;
+  }
+  if (saved.lastExampleId) {
+    const btn = tree.querySelector(`[data-example-id="${CSS.escape(saved.lastExampleId)}"]`);
+    if (btn) {
+      btn.classList.add('active');
+      activeBtn = btn;
+      // Expand the parent category if collapsed
+      const items = btn.closest('.tree-items');
+      if (items && items.classList.contains('collapsed')) {
+        items.classList.remove('collapsed');
+        const chevron = items.previousElementSibling?.querySelector('.tree-chevron');
+        if (chevron) chevron.textContent = '▾';
+        const catName = items.previousElementSibling?.textContent?.trim();
+        if (catName) collapsedCategories.delete(catName);
+      }
+    }
   }
 }
 
@@ -195,6 +253,100 @@ function refreshVfsStats() {
   vfsStatsEl.textContent = `${s.files} files · ${formatBytes(s.bytes)}`;
 }
 
+// ── Upload files into VFS ──
+
+const uploadInput = document.getElementById('vfs-upload');
+const uploadBtn = document.getElementById('upload-btn');
+const dropOverlay = document.getElementById('drop-overlay');
+const clearVfsBtn = document.getElementById('clear-vfs-btn');
+
+uploadBtn.addEventListener('click', () => uploadInput.click());
+
+uploadInput.addEventListener('change', async () => {
+  if (uploadInput.files.length > 0) {
+    await uploadFiles(uploadInput.files);
+    uploadInput.value = '';
+  }
+});
+
+// Drag and drop on the sidebar-files area
+let dragCounter = 0;
+
+sidebarFiles.addEventListener('dragenter', (e) => {
+  e.preventDefault();
+  dragCounter++;
+  dropOverlay.classList.remove('hidden');
+});
+
+sidebarFiles.addEventListener('dragleave', (e) => {
+  e.preventDefault();
+  dragCounter--;
+  if (dragCounter <= 0) {
+    dragCounter = 0;
+    dropOverlay.classList.add('hidden');
+  }
+});
+
+sidebarFiles.addEventListener('dragover', (e) => {
+  e.preventDefault();
+});
+
+sidebarFiles.addEventListener('drop', async (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.add('hidden');
+  if (e.dataTransfer.files.length > 0) {
+    await uploadFiles(e.dataTransfer.files);
+  }
+});
+
+async function uploadFiles(fileList) {
+  if (!interp) return;
+
+  // Ensure /uploads/ directory exists
+  interp.mkdir('/uploads');
+
+  let uploaded = 0;
+  for (const file of fileList) {
+    if (file.size > 1024 * 1024) {
+      document.getElementById('status').textContent = `Skipped ${file.name} (>1MB)`;
+      continue;
+    }
+    try {
+      const text = await file.text();
+      const path = '/uploads/' + file.name;
+      interp.writeFile(path, text);
+      uploaded++;
+    } catch (e) {
+      document.getElementById('status').textContent = `Upload failed: ${e.message}`;
+    }
+  }
+
+  if (uploaded > 0) {
+    document.getElementById('status').textContent = `Uploaded ${uploaded} file(s) to /uploads/`;
+    document.getElementById('status').className = 'status-text status-ready';
+
+    // Auto-flush for persistent backends
+    if (backendName !== 'memory' && vfsBackend) {
+      try { await vfsBackend.flush(vfsHost); } catch {}
+    }
+  }
+
+  refreshFileTree();
+  refreshVfsStats();
+}
+
+// Clear VFS
+clearVfsBtn.addEventListener('click', async () => {
+  if (!interp) return;
+  interp.resetVFS();
+  if (vfsBackend?.reset) await vfsBackend.reset();
+  activeFilePath = null;
+  fileViewerEl.innerHTML = '<div class="viewer-placeholder">Click a file in the Files tab to view its contents.</div>';
+  refreshFileTree();
+  refreshVfsStats();
+});
+
 // ── Backend toggle ──
 
 const backendToggle = document.getElementById('backend-toggle');
@@ -210,7 +362,7 @@ backendToggle.addEventListener('change', async (e) => {
 
   vfsBackend = newBackend;
   backendName = newName;
-  localStorage.setItem(BACKEND_PREF_KEY, newName);
+  saveState({ backend: newName });
 
   backendToggle.querySelectorAll('label').forEach(l => {
     l.classList.toggle('active', l.querySelector('input').value === newName);
@@ -241,7 +393,8 @@ async function main() {
   vfsHost = makeVfsHost(interp);
 
   // Restore backend preference
-  const storedBackend = localStorage.getItem(BACKEND_PREF_KEY) ?? 'memory';
+  const saved = loadState();
+  const storedBackend = saved.backend ?? 'memory';
   if (BACKENDS[storedBackend]) {
     backendName = storedBackend;
     const radio = backendToggle.querySelector(`input[value="${storedBackend}"]`);
@@ -271,7 +424,7 @@ async function main() {
 
 async function run() {
   if (!interp) return;
-  const code = document.getElementById('editor').value;
+  const code = editorEl.value;
   if (!code.trim()) return;
 
   const engine = useVM ? 'vm' : 'tree';
@@ -368,10 +521,22 @@ function syncScroll() {
 
 const editorUndo = new TextareaUndo(editorEl, { onChange: scheduleHighlight });
 
-editorEl.addEventListener('input', scheduleHighlight);
+editorEl.addEventListener('input', () => {
+  scheduleHighlight();
+  debounceSaveEditor();
+});
 editorEl.addEventListener('scroll', syncScroll);
 editorEl.addEventListener('focus', () => hlEl.classList.add('focused'));
 editorEl.addEventListener('blur', () => hlEl.classList.remove('focused'));
+
+// Debounced editor content save
+let saveTimer = 0;
+function debounceSaveEditor() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    saveState({ editorContent: editorEl.value });
+  }, 500);
+}
 
 // Keyboard shortcut: Cmd/Ctrl+Enter and Tab/Shift+Tab
 editorEl.addEventListener('keydown', (e) => {
@@ -414,19 +579,7 @@ editorEl.addEventListener('keydown', (e) => {
   }
 });
 
-// Re-highlight when loading a file from sidebar
-function patchFileLoads() {
-  document.querySelectorAll('.tree-file').forEach(btn => {
-    const orig = btn.onclick;
-    btn.onclick = function() {
-      orig?.call(this);
-      editorUndo.reset();
-      scheduleHighlight();
-    };
-  });
-}
-
 // Highlight initial content
 scheduleHighlight();
 
-main().then(() => { patchFileLoads(); scheduleHighlight(); });
+main().then(() => { scheduleHighlight(); });

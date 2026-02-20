@@ -50,7 +50,15 @@
       </div>
     </div>
     <div class="sidebar-tree" id="sidebar-tree" data-testid="sidebar-tree"></div>
-    <div class="sidebar-tree hidden" id="file-tree" data-testid="file-tree"></div>
+    <div class="sidebar-files hidden" id="sidebar-files">
+      <div class="file-tree-header">
+        <button class="btn-upload" id="upload-btn" title="Upload files into /uploads/">Upload…</button>
+        <button class="btn-clear-vfs" id="clear-vfs-btn" title="Clear all VFS files">Clear</button>
+      </div>
+      <div class="sidebar-tree" id="file-tree" data-testid="file-tree"></div>
+      <div class="drop-overlay hidden" id="drop-overlay">Drop files here</div>
+    </div>
+    <input type="file" id="vfs-upload" multiple hidden>
   </div>
   <div class="pane editor-pane">
     <div class="pane-header">
