@@ -1168,11 +1168,5 @@ fn print_builtins(interpreter: &Interpreter) {
 }
 
 fn dirs_path() -> std::path::PathBuf {
-    dirs_home().join(".sema")
-}
-
-fn dirs_home() -> std::path::PathBuf {
-    std::env::var("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+    sema_core::sema_home()
 }
