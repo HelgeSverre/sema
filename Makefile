@@ -1,4 +1,4 @@
-.PHONY: all build release install uninstall test test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint lint-links examples examples-vm smoke-bytecode test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy deploy coverage coverage-html bench bench-vm bench-tree bench-save bench-suite bench-closure bench-numeric bench-compare bench-baseline profile profile-vm profile-tree ts-setup ts-generate ts-test ts-playground
+.PHONY: all build release install uninstall test test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint lint-links examples examples-vm smoke-bytecode test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy deploy coverage coverage-html bench bench-vm bench-tree bench-save bench-suite bench-closure bench-numeric bench-compare bench-baseline profile profile-vm profile-tree ts-setup ts-generate ts-test ts-playground js-lib-build js-lib-dev
 build:
 	cargo build
 
@@ -132,6 +132,16 @@ site-preview: site-build
 
 site-deploy: site-build
 	cd website && npx vercel --prod --yes
+
+# JS Embedding Library
+.PHONY: js-lib-build js-lib-dev
+
+js-lib-build:
+	wasm-pack build crates/sema-wasm --target web --release --scope sema-lang --out-dir ../../packages/sema-wasm/pkg
+	cd packages/sema && npm install && npm run build
+
+js-lib-dev:
+	wasm-pack build crates/sema-wasm --target web --scope sema-lang --out-dir ../../packages/sema-wasm/pkg
 
 # Playground
 deploy: site-deploy playground-deploy

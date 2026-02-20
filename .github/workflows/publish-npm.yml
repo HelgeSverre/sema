@@ -1,0 +1,71 @@
+name: Publish to npm
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write  # Required for npm Trusted Publishing (OIDC)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install latest npm (required for trusted publishing)
+        run: npm install -g npm@latest
+
+      - name: Get version from tag
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build WASM package
+        run: |
+          wasm-pack build crates/sema-wasm \
+            --target web \
+            --release \
+            --scope sema-lang \
+            --out-dir ../../packages/sema-wasm/pkg
+
+      - name: Prepare sema-wasm package
+        working-directory: packages/sema-wasm/pkg
+        run: |
+          # wasm-pack generates package.json; update version to match tag
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+          # Copy README
+          cp ../README.md .
+
+      - name: Publish @sema-lang/sema-wasm
+        working-directory: packages/sema-wasm/pkg
+        run: npm publish --provenance --access public
+
+      - name: Build wrapper package
+        working-directory: packages/sema
+        run: |
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+          # Update dependency version to match
+          node -e "
+            const pkg = require('./package.json');
+            pkg.dependencies['@sema-lang/sema-wasm'] = '^${{ steps.version.outputs.version }}';
+            require('fs').writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+          npm install
+          npm run build
+
+      - name: Publish @sema-lang/sema
+        working-directory: packages/sema
+        run: npm publish --provenance --access public

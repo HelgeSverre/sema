@@ -67,6 +67,40 @@ fn vfs_check_quota(file_name: &str, new_content_len: usize) -> Result<(), SemaEr
     })
 }
 
+/// Normalize a VFS path to canonical form: always starts with "/",
+/// no trailing slash (except root), collapsed "//", resolved "." segments,
+/// ".." rejected (no parent traversal in sandbox).
+fn normalize_path(path: &str) -> Result<String, SemaError> {
+    let path = path.trim();
+    if path.is_empty() || path == "/" {
+        return Ok("/".to_string());
+    }
+
+    let mut segments: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        match seg {
+            "" | "." => continue,
+            ".." => {
+                return Err(SemaError::eval(
+                    "VFS path error: '..' parent traversal not allowed",
+                ));
+            }
+            s => segments.push(s),
+        }
+    }
+
+    if segments.is_empty() {
+        return Ok("/".to_string());
+    }
+
+    let mut result = String::with_capacity(path.len() + 1);
+    for seg in &segments {
+        result.push('/');
+        result.push_str(seg);
+    }
+    Ok(result)
+}
+
 /// Append text to the current line buffer (no newline).
 fn append_output(s: &str) {
     LINE_BUF.with(|b| b.borrow_mut().push_str(s));
@@ -1099,7 +1133,8 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            VFS.with(|vfs| match vfs.borrow().get(path) {
+            let path = &normalize_path(path)?;
+            VFS.with(|vfs| match vfs.borrow().get(path.as_str()) {
                 Some(content) => Ok(Value::string(content)),
                 None => Err(SemaError::Io(format!("file/read {path}: No such file"))),
             })
@@ -1115,13 +1150,14 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let path = &normalize_path(path)?;
             let content = args[1]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
             vfs_check_quota(path, content.len())?;
             VFS.with(|vfs| {
                 let mut map = vfs.borrow_mut();
-                let old_len = map.get(path).map_or(0, |s| s.len());
+                let old_len = map.get(path.as_str()).map_or(0, |s| s.len());
                 map.insert(path.to_string(), content.to_string());
                 VFS_TOTAL_BYTES.with(|t| {
                     t.set(
@@ -1144,8 +1180,9 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let in_vfs = VFS.with(|vfs| vfs.borrow().contains_key(path));
-            let in_dirs = VFS_DIRS.with(|dirs| dirs.borrow().contains(path));
+            let path = &normalize_path(path)?;
+            let in_vfs = VFS.with(|vfs| vfs.borrow().contains_key(path.as_str()));
+            let in_dirs = VFS_DIRS.with(|dirs| dirs.borrow().contains(path.as_str()));
             Ok(Value::bool(in_vfs || in_dirs))
         }),
     );
@@ -1159,7 +1196,8 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            VFS.with(|vfs| match vfs.borrow_mut().remove(path) {
+            let path = &normalize_path(path)?;
+            VFS.with(|vfs| match vfs.borrow_mut().remove(path.as_str()) {
                 Some(old) => {
                     VFS_TOTAL_BYTES.with(|t| t.set(t.get().saturating_sub(old.len())));
                     Ok(Value::nil())
@@ -1178,14 +1216,16 @@ fn register_wasm_io(env: &Env) {
             let from = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let from = &normalize_path(from)?;
             let to = args[1]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+            let to = &normalize_path(to)?;
             VFS.with(|vfs| {
                 let mut map = vfs.borrow_mut();
-                match map.remove(from) {
+                match map.remove(from.as_str()) {
                     Some(content) => {
-                        let overwritten_len = map.get(to).map_or(0, |s| s.len());
+                        let overwritten_len = map.get(to.as_str()).map_or(0, |s| s.len());
                         map.insert(to.to_string(), content);
                         VFS_TOTAL_BYTES.with(|t| t.set(t.get().saturating_sub(overwritten_len)));
                         Ok(Value::nil())
@@ -1207,11 +1247,8 @@ fn register_wasm_io(env: &Env) {
             let dir = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let prefix = if dir.ends_with('/') {
-                dir.to_string()
-            } else {
-                format!("{dir}/")
-            };
+            let dir = &normalize_path(dir)?;
+            let prefix = if dir == "/" { "/".to_string() } else { format!("{dir}/") };
             let mut names = BTreeSet::new();
             VFS.with(|vfs| {
                 for key in vfs.borrow().keys() {
@@ -1245,20 +1282,13 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let path = &normalize_path(path)?;
             VFS_DIRS.with(|dirs| {
                 let mut set = dirs.borrow_mut();
                 let mut current = String::new();
-                for part in path.split('/') {
-                    if part.is_empty() {
-                        if current.is_empty() {
-                            current.push('/');
-                        }
-                        continue;
-                    }
-                    if !current.ends_with('/') {
-                        current.push('/');
-                    }
-                    current.push_str(part);
+                for seg in path.strip_prefix('/').unwrap_or(path).split('/') {
+                    current.push('/');
+                    current.push_str(seg);
                     set.insert(current.clone());
                 }
             });
@@ -1275,8 +1305,9 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let path = &normalize_path(path)?;
             Ok(Value::bool(
-                VFS_DIRS.with(|dirs| dirs.borrow().contains(path)),
+                VFS_DIRS.with(|dirs| dirs.borrow().contains(path.as_str())),
             ))
         }),
     );
@@ -1290,7 +1321,8 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            Ok(Value::bool(VFS.with(|vfs| vfs.borrow().contains_key(path))))
+            let path = &normalize_path(path)?;
+            Ok(Value::bool(VFS.with(|vfs| vfs.borrow().contains_key(path.as_str()))))
         }),
     );
 
@@ -1316,11 +1348,12 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let path = &normalize_path(path)?;
             let content = args[1]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
             let combined_len =
-                VFS.with(|vfs| vfs.borrow().get(path).map_or(0, |s| s.len())) + content.len();
+                VFS.with(|vfs| vfs.borrow().get(path.as_str()).map_or(0, |s| s.len())) + content.len();
             vfs_check_quota(path, combined_len)?;
             VFS.with(|vfs| {
                 let mut map = vfs.borrow_mut();
@@ -1342,18 +1375,20 @@ fn register_wasm_io(env: &Env) {
             let src = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let src = &normalize_path(src)?;
             let dest = args[1]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+            let dest = &normalize_path(dest)?;
             VFS.with(|vfs| {
                 let map = vfs.borrow();
-                match map.get(src) {
+                match map.get(src.as_str()) {
                     Some(content) => {
                         let content = content.clone();
                         drop(map);
                         vfs_check_quota(dest, content.len())?;
                         let mut map = vfs.borrow_mut();
-                        let old_len = map.get(dest).map_or(0, |s| s.len());
+                        let old_len = map.get(dest.as_str()).map_or(0, |s| s.len());
                         map.insert(dest.to_string(), content.clone());
                         VFS_TOTAL_BYTES.with(|t| {
                             t.set(
@@ -1381,7 +1416,8 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            VFS.with(|vfs| match vfs.borrow().get(path) {
+            let path = &normalize_path(path)?;
+            VFS.with(|vfs| match vfs.borrow().get(path.as_str()) {
                 Some(content) => {
                     let lines: Vec<Value> = content.split('\n').map(Value::string).collect();
                     Ok(Value::list(lines))
@@ -1402,6 +1438,7 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let path = &normalize_path(path)?;
             let lines = if let Some(l) = args[1].as_list() {
                 l
             } else if let Some(v) = args[1].as_vector() {
@@ -1424,7 +1461,7 @@ fn register_wasm_io(env: &Env) {
             let content_len = content.len();
             VFS.with(|vfs| {
                 let mut map = vfs.borrow_mut();
-                let old_len = map.get(path).map_or(0, |s| s.len());
+                let old_len = map.get(path.as_str()).map_or(0, |s| s.len());
                 map.insert(path.to_string(), content);
                 VFS_TOTAL_BYTES.with(|t| {
                     t.set(t.get().saturating_add(content_len).saturating_sub(old_len));
@@ -1544,7 +1581,7 @@ fn register_wasm_io(env: &Env) {
     );
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen(js_name = SemaInterpreter)]
 pub struct WasmInterpreter {
     inner: sema_eval::Interpreter,
 }
@@ -1555,7 +1592,7 @@ impl Default for WasmInterpreter {
     }
 }
 
-#[wasm_bindgen]
+#[wasm_bindgen(js_class = SemaInterpreter)]
 impl WasmInterpreter {
     #[wasm_bindgen(constructor)]
     pub fn new() -> WasmInterpreter {
@@ -1573,12 +1610,12 @@ impl WasmInterpreter {
 
     /// Evaluate code, returns JSON: {"value": "...", "output": ["...", ...], "error": null}
     /// or {"value": null, "output": [...], "error": "..."}
-    pub fn eval(&self, code: &str) -> String {
+    pub fn eval(&self, code: &str) -> JsValue {
         OUTPUT.with(|o| o.borrow_mut().clear());
         LINE_BUF.with(|b| b.borrow_mut().clear());
 
         let env = sema_core::Env::with_parent(self.inner.global_env.clone());
-        match sema_eval::eval_string(&self.inner.ctx, code, &env) {
+        let json_str = match sema_eval::eval_string(&self.inner.ctx, code, &env) {
             Ok(val) => {
                 let output = take_output();
                 let val_str = if val.is_nil() {
@@ -1618,15 +1655,17 @@ impl WasmInterpreter {
                     escape_json(&err_str)
                 )
             }
-        }
+        };
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
     }
 
     /// Evaluate in the global env so defines persist
-    pub fn eval_global(&self, code: &str) -> String {
+    #[wasm_bindgen(js_name = evalGlobal)]
+    pub fn eval_global(&self, code: &str) -> JsValue {
         OUTPUT.with(|o| o.borrow_mut().clear());
         LINE_BUF.with(|b| b.borrow_mut().clear());
 
-        match sema_eval::eval_string(&self.inner.ctx, code, &self.inner.global_env) {
+        let json_str = match sema_eval::eval_string(&self.inner.ctx, code, &self.inner.global_env) {
             Ok(val) => {
                 let output = take_output();
                 let val_str = if val.is_nil() {
@@ -1666,15 +1705,17 @@ impl WasmInterpreter {
                     escape_json(&err_str)
                 )
             }
-        }
+        };
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
     }
 
     /// Evaluate code via the bytecode VM, returns same JSON format as eval_global
-    pub fn eval_vm(&self, code: &str) -> String {
+    #[wasm_bindgen(js_name = evalVM)]
+    pub fn eval_vm(&self, code: &str) -> JsValue {
         OUTPUT.with(|o| o.borrow_mut().clear());
         LINE_BUF.with(|b| b.borrow_mut().clear());
 
-        match self.inner.eval_str_compiled(code) {
+        let json_str = match self.inner.eval_str_compiled(code) {
             Ok(val) => {
                 let output = take_output();
                 let val_str = if val.is_nil() {
@@ -1714,11 +1755,13 @@ impl WasmInterpreter {
                     escape_json(&err_str)
                 )
             }
-        }
+        };
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
     }
 
     /// Evaluate code with async HTTP support (tree-walker, global env)
-    pub async fn eval_async(&self, code: &str) -> String {
+    #[wasm_bindgen(js_name = evalAsync)]
+    pub async fn eval_async(&self, code: &str) -> JsValue {
         clear_http_cache();
 
         for _ in 0..MAX_REPLAYS {
@@ -1733,7 +1776,7 @@ impl WasmInterpreter {
                     } else {
                         format!("\"{}\"", escape_json(&pretty_print(&val, 80)))
                     };
-                    return format!(
+                    let json_str = format!(
                         "{{\"value\":{},\"output\":[{}],\"error\":null}}",
                         val_str,
                         output
@@ -1742,6 +1785,7 @@ impl WasmInterpreter {
                             .collect::<Vec<_>>()
                             .join(",")
                     );
+                    return js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL);
                 }
                 Err(e) => {
                     if is_http_await_marker(&e) {
@@ -1756,7 +1800,7 @@ impl WasmInterpreter {
                                 Err(fetch_err) => {
                                     let output = take_output();
                                     let err_str = format!("{}", fetch_err.inner());
-                                    return format!(
+                                    let json_str = format!(
                                         "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
                                         output
                                             .iter()
@@ -1765,6 +1809,7 @@ impl WasmInterpreter {
                                             .join(","),
                                         escape_json(&err_str)
                                     );
+                                    return js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL);
                                 }
                             }
                         }
@@ -1780,7 +1825,7 @@ impl WasmInterpreter {
                     if let Some(note) = e.note() {
                         err_str.push_str(&format!("\n  note: {note}"));
                     }
-                    return format!(
+                    let json_str = format!(
                         "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
                         output
                             .iter()
@@ -1789,18 +1834,21 @@ impl WasmInterpreter {
                             .join(","),
                         escape_json(&err_str)
                     );
+                    return js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL);
                 }
             }
         }
 
-        format!(
+        let json_str = format!(
             "{{\"value\":null,\"output\":[],\"error\":\"{}\"}}",
             escape_json("exceeded maximum number of HTTP requests (50)")
-        )
+        );
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
     }
 
     /// Evaluate code with async HTTP support (bytecode VM)
-    pub async fn eval_vm_async(&self, code: &str) -> String {
+    #[wasm_bindgen(js_name = evalVMAsync)]
+    pub async fn eval_vm_async(&self, code: &str) -> JsValue {
         clear_http_cache();
 
         for _ in 0..MAX_REPLAYS {
@@ -1815,7 +1863,7 @@ impl WasmInterpreter {
                     } else {
                         format!("\"{}\"", escape_json(&pretty_print(&val, 80)))
                     };
-                    return format!(
+                    let json_str = format!(
                         "{{\"value\":{},\"output\":[{}],\"error\":null}}",
                         val_str,
                         output
@@ -1824,6 +1872,7 @@ impl WasmInterpreter {
                             .collect::<Vec<_>>()
                             .join(",")
                     );
+                    return js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL);
                 }
                 Err(e) => {
                     if is_http_await_marker(&e) {
@@ -1838,7 +1887,7 @@ impl WasmInterpreter {
                                 Err(fetch_err) => {
                                     let output = take_output();
                                     let err_str = format!("{}", fetch_err.inner());
-                                    return format!(
+                                    let json_str = format!(
                                         "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
                                         output
                                             .iter()
@@ -1847,6 +1896,7 @@ impl WasmInterpreter {
                                             .join(","),
                                         escape_json(&err_str)
                                     );
+                                    return js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL);
                                 }
                             }
                         }
@@ -1862,7 +1912,7 @@ impl WasmInterpreter {
                     if let Some(note) = e.note() {
                         err_str.push_str(&format!("\n  note: {note}"));
                     }
-                    return format!(
+                    let json_str = format!(
                         "{{\"value\":null,\"output\":[{}],\"error\":\"{}\"}}",
                         output
                             .iter()
@@ -1871,19 +1921,376 @@ impl WasmInterpreter {
                             .join(","),
                         escape_json(&err_str)
                     );
+                    return js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL);
                 }
             }
         }
 
-        format!(
+        let json_str = format!(
             "{{\"value\":null,\"output\":[],\"error\":\"{}\"}}",
             escape_json("exceeded maximum number of HTTP requests (50)")
-        )
+        );
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+    }
+
+    /// Create interpreter with options: {stdlib: false, deny: ["network", "fs-write"]}
+    #[wasm_bindgen(js_name = createWithOptions)]
+    pub fn new_with_options(opts: JsValue) -> WasmInterpreter {
+        let with_stdlib = js_sys::Reflect::get(&opts, &JsValue::from_str("stdlib"))
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+
+        let interp = if with_stdlib {
+            sema_eval::Interpreter::new()
+        } else {
+            use std::rc::Rc;
+            let env = sema_core::Env::new();
+            let ctx = sema_core::EvalContext::new();
+            sema_core::set_eval_callback(&ctx, sema_eval::eval_value);
+            sema_core::set_call_callback(&ctx, sema_eval::call_value);
+            let global_env = Rc::new(env);
+            sema_eval::Interpreter { global_env, ctx }
+        };
+
+        register_wasm_io(&interp.global_env);
+        interp.ctx.set_eval_step_limit(10_000_000);
+
+        // Apply deny list: overwrite denied functions with PermissionDenied stubs
+        if let Ok(deny_val) = js_sys::Reflect::get(&opts, &JsValue::from_str("deny")) {
+            if let Some(deny_arr) = deny_val.dyn_ref::<js_sys::Array>() {
+                let mut denied_caps: Vec<String> = Vec::new();
+                for i in 0..deny_arr.length() {
+                    if let Some(s) = deny_arr.get(i).as_string() {
+                        denied_caps.push(s);
+                    }
+                }
+
+                let deny_fns = |env: &Env, cap: &str, fn_names: &[&str]| {
+                    for &name in fn_names {
+                        let cap_name = cap.to_string();
+                        let fn_name = name.to_string();
+                        env.set(
+                            sema_core::intern(name),
+                            Value::native_fn(NativeFn::simple(name, move |_args| {
+                                Err(SemaError::PermissionDenied {
+                                    function: fn_name.clone(),
+                                    capability: cap_name.clone(),
+                                })
+                            })),
+                        );
+                    }
+                };
+
+                for cap in &denied_caps {
+                    match cap.as_str() {
+                        "network" => deny_fns(&interp.global_env, "network", &[
+                            "http/get", "http/post", "http/put", "http/delete", "http/request",
+                        ]),
+                        "fs-read" => deny_fns(&interp.global_env, "fs-read", &[
+                            "file/read", "file/exists?", "file/list", "file/is-directory?",
+                            "file/is-file?", "file/is-symlink?",
+                        ]),
+                        "fs-write" => deny_fns(&interp.global_env, "fs-write", &[
+                            "file/write", "file/delete", "file/rename", "file/mkdir",
+                            "file/append",
+                        ]),
+                        _ => {} // Unknown caps are silently ignored
+                    }
+                }
+            }
+        }
+
+        WasmInterpreter { inner: interp }
+    }
+
+    /// Register a JavaScript function callable from Sema code.
+    #[wasm_bindgen(js_name = registerFunction)]
+    pub fn register_fn(&self, name: &str, callback: &js_sys::Function) {
+        use sema_core::{NativeFn, SemaError, Value};
+
+        let callback = callback.clone();
+        let fn_name = name.to_string();
+
+        let native = NativeFn::simple(&fn_name, move |args: &[Value]| {
+            // Pass native JS values
+            let js_array = js_sys::Array::new();
+            for arg in args {
+                js_array.push(&sema_value_to_jsvalue(arg));
+            }
+
+            let result = callback.apply(&JsValue::NULL, &js_array).map_err(|e| {
+                let msg = e.as_string().unwrap_or_else(|| format!("{:?}", e));
+                SemaError::eval(format!("JS callback error: {msg}"))
+            })?;
+
+            // Convert JS result back to Sema value
+            if result.is_undefined() || result.is_null() {
+                Ok(Value::nil())
+            } else if let Some(b) = result.as_bool() {
+                Ok(Value::bool(b))
+            } else if let Some(n) = result.as_f64() {
+                if n.fract() == 0.0 && n >= i64::MIN as f64 && n <= i64::MAX as f64 {
+                    Ok(Value::int(n as i64))
+                } else {
+                    Ok(Value::float(n))
+                }
+            } else if let Some(s) = result.as_string() {
+                // Try parsing as JSON first for structured returns
+                match serde_json::from_str::<serde_json::Value>(&s) {
+                    Ok(json) if !json.is_string() => Ok(json_to_value(&json)),
+                    _ => Ok(Value::string(&s)),
+                }
+            } else {
+                // Try to serialize via JSON for objects/arrays
+                match js_sys::JSON::stringify(&result) {
+                    Ok(json_str) => {
+                        let s: String = json_str.into();
+                        match serde_json::from_str::<serde_json::Value>(&s) {
+                            Ok(json) => Ok(json_to_value(&json)),
+                            Err(_) => Ok(Value::string(&s)),
+                        }
+                    }
+                    Err(_) => Ok(Value::nil()),
+                }
+            }
+        });
+
+        self.inner.global_env.set_str(name, Value::native_fn(native));
+    }
+
+    /// Inject a virtual module so that `(import "name")` resolves without a file.
+    #[wasm_bindgen(js_name = preloadModule)]
+    pub fn preload_module(&self, name: &str, source: &str) -> JsValue {
+        use sema_core::{intern, resolve, Env, SemaError, Value};
+        use std::collections::BTreeMap;
+
+        let result = (|| -> Result<(), SemaError> {
+            let (exprs, spans) = sema_reader::read_many_with_spans(source)
+                .map_err(|e| SemaError::eval(format!("{e}")))?;
+            self.inner.ctx.merge_span_table(spans);
+
+            let module_env = Env::with_parent(self.inner.global_env.clone());
+            self.inner.ctx.clear_module_exports();
+
+            for expr in &exprs {
+                sema_eval::eval_value(&self.inner.ctx, expr, &module_env)?;
+            }
+
+            let declared = self.inner.ctx.take_module_exports();
+            let bindings = module_env.bindings.borrow();
+            let exports: BTreeMap<String, Value> = match declared {
+                Some(names) => names
+                    .iter()
+                    .filter_map(|n| {
+                        let spur = intern(n);
+                        bindings.get(&spur).map(|v| (n.clone(), v.clone()))
+                    })
+                    .collect(),
+                None => bindings
+                    .iter()
+                    .map(|(k, v)| (resolve(*k), v.clone()))
+                    .collect(),
+            };
+            drop(bindings);
+
+            self.inner
+                .ctx
+                .cache_module(std::path::PathBuf::from(name), exports);
+            Ok(())
+        })();
+
+        let json_str = match result {
+            Ok(()) => r#"{"ok":true,"error":null}"#.to_string(),
+            Err(e) => format!(
+                r#"{{"ok":false,"error":"{}"}}"#,
+                escape_json(&format!("{}", e.inner()))
+            ),
+        };
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+    }
+
+    /// Read a file from the virtual filesystem.
+    #[wasm_bindgen(js_name = readFile)]
+    pub fn read_file(&self, path: &str) -> JsValue {
+        let path = match normalize_path(path) {
+            Ok(p) => p,
+            Err(_) => return JsValue::NULL,
+        };
+        VFS.with(|vfs| match vfs.borrow().get(&path) {
+            Some(content) => JsValue::from_str(content),
+            None => JsValue::NULL,
+        })
+    }
+
+    /// Write a file to the virtual filesystem.
+    #[wasm_bindgen(js_name = writeFile)]
+    pub fn write_file(&self, path: &str, content: &str) -> JsValue {
+        let path = match normalize_path(path) {
+            Ok(p) => p,
+            Err(e) => return JsValue::from_str(&format!("{}", e.inner())),
+        };
+        match vfs_check_quota(&path, content.len()) {
+            Ok(()) => {
+                VFS.with(|vfs| {
+                    let mut map = vfs.borrow_mut();
+                    let old_len = map.get(&path).map_or(0, |s| s.len());
+                    map.insert(path.to_string(), content.to_string());
+                    VFS_TOTAL_BYTES.with(|t| {
+                        t.set(t.get().saturating_add(content.len()).saturating_sub(old_len));
+                    });
+                });
+                JsValue::NULL
+            }
+            Err(e) => {
+                let msg = format!("{}", e.inner());
+                JsValue::from_str(&msg)
+            }
+        }
+    }
+
+    /// Delete a file from the virtual filesystem. Returns true if the file existed.
+    #[wasm_bindgen(js_name = deleteFile)]
+    pub fn delete_file(&self, path: &str) -> bool {
+        let path = match normalize_path(path) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        VFS.with(|vfs| match vfs.borrow_mut().remove(&path) {
+            Some(old) => {
+                VFS_TOTAL_BYTES.with(|t| t.set(t.get().saturating_sub(old.len())));
+                true
+            }
+            None => false,
+        })
+    }
+
+    /// List files and directories in the given directory path.
+    #[wasm_bindgen(js_name = listFiles)]
+    pub fn list_files(&self, dir: &str) -> JsValue {
+        let dir = match normalize_path(dir) {
+            Ok(p) => p,
+            Err(_) => return js_sys::Array::new().into(),
+        };
+        let prefix = if dir == "/" { "/".to_string() } else { format!("{dir}/") };
+        let mut names = BTreeSet::new();
+        VFS.with(|vfs| {
+            for key in vfs.borrow().keys() {
+                if let Some(rest) = key.strip_prefix(&prefix) {
+                    if let Some(first) = rest.split('/').next() {
+                        if !first.is_empty() {
+                            names.insert(first.to_string());
+                        }
+                    }
+                }
+            }
+        });
+        VFS_DIRS.with(|dirs| {
+            for d in dirs.borrow().iter() {
+                if let Some(rest) = d.strip_prefix(&prefix) {
+                    if let Some(first) = rest.split('/').next() {
+                        if !first.is_empty() {
+                            names.insert(first.to_string());
+                        }
+                    }
+                }
+            }
+        });
+        let arr = js_sys::Array::new();
+        for name in names {
+            arr.push(&JsValue::from_str(&name));
+        }
+        arr.into()
+    }
+
+    /// Check if a path exists in the virtual filesystem (file or directory).
+    #[wasm_bindgen(js_name = fileExists)]
+    pub fn file_exists(&self, path: &str) -> bool {
+        let path = match normalize_path(path) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        let in_vfs = VFS.with(|vfs| vfs.borrow().contains_key(&path));
+        let in_dirs = VFS_DIRS.with(|dirs| dirs.borrow().contains(&path));
+        in_vfs || in_dirs
+    }
+
+    /// Create a directory in the virtual filesystem.
+    pub fn mkdir(&self, path: &str) {
+        let path = match normalize_path(path) {
+            Ok(p) => p,
+            Err(_) => return,
+        };
+        VFS_DIRS.with(|dirs| {
+            let mut set = dirs.borrow_mut();
+            let mut current = String::new();
+            for seg in path.strip_prefix('/').unwrap_or(&path).split('/') {
+                current.push('/');
+                current.push_str(seg);
+                set.insert(current.clone());
+            }
+        });
+    }
+
+    /// Check if a path is a directory in the virtual filesystem.
+    #[wasm_bindgen(js_name = isDirectory)]
+    pub fn is_directory(&self, path: &str) -> bool {
+        let path = match normalize_path(path) {
+            Ok(p) => p,
+            Err(_) => return false,
+        };
+        VFS_DIRS.with(|dirs| dirs.borrow().contains(&path))
+    }
+
+    /// Get VFS usage statistics.
+    #[wasm_bindgen(js_name = vfsStats)]
+    pub fn vfs_stats(&self) -> JsValue {
+        let file_count = VFS.with(|vfs| vfs.borrow().len());
+        let total_bytes = VFS_TOTAL_BYTES.with(|t| t.get());
+        let json_str = format!(
+            "{{\"files\":{},\"bytes\":{},\"maxFiles\":{},\"maxBytes\":{},\"maxFileBytes\":{}}}",
+            file_count, total_bytes, VFS_MAX_FILES, VFS_MAX_TOTAL_BYTES, VFS_MAX_FILE_BYTES
+        );
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+    }
+
+    /// Clear all files and directories from the virtual filesystem.
+    #[wasm_bindgen(js_name = resetVFS)]
+    pub fn reset_vfs(&self) {
+        VFS.with(|vfs| vfs.borrow_mut().clear());
+        VFS_DIRS.with(|dirs| {
+            let mut set = dirs.borrow_mut();
+            set.clear();
+            set.insert("/".to_string());
+        });
+        VFS_TOTAL_BYTES.with(|t| t.set(0));
     }
 
     /// Get the Sema version
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()
+    }
+}
+
+fn sema_value_to_jsvalue(val: &Value) -> JsValue {
+    match val.view() {
+        ValueView::Nil => JsValue::NULL,
+        ValueView::Bool(b) => JsValue::from_bool(b),
+        ValueView::Int(n) => JsValue::from_f64(n as f64),
+        ValueView::Float(f) => JsValue::from_f64(f),
+        ValueView::String(s) => JsValue::from_str(&s),
+        ValueView::Keyword(s) => JsValue::from_str(&format!(":{}", sema_core::resolve(s))),
+        ValueView::Symbol(s) => JsValue::from_str(&sema_core::resolve(s)),
+        _ => {
+            // For complex types (lists, maps, vectors), go through JSON
+            match value_to_json_for_body(val) {
+                Ok(json) => {
+                    let s = serde_json::to_string(&json).unwrap_or_default();
+                    js_sys::JSON::parse(&s).unwrap_or(JsValue::NULL)
+                }
+                Err(_) => JsValue::from_str(&format!("{val}")),
+            }
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-import init, { WasmInterpreter } from '../pkg/sema_wasm.js';
+import init, { SemaInterpreter } from '../pkg/sema_wasm.js';
 import { examples } from './examples.js';
 import { highlightSema } from './highlight.js';
 import { TextareaUndo } from './undo.js';
@@ -49,7 +49,7 @@ function buildSidebar() {
 async function main() {
   buildSidebar();
   await init();
-  interp = new WasmInterpreter();
+  interp = new SemaInterpreter();
 
   document.getElementById('version').textContent = `v${interp.version()}`;
   document.getElementById('status').textContent = 'Ready';
@@ -79,14 +79,10 @@ async function run() {
   runBtn.disabled = true;
 
   const t0 = performance.now();
-  const raw = useVM ? await interp.eval_vm_async(code) : await interp.eval_async(code);
+  const result = useVM ? await interp.evalVMAsync(code) : await interp.evalAsync(code);
   const elapsed = performance.now() - t0;
 
   runBtn.disabled = false;
-
-  let result;
-  try { result = JSON.parse(raw); }
-  catch { result = { value: null, output: [], error: raw }; }
 
   const out = document.getElementById('output');
   out.innerHTML = '';
