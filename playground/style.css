@@ -79,7 +79,7 @@
   main {
     flex: 1;
     display: grid;
-    grid-template-columns: 200px 55fr 45fr;
+    grid-template-columns: var(--sidebar-w, 200px) 4px 1fr 4px var(--right-col-w, 45fr);
     min-height: 0;
   }
 
@@ -248,8 +248,6 @@
     color: var(--text-dim);
   }
 
-  .editor-pane { border-right: 1px solid var(--border); }
-
   .editor-wrap {
     flex: 1;
     position: relative;
@@ -364,6 +362,26 @@
     background: var(--border);
   }
 
+  /* ── Splitters ── */
+  .splitter {
+    background: var(--border);
+    flex-shrink: 0;
+    position: relative;
+    z-index: 5;
+    transition: background 0.15s;
+  }
+  .splitter:hover, .splitter.active {
+    background: var(--gold-dim);
+  }
+  .splitter-v {
+    width: 4px;
+    cursor: col-resize;
+  }
+  .splitter-h {
+    height: 4px;
+    cursor: row-resize;
+  }
+
   /* ── Right column (output + files) ── */
   .right-column {
     display: flex;
@@ -420,7 +438,6 @@
 
   /* ── Files panel (bottom of right column) ── */
   .files-panel {
-    border-top: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
@@ -430,8 +447,8 @@
   }
   .files-body {
     display: grid;
-    grid-template-columns: 200px 1fr;
-    height: 200px;
+    grid-template-columns: var(--filetree-w, 200px) 4px 1fr;
+    height: var(--files-h, 200px);
     position: relative;
   }
   .files-body.collapsed {
@@ -439,7 +456,6 @@
   }
   .file-tree-pane {
     overflow-y: auto;
-    border-right: 1px solid var(--border);
     padding: 0.5rem 0;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
@@ -548,4 +564,5 @@
     .editor-pane { border-right: none; border-bottom: 1px solid var(--border); }
     .files-body { grid-template-columns: 1fr; height: auto; }
     .file-tree-pane { border-right: none; border-bottom: 1px solid var(--border); max-height: 150px; }
+    .splitter-v { display: none; }
   }

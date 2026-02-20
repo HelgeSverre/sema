@@ -13,19 +13,19 @@ the quick fox was too quick for the lazy dog")
 
 ;; Split into words and count
 (define words
-  (map string/downcase
+  (map string/lower
     (filter (lambda (w) (> (string-length w) 0))
-      (string-split text " \n\t"))))
+      (regex/split "\\s+" text))))
 
 (define counts
   (foldl (lambda (acc word)
-    (assoc acc word (+ 1 (or (map-get acc word) 0))))
+    (assoc acc word (+ 1 (get acc word 0))))
     {} words))
 
 ;; Sort by frequency (descending)
 (define sorted
-  (sort (map->list counts)
-    (lambda (a b) (> (cdr a) (cdr b)))))
+  (sort (map/entries counts)
+    (lambda (a b) (> (cadr a) (cadr b)))))
 
 (println (format "Total words: ~a" (length words)))
 (println (format "Unique words: ~a\n" (length sorted)))
@@ -33,5 +33,5 @@ the quick fox was too quick for the lazy dog")
 (println "Top words:")
 (for-each
   (lambda (pair)
-    (println (format "  ~a: ~a" (car pair) (cdr pair))))
-  (take sorted 10))
+    (println (format "  ~a: ~a" (car pair) (cadr pair))))
+  (take 10 sorted))

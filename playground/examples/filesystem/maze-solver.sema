@@ -4,15 +4,12 @@
 (println "=== Maze Solver ===\n")
 
 ;; Check if maze data exists
-(if (not (file/exists? "mazes/grid-data.txt"))
-  (begin
-    (println "⚠️  No maze found! Generating one first...\n")
-    (for-each eval (load "maze-generator.sema"))
-    (println "\n--- Now solving ---\n")))
+(when (not (file/exists? "mazes/grid-data.txt"))
+  (error "No maze found! Run maze-generator.sema first to create one."))
 
 ;; Read grid data
 (define raw (file/read "mazes/grid-data.txt"))
-(define lines (string-split raw "\n"))
+(define lines (string/split raw "\n"))
 (define grid-w (int (first lines)))
 (define grid-h (int (nth lines 1)))
 

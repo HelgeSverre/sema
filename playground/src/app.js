@@ -3,6 +3,7 @@ import { examples } from './examples.js';
 import { highlightSema } from './highlight.js';
 import { TextareaUndo } from './undo.js';
 import { makeVfsHost, BACKENDS } from './vfs-backends.js';
+import { initSplitters } from './splitters.js';
 
 let interp = null;
 let activeBtn = null;
@@ -385,6 +386,7 @@ document.getElementById('engine-toggle').addEventListener('change', (e) => {
 
 async function main() {
   buildSidebar();
+  initSplitters();
   await init();
   interp = new SemaInterpreter();
   vfsHost = makeVfsHost(interp);
