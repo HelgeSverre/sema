@@ -509,8 +509,10 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 // This avoids the call_callback indirection and, critically, avoids
                 // the VM closure fallback wrapper's clone of args (which prevents
                 // COW optimizations in functions like assoc).
-                let native: Option<&dyn Fn(&EvalContext, &[Value]) -> Result<Value, SemaError>> =
-                    func.as_native_fn_ref().map(|n| &*n.func);
+                #[allow(clippy::type_complexity)]
+                let native: Option<
+                    &dyn Fn(&EvalContext, &[Value]) -> Result<Value, SemaError>,
+                > = func.as_native_fn_ref().map(|n| &*n.func);
                 loop {
                     line_buf.clear();
                     let n = reader

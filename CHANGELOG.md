@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.10.0
+
+### Added
+
+- **JavaScript embedding library (`@sema-lang/sema`)** — full-featured npm package for embedding Sema in web applications. Wraps the WASM core (`@sema-lang/sema-wasm`) with a high-level TypeScript API: `SemaInstance.create()`, `eval()`, `evalVM()`, virtual filesystem access, and output capture.
+- **Pluggable VFS backends** — the WASM virtual filesystem now supports swappable storage backends: `MemoryBackend` (ephemeral), `LocalStorageBackend`, `SessionStorageBackend`, and `IndexedDBBackend` (production-grade persistence with configurable DB/store names).
+- **VFS demo playground** — interactive demo at `playground/vfs-demo/` showcasing all 4 VFS backends with live backend swapping.
+- **JS embedding docs** — new "Embedding in JavaScript" page on sema-lang.com with installation, API reference, VFS persistence guide, and framework integration examples.
+- **npm publish CI workflow** — GitHub Actions workflow using Trusted Publishing (OIDC provenance) for publishing `@sema-lang/sema-wasm` and `@sema-lang/sema` to npm.
+
+### Performance
+
+- **COW map accessors** — zero-refcount-bump fast paths for `assoc`, `dissoc`, `map-get`, `hashmap/assoc` that mutate in place when the map has a single owner, avoiding clone overhead.
+- **Trampoline eval loop** — `call_value` lambda results now run through the trampoline loop, enabling proper TCO for indirect calls.
+- **VM stack drain** — replaced `to_vec()` + `truncate()` with direct `drain()` for call argument collection, eliminating an allocation per call.
+- **`fold-lines` fast path** — native function calls in `fold-lines` now use the fast-path dispatch, enabling COW optimizations for line-by-line processing.
+- **`list/unique` BTreeSet** — switched from O(n²) seen-list to O(n log n) BTreeSet for deduplication.
+
+### Changed
+
+- **WASM stack size** — increased from 5 MB to 16 MB to support deeply recursive programs in the browser.
+
 ## 1.9.0
 
 ### Performance

@@ -1248,7 +1248,11 @@ fn register_wasm_io(env: &Env) {
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let dir = &normalize_path(dir)?;
-            let prefix = if dir == "/" { "/".to_string() } else { format!("{dir}/") };
+            let prefix = if dir == "/" {
+                "/".to_string()
+            } else {
+                format!("{dir}/")
+            };
             let mut names = BTreeSet::new();
             VFS.with(|vfs| {
                 for key in vfs.borrow().keys() {
@@ -1322,7 +1326,9 @@ fn register_wasm_io(env: &Env) {
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let path = &normalize_path(path)?;
-            Ok(Value::bool(VFS.with(|vfs| vfs.borrow().contains_key(path.as_str()))))
+            Ok(Value::bool(
+                VFS.with(|vfs| vfs.borrow().contains_key(path.as_str())),
+            ))
         }),
     );
 
@@ -1352,8 +1358,9 @@ fn register_wasm_io(env: &Env) {
             let content = args[1]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-            let combined_len =
-                VFS.with(|vfs| vfs.borrow().get(path.as_str()).map_or(0, |s| s.len())) + content.len();
+            let combined_len = VFS
+                .with(|vfs| vfs.borrow().get(path.as_str()).map_or(0, |s| s.len()))
+                + content.len();
             vfs_check_quota(path, combined_len)?;
             VFS.with(|vfs| {
                 let mut map = vfs.borrow_mut();
@@ -1984,17 +1991,40 @@ impl WasmInterpreter {
 
                 for cap in &denied_caps {
                     match cap.as_str() {
-                        "network" => deny_fns(&interp.global_env, "network", &[
-                            "http/get", "http/post", "http/put", "http/delete", "http/request",
-                        ]),
-                        "fs-read" => deny_fns(&interp.global_env, "fs-read", &[
-                            "file/read", "file/exists?", "file/list", "file/is-directory?",
-                            "file/is-file?", "file/is-symlink?",
-                        ]),
-                        "fs-write" => deny_fns(&interp.global_env, "fs-write", &[
-                            "file/write", "file/delete", "file/rename", "file/mkdir",
-                            "file/append",
-                        ]),
+                        "network" => deny_fns(
+                            &interp.global_env,
+                            "network",
+                            &[
+                                "http/get",
+                                "http/post",
+                                "http/put",
+                                "http/delete",
+                                "http/request",
+                            ],
+                        ),
+                        "fs-read" => deny_fns(
+                            &interp.global_env,
+                            "fs-read",
+                            &[
+                                "file/read",
+                                "file/exists?",
+                                "file/list",
+                                "file/is-directory?",
+                                "file/is-file?",
+                                "file/is-symlink?",
+                            ],
+                        ),
+                        "fs-write" => deny_fns(
+                            &interp.global_env,
+                            "fs-write",
+                            &[
+                                "file/write",
+                                "file/delete",
+                                "file/rename",
+                                "file/mkdir",
+                                "file/append",
+                            ],
+                        ),
                         _ => {} // Unknown caps are silently ignored
                     }
                 }
@@ -2056,7 +2086,9 @@ impl WasmInterpreter {
             }
         });
 
-        self.inner.global_env.set_str(name, Value::native_fn(native));
+        self.inner
+            .global_env
+            .set_str(name, Value::native_fn(native));
     }
 
     /// Inject a virtual module so that `(import "name")` resolves without a file.
@@ -2137,7 +2169,11 @@ impl WasmInterpreter {
                     let old_len = map.get(&path).map_or(0, |s| s.len());
                     map.insert(path.to_string(), content.to_string());
                     VFS_TOTAL_BYTES.with(|t| {
-                        t.set(t.get().saturating_add(content.len()).saturating_sub(old_len));
+                        t.set(
+                            t.get()
+                                .saturating_add(content.len())
+                                .saturating_sub(old_len),
+                        );
                     });
                 });
                 JsValue::NULL
@@ -2172,7 +2208,11 @@ impl WasmInterpreter {
             Ok(p) => p,
             Err(_) => return js_sys::Array::new().into(),
         };
-        let prefix = if dir == "/" { "/".to_string() } else { format!("{dir}/") };
+        let prefix = if dir == "/" {
+            "/".to_string()
+        } else {
+            format!("{dir}/")
+        };
         let mut names = BTreeSet::new();
         VFS.with(|vfs| {
             for key in vfs.borrow().keys() {
