@@ -121,14 +121,14 @@ class WebStorageBackend {
 export class LocalStorageBackend extends WebStorageBackend {
   get label() { return 'LocalStorage'; }
   get description() { return 'Persists across page refreshes'; }
-  constructor(opts) { super(localStorage, { namespace: 'sema-vfs-demo', ...opts }); }
+  constructor(opts) { super(localStorage, { namespace: 'sema-playground', ...opts }); }
 }
 
 /** Persists VFS to sessionStorage — survives within tab only. */
 export class SessionStorageBackend extends WebStorageBackend {
   get label() { return 'SessionStorage'; }
   get description() { return 'Persists within this tab session'; }
-  constructor(opts) { super(sessionStorage, { namespace: 'sema-vfs-demo-session', ...opts }); }
+  constructor(opts) { super(sessionStorage, { namespace: 'sema-playground-session', ...opts }); }
 }
 
 /** Persists VFS to IndexedDB — recommended for production use. */
@@ -137,7 +137,7 @@ export class IndexedDBBackend {
   get description() { return 'Persists across page loads (recommended for production)'; }
 
   constructor(opts = {}) {
-    this._dbName = opts.namespace ?? 'sema-vfs-demo-idb';
+    this._dbName = opts.namespace ?? 'sema-playground-idb';
     this._db = null;
   }
 

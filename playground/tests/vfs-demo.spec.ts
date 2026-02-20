@@ -1,66 +1,69 @@
 import { test, expect, Page } from '@playwright/test';
 
 async function waitForReady(page: Page) {
-  await page.goto('/vfs-demo/');
-  await page.waitForSelector('#status-text.status-ready', { timeout: 15000 });
+  await page.goto('/');
+  await page.waitForSelector('#status.status-ready', { timeout: 15000 });
+}
+
+async function switchToFilesTab(page: Page) {
+  const filesLabel = page.locator('#sidebar-tabs label', { hasText: 'Files' });
+  await filesLabel.click();
 }
 
 async function clickRun(page: Page) {
   await page.getByTestId('run-btn').click();
-  // Wait for status to go back to Ready
-  await page.waitForSelector('#status-text.status-ready', { timeout: 30000 });
+  await page.waitForSelector('#status.status-ready', { timeout: 30000 });
 }
 
-test('VFS demo: run script and check file tree has nested files', async ({ page }) => {
-  // Capture console output for debugging
-  const logs: string[] = [];
-  page.on('console', msg => logs.push(`[${msg.type()}] ${msg.text()}`));
-
+test('VFS: run file-creating script and check file tree', async ({ page }) => {
   await waitForReady(page);
+
+  // Enter a script that creates files
+  await page.getByTestId('editor').fill(`
+(file/mkdir "test-dir")
+(file/write "test-dir/hello.txt" "Hello from VFS!")
+(println "done")
+`);
+
   await clickRun(page);
 
-  // Check output has content
-  const output = page.getByTestId('output');
-  await expect(output).not.toBeEmpty();
-  const outputText = await output.innerText();
-  console.log('=== OUTPUT ===');
-  console.log(outputText);
+  // Switch to Files tab
+  await switchToFilesTab(page);
 
-  // Check file tree
+  // Check file tree has entries
   const fileTree = page.getByTestId('file-tree');
-  const treeHtml = await fileTree.innerHTML();
-  console.log('=== FILE TREE HTML ===');
-  console.log(treeHtml);
-
-  // Check what the tree contains text-wise
+  await expect(fileTree).toBeVisible();
   const treeText = await fileTree.innerText();
-  console.log('=== FILE TREE TEXT ===');
-  console.log(treeText);
+  expect(treeText).toContain('test-dir');
+  expect(treeText).toContain('hello.txt');
+});
 
-  // Dump JS-side VFS state via page.evaluate
-  const vfsState = await page.evaluate(() => {
-    // @ts-ignore - interp is on window scope via module, need to access differently
-    // Let's use the WASM directly
-    return {
-      treeChildrenCount: document.querySelectorAll('#file-tree .tree-dir').length,
-      treeFileCount: document.querySelectorAll('#file-tree .tree-file').length,
-      allElements: Array.from(document.querySelectorAll('#file-tree *')).map(el => ({
-        tag: el.tagName,
-        className: el.className,
-        text: el.textContent?.slice(0, 80),
-        display: getComputedStyle(el).display,
-      })),
-    };
-  });
-  console.log('=== VFS DOM STATE ===');
-  console.log(JSON.stringify(vfsState, null, 2));
+test('VFS: clicking a file opens File Viewer tab', async ({ page }) => {
+  await waitForReady(page);
 
-  // Print console logs
-  console.log('=== CONSOLE LOGS ===');
-  for (const log of logs) console.log(log);
+  await page.getByTestId('editor').fill(`
+(file/write "greeting.txt" "Hello World!")
+`);
+  await clickRun(page);
 
-  // Basic assertions
-  expect(vfsState.treeChildrenCount).toBeGreaterThan(0);
-  // We expect files inside subdirs (index.md, about-us.md, etc.)
-  expect(vfsState.treeFileCount).toBeGreaterThan(0);
+  await switchToFilesTab(page);
+
+  // Click on the file in the tree
+  const fileEntry = page.locator('.vfs-tree-file', { hasText: 'greeting.txt' });
+  await fileEntry.click();
+
+  // File viewer should now be visible with content
+  const fileViewer = page.getByTestId('file-viewer');
+  await expect(fileViewer).toBeVisible();
+  const viewerText = await fileViewer.innerText();
+  expect(viewerText).toContain('Hello World!');
+});
+
+test('VFS: backend toggle is visible', async ({ page }) => {
+  await waitForReady(page);
+  const backendToggle = page.getByTestId('backend-toggle');
+  await expect(backendToggle).toBeVisible();
+  await expect(backendToggle).toContainText('Memory');
+  await expect(backendToggle).toContainText('Local');
+  await expect(backendToggle).toContainText('IDB');
 });

@@ -44,14 +44,25 @@
 <main>
   <div class="sidebar">
     <div class="sidebar-header">
-      <span class="sidebar-title">Explorer</span>
+      <div class="sidebar-tabs" id="sidebar-tabs">
+        <label class="active"><input type="radio" name="sidebar-tab" value="examples" checked>Examples</label>
+        <label><input type="radio" name="sidebar-tab" value="files">Files</label>
+      </div>
     </div>
     <div class="sidebar-tree" id="sidebar-tree" data-testid="sidebar-tree"></div>
+    <div class="sidebar-tree hidden" id="file-tree" data-testid="file-tree"></div>
   </div>
   <div class="pane editor-pane">
     <div class="pane-header">
       <span class="pane-title">Source</span>
       <div style="display:flex;align-items:center;gap:0.75rem;">
+        <div class="engine-toggle" id="backend-toggle" data-testid="backend-toggle">
+          <label class="active"><input type="radio" name="backend" value="memory" checked>Memory</label>
+          <label><input type="radio" name="backend" value="local">Local</label>
+          <label><input type="radio" name="backend" value="session">Session</label>
+          <label><input type="radio" name="backend" value="indexeddb">IDB</label>
+        </div>
+        <div class="toggle-separator"></div>
         <div class="engine-toggle" id="engine-toggle" data-testid="engine-toggle">
           <label class="active" data-testid="engine-tree"><input type="radio" name="engine" value="tree" checked>Tree</label>
           <label data-testid="engine-vm"><input type="radio" name="engine" value="vm">VM</label>
@@ -74,18 +85,24 @@
   </div>
   <div class="pane output-pane">
     <div class="pane-header">
-      <span class="pane-title">Output</span>
+      <div class="engine-toggle" id="output-tabs" data-testid="output-tabs">
+        <label class="active"><input type="radio" name="output-tab" value="output" checked>Output</label>
+        <label><input type="radio" name="output-tab" value="viewer">File Viewer</label>
+      </div>
       <button class="run-btn" id="clear-btn" data-testid="clear-btn" style="background: transparent; color: var(--text-dim); border: 1px solid var(--border);">Clear</button>
     </div>
     <div id="output" data-testid="output">
       <div class="output-welcome">Initializing Sema interpreter…</div>
+    </div>
+    <div id="file-viewer" data-testid="file-viewer" class="hidden">
+      <div class="viewer-placeholder">Click a file in the Files tab to view its contents.</div>
     </div>
   </div>
 </main>
 
 <div class="status-bar">
   <span class="status-text status-loading" id="status" data-testid="status">Loading WASM module…</span>
-  <span class="status-text" id="wasm-size"></span>
+  <span class="status-text" id="vfs-stats" data-testid="vfs-stats"></span>
 </div>
 
 <script type="module" src="dist/app.js"></script>
