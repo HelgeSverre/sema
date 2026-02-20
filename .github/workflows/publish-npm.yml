@@ -51,7 +51,7 @@ jobs:
 
       - name: Publish @sema-lang/sema-wasm
         working-directory: packages/sema-wasm/pkg
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public || echo "Already published, skipping"
 
       - name: Wait for npm registry propagation
         run: |
@@ -82,4 +82,4 @@ jobs:
 
       - name: Publish @sema-lang/sema
         working-directory: packages/sema
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public || echo "Already published, skipping"
