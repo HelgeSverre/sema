@@ -53,6 +53,20 @@ jobs:
         working-directory: packages/sema-wasm/pkg
         run: npm publish --provenance --access public
 
+      - name: Wait for npm registry propagation
+        run: |
+          echo "Waiting for @sema-lang/sema-wasm@${{ steps.version.outputs.version }} to propagate..."
+          for i in $(seq 1 30); do
+            if npm view "@sema-lang/sema-wasm@${{ steps.version.outputs.version }}" version 2>/dev/null; then
+              echo "Package available on registry"
+              exit 0
+            fi
+            echo "Attempt $i/30 - not yet available, waiting 10s..."
+            sleep 10
+          done
+          echo "Package not found after 5 minutes"
+          exit 1
+
       - name: Build wrapper package
         working-directory: packages/sema
         run: |
