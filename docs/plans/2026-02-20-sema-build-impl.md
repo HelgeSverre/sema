@@ -82,13 +82,15 @@ git commit -m "feat: add sema_home() utility and sys/sema-home builtin"
 
 ---
 
-### Task 2: Create VFS module in sema-stdlib
+### Task 2: Create VFS module in sema-core
+
+> **Changed from original plan:** VFS lives in sema-core (not sema-stdlib) so both sema-eval (import/load interception) and sema-stdlib (file/read interception) can access it without circular dependencies.
 
 **Files:**
-- Create: `crates/sema-stdlib/src/vfs.rs`
-- Modify: `crates/sema-stdlib/src/lib.rs`
+- Create: `crates/sema-core/src/vfs.rs`
+- Modify: `crates/sema-core/src/lib.rs`
 
-**Step 1: Create `crates/sema-stdlib/src/vfs.rs`**
+**Step 1: Create `crates/sema-core/src/vfs.rs`**
 
 ```rust
 use std::cell::RefCell;
@@ -164,26 +166,51 @@ fn normalize_path(path: &std::path::Path) -> String {
 }
 ```
 
-**Step 2: Add the module to `crates/sema-stdlib/src/lib.rs`**
+**Step 1b: Add VFS path validation helper at the end of `vfs.rs`**
 
-After the existing module declarations (around line 30), add:
+```rust
+/// Validate a VFS path at build time. Rejects unsafe paths.
+pub fn validate_vfs_path(path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        return Err("empty VFS path".to_string());
+    }
+    if path.starts_with('/') || path.starts_with('\\') {
+        return Err(format!("absolute path not allowed in VFS: {path}"));
+    }
+    if path.contains('\0') {
+        return Err(format!("NUL byte in VFS path: {path}"));
+    }
+    if path.contains("..") {
+        return Err(format!("path traversal not allowed in VFS: {path}"));
+    }
+    // Reject Windows device names
+    let stem = path.split('/').last().unwrap_or(path).split('.').next().unwrap_or("");
+    let upper = stem.to_uppercase();
+    if matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "COM1" | "COM2" | "COM3" | "LPT1" | "LPT2" | "LPT3") {
+        return Err(format!("reserved device name in VFS path: {path}"));
+    }
+    Ok(())
+}
+```
+
+**Step 2: Add the module to `crates/sema-core/src/lib.rs`**
+
+After the existing module declarations, add:
 
 ```rust
 pub mod vfs;
 ```
 
-This goes after the `text` module declaration and before the `use` line.
-
 **Step 3: Verify it compiles**
 
-Run: `cargo build -p sema-stdlib 2>&1 | tail -5`
+Run: `cargo build -p sema-core 2>&1 | tail -5`
 Expected: Compiles without errors.
 
 **Step 4: Commit**
 
 ```bash
-git add crates/sema-stdlib/src/vfs.rs crates/sema-stdlib/src/lib.rs
-git commit -m "feat: add thread-local VFS module for embedded file access"
+git add crates/sema-core/src/vfs.rs crates/sema-core/src/lib.rs
+git commit -m "feat: add thread-local VFS module in sema-core for embedded file access"
 ```
 
 ---
@@ -204,7 +231,7 @@ crate::register_fn_path_gated(env, sandbox, Caps::FS_READ, "file/read", &[0], |a
         .as_str()
         .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
     // Check VFS first
-    if let Some(data) = crate::vfs::vfs_read(path) {
+    if let Some(data) = sema_core::vfs::vfs_read(path) {
         return String::from_utf8(data)
             .map(|s| Value::string(&s))
             .map_err(|e| SemaError::Io(format!("file/read {path}: invalid UTF-8 in VFS: {e}")));
@@ -232,7 +259,7 @@ crate::register_fn_path_gated(
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         // Check VFS first
-        if let Some(data) = crate::vfs::vfs_read(path) {
+        if let Some(data) = sema_core::vfs::vfs_read(path) {
             return Ok(Value::bytevector(data));
         }
         let bytes = std::fs::read(path)
@@ -253,7 +280,7 @@ crate::register_fn_path_gated(env, sandbox, Caps::FS_READ, "file/exists?", &[0],
         .as_str()
         .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
     // Check VFS first
-    if let Some(exists) = crate::vfs::vfs_exists(path) {
+    if let Some(exists) = sema_core::vfs::vfs_exists(path) {
         if exists {
             return Ok(Value::bool(true));
         }
@@ -279,7 +306,7 @@ crate::register_fn_path_gated(
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         // Check VFS first
-        let content = if let Some(data) = crate::vfs::vfs_read(path) {
+        let content = if let Some(data) = sema_core::vfs::vfs_read(path) {
             String::from_utf8(data)
                 .map_err(|e| SemaError::Io(format!("file/read-lines {path}: invalid UTF-8 in VFS: {e}")))?
         } else {
@@ -306,35 +333,12 @@ git commit -m "feat: intercept file/read, file/read-bytes, file/exists?, file/re
 
 ---
 
-### Task 4: Intercept `import` with VFS
+### Task 4: Intercept `import` and `load` with VFS
+
+> **Simplified from original plan:** VFS is already in sema-core (Task 2), so sema-eval can access it directly. No dependency gymnastics needed.
 
 **Files:**
 - Modify: `crates/sema-eval/src/special_forms.rs`
-- Modify: `crates/sema-eval/Cargo.toml` (add sema-stdlib dependency if not present)
-
-**Step 1: Check if sema-eval already depends on sema-stdlib**
-
-Run: `grep sema-stdlib crates/sema-eval/Cargo.toml`
-
-If sema-eval does NOT depend on sema-stdlib (it shouldn't — that would be circular), we need an alternative approach. Since `sema-stdlib` depends on `sema-core`, and `sema-eval` depends on `sema-core`, we should move the VFS to `sema-core` instead, or use a simpler approach: check the VFS from `sema-stdlib::vfs` indirectly.
-
-**Alternative approach: Use a thread-local VFS reader callback in sema-core.**
-
-Actually, the simpler path: Move the VFS thread-local to `sema-core` so both `sema-eval` and `sema-stdlib` can access it. The VFS is essentially a global read-only data source, similar to the eval callback.
-
-**Step 1a: Move VFS to sema-core instead**
-
-Move the VFS module from `crates/sema-stdlib/src/vfs.rs` to `crates/sema-core/src/vfs.rs`. Update `crates/sema-core/src/lib.rs` to include `pub mod vfs;`. Update `crates/sema-stdlib/src/lib.rs` to remove `pub mod vfs;`. Update all VFS references in `crates/sema-stdlib/src/io.rs` from `crate::vfs::` to `sema_core::vfs::`.
-
-**Step 1b: Re-export from sema-stdlib for convenience**
-
-In `crates/sema-stdlib/src/lib.rs`, add:
-
-```rust
-pub mod vfs {
-    pub use sema_core::vfs::*;
-}
-```
 
 **Step 2: Modify `eval_import` in `crates/sema-eval/src/special_forms.rs` (line 1131-1215)**
 
@@ -396,6 +400,26 @@ if sema_core::vfs::is_vfs_active() {
 
 Insert this block after line 1163 (after the first cache check on the `resolved` path) and before line 1166 (the `canonicalize` call). This way, if the file is in the VFS, we skip the filesystem entirely.
 
+**Step 2b: Modify `eval_load` in `crates/sema-eval/src/special_forms.rs`**
+
+Apply the same VFS-first pattern to `eval_load`. Before the `std::fs::read_to_string` call, add:
+
+```rust
+// Check VFS before hitting the filesystem
+if sema_core::vfs::is_vfs_active() {
+    if let Some(content_bytes) = sema_core::vfs::vfs_read(path_str) {
+        let content = String::from_utf8(content_bytes)
+            .map_err(|e| SemaError::Io(format!("load {path_str}: invalid UTF-8 in VFS: {e}")))?;
+        let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
+        ctx.merge_span_table(spans);
+        for expr in &exprs {
+            eval::eval_value(ctx, expr, env)?;
+        }
+        return Ok(Trampoline::Value(Value::nil()));
+    }
+}
+```
+
 **Step 3: Verify it compiles**
 
 Run: `cargo build -p sema-eval 2>&1 | tail -5`
@@ -404,8 +428,8 @@ Expected: Compiles without errors.
 **Step 4: Commit**
 
 ```bash
-git add crates/sema-core/src/vfs.rs crates/sema-core/src/lib.rs crates/sema-stdlib/src/lib.rs crates/sema-stdlib/src/io.rs crates/sema-eval/src/special_forms.rs
-git commit -m "feat: VFS interception for import, move VFS to sema-core"
+git add crates/sema-eval/src/special_forms.rs
+git commit -m "feat: VFS interception for import and load"
 ```
 
 ---
@@ -427,6 +451,18 @@ use std::path::Path;
 const MAGIC: &[u8; 8] = b"SEMAEXEC";
 const TRAILER_SIZE: u64 = 16; // archive_size(u64) + magic(8)
 const FORMAT_VERSION: u16 = 1;
+
+/// Simple CRC32 (IEEE) implementation — no external dependency needed.
+fn crc32(data: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFFFFFF;
+    for &byte in data {
+        crc ^= byte as u32;
+        for _ in 0..8 {
+            crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB88320 } else { crc >> 1 };
+        }
+    }
+    !crc
+}
 
 /// Represents a deserialized VFS archive.
 pub struct Archive {
@@ -479,13 +515,25 @@ fn deserialize_archive(data: &[u8]) -> io::Result<Archive> {
     let mut pos = 0;
 
     // Header
-    if data.len() < 8 {
+    if data.len() < 12 {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "archive header too short"));
     }
     let format_version = u16::from_le_bytes([data[pos], data[pos + 1]]);
     pos += 2;
     let flags = u16::from_le_bytes([data[pos], data[pos + 1]]);
     pos += 2;
+    let stored_checksum = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
+    pos += 4;
+
+    // Validate CRC32 over everything after the checksum field
+    let computed_checksum = crc32(&data[pos..]);
+    if stored_checksum != computed_checksum {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("archive checksum mismatch: expected {stored_checksum:08x}, got {computed_checksum:08x}"),
+        ));
+    }
+
     let metadata_count = u32::from_le_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
     pos += 4;
 
@@ -567,9 +615,11 @@ pub fn serialize_archive(
 ) -> Vec<u8> {
     let mut buf = Vec::new();
 
-    // Header
+    // Header (checksum placeholder — filled in at the end)
     buf.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
     buf.extend_from_slice(&0u16.to_le_bytes()); // flags
+    let checksum_offset = buf.len();
+    buf.extend_from_slice(&0u32.to_le_bytes()); // CRC32 placeholder
     buf.extend_from_slice(&(metadata.len() as u32).to_le_bytes());
 
     // Metadata (sorted for determinism)
@@ -609,6 +659,11 @@ pub fn serialize_archive(
 
     // File data
     buf.extend_from_slice(&file_data);
+
+    // Compute CRC32 over everything after the checksum field and backfill
+    let body_start = checksum_offset + 4;
+    let checksum = crc32(&buf[body_start..]);
+    buf[checksum_offset..checksum_offset + 4].copy_from_slice(&checksum.to_le_bytes());
 
     buf
 }
@@ -714,7 +769,9 @@ git commit -m "feat: implement VFS archive serialization and deserialization"
 
 ---
 
-### Task 6: Implement import tracing
+### Task 6: Implement import and load tracing
+
+> **Updated:** Now traces both `(import "...")` and `(load "...")` forms. Only literal string arguments are traced; dynamic/variable arguments emit a warning.
 
 **Files:**
 - Create: `crates/sema/src/import_tracer.rs`
@@ -725,8 +782,8 @@ git commit -m "feat: implement VFS archive serialization and deserialization"
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-/// Traces all transitive `(import "...")` dependencies starting from a root file.
-/// Returns a map of relative_path -> file_contents for all discovered imports.
+/// Traces all transitive `(import "...")` and `(load "...")` dependencies starting from a root file.
+/// Returns a map of relative_path -> file_contents for all discovered imports/loads.
 pub fn trace_imports(root_file: &Path) -> Result<HashMap<String, Vec<u8>>, String> {
     let root_dir = root_file
         .parent()
@@ -802,14 +859,15 @@ fn extract_imports(
         _ => return Ok(()),
     };
 
-    // Check for (import "path" ...) form
+    // Check for (import "path" ...) and (load "path") forms
     if let Some(sym) = items[0].as_symbol() {
-        if sym == "import" && items.len() >= 2 {
+        if (sym == "import" || sym == "load") && items.len() >= 2 {
             if let Some(path_str) = items[1].as_str() {
                 process_import(path_str, file_dir, file_path, root_dir, visited, result, warnings)?;
             } else {
                 warnings.push(format!(
-                    "dynamic import at {} cannot be statically resolved — use --include to add it manually",
+                    "dynamic {} at {} cannot be statically resolved — use --include to add it manually",
+                    sym,
                     file_path.display()
                 ));
             }
@@ -916,6 +974,15 @@ git commit -m "feat: implement recursive import tracing for sema build"
 
 **Files:**
 - Modify: `crates/sema/src/main.rs`
+- Modify: `crates/sema/Cargo.toml` (add `libsui` dependency)
+
+**Step 0: Add `libsui` dependency**
+
+In `crates/sema/Cargo.toml`, add under `[dependencies]`:
+
+```toml
+libsui = "0.5"  # check crates.io for latest version
+```
 
 **Step 1: Add `Build` variant to `Commands` enum (after `Disasm`, around line 211)**
 
@@ -1061,7 +1128,7 @@ fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Opt
     );
     metadata.insert(
         "build-timestamp".to_string(),
-        chrono_now_iso8601().as_bytes().to_vec(),
+        build_timestamp().as_bytes().to_vec(),
     );
     metadata.insert(
         "entry-point".to_string(),
@@ -1109,7 +1176,8 @@ fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Opt
         total_bundled_size as f64 / 1024.0,
     );
 
-    match archive::write_bundled_executable(&runtime_path, &out_path, &archive_bytes) {
+    // Platform-specific binary injection
+    match write_executable_platform(&runtime_path, &out_path, &archive_bytes) {
         Ok(()) => {}
         Err(e) => {
             eprintln!("Error writing executable: {e}");
@@ -1131,58 +1199,91 @@ fn collect_directory_files(
     base: &std::path::Path,
     files: &mut std::collections::HashMap<String, Vec<u8>>,
 ) {
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let entry_path = entry.path();
-            if entry_path.is_dir() {
-                collect_directory_files(&entry_path, base, files);
-            } else if let Ok(data) = std::fs::read(&entry_path) {
-                let rel = entry_path
-                    .strip_prefix(base)
-                    .map(|p| p.to_string_lossy().to_string())
-                    .unwrap_or_else(|_| entry_path.to_string_lossy().to_string());
-                files.insert(rel, data);
+    let entries = std::fs::read_dir(dir).unwrap_or_else(|e| {
+        eprintln!("Error reading directory {}: {e}", dir.display());
+        std::process::exit(1);
+    });
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        if entry_path.is_dir() {
+            collect_directory_files(&entry_path, base, files);
+        } else {
+            let data = std::fs::read(&entry_path).unwrap_or_else(|e| {
+                eprintln!("Error reading {}: {e}", entry_path.display());
+                std::process::exit(1);
+            });
+            let rel = entry_path
+                .strip_prefix(base)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| entry_path.to_string_lossy().to_string());
+            // Validate VFS path safety
+            if let Err(e) = sema_core::vfs::validate_vfs_path(&rel) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
             }
+            files.insert(rel, data);
         }
     }
 }
 
-fn chrono_now_iso8601() -> String {
-    // Simple ISO 8601 timestamp without chrono dependency
-    let duration = std::time::SystemTime::now()
+fn build_timestamp() -> String {
+    // Store Unix timestamp as string — simple, no date formatting needed.
+    let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    // Approximate — not perfect but good enough for metadata
-    let days = secs / 86400;
-    let time_secs = secs % 86400;
-    let hours = time_secs / 3600;
-    let mins = (time_secs % 3600) / 60;
-    let s = time_secs % 60;
+        .unwrap_or_default()
+        .as_secs();
+    secs.to_string()
+}
 
-    // Days since epoch to Y-M-D (simplified)
-    let mut y = 1970i64;
-    let mut remaining = days as i64;
-    loop {
-        let days_in_year = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) { 366 } else { 365 };
-        if remaining < days_in_year {
-            break;
-        }
-        remaining -= days_in_year;
-        y += 1;
+/// Write the bundled executable using platform-appropriate injection.
+/// Primary: libsui for Mach-O/PE section injection. Fallback: raw append for ELF.
+fn write_executable_platform(
+    runtime_path: &std::path::Path,
+    output_path: &std::path::Path,
+    archive_bytes: &[u8],
+) -> std::io::Result<()> {
+    let runtime = std::fs::read(runtime_path)?;
+    let mut out = std::fs::File::create(output_path)?;
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::io::Write;
+        // Inject as Mach-O section + ad-hoc re-sign (handles ARM64 code signing)
+        libsui::Macho::from(runtime)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Mach-O parse: {e}")))?
+            .write_section("semaexec", archive_bytes.to_vec())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Mach-O inject: {e}")))?
+            .build_and_sign(&mut out)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Mach-O sign: {e}")))?;
     }
-    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
-    let days_in_months = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    let mut m = 1;
-    for &dim in &days_in_months {
-        if remaining < dim {
-            break;
-        }
-        remaining -= dim;
-        m += 1;
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::io::Write;
+        // Inject as PE resource
+        libsui::Pe::new(&runtime)
+            .write_resource("semaexec", archive_bytes.to_vec())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("PE inject: {e}")))?
+            .build(&mut out)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("PE build: {e}")))?;
     }
-    let d = remaining + 1;
-    format!("{y:04}-{m:02}-{d:02}T{hours:02}:{mins:02}:{s:02}Z")
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        // Linux/ELF: raw append + trailer (ELF loaders ignore appended data)
+        archive::write_bundled_executable(runtime_path, output_path, archive_bytes)?;
+    }
+
+    // chmod +x on unix
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(output_path)?.permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(output_path, perms)?;
+    }
+
+    Ok(())
 }
 ```
 
@@ -1231,11 +1332,26 @@ Add before `main()`:
 fn try_run_embedded() -> Option<i32> {
     let exe_path = std::env::current_exe().ok()?;
 
-    if !archive::has_embedded_archive(&exe_path).ok()? {
+    // Try named section first (macOS Mach-O / Windows PE via libsui),
+    // fall back to trailer scan (Linux ELF raw append).
+    let archive_data = if let Some(data) = libsui::find_section("semaexec") {
+        data.to_vec()
+    } else if archive::has_embedded_archive(&exe_path).ok()? {
+        match std::fs::read(&exe_path) {
+            Ok(data) => {
+                // Extract archive bytes using trailer
+                let len = data.len();
+                let trailer = &data[len - 16..];
+                let archive_size = u64::from_le_bytes(trailer[0..8].try_into().unwrap()) as usize;
+                data[len - 16 - archive_size..len - 16].to_vec()
+            }
+            Err(_) => return None,
+        }
+    } else {
         return None;
-    }
+    };
 
-    let arch = match archive::extract_archive(&exe_path) {
+    let arch = match archive::deserialize_archive_from_bytes(&archive_data) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("Error: failed to load embedded archive: {e}");
@@ -1299,15 +1415,22 @@ git commit -m "feat: detect and run embedded SEMAEXEC archive at startup"
 **Files:**
 - Modify: `crates/sema/tests/integration_test.rs`
 
+> **Updated:** Tests use `std::env::temp_dir()` with unique subdirectories instead of hardcoded `/tmp/` paths, avoiding collisions when tests run in parallel.
+
 **Step 1: Add archive round-trip test via CLI**
 
 ```rust
+fn test_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("sema-test-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
 #[test]
 fn test_sema_build_basic() {
-    // Create a temp directory with a simple sema file
-    let dir = "/tmp/sema-test-build";
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).unwrap();
+    let dir = test_dir("build-basic");
+    let dir = dir.to_str().unwrap();
 
     let source = r#"(println "hello from bundled sema")"#;
     std::fs::write(format!("{dir}/hello.sema"), source).unwrap();
@@ -1337,8 +1460,8 @@ fn test_sema_build_basic() {
 
 #[test]
 fn test_sema_build_with_imports() {
-    let dir = "/tmp/sema-test-build-imports";
-    let _ = std::fs::remove_dir_all(dir);
+    let dir = test_dir("build-imports");
+    let dir = dir.to_str().unwrap();
     std::fs::create_dir_all(format!("{dir}/lib")).unwrap();
 
     // Create a library module
@@ -1381,8 +1504,8 @@ fn test_sema_build_with_imports() {
 
 #[test]
 fn test_sema_build_with_include() {
-    let dir = "/tmp/sema-test-build-include";
-    let _ = std::fs::remove_dir_all(dir);
+    let dir = test_dir("build-include");
+    let dir = dir.to_str().unwrap();
     std::fs::create_dir_all(format!("{dir}/data")).unwrap();
 
     // Create a data file
@@ -1427,9 +1550,8 @@ fn test_sema_build_with_include() {
 
 #[test]
 fn test_sema_build_passes_args() {
-    let dir = "/tmp/sema-test-build-args";
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).unwrap();
+    let dir = test_dir("build-args");
+    let dir = dir.to_str().unwrap();
 
     std::fs::write(
         format!("{dir}/args.sema"),
