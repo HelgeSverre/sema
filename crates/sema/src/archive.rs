@@ -335,7 +335,7 @@ pub fn serialize_archive(
     buf.extend_from_slice(&FORMAT_VERSION.to_le_bytes()); // format_version: u16
     buf.extend_from_slice(&0u16.to_le_bytes()); // flags: u16
     buf.extend_from_slice(&0u32.to_le_bytes()); // checksum placeholder: u32
-    // checksum field ends at byte 8
+                                                // checksum field ends at byte 8
 
     // -- Metadata --
     let mut meta_keys: Vec<&String> = metadata.keys().collect();
@@ -454,10 +454,7 @@ mod tests {
 
         let mut files = HashMap::new();
         files.insert("main.semac".to_string(), vec![0xDE, 0xAD, 0xBE, 0xEF]);
-        files.insert(
-            "lib/utils.sema".to_string(),
-            b"(define x 42)".to_vec(),
-        );
+        files.insert("lib/utils.sema".to_string(), b"(define x 42)".to_vec());
 
         let bytes = serialize_archive(&metadata, &files);
         let archive = deserialize_archive(&bytes).expect("deserialize should succeed");
@@ -465,14 +462,8 @@ mod tests {
         assert_eq!(archive.format_version, FORMAT_VERSION);
         assert_eq!(archive.flags, 0);
         assert_eq!(archive.metadata.len(), 2);
-        assert_eq!(
-            archive.metadata.get("entry").unwrap(),
-            b"main.semac"
-        );
-        assert_eq!(
-            archive.metadata.get("version").unwrap(),
-            b"1"
-        );
+        assert_eq!(archive.metadata.get("entry").unwrap(), b"main.semac");
+        assert_eq!(archive.metadata.get("version").unwrap(), b"1");
         assert_eq!(archive.files.len(), 2);
         assert_eq!(
             archive.files.get("main.semac").unwrap(),
@@ -578,7 +569,10 @@ mod tests {
         // Extract and verify
         let extracted = extract_archive(&output_path).unwrap();
         assert_eq!(extracted.metadata.get("entry").unwrap(), b"main.semac");
-        assert_eq!(extracted.files.get("main.semac").unwrap(), &vec![1, 2, 3, 4]);
+        assert_eq!(
+            extracted.files.get("main.semac").unwrap(),
+            &vec![1, 2, 3, 4]
+        );
 
         // Cleanup
         let _ = std::fs::remove_dir_all(&dir);

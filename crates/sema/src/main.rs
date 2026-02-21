@@ -504,8 +504,7 @@ fn try_run_embedded() -> Option<i32> {
             Ok(data) => {
                 let len = data.len();
                 let trailer = &data[len - 16..];
-                let archive_size =
-                    u64::from_le_bytes(trailer[0..8].try_into().unwrap()) as usize;
+                let archive_size = u64::from_le_bytes(trailer[0..8].try_into().unwrap()) as usize;
                 data[len - 16 - archive_size..len - 16].to_vec()
             }
             Err(_) => return None,
@@ -666,10 +665,7 @@ fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Opt
         "build-timestamp".to_string(),
         build_timestamp().into_bytes(),
     );
-    metadata.insert(
-        "entry-point".to_string(),
-        b"__main__.semac".to_vec(),
-    );
+    metadata.insert("entry-point".to_string(), b"__main__.semac".to_vec());
 
     let canonical_root = path
         .parent()
@@ -781,10 +777,7 @@ fn collect_directory_files(
 
     for entry in entries.flatten() {
         let entry_path = entry.path();
-        let name = entry
-            .file_name()
-            .to_string_lossy()
-            .to_string();
+        let name = entry.file_name().to_string_lossy().to_string();
         let vfs_path = if base.is_empty() {
             name.clone()
         } else {

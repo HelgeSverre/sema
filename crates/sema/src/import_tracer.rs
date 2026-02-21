@@ -80,13 +80,7 @@ fn extract_imports(
             "import" | "load" => {
                 if items.len() >= 2 {
                     if let Some(path_str) = items[1].as_str() {
-                        process_import(
-                            path_str,
-                            current_file,
-                            root_dir,
-                            visited,
-                            result,
-                        )?;
+                        process_import(path_str, current_file, root_dir, visited, result)?;
                     } else {
                         // Dynamic import -- cannot resolve statically.
                         eprintln!(
@@ -153,9 +147,8 @@ fn process_import(
     visited.insert(canonical.clone());
 
     // Read file contents.
-    let contents = std::fs::read(&canonical).map_err(|e| {
-        format!("cannot read {}: {e}", canonical.display())
-    })?;
+    let contents = std::fs::read(&canonical)
+        .map_err(|e| format!("cannot read {}: {e}", canonical.display()))?;
 
     // Compute relative path from root_dir for the VFS key.
     let rel_path = canonical

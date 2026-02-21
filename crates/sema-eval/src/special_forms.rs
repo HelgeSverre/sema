@@ -1178,32 +1178,34 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         }
 
         if let Some(content_bytes) = sema_core::vfs::vfs_read(&vfs_path) {
-            let content = String::from_utf8(content_bytes)
-                .map_err(|e| SemaError::Io(format!("import {path_str}: invalid UTF-8 in VFS: {e}")))?;
+            let content = String::from_utf8(content_bytes).map_err(|e| {
+                SemaError::Io(format!("import {path_str}: invalid UTF-8 in VFS: {e}"))
+            })?;
 
             ctx.begin_module_load(&resolved)?;
 
-            let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> = (|| {
-                let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-                ctx.merge_span_table(spans);
+            let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> =
+                (|| {
+                    let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
+                    ctx.merge_span_table(spans);
 
-                let module_env = eval::create_module_env(env);
-                ctx.push_file_path(resolved.clone());
-                ctx.clear_module_exports();
+                    let module_env = eval::create_module_env(env);
+                    ctx.push_file_path(resolved.clone());
+                    ctx.clear_module_exports();
 
-                let eval_result = (|| {
-                    for expr in &exprs {
-                        eval::eval_value(ctx, expr, &module_env)?;
-                    }
-                    Ok(())
+                    let eval_result = (|| {
+                        for expr in &exprs {
+                            eval::eval_value(ctx, expr, &module_env)?;
+                        }
+                        Ok(())
+                    })();
+
+                    ctx.pop_file_path();
+                    let declared = ctx.take_module_exports();
+                    eval_result?;
+
+                    Ok(collect_module_exports(&module_env, declared.as_deref()))
                 })();
-
-                ctx.pop_file_path();
-                let declared = ctx.take_module_exports();
-                eval_result?;
-
-                Ok(collect_module_exports(&module_env, declared.as_deref()))
-            })();
 
             ctx.end_module_load(&resolved);
             let exports = load_result?;
@@ -1337,8 +1339,9 @@ fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
     // Check VFS before hitting the filesystem
     if sema_core::vfs::is_vfs_active() {
         if let Some(content_bytes) = sema_core::vfs::vfs_read(path_str) {
-            let content = String::from_utf8(content_bytes)
-                .map_err(|e| SemaError::Io(format!("load {path_str}: invalid UTF-8 in VFS: {e}")))?;
+            let content = String::from_utf8(content_bytes).map_err(|e| {
+                SemaError::Io(format!("load {path_str}: invalid UTF-8 in VFS: {e}"))
+            })?;
             let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
             ctx.merge_span_table(spans);
             for expr in &exprs {

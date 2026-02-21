@@ -110,6 +110,7 @@ export default defineConfig({
             { text: 'Architecture', link: '/docs/internals/architecture' },
             { text: 'Bytecode VM', link: '/docs/internals/bytecode-vm' },
             { text: 'Bytecode File Format', link: '/docs/internals/bytecode-format' },
+            { text: 'Executable Format', link: '/docs/internals/executable-format' },
             { text: 'Evaluator & TCO', link: '/docs/internals/evaluator' },
             { text: 'Reader & Spans', link: '/docs/internals/reader' },
             { text: 'Performance', link: '/docs/internals/performance' },

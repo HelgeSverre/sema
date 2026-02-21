@@ -87,7 +87,7 @@ pub fn validate_vfs_path(path: &str) -> Result<(), String> {
     // Reject Windows device names
     let stem = path
         .split('/')
-        .last()
+        .next_back()
         .unwrap_or(path)
         .split('.')
         .next()

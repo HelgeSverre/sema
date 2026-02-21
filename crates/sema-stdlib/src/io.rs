@@ -64,7 +64,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         if let Some(data) = sema_core::vfs::vfs_read(path) {
             return String::from_utf8(data)
                 .map(|s| Value::string(&s))
-                .map_err(|e| SemaError::Io(format!("file/read {path}: invalid UTF-8 in VFS: {e}")));
+                .map_err(|e| {
+                    SemaError::Io(format!("file/read {path}: invalid UTF-8 in VFS: {e}"))
+                });
         }
         let content = std::fs::read_to_string(path)
             .map_err(|e| SemaError::Io(format!("file/read {path}: {e}")))?;
@@ -453,8 +455,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
             let content = if let Some(data) = sema_core::vfs::vfs_read(path) {
-                String::from_utf8(data)
-                    .map_err(|e| SemaError::Io(format!("file/read-lines {path}: invalid UTF-8 in VFS: {e}")))?
+                String::from_utf8(data).map_err(|e| {
+                    SemaError::Io(format!("file/read-lines {path}: invalid UTF-8 in VFS: {e}"))
+                })?
             } else {
                 std::fs::read_to_string(path)
                     .map_err(|e| SemaError::Io(format!("file/read-lines {path}: {e}")))?
