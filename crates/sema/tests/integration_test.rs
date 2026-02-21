@@ -10795,3 +10795,211 @@ fn test_allowed_paths_none_allows_everything() {
         "no allowed_paths should allow all: {result:?}"
     );
 }
+
+// ===========================================================================
+// sema build — standalone executable tests
+// ===========================================================================
+
+/// Create a unique temporary directory for a build test.
+fn build_test_dir(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("sema-build-test-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn test_sema_build_basic() {
+    let dir = build_test_dir("basic");
+
+    std::fs::write(
+        dir.join("hello.sema"),
+        r#"(println "hello from bundled sema")"#,
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "build",
+            dir.join("hello.sema").to_str().unwrap(),
+            "-o",
+            dir.join("hello").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sema build");
+
+    assert!(
+        output.status.success(),
+        "sema build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(dir.join("hello").exists(), "output executable not created");
+
+    // Run the bundled executable
+    let run = std::process::Command::new(dir.join("hello"))
+        .output()
+        .expect("failed to run bundled executable");
+
+    assert!(
+        run.status.success(),
+        "bundled executable failed: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim(),
+        "hello from bundled sema"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_sema_build_with_imports() {
+    let dir = build_test_dir("imports");
+    std::fs::create_dir_all(dir.join("lib")).unwrap();
+
+    // Library module
+    std::fs::write(
+        dir.join("lib/math.sema"),
+        "(module math (export square) (define (square x) (* x x)))",
+    )
+    .unwrap();
+
+    // Main file that imports it
+    std::fs::write(
+        dir.join("app.sema"),
+        r#"(import "lib/math.sema") (println (square 7))"#,
+    )
+    .unwrap();
+
+    // Build
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "build",
+            dir.join("app.sema").to_str().unwrap(),
+            "-o",
+            dir.join("app").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sema build");
+
+    assert!(
+        output.status.success(),
+        "sema build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Remove source files to prove the VFS is working
+    std::fs::remove_dir_all(dir.join("lib")).unwrap();
+    std::fs::remove_file(dir.join("app.sema")).unwrap();
+
+    // Run
+    let run = std::process::Command::new(dir.join("app"))
+        .output()
+        .expect("failed to run bundled executable");
+
+    assert!(
+        run.status.success(),
+        "bundled executable failed: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "49");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_sema_build_with_include() {
+    let dir = build_test_dir("include");
+    std::fs::create_dir_all(dir.join("data")).unwrap();
+
+    // Data file to include
+    std::fs::write(dir.join("data/config.json"), r#"{"name": "test"}"#).unwrap();
+
+    // Main file reads the included asset
+    std::fs::write(
+        dir.join("app.sema"),
+        r#"(println (file/read "data/config.json"))"#,
+    )
+    .unwrap();
+
+    // Build with --include
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "build",
+            dir.join("app.sema").to_str().unwrap(),
+            "--include",
+            dir.join("data").to_str().unwrap(),
+            "-o",
+            dir.join("app").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sema build");
+
+    assert!(
+        output.status.success(),
+        "sema build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Remove source + data to prove VFS works
+    std::fs::remove_dir_all(dir.join("data")).unwrap();
+    std::fs::remove_file(dir.join("app.sema")).unwrap();
+
+    // Run
+    let run = std::process::Command::new(dir.join("app"))
+        .output()
+        .expect("failed to run bundled executable");
+
+    assert!(
+        run.status.success(),
+        "bundled executable failed: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim(),
+        r#"{"name": "test"}"#
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_sema_build_passes_args() {
+    let dir = build_test_dir("args");
+
+    std::fs::write(dir.join("args.sema"), r#"(println (length (sys/args)))"#).unwrap();
+
+    // Build
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "build",
+            dir.join("args.sema").to_str().unwrap(),
+            "-o",
+            dir.join("args").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sema build");
+
+    assert!(
+        output.status.success(),
+        "sema build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Run with extra arguments
+    let run = std::process::Command::new(dir.join("args"))
+        .args(["--foo", "bar"])
+        .output()
+        .expect("failed to run bundled executable");
+
+    assert!(
+        run.status.success(),
+        "bundled executable failed: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    // argv should be: ["/path/to/args", "--foo", "bar"] = 3
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "3");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

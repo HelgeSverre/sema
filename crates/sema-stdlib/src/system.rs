@@ -137,6 +137,11 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         }
     });
 
+    register_fn(env, "sys/sema-home", |args| {
+        check_arity!(args, "sys/sema-home", 0);
+        Ok(Value::string(&sema_core::sema_home().to_string_lossy()))
+    });
+
     register_fn(env, "sys/temp-dir", |args| {
         check_arity!(args, "sys/temp-dir", 0);
         Ok(Value::string(&std::env::temp_dir().to_string_lossy()))
