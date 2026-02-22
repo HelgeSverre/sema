@@ -159,6 +159,17 @@ All providers are auto-configured from environment variables — just set the AP
 (:name person) ;; => "Ada"
 (println f"${(:name person)} knows ${(length (:langs person))} languages")
 
+;; Destructuring
+(let (({:keys [name age]} person))
+  (println f"${name} is ${age}"))
+
+;; Pattern matching with guards
+(define (classify n)
+  (match n
+    (x when (> x 100) "big")
+    (x when (> x 0)   "small")
+    (_                 "non-positive")))
+
 ;; Functional pipelines
 (->> (range 1 100)
      (filter even?)
@@ -280,6 +291,10 @@ The [`examples/`](https://github.com/helgesverre/sema/tree/main/examples) direct
 | [`test-text-tools.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-text-tools.sema)     | Text chunking, prompt templates, document abstraction        |
 | [`test-vector-store.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-vector-store.sema) | In-memory vector store with similarity search                |
 | [`test-kv-store.sema`](https://github.com/helgesverre/sema/blob/main/examples/llm/test-kv-store.sema)         | Persistent JSON-backed key-value store                       |
+| [`expr-evaluator.sema`](https://github.com/helgesverre/sema/blob/main/examples/expr-evaluator.sema)           | Mini calculator using `match` on tagged vectors              |
+| [`shape-geometry.sema`](https://github.com/helgesverre/sema/blob/main/examples/shape-geometry.sema)           | Shape areas/perimeters with map pattern matching             |
+| [`http-router.sema`](https://github.com/helgesverre/sema/blob/main/examples/http-router.sema)                 | HTTP router with `match` on nested maps and guards           |
+| [`destructuring.sema`](https://github.com/helgesverre/sema/blob/main/examples/destructuring.sema)             | Comprehensive destructuring showcase (vector, map, lambda)   |
 
 ## Why Sema?
 

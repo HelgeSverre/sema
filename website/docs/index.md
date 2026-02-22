@@ -54,11 +54,11 @@ sema -p '(map sqr (range 5))' # Evaluate and always print
 
 ```scheme
 ;; In the REPL:
-sema> (define (greet name) (format "Hello, ~a!" name))
+sema> (define (greet name) f"Hello, ${name}!")
 sema> (greet "world")
 "Hello, world!"
 
-sema> (map (lambda (x) (* x x)) (range 1 6))
+sema> (map #(* % %) (range 1 6))
 (1 4 9 16 25)
 
 sema> (define person {:name "Ada" :age 36})
@@ -71,16 +71,28 @@ sema> (:name person)
 ### Working with Data
 
 ```scheme
-;; Keywords as accessor functions
+;; Keywords as accessor functions, short lambdas with #(...)
 (define people [{:name "Ada" :age 36}
                 {:name "Bob" :age 28}
                 {:name "Cat" :age 42}])
 
-(map (fn (p) (:name p)) people)
-; => ("Ada" "Bob" "Cat")
+(map #(:name %) people)              ; => ("Ada" "Bob" "Cat")
 
-(filter (fn (p) (> (:age p) 30)) people)
-; => ({:name "Ada" :age 36} {:name "Cat" :age 42})
+(->> people
+     (filter #(> (:age %) 30))
+     (map #(:name %)))               ; => ("Ada" "Cat")
+
+;; Destructuring and f-strings
+(let (({:keys [name age]} (first people)))
+  (println f"${name} is ${age} years old"))
+
+;; Pattern matching
+(define (describe person)
+  (match person
+    ({:keys [name age]} when (> age 40)
+      f"${name} is experienced")
+    ({:keys [name]}
+      f"${name} is on the team")))
 ```
 
 ### LLM Completion
