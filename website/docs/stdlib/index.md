@@ -150,6 +150,18 @@ Sema's stdlib follows consistent naming patterns:
 | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request` | HTTP methods       |
 | `json/encode`, `json/encode-pretty`, `json/decode`                 | JSON serialization |
 
+### [Web Server](./web-server)
+
+| Function                                                                         | Description            |
+| -------------------------------------------------------------------------------- | ---------------------- |
+| `http/serve`                                                                     | Start an HTTP server   |
+| `http/router`                                                                    | Data-driven routing    |
+| `http/ok`, `http/created`, `http/no-content`, `http/not-found`, `http/error`     | JSON response helpers  |
+| `http/redirect`                                                                  | HTTP redirect          |
+| `http/html`, `http/text`                                                         | Content-type responses |
+| `http/stream`                                                                    | SSE streaming          |
+| `http/websocket`                                                                 | WebSocket connections  |
+
 ### [Regex](./regex)
 
 | Function                                            | Description             |

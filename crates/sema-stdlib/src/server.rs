@@ -508,14 +508,14 @@ async fn handle_axum_request(
         headers.push((n, v));
     }
 
-    // Read body (up to 10MB)
-    let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+    // Read body (no size limit)
+    let body_bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
         Ok(b) => b,
         Err(_) => {
             return raw_response_to_axum(&RawResponse {
-                status: 413,
+                status: 400,
                 headers: vec![("content-type".to_string(), "text/plain".to_string())],
-                body: "Request body too large".to_string(),
+                body: "Failed to read request body".to_string(),
             });
         }
     };

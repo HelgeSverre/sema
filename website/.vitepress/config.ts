@@ -91,6 +91,7 @@ export default defineConfig({
             { text: 'File I/O & Paths', link: '/docs/stdlib/file-io' },
             { text: 'PDF Processing', link: '/docs/stdlib/pdf' },
             { text: 'HTTP & JSON', link: '/docs/stdlib/http-json' },
+            { text: 'Web Server', link: '/docs/stdlib/web-server' },
             { text: 'Regex', link: '/docs/stdlib/regex' },
             { text: 'CSV & Encoding', link: '/docs/stdlib/csv-encoding' },
             { text: 'Date & Time', link: '/docs/stdlib/datetime' },
