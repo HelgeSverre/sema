@@ -83,6 +83,18 @@ pub enum Op {
 
     // Fused global call (LOAD_GLOBAL + CALL in one instruction)
     CallGlobal, // u32 spur, u16 argc → lookup global, call with argc args
+
+    // Inline stdlib intrinsics (bypass CallGlobal overhead)
+    Car,    // pop list, push first element (or nil if empty)
+    Cdr,    // pop list, push rest (tail)
+    Cons,   // pop head, pop tail → push new list
+    IsNull, // pop value, push #t if nil or empty list
+    IsPair, // pop value, push #t if non-empty list
+    IsList, // pop value, push #t if list
+    IsNumber, // pop value, push #t if int or float
+    IsString, // pop value, push #t if string
+    IsSymbol, // pop value, push #t if symbol
+    Length, // pop collection, push its length as int
 }
 
 impl Op {
@@ -90,7 +102,7 @@ impl Op {
     /// dense variants from 0 through `CallGlobal`. If new variants are added with
     /// gaps, this must be updated.
     pub fn from_u8(byte: u8) -> Option<Op> {
-        if byte <= Op::CallGlobal as u8 {
+        if byte <= Op::Length as u8 {
             // SAFETY: Op is #[repr(u8)] with dense, contiguous variants 0..=CallGlobal.
             Some(unsafe { std::mem::transmute::<u8, Op>(byte) })
         } else {
@@ -153,6 +165,16 @@ pub mod op {
     pub const STORE_LOCAL2: u8 = Op::StoreLocal2 as u8;
     pub const STORE_LOCAL3: u8 = Op::StoreLocal3 as u8;
     pub const CALL_GLOBAL: u8 = Op::CallGlobal as u8;
+    pub const CAR: u8 = Op::Car as u8;
+    pub const CDR: u8 = Op::Cdr as u8;
+    pub const CONS: u8 = Op::Cons as u8;
+    pub const IS_NULL: u8 = Op::IsNull as u8;
+    pub const IS_PAIR: u8 = Op::IsPair as u8;
+    pub const IS_LIST: u8 = Op::IsList as u8;
+    pub const IS_NUMBER: u8 = Op::IsNumber as u8;
+    pub const IS_STRING: u8 = Op::IsString as u8;
+    pub const IS_SYMBOL: u8 = Op::IsSymbol as u8;
+    pub const LENGTH: u8 = Op::Length as u8;
 
     // Instruction sizes (opcode byte + operand bytes)
     /// Size of a bare opcode with no operands: 1

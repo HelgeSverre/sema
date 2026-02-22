@@ -463,6 +463,19 @@ impl Compiler {
             ("<=", 2) => Op::Le,
             (">=", 2) => Op::Ge,
             ("=", 2) => Op::EqInt,
+            // List operations
+            ("car", 1) | ("first", 1) => Op::Car,
+            ("cdr", 1) | ("rest", 1) => Op::Cdr,
+            ("cons", 2) => Op::Cons,
+            // Type predicates
+            ("null?", 1) => Op::IsNull,
+            ("pair?", 1) => Op::IsPair,
+            ("list?", 1) => Op::IsList,
+            ("number?", 1) => Op::IsNumber,
+            ("string?", 1) => Op::IsString,
+            ("symbol?", 1) => Op::IsSymbol,
+            // Collection
+            ("length", 1) => Op::Length,
             _ => return Ok(false),
         };
 

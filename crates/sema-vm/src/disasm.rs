@@ -80,6 +80,16 @@ fn op_name(op: Op) -> &'static str {
         Op::StoreLocal2 => "STORE_LOCAL_2",
         Op::StoreLocal3 => "STORE_LOCAL_3",
         Op::CallGlobal => "CALL_GLOBAL",
+        Op::Car => "CAR",
+        Op::Cdr => "CDR",
+        Op::Cons => "CONS",
+        Op::IsNull => "IS_NULL",
+        Op::IsPair => "IS_PAIR",
+        Op::IsList => "IS_LIST",
+        Op::IsNumber => "IS_NUMBER",
+        Op::IsString => "IS_STRING",
+        Op::IsSymbol => "IS_SYMBOL",
+        Op::Length => "LENGTH",
     }
 }
 

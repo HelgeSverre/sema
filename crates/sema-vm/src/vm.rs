@@ -806,6 +806,107 @@ impl VM {
                         }
                     }
 
+                    // --- Inline stdlib intrinsics ---
+                    op::CAR => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        if let Some(l) = val.as_list() {
+                            self.stack.push(if l.is_empty() {
+                                Value::nil()
+                            } else {
+                                l[0].clone()
+                            });
+                        } else if let Some(v) = val.as_vector() {
+                            self.stack.push(if v.is_empty() {
+                                Value::nil()
+                            } else {
+                                v[0].clone()
+                            });
+                        } else {
+                            let err = SemaError::type_error("list or vector", val.type_name());
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        }
+                    }
+                    op::CDR => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        if let Some(l) = val.as_list() {
+                            self.stack.push(if l.len() <= 1 {
+                                Value::list(vec![])
+                            } else {
+                                Value::list(l[1..].to_vec())
+                            });
+                        } else if let Some(v) = val.as_vector() {
+                            self.stack.push(if v.len() <= 1 {
+                                Value::vector(vec![])
+                            } else {
+                                Value::vector(v[1..].to_vec())
+                            });
+                        } else {
+                            let err = SemaError::type_error("list or vector", val.type_name());
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        }
+                    }
+                    op::CONS => {
+                        let tail = unsafe { pop_unchecked(&mut self.stack) };
+                        let head = unsafe { pop_unchecked(&mut self.stack) };
+                        if tail.is_nil() {
+                            self.stack.push(Value::list(vec![head]));
+                        } else if let Some(list) = tail.as_list() {
+                            let mut new = Vec::with_capacity(1 + list.len());
+                            new.push(head);
+                            new.extend(list.iter().cloned());
+                            self.stack.push(Value::list(new));
+                        } else {
+                            self.stack.push(Value::list(vec![head, tail]));
+                        }
+                    }
+                    op::IS_NULL => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        let result = val.is_nil()
+                            || val.as_list().map_or(false, |l| l.is_empty());
+                        self.stack.push(Value::bool(result));
+                    }
+                    op::IS_PAIR => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        let result = val.as_list().map_or(false, |l| !l.is_empty());
+                        self.stack.push(Value::bool(result));
+                    }
+                    op::IS_LIST => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        self.stack.push(Value::bool(val.is_list()));
+                    }
+                    op::IS_NUMBER => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        self.stack.push(Value::bool(val.is_int() || val.is_float()));
+                    }
+                    op::IS_STRING => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        self.stack.push(Value::bool(val.is_string()));
+                    }
+                    op::IS_SYMBOL => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        self.stack.push(Value::bool(val.is_symbol()));
+                    }
+                    op::LENGTH => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        if let Some(l) = val.as_list() {
+                            self.stack.push(Value::int(l.len() as i64));
+                        } else if let Some(v) = val.as_vector() {
+                            self.stack.push(Value::int(v.len() as i64));
+                        } else if let Some(s) = val.as_str() {
+                            self.stack.push(Value::int(s.chars().count() as i64));
+                        } else if let Some(m) = val.as_map_rc() {
+                            self.stack.push(Value::int(m.len() as i64));
+                        } else if let Some(m) = val.as_hashmap_rc() {
+                            self.stack.push(Value::int(m.len() as i64));
+                        } else {
+                            let err = SemaError::type_error(
+                                "list, vector, string, map, or hashmap",
+                                val.type_name(),
+                            );
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        }
+                    }
+
                     _ => {
                         return Err(SemaError::eval(format!("VM: invalid opcode {}", op)));
                     }
