@@ -1,0 +1,56 @@
+#!/usr/bin/env sema
+
+;; Simple web server example
+;; Run: cargo run -- examples/web-server.sema
+;; Test: curl http://localhost:3000/greet/Ada
+
+(define (handle-home req)
+  (http/html "<h1>Welcome to Sema</h1><p>A Lisp with superpowers.</p>"))
+
+(define (handle-greet req)
+  (let [name (or (:name (:params req)) "world")]
+    (http/ok {:greeting (string-append "Hello, " name "!")})))
+
+(define (handle-echo req)
+  (http/ok {:method (:method req)
+            :path   (:path req)
+            :query  (:query req)
+            :body   (:body req)}))
+
+(define (handle-health _)
+  (http/ok {:status "up"}))
+
+;; Middleware: add CORS headers
+(define (with-cors handler)
+  (fn (req)
+    (let [resp (handler req)]
+      (if (map? resp)
+        (let [headers (or (:headers resp) {})
+              new-headers (map/merge headers
+                {"access-control-allow-origin" "*"
+                 "access-control-allow-methods" "GET, POST, PUT, DELETE"})]
+          (assoc resp :headers new-headers))
+        resp))))
+
+;; Middleware: request logging
+(define (with-logging handler)
+  (fn (req)
+    (let [resp (handler req)]
+      (println (:method req) (:path req) "->" (:status resp))
+      resp)))
+
+;; Routes
+(define routes
+  [[:get  "/"            handle-home]
+   [:get  "/health"      handle-health]
+   [:get  "/greet/:name" handle-greet]
+   [:any  "/echo"        handle-echo]])
+
+;; Build app with middleware
+(define app
+  (-> (http/router routes)
+      with-cors
+      with-logging))
+
+(println "Starting server on http://localhost:3000")
+(http/serve app {:port 3000})
