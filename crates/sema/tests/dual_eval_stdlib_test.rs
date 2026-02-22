@@ -83,61 +83,15 @@ dual_eval_tests! {
     prompt_render_number: r#"(prompt/render "Count: {{n}}" {:n 42})"# => Value::string("Count: 42"),
     prompt_render_repeated: r#"(prompt/render "{{x}} and {{x}}" {:x "hi"})"# => Value::string("hi and hi"),
     message_pred_false: "(message? 42)" => Value::bool(false),
-}
-
-// Prompt/message role constructors — tree-walker only (VM prompt/message lowering incomplete)
-#[test]
-fn prompt_pred_tw() {
-    let result = common::eval_tw(r#"(prompt? (prompt (user "hello")))"#);
-    assert_eq!(result, Value::bool(true));
-}
-
-#[test]
-fn prompt_messages_count_tw() {
-    let result = common::eval_tw(r#"(length (prompt/messages (prompt (user "hello") (assistant "hi"))))"#);
-    assert_eq!(result, Value::int(2));
-}
-
-#[test]
-fn prompt_three_roles_tw() {
-    let result = common::eval_tw(r#"(length (prompt/messages (prompt (system "be helpful") (user "hello") (assistant "hi"))))"#);
-    assert_eq!(result, Value::int(3));
-}
-
-#[test]
-fn prompt_append_count_tw() {
-    let result = common::eval_tw(r#"(length (prompt/messages (prompt/append (prompt (user "a")) (prompt (assistant "b")))))"#);
-    assert_eq!(result, Value::int(2));
-}
-
-#[test]
-fn prompt_set_system_tw() {
-    let result = common::eval_tw(r#"(length (prompt/messages (prompt/set-system (prompt (system "old") (user "hello")) "new")))"#);
-    assert_eq!(result, Value::int(2));
-}
-
-#[test]
-fn message_pred_tw() {
-    let result = common::eval_tw(r#"(message? (message :user "hi"))"#);
-    assert_eq!(result, Value::bool(true));
-}
-
-#[test]
-fn message_role_tw() {
-    let result = common::eval_tw(r#"(message/role (message :user "hi"))"#);
-    assert_eq!(result, Value::keyword("user"));
-}
-
-#[test]
-fn message_content_tw() {
-    let result = common::eval_tw(r#"(message/content (message :user "hello world"))"#);
-    assert_eq!(result, Value::string("hello world"));
-}
-
-#[test]
-fn message_from_prompt_tw() {
-    let result = common::eval_tw(r#"(message/content (car (prompt/messages (prompt (user "test input")))))"#);
-    assert_eq!(result, Value::string("test input"));
+    prompt_pred: r#"(prompt? (prompt (user "hello")))"# => Value::bool(true),
+    prompt_messages_count: r#"(length (prompt/messages (prompt (user "hello") (assistant "hi"))))"# => Value::int(2),
+    prompt_three_roles: r#"(length (prompt/messages (prompt (system "be helpful") (user "hello") (assistant "hi"))))"# => Value::int(3),
+    prompt_append_count: r#"(length (prompt/messages (prompt/append (prompt (user "a")) (prompt (assistant "b")))))"# => Value::int(2),
+    prompt_set_system: r#"(length (prompt/messages (prompt/set-system (prompt (system "old") (user "hello")) "new")))"# => Value::int(2),
+    message_pred: r#"(message? (message :user "hi"))"# => Value::bool(true),
+    message_role: r#"(message/role (message :user "hi"))"# => Value::keyword("user"),
+    message_content: r#"(message/content (message :user "hello world"))"# => Value::string("hello world"),
+    message_from_prompt: r#"(message/content (car (prompt/messages (prompt (user "test input")))))"# => Value::string("test input"),
 }
 
 // ============================================================

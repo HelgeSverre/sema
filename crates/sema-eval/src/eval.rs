@@ -917,31 +917,108 @@ fn register_vm_delegates(env: &Rc<Env>) {
         })),
     );
 
-    // __vm-prompt: delegate to tree-walker
-    let prompt_env = env.clone();
+    // __vm-prompt: build Prompt directly from pre-evaluated entries
     env.set(
         intern("__vm-prompt"),
-        Value::native_fn(NativeFn::with_ctx("__vm-prompt", move |ctx, args| {
-            let mut form = vec![Value::symbol("prompt")];
-            form.extend(args.iter().cloned());
-            sema_core::eval_callback(ctx, &Value::list(form), &prompt_env)
+        Value::native_fn(NativeFn::simple("__vm-prompt", |args| {
+            use sema_core::{Message, Prompt, Role};
+            if args.len() != 1 {
+                return Err(SemaError::arity("__vm-prompt", "1", args.len()));
+            }
+            let entries = args[0]
+                .as_list()
+                .ok_or_else(|| SemaError::type_error("list", args[0].type_name()))?;
+            let mut messages = Vec::new();
+            for entry in entries {
+                if let Some(msg) = entry.as_message_rc() {
+                    messages.push((*msg).clone());
+                } else if let Some(pair) = entry.as_list() {
+                    if pair.len() == 2 {
+                        let role_str = pair[0]
+                            .as_str()
+                            .ok_or_else(|| SemaError::eval("prompt: expected role string"))?;
+                        let role = match role_str {
+                            "system" => Role::System,
+                            "user" => Role::User,
+                            "assistant" => Role::Assistant,
+                            "tool" => Role::Tool,
+                            other => {
+                                return Err(SemaError::eval(format!(
+                                    "prompt: unknown role '{other}'"
+                                )))
+                            }
+                        };
+                        let parts = pair[1]
+                            .as_list()
+                            .ok_or_else(|| SemaError::type_error("list", pair[1].type_name()))?;
+                        let mut content = String::new();
+                        for part in parts {
+                            if let Some(s) = part.as_str() {
+                                content.push_str(s);
+                            } else {
+                                content.push_str(&part.to_string());
+                            }
+                        }
+                        messages.push(Message {
+                            role,
+                            content,
+                            images: Vec::new(),
+                        });
+                    } else {
+                        return Err(SemaError::eval(
+                            "prompt: expected (role parts) pair or message value",
+                        ));
+                    }
+                } else {
+                    return Err(SemaError::eval(
+                        "prompt: expected (role parts) pair or message value",
+                    ));
+                }
+            }
+            Ok(Value::prompt(Prompt { messages }))
         })),
     );
 
-    // __vm-message: delegate to tree-walker
-    let msg_env = env.clone();
+    // __vm-message: build Message directly from pre-evaluated parts
     env.set(
         intern("__vm-message"),
-        Value::native_fn(NativeFn::with_ctx("__vm-message", move |ctx, args| {
+        Value::native_fn(NativeFn::simple("__vm-message", |args| {
+            use sema_core::{Message, Role};
             if args.len() != 2 {
-                return Err(SemaError::arity("message", "2", args.len()));
+                return Err(SemaError::arity("__vm-message", "2", args.len()));
             }
-            let form = Value::list(vec![
-                Value::symbol("message"),
-                args[0].clone(),
-                args[1].clone(),
-            ]);
-            sema_core::eval_callback(ctx, &form, &msg_env)
+            let role = if let Some(spur) = args[0].as_keyword_spur() {
+                let s = resolve(spur);
+                match s.as_str() {
+                    "system" => Role::System,
+                    "user" => Role::User,
+                    "assistant" => Role::Assistant,
+                    "tool" => Role::Tool,
+                    other => {
+                        return Err(SemaError::eval(format!(
+                            "message: unknown role '{other}'"
+                        )))
+                    }
+                }
+            } else {
+                return Err(SemaError::type_error("keyword", args[0].type_name()));
+            };
+            let parts = args[1]
+                .as_list()
+                .ok_or_else(|| SemaError::type_error("list", args[1].type_name()))?;
+            let mut content = String::new();
+            for part in parts {
+                if let Some(s) = part.as_str() {
+                    content.push_str(s);
+                } else {
+                    content.push_str(&part.to_string());
+                }
+            }
+            Ok(Value::message(Message {
+                role,
+                content,
+                images: Vec::new(),
+            }))
         })),
     );
 
