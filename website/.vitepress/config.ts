@@ -114,6 +114,7 @@ export default defineConfig({
             { text: 'Reader & Spans', link: '/docs/internals/reader' },
             { text: 'Performance', link: '/docs/internals/performance' },
             { text: 'Lisp Dialect Benchmark', link: '/docs/internals/lisp-comparison' },
+            { text: 'Feature Comparison', link: '/docs/internals/feature-comparison' },
           ],
         },
       ],
