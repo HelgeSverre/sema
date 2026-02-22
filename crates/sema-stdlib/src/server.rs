@@ -23,11 +23,27 @@ struct RawResponse {
     body: String,
 }
 
+/// The response type sent back from the evaluator thread to the axum handler thread.
+/// Supports both normal HTTP responses and SSE streaming.
+enum ServerResponse {
+    /// A normal HTTP response.
+    Raw(RawResponse),
+    /// An SSE stream: the receiver yields event data strings.
+    Sse(tokio::sync::mpsc::Receiver<String>),
+    /// A WebSocket connection: bidirectional channels for message passing.
+    WebSocket {
+        /// Sends messages from axum (client) to the evaluator (server handler).
+        incoming_tx: tokio::sync::mpsc::Sender<String>,
+        /// Receives messages from the evaluator (server handler) to axum (client).
+        outgoing_rx: tokio::sync::mpsc::Receiver<String>,
+    },
+}
+
 /// A server request sent from the axum handler thread to the main evaluator thread.
 enum ServerRequest {
     Http {
         raw: RawRequest,
-        respond: tokio::sync::oneshot::Sender<RawResponse>,
+        respond: tokio::sync::oneshot::Sender<ServerResponse>,
     },
 }
 
@@ -129,6 +145,22 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         result.insert(Value::keyword("headers"), Value::map(headers));
         result.insert(Value::keyword("body"), Value::string(content));
         Ok(Value::map(result))
+    });
+
+    register_fn(env, "http/stream", |args| {
+        check_arity!(args, "http/stream", 1);
+        let mut map = BTreeMap::new();
+        map.insert(Value::keyword("__stream"), Value::bool(true));
+        map.insert(Value::keyword("__stream_handler"), args[0].clone());
+        Ok(Value::map(map))
+    });
+
+    register_fn(env, "http/websocket", |args| {
+        check_arity!(args, "http/websocket", 1);
+        let mut map = BTreeMap::new();
+        map.insert(Value::keyword("__websocket"), Value::bool(true));
+        map.insert(Value::keyword("__ws_handler"), args[0].clone());
+        Ok(Value::map(map))
     });
 
     register_router(env);
@@ -264,8 +296,13 @@ fn register_router(env: &sema_core::Env) {
 
                     // Try each route
                     for (method, pattern, handler) in routes.iter() {
-                        // Method matching: :any matches all, otherwise must match exactly
-                        if method != "any" && method != &req_method {
+                        // WebSocket routes match GET requests (WS upgrade starts as GET)
+                        let is_ws_route = method == "ws";
+                        if is_ws_route {
+                            if req_method != "get" {
+                                continue;
+                            }
+                        } else if method != "any" && method != &req_method {
                             continue;
                         }
 
@@ -292,6 +329,15 @@ fn register_router(env: &sema_core::Env) {
                             let mut new_req = (*req_map).clone();
                             new_req.insert(Value::keyword("params"), Value::map(params_map));
                             let new_req_val = Value::map(new_req);
+
+                            // For WebSocket routes, return a marker map instead of calling handler
+                            if is_ws_route {
+                                let mut ws_map = BTreeMap::new();
+                                ws_map.insert(Value::keyword("__websocket"), Value::bool(true));
+                                ws_map.insert(Value::keyword("__ws_handler"), handler.clone());
+                                ws_map.insert(Value::keyword("__ws_request"), new_req_val);
+                                return Ok(Value::map(ws_map));
+                            }
 
                             // Call handler
                             return call_callback(ctx, handler, &[new_req_val]);
@@ -427,6 +473,301 @@ fn raw_response_to_axum(raw: &RawResponse) -> axum::response::Response {
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
+/// Handle an incoming axum request: extract metadata, forward to the evaluator, and
+/// return the appropriate response (normal HTTP, SSE stream, or WebSocket upgrade).
+async fn handle_axum_request(
+    ws_upgrade: Option<axum::extract::ws::WebSocketUpgrade>,
+    req: axum::extract::Request,
+    tx: tokio::sync::mpsc::Sender<ServerRequest>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    // Extract method, URI, headers from axum request
+    let method = req.method().to_string();
+    let uri = req.uri().clone();
+    let path = uri.path().to_string();
+    let query = uri.query().map(|q| q.to_string());
+
+    let mut headers = Vec::new();
+    let mut content_type_is_json = false;
+    for (name, value) in req.headers().iter() {
+        let v = value.to_str().unwrap_or("").to_string();
+        let n = name.as_str().to_string();
+        if n == "content-type" && v.contains("json") {
+            content_type_is_json = true;
+        }
+        headers.push((n, v));
+    }
+
+    // Read body (up to 10MB)
+    let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+        Ok(b) => b,
+        Err(_) => {
+            return raw_response_to_axum(&RawResponse {
+                status: 413,
+                headers: vec![("content-type".to_string(), "text/plain".to_string())],
+                body: "Request body too large".to_string(),
+            });
+        }
+    };
+    let body = String::from_utf8_lossy(&body_bytes).to_string();
+
+    let raw = RawRequest {
+        method,
+        path,
+        headers,
+        query,
+        body,
+        content_type_is_json,
+    };
+
+    // Create oneshot channel for the response
+    let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+
+    // Send request to main thread
+    if tx
+        .send(ServerRequest::Http {
+            raw,
+            respond: resp_tx,
+        })
+        .await
+        .is_err()
+    {
+        return raw_response_to_axum(&RawResponse {
+            status: 503,
+            headers: vec![("content-type".to_string(), "text/plain".to_string())],
+            body: "Server shutting down".to_string(),
+        });
+    }
+
+    // Wait for response from main thread
+    match resp_rx.await {
+        Ok(ServerResponse::Raw(raw_resp)) => raw_response_to_axum(&raw_resp),
+        Ok(ServerResponse::Sse(rx)) => {
+            use axum::response::sse::{Event, Sse};
+            use futures::stream::StreamExt;
+            use tokio_stream::wrappers::ReceiverStream;
+
+            let stream = ReceiverStream::new(rx)
+                .map(|data| Ok::<_, std::convert::Infallible>(Event::default().data(data)));
+            Sse::new(stream).into_response()
+        }
+        Ok(ServerResponse::WebSocket {
+            incoming_tx,
+            outgoing_rx,
+        }) => {
+            if let Some(ws) = ws_upgrade {
+                ws.on_upgrade(move |socket| bridge_websocket(socket, incoming_tx, outgoing_rx))
+                    .into_response()
+            } else {
+                raw_response_to_axum(&RawResponse {
+                    status: 400,
+                    headers: vec![("content-type".to_string(), "text/plain".to_string())],
+                    body: "WebSocket upgrade required".to_string(),
+                })
+            }
+        }
+        Err(_) => raw_response_to_axum(&RawResponse {
+            status: 500,
+            headers: vec![("content-type".to_string(), "text/plain".to_string())],
+            body: "Handler did not respond".to_string(),
+        }),
+    }
+}
+
+/// Bridge an axum WebSocket to the evaluator's channels.
+async fn bridge_websocket(
+    socket: axum::extract::ws::WebSocket,
+    incoming_tx: tokio::sync::mpsc::Sender<String>,
+    mut outgoing_rx: tokio::sync::mpsc::Receiver<String>,
+) {
+    use axum::extract::ws::Message;
+    use futures::{SinkExt, StreamExt};
+
+    let (mut ws_sink, mut ws_stream) = socket.split();
+
+    // Task 1: forward messages from client (WebSocket) to evaluator
+    let incoming_tx_clone = incoming_tx.clone();
+    let recv_task = tokio::spawn(async move {
+        while let Some(Ok(msg)) = ws_stream.next().await {
+            match msg {
+                Message::Text(text) => {
+                    if incoming_tx_clone.send(text.to_string()).await.is_err() {
+                        break;
+                    }
+                }
+                Message::Close(_) => break,
+                _ => {} // ignore binary, ping, pong
+            }
+        }
+        // Signal to the evaluator that the client disconnected by dropping the sender
+        drop(incoming_tx_clone);
+    });
+
+    // Task 2: forward messages from evaluator to client (WebSocket)
+    let send_task = tokio::spawn(async move {
+        while let Some(msg) = outgoing_rx.recv().await {
+            if ws_sink.send(Message::Text(msg.into())).await.is_err() {
+                break;
+            }
+        }
+        // Try to send a close frame
+        let _ = ws_sink.send(Message::Close(None)).await;
+    });
+
+    // Wait for either task to complete, then abort the other
+    tokio::select! {
+        _ = recv_task => {}
+        _ = send_task => {}
+    }
+}
+
+/// Check if a response Value is an SSE stream marker.
+fn is_stream_response(val: &Value) -> bool {
+    if let Some(m) = val.as_map_rc() {
+        m.get(&Value::keyword("__stream"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+/// Check if a response Value is a WebSocket marker.
+fn is_websocket_response(val: &Value) -> bool {
+    if let Some(m) = val.as_map_rc() {
+        m.get(&Value::keyword("__websocket"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+/// Handle an SSE stream response: extract the stream handler, create channels,
+/// send the SSE receiver to axum, then call the handler with a `send` function.
+fn handle_sse_response(
+    ctx: &sema_core::EvalContext,
+    response_val: &Value,
+    respond: tokio::sync::oneshot::Sender<ServerResponse>,
+) {
+    use sema_core::{call_callback, NativeFn};
+
+    let map = response_val.as_map_rc().unwrap();
+    let stream_handler = map.get(&Value::keyword("__stream_handler")).cloned().unwrap();
+
+    // Create the SSE channel
+    let (sse_tx, sse_rx) = tokio::sync::mpsc::channel::<String>(256);
+
+    // Send the SSE receiver to axum so it can start streaming immediately
+    let _ = respond.send(ServerResponse::Sse(sse_rx));
+
+    // Build the `send` function for the Sema handler
+    let send_fn = Value::native_fn(NativeFn::simple("http/stream/send", move |args| {
+        check_arity!(args, "http/stream/send", 1);
+        let msg = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        sse_tx
+            .blocking_send(msg.to_string())
+            .map_err(|_| SemaError::eval("SSE stream closed"))?;
+        Ok(Value::nil())
+    }));
+
+    // Call the stream handler with the send function.
+    // When it returns (or errors), the sse_tx is dropped, closing the stream.
+    match call_callback(ctx, &stream_handler, &[send_fn]) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("http/stream handler error: {e}");
+        }
+    }
+}
+
+/// Handle a WebSocket response: extract the WS handler, create bidirectional channels,
+/// send them to axum for bridging, then call the handler with a connection map.
+fn handle_ws_response(
+    ctx: &sema_core::EvalContext,
+    response_val: &Value,
+    respond: tokio::sync::oneshot::Sender<ServerResponse>,
+) {
+    use sema_core::{call_callback, NativeFn};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let map = response_val.as_map_rc().unwrap();
+    let ws_handler = map.get(&Value::keyword("__ws_handler")).cloned().unwrap();
+
+    // Create bidirectional channels
+    let (in_tx, in_rx) = tokio::sync::mpsc::channel::<String>(256); // client -> evaluator
+    let (out_tx, out_rx) = tokio::sync::mpsc::channel::<String>(256); // evaluator -> client
+
+    // Send channels to axum for WebSocket bridging
+    let _ = respond.send(ServerResponse::WebSocket {
+        incoming_tx: in_tx,
+        outgoing_rx: out_rx,
+    });
+
+    // Build the connection map for the Sema handler: {:send fn :recv fn :close fn}
+    let out_tx_for_send = out_tx.clone();
+    let send_fn = Value::native_fn(NativeFn::simple("ws/send", move |args| {
+        check_arity!(args, "ws/send", 1);
+        let msg = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        out_tx_for_send
+            .blocking_send(msg.to_string())
+            .map_err(|_| SemaError::eval("WebSocket closed"))?;
+        Ok(Value::nil())
+    }));
+
+    // Wrap receiver in Rc<RefCell<Option<...>>> since NativeFn closures must be Fn (not FnOnce)
+    let in_rx = Rc::new(RefCell::new(Some(in_rx)));
+    let in_rx_for_recv = in_rx.clone();
+    let recv_fn = Value::native_fn(NativeFn::simple("ws/recv", move |args| {
+        check_arity!(args, "ws/recv", 0);
+        let mut rx_opt = in_rx_for_recv.borrow_mut();
+        if let Some(rx) = rx_opt.as_mut() {
+            match rx.blocking_recv() {
+                Some(msg) => Ok(Value::string(&msg)),
+                None => {
+                    // Channel closed — remove the receiver
+                    *rx_opt = None;
+                    Ok(Value::nil())
+                }
+            }
+        } else {
+            Ok(Value::nil())
+        }
+    }));
+
+    let out_tx_for_close = out_tx;
+    let in_rx_for_close = in_rx;
+    let close_fn = Value::native_fn(NativeFn::simple("ws/close", move |args| {
+        check_arity!(args, "ws/close", 0);
+        // Drop sender to signal close to the axum side
+        drop(out_tx_for_close.clone());
+        // Drop receiver
+        let mut rx_opt = in_rx_for_close.borrow_mut();
+        *rx_opt = None;
+        Ok(Value::nil())
+    }));
+
+    let mut conn_map = BTreeMap::new();
+    conn_map.insert(Value::keyword("send"), send_fn);
+    conn_map.insert(Value::keyword("recv"), recv_fn);
+    conn_map.insert(Value::keyword("close"), close_fn);
+    let conn = Value::map(conn_map);
+
+    // Call the WebSocket handler with the connection map
+    match call_callback(ctx, &ws_handler, &[conn]) {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("ws handler error: {e}");
+        }
+    }
+}
+
 fn register_serve(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     use sema_core::{intern, Caps, EvalContext, NativeFn};
 
@@ -504,71 +845,21 @@ fn http_serve_impl(ctx: &sema_core::EvalContext, args: &[Value]) -> Result<Value
         rt.block_on(async move {
             let tx = tx;
 
-            // Build the axum router with a fallback handler that catches all requests
+            // Build the axum router with a fallback handler that catches all requests.
+            // We manually extract WebSocketUpgrade from request parts when needed.
             let app = axum::Router::new().fallback(
                 move |req: axum::extract::Request| {
                     let tx = tx.clone();
                     async move {
-                        // Extract method, URI, headers from axum request
-                        let method = req.method().to_string();
-                        let uri = req.uri().clone();
-                        let path = uri.path().to_string();
-                        let query = uri.query().map(|q| q.to_string());
-
-                        let mut headers = Vec::new();
-                        let mut content_type_is_json = false;
-                        for (name, value) in req.headers().iter() {
-                            let v = value.to_str().unwrap_or("").to_string();
-                            let n = name.as_str().to_string();
-                            if n == "content-type" && v.contains("json") {
-                                content_type_is_json = true;
-                            }
-                            headers.push((n, v));
-                        }
-
-                        // Read body (up to 10MB)
-                        let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
-                            Ok(b) => b,
-                            Err(_) => {
-                                return raw_response_to_axum(&RawResponse {
-                                    status: 413,
-                                    headers: vec![("content-type".to_string(), "text/plain".to_string())],
-                                    body: "Request body too large".to_string(),
-                                });
-                            }
-                        };
-                        let body = String::from_utf8_lossy(&body_bytes).to_string();
-
-                        let raw = RawRequest {
-                            method,
-                            path,
-                            headers,
-                            query,
-                            body,
-                            content_type_is_json,
-                        };
-
-                        // Create oneshot channel for the response
-                        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
-
-                        // Send request to main thread
-                        if tx.send(ServerRequest::Http { raw, respond: resp_tx }).await.is_err() {
-                            return raw_response_to_axum(&RawResponse {
-                                status: 503,
-                                headers: vec![("content-type".to_string(), "text/plain".to_string())],
-                                body: "Server shutting down".to_string(),
-                            });
-                        }
-
-                        // Wait for response from main thread
-                        match resp_rx.await {
-                            Ok(raw_resp) => raw_response_to_axum(&raw_resp),
-                            Err(_) => raw_response_to_axum(&RawResponse {
-                                status: 500,
-                                headers: vec![("content-type".to_string(), "text/plain".to_string())],
-                                body: "Handler did not respond".to_string(),
-                            }),
-                        }
+                        // Try to extract WebSocketUpgrade from request parts
+                        use axum::extract::FromRequestParts;
+                        let (mut parts, body) = req.into_parts();
+                        let ws_upgrade: Option<axum::extract::ws::WebSocketUpgrade> =
+                            axum::extract::ws::WebSocketUpgrade::from_request_parts(
+                                &mut parts, &()
+                            ).await.ok();
+                        let req = axum::extract::Request::from_parts(parts, body);
+                        handle_axum_request(ws_upgrade, req, tx).await
                     }
                 },
             );
@@ -611,19 +902,26 @@ fn http_serve_impl(ctx: &sema_core::EvalContext, args: &[Value]) -> Result<Value
                 let request_val = raw_request_to_value(&raw);
                 match call_callback(ctx, &handler, &[request_val]) {
                     Ok(response_val) => {
-                        let raw_resp = value_to_raw_response(&response_val);
-                        let _ = respond.send(raw_resp);
+                        // Check for SSE stream marker
+                        if is_stream_response(&response_val) {
+                            handle_sse_response(ctx, &response_val, respond);
+                        } else if is_websocket_response(&response_val) {
+                            handle_ws_response(ctx, &response_val, respond);
+                        } else {
+                            let raw_resp = value_to_raw_response(&response_val);
+                            let _ = respond.send(ServerResponse::Raw(raw_resp));
+                        }
                     }
                     Err(e) => {
                         eprintln!("http/serve handler error: {e}");
-                        let _ = respond.send(RawResponse {
+                        let _ = respond.send(ServerResponse::Raw(RawResponse {
                             status: 500,
                             headers: vec![(
                                 "content-type".to_string(),
                                 "application/json".to_string(),
                             )],
                             body: format!("{{\"error\":\"{}\"}}", e.to_string().replace('"', "\\\"")),
-                        });
+                        }));
                     }
                 }
             }

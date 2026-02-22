@@ -33,3 +33,4 @@ serde_json.workspace = true
 [dev-dependencies]
 reqwest.workspace = true
 serde_json.workspace = true
+tungstenite = "0.28"

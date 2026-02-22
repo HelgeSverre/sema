@@ -2119,6 +2119,7 @@ dependencies = [
  "sema-stdlib",
  "sema-vm",
  "serde_json",
+ "tungstenite",
 ]
 
 [[package]]
@@ -2152,6 +2153,7 @@ dependencies = [
  "base64",
  "chrono",
  "csv",
+ "futures",
  "glob",
  "hashbrown 0.15.5",
  "hex",

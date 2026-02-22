@@ -11026,3 +11026,88 @@ fn test_http_serve_with_router() {
     child.kill().ok();
     child.wait().ok();
 }
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_sse() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(
+            r#"
+            (http/serve
+              (http/router
+                [[:get "/stream"
+                  (fn (req)
+                    (http/stream (fn (send)
+                      (send "hello")
+                      (send "world"))))]])
+              {:port 19878})
+        "#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get("http://127.0.0.1:19878/stream")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET /stream");
+
+    let body = resp.text().unwrap();
+    assert!(
+        body.contains("hello"),
+        "body should contain hello: {body}"
+    );
+    assert!(
+        body.contains("world"),
+        "body should contain world: {body}"
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_websocket() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(
+            r#"
+            (http/serve
+              (http/router
+                [[:ws "/echo" (fn (conn)
+                  (let ((msg ((:recv conn))))
+                    (when msg
+                      ((:send conn) (string-append "echo:" msg)))))]])
+              {:port 19879})
+        "#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let (mut ws, _) =
+        tungstenite::connect("ws://127.0.0.1:19879/echo").expect("WS connect failed");
+    ws.send(tungstenite::Message::Text("hello".into()))
+        .unwrap();
+    let reply = ws.read().unwrap();
+    assert_eq!(reply.into_text().unwrap(), "echo:hello");
+
+    child.kill().ok();
+    child.wait().ok();
+}
