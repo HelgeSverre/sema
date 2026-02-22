@@ -38,8 +38,9 @@ The biggest single win. Instead of `CallGlobal("car")` → hash lookup → Nativ
 
 **Done** (list + predicates, Feb 2026): `car`/`first`, `cdr`/`rest`, `cons`, `null?`, `pair?`, `list?`, `number?`, `string?`, `symbol?`, `length` — 10 new opcodes (`Car`, `Cdr`, `Cons`, `IsNull`, `IsPair`, `IsList`, `IsNumber`, `IsString`, `IsSymbol`, `Length`). Measured impact: deriv 1,123ms → 879ms (1.28×), closure-storm 1,135ms → 1,029ms (1.10×).
 
-**Remaining** — extend to map/string/misc operations:
-- Map: `assoc`, `get`, `contains?`
+**Done** (map/collection, Feb 2026): `append` (2-arg), `get` (2-arg), `contains?` (2-arg) — 3 more opcodes (`Append`, `Get`, `ContainsQ`).
+
+**Remaining** — extend to string/misc operations:
 - String: `string-length`, `string-ref`, `string-append`
 - Misc: `apply`, `display`
 
@@ -86,15 +87,23 @@ Rust doesn't natively support computed goto, but options exist:
 - C shim for the dispatch loop
 - Wait for Rust's `#[feature(label_break_value)]` or similar
 
-### 5. Constant folding and dead code elimination in the compiler
+### 5. Constant folding and dead code elimination in the compiler ✅ (partial)
 
-**Impact:** Varies, significant for idiomatic code
+**Impact:** Compile-time savings; runtime impact negligible on current benchmarks (hot loops use variables, not constants)
 **Effort:** Medium
+**Status:** Done (Feb 2026). Optimizer pass (`optimize.rs`) runs between lowering and resolution.
 
-The lowering pass (`crates/sema-vm/src/lower.rs`) currently does minimal optimization. Standard optimizations:
-- Fold `(+ 1 2)` → `3` at compile time
+Implemented:
+- Fold constant arithmetic: `(+ 1 2)` → `3`, `(* 3 4)` → `12`
+- Fold constant comparisons: `(< 1 2)` → `#t`
+- Boolean simplification: `(not #t)` → `#f`
+- If with constant test: `(if #t a b)` → `a`
+- And/Or simplification with constant operands
+- Dead constant elimination in `begin` blocks
+
+Remaining:
 - Propagate known constants through `let` bindings
-- Eliminate unused bindings and dead branches
+- Eliminate unused bindings
 - Strength reduction: `(* x 2)` → `(+ x x)`
 
 ### 6. Register-based VM instead of stack-based
@@ -108,14 +117,13 @@ This would be a full rewrite of `crates/sema-vm/src/vm.rs` and the emitter. Cons
 
 ## Tier 3: Smaller Wins (10–30%)
 
-### 7. Inline caching for global lookups
+### 7. Inline caching for global lookups ⚠️ (tested, reverted)
 
-**Impact:** 10–20% on function-call-heavy code
+**Impact:** Negative — 2.4× regression with Knuth multiplicative hash; neutral with 256-entry cache
 **Effort:** Small–Medium
+**Status:** Tested (Feb 2026). Expanding to 256 entries with Knuth hash caused catastrophic cache misses on deriv (879ms → 2,123ms). Reverted to original 16-entry direct-mapped cache.
 
-The VM already has a 16-entry direct-mapped `global_cache`. Expanding to per-callsite inline caching (monomorphic IC) would make repeated calls to the same global function nearly free — one comparison per call instead of a hash lookup.
-
-Store `(expected_spur, env_version, cached_value)` at each `CallGlobal` site. On hit: use cached value directly. On miss: fall back to hash lookup and update the cache.
+The VM has a 16-entry direct-mapped `global_cache` that works well for the current workloads. The Spur bit distribution already maps cleanly to the 16 slots. Per-callsite IC (storing cache data alongside bytecode) remains a potential improvement but requires a different approach — either embedding IC indices in the instruction encoding or using a side table keyed by `(function_id, pc)`.
 
 ### 8. Specialize hot higher-order functions
 
@@ -127,24 +135,23 @@ Store `(expected_spur, env_version, cached_value)` at each `CallGlobal` site. On
 - Reuse the argument slots instead of pushing/popping
 - Fuse map+filter chains into a single loop
 
-### 9. String interning for string values
+### 9. String interning for string values ✅
 
-**Impact:** 10–15% on workloads with repeated string keys
+**Impact:** O(1) equality for interned strings (pointer comparison via existing NaN-boxed fast path)
 **Effort:** Small
+**Status:** Done (Feb 2026). Added `string/intern` function with thread-local intern table.
 
-Currently only symbols and keywords are interned as `Spur`. In workloads with repeated string keys (like 1BRC's ~400 station names), interning string values would make `assoc`/`get` lookups O(1) integer comparison instead of O(n) string comparison.
-
-Could be opt-in (e.g., `string/intern`) or automatic for short strings.
+Implemented as opt-in `(string/intern s)` — returns a string Value backed by a shared `Rc<String>` from a thread-local intern table. Two calls with the same content return the same `Rc` pointer, making `Value::eq` O(1) via the existing raw-bits fast path. Useful for map keys in hot loops (e.g., 1BRC station names).
 
 ## What Would Close the Gap to Janet?
 
 Janet is ~1.7× faster than Sema's VM on the 1BRC benchmark. Realistically:
 
-| Change | Expected speedup | Cumulative |
-| --- | --- | --- |
-| Inline top-20 stdlib ops (#1) | ~1.5× | ~1.5× |
-| Tracing GC (#2) | ~1.3× | ~1.95× |
-| Direct threading (#4) | ~1.2× | ~2.3× |
+| Change | Expected speedup | Cumulative | Status |
+| --- | --- | --- | --- |
+| Inline top-20 stdlib ops (#1) | ~1.5× | ~1.5× | ✅ Done (23 ops intrinsified) |
+| Tracing GC (#2) | ~1.3× | ~1.95× | Not started |
+| Direct threading (#4) | ~1.2× | ~2.3× | Not started |
 
 Combined, Sema would be **competitive with Janet** and **ahead of Guile/Gauche**. This would move Sema from 11.2× behind SBCL to roughly 5–6× behind — solidly mid-pack among interpreted Lisps.
 

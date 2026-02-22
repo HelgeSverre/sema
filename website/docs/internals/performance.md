@@ -250,12 +250,27 @@ The compiler recognizes calls to known builtins and emits inline opcodes instead
 | `(string? x)` | `IsString` | Same — push `#t` if string |
 | `(symbol? x)` | `IsSymbol` | Same — push `#t` if symbol |
 | `(length x)` | `Length` | Same — push collection length as int |
+| `(append a b)` | `Append` | Same — concatenate two lists (2-arg only) |
+| `(get m k)` | `Get` | Same — map lookup, nil default (2-arg only) |
+| `(contains? m k)` | `ContainsQ` | Same — push `#t` if key exists in map |
 
 This eliminates global hash lookup, `Rc` downcast, argument `Vec` allocation, and function pointer dispatch — the entire call overhead — for the most common operations. The `*Int` opcodes include NaN-boxed small-int fast paths that operate directly on raw `u64` bits, avoiding `Clone`/`Drop` overhead entirely.
 
 All standard arithmetic and comparison operators are inlined. The `*Int` variants include NaN-boxed fast paths; the generic opcodes (`Div`, `Gt`, `Le`, `Ge`) handle int/float coercion correctly.
 
 **Impact:** Phase 1: TAK 4,352ms → 1,250ms (-71%), upvalue-counter 1,232ms → 450ms (-63%). Phase 2: deriv 1,123ms → 879ms (-22%), closure-storm 1,135ms → 1,029ms (-9%). The deriv benchmark is dominated by `car`/`cdr`/`cons`/`pair?` — exactly the functions that became intrinsics.
+
+### Constant Folding
+
+An optimization pass (`optimize.rs`) runs on the CoreExpr IR between lowering and variable resolution. It folds compile-time-evaluable expressions:
+
+- **Arithmetic:** `(+ 1 2)` → `3`, `(* 3 4)` → `12`
+- **Comparisons:** `(< 1 2)` → `#t`, `(= 3 3)` → `#t`
+- **Boolean:** `(not #t)` → `#f`
+- **Control flow:** `(if #t a b)` → `a`, `(and #f x)` → `#f`, `(or #t x)` → `#t`
+- **Dead code:** `(begin 42 x)` → `(begin x)` (pure constants before the last expression are eliminated)
+
+**Impact:** Eliminates unnecessary instructions at compile time. Runtime impact on benchmarks is negligible (hot loops operate on variables), but reduces code size and improves startup for programs with constant subexpressions.
 
 ### Peephole: `(if (not X) ...)` → JumpIfTrue
 
