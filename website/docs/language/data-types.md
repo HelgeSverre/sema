@@ -13,6 +13,7 @@ Sema has 20 built-in data types covering numbers, text, collections, and LLM pri
 | Integer      | digits               | `42`, `-7`, `0`                                                    |
 | Float        | digits with `.`      | `3.14`, `-0.5`, `1e10`                                             |
 | String       | double-quoted        | `"hello"`, `"line\nbreak"`, `"\x1B;"`                              |
+| F-String     | `f"...${expr}..."` | `f"Hello ${name}"`, `f"${(+ 1 2)}"`                               |
 | Boolean      | `#t` / `#f`          | `#t`, `#f`                                                         |
 | Nil          | `nil`                | `nil`                                                              |
 | Symbol       | bare identifier      | `foo`, `my-var`, `+`                                               |
@@ -62,6 +63,18 @@ Double-quoted text with escape sequences.
 "line\nbreak"
 "\x1B;"
 ```
+
+### F-String (Interpolated String)
+
+String interpolation with embedded expressions. `f"..."` expands to a `(str ...)` call at read time.
+
+```scheme
+f"Hello ${name}"              ; => (str "Hello " name)
+f"2 + 2 = ${(+ 2 2)}"        ; => "2 + 2 = 4"
+f"${(:name user)} is ${(:age user)} years old"
+```
+
+Use `\$` to include a literal dollar sign: `f"costs \$5"`.
 
 ### Boolean
 
@@ -137,7 +150,7 @@ Bracketed sequences with O(1) indexed access.
 
 ### Map
 
-Curly-braced key-value pairs with deterministic (sorted) ordering.
+Curly-braced key-value pairs with deterministic (sorted) ordering. Maps support [destructuring](./special-forms.md#map-destructuring) in `let`, `define`, `lambda`, and [`match`](./special-forms.md#match) patterns.
 
 ```scheme
 {:name "Ada" :age 36}
@@ -203,6 +216,7 @@ User-defined record types with constructors, predicates, and field accessors.
 | `\x<hex>;`   | Unicode scalar (R7RS, 1+ hex digits) | `"\x1B;"`, `"\x3BB;"` |
 | `\uNNNN`     | Unicode code point (4 hex digits)    | `"\u03BB"` (λ)        |
 | `\UNNNNNNNN` | Unicode code point (8 hex digits)    | `"\U0001F600"` (😀)   |
+| `\$`         | Literal dollar sign (in f-strings)   | `f"costs \$5"`        |
 
 ## Type Predicates
 

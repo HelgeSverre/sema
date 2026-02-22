@@ -1,5 +1,5 @@
 ;; data-pipeline.sema — CSV processing, data transformation, and analysis
-;; Demonstrates: csv, maps, lists, strings, math, sorting
+;; Demonstrates: csv, maps, lists, strings, math, sorting, threading, f-strings
 
 ;; --- Sample CSV data ---
 (define csv-data "name,age,score,city
@@ -14,7 +14,7 @@ Henry,33,88,London")
 
 ;; --- Parse into structured maps ---
 (define records (csv/parse-maps csv-data))
-(println (format "Loaded ~a records" (length records)))
+(println f"Loaded ${(length records)} records")
 
 ;; --- Convert ages and scores to numbers ---
 (define typed-records
@@ -25,36 +25,34 @@ Henry,33,88,London")
     records))
 
 ;; --- Basic statistics ---
-(define ages (map (fn (r) (get r :age)) typed-records))
-(define scores (map (fn (r) (get r :score)) typed-records))
+(define ages (map #(get % :age) typed-records))
+(define scores (map #(get % :score) typed-records))
 
 (define avg-age (/ (foldl + 0 ages) (float (length ages))))
 (define avg-score (/ (foldl + 0 scores) (float (length scores))))
 (define max-score (apply max scores))
 (define min-score (apply min scores))
 
-(println (format "Average age: ~a" (round avg-age)))
-(println (format "Average score: ~a" (round avg-score)))
-(println (format "Score range: ~a - ~a" min-score max-score))
+(println f"Average age: ${(round avg-age)}")
+(println f"Average score: ${(round avg-score)}")
+(println f"Score range: ${min-score} - ${max-score}")
 
 ;; --- Group by city ---
-(define by-city (list/group-by (fn (r) (get r :city)) typed-records))
+(define by-city (list/group-by #(get % :city) typed-records))
 (println "\nPer-city breakdown:")
 (for-each
   (fn (entry)
-    (let ((city (first entry))
-          (people (nth entry 1)))
-      (let* ((city-scores (map (fn (r) (get r :score)) people))
+    (let (([city people] entry))
+      (let* ((city-scores (map #(get % :score) people))
              (city-avg (/ (foldl + 0 city-scores) (float (length city-scores)))))
-        (println (format "  ~a: ~a people, avg score ~a"
-                        city (length people) (round city-avg))))))
+        (println f"  ${city}: ${(length people)} people, avg score ${(round city-avg)}"))))
   (map/entries by-city))
 
 ;; --- Top performers (score >= 90) ---
 (define top-performers
-  (filter (fn (r) (>= (get r :score) 90)) typed-records))
+  (filter #(>= (get % :score) 90) typed-records))
 (println (format "\nTop performers (score >= 90): ~a"
-  (string/join (map (fn (r) (format "~a (~a)" (get r :name) (get r :score))) top-performers) ", ")))
+  (string/join (map #(format "~a (~a)" (get % :name) (get % :score)) top-performers) ", ")))
 
 ;; --- Sort by score descending ---
 (define ranked
@@ -70,7 +68,7 @@ Henry,33,88,London")
 
 ;; --- Export filtered data back to CSV ---
 (define export-rows
-  (cons '("name" "score" "grade")
+  (->> ranked
     (map (fn (r)
       (let ((score (get r :score)))
         (list (get r :name)
@@ -78,8 +76,8 @@ Henry,33,88,London")
               (cond ((>= score 90) "A")
                     ((>= score 80) "B")
                     ((>= score 70) "C")
-                    (else "D")))))
-      ranked)))
+                    (else "D"))))))
+    (cons '("name" "score" "grade"))))
 
 (define exported-csv (csv/encode export-rows))
 (println "\nExported CSV:")

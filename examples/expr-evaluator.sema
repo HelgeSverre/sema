@@ -1,0 +1,60 @@
+;; expr-evaluator.sema — Mini calculator using pattern matching
+;; Demonstrates: match on tagged vectors, guards, recursive match
+
+;; Expressions are tagged vectors: [:op args...]
+(define (eval-expr expr)
+  (match expr
+    ([:add a b]   (+ (eval-expr a) (eval-expr b)))
+    ([:sub a b]   (- (eval-expr a) (eval-expr b)))
+    ([:mul a b]   (* (eval-expr a) (eval-expr b)))
+    ([:div a b]   (/ (eval-expr a) (eval-expr b)))
+    ([:neg x]     (- (eval-expr x)))
+    ([:abs x]     (abs (eval-expr x)))
+    ([:pow a b]   (pow (eval-expr a) (eval-expr b)))
+    (n when (number? n) n)
+    (_ (error f"Unknown expression: ${expr}"))))
+
+;; Pretty-print an expression tree
+(define (show-expr expr)
+  (match expr
+    ([:add a b] f"(${(show-expr a)} + ${(show-expr b)})")
+    ([:sub a b] f"(${(show-expr a)} - ${(show-expr b)})")
+    ([:mul a b] f"(${(show-expr a)} × ${(show-expr b)})")
+    ([:div a b] f"(${(show-expr a)} ÷ ${(show-expr b)})")
+    ([:neg x]   f"-(${(show-expr x)})")
+    ([:abs x]   f"|${(show-expr x)}|")
+    ([:pow a b] f"${(show-expr a)}^${(show-expr b)}")
+    (n (str n))))
+
+(define examples
+  (list
+    [:add 2 [:mul 3 4]]
+    [:sub [:abs [:neg 10]] 3]
+    [:div [:add 10 20] [:sub 8 3]]
+    [:pow 2 [:add 3 7]]))
+
+(println "=== Expression Evaluator ===\n")
+(for-each
+  (fn (expr)
+    (println f"  ${(show-expr expr)} = ${(eval-expr expr)}"))
+  examples)
+
+;; Symbolic simplifier using match
+(define (simplify expr)
+  (match expr
+    ([:add 0 x]   (simplify x))
+    ([:add x 0]   (simplify x))
+    ([:mul 0 _]   0)
+    ([:mul _ 0]   0)
+    ([:mul 1 x]   (simplify x))
+    ([:mul x 1]   (simplify x))
+    ([:neg [:neg x]] (simplify x))
+    ([:add a b]   [:add (simplify a) (simplify b)])
+    ([:mul a b]   [:mul (simplify a) (simplify b)])
+    (x x)))
+
+(println "\nSimplification:")
+(define bloated [:add [:mul 1 [:add 0 5]] [:neg [:neg 3]]])
+(println f"  ${(show-expr bloated)}")
+(println f"  → ${(show-expr (simplify bloated))}")
+(println f"  = ${(eval-expr (simplify bloated))}")

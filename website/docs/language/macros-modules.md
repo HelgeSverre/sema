@@ -35,6 +35,15 @@ Generate a unique symbol for hygienic-ish macro writing.
 (gensym "tmp")   ; => tmp_42 (unique each call)
 ```
 
+### Built-in Macros
+
+Sema includes several macros that are auto-loaded at startup. These don't need to be defined or imported:
+
+- `->`, `->>`, `as->`, `some->` — [Threading macros](./special-forms.html#thread-first)
+- `when-let`, `if-let` — [Conditional binding](./special-forms.html#when-let)
+
+See [Special Forms](./special-forms.html) for full documentation.
+
 ## Metaprogramming
 
 ### `eval`

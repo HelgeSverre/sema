@@ -145,7 +145,7 @@ All providers are auto-configured from environment variables — just set the AP
 
 ## It's Also a Real Lisp
 
-460+ built-in functions, tail-call optimization, macros, modules, error handling — not a toy.
+480+ built-in functions, tail-call optimization, macros, modules, error handling — not a toy.
 
 ```scheme
 ;; Closures, higher-order functions, TCO
@@ -154,16 +154,21 @@ All providers are auto-configured from environment variables — just set the AP
     (if (= i n) a (loop (+ i 1) b (+ a b)))))
 (fibonacci 50) ;; => 12586269025
 
-;; Maps, keywords-as-functions, destructuring
+;; Maps, keywords-as-functions, f-strings
 (define person {:name "Ada" :age 36 :langs ["Lisp" "Rust"]})
 (:name person) ;; => "Ada"
+(println f"${(:name person)} knows ${(length (:langs person))} languages")
 
 ;; Functional pipelines
 (->> (range 1 100)
      (filter even?)
-     (map (fn (x) (* x x)))
+     (map #(* % %))
      (take 5))
 ;; => (4 16 36 64 100)
+
+;; Nested data access
+(define config {:db {:host "localhost" :port 5432}})
+(get-in config [:db :host])  ;; => "localhost"
 
 ;; Macros
 (defmacro unless (test . body)

@@ -251,3 +251,42 @@ Create a map from a list of keys and a list of values.
 ```scheme
 (map/zip '(:a :b :c) '(1 2 3))   ; => {:a 1 :b 2 :c 3}
 ```
+
+## Nested Map Operations
+
+### `get-in`
+
+Access a value at a nested key path. Returns `nil` (or a default) if any key is missing.
+
+```scheme
+(get-in {:a {:b {:c 42}}} [:a :b :c])           ; => 42
+(get-in {:a {:b 1}} [:a :c])                     ; => nil
+(get-in {:a {:b 1}} [:a :c] "default")           ; => "default"
+```
+
+### `assoc-in`
+
+Set a value at a nested key path. Creates intermediate maps if they don't exist.
+
+```scheme
+(assoc-in {:a {:b 1}} [:a :b] 42)                ; => {:a {:b 42}}
+(assoc-in {} [:a :b :c] 99)                      ; => {:a {:b {:c 99}}}
+```
+
+### `update-in`
+
+Update a value at a nested key path by applying a function.
+
+```scheme
+(update-in {:a {:b 10}} [:a :b] #(+ % 1))       ; => {:a {:b 11}}
+```
+
+### `deep-merge`
+
+Recursively merge maps. Nested maps are merged rather than replaced. Non-map values in the overlay override the base.
+
+```scheme
+(deep-merge {:a {:b 1 :c 2}} {:a {:b 99}})      ; => {:a {:b 99 :c 2}}
+(deep-merge {:a {:b 1}} {:a 42})                 ; => {:a 42}
+(deep-merge {:a 1} {:b 2} {:c 3})               ; => {:a 1 :b 2 :c 3}
+```

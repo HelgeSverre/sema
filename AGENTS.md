@@ -46,7 +46,28 @@
 - Format: 24-byte header (magic `\x00SEM` + version + flags), then sections (string table, function table, main chunk, optional debug sections)
 - Spur remapping: global opcodes use string table indices in the file, remapped to process-local Spurs on load
 
+## Testing — Dual Eval (Tree-walker + VM)
+
+Sema has **two evaluators**: a tree-walking interpreter (`sema-eval`) and a bytecode VM (`sema-vm`). Both must produce identical results for all pure-computation features. **Any new language feature must be tested through both backends.**
+
+- **Dual-eval test file**: `crates/sema/tests/dual_eval_test.rs` — use `dual_eval_tests!` and `dual_eval_error_tests!` macros
+- **Shared harness**: `crates/sema/tests/common/mod.rs` — provides `eval_tw()`, `eval_vm()`, `eval_both()`
+- **Legacy files**: `integration_test.rs` (tree-walker only, 938 tests), `vm_integration_test.rs` (VM equivalence, 143 tests)
+- **New tests go in `dual_eval_test.rs`** — the macros generate `_tw` and `_vm` variants automatically
+
+### When to use dual eval
+- Any new special form, destructuring, pattern, or evaluator change → `dual_eval_tests!`
+- Pure stdlib functions (no I/O) → `dual_eval_tests!`
+- I/O, LLM, sandbox, CLI, module/import tests → tree-walker only (`integration_test.rs`)
+
+### Adding VM support for a new special form
+1. Add handler in `try_eval_special()` in `special_forms.rs` (tree-walker)
+2. Add lowering in `lower_list()` dispatch in `crates/sema-vm/src/lower.rs` (VM)
+3. If the form can desugar into existing CoreExpr nodes (If/Let/LetStar/Call), do that in lower.rs
+4. If it needs runtime helpers, add `__vm-<name>` native functions in `register_vm_delegates()` in `eval.rs`
+5. Add `dual_eval_tests!` in `dual_eval_test.rs`
+
 ## Adding Functionality
 
-- **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in `register()`, add integration test.
-- **Special form**: add match arm in `try_eval_special()` in `special_forms.rs`, return `Trampoline`, add integration test.
+- **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in `register()`, add dual-eval test.
+- **Special form**: add in `try_eval_special()` (tree-walker) AND `lower_list()` (VM), add dual-eval test.

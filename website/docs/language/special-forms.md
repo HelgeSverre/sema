@@ -92,6 +92,81 @@ Execute body only if condition is false.
 (unless (> x 0) (println "not positive"))
 ```
 
+## Threading Macros
+
+Built-in macros for pipeline-style code. Available automatically — no import needed.
+
+### `->`
+
+Thread-first: inserts the value as the first argument of each form.
+
+```scheme
+(-> 5 (+ 3) (* 2))                    ; => 16
+(-> response :body json/decode :data)  ; nested access
+```
+
+### `->>`
+
+Thread-last: inserts the value as the last argument of each form.
+
+```scheme
+(->> (range 1 100)
+     (filter even?)
+     (map #(* % %))
+     (take 5))                         ; => (4 16 36 64 100)
+```
+
+### `as->`
+
+Thread-as: bind the threaded value to a name for arbitrary placement.
+
+```scheme
+(as-> 5 x (+ x 3) (* x x) (- x 1))   ; => 63
+```
+
+### `some->`
+
+Nil-safe thread-first: stops and returns `nil` if any step produces `nil`.
+
+```scheme
+(some-> config :database :connection-string db/connect)
+;; returns nil if any step is nil, instead of crashing
+```
+
+## Conditional Binding
+
+### `when-let`
+
+Bind a value and execute body only if non-nil.
+
+```scheme
+(when-let (user (db/find-user id))
+  (send-email user "Welcome back"))
+```
+
+### `if-let`
+
+Bind a value and branch on nil/non-nil.
+
+```scheme
+(if-let (cached (cache/get key))
+  cached
+  (compute-fresh-value))
+```
+
+## Short Lambda
+
+### `#(...)`
+
+Concise anonymous functions. `%` (or `%1`) is the first argument, `%2` the second, etc.
+
+```scheme
+(map #(+ % 1) '(1 2 3))               ; => (2 3 4)
+(map #(* % %) '(1 2 3 4))             ; => (1 4 9 16)
+(filter #(> % 3) '(1 2 3 4 5))        ; => (4 5)
+(#(+ %1 %2) 3 4)                      ; => 7
+```
+
 ## Bindings
 
 ### `let`
@@ -131,6 +206,145 @@ Loop construct with tail-call optimization.
   (if (= i 100)
     sum
     (loop (+ i 1) (+ sum i))))
+```
+
+## Destructuring
+
+`let`, `let*`, `define`, and `lambda` all support destructuring patterns in binding positions.
+
+### Vector Destructuring
+
+Extract elements from lists and vectors by position.
+
+```scheme
+(let (([a b c] '(1 2 3)))
+  (+ a b c))                           ; => 6
+
+(let (([first & rest] '(1 2 3 4)))
+  rest)                                 ; => (2 3 4)
+
+(let (([_ second] '(1 2)))
+  second)                               ; => 2
+```
+
+### Map Destructuring
+
+Extract values from maps using `{:keys [...]}`.
+
+```scheme
+(let (({:keys [name age]} {:name "Alice" :age 30}))
+  (println name))                       ; prints "Alice"
+```
+
+Explicit key-pattern pairs:
+
+```scheme
+(let (({:x val} {:x 42}))
+  val)                                  ; => 42
+```
+
+### Destructuring in `define`
+
+```scheme
+(define [a b c] '(1 2 3))              ; binds a=1, b=2, c=3
+(define {:keys [host port]} config)     ; binds host, port from map
+```
+
+### Destructuring in Function Parameters
+
+```scheme
+(define (sum-pair [a b])
+  (+ a b))
+(sum-pair '(3 4))                       ; => 7
+
+(define (greet {:keys [name title]})
+  (format "Hello ~a ~a" title name))
+(greet {:name "Smith" :title "Dr."})    ; => "Hello Dr. Smith"
+```
+
+Nested patterns are supported:
+
+```scheme
+(let (([[a b] c] '((1 2) 3)))
+  (+ a b c))                           ; => 6
+```
+
+## Pattern Matching
+
+### `match`
+
+Match a value against patterns with optional guards. Returns `nil` if no clause matches.
+
+```scheme
+(match value
+  (pattern body ...)
+  (pattern when guard body ...)
+  ...)
+```
+
+#### Literal Matching
+
+```scheme
+(match status
+  (:ok "success")
+  (:error "failure")
+  (_ "unknown"))
+```
+
+#### Binding Patterns
+
+Symbols bind the matched value. `_` is a wildcard.
+
+```scheme
+(match (+ 1 2)
+  (x (format "got ~a" x)))             ; => "got 3"
+```
+
+#### Vector Patterns
+
+```scheme
+(match '(1 2 3)
+  ([a b c] (+ a b c)))                 ; => 6
+
+(match args
+  ([] (print-help))
+  ([cmd & rest] (dispatch cmd rest)))
+```
+
+#### Map Patterns
+
+Structural matching — keys must exist in the value:
+
+```scheme
+(match response
+  ({:type :ok :data d}   (process d))
+  ({:type :error :msg m} (log-error m))
+  (_                     (println "unknown")))
+```
+
+With `{:keys [...]}` shorthand:
+
+```scheme
+(match config
+  ({:keys [host port]} (connect host port)))
+```
+
+#### Guards
+
+Add `when` after a pattern for conditional matching:
+
+```scheme
+(match n
+  (x when (> x 100) "big")
+  (x when (> x 0)   "small")
+  (_                 "non-positive"))
+```
+
+#### Nested Patterns
+
+```scheme
+(match '(1 (2 3))
+  ([a [b c]] (+ a b c)))               ; => 6
 ```
 
 ## Sequencing & Logic

@@ -1,0 +1,68 @@
+;; config-parser.sema — Parse and validate config using match + destructuring
+;; Demonstrates: match on literals, guards, threading, let destructuring
+
+(define (parse-value raw)
+  (match raw
+    ("true"  #t)
+    ("false" #f)
+    ("nil"   nil)
+    (s when (string/number? s) (int s))
+    (s s)))
+
+(define (parse-config text)
+  (->> (string/split text "\n")
+       (filter #(not (string/empty? (string/trim %))))
+       (filter #(not (string/starts-with? (string/trim %) "#")))
+       (map (fn (line)
+              (let (([key val] (string/split (string/trim line) "=")))
+                (list (string->keyword (string/trim key))
+                      (parse-value (string/trim val))))))
+       (foldl (fn (acc [key val]) (assoc acc key val)) {})))
+
+(define config-text "
+# Application config
+app_name = my-app
+version = 3
+
+# Database
+db_host = localhost
+db_port = 5432
+db_pool_size = 25
+
+# Features
+debug = true
+verbose = false
+max_retries = 5
+timeout = 30
+")
+
+(define config (parse-config config-text))
+
+(println "=== Config Parser ===\n")
+(println f"Parsed ${(count config)} settings:\n")
+
+;; Access with destructuring
+(let (({:keys [app_name version db_host db_port db_pool_size]} config))
+  (println f"  App: ${app_name} v${version}")
+  (println f"  DB:  ${db_host}:${db_port} (pool: ${db_pool_size})"))
+
+;; Validate with match
+(define (validate key value)
+  (match (list key value)
+    ([:db_port p] when (or (< p 1) (> p 65535))
+      (println f"  ✗ ${key}: port ${p} out of range"))
+    ([:db_pool_size n] when (> n 100)
+      (println f"  ✗ ${key}: pool size ${n} too large"))
+    ([:max_retries n] when (> n 10)
+      (println f"  ⚠ ${key}: ${n} retries may be excessive"))
+    ([:timeout n] when (> n 60)
+      (println f"  ⚠ ${key}: ${n}s timeout is high"))
+    ([:debug #t]
+      (println f"  ⚠ ${key}: debug mode is ON"))
+    ([k v]
+      (println f"  ✓ ${k} = ${v}"))))
+
+(println "\nValidation:")
+(for-each
+  (fn ([key val]) (validate key val))
+  (map/entries config))

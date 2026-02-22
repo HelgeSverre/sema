@@ -980,4 +980,42 @@ fn register_vm_delegates(env: &Rc<Env>) {
             sema_core::eval_callback(ctx, &form, &agent_env)
         })),
     );
+
+    // __vm-destructure: strict destructure — errors on shape mismatch
+    // (pattern value) -> map of bindings keyed by symbol
+    env.set(
+        intern("__vm-destructure"),
+        Value::native_fn(NativeFn::simple("__vm-destructure", |args| {
+            if args.len() != 2 {
+                return Err(SemaError::arity("__vm-destructure", "2", args.len()));
+            }
+            let bindings = crate::destructure::destructure(&args[0], &args[1])?;
+            let mut map = std::collections::BTreeMap::new();
+            for (spur, val) in bindings {
+                map.insert(Value::symbol_from_spur(spur), val);
+            }
+            Ok(Value::map(map))
+        })),
+    );
+
+    // __vm-try-match: soft match — returns nil on no match, map of bindings on match
+    // (pattern value) -> nil | map of bindings keyed by symbol
+    env.set(
+        intern("__vm-try-match"),
+        Value::native_fn(NativeFn::simple("__vm-try-match", |args| {
+            if args.len() != 2 {
+                return Err(SemaError::arity("__vm-try-match", "2", args.len()));
+            }
+            match crate::destructure::try_match(&args[0], &args[1])? {
+                Some(bindings) => {
+                    let mut map = std::collections::BTreeMap::new();
+                    for (spur, val) in bindings {
+                        map.insert(Value::symbol_from_spur(spur), val);
+                    }
+                    Ok(Value::map(map))
+                }
+                None => Ok(Value::nil()),
+            }
+        })),
+    );
 }

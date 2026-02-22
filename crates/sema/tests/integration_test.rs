@@ -11100,3 +11100,462 @@ fn test_hash_bang_not_at_start_is_error() {
     let interp = Interpreter::new();
     assert!(interp.eval_str("(+ 1 2)\n#!/usr/bin/env sema").is_err());
 }
+
+// ============================================================
+// Destructuring in `let` (vector patterns)
+// ============================================================
+
+#[test]
+fn test_destructure_let_vector() {
+    // Basic [a b] destructuring from list
+    assert_eq!(eval("(let (([a b] '(1 2))) (+ a b))"), Value::int(3));
+}
+
+#[test]
+fn test_destructure_let_vector_from_vector() {
+    assert_eq!(eval("(let (([a b] [10 20])) (+ a b))"), Value::int(30));
+}
+
+#[test]
+fn test_destructure_let_vector_rest() {
+    // [a b & rest] rest pattern
+    assert_eq!(eval("(let (([a b & rest] '(1 2 3 4 5))) rest)"), eval("'(3 4 5)"));
+}
+
+#[test]
+fn test_destructure_let_vector_rest_empty() {
+    assert_eq!(eval("(let (([a b & rest] '(1 2))) rest)"), eval("'()"));
+}
+
+#[test]
+fn test_destructure_let_wildcard() {
+    // _ discards
+    assert_eq!(eval("(let (([_ b] '(1 2))) b)"), Value::int(2));
+}
+
+#[test]
+fn test_destructure_let_nested_vector() {
+    assert_eq!(eval("(let (([[a b] c] '((1 2) 3))) (+ a b c))"), Value::int(6));
+}
+
+// ============================================================
+// Destructuring in `let` (map patterns)
+// ============================================================
+
+#[test]
+fn test_destructure_let_map_keys() {
+    assert_eq!(eval("(let (({:keys [x y]} {:x 10 :y 20})) (+ x y))"), Value::int(30));
+}
+
+#[test]
+fn test_destructure_let_map_missing_key() {
+    // Missing key binds to nil
+    assert_eq!(eval("(let (({:keys [x y]} {:x 10})) y)"), Value::nil());
+}
+
+#[test]
+fn test_destructure_let_map_explicit_key() {
+    // Explicit key-pattern pair: {:key-name pattern}
+    assert_eq!(eval("(let (({:x val} {:x 42})) val)"), Value::int(42));
+}
+
+// ============================================================
+// Destructuring in `let*`
+// ============================================================
+
+#[test]
+fn test_destructure_let_star_sequential() {
+    assert_eq!(
+        eval("(let* (([a b] '(1 2)) (c (+ a b))) c)"),
+        Value::int(3)
+    );
+}
+
+// ============================================================
+// Destructuring in `define`
+// ============================================================
+
+#[test]
+fn test_destructure_define_vector() {
+    assert_eq!(eval("(begin (define [a b c] '(1 2 3)) (+ a b c))"), Value::int(6));
+}
+
+#[test]
+fn test_destructure_define_map() {
+    assert_eq!(eval("(begin (define {:keys [name age]} {:name \"Alice\" :age 30}) age)"), Value::int(30));
+}
+
+// ============================================================
+// Destructuring in `lambda` parameters
+// ============================================================
+
+#[test]
+fn test_destructure_lambda_vector_param() {
+    assert_eq!(
+        eval("((lambda ([a b]) (+ a b)) '(1 2))"),
+        Value::int(3)
+    );
+}
+
+#[test]
+fn test_destructure_lambda_map_param() {
+    assert_eq!(
+        eval("((lambda ({:keys [x y]}) (+ x y)) {:x 3 :y 4})"),
+        Value::int(7)
+    );
+}
+
+#[test]
+fn test_destructure_lambda_mixed_params() {
+    assert_eq!(
+        eval("((lambda (a [b c]) (+ a b c)) 10 '(20 30))"),
+        Value::int(60)
+    );
+}
+
+#[test]
+fn test_destructure_define_function_with_destructuring() {
+    assert_eq!(
+        eval("(begin (define sum-pair (lambda ([a b]) (+ a b))) (sum-pair '(3 4)))"),
+        Value::int(7)
+    );
+}
+
+// ============================================================
+// Pattern matching `match`
+// ============================================================
+
+#[test]
+fn test_match_literal_int() {
+    assert_eq!(
+        eval("(match 42 (42 \"found\") (_ \"nope\"))"),
+        Value::string("found")
+    );
+}
+
+#[test]
+fn test_match_literal_string() {
+    assert_eq!(
+        eval(r#"(match "hello" ("hello" 1) ("world" 2) (_ 0))"#),
+        Value::int(1)
+    );
+}
+
+#[test]
+fn test_match_literal_keyword() {
+    assert_eq!(
+        eval("(match :ok (:ok \"success\") (:err \"failure\"))"),
+        Value::string("success")
+    );
+}
+
+#[test]
+fn test_match_literal_bool() {
+    assert_eq!(
+        eval("(match #t (#t \"yes\") (#f \"no\"))"),
+        Value::string("yes")
+    );
+}
+
+#[test]
+fn test_match_wildcard() {
+    assert_eq!(
+        eval("(match 99 (1 \"one\") (2 \"two\") (_ \"other\"))"),
+        Value::string("other")
+    );
+}
+
+#[test]
+fn test_match_symbol_binding() {
+    assert_eq!(
+        eval("(match 42 (x (+ x 8)))"),
+        Value::int(50)
+    );
+}
+
+#[test]
+fn test_match_vector_pattern() {
+    assert_eq!(
+        eval("(match '(1 2 3) ([a b c] (+ a b c)))"),
+        Value::int(6)
+    );
+}
+
+#[test]
+fn test_match_vector_rest() {
+    assert_eq!(
+        eval("(match '(1 2 3 4) ([a & rest] rest))"),
+        eval("'(2 3 4)")
+    );
+}
+
+#[test]
+fn test_match_map_keys() {
+    assert_eq!(
+        eval("(match {:x 10 :y 20} ({:keys [x y]} (+ x y)))"),
+        Value::int(30)
+    );
+}
+
+#[test]
+fn test_match_guard() {
+    assert_eq!(
+        eval("(match 5 (x when (> x 10) \"big\") (x when (> x 0) \"small\") (_ \"zero\"))"),
+        Value::string("small")
+    );
+}
+
+#[test]
+fn test_match_guard_with_binding() {
+    assert_eq!(
+        eval("(match 15 (x when (> x 10) (+ x 1)) (x x))"),
+        Value::int(16)
+    );
+}
+
+#[test]
+fn test_match_no_match_returns_nil() {
+    assert_eq!(
+        eval("(match 42 (1 \"one\") (2 \"two\"))"),
+        Value::nil()
+    );
+}
+
+#[test]
+fn test_match_multiple_body_exprs() {
+    assert_eq!(
+        eval("(match 1 (1 (define x 10) (+ x 5)))"),
+        Value::int(15)
+    );
+}
+
+#[test]
+fn test_match_nested_patterns() {
+    assert_eq!(
+        eval("(match '(1 (2 3)) ([a [b c]] (+ a b c)))"),
+        Value::int(6)
+    );
+}
+
+#[test]
+fn test_match_map_structural() {
+    // Structural map match: key must exist in value
+    assert_eq!(
+        eval("(match {:type :ok :val 42} ({:type :ok :val v} v) (_ nil))"),
+        Value::int(42)
+    );
+}
+
+#[test]
+fn test_match_map_structural_no_match() {
+    assert_eq!(
+        eval("(match {:type :err} ({:type :ok :val v} v) (_ \"fallback\"))"),
+        Value::string("fallback")
+    );
+}
+
+// ============================================================
+// Edge cases: destructuring errors
+// ============================================================
+
+#[test]
+fn test_destructure_too_few_elements() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(let (([a b c] '(1 2))) a)").is_err());
+}
+
+#[test]
+fn test_destructure_too_many_elements() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(let (([a b] '(1 2 3))) a)").is_err());
+}
+
+#[test]
+fn test_destructure_rest_too_few() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(let (([a b & rest] '(1))) a)").is_err());
+}
+
+#[test]
+fn test_destructure_non_list_value() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(let (([a b] 42)) a)").is_err());
+}
+
+#[test]
+fn test_destructure_map_non_map_value() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(let (({:keys [x]} '(1 2))) x)").is_err());
+}
+
+#[test]
+fn test_destructure_amp_no_rest_pattern() {
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(let (([a &] '(1 2))) a)").is_err());
+}
+
+#[test]
+fn test_destructure_wildcard_in_vector() {
+    // Multiple wildcards should work
+    assert_eq!(eval("(let (([_ _ c] '(1 2 3))) c)"), Value::int(3));
+}
+
+#[test]
+fn test_destructure_map_keys_as_list() {
+    // {:keys (x y)} with list syntax instead of vector
+    assert_eq!(eval("(let (({:keys (x y)} {:x 5 :y 6})) (+ x y))"), Value::int(11));
+}
+
+#[test]
+fn test_destructure_hashmap() {
+    // Destructuring should work with hashmaps too
+    assert_eq!(
+        eval("(let (({:keys [x]} (hash-map :x 99))) x)"),
+        Value::int(99)
+    );
+}
+
+// ============================================================
+// Edge cases: match patterns
+// ============================================================
+
+#[test]
+fn test_match_vector_pattern_wrong_type() {
+    // Vector pattern against non-sequence falls through
+    assert_eq!(
+        eval("(match 42 ([a b] \"list\") (_ \"other\"))"),
+        Value::string("other")
+    );
+}
+
+#[test]
+fn test_match_vector_length_mismatch() {
+    assert_eq!(
+        eval("(match '(1 2 3) ([a b] \"two\") (_ \"other\"))"),
+        Value::string("other")
+    );
+}
+
+#[test]
+fn test_match_map_non_map_falls_through() {
+    assert_eq!(
+        eval("(match 42 ({:keys [x]} \"map\") (_ \"other\"))"),
+        Value::string("other")
+    );
+}
+
+#[test]
+fn test_match_map_missing_key_falls_through() {
+    // Structural match: required key missing → no match
+    assert_eq!(
+        eval("(match {:a 1} ({:b val} \"found\") (_ \"nope\"))"),
+        Value::string("nope")
+    );
+}
+
+#[test]
+fn test_match_quoted_literal() {
+    assert_eq!(
+        eval("(match 'foo ('foo \"yes\") (_ \"no\"))"),
+        Value::string("yes")
+    );
+}
+
+#[test]
+fn test_match_quoted_literal_no_match() {
+    assert_eq!(
+        eval("(match 'bar ('foo \"yes\") (_ \"no\"))"),
+        Value::string("no")
+    );
+}
+
+#[test]
+fn test_match_nil() {
+    assert_eq!(
+        eval("(match nil (nil \"null\") (_ \"other\"))"),
+        Value::string("null")
+    );
+}
+
+#[test]
+fn test_match_vector_element_mismatch() {
+    // First element matches but second doesn't
+    assert_eq!(
+        eval("(match '(1 2) ([1 3] \"a\") ([1 2] \"b\"))"),
+        Value::string("b")
+    );
+}
+
+#[test]
+fn test_match_rest_pattern() {
+    // Rest pattern in match with empty rest
+    assert_eq!(
+        eval("(match '(1) ([a & rest] rest))"),
+        eval("'()")
+    );
+}
+
+#[test]
+fn test_match_clause_as_list() {
+    // Clauses can be lists too, not just vectors
+    assert_eq!(
+        eval("(match 42 (42 \"yes\"))"),
+        Value::string("yes")
+    );
+}
+
+#[test]
+fn test_match_deeply_nested() {
+    assert_eq!(
+        eval("(match '(1 (2 (3))) ([a [b [c]]] (+ a b c)))"),
+        Value::int(6)
+    );
+}
+
+#[test]
+fn test_match_guard_all_fail() {
+    assert_eq!(
+        eval("(match 5 (x when (> x 100) \"big\") (x when (< x 0) \"neg\"))"),
+        Value::nil()
+    );
+}
+
+#[test]
+fn test_match_hashmap() {
+    // match should work with hashmaps
+    assert_eq!(
+        eval("(match (hash-map :x 42) ({:keys [x]} x))"),
+        Value::int(42)
+    );
+}
+
+// ============================================================
+// Edge cases: lambda destructuring
+// ============================================================
+
+#[test]
+fn test_destructure_lambda_with_rest() {
+    // Lambda with destructuring + dot rest
+    assert_eq!(
+        eval("((lambda ([a b] . rest) (list a b rest)) '(1 2) 3 4)"),
+        eval("'(1 2 (3 4))")
+    );
+}
+
+#[test]
+fn test_destructure_define_vector_in_let_star() {
+    // let* with destructuring sees previous bindings
+    assert_eq!(
+        eval("(let* ((data '(10 20)) ([a b] data)) (+ a b))"),
+        Value::int(30)
+    );
+}
+
+#[test]
+fn test_destructure_nested_map_in_vector() {
+    // [a {:keys [b]}] nested pattern
+    assert_eq!(
+        eval("(let (([a {:keys [b]}] (list 1 {:b 2}))) (+ a b))"),
+        Value::int(3)
+    );
+}

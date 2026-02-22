@@ -52,20 +52,26 @@
 
 ### Phase 3 — Medium Effort, Very High Value
 
-- [ ] **6. Destructuring in `let` / `define` / `lambda`**
+- [x] **6. Destructuring in `let` / `define` / `lambda`** ✅
   - **Effort:** Medium-High | **Gain:** Very High
-  - Start with map destructuring `{:keys [a b]}` in `let`
-  - Then list destructuring `[first second & rest]`
-  - Then function parameter destructuring
-  - Files: `crates/sema-eval/src/special_forms.rs`, `crates/sema-eval/src/eval.rs`
-  - Foundation for pattern matching (item 7)
+  - New `crates/sema-eval/src/destructure.rs` module with `destructure()` and `try_match()` entry points
+  - Vector destructuring `[a b & rest]` — exact or rest-args, nested patterns supported
+  - Map destructuring `{:keys [a b]}` — binds keyword keys to symbols, nil for missing
+  - Explicit map key-pattern pairs `{:key pattern}` also supported
+  - Wired into `let`, `let*`, `define` (all accept patterns in binding position)
+  - Lambda parameter destructuring via desugaring: `(lambda ([a b] {:keys [x]}) ...)` → temp args + `let*` wrapper
+  - Files changed: `crates/sema-eval/src/destructure.rs` (new), `crates/sema-eval/src/special_forms.rs`, `crates/sema-eval/src/lib.rs`
 
-- [ ] **7. Pattern matching `match`**
+- [x] **7. Pattern matching `match`** ✅
   - **Effort:** High | **Gain:** Very High
-  - Implement after destructuring (shares infrastructure)
-  - Special form: `(match expr [pattern body] ...)`
-  - Support: literals, wildcards `_`, map patterns, list patterns, guards `when`
-  - Files: `crates/sema-eval/src/special_forms.rs`, new `match.rs` module
+  - New special form: `(match expr [pattern body...] ...)`
+  - Supports: literals, symbol binding, wildcards `_`, vector patterns, map patterns (structural + `:keys`), quoted literals
+  - Guards via `when`: `[pattern when (> x 0) body...]`
+  - Shares `destructure.rs` infrastructure (`try_match()` for soft matching)
+  - TCO-compatible: tail-calls last body expression in matched clause
+  - Returns `nil` when no clause matches
+  - Also added `Value::is_falsy()` convenience method to `sema-core`
+  - Files changed: `crates/sema-eval/src/special_forms.rs`, `crates/sema-core/src/value.rs`
 
 ### Backlog — Lower Priority
 
@@ -102,6 +108,8 @@ _(Items move here as they're implemented)_
 
 - All Phase 1 items can be done without touching the evaluator core
 - Phase 2 items need minor evaluator/reader changes
-- Phase 3 items are the biggest effort but highest long-term payoff
-- Destructuring (item 6) is prerequisite for pattern matching (item 7)
+- Phase 3 items are the biggest effort but highest long-term payoff — now complete
+- Destructuring (item 6) is prerequisite for pattern matching (item 7) — both done
 - Items 8-12 are nice-to-have and can be done opportunistically
+- **Still needs:** docs/website updates
+- **Dual-eval test migration:** 1,077 tests across 9 test files ensure TW/VM equivalence covering: core language (arithmetic, closures, control flow, error handling, macros, TCO), destructuring, match, f-strings, short lambdas, threading macros, when-let/if-let, data types (char, bytevector, base64, bitwise, delay/force, records, embeddings), map ops (get-in/assoc-in/update-in/deep-merge), JSON, regex, CSV, format, hash, type predicates/conversions, string ops, list ops, vector ops, text processing, terminal/ANSI, pretty-print, context system, prompt/message/conversation/document primitives, tool/agent definitions, LLM utilities, file I/O, path ops, system/env, time, shell, and more

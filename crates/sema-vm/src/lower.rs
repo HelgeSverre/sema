@@ -160,6 +160,8 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             return lower_force(args);
         } else if s == sf("define-record-type") {
             return lower_define_record_type(args);
+        } else if s == sf("match") {
+            return lower_match(args, tail);
         }
     }
 
@@ -214,7 +216,112 @@ fn extract_param_spurs(param_list: &[Value], context: &str) -> Result<Vec<Spur>,
         .collect()
 }
 
-/// Parse a binding list like `((x 1) (y 2))` into `Vec<(Spur, CoreExpr)>`.
+/// Generate a unique temporary variable name.
+fn gensym(prefix: &str) -> Spur {
+    thread_local! {
+        static COUNTER: Cell<usize> = const { Cell::new(0) };
+    }
+    let n = COUNTER.with(|c| {
+        let v = c.get();
+        c.set(v + 1);
+        v
+    });
+    intern(&format!("__vm${prefix}${n}"))
+}
+
+/// Check if a Value is a destructuring pattern (vector or map).
+fn is_destructuring_pattern(val: &Value) -> bool {
+    val.as_vector().is_some() || val.as_map_ref().is_some()
+}
+
+/// Collect all variable names bound by a destructuring pattern.
+fn collect_pattern_vars(pattern: &Value) -> Vec<Spur> {
+    let underscore = intern("_");
+    let amp = intern("&");
+    let keys_kw = Value::keyword("keys");
+
+    let mut vars = Vec::new();
+
+    if let Some(spur) = pattern.as_symbol_spur() {
+        if spur != underscore {
+            vars.push(spur);
+        }
+    } else if let Some(elems) = pattern.as_vector() {
+        for elem in elems {
+            if let Some(s) = elem.as_symbol_spur() {
+                if s == amp {
+                    continue;
+                }
+            }
+            vars.extend(collect_pattern_vars(elem));
+        }
+    } else if let Some(map) = pattern.as_map_ref() {
+        if let Some(keys_val) = map.get(&keys_kw) {
+            let key_names = if let Some(v) = keys_val.as_vector() {
+                v.to_vec()
+            } else if let Some(l) = keys_val.as_list() {
+                l.to_vec()
+            } else {
+                vec![]
+            };
+            for k in &key_names {
+                if let Some(s) = k.as_symbol_spur() {
+                    vars.push(s);
+                }
+            }
+        }
+        for (k, v_pat) in map.iter() {
+            if k == &keys_kw {
+                continue;
+            }
+            vars.extend(collect_pattern_vars(v_pat));
+        }
+    }
+
+    vars
+}
+
+/// Lower a destructuring binding: given a pattern and an init expression,
+/// produce LetStar bindings that call `__vm-destructure` and extract vars.
+fn lower_destructuring_bindings(
+    pattern: &Value,
+    init: CoreExpr,
+) -> Result<Vec<(Spur, CoreExpr)>, SemaError> {
+    let tmp = gensym("val");
+    let map_tmp = gensym("map");
+    let vars = collect_pattern_vars(pattern);
+    let get_spur = intern("get");
+
+    let mut bindings = Vec::new();
+    // (define tmp init)
+    bindings.push((tmp, init));
+    // (define map_tmp (__vm-destructure 'pattern tmp))
+    bindings.push((
+        map_tmp,
+        CoreExpr::Call {
+            func: Box::new(CoreExpr::Var(intern("__vm-destructure"))),
+            args: vec![CoreExpr::Quote(pattern.clone()), CoreExpr::Var(tmp)],
+            tail: false,
+        },
+    ));
+    // For each var: (define var (get map_tmp 'var))
+    for var_spur in vars {
+        bindings.push((
+            var_spur,
+            CoreExpr::Call {
+                func: Box::new(CoreExpr::Var(get_spur)),
+                args: vec![
+                    CoreExpr::Var(map_tmp),
+                    CoreExpr::Quote(Value::symbol_from_spur(var_spur)),
+                ],
+                tail: false,
+            },
+        ));
+    }
+    Ok(bindings)
+}
+
+/// Parse a binding list, supporting both symbols and destructuring patterns.
 fn parse_bindings(bindings_val: &Value, context: &str) -> Result<Vec<(Spur, CoreExpr)>, SemaError> {
     let bindings_list = require_list(bindings_val, context)?;
     let mut bindings = Vec::new();
@@ -225,9 +332,16 @@ fn parse_bindings(bindings_val: &Value, context: &str) -> Result<Vec<(Spur, Core
                 "{context}: each binding must have 2 elements"
             )));
         }
-        let name = require_symbol(&pair[0], context)?;
         let init = lower_expr(&pair[1], false)?;
-        bindings.push((name, init));
+        if let Some(name) = pair[0].as_symbol_spur() {
+            bindings.push((name, init));
+        } else if is_destructuring_pattern(&pair[0]) {
+            bindings.extend(lower_destructuring_bindings(&pair[0], init)?);
+        } else {
+            return Err(SemaError::eval(format!(
+                "{context}: binding name must be a symbol, vector, or map pattern"
+            )));
+        }
     }
     Ok(bindings)
 }
@@ -343,7 +457,23 @@ fn lower_define(args: &[Value]) -> Result<CoreExpr, SemaError> {
                 })),
             ))
         }
-        _ => Err(SemaError::type_error("symbol or list", args[0].type_name())),
+        _ if is_destructuring_pattern(&args[0]) => {
+            // (define [a b] expr) or (define {:keys [x y]} expr)
+            if args.len() != 2 {
+                return Err(SemaError::arity("define", "2", args.len()));
+            }
+            let init = lower_expr(&args[1], false)?;
+            let destr_bindings = lower_destructuring_bindings(&args[0], init)?;
+            let mut defines: Vec<CoreExpr> = Vec::new();
+            for (spur, expr) in destr_bindings {
+                defines.push(CoreExpr::Define(spur, Box::new(expr)));
+            }
+            Ok(CoreExpr::Begin(defines))
+        }
+        _ => Err(SemaError::type_error(
+            "symbol, list, vector, or map",
+            args[0].type_name(),
+        )),
     }
 }
 
@@ -385,15 +515,66 @@ fn lower_lambda(args: &[Value], name: Option<Spur>) -> Result<CoreExpr, SemaErro
         ValueView::Vector(params) => params.as_ref().clone(),
         _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
     };
-    let param_spurs = extract_param_spurs(&param_vals, "lambda")?;
-    let (params, rest) = parse_params(&param_spurs);
-    let body = lower_body(&args[1..], true)?;
-    Ok(CoreExpr::Lambda(LambdaDef {
-        name,
-        params,
-        rest,
-        body,
-    }))
+
+    let dot = intern(".");
+    let needs_destructuring = param_vals.iter().any(|p| {
+        p.as_symbol_spur() != Some(dot) && is_destructuring_pattern(p)
+    });
+
+    if needs_destructuring {
+        // Desugar: generate temp param names, wrap body in let*
+        let mut temp_spurs = Vec::new();
+        let mut let_bindings = Vec::new();
+        let mut hit_dot = false;
+        let mut rest_spur = None;
+
+        for (idx, p) in param_vals.iter().enumerate() {
+            if let Some(s) = p.as_symbol_spur() {
+                if s == dot {
+                    hit_dot = true;
+                    continue;
+                }
+                if hit_dot {
+                    rest_spur = Some(s);
+                    continue;
+                }
+                temp_spurs.push(s);
+            } else {
+                let tmp = gensym(&format!("arg{idx}"));
+                temp_spurs.push(tmp);
+                let destr = lower_destructuring_bindings(p, CoreExpr::Var(tmp))?;
+                let_bindings.extend(destr);
+            }
+        }
+
+        let orig_body = lower_body(&args[1..], true)?;
+        let body = if let_bindings.is_empty() {
+            orig_body
+        } else {
+            vec![CoreExpr::LetStar {
+                bindings: let_bindings,
+                body: orig_body,
+            }]
+        };
+
+        Ok(CoreExpr::Lambda(LambdaDef {
+            name,
+            params: temp_spurs,
+            rest: rest_spur,
+            body,
+        }))
+    } else {
+        // Fast path: all params are symbols
+        let param_spurs = extract_param_spurs(&param_vals, "lambda")?;
+        let (params, rest) = parse_params(&param_spurs);
+        let body = lower_body(&args[1..], true)?;
+        Ok(CoreExpr::Lambda(LambdaDef {
+            name,
+            params,
+            rest,
+            body,
+        }))
+    }
 }
 
 fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
@@ -439,10 +620,62 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
         });
     }
 
-    // Regular let
-    let bindings = parse_bindings(&args[0], "let")?;
-    let body = lower_body(&args[1..], tail)?;
-    Ok(CoreExpr::Let { bindings, body })
+    // Regular let — check if any binding uses destructuring
+    let bindings_list = require_list(&args[0], "let")?;
+    let has_destructuring = bindings_list.iter().any(|b| {
+        b.as_list()
+            .map(|pair| pair.len() >= 1 && is_destructuring_pattern(&pair[0]))
+            .unwrap_or(false)
+    });
+
+    if has_destructuring {
+        // For `let` semantics: evaluate ALL inits in the outer env first (parallel),
+        // then destructure sequentially. Split into two phases:
+        // Phase 1: (let ((tmp1 init1) (tmp2 init2) ...) ...)  — parallel eval
+        // Phase 2: (let* ((destr-bindings-from-tmp1) (destr-bindings-from-tmp2) ...) body)
+        let mut parallel_bindings = Vec::new();
+        let mut sequential_bindings = Vec::new();
+
+        for binding in bindings_list {
+            let pair = require_list(binding, "let")?;
+            if pair.len() != 2 {
+                return Err(SemaError::eval("let: each binding must have 2 elements"));
+            }
+            let init = lower_expr(&pair[1], false)?;
+            if let Some(name) = pair[0].as_symbol_spur() {
+                // Simple binding: goes into both phases (parallel eval, then visible)
+                let tmp = gensym("let");
+                parallel_bindings.push((tmp, init));
+                sequential_bindings.push((name, CoreExpr::Var(tmp)));
+            } else if is_destructuring_pattern(&pair[0]) {
+                // Destructuring: eval init in parallel, destructure in sequential phase
+                let tmp = gensym("let");
+                parallel_bindings.push((tmp, init));
+                let destr = lower_destructuring_bindings(&pair[0], CoreExpr::Var(tmp))?;
+                // Skip the first binding (val tmp — redundant since we already have tmp)
+                // The first binding is (val_tmp, Var(tmp)), second is (map_tmp, call destructure)
+                // We need all bindings from the map_tmp onwards, but val_tmp references our tmp
+                sequential_bindings.extend(destr);
+            } else {
+                return Err(SemaError::eval(
+                    "let: binding name must be a symbol, vector, or map pattern",
+                ));
+            }
+        }
+
+        let body = lower_body(&args[1..], tail)?;
+        Ok(CoreExpr::Let {
+            bindings: parallel_bindings,
+            body: vec![CoreExpr::LetStar {
+                bindings: sequential_bindings,
+                body,
+            }],
+        })
+    } else {
+        let bindings = parse_bindings(&args[0], "let")?;
+        let body = lower_body(&args[1..], tail)?;
+        Ok(CoreExpr::Let { bindings, body })
+    }
 }
 
 fn lower_let_star(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
@@ -764,6 +997,202 @@ fn lower_case_clauses(clauses: &[Value], key_var: Spur, tail: bool) -> Result<Co
         test: Box::new(test),
         then: Box::new(then),
         else_: Box::new(else_),
+    })
+}
+
+/// Lower `(match expr [pattern body...] [pattern when guard body...] ...)`
+/// into nested if/let* chains calling `__vm-try-match`.
+fn lower_match(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
+    if args.len() < 2 {
+        return Err(SemaError::arity("match", "2+", args.len()));
+    }
+    let scrut = lower_expr(&args[0], false)?;
+    let scrut_tmp = gensym("scrut");
+    let try_match_spur = intern("__vm-try-match");
+    let get_spur = intern("get");
+    let nil_q_spur = intern("nil?");
+    let when_spur = intern("when");
+
+    let body = lower_match_clauses(
+        &args[1..],
+        scrut_tmp,
+        try_match_spur,
+        get_spur,
+        nil_q_spur,
+        when_spur,
+        tail,
+    )?;
+
+    Ok(CoreExpr::Let {
+        bindings: vec![(scrut_tmp, scrut)],
+        body: vec![body],
+    })
+}
+
+fn lower_match_clauses(
+    clauses: &[Value],
+    scrut_var: Spur,
+    try_match_spur: Spur,
+    get_spur: Spur,
+    nil_q_spur: Spur,
+    when_spur: Spur,
+    tail: bool,
+) -> Result<CoreExpr, SemaError> {
+    if clauses.is_empty() {
+        return Ok(CoreExpr::Const(Value::nil()));
+    }
+
+    let clause = if let Some(l) = clauses[0].as_list() {
+        l
+    } else if let Some(v) = clauses[0].as_vector() {
+        v
+    } else {
+        return Err(SemaError::eval("match: each clause must be a list or vector"));
+    };
+
+    if clause.is_empty() {
+        return Err(SemaError::eval("match: clause must not be empty"));
+    }
+
+    let pattern = &clause[0];
+
+    // Check for guard: [pattern when guard body...]
+    let (has_guard, guard_idx) = if clause.len() >= 3 {
+        if let Some(s) = clause[1].as_symbol_spur() {
+            if s == when_spur {
+                (true, 2)
+            } else {
+                (false, 0)
+            }
+        } else {
+            (false, 0)
+        }
+    } else {
+        (false, 0)
+    };
+
+    let body_start = if has_guard { guard_idx + 1 } else { 1 };
+    let map_tmp = gensym("match");
+    let vars = collect_pattern_vars(pattern);
+
+    // Build: (__vm-try-match 'pattern scrut_var)
+    let try_call = CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(try_match_spur)),
+        args: vec![
+            CoreExpr::Quote(pattern.clone()),
+            CoreExpr::Var(scrut_var),
+        ],
+        tail: false,
+    };
+
+    // Build the var extraction bindings: (get map 'var) for each var
+    let mut var_bindings = Vec::new();
+    for var_spur in &vars {
+        var_bindings.push((
+            *var_spur,
+            CoreExpr::Call {
+                func: Box::new(CoreExpr::Var(get_spur)),
+                args: vec![
+                    CoreExpr::Var(map_tmp),
+                    CoreExpr::Quote(Value::symbol_from_spur(*var_spur)),
+                ],
+                tail: false,
+            },
+        ));
+    }
+
+    // Build the body
+    let clause_body = if body_start >= clause.len() {
+        vec![CoreExpr::Const(Value::nil())]
+    } else {
+        lower_body(&clause[body_start..], tail)?
+    };
+
+    // Wrap body in let* to bind extracted vars
+    let then_expr = if var_bindings.is_empty() {
+        if clause_body.len() == 1 {
+            clause_body.into_iter().next().unwrap()
+        } else {
+            CoreExpr::Begin(clause_body)
+        }
+    } else {
+        CoreExpr::LetStar {
+            bindings: var_bindings.clone(),
+            body: clause_body,
+        }
+    };
+
+    // If guard present, wrap in additional check
+    let then_with_guard = if has_guard {
+        let guard = lower_expr(&clause[guard_idx], false)?;
+        // If guard fails, fall through to remaining clauses
+        let else_clauses = lower_match_clauses(
+            &clauses[1..],
+            scrut_var,
+            try_match_spur,
+            get_spur,
+            nil_q_spur,
+            when_spur,
+            tail,
+        )?;
+        // Need var bindings available for guard eval too
+        let guard_body = CoreExpr::If {
+            test: Box::new(guard),
+            then: Box::new(then_expr),
+            else_: Box::new(else_clauses),
+        };
+        if var_bindings.is_empty() {
+            guard_body
+        } else {
+            CoreExpr::LetStar {
+                bindings: var_bindings,
+                body: vec![guard_body],
+            }
+        }
+    } else {
+        then_expr
+    };
+
+    // Else: try remaining clauses
+    let else_expr = if has_guard {
+        // Already handled above in the guard branch
+        CoreExpr::Const(Value::nil()) // placeholder, won't be reached
+    } else {
+        lower_match_clauses(
+            &clauses[1..],
+            scrut_var,
+            try_match_spur,
+            get_spur,
+            nil_q_spur,
+            when_spur,
+            tail,
+        )?
+    };
+
+    // Build: (let ((map_tmp (try-match ...))) (if (nil? map_tmp) else then))
+    let test = CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(nil_q_spur)),
+        args: vec![CoreExpr::Var(map_tmp)],
+        tail: false,
+    };
+
+    let if_expr = if has_guard {
+        CoreExpr::If {
+            test: Box::new(test),
+            then: Box::new(else_expr),   // nil? true = no match, try next
+            else_: Box::new(then_with_guard), // matched, check guard + run body
+        }
+    } else {
+        CoreExpr::If {
+            test: Box::new(test),
+            then: Box::new(else_expr),        // nil? true = no match
+            else_: Box::new(then_with_guard), // matched
+        }
+    };
+
+    Ok(CoreExpr::Let {
+        bindings: vec![(map_tmp, try_call)],
+        body: vec![if_expr],
     })
 }
 

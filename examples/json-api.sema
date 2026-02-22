@@ -14,7 +14,7 @@
                                 "country" "Norway")))
 
 (println "Sema value:")
-(println (format "  ~a\n" user))
+(println f"  ${user}\n")
 (println "JSON (pretty):")
 (println (json/encode-pretty user))
 
@@ -22,14 +22,14 @@
 (println "\n--- Decoding JSON ---\n")
 
 (define json-str "{\"id\":42,\"title\":\"Hello World\",\"published\":true,\"scores\":[95,87,92]}")
-(println (format "Input: ~a" json-str))
+(println f"Input: ${json-str}")
 
 (define parsed (json/decode json-str))
-(println (format "Title: ~a" (get parsed :title)))
-(println (format "Published? ~a" (get parsed :published)))
-(println (format "Scores: ~a" (get parsed :scores)))
-(println (format "Avg score: ~a" (/ (list/sum (get parsed :scores))
-                                     (length (get parsed :scores)))))
+(println f"Title: ${(get parsed :title)}")
+(println f"Published? ${(get parsed :published)}")
+(println f"Scores: ${(get parsed :scores)}")
+(println f"Avg score: ${(/ (list/sum (get parsed :scores))
+                            (length (get parsed :scores)))}")
 
 ;; --- Roundtrip ---
 (println "\n--- Roundtrip Encode/Decode ---\n")
@@ -37,11 +37,11 @@
 (define original (hash-map "x" 1 "y" (list 2 3) "z" (hash-map "nested" true)))
 (define json-roundtrip (json/encode original))
 (define roundtripped (json/decode json-roundtrip))
-(println (format "Original:     ~a" original))
-(println (format "As JSON:      ~a" json-roundtrip))
-(println (format "Decoded back: ~a" roundtripped))
-(println (format "Re-encoded:   ~a" (json/encode roundtripped)))
-(println (format "JSON matches? ~a" (equal? json-roundtrip (json/encode roundtripped))))
+(println f"Original:     ${original}")
+(println f"As JSON:      ${json-roundtrip}")
+(println f"Decoded back: ${roundtripped}")
+(println f"Re-encoded:   ${(json/encode roundtripped)}")
+(println f"JSON matches? ${(equal? json-roundtrip (json/encode roundtripped))}")
 
 ;; --- Transform & query JSON data ---
 (println "\n--- Transform & Query ---\n")
@@ -50,21 +50,21 @@
   "[{\"name\":\"Laptop\",\"price\":999,\"category\":\"electronics\"},{\"name\":\"Book\",\"price\":15,\"category\":\"media\"},{\"name\":\"Phone\",\"price\":699,\"category\":\"electronics\"},{\"name\":\"Album\",\"price\":10,\"category\":\"media\"},{\"name\":\"Tablet\",\"price\":449,\"category\":\"electronics\"}]")
 
 (define products (json/decode products-json))
-(println (format "Total products: ~a" (length products)))
+(println f"Total products: ${(length products)}")
 
-(define electronics (filter (fn (p) (equal? (get p :category) "electronics")) products))
-(println (format "Electronics: ~a" (map (fn (p) (get p :name)) electronics)))
+(define electronics (filter #(equal? (get % :category) "electronics") products))
+(println f"Electronics: ${(map #(get % :name) electronics)}")
 
-(define total (list/sum (map (fn (p) (get p :price)) electronics)))
-(println (format "Electronics total: $~a" total))
+(define total (->> electronics (map #(get % :price)) (list/sum)))
+(println f"Electronics total: \$${total}")
 
-(define by-category (list/group-by (fn (p) (get p :category)) products))
-(println (format "Categories: ~a" (keys by-category)))
+(define by-category (list/group-by #(get % :category) products))
+(println f"Categories: ${(keys by-category)}")
 
 (define price-summary
   (map (fn (cat)
-    (let ((items (get by-category cat))
-          (prices (map (fn (p) (get p :price)) (get by-category cat))))
+    (let* ((items (get by-category cat))
+           (prices (map #(get % :price) items)))
       (hash-map "category" cat
                 "count" (length items)
                 "total" (list/sum prices)

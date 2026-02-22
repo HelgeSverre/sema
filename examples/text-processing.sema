@@ -8,17 +8,17 @@
 
 ;; --- Word frequency analysis ---
 (define words
-  (map string/lower
-    (regex/find-all "[A-Za-z]+" sample-text)))
+  (->> (regex/find-all "[A-Za-z]+" sample-text)
+       (map string/lower)))
 
-(println (format "Total words: ~a" (length words)))
-(println (format "Unique words: ~a" (length (list/unique words))))
+(println f"Total words: ${(length words)}")
+(println f"Unique words: ${(length (list/unique words))}")
 
 ;; Build frequency map
 (define freq
   (foldl (fn (acc word)
     (map/update acc (string->keyword word)
-      (fn (v) (if (nil? v) 1 (+ v 1)))))
+      #(if (nil? %) 1 (+ % 1))))
     {}
     words))
 
@@ -29,20 +29,20 @@
 
 (println "\nTop 10 most frequent words:")
 (for-each
-  (fn (entry)
-    (println (format "  ~a: ~a"
-      (string/pad-right (keyword->string (first entry)) 12)
-      (string/repeat "#" (nth entry 1)))))
+  (fn ([word count])
+    (let ((label (string/pad-right (keyword->string word) 12))
+          (bar (string/repeat "#" count)))
+      (println f"  ${label}${bar}")))
   (take 10 sorted-freq))
 
 ;; --- Sentence extraction ---
 (define sentences
-  (filter (fn (s) (> (string-length (string/trim s)) 0))
-    (regex/split "[.!?]+" sample-text)))
+  (->> (regex/split "[.!?]+" sample-text)
+       (filter #(> (string-length (string/trim %)) 0))))
 
-(println (format "\n~a sentences found:" (length sentences)))
+(println f"\n${(length sentences)} sentences found:")
 (for-each
-  (fn (s) (println (format "  - ~a" (string/trim s))))
+  #(println f"  - ${(string/trim %)}")
   sentences)
 
 ;; --- Find lines containing a pattern ---
@@ -52,22 +52,22 @@
 (for-each
   (fn (line)
     (when (regex/match? "(?i)fox" line)
-      (println (format "  > ~a" (string/trim line)))))
+      (println f"  > ${(string/trim line)}")))
   lines)
 
 ;; --- String transformations ---
 (define title "hello world from sema lisp")
 (define title-case
   (string/join
-    (map (fn (word)
-      (if (> (string-length word) 0)
-        (string-append
-          (string/upper (substring word 0 1))
-          (substring word 1))
-        word))
-      (string/split title " "))
+    (->> (string/split title " ")
+         (map (fn (word)
+           (if (> (string-length word) 0)
+             (string-append
+               (string/upper (substring word 0 1))
+               (substring word 1))
+             word))))
     " "))
-(println (format "\nTitle case: ~a" title-case))
+(println f"\nTitle case: ${title-case}")
 
 ;; --- Caesar cipher ---
 (define (caesar-encrypt text shift)
@@ -83,9 +83,9 @@
 (define original "Hello World")
 (define encrypted (caesar-encrypt original 3))
 (define decrypted (caesar-encrypt encrypted 23)) ;; 26 - 3 = 23
-(println (format "\nCaesar cipher (shift 3):"))
-(println (format "  Original:  ~a" original))
-(println (format "  Encrypted: ~a" encrypted))
-(println (format "  Decrypted: ~a" decrypted))
+(println "\nCaesar cipher (shift 3):")
+(println f"  Original:  ${original}")
+(println f"  Encrypted: ${encrypted}")
+(println f"  Decrypted: ${decrypted}")
 
 (println "\nDone!")

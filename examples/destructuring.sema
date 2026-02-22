@@ -1,0 +1,102 @@
+;; destructuring.sema — Let and define destructuring patterns
+;; Demonstrates: vector destructuring, rest args, nested patterns,
+;;   map {:keys}, let*, define destructuring, lambda params
+
+(println "=== Destructuring ===\n")
+
+;; --- Vector destructuring ---
+(println "--- Vector ---\n")
+
+(let (([a b c] '(1 2 3)))
+  (println f"  [a b c] from list: ${a}, ${b}, ${c}"))
+
+(let (([x y z] [10 20 30]))
+  (println f"  [x y z] from vector: ${x}, ${y}, ${z}"))
+
+;; Rest args with &
+(let (([first second & rest] '(1 2 3 4 5)))
+  (println f"  [first & rest]: first=${first}, second=${second}, rest=${rest}"))
+
+;; Wildcard _
+(let (([_ middle _] '(1 2 3)))
+  (println f"  [_ middle _]: ${middle}"))
+
+;; Nested vectors
+(let (([[x1 y1] [x2 y2]] '((0 0) (10 20))))
+  (println f"  nested: (${x1},${y1}) to (${x2},${y2})"))
+
+;; --- Map destructuring ---
+(println "\n--- Map ---\n")
+
+;; {:keys [...]} shorthand
+(let (({:keys [name age city]} {:name "Alice" :age 30 :city "Berlin"}))
+  (println f"  {:keys}: ${name}, age ${age}, from ${city}"))
+
+;; Missing keys default to nil
+(let (({:keys [x y z]} {:x 1 :y 2}))
+  (println f"  missing key z: x=${x}, y=${y}, z=${z}"))
+
+;; Explicit key-pattern pairs
+(let (({:name n :age a} {:name "Bob" :age 25}))
+  (println f"  explicit keys: name=${n}, age=${a}"))
+
+;; --- Nested destructuring ---
+(println "\n--- Nested ---\n")
+
+;; Map inside vector
+(let (([id {:keys [name role]}] (list 1 {:name "Alice" :role :admin})))
+  (println f"  vec+map: id=${id}, name=${name}, role=${role}"))
+
+;; Vector inside map
+(let (({:keys [origin]} {:origin '(100 200)}))
+  (let (([x y] origin))
+    (println f"  map+vec: origin=(${x}, ${y})")))
+
+;; Deep nesting
+(let (([[a b] [c [d e]]] '((1 2) (3 (4 5)))))
+  (println f"  deep: a=${a}, b=${b}, c=${c}, d=${d}, e=${e}"))
+
+;; --- Sequential with let* ---
+(println "\n--- Sequential (let*) ---\n")
+
+(let* (([a b] '(10 20))
+       (sum (+ a b))
+       ({:keys [x y]} {:x sum :y (* a b)}))
+  (println f"  chained: a=${a} b=${b} sum=${sum} x=${x} y=${y}"))
+
+;; --- Define with destructuring ---
+(println "\n--- Define ---\n")
+
+(define [width height] '(1920 1080))
+(println f"  define [w h]: ${width}×${height}")
+
+(define {:keys [host port]} {:host "localhost" :port 8080})
+(println f"  define {:keys}: ${host}:${port}")
+
+;; --- Lambda parameter destructuring ---
+(println "\n--- Lambda params ---\n")
+
+(define add-points
+  (lambda ([x1 y1] [x2 y2])
+    (list (+ x1 x2) (+ y1 y2))))
+(println f"  add-points: ${(add-points '(1 2) '(3 4))}")
+
+(define greet
+  (lambda ({:keys [name greeting]})
+    f"${greeting}, ${name}!"))
+(println f"  greet: ${(greet {:name "World" :greeting "Hello"})}")
+
+;; --- Real-world: processing records ---
+(println "\n--- Processing records ---\n")
+
+(define people
+  (list {:name "Alice" :scores '(90 85 92)}
+        {:name "Bob"   :scores '(78 88 72)}
+        {:name "Carol" :scores '(95 91 89)}))
+
+(for-each
+  (fn ({:keys [name scores]})
+    (let* (([first & rest] scores)
+           (avg (/ (foldl + 0 scores) (length scores))))
+      (println f"  ${name}: first=${first}, avg=${avg}")))
+  people)

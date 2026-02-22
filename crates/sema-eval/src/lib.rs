@@ -1,4 +1,5 @@
 #![allow(clippy::mutable_key_type)]
+mod destructure;
 mod eval;
 mod prelude;
 mod special_forms;

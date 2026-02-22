@@ -15,14 +15,13 @@
   (hash-map "red" "🔴 RED" "green" "🟢 GREEN" "yellow" "🟡 YELLOW"))
 
 (defun traffic-step (state)
-  (let ((info (get traffic-fsm state)))
-    (get info "next")))
+  (get-in traffic-fsm [state "next"]))
 
 (defun run-traffic (state steps)
   (when (> steps 0)
-    (let ((info (get traffic-fsm state))
-          (label (get traffic-labels state)))
-      (println (format "  ~a  (duration: ~as)" label (get info "duration")))
+    (let ((label (get traffic-labels state))
+          (duration (get-in traffic-fsm [state "duration"])))
+      (println f"  ${label}  (duration: ${duration}s)")
       (run-traffic (traffic-step state) (- steps 1)))))
 
 (println "Traffic light running for 9 transitions:")
@@ -42,26 +41,23 @@
                            "on-enter" "Dispensing your item...")))
 
 (defun vending-transition (state event)
-  (let ((state-map (get vending-fsm state)))
-    (let ((next (get state-map event)))
-      (if (null? next)
-        (begin
-          (println (format "  ⚠ No transition for '~a' in state '~a'" event state))
-          state)
-        (begin
-          (let ((enter-msg (get (get vending-fsm next) "on-enter")))
-            (println (format "  ~a --[~a]--> ~a: ~a" state event next enter-msg)))
-          next)))))
+  (if-let (next (get-in vending-fsm [state event]))
+    (let ((enter-msg (get-in vending-fsm [next "on-enter"])))
+      (println f"  ${state} --[${event}]--> ${next}: ${enter-msg}")
+      next)
+    (begin
+      (println f"  ⚠ No transition for '${event}' in state '${state}'")
+      state)))
 
 (defun run-vending (state events)
   (if (null? events)
-    (println (format "  Final state: ~a" state))
+    (println f"  Final state: ${state}")
     (let ((next (vending-transition state (car events))))
       (run-vending next (cdr events)))))
 
 (println "Scenario 1: Buy an item")
-(let ((enter-msg (get (get vending-fsm "idle") "on-enter")))
-  (println (format "  [start] idle: ~a" enter-msg)))
+(let ((enter-msg (get-in vending-fsm ["idle" "on-enter"])))
+  (println f"  [start] idle: ${enter-msg}"))
 (run-vending "idle" '("coin" "select" "done"))
 
 (println "\nScenario 2: Cancel after inserting coin")
@@ -86,19 +82,18 @@
   (if (null? events)
     state
     (let* ((event (car events))
-           (transitions (get fsm state))
-           (next (get transitions event)))
-      (if (null? next)
+           (next (get-in fsm [state event])))
+      (if-let (next next)
         (begin
-          (println (format "  ✗ Invalid: ~a --[~a]--> ???" state event))
-          state)
+          (println f"  ${state} --[${event}]--> ${next}")
+          (fsm-run fsm next (cdr events)))
         (begin
-          (println (format "  ~a --[~a]--> ~a" state event next))
-          (fsm-run fsm next (cdr events)))))))
+          (println f"  ✗ Invalid: ${state} --[${event}]--> ???")
+          state)))))
 
 (define door-events '("unlock" "open" "close" "lock" "unlock" "open"))
-(println (format "Events: ~a" door-events))
+(println f"Events: ${door-events}")
 (define final (fsm-run door-fsm "locked" door-events))
-(println (format "Final state: ~a" final))
+(println f"Final state: ${final}")
 
 (println "\n=== Done ===")

@@ -787,6 +787,11 @@ impl Value {
     }
 
     #[inline(always)]
+    pub fn is_falsy(&self) -> bool {
+        !self.is_truthy()
+    }
+
+    #[inline(always)]
     pub fn is_bool(&self) -> bool {
         self.0 == Value::TRUE.0 || self.0 == Value::FALSE.0
     }
