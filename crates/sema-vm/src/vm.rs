@@ -861,8 +861,7 @@ impl VM {
                     }
                     op::IS_NULL => {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        let result =
-                            val.is_nil() || val.as_list().is_some_and(|l| l.is_empty());
+                        let result = val.is_nil() || val.as_list().is_some_and(|l| l.is_empty());
                         self.stack.push(Value::bool(result));
                     }
                     op::IS_PAIR => {

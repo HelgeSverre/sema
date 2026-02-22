@@ -628,7 +628,7 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     let bindings_list = require_list(&args[0], "let")?;
     let has_destructuring = bindings_list.iter().any(|b| {
         b.as_list()
-            .map(|pair| pair.len() >= 1 && is_destructuring_pattern(&pair[0]))
+            .map(|pair| !pair.is_empty() && is_destructuring_pattern(&pair[0]))
             .unwrap_or(false)
     });
 
@@ -1083,9 +1083,10 @@ fn lower_match_clauses(
     } else if let Some(v) = clauses[0].as_vector() {
         v
     } else {
-        return Err(SemaError::eval(
-            "match: each clause must be a list or vector",
-        ));
+        return Err(
+            SemaError::eval("match: each clause must be a list or vector")
+                .with_hint("e.g. (match x (1 \"one\") (_ \"other\"))"),
+        );
     };
 
     if clause.is_empty() {
@@ -1211,18 +1212,10 @@ fn lower_match_clauses(
         tail: false,
     };
 
-    let if_expr = if has_guard {
-        CoreExpr::If {
-            test: Box::new(test),
-            then: Box::new(else_expr), // nil? true = no match, try next
-            else_: Box::new(then_with_guard), // matched, check guard + run body
-        }
-    } else {
-        CoreExpr::If {
-            test: Box::new(test),
-            then: Box::new(else_expr),        // nil? true = no match
-            else_: Box::new(then_with_guard), // matched
-        }
+    let if_expr = CoreExpr::If {
+        test: Box::new(test),
+        then: Box::new(else_expr),
+        else_: Box::new(then_with_guard),
     };
 
     Ok(CoreExpr::Let {

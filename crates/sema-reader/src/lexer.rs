@@ -290,7 +290,10 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 return Err(SemaError::Reader {
                                     message: "unterminated regex literal".to_string(),
                                     span,
-                                });
+                                }
+                                .with_hint(
+                                    "add a closing `\"` to end the #\"...\" regex literal",
+                                ));
                             }
                             i += 1; // closing quote
                             col += 1;
@@ -392,14 +395,16 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 return Err(SemaError::Reader {
                                     message: "unterminated interpolation in f-string".to_string(),
                                     span,
-                                });
+                                }
+                                .with_hint("add a closing `}` to end the ${...} interpolation"));
                             }
                             let trimmed = expr.trim().to_string();
                             if trimmed.is_empty() {
                                 return Err(SemaError::Reader {
                                     message: "empty interpolation in f-string".to_string(),
                                     span,
-                                });
+                                }
+                                .with_hint("${} must contain an expression, e.g. ${name}"));
                             }
                             parts.push(FStringPart::Expr(trimmed));
                             // i points to closing '}', outer i+=1 will skip past it
@@ -418,7 +423,8 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                         return Err(SemaError::Reader {
                             message: "unterminated f-string".to_string(),
                             span,
-                        });
+                        }
+                        .with_hint("add a closing `\"` to end the f-string"));
                     }
                     i += 1; // closing quote
                     col += 1;

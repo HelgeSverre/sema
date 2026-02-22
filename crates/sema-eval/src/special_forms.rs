@@ -1596,9 +1596,10 @@ fn eval_match(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
         } else if let Some(v) = clause.as_vector() {
             v
         } else {
-            return Err(SemaError::eval(
-                "match: each clause must be a list or vector",
-            ));
+            return Err(
+                SemaError::eval("match: each clause must be a list or vector")
+                    .with_hint("e.g. (match x (1 \"one\") (_ \"other\"))"),
+            );
         };
 
         if items.is_empty() {

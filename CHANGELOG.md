@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.11.0
+
+### Added
+
+- **Destructuring bind** — `let`, `define`, and lambda parameters now support destructuring lists (`(let (((a b) (list 1 2))) a)`), vectors, maps (`:keys` shorthand), and nested patterns. Works in both tree-walker and VM.
+- **Pattern matching (`match`)** — `(match expr (pattern body) ...)` with literal, list, vector, map, `when` guards (`(pattern when guard body)`), rest (`&`), and wildcard (`_`) patterns. Dual-eval tested.
+- **Multimethods (`defmulti`/`defmethod`)** — dispatch on return value of a discriminator function. Supports `:default` fallback method.
+- **Regex literals** — `#"pattern"` raw string syntax for regex patterns. No escape processing except `\"`. Compiled to regex values at runtime via `regex/match`, `regex/find-all`, etc.
+- **F-strings** — `f"Hello ${name}, you are ${(+ age 1)} years old"` with embedded `${expr}` interpolation.
+- **Threading macros** — `->` (thread-first), `->>` (thread-last), `as->` (thread-as), `some->` (nil-short-circuiting) for pipeline-style data transformation.
+- **Short lambdas** — `#(+ %1 %2)` Clojure-style anonymous function shorthand with `%` (alias for `%1`) and `%1`–`%9` positional parameters.
+- **Nested map operations** — `get-in`, `assoc-in`, `update-in` for deep map access and modification.
+- **Web server** — `http/serve` with Axum-based routing, path/query params, SSE streaming, and WebSocket support. Response helpers: `http/ok`, `http/created`, `http/no-content`, `http/not-found`, `http/html`, `http/text`, `http/redirect`, `http/error`, `http/stream`, `http/websocket`. Routing via `http/router`.
+- **`sema build`** — compile Sema programs into standalone executables. Traces imports recursively, bundles source into a VFS archive appended to the binary. Auto-detected on load.
+- **`string/intern`** — opt-in string value interning with thread-local intern table. Returns shared `Rc<String>` for O(1) equality via NaN-boxed pointer comparison.
+- **Shebang support** — `#!/usr/bin/env sema` lines are ignored in source files.
+- **`sys/sema-home`** — builtin returning the Sema home directory path.
+- **REPL history search** — Ctrl-R reverse search through REPL history.
+- **Prelude macros** — `when-let`, `if-let` for conditional binding.
+- **Debug helpers** — `type` (value type as keyword), `spy` (labeled debug print to stderr), `time` (measure thunk execution time).
+
+### Performance
+
+- **13 new VM intrinsic opcodes** — `car`/`first`, `cdr`/`rest`, `cons`, `null?`, `pair?`, `list?`, `number?`, `string?`, `symbol?`, `length`, `append` (2-arg), `get` (2-arg), `contains?` (2-arg) compiled as inline opcodes, eliminating global hash lookup, `Rc` downcast, and argument allocation. Total intrinsified operations: 23. **deriv: 1,123ms → 879ms (1.28×), closure-storm: 1,135ms → 1,029ms (1.10×).**
+- **Constant folding optimizer** — new `optimize.rs` pass between lowering and resolution. Folds constant arithmetic, comparisons, boolean ops, `if`/`and`/`or` with constant tests, and dead constants in `begin` blocks.
+- **Docker image optimization** — reduced from ~100MB to 11.5MB.
+
+### Fixed
+
+- **Constant folding division semantics** — `(/ 3 2)` now correctly folds to `1.5` instead of `1`, matching VM runtime behavior.
+- **VM prompt/message parity** — prompt and message special forms now build values directly instead of delegating, matching tree-walker output.
+
+### Documentation
+
+- **Performance roadmap** — tiered optimization plan with measured results and status tracking.
+- **Feature comparison matrix** — Sema vs SBCL, Racket, Guile, Chez, Clojure, Janet, Fennel.
+- **Web server docs** — routing, middleware patterns, SSE/WebSocket examples.
+- **Updated getting started** — destructuring, match, and modern syntax examples.
+
+### Internal
+
+- **Dual-eval test infrastructure** — `dual_eval_tests!` and `dual_eval_error_tests!` macros for testing both tree-walker and VM in a single test definition.
+- **Playground improvements** — draggable splitters, VFS explorer integration, file upload, example reorganization.
+- **CI improvements** — example and bytecode smoke tests, VM examples smoke test.
+
 ## 1.10.0
 
 ### Added

@@ -7,21 +7,23 @@
 - Run file: `cargo run -- examples/hello.sema` | REPL: `cargo run` | Eval: `cargo run -- -e "(+ 1 2)"`
 - Integration tests: `crates/sema/tests/integration_test.rs`. Reader unit tests: `crates/sema-reader/src/reader.rs`.
 
-## Architecture (Cargo workspace, 6 crates)
+## Architecture (Cargo workspace, 8 crates)
 
-- **sema-core** → `Value` enum, `Env` (Rc+RefCell+HashMap), `SemaError` (thiserror), eval/call callbacks (`set_eval_callback`/`set_call_callback`)
-- **sema-reader** → Lexer + s-expression parser → `Value` AST
-- **sema-eval** → Trampoline-based TCO evaluator, special forms, module system (`EvalContext` holds module cache, call stack, spans), `call_value` for stdlib callback dispatch
-- **sema-stdlib** → 350+ native functions across 19 modules registered into `Env`. Higher-order fns (map, filter, fold) call through `sema_core::call_callback` — no mini-eval.
+- **sema-core** → NaN-boxed `Value(u64)` struct, `Env` (Rc+RefCell+hashbrown::HashMap), `SemaError` (thiserror), eval/call callbacks (`set_eval_callback`/`set_call_callback`), thread-local VFS
+- **sema-reader** → Lexer + s-expression parser → `Value` AST. Handles regex literals (`#"..."`), f-strings (`f"...${expr}..."`), short lambdas (`#(...)`), shebang lines
+- **sema-eval** → Trampoline-based TCO evaluator, 40 special forms, module system (`EvalContext` holds module cache, call stack, spans), `call_value` for stdlib callback dispatch, destructuring/pattern matching (`destructure.rs`), prelude macros (`->`, `->>`, `as->`, `some->`, `when-let`, `if-let`)
+- **sema-vm** → Bytecode compiler (lowering → optimization → resolution → compilation), stack-based VM with 23 intrinsic opcodes, NaN-boxed fast paths
+- **sema-stdlib** → 460+ native functions across 24 modules registered into `Env`. Higher-order fns (map, filter, fold) call through `sema_core::call_callback` — no mini-eval.
 - **sema-llm** → LLM provider trait + Anthropic/OpenAI clients (tokio `block_on`), dynamic pricing from llm-prices.com with disk cache fallback
-- **sema** → Binary (clap CLI + rustyline REPL) + integration tests
-- Dep flow: `sema-core ← sema-reader ← sema-eval ← sema-stdlib/sema-llm ← sema`. **Critical**: stdlib/llm depend on core, NOT eval. Stdlib calls eval via thread-local callbacks registered by sema-eval.
+- **sema-wasm** → WASM bindings for browser playground
+- **sema** → Binary (clap CLI + rustyline REPL) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + integration tests
+- Dep flow: `sema-core ← sema-reader ← sema-vm ← sema-eval ← sema-stdlib/sema-llm ← sema`. **Critical**: stdlib/llm depend on core, NOT eval. Stdlib calls eval via thread-local callbacks registered by sema-eval.
 
 ## Code Style
 
 - Rust 2021, single-threaded (`Rc`, not `Arc`), `hashbrown::HashMap` for `Env` bindings, `BTreeMap` for user-facing sorted maps.
-- Errors: `SemaError::eval()` / `::type_error()` / `::arity()` constructors — never raw enum variants.
-- Native fns: `NativeFn` takes `&[Value]` → `Result<Value, SemaError>`. Special forms return `Trampoline`.
+- Errors: `SemaError::eval()` / `::type_error()` / `::arity()` constructors — never raw enum variants. Use `.with_hint()` for actionable user guidance.
+- Native fns: `NativeFn` takes `(&EvalContext, &[Value])` → `Result<Value, SemaError>`. Use `NativeFn::simple()` or `NativeFn::with_ctx()`. Special forms return `Trampoline`.
 - Sema naming: slash-namespaced (`string/trim`, `file/read`), predicates end `?`, arrows for conversions (`string->symbol`). Legacy Scheme names kept (`string-append`, `substring`).
 
 ## Playground
@@ -52,13 +54,13 @@ Sema has **two evaluators**: a tree-walking interpreter (`sema-eval`) and a byte
 
 - **Dual-eval test file**: `crates/sema/tests/dual_eval_test.rs` — use `dual_eval_tests!` and `dual_eval_error_tests!` macros
 - **Shared harness**: `crates/sema/tests/common/mod.rs` — provides `eval_tw()`, `eval_vm()`, `eval_both()`
-- **Legacy files**: `integration_test.rs` (tree-walker only, 938 tests), `vm_integration_test.rs` (VM equivalence, 143 tests)
+- **Legacy files**: `integration_test.rs` (tree-walker only), `vm_integration_test.rs` (VM equivalence)
 - **New tests go in `dual_eval_test.rs`** — the macros generate `_tw` and `_vm` variants automatically
 
 ### When to use dual eval
 - Any new special form, destructuring, pattern, or evaluator change → `dual_eval_tests!`
 - Pure stdlib functions (no I/O) → `dual_eval_tests!`
-- I/O, LLM, sandbox, CLI, module/import tests → tree-walker only (`integration_test.rs`)
+- I/O, LLM, sandbox, CLI, module/import, server tests → tree-walker only (`integration_test.rs`)
 
 ### Adding VM support for a new special form
 1. Add handler in `try_eval_special()` in `special_forms.rs` (tree-walker)
@@ -71,3 +73,4 @@ Sema has **two evaluators**: a tree-walking interpreter (`sema-eval`) and a byte
 
 - **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in `register()`, add dual-eval test.
 - **Special form**: add in `try_eval_special()` (tree-walker) AND `lower_list()` (VM), add dual-eval test.
+- **Prelude macro**: add to `crates/sema-eval/src/prelude.rs` (Sema code evaluated at startup).

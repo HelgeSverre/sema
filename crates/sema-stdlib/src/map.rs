@@ -567,8 +567,6 @@ pub fn register(env: &sema_core::Env) {
                 current = map.get(key).cloned().unwrap_or(Value::nil());
             } else if let Some(map) = current.as_hashmap_ref() {
                 current = map.get(key).cloned().unwrap_or(Value::nil());
-            } else if current.is_nil() {
-                return Ok(default);
             } else {
                 return Ok(default);
             }

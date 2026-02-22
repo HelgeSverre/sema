@@ -6,7 +6,11 @@ use sema_core::{check_arity, SemaError, Value};
 use crate::register_fn;
 
 fn compile_regex(pattern: &str) -> Result<Regex, SemaError> {
-    Regex::new(pattern).map_err(|e| SemaError::eval(format!("invalid regex: {e}")))
+    Regex::new(pattern).map_err(|e| {
+        SemaError::eval(format!("invalid regex pattern: {e}")).with_hint(
+            "Sema uses Rust regex syntax (no lookahead/lookbehind). See https://docs.rs/regex",
+        )
+    })
 }
 
 pub fn register(env: &sema_core::Env) {

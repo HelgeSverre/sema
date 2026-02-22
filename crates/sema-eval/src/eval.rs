@@ -351,7 +351,8 @@ fn call_multimethod(ctx: &EvalContext, mm: &Rc<MultiMethod>, args: &[Value]) -> 
                 "no method in multimethod '{}' for dispatch value: {}",
                 resolve(mm.name),
                 dispatch_val
-            )))
+            ))
+            .with_hint("add a (defmethod name :default handler) to handle unmatched values"))
         }
     }
 }

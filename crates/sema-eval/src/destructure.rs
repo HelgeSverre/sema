@@ -46,10 +46,11 @@ fn destructure_into(out: &mut Bindings, pattern: &Value, value: &Value) -> Resul
         return destructure_map(out, pattern, value);
     }
 
-    Err(SemaError::eval(&format!(
+    Err(SemaError::eval(format!(
         "destructure: invalid pattern, expected symbol, vector, or map, got {}",
         pattern.type_name()
-    )))
+    ))
+    .with_hint("use [a b c] for sequential destructuring or {:keys [a b]} for map destructuring"))
 }
 
 fn destructure_seq(out: &mut Bindings, elems: &[Value], value: &Value) -> Result<(), SemaError> {
@@ -82,8 +83,8 @@ fn destructure_seq(out: &mut Bindings, elems: &[Value], value: &Value) -> Result
         }
 
         if items.len() < fixed.len() {
-            return Err(SemaError::eval(&format!(
-                "destructure: expected at least {} elements, got {}",
+            return Err(SemaError::eval(format!(
+                "destructure: expected at least {} elements before `&`, got {}",
                 fixed.len(),
                 items.len()
             )));
@@ -98,7 +99,7 @@ fn destructure_seq(out: &mut Bindings, elems: &[Value], value: &Value) -> Result
     } else {
         // [a b c] — exact match
         if items.len() != elems.len() {
-            return Err(SemaError::eval(&format!(
+            return Err(SemaError::eval(format!(
                 "destructure: expected {} elements, got {}",
                 elems.len(),
                 items.len()

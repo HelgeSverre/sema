@@ -17,32 +17,37 @@ make run                                                 # start REPL
 
 cargo test -p sema-reader                                # test single crate
 cargo test -p sema --test integration_test -- test_name  # single integration test
+cargo test -p sema --test dual_eval_test -- test_name    # single dual-eval test
 cargo test -p sema -- --ignored                          # run any ignored tests
 cargo run -- examples/hello.sema                         # run file
+cargo run -- --vm examples/hello.sema                    # run file with VM backend
 cargo run -- -e "(+ 1 2)"                                # eval expression
 ```
 
-Integration tests are in `crates/sema/tests/integration_test.rs`. Reader unit tests are in `crates/sema-reader/src/reader.rs`.
+Integration tests are in `crates/sema/tests/integration_test.rs`. Dual-eval tests in `crates/sema/tests/dual_eval_test.rs`. Reader unit tests in `crates/sema-reader/src/reader.rs`.
 
 ## Architecture
 
-Cargo workspace with 6 crates. Dependency flow (arrows = "depends on"):
+Cargo workspace with 8 crates. Dependency flow (arrows = "depends on"):
 
 ```
-sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
-    ↑                            ↑
-    ├── sema-stdlib ─────────────┘
-    └── sema-llm ────────────────┘
+sema-core  ←  sema-reader  ←  sema-vm  ←  sema-eval  ←  sema (binary)
+    ↑                                         ↑
+    ├── sema-stdlib ──────────────────────────┘
+    ├── sema-llm ─────────────────────────────┘
+    └── sema-wasm (browser playground)
 ```
 
-- **sema-core** — `Value` enum (23 variants), `Env` (Rc + RefCell + BTreeMap), `SemaError`, `EvalContext`
-- **sema-reader** — Lexer + parser producing `Value` AST
-- **sema-eval** — Trampoline-based tree-walking evaluator, 39 special forms, module system
-- **sema-stdlib** — 350+ native functions across 19 modules registered into `Env`
+- **sema-core** — NaN-boxed `Value(u64)` struct, `Env` (Rc + RefCell + hashbrown::HashMap), `SemaError`, `EvalContext`, thread-local VFS
+- **sema-reader** — Lexer + parser producing `Value` AST. Handles regex literals (`#"..."`), f-strings (`f"...${expr}..."`), short lambdas (`#(...)`)
+- **sema-vm** — Bytecode compiler (lowering → optimization → resolution → compilation) and stack-based VM with 23 intrinsic opcodes
+- **sema-eval** — Trampoline-based tree-walking evaluator, 40 special forms, module system, destructuring/pattern matching, prelude macros
+- **sema-stdlib** — 460+ native functions across 24 modules registered into `Env`
 - **sema-llm** — LLM provider trait + Anthropic/OpenAI/Gemini/Ollama clients (tokio `block_on` for sync)
-- **sema** — Binary: CLI (clap) + REPL (rustyline) + integration tests
+- **sema-wasm** — WASM bindings for browser playground at sema.run
+- **sema** — Binary: CLI (clap) + REPL (rustyline) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + integration tests
 
-**Critical**: `sema-stdlib` and `sema-llm` depend on `sema-core` but NOT on `sema-eval` (avoids circular deps).
+**Critical**: `sema-stdlib` and `sema-llm` depend on `sema-core` but NOT on `sema-eval` (avoids circular deps). Stdlib calls eval via thread-local callbacks registered by sema-eval.
 
 ## Key Design Patterns
 
@@ -50,10 +55,9 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 
 `eval_step` returns `Trampoline::Value(v)` (done) or `Trampoline::Eval(expr, env)` (tail call). Special forms must return `Trampoline::Eval` for tail positions to enable proper tail-call optimization.
 
-### Circular Dependency Solutions
+### Callback Architecture
 
-- **stdlib HOFs** (map, filter, foldl): `list.rs` has its own mini-eval/`call_function` that handles symbol lookup + function application without depending on sema-eval
-- **LLM tool execution**: Thread-local `EvalCallback` set by `Interpreter::new()` gives sema-llm access to the full evaluator
+Stdlib higher-order functions (map, filter, foldl, sort-by) call through `sema_core::call_callback` which dispatches to the real evaluator via a thread-local callback registered at interpreter startup. No mini-eval — all evaluation goes through the full evaluator.
 
 ### Module System (EvalContext)
 
@@ -67,7 +71,7 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 
 ### Rust
 
-- Errors: use `SemaError::eval()`, `::type_error()`, `::arity()` constructors — never raw enum variants
+- Errors: use `SemaError::eval()`, `::type_error()`, `::arity()` constructors — never raw enum variants. Use `.with_hint()` for actionable guidance.
 - Native fns: `NativeFn` takes `(&EvalContext, &[Value])`, returns `Result<Value, SemaError>`. Use `NativeFn::simple()` for fns that don't need context, `NativeFn::with_ctx()` for those that do
 - Single-threaded: `Rc` everywhere, not `Arc`. `hashbrown::HashMap` for `Env` bindings, `BTreeMap` for user-facing sorted maps.
 
@@ -86,30 +90,30 @@ sema-core  ←  sema-reader  ←  sema-eval  ←  sema (binary)
 - Format: 24-byte header (magic `\x00SEM` + version + flags), then sections (string table, function table, main chunk, optional debug sections)
 - Spur remapping: global opcodes use string table indices in the file, remapped to process-local Spurs on load
 
+## Testing — Dual Eval (Tree-walker + VM)
+
+Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. Both must produce identical results. **Any new language feature must be tested through both backends.**
+
+- **Dual-eval test file**: `crates/sema/tests/dual_eval_test.rs` — use `dual_eval_tests!` and `dual_eval_error_tests!` macros
+- **Legacy files**: `integration_test.rs` (tree-walker only), `vm_integration_test.rs` (VM equivalence)
+- **New tests go in `dual_eval_test.rs`** — the macros generate `_tw` and `_vm` variants automatically
+- I/O, LLM, sandbox, CLI, module/import, server tests → tree-walker only (`integration_test.rs`)
+
 ## Adding New Functionality
 
-**New builtin function**: Add to appropriate `crates/sema-stdlib/src/*.rs`, register in that module's `register()` fn, add integration test.
-
-**New special form**: Add match arm in `try_eval_special()` in `special_forms.rs`, implement handler returning `Trampoline`, add integration test.
+- **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in that module's `register()` fn, add dual-eval test.
+- **Special form**: add in `try_eval_special()` (tree-walker) AND `lower_list()` in `lower.rs` (VM), add dual-eval test.
+- **Prelude macro**: add to `crates/sema-eval/src/prelude.rs` (Sema code evaluated at startup).
 
 ## Release Procedure
 
-To release a new version (e.g., `0.7.0`):
-
 1. **Run tests**: `cargo test` — all must pass
-2. **Bump versions** in all 6 `crates/*/Cargo.toml` files (`version = "X.Y.Z"`)
-3. **Update CHANGELOG.md** — add new `## X.Y.Z` section at top with `### Added` / `### Changed` / `### Fixed`
-4. **Update docs**:
-   - `README.md` — add new functions to the Standard Library section, update builtin count
-   - `CLAUDE.md` — update builtin count if changed
-   - `examples/stdlib/*.sema` — add example tests for new functions
-   - `website/index.html` — add new functions to the stdlib-card `fn-list` spans
-5. **Build release**: `cargo build --release`
-6. **Commit**: `git add -A && git commit -m "v0.X.0: <summary>"`
-7. **Tag**: `git tag v0.X.0`
-8. **Push**: `git push origin main --tags`
-9. **GitHub release**: `gh release create v0.X.0 --title "v0.X.0: <summary>" --notes "<changelog entry>"`
-10. **Deploy website**: `cd website && vc --prod`
+2. **Bump versions** in workspace `Cargo.toml` (`workspace.package.version`) — all crate deps auto-inherit
+3. **Update CHANGELOG.md** — add new `## X.Y.Z` section at top
+4. **Build release**: `cargo build --release`
+5. **Commit & tag**: `git commit`, `git tag vX.Y.Z`
+6. **Push**: `git push origin main --tags` (triggers cargo-dist + crates.io publish)
+7. **Deploy website**: `cd website && vercel --prod`
 
 ## Playground
 
@@ -127,6 +131,6 @@ To release a new version (e.g., `0.7.0`):
 
 ## Design Docs
 
-- `agents/DECISIONS.md` — 33 numbered design decisions with rationale
+- `agents/DECISIONS.md` — numbered design decisions with rationale
 - `agents/PLAN.md` — implementation plan
 - `agents/LIMITATIONS.md` — known gaps and limitations
