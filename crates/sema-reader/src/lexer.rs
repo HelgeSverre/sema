@@ -266,6 +266,12 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 span: span.with_end(line, col),
                             });
                         }
+                        '!' if line == 1 && col == 1 => {
+                            // Shebang line: #!/usr/bin/env sema
+                            while i < chars.len() && chars[i] != '\n' {
+                                i += 1;
+                            }
+                        }
                         _ => {
                             return Err(SemaError::Reader {
                                 message: format!(

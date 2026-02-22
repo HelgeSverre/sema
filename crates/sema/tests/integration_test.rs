@@ -11082,3 +11082,21 @@ fn test_short_lambda_nested_call() {
         eval("'(2 5 3)")
     );
 }
+
+#[test]
+fn test_shebang_line_ignored() {
+    assert_eq!(eval("#!/usr/bin/env sema\n(+ 1 2)"), Value::int(3));
+}
+
+#[test]
+fn test_shebang_only() {
+    // A file with only a shebang should eval to nil
+    assert_eq!(eval("#!/usr/bin/env sema\n"), Value::nil());
+}
+
+#[test]
+fn test_hash_bang_not_at_start_is_error() {
+    // #! not on line 1 col 1 should still error
+    let interp = Interpreter::new();
+    assert!(interp.eval_str("(+ 1 2)\n#!/usr/bin/env sema").is_err());
+}
