@@ -130,9 +130,6 @@ sema script.semac
 # Use a specific model
 sema --chat-model claude-haiku-4-5-20251001 -e '(llm/complete "Hello!")'
 
-# Shebang support in scripts
-#!/usr/bin/env sema
-
 # Run with shell commands disabled
 sema --sandbox=no-shell script.sema
 
@@ -151,6 +148,24 @@ sema --allowed-paths=./data,./output script.sema
 # Combine sandbox and path restrictions
 sema --sandbox=strict --allowed-paths=./data script.sema
 ```
+
+## Shebang Scripts
+
+Sema supports `#!` (shebang) lines, so you can write executable scripts:
+
+```sema
+#!/usr/bin/env sema
+(println "Hello from a sema script!")
+```
+
+Make the file executable and run it directly:
+
+```bash
+chmod +x script.sema
+./script.sema
+```
+
+The shebang line is only allowed on the first line of a file and is treated as a comment. `#!/usr/bin/env sema` uses the standard `env` lookup, so it works regardless of how sema was installed (Homebrew, Cargo, manual, etc.).
 
 ## Sandbox
 
