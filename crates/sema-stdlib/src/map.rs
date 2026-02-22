@@ -548,4 +548,200 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::map(map))
     });
+
+    register_fn(env, "get-in", |args| {
+        check_arity!(args, "get-in", 2..=3);
+        let path = match args[1].view() {
+            ValueView::List(l) => l.as_ref().clone(),
+            ValueView::Vector(v) => v.as_ref().clone(),
+            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+        };
+        let default = if args.len() == 3 {
+            args[2].clone()
+        } else {
+            Value::nil()
+        };
+        let mut current = args[0].clone();
+        for key in &path {
+            if let Some(map) = current.as_map_ref() {
+                current = map.get(key).cloned().unwrap_or(Value::nil());
+            } else if let Some(map) = current.as_hashmap_ref() {
+                current = map.get(key).cloned().unwrap_or(Value::nil());
+            } else if current.is_nil() {
+                return Ok(default);
+            } else {
+                return Ok(default);
+            }
+        }
+        if current.is_nil() && args.len() == 3 {
+            return Ok(default);
+        }
+        Ok(current)
+    });
+
+    register_fn(env, "assoc-in", |args| {
+        check_arity!(args, "assoc-in", 3);
+        let path = match args[1].view() {
+            ValueView::List(l) => l.as_ref().clone(),
+            ValueView::Vector(v) => v.as_ref().clone(),
+            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+        };
+        if path.is_empty() {
+            return Ok(args[2].clone());
+        }
+        fn assoc_in_recursive(m: &Value, path: &[Value], val: &Value) -> Result<Value, SemaError> {
+            let key = &path[0];
+            if path.len() == 1 {
+                // Base case: set the value at this key
+                if let Some(map) = m.as_map_ref() {
+                    let mut map = map.clone();
+                    map.insert(key.clone(), val.clone());
+                    return Ok(Value::map(map));
+                }
+                if let Some(map) = m.as_hashmap_ref() {
+                    let mut map = map.clone();
+                    map.insert(key.clone(), val.clone());
+                    return Ok(Value::hashmap_from_rc(Rc::new(map)));
+                }
+                // If not a map, create one
+                let mut map = BTreeMap::new();
+                map.insert(key.clone(), val.clone());
+                return Ok(Value::map(map));
+            }
+            // Recursive case: get nested map, recurse, then assoc back
+            let nested = if let Some(map) = m.as_map_ref() {
+                map.get(key).cloned().unwrap_or_else(|| Value::map(BTreeMap::new()))
+            } else if let Some(map) = m.as_hashmap_ref() {
+                map.get(key).cloned().unwrap_or_else(|| Value::map(BTreeMap::new()))
+            } else {
+                Value::map(BTreeMap::new())
+            };
+            let new_nested = assoc_in_recursive(&nested, &path[1..], val)?;
+            if let Some(map) = m.as_map_ref() {
+                let mut map = map.clone();
+                map.insert(key.clone(), new_nested);
+                Ok(Value::map(map))
+            } else if let Some(map) = m.as_hashmap_ref() {
+                let mut map = map.clone();
+                map.insert(key.clone(), new_nested);
+                Ok(Value::hashmap_from_rc(Rc::new(map)))
+            } else {
+                let mut map = BTreeMap::new();
+                map.insert(key.clone(), new_nested);
+                Ok(Value::map(map))
+            }
+        }
+        assoc_in_recursive(&args[0], &path, &args[2])
+    });
+
+    register_fn(env, "update-in", |args| {
+        check_arity!(args, "update-in", 3);
+        let path = match args[1].view() {
+            ValueView::List(l) => l.as_ref().clone(),
+            ValueView::Vector(v) => v.as_ref().clone(),
+            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+        };
+        if path.is_empty() {
+            return call_function(&args[2], &[args[0].clone()]);
+        }
+        fn update_in_recursive(
+            m: &Value,
+            path: &[Value],
+            f: &Value,
+        ) -> Result<Value, SemaError> {
+            let key = &path[0];
+            if path.len() == 1 {
+                let current = if let Some(map) = m.as_map_ref() {
+                    map.get(key).cloned().unwrap_or(Value::nil())
+                } else if let Some(map) = m.as_hashmap_ref() {
+                    map.get(key).cloned().unwrap_or(Value::nil())
+                } else {
+                    Value::nil()
+                };
+                let new_val = call_function(f, &[current])?;
+                if let Some(map) = m.as_map_ref() {
+                    let mut map = map.clone();
+                    map.insert(key.clone(), new_val);
+                    return Ok(Value::map(map));
+                }
+                if let Some(map) = m.as_hashmap_ref() {
+                    let mut map = map.clone();
+                    map.insert(key.clone(), new_val);
+                    return Ok(Value::hashmap_from_rc(Rc::new(map)));
+                }
+                let mut map = BTreeMap::new();
+                map.insert(key.clone(), new_val);
+                return Ok(Value::map(map));
+            }
+            let nested = if let Some(map) = m.as_map_ref() {
+                map.get(key).cloned().unwrap_or_else(|| Value::map(BTreeMap::new()))
+            } else if let Some(map) = m.as_hashmap_ref() {
+                map.get(key).cloned().unwrap_or_else(|| Value::map(BTreeMap::new()))
+            } else {
+                Value::map(BTreeMap::new())
+            };
+            let new_nested = update_in_recursive(&nested, &path[1..], f)?;
+            if let Some(map) = m.as_map_ref() {
+                let mut map = map.clone();
+                map.insert(key.clone(), new_nested);
+                Ok(Value::map(map))
+            } else if let Some(map) = m.as_hashmap_ref() {
+                let mut map = map.clone();
+                map.insert(key.clone(), new_nested);
+                Ok(Value::hashmap_from_rc(Rc::new(map)))
+            } else {
+                let mut map = BTreeMap::new();
+                map.insert(key.clone(), new_nested);
+                Ok(Value::map(map))
+            }
+        }
+        update_in_recursive(&args[0], &path, &args[2])
+    });
+
+    register_fn(env, "deep-merge", |args| {
+        if args.is_empty() {
+            return Ok(Value::map(BTreeMap::new()));
+        }
+        fn is_map(v: &Value) -> bool {
+            v.as_map_ref().is_some() || v.as_hashmap_ref().is_some()
+        }
+        fn merge_two(base: &Value, overlay: &Value) -> Result<Value, SemaError> {
+            // Collect all keys from both maps
+            let base_entries: Vec<(Value, Value)> = if let Some(m) = base.as_map_ref() {
+                m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else if let Some(m) = base.as_hashmap_ref() {
+                m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else {
+                return Ok(overlay.clone());
+            };
+            let overlay_entries: Vec<(Value, Value)> = if let Some(m) = overlay.as_map_ref() {
+                m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else if let Some(m) = overlay.as_hashmap_ref() {
+                m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+            } else {
+                return Ok(overlay.clone());
+            };
+            let mut result = BTreeMap::new();
+            for (k, v) in &base_entries {
+                result.insert(k.clone(), v.clone());
+            }
+            for (k, v) in &overlay_entries {
+                if let Some(existing) = result.get(k) {
+                    if is_map(existing) && is_map(v) {
+                        result.insert(k.clone(), merge_two(existing, v)?);
+                    } else {
+                        result.insert(k.clone(), v.clone());
+                    }
+                } else {
+                    result.insert(k.clone(), v.clone());
+                }
+            }
+            Ok(Value::map(result))
+        }
+        let mut result = args[0].clone();
+        for arg in &args[1..] {
+            result = merge_two(&result, arg)?;
+        }
+        Ok(result)
+    });
 }

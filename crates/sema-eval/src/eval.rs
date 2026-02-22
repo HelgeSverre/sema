@@ -82,6 +82,7 @@ impl Interpreter {
         }
         let global_env = Rc::new(env);
         register_vm_delegates(&global_env);
+        load_prelude(&ctx, &global_env);
         Interpreter { global_env, ctx }
     }
 
@@ -99,6 +100,7 @@ impl Interpreter {
         }
         let global_env = Rc::new(env);
         register_vm_delegates(&global_env);
+        load_prelude(&ctx, &global_env);
         Interpreter { global_env, ctx }
     }
 
@@ -691,6 +693,14 @@ pub fn apply_macro(
 
 /// Register `__vm-*` native functions that the bytecode VM calls back into
 /// the tree-walker for forms that cannot be fully compiled.
+/// Load built-in macros (threading, when-let, if-let) into the global environment.
+fn load_prelude(ctx: &EvalContext, env: &Rc<Env>) {
+    let exprs = sema_reader::read_many(crate::prelude::PRELUDE).expect("prelude parse error");
+    for expr in &exprs {
+        eval_value(ctx, expr, env).expect("prelude eval error");
+    }
+}
+
 fn register_vm_delegates(env: &Rc<Env>) {
     // __vm-eval: evaluate an expression via the tree-walker
     let eval_env = env.clone();

@@ -1,6 +1,12 @@
 use sema_core::{SemaError, Span};
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum FStringPart {
+    Literal(String),
+    Expr(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     LParen,
     RParen,
@@ -15,6 +21,8 @@ pub enum Token {
     Int(i64),
     Float(f64),
     String(String),
+    FString(Vec<FStringPart>),
+    ShortLambdaStart,
     Symbol(String),
     Keyword(String),
     Bool(bool),
@@ -153,111 +161,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                     if chars[i] == '\\' && i + 1 < chars.len() {
                         i += 1;
                         col += 1;
-                        match chars[i] {
-                            'n' => s.push('\n'),
-                            't' => s.push('\t'),
-                            'r' => s.push('\r'),
-                            '\\' => s.push('\\'),
-                            '"' => s.push('"'),
-                            '0' => s.push('\0'),
-                            'x' => {
-                                // R7RS hex escape: \x<hex>;
-                                let mut hex = String::new();
-                                while i + 1 < chars.len()
-                                    && chars[i + 1] != ';'
-                                    && chars[i + 1].is_ascii_hexdigit()
-                                {
-                                    i += 1;
-                                    col += 1;
-                                    hex.push(chars[i]);
-                                }
-                                if hex.is_empty() {
-                                    return Err(SemaError::Reader {
-                                        message: "empty hex escape \\x;".to_string(),
-                                        span,
-                                    });
-                                }
-                                if i + 1 >= chars.len() || chars[i + 1] != ';' {
-                                    return Err(SemaError::Reader {
-                                        message: "hex escape \\x missing terminating semicolon"
-                                            .to_string(),
-                                        span,
-                                    });
-                                }
-                                // advance to the ';' — outer loop's i+=1 will move past it
-                                i += 1;
-                                col += 1;
-                                let code = u32::from_str_radix(&hex, 16).map_err(|_| {
-                                    SemaError::Reader {
-                                        message: format!("invalid hex escape \\x{};", hex),
-                                        span,
-                                    }
-                                })?;
-                                let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
-                                    message: format!("invalid unicode scalar value \\x{};", hex),
-                                    span,
-                                })?;
-                                s.push(ch);
-                            }
-                            'u' => {
-                                // \u<4 hex digits>
-                                let mut hex = String::new();
-                                for _ in 0..4 {
-                                    if i + 1 >= chars.len() || !chars[i + 1].is_ascii_hexdigit() {
-                                        return Err(SemaError::Reader {
-                                            message: "\\u escape requires exactly 4 hex digits"
-                                                .to_string(),
-                                            span,
-                                        });
-                                    }
-                                    i += 1;
-                                    col += 1;
-                                    hex.push(chars[i]);
-                                }
-                                let code = u32::from_str_radix(&hex, 16).map_err(|_| {
-                                    SemaError::Reader {
-                                        message: format!("invalid hex escape \\u{}", hex),
-                                        span,
-                                    }
-                                })?;
-                                let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
-                                    message: format!("invalid unicode scalar value \\u{}", hex),
-                                    span,
-                                })?;
-                                s.push(ch);
-                            }
-                            'U' => {
-                                // \U<8 hex digits>
-                                let mut hex = String::new();
-                                for _ in 0..8 {
-                                    if i + 1 >= chars.len() || !chars[i + 1].is_ascii_hexdigit() {
-                                        return Err(SemaError::Reader {
-                                            message: "\\U escape requires exactly 8 hex digits"
-                                                .to_string(),
-                                            span,
-                                        });
-                                    }
-                                    i += 1;
-                                    col += 1;
-                                    hex.push(chars[i]);
-                                }
-                                let code = u32::from_str_radix(&hex, 16).map_err(|_| {
-                                    SemaError::Reader {
-                                        message: format!("invalid hex escape \\U{}", hex),
-                                        span,
-                                    }
-                                })?;
-                                let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
-                                    message: format!("invalid unicode scalar value \\U{}", hex),
-                                    span,
-                                })?;
-                                s.push(ch);
-                            }
-                            other => {
-                                s.push('\\');
-                                s.push(other);
-                            }
-                        }
+                        read_string_escape(&chars, &mut i, &mut col, &mut s, span)?;
                     } else {
                         if chars[i] == '\n' {
                             line += 1;
@@ -353,6 +257,15 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 span: span.with_end(line, col),
                             });
                         }
+                        '(' => {
+                            // Short lambda: #(+ % 1) → (lambda (%1) (+ %1 1))
+                            i += 2; // skip #(
+                            col += 2;
+                            tokens.push(SpannedToken {
+                                token: Token::ShortLambdaStart,
+                                span: span.with_end(line, col),
+                            });
+                        }
                         _ => {
                             return Err(SemaError::Reader {
                                 message: format!(
@@ -394,9 +307,95 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 });
             }
 
-            // Numbers and symbols
+            // Numbers, f-strings, and symbols
             _ => {
-                if ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
+                if ch == 'f' && i + 1 < chars.len() && chars[i + 1] == '"' {
+                    // f-string: f"Hello ${name}" → FString token
+                    i += 1; // skip 'f'
+                    col += 1;
+                    i += 1; // skip opening '"'
+                    col += 1;
+                    let mut parts: Vec<FStringPart> = Vec::new();
+                    let mut current = String::new();
+
+                    while i < chars.len() && chars[i] != '"' {
+                        if chars[i] == '\\' && i + 1 < chars.len() {
+                            i += 1;
+                            col += 1;
+                            read_string_escape(&chars, &mut i, &mut col, &mut current, span)?;
+                        } else if chars[i] == '$'
+                            && i + 1 < chars.len()
+                            && chars[i + 1] == '{'
+                        {
+                            // Start interpolation
+                            if !current.is_empty() {
+                                parts.push(FStringPart::Literal(std::mem::take(&mut current)));
+                            }
+                            i += 2; // skip "${"
+                            col += 2;
+                            let mut expr = String::new();
+                            let mut depth = 1;
+                            while i < chars.len() && depth > 0 {
+                                if chars[i] == '{' {
+                                    depth += 1;
+                                } else if chars[i] == '}' {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        break;
+                                    }
+                                }
+                                if chars[i] == '\n' {
+                                    line += 1;
+                                    col = 0;
+                                }
+                                expr.push(chars[i]);
+                                i += 1;
+                                col += 1;
+                            }
+                            if depth != 0 {
+                                return Err(SemaError::Reader {
+                                    message: "unterminated interpolation in f-string".to_string(),
+                                    span,
+                                });
+                            }
+                            let trimmed = expr.trim().to_string();
+                            if trimmed.is_empty() {
+                                return Err(SemaError::Reader {
+                                    message: "empty interpolation in f-string".to_string(),
+                                    span,
+                                });
+                            }
+                            parts.push(FStringPart::Expr(trimmed));
+                            // i points to closing '}', outer i+=1 will skip past it
+                        } else {
+                            if chars[i] == '\n' {
+                                line += 1;
+                                col = 0;
+                            }
+                            current.push(chars[i]);
+                        }
+                        i += 1;
+                        col += 1;
+                    }
+
+                    if i >= chars.len() {
+                        return Err(SemaError::Reader {
+                            message: "unterminated f-string".to_string(),
+                            span,
+                        });
+                    }
+                    i += 1; // closing quote
+                    col += 1;
+
+                    if !current.is_empty() {
+                        parts.push(FStringPart::Literal(current));
+                    }
+
+                    tokens.push(SpannedToken {
+                        token: Token::FString(parts),
+                        span: span.with_end(line, col),
+                    });
+                } else if ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
                     // Negative number
                     let (tok, len) = read_number(&chars[i..], &span)?;
                     i += len;
@@ -455,6 +454,115 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
     }
 
     Ok(tokens)
+}
+
+/// Process a string escape sequence. `chars[*i]` is the character after `\`.
+/// Pushes the decoded character(s) to `buf` and advances `*i`/`*col` for
+/// multi-character escapes (hex, unicode). The caller handles the final `i += 1`.
+fn read_string_escape(
+    chars: &[char],
+    i: &mut usize,
+    col: &mut usize,
+    buf: &mut String,
+    span: Span,
+) -> Result<(), SemaError> {
+    match chars[*i] {
+        'n' => buf.push('\n'),
+        't' => buf.push('\t'),
+        'r' => buf.push('\r'),
+        '\\' => buf.push('\\'),
+        '"' => buf.push('"'),
+        '0' => buf.push('\0'),
+        '$' => buf.push('$'),
+        'x' => {
+            // R7RS hex escape: \x<hex>;
+            let mut hex = String::new();
+            while *i + 1 < chars.len()
+                && chars[*i + 1] != ';'
+                && chars[*i + 1].is_ascii_hexdigit()
+            {
+                *i += 1;
+                *col += 1;
+                hex.push(chars[*i]);
+            }
+            if hex.is_empty() {
+                return Err(SemaError::Reader {
+                    message: "empty hex escape \\x;".to_string(),
+                    span,
+                });
+            }
+            if *i + 1 >= chars.len() || chars[*i + 1] != ';' {
+                return Err(SemaError::Reader {
+                    message: "hex escape \\x missing terminating semicolon".to_string(),
+                    span,
+                });
+            }
+            *i += 1;
+            *col += 1;
+            let code = u32::from_str_radix(&hex, 16).map_err(|_| SemaError::Reader {
+                message: format!("invalid hex escape \\x{};", hex),
+                span,
+            })?;
+            let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
+                message: format!("invalid unicode scalar value \\x{};", hex),
+                span,
+            })?;
+            buf.push(ch);
+        }
+        'u' => {
+            // \u<4 hex digits>
+            let mut hex = String::new();
+            for _ in 0..4 {
+                if *i + 1 >= chars.len() || !chars[*i + 1].is_ascii_hexdigit() {
+                    return Err(SemaError::Reader {
+                        message: "\\u escape requires exactly 4 hex digits".to_string(),
+                        span,
+                    });
+                }
+                *i += 1;
+                *col += 1;
+                hex.push(chars[*i]);
+            }
+            let code = u32::from_str_radix(&hex, 16).map_err(|_| SemaError::Reader {
+                message: format!("invalid hex escape \\u{}", hex),
+                span,
+            })?;
+            let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
+                message: format!("invalid unicode scalar value \\u{}", hex),
+                span,
+            })?;
+            buf.push(ch);
+        }
+        'U' => {
+            // \U<8 hex digits>
+            let mut hex = String::new();
+            for _ in 0..8 {
+                if *i + 1 >= chars.len() || !chars[*i + 1].is_ascii_hexdigit() {
+                    return Err(SemaError::Reader {
+                        message: "\\U escape requires exactly 8 hex digits".to_string(),
+                        span,
+                    });
+                }
+                *i += 1;
+                *col += 1;
+                hex.push(chars[*i]);
+            }
+            let code = u32::from_str_radix(&hex, 16).map_err(|_| SemaError::Reader {
+                message: format!("invalid hex escape \\U{}", hex),
+                span,
+            })?;
+            let ch = char::from_u32(code).ok_or_else(|| SemaError::Reader {
+                message: format!("invalid unicode scalar value \\U{}", hex),
+                span,
+            })?;
+            buf.push(ch);
+        }
+        other => {
+            buf.push('\\');
+            buf.push(other);
+        }
+    }
+    Ok(())
 }
 
 fn read_number(chars: &[char], span: &Span) -> Result<(Token, usize), SemaError> {

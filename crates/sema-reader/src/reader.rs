@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use sema_core::{SemaError, Span, SpanMap, Value};
+use sema_core::{resolve, SemaError, Span, SpanMap, Value, ValueView};
 
-use crate::lexer::{tokenize, SpannedToken, Token};
+use crate::lexer::{tokenize, FStringPart, SpannedToken, Token};
 
 struct Parser {
     tokens: Vec<SpannedToken>,
@@ -114,6 +114,7 @@ impl Parser {
                 self.make_list_with_span(vec![Value::symbol("unquote-splicing"), inner], span)
             }
             Some(Token::BytevectorStart) => self.parse_bytevector(),
+            Some(Token::ShortLambdaStart) => self.parse_short_lambda(),
             Some(_) => self.parse_atom(),
         }
     }
@@ -248,6 +249,45 @@ impl Parser {
         Ok(Value::bytevector(bytes))
     }
 
+    fn parse_short_lambda(&mut self) -> Result<Value, SemaError> {
+        let open_span = self.span();
+        self.advance(); // consume ShortLambdaStart
+        let mut body_items = Vec::new();
+        while self.peek() != Some(&Token::RParen) {
+            if self.peek().is_none() {
+                return Err(SemaError::Reader {
+                    message: "unterminated short lambda #(...)".to_string(),
+                    span: open_span,
+                }
+                .with_hint("add a closing `)`"));
+            }
+            body_items.push(self.parse_expr()?);
+        }
+        self.expect(&Token::RParen)?;
+
+        // Build the body as a single list form: (fn-name arg1 arg2 ...)
+        let body = Value::list(body_items);
+
+        // Scan body for % / %1 / %2 etc., rewrite % → %1
+        let mut max_arg: usize = 0;
+        let body = rewrite_percent_args(&body, &mut max_arg);
+
+        // Build parameter list
+        let params: Vec<Value> = if max_arg == 0 {
+            vec![]
+        } else {
+            (1..=max_arg)
+                .map(|n| Value::symbol(&format!("%{}", n)))
+                .collect()
+        };
+
+        Ok(Value::list(vec![
+            Value::symbol("lambda"),
+            Value::list(params),
+            body,
+        ]))
+    }
+
     fn parse_atom(&mut self) -> Result<Value, SemaError> {
         let span = self.span();
         match self.advance() {
@@ -285,6 +325,27 @@ impl Parser {
                 token: Token::Char(c),
                 ..
             }) => Ok(Value::char(*c)),
+            Some(SpannedToken {
+                token: Token::FString(parts),
+                ..
+            }) => {
+                let parts = parts.clone();
+                let mut items = vec![Value::symbol("str")];
+                for part in &parts {
+                    match part {
+                        FStringPart::Literal(s) => {
+                            if !s.is_empty() {
+                                items.push(Value::string(s));
+                            }
+                        }
+                        FStringPart::Expr(src) => {
+                            let val = read(src)?;
+                            items.push(val);
+                        }
+                    }
+                }
+                Ok(Value::list(items))
+            }
             Some(t) => {
                 let (name, hint) = match &t.token {
                     Token::RParen => (
@@ -341,6 +402,56 @@ fn token_display(tok: &Token) -> &'static str {
         Token::Keyword(_) => "keyword",
         Token::Bool(_) => "boolean",
         Token::Char(_) => "character",
+        Token::FString(_) => "f-string",
+        Token::ShortLambdaStart => "#(",
+    }
+}
+
+/// Recursively scan a Value AST for `%`, `%1`, `%2`, etc. symbols.
+/// Rewrites bare `%` to `%1`. Tracks the highest numbered arg in `max_arg`.
+/// Skips recursion into nested `(lambda ...)` / `(fn ...)` forms.
+fn rewrite_percent_args(expr: &Value, max_arg: &mut usize) -> Value {
+    match expr.view() {
+        ValueView::Symbol(spur) => {
+            let name = resolve(spur);
+            if name == "%" {
+                *max_arg = (*max_arg).max(1);
+                Value::symbol("%1")
+            } else if let Some(rest) = name.strip_prefix('%') {
+                if let Ok(n) = rest.parse::<usize>() {
+                    if n > 0 {
+                        *max_arg = (*max_arg).max(n);
+                    }
+                }
+                expr.clone()
+            } else {
+                expr.clone()
+            }
+        }
+        ValueView::List(items) => {
+            // Skip nested (lambda ...) / (fn ...) forms — their % args are their own
+            if let Some(first) = items.first() {
+                if let ValueView::Symbol(s) = first.view() {
+                    let name = resolve(s);
+                    if name == "lambda" || name == "fn" {
+                        return expr.clone();
+                    }
+                }
+            }
+            let new_items: Vec<Value> = items
+                .iter()
+                .map(|item| rewrite_percent_args(item, max_arg))
+                .collect();
+            Value::list(new_items)
+        }
+        ValueView::Vector(items) => {
+            let new_items: Vec<Value> = items
+                .iter()
+                .map(|item| rewrite_percent_args(item, max_arg))
+                .collect();
+            Value::vector(new_items)
+        }
+        _ => expr.clone(),
     }
 }
 
@@ -1146,5 +1257,284 @@ mod tests {
         // Real-world: ANSI color code ESC[31m (red)
         let result = read(r#""\x1B;[31mRed\x1B;[0m""#).unwrap();
         assert_eq!(result, Value::string("\x1B[31mRed\x1B[0m"));
+    }
+
+    // ── f-string tests ──
+
+    #[test]
+    fn test_read_fstring_no_interpolation() {
+        let result = read(r#"f"hello""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![Value::symbol("str"), Value::string("hello")])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_single_var() {
+        let result = read(r#"f"hello ${name}""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("str"),
+                Value::string("hello "),
+                Value::symbol("name"),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_multiple_vars() {
+        let result = read(r#"f"${a} and ${b}""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("str"),
+                Value::symbol("a"),
+                Value::string(" and "),
+                Value::symbol("b"),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_expression() {
+        let result = read(r#"f"result: ${(+ 1 2)}""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("str"),
+                Value::string("result: "),
+                Value::list(vec![
+                    Value::symbol("+"),
+                    Value::int(1),
+                    Value::int(2),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_escaped_dollar() {
+        let result = read(r#"f"costs \$5""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![Value::symbol("str"), Value::string("costs $5")])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_dollar_without_brace() {
+        let result = read(r#"f"costs $5""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![Value::symbol("str"), Value::string("costs $5")])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_escape_sequences() {
+        let result = read(r#"f"line1\nline2""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("str"),
+                Value::string("line1\nline2"),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_empty_interpolation_error() {
+        assert!(read(r#"f"hello ${}""#).is_err());
+    }
+
+    #[test]
+    fn test_read_fstring_unterminated_interpolation_error() {
+        assert!(read(r#"f"hello ${name""#).is_err());
+    }
+
+    #[test]
+    fn test_read_fstring_unterminated_string_error() {
+        assert!(read(r#"f"hello"#).is_err());
+    }
+
+    #[test]
+    fn test_read_fstring_keyword_access() {
+        let result = read(r#"f"name: ${(:name user)}""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("str"),
+                Value::string("name: "),
+                Value::list(vec![Value::keyword("name"), Value::symbol("user")]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_in_list() {
+        let result = read(r#"(println f"hello ${name}")"#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("println"),
+                Value::list(vec![
+                    Value::symbol("str"),
+                    Value::string("hello "),
+                    Value::symbol("name"),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_empty() {
+        let result = read(r#"f"""#).unwrap();
+        assert_eq!(result, Value::list(vec![Value::symbol("str")]));
+    }
+
+    #[test]
+    fn test_read_fstring_only_expr() {
+        let result = read(r#"f"${x}""#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![Value::symbol("str"), Value::symbol("x")])
+        );
+    }
+
+    #[test]
+    fn test_read_f_symbol_still_works() {
+        // Plain 'f' symbol (not followed by '"') should still parse as symbol
+        let result = read("f").unwrap();
+        assert_eq!(result, Value::symbol("f"));
+    }
+
+    #[test]
+    fn test_read_f_prefixed_symbol_still_works() {
+        // 'foo' should still parse as a normal symbol
+        let result = read("foo").unwrap();
+        assert_eq!(result, Value::symbol("foo"));
+    }
+
+    // ── short lambda tests ──
+
+    #[test]
+    fn test_read_short_lambda_single_arg() {
+        // #(+ % 1) → (lambda (%1) (+ %1 1))
+        let result = read("#(+ % 1)").unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("lambda"),
+                Value::list(vec![Value::symbol("%1")]),
+                Value::list(vec![
+                    Value::symbol("+"),
+                    Value::symbol("%1"),
+                    Value::int(1),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_short_lambda_two_args() {
+        // #(+ %1 %2) → (lambda (%1 %2) (+ %1 %2))
+        let result = read("#(+ %1 %2)").unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("lambda"),
+                Value::list(vec![Value::symbol("%1"), Value::symbol("%2")]),
+                Value::list(vec![
+                    Value::symbol("+"),
+                    Value::symbol("%1"),
+                    Value::symbol("%2"),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_short_lambda_bare_percent_is_percent1() {
+        // #(* % %) → (lambda (%1) (* %1 %1))
+        let result = read("#(* % %)").unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("lambda"),
+                Value::list(vec![Value::symbol("%1")]),
+                Value::list(vec![
+                    Value::symbol("*"),
+                    Value::symbol("%1"),
+                    Value::symbol("%1"),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_short_lambda_no_args() {
+        // #(println "hello") → (lambda () (println "hello"))
+        let result = read(r#"#(println "hello")"#).unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("lambda"),
+                Value::list(vec![]),
+                Value::list(vec![
+                    Value::symbol("println"),
+                    Value::string("hello"),
+                ]),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_short_lambda_in_list() {
+        // (map #(+ % 1) numbers)
+        let result = read("(map #(+ % 1) numbers)").unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("map"),
+                Value::list(vec![
+                    Value::symbol("lambda"),
+                    Value::list(vec![Value::symbol("%1")]),
+                    Value::list(vec![
+                        Value::symbol("+"),
+                        Value::symbol("%1"),
+                        Value::int(1),
+                    ]),
+                ]),
+                Value::symbol("numbers"),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_read_short_lambda_unterminated() {
+        assert!(read("#(+ % 1").is_err());
+    }
+
+    #[test]
+    fn test_read_short_lambda_nested_expr() {
+        // #(> (string-length %) 3) → (lambda (%1) (> (string-length %1) 3))
+        let result = read("#(> (string-length %) 3)").unwrap();
+        assert_eq!(
+            result,
+            Value::list(vec![
+                Value::symbol("lambda"),
+                Value::list(vec![Value::symbol("%1")]),
+                Value::list(vec![
+                    Value::symbol(">"),
+                    Value::list(vec![
+                        Value::symbol("string-length"),
+                        Value::symbol("%1"),
+                    ]),
+                    Value::int(3),
+                ]),
+            ])
+        );
     }
 }

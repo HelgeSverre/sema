@@ -10795,3 +10795,290 @@ fn test_allowed_paths_none_allows_everything() {
         "no allowed_paths should allow all: {result:?}"
     );
 }
+
+// ── f-string tests ──
+
+#[test]
+fn test_fstring_basic() {
+    assert_eq!(
+        eval(r#"(let ((name "world")) f"hello ${name}")"#),
+        Value::string("hello world")
+    );
+}
+
+#[test]
+fn test_fstring_multiple_interpolations() {
+    assert_eq!(
+        eval(r#"(let ((a "foo") (b "bar")) f"${a} and ${b}")"#),
+        Value::string("foo and bar")
+    );
+}
+
+#[test]
+fn test_fstring_expression() {
+    assert_eq!(
+        eval(r#"f"result: ${(+ 1 2)}""#),
+        Value::string("result: 3")
+    );
+}
+
+#[test]
+fn test_fstring_nested_call() {
+    assert_eq!(
+        eval(r#"(let ((x 42)) f"the answer is ${x}")"#),
+        Value::string("the answer is 42")
+    );
+}
+
+#[test]
+fn test_fstring_no_interpolation() {
+    assert_eq!(eval(r#"f"just a string""#), Value::string("just a string"));
+}
+
+#[test]
+fn test_fstring_keyword_access() {
+    assert_eq!(
+        eval(r#"(let ((m {:name "Ada"})) f"name: ${(:name m)}")"#),
+        Value::string("name: Ada")
+    );
+}
+
+#[test]
+fn test_fstring_escaped_dollar() {
+    assert_eq!(eval(r#"f"costs \$5""#), Value::string("costs $5"));
+}
+
+#[test]
+fn test_fstring_dollar_without_brace() {
+    assert_eq!(eval(r#"f"costs $5""#), Value::string("costs $5"));
+}
+
+// ── prelude macro tests ──
+
+#[test]
+fn test_thread_first() {
+    assert_eq!(eval("(-> 5 (+ 3) (* 2))"), Value::int(16));
+}
+
+#[test]
+fn test_thread_first_bare_fn() {
+    assert_eq!(eval(r#"(-> "hello" string-length)"#), Value::int(5));
+}
+
+#[test]
+fn test_thread_last() {
+    assert_eq!(
+        eval("(->> (range 1 6) (filter odd?))"),
+        eval("'(1 3 5)")
+    );
+}
+
+#[test]
+fn test_thread_last_pipeline() {
+    assert_eq!(
+        eval("(->> (range 1 6) (map (fn (x) (* x x))) (foldl + 0))"),
+        Value::int(55)
+    );
+}
+
+#[test]
+fn test_thread_as() {
+    assert_eq!(eval("(as-> 5 x (+ x 3) (* x x) (- x 1))"), Value::int(63));
+}
+
+#[test]
+fn test_some_thread_non_nil() {
+    assert_eq!(
+        eval(r#"(some-> {:a {:b 42}} (get :a) (get :b))"#),
+        Value::int(42)
+    );
+}
+
+#[test]
+fn test_some_thread_nil() {
+    assert_eq!(
+        eval(r#"(some-> {:a nil} (get :a) (get :b))"#),
+        Value::nil()
+    );
+}
+
+#[test]
+fn test_when_let_truthy() {
+    assert_eq!(
+        eval(r#"(when-let (x 42) (+ x 1))"#),
+        Value::int(43)
+    );
+}
+
+#[test]
+fn test_when_let_nil() {
+    assert_eq!(
+        eval(r#"(when-let (x nil) (+ x 1))"#),
+        Value::nil()
+    );
+}
+
+#[test]
+fn test_if_let_truthy() {
+    assert_eq!(
+        eval(r#"(if-let (x 42) (+ x 1) 0)"#),
+        Value::int(43)
+    );
+}
+
+#[test]
+fn test_if_let_nil() {
+    assert_eq!(
+        eval(r#"(if-let (x nil) (+ x 1) 0)"#),
+        Value::int(0)
+    );
+}
+
+// ── nested map functions tests ──
+
+#[test]
+fn test_get_in_basic() {
+    assert_eq!(
+        eval(r#"(get-in {:a {:b {:c 42}}} [:a :b :c])"#),
+        Value::int(42)
+    );
+}
+
+#[test]
+fn test_get_in_missing_returns_nil() {
+    assert_eq!(
+        eval(r#"(get-in {:a {:b 1}} [:a :c])"#),
+        Value::nil()
+    );
+}
+
+#[test]
+fn test_get_in_missing_with_default() {
+    assert_eq!(
+        eval(r#"(get-in {:a {:b 1}} [:a :c] "default")"#),
+        Value::string("default")
+    );
+}
+
+#[test]
+fn test_get_in_nil_intermediate() {
+    assert_eq!(
+        eval(r#"(get-in {:a nil} [:a :b :c])"#),
+        Value::nil()
+    );
+}
+
+#[test]
+fn test_get_in_empty_path() {
+    assert_eq!(
+        eval(r#"(get-in {:a 1} [])"#),
+        eval(r#"{:a 1}"#)
+    );
+}
+
+#[test]
+fn test_assoc_in_basic() {
+    assert_eq!(
+        eval(r#"(get-in (assoc-in {:a {:b 1}} [:a :b] 42) [:a :b])"#),
+        Value::int(42)
+    );
+}
+
+#[test]
+fn test_assoc_in_creates_nested() {
+    assert_eq!(
+        eval(r#"(get-in (assoc-in {} [:a :b :c] 99) [:a :b :c])"#),
+        Value::int(99)
+    );
+}
+
+#[test]
+fn test_update_in_basic() {
+    assert_eq!(
+        eval(r#"(get-in (update-in {:a {:b 10}} [:a :b] (fn (x) (+ x 1))) [:a :b])"#),
+        Value::int(11)
+    );
+}
+
+#[test]
+fn test_update_in_missing_key() {
+    assert_eq!(
+        eval(r#"(get-in (update-in {} [:a :b] (fn (x) (if (nil? x) 1 (+ x 1)))) [:a :b])"#),
+        Value::int(1)
+    );
+}
+
+#[test]
+fn test_deep_merge_basic() {
+    assert_eq!(
+        eval(r#"(get-in (deep-merge {:a {:b 1 :c 2}} {:a {:b 99}}) [:a :c])"#),
+        Value::int(2)
+    );
+    assert_eq!(
+        eval(r#"(get-in (deep-merge {:a {:b 1 :c 2}} {:a {:b 99}}) [:a :b])"#),
+        Value::int(99)
+    );
+}
+
+#[test]
+fn test_deep_merge_non_map_override() {
+    assert_eq!(
+        eval(r#"(:a (deep-merge {:a {:b 1}} {:a 42}))"#),
+        Value::int(42)
+    );
+}
+
+#[test]
+fn test_deep_merge_multiple() {
+    assert_eq!(
+        eval(r#"(get-in (deep-merge {:a 1} {:b 2} {:c 3}) [:c])"#),
+        Value::int(3)
+    );
+}
+
+// ── short lambda tests ──
+
+#[test]
+fn test_short_lambda_basic() {
+    assert_eq!(
+        eval("(map #(+ % 1) '(1 2 3))"),
+        eval("'(2 3 4)")
+    );
+}
+
+#[test]
+fn test_short_lambda_square() {
+    assert_eq!(
+        eval("(map #(* % %) '(1 2 3 4))"),
+        eval("'(1 4 9 16)")
+    );
+}
+
+#[test]
+fn test_short_lambda_filter() {
+    assert_eq!(
+        eval("(filter #(> % 3) '(1 2 3 4 5))"),
+        eval("'(4 5)")
+    );
+}
+
+#[test]
+fn test_short_lambda_two_args() {
+    assert_eq!(
+        eval("(#(+ %1 %2) 3 4)"),
+        Value::int(7)
+    );
+}
+
+#[test]
+fn test_short_lambda_no_args() {
+    assert_eq!(eval("(#(+ 1 2))"), Value::int(3));
+}
+
+#[test]
+fn test_short_lambda_nested_call() {
+    assert_eq!(
+        eval("(map #(string-length %) '(\"hi\" \"hello\" \"hey\"))"),
+        eval("'(2 5 3)")
+    );
+}
