@@ -15,6 +15,8 @@ exclude = [
   "^https://www\\.cambridge\\.org",
   "^https://www\\.cs\\.indiana\\.edu",
   "^https://infoscience\\.epfl\\.ch",
+  # npmjs.com returns 403 to link checkers
+  "^https://www\\.npmjs\\.com",
   # Root-relative VitePress links in CHANGELOG (valid on deployed site, unresolvable locally)
   "^/docs/",
 ]
