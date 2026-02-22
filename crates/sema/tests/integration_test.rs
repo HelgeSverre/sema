@@ -11574,6 +11574,46 @@ fn test_vfs_load_missing_file_errors() {
 }
 
 #[test]
+fn test_vfs_accessible_after_llm_call() {
+    // Simulates the pi-sema pattern: VFS file read after an LLM call.
+    // The LLM provider uses tokio::runtime::block_on internally, which runs
+    // on the calling thread — VFS (thread-local) must remain accessible after.
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("config.txt".to_string(), b"agent-config".to_vec());
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+
+        // Read VFS before LLM call
+        let before = interp
+            .eval_str(r#"(file/read "config.txt")"#)
+            .unwrap();
+        assert_eq!(before, Value::string("agent-config"));
+
+        // Make an actual LLM call (auto-configure will find the env key)
+        let llm_result = interp.eval_str(
+            r#"(let ((provider (llm/auto-configure)))
+                 (if (nil? provider)
+                   "no-provider"
+                   (llm/ask provider "reply with exactly: OK")))"#,
+        );
+        // Don't assert on LLM result — may not have API key in CI
+        let _ = llm_result;
+
+        // VFS must still be accessible after the LLM round-trip
+        let after = interp
+            .eval_str(r#"(file/read "config.txt")"#)
+            .unwrap();
+        assert_eq!(after, Value::string("agent-config"));
+
+        assert!(sema_core::vfs::is_vfs_active());
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
 fn test_vfs_import_selective() {
     std::thread::spawn(|| {
         let mut files = std::collections::HashMap::new();

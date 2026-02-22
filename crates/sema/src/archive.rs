@@ -242,7 +242,11 @@ fn deserialize_archive(data: &[u8]) -> io::Result<Archive> {
 
     // Metadata
     let metadata_count = read_u32(data, &mut pos)? as usize;
-    let mut metadata = HashMap::with_capacity(metadata_count);
+    // Clamp capacity to avoid OOM from malicious archives — each metadata entry
+    // is at least 8 bytes (u16 key_len + u32 val_len + 2 bytes min), so the
+    // remaining data bounds how many entries can actually exist.
+    let remaining = data.len().saturating_sub(pos);
+    let mut metadata = HashMap::with_capacity(metadata_count.min(remaining / 8));
     for _ in 0..metadata_count {
         let key_len = read_u16(data, &mut pos)? as usize;
         let key_bytes = read_bytes(data, &mut pos, key_len)?;
@@ -266,7 +270,9 @@ fn deserialize_archive(data: &[u8]) -> io::Result<Archive> {
         size: u64,
     }
 
-    let mut toc = Vec::with_capacity(entry_count);
+    // Clamp capacity — each TOC entry is at least 20 bytes (u32 path_len + u64 offset + u64 size).
+    let remaining = data.len().saturating_sub(pos);
+    let mut toc = Vec::with_capacity(entry_count.min(remaining / 20));
     for _ in 0..entry_count {
         let path_len = read_u32(data, &mut pos)? as usize;
         let path_bytes = read_bytes(data, &mut pos, path_len)?;
@@ -283,7 +289,7 @@ fn deserialize_archive(data: &[u8]) -> io::Result<Archive> {
 
     // File data starts at current pos
     let file_data_start = pos;
-    let mut files = HashMap::with_capacity(entry_count);
+    let mut files = HashMap::with_capacity(toc.len());
     for entry in &toc {
         let start = file_data_start + entry.offset as usize;
         let end = start + entry.size as usize;
@@ -531,6 +537,46 @@ mod tests {
 
         assert_eq!(archive.files.len(), 1);
         assert_eq!(archive.files.get("test.txt").unwrap(), b"hello");
+    }
+
+    /// Build a minimal archive with a tampered metadata_count or entry_count.
+    /// Recomputes the CRC32 so the checksum passes.
+    fn craft_archive_with_counts(metadata_count: u32, entry_count: u32) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::new();
+        // Header
+        buf.extend_from_slice(&FORMAT_VERSION.to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes()); // flags
+        buf.extend_from_slice(&0u32.to_le_bytes()); // checksum placeholder
+
+        // metadata_count (potentially huge)
+        buf.extend_from_slice(&metadata_count.to_le_bytes());
+        // No actual metadata entries — the loop will hit EOF immediately
+
+        // entry_count (potentially huge)
+        buf.extend_from_slice(&entry_count.to_le_bytes());
+        // No actual TOC entries
+
+        // Backfill CRC32
+        let checksum = crc32(&buf[8..]);
+        buf[4..8].copy_from_slice(&checksum.to_le_bytes());
+        buf
+    }
+
+    #[test]
+    fn test_huge_metadata_count_does_not_oom() {
+        // A crafted archive claiming u32::MAX metadata entries but containing none.
+        // Should fail gracefully with an error, not panic/OOM.
+        let data = craft_archive_with_counts(u32::MAX, 0);
+        let result = deserialize_archive(&data);
+        assert!(result.is_err(), "should fail, not OOM");
+    }
+
+    #[test]
+    fn test_huge_entry_count_does_not_oom() {
+        // A crafted archive claiming u32::MAX file entries but containing none.
+        let data = craft_archive_with_counts(0, u32::MAX);
+        let result = deserialize_archive(&data);
+        assert!(result.is_err(), "should fail, not OOM");
     }
 
     #[test]

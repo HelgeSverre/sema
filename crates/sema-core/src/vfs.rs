@@ -192,6 +192,34 @@ mod tests {
     }
 
     #[test]
+    fn test_vfs_not_visible_from_other_threads() {
+        // VFS is thread-local by design — other threads should not see it.
+        // This documents the expected behavior: init on one thread, invisible to others.
+        std::thread::spawn(|| {
+            let mut files = HashMap::new();
+            files.insert("data.txt".to_string(), b"hello".to_vec());
+            init_vfs(files);
+
+            // Visible on this thread
+            assert!(is_vfs_active());
+            assert_eq!(vfs_read("data.txt"), Some(b"hello".to_vec()));
+
+            // NOT visible from a child thread
+            let handle = std::thread::spawn(|| {
+                assert!(!is_vfs_active(), "VFS should not be visible from child thread");
+                assert_eq!(vfs_read("data.txt"), None);
+            });
+            handle.join().unwrap();
+
+            // Still visible on original thread
+            assert!(is_vfs_active());
+            assert_eq!(vfs_read("data.txt"), Some(b"hello".to_vec()));
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
     fn test_init_and_read() {
         std::thread::spawn(|| {
             let mut files = HashMap::new();
