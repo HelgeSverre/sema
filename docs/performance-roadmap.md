@@ -6,7 +6,7 @@ Where Sema's time goes and what can be done about it. Based on analysis of the 1
 
 - **Tree-walker:** ~28.4s on 10M rows (native), 22.4× behind SBCL
 - **Bytecode VM:** ~15.9s on 10M rows (native), 11.2× behind SBCL, ~1.7× behind Janet
-- **Compute benchmarks (VM):** TAK 1,250ms, upvalue-counter 450ms, deriv 1,151ms
+- **Compute benchmarks (VM):** TAK 1,234ms, upvalue-counter 440ms, deriv 879ms
 
 Janet (13.4s) is the most meaningful comparison — both are embeddable scripting languages with bytecode VMs, no JIT, no native compilation.
 
@@ -26,21 +26,22 @@ Every `Value::clone()` is an `Rc::clone()` for heap types (strings, lists, maps)
 
 ## Tier 1: Big Wins (2–5× total speedup possible)
 
-### 1. Inline common stdlib into VM opcodes
+### 1. Inline common stdlib into VM opcodes ✅ (partial)
 
-**Impact:** Estimated ~1.5× speedup
+**Impact:** Measured 1.28× on deriv, 1.10× on closure-storm
 **Effort:** Medium (days)
+**Status:** First batch done (Feb 2026). Second batch (map/string ops) pending.
 
 The biggest single win. Instead of `CallGlobal("car")` → hash lookup → NativeFn → call, emit dedicated opcodes like `OpCar` that operate directly on the stack in the dispatch loop.
 
-Already done for: `+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `=`, `not` (the `AddInt`, `SubInt`, etc. intrinsics).
+**Done** (arithmetic + comparison, earlier): `+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `=`, `not` (`AddInt`, `SubInt`, etc.)
 
-Extend to the next 20 most-called functions:
-- List: `car`, `cdr`, `cons`, `length`, `null?`, `list?`, `first`, `rest`
+**Done** (list + predicates, Feb 2026): `car`/`first`, `cdr`/`rest`, `cons`, `null?`, `pair?`, `list?`, `number?`, `string?`, `symbol?`, `length` — 10 new opcodes (`Car`, `Cdr`, `Cons`, `IsNull`, `IsPair`, `IsList`, `IsNumber`, `IsString`, `IsSymbol`, `Length`). Measured impact: deriv 1,123ms → 879ms (1.28×), closure-storm 1,135ms → 1,029ms (1.10×).
+
+**Remaining** — extend to map/string/misc operations:
 - Map: `assoc`, `get`, `contains?`
 - String: `string-length`, `string-ref`, `string-append`
-- Type: `number?`, `string?`, `symbol?`
-- Misc: `apply`, `not`, `display`
+- Misc: `apply`, `display`
 
 This is what Lua's VM does — `OP_GETTABLE`, `OP_CONCAT`, `OP_LEN` etc. are inline opcodes, not function calls.
 

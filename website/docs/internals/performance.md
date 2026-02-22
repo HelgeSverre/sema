@@ -19,7 +19,7 @@ All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset
 
 > **Note:** The mini-eval and its associated optimizations (env reuse, inlined builtins, custom number parser, SIMD split fast path) were removed to unblock the bytecode VM, which is now implemented and available via `--vm`. The bytecode VM provides a ~1.7× speedup over the tree-walker (~1,700ms vs ~2,900ms on 1M rows), recovering much of the mini-eval's performance through compilation. The tree-walker remains the default; the current architecture uses `sema_core::call_callback` to route stdlib → real evaluator. Fast-path optimizations (self-evaluating short-circuit, inline NativeFn dispatch, thread-local EvalContext, deferred cloning) partially recovered performance.
 
-> **VM compute benchmarks** (post-intrinsic recognition, Feb 2026): TAK (deep recursion) runs at 1,250ms (17× faster than tree-walker), upvalue-counter at 450ms (12.8× faster), deriv at 1,151ms (3× faster). The 1BRC numbers above are I/O-bound and less affected by VM compute optimizations.
+> **VM compute benchmarks** (Feb 2026, post-stdlib intrinsics): TAK 1,234ms, upvalue-counter 440ms, deriv 879ms. The deriv benchmark — dominated by `car`/`cdr`/`cons`/`pair?` — improved 22% from stdlib intrinsic opcodes. The 1BRC numbers above are I/O-bound and less affected by VM compute optimizations.
 
 ## 1. Copy-on-Write Map Mutation
 
@@ -225,6 +225,8 @@ The bytecode VM (`--vm`) applies several optimizations beyond basic bytecode com
 
 The compiler recognizes calls to known builtins and emits inline opcodes instead of function calls:
 
+**Arithmetic & comparison** (phase 1):
+
 | Source | Compiled to | What it replaces |
 |--------|------------|-----------------|
 | `(+ a b)` | `AddInt` | `CallGlobal("+", 2)` → hash lookup → NativeFn downcast → args Vec → function call |
@@ -234,11 +236,26 @@ The compiler recognizes calls to known builtins and emits inline opcodes instead
 | `(> a b)` | `Gt` | Same overhead |
 | `(not x)` | `Not` | Same overhead |
 
+**Stdlib: list operations & type predicates** (phase 2, Feb 2026):
+
+| Source | Compiled to | What it replaces |
+|--------|------------|-----------------|
+| `(car x)` / `(first x)` | `Car` | Same overhead — pop list, push first element |
+| `(cdr x)` / `(rest x)` | `Cdr` | Same — pop list, push tail |
+| `(cons h t)` | `Cons` | Same — pop head+tail, push new list |
+| `(null? x)` | `IsNull` | Same — push `#t` if nil or empty list |
+| `(pair? x)` | `IsPair` | Same — push `#t` if non-empty list |
+| `(list? x)` | `IsList` | Same — push `#t` if list |
+| `(number? x)` | `IsNumber` | Same — push `#t` if int or float |
+| `(string? x)` | `IsString` | Same — push `#t` if string |
+| `(symbol? x)` | `IsSymbol` | Same — push `#t` if symbol |
+| `(length x)` | `Length` | Same — push collection length as int |
+
 This eliminates global hash lookup, `Rc` downcast, argument `Vec` allocation, and function pointer dispatch — the entire call overhead — for the most common operations. The `*Int` opcodes include NaN-boxed small-int fast paths that operate directly on raw `u64` bits, avoiding `Clone`/`Drop` overhead entirely.
 
 All standard arithmetic and comparison operators are inlined. The `*Int` variants include NaN-boxed fast paths; the generic opcodes (`Div`, `Gt`, `Le`, `Ge`) handle int/float coercion correctly.
 
-**Impact:** TAK benchmark 4,352ms → 1,250ms (-71%), upvalue-counter 1,232ms → 450ms (-63%).
+**Impact:** Phase 1: TAK 4,352ms → 1,250ms (-71%), upvalue-counter 1,232ms → 450ms (-63%). Phase 2: deriv 1,123ms → 879ms (-22%), closure-storm 1,135ms → 1,029ms (-9%). The deriv benchmark is dominated by `car`/`cdr`/`cons`/`pair?` — exactly the functions that became intrinsics.
 
 ### Peephole: `(if (not X) ...)` → JumpIfTrue
 

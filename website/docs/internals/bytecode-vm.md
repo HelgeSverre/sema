@@ -96,7 +96,7 @@ The compiler (`compiler.rs`) transforms `ResolvedExpr` into bytecode `Chunk`s. T
 
 ### Compiler Optimizations
 
-- **Intrinsic recognition**: Known builtins (`+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `=`, `not`) are compiled to inline opcodes instead of function calls, eliminating global lookup, `Rc` downcast, argument `Vec` allocation, and function pointer dispatch.
+- **Intrinsic recognition**: Known builtins are compiled to inline opcodes instead of function calls, eliminating global lookup, `Rc` downcast, argument `Vec` allocation, and function pointer dispatch. Arithmetic/comparison: `+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `=`, `not`. List/predicates: `car`/`first`, `cdr`/`rest`, `cons`, `null?`, `pair?`, `list?`, `number?`, `string?`, `symbol?`, `length`.
 - **Peephole: `(if (not X) ...)`**: The pattern `(if (not X) A B)` compiles to `JumpIfTrue` instead of `Not` + `JumpIfFalse`, eliminating one instruction.
 - **Fused `CallGlobal`**: Non-tail calls to global functions use a fused `CallGlobal` instruction that combines `LoadGlobal` + `Call` into a single opcode with `(u32 spur, u16 argc)` operands.
 - **Specialized `LoadLocal`/`StoreLocal`**: Slots 0–3 have dedicated zero-operand opcodes (`LoadLocal0`..`LoadLocal3`, `StoreLocal0`..`StoreLocal3`), saving 2 bytes per instruction for the most frequently accessed locals.
@@ -235,7 +235,7 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 - `try`/`catch` doesn't catch runtime errors from native functions (e.g., division by zero)
 - `try`/`catch` error value format may differ from tree-walker
 - `define-record-type` bindings not visible to subsequent compiled code
-- The compiler emits inline opcodes for common builtins (`+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `=`, `not`) via intrinsic recognition. If a user redefines these globals, the intrinsic will still fire (these are treated as non-rebindable primitives).
+- The compiler emits inline opcodes for common builtins (`+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `=`, `not`, `car`/`first`, `cdr`/`rest`, `cons`, `null?`, `pair?`, `list?`, `number?`, `string?`, `symbol?`, `length`) via intrinsic recognition. If a user redefines these globals, the intrinsic will still fire (these are treated as non-rebindable primitives).
 - `CallNative` opcode is defined but not yet used (no native function registry)
 
 ## CLI Usage
