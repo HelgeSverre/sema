@@ -1165,11 +1165,9 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
 
     // Check VFS before hitting the filesystem
     if sema_core::vfs::is_vfs_active() {
-        let vfs_path = if std::path::Path::new(path_str).is_absolute() {
-            path_str.to_string()
-        } else {
-            resolved.to_string_lossy().to_string()
-        };
+        let base_dir = ctx
+            .current_file_dir()
+            .map(|d| d.to_string_lossy().to_string());
 
         // Check cache first (using resolved as key since we can't canonicalize VFS paths)
         if let Some(cached) = ctx.get_cached_module(&resolved) {
@@ -1177,7 +1175,9 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             return Ok(Trampoline::Value(Value::nil()));
         }
 
-        if let Some(content_bytes) = sema_core::vfs::vfs_read(&vfs_path) {
+        if let Some(content_bytes) =
+            sema_core::vfs::vfs_resolve_and_read(path_str, base_dir.as_deref())
+        {
             let content = String::from_utf8(content_bytes).map_err(|e| {
                 SemaError::Io(format!("import {path_str}: invalid UTF-8 in VFS: {e}"))
             })?;
@@ -1338,7 +1338,12 @@ fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
 
     // Check VFS before hitting the filesystem
     if sema_core::vfs::is_vfs_active() {
-        if let Some(content_bytes) = sema_core::vfs::vfs_read(path_str) {
+        let base_dir = ctx
+            .current_file_dir()
+            .map(|d| d.to_string_lossy().to_string());
+        if let Some(content_bytes) =
+            sema_core::vfs::vfs_resolve_and_read(path_str, base_dir.as_deref())
+        {
             let content = String::from_utf8(content_bytes).map_err(|e| {
                 SemaError::Io(format!("load {path_str}: invalid UTF-8 in VFS: {e}"))
             })?;

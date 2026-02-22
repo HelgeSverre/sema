@@ -11194,3 +11194,401 @@ fn test_sys_sema_home() {
         "expected .sema in path: {s}"
     );
 }
+
+// ===========================================================================
+// sema build — multi-file load (the pi-sema pattern)
+// ===========================================================================
+
+#[test]
+fn test_sema_build_with_load() {
+    let dir = build_test_dir("load");
+
+    // Helper module loaded by main
+    std::fs::write(dir.join("util.sema"), r#"(define (greet name) (format "hello ~a" name))"#)
+        .unwrap();
+
+    // Main file uses load (not import)
+    std::fs::write(
+        dir.join("main.sema"),
+        r#"(load "util.sema") (println (greet "world"))"#,
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "build",
+            dir.join("main.sema").to_str().unwrap(),
+            "-o",
+            dir.join("app").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sema build");
+
+    assert!(
+        output.status.success(),
+        "sema build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Remove source files to prove VFS is working
+    std::fs::remove_file(dir.join("util.sema")).unwrap();
+    std::fs::remove_file(dir.join("main.sema")).unwrap();
+
+    let run = std::process::Command::new(dir.join("app"))
+        .output()
+        .expect("failed to run bundled executable");
+
+    assert!(
+        run.status.success(),
+        "bundled executable failed: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim(),
+        "hello world"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_sema_build_with_chained_loads() {
+    let dir = build_test_dir("chained-loads");
+
+    // c.sema defines a value
+    std::fs::write(dir.join("c.sema"), r#"(define base-val 10)"#).unwrap();
+
+    // b.sema loads c.sema and defines something on top
+    std::fs::write(
+        dir.join("b.sema"),
+        r#"(load "c.sema") (define doubled (* base-val 2))"#,
+    )
+    .unwrap();
+
+    // a.sema loads b.sema and prints result
+    std::fs::write(
+        dir.join("a.sema"),
+        r#"(load "b.sema") (println doubled)"#,
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "build",
+            dir.join("a.sema").to_str().unwrap(),
+            "-o",
+            dir.join("app").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sema build");
+
+    assert!(
+        output.status.success(),
+        "sema build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // Remove all source files
+    std::fs::remove_file(dir.join("a.sema")).unwrap();
+    std::fs::remove_file(dir.join("b.sema")).unwrap();
+    std::fs::remove_file(dir.join("c.sema")).unwrap();
+
+    let run = std::process::Command::new(dir.join("app"))
+        .output()
+        .expect("failed to run bundled executable");
+
+    assert!(
+        run.status.success(),
+        "bundled executable failed: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "20");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_sema_build_with_subdirectory_loads() {
+    let dir = build_test_dir("subdir-loads");
+    std::fs::create_dir_all(dir.join("lib")).unwrap();
+
+    // lib/helpers.sema
+    std::fs::write(
+        dir.join("lib/helpers.sema"),
+        r#"(define (add a b) (+ a b))"#,
+    )
+    .unwrap();
+
+    // main.sema loads from subdirectory
+    std::fs::write(
+        dir.join("main.sema"),
+        r#"(load "lib/helpers.sema") (println (add 3 4))"#,
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "build",
+            dir.join("main.sema").to_str().unwrap(),
+            "-o",
+            dir.join("app").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sema build");
+
+    assert!(
+        output.status.success(),
+        "sema build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    std::fs::remove_dir_all(dir.join("lib")).unwrap();
+    std::fs::remove_file(dir.join("main.sema")).unwrap();
+
+    let run = std::process::Command::new(dir.join("app"))
+        .output()
+        .expect("failed to run bundled executable");
+
+    assert!(
+        run.status.success(),
+        "bundled executable failed: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "7");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_sema_build_mixed_load_and_import() {
+    let dir = build_test_dir("mixed");
+    std::fs::create_dir_all(dir.join("lib")).unwrap();
+
+    // Module for import
+    std::fs::write(
+        dir.join("lib/math.sema"),
+        r#"(module math (export square) (define (square x) (* x x)))"#,
+    )
+    .unwrap();
+
+    // Helper for load
+    std::fs::write(
+        dir.join("util.sema"),
+        r#"(define (fmt-result n) (format "result: ~a" n))"#,
+    )
+    .unwrap();
+
+    // Main uses both
+    std::fs::write(
+        dir.join("main.sema"),
+        r#"(load "util.sema") (import "lib/math.sema") (println (fmt-result (square 5)))"#,
+    )
+    .unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "build",
+            dir.join("main.sema").to_str().unwrap(),
+            "-o",
+            dir.join("app").to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to run sema build");
+
+    assert!(
+        output.status.success(),
+        "sema build failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    std::fs::remove_dir_all(dir.join("lib")).unwrap();
+    std::fs::remove_file(dir.join("util.sema")).unwrap();
+    std::fs::remove_file(dir.join("main.sema")).unwrap();
+
+    let run = std::process::Command::new(dir.join("app"))
+        .output()
+        .expect("failed to run bundled executable");
+
+    assert!(
+        run.status.success(),
+        "bundled executable failed: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run.stdout).trim(),
+        "result: 25"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// ===========================================================================
+// VFS — path resolution edge cases (in-process, no subprocess)
+// ===========================================================================
+
+#[test]
+fn test_vfs_load_from_subdirectory() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("lib/a.sema".to_string(), b"(define a-val 1)".to_vec());
+        // main loads a file in a subdirectory
+        files.insert(
+            "main.sema".to_string(),
+            b"(load \"lib/a.sema\") a-val".to_vec(),
+        );
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (load "lib/a.sema") a-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(1));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_chained_loads() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("base.sema".to_string(), b"(define base 100)".to_vec());
+        files.insert(
+            "mid.sema".to_string(),
+            b"(load \"base.sema\") (define mid (+ base 1))".to_vec(),
+        );
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (load "mid.sema") mid)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(101));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_import_from_subdirectory() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "lib/utils.sema".to_string(),
+            b"(module utils (export double) (define (double x) (* x 2)))".to_vec(),
+        );
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "lib/utils.sema") (double 21))"#)
+            .unwrap();
+        assert_eq!(result, Value::int(42));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_load_then_import() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "helpers.sema".to_string(),
+            b"(define (fmt x) (format \"v=~a\" x))".to_vec(),
+        );
+        files.insert(
+            "lib/mod.sema".to_string(),
+            b"(module mymod (export val) (define val 99))".to_vec(),
+        );
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (load "helpers.sema") (import "lib/mod.sema") (fmt val))"#)
+            .unwrap();
+        assert_eq!(result, Value::string("v=99"));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_file_exists_subdirectory() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("data/config.json".to_string(), b"{}".to_vec());
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        assert_eq!(
+            interp
+                .eval_str(r#"(file/exists? "data/config.json")"#)
+                .unwrap(),
+            Value::bool(true)
+        );
+        assert_eq!(
+            interp
+                .eval_str(r#"(file/exists? "data/missing.json")"#)
+                .unwrap(),
+            Value::bool(false)
+        );
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_file_read_subdirectory() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "assets/greeting.txt".to_string(),
+            b"howdy".to_vec(),
+        );
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(file/read "assets/greeting.txt")"#)
+            .unwrap();
+        assert_eq!(result, Value::string("howdy"));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_load_missing_file_errors() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("exists.sema".to_string(), b"(define x 1)".to_vec());
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(load "nonexistent.sema")"#);
+        assert!(result.is_err(), "loading missing VFS file should error");
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_import_selective() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "multi.sema".to_string(),
+            b"(module multi (export a b c) (define a 1) (define b 2) (define c 3))".to_vec(),
+        );
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "multi.sema" a c) (+ a c))"#)
+            .unwrap();
+        assert_eq!(result, Value::int(4));
+    })
+    .join()
+    .unwrap();
+}

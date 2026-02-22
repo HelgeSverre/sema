@@ -717,6 +717,18 @@ fn register_vm_delegates(env: &Rc<Env>) {
                 Some(s) => s.to_string(),
                 None => return Err(SemaError::type_error("string", args[0].type_name())),
             };
+            // Check VFS first (for bundled executables)
+            if sema_core::vfs::is_vfs_active() {
+                let base_dir = ctx.current_file_dir().map(|d| d.to_string_lossy().to_string());
+                if let Some(content_bytes) = sema_core::vfs::vfs_resolve_and_read(&path, base_dir.as_deref()) {
+                    let content = String::from_utf8(content_bytes).map_err(|e| {
+                        SemaError::eval(format!("load {path}: invalid UTF-8 in VFS: {e}"))
+                    })?;
+                    let result = eval_string(ctx, &content, &load_env);
+                    return result;
+                }
+            }
+
             let full_path = if let Some(dir) = ctx.current_file_dir() {
                 dir.join(&path)
             } else {
