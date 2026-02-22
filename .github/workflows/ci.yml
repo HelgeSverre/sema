@@ -39,6 +39,12 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
+      - name: Smoke test examples
+        run: make examples
+
+      - name: Smoke test bytecode
+        run: make smoke-bytecode
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
