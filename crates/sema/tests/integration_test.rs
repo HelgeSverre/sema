@@ -11003,3 +11003,194 @@ fn test_sema_build_passes_args() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ===========================================================================
+// VFS interception tests — exercise file/read, file/exists?, import, load
+// with a pre-initialized VFS (no subprocess needed)
+// ===========================================================================
+
+#[test]
+fn test_vfs_file_read() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("hello.txt".to_string(), b"hello from VFS".to_vec());
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(file/read "hello.txt")"#).unwrap();
+        assert_eq!(result, Value::string("hello from VFS"));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_file_read_invalid_utf8() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("bad.bin".to_string(), vec![0xFF, 0xFE]);
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(file/read "bad.bin")"#);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("UTF-8"));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_file_read_bytes() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("data.bin".to_string(), vec![1u8, 2, 3]);
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(file/read-bytes "data.bin")"#).unwrap();
+        let bv = result.as_bytevector().unwrap();
+        assert_eq!(bv, &[1u8, 2, 3]);
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_file_exists() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("exists.txt".to_string(), b"data".to_vec());
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        assert_eq!(
+            interp.eval_str(r#"(file/exists? "exists.txt")"#).unwrap(),
+            Value::bool(true)
+        );
+        assert_eq!(
+            interp.eval_str(r#"(file/exists? "ghost.txt")"#).unwrap(),
+            Value::bool(false)
+        );
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_file_read_lines() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("lines.txt".to_string(), b"alpha\nbeta\ngamma".to_vec());
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(file/read-lines "lines.txt")"#).unwrap();
+        let items = result.as_list().unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::string("alpha"));
+        assert_eq!(items[1], Value::string("beta"));
+        assert_eq!(items[2], Value::string("gamma"));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_import() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "lib/math.sema".to_string(),
+            b"(module math (export square) (define (square x) (* x x)))".to_vec(),
+        );
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "lib/math.sema") (square 7))"#)
+            .unwrap();
+        assert_eq!(result, Value::int(49));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_import_cached() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "counter.sema".to_string(),
+            b"(module counter (export n) (define n 42))".to_vec(),
+        );
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        // Both imports and usage in a single eval so environment is shared
+        let result = interp
+            .eval_str(r#"(begin (import "counter.sema") (import "counter.sema") n)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(42));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_load() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("defs.sema".to_string(), b"(define loaded-val 123)".to_vec());
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (load "defs.sema") loaded-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(123));
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_import_invalid_utf8() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("bad.sema".to_string(), vec![0xFF, 0xFE]);
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(import "bad.sema")"#);
+        assert!(result.is_err());
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_vfs_load_invalid_utf8() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert("bad.sema".to_string(), vec![0xFF, 0xFE]);
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(load "bad.sema")"#);
+        assert!(result.is_err());
+    })
+    .join()
+    .unwrap();
+}
+
+#[test]
+fn test_sys_sema_home() {
+    let result = eval("(sys/sema-home)");
+    assert!(result.is_string(), "sys/sema-home should return a string");
+    let s = result.as_str().unwrap();
+    assert!(
+        s.contains(".sema") || std::env::var("SEMA_HOME").is_ok(),
+        "expected .sema in path: {s}"
+    );
+}

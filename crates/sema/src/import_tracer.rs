@@ -169,3 +169,137 @@ fn process_import(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn tmpdir(name: &str) -> PathBuf {
+        let d =
+            std::env::temp_dir().join(format!("sema-tracer-test-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn test_trace_nonexistent_root() {
+        let result = trace_imports(Path::new("/nonexistent/file.sema"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_trace_no_imports() {
+        let dir = tmpdir("no-imports");
+        fs::write(dir.join("main.sema"), "(define x 42)").unwrap();
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        assert!(result.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_single_import() {
+        let dir = tmpdir("single");
+        fs::write(dir.join("lib.sema"), "(define y 1)").unwrap();
+        fs::write(dir.join("main.sema"), r#"(import "lib.sema")"#).unwrap();
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        assert!(
+            result.contains_key("lib.sema"),
+            "expected lib.sema in result: {result:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_circular_imports() {
+        let dir = tmpdir("circular");
+        fs::write(dir.join("a.sema"), r#"(import "b.sema")"#).unwrap();
+        fs::write(dir.join("b.sema"), r#"(import "a.sema")"#).unwrap();
+        let result = trace_imports(&dir.join("a.sema")).unwrap();
+        assert!(result.contains_key("b.sema"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_dynamic_import_warns() {
+        let dir = tmpdir("dynamic");
+        fs::write(dir.join("main.sema"), "(import some-var)").unwrap();
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        assert!(result.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_missing_import_errors() {
+        let dir = tmpdir("missing");
+        fs::write(dir.join("main.sema"), r#"(import "nonexistent.sema")"#).unwrap();
+        let result = trace_imports(&dir.join("main.sema"));
+        assert!(result.is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_module_form() {
+        let dir = tmpdir("module");
+        fs::write(dir.join("lib.sema"), "(define z 99)").unwrap();
+        fs::write(
+            dir.join("main.sema"),
+            r#"(module mymod (export z) (import "lib.sema"))"#,
+        )
+        .unwrap();
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        assert!(result.contains_key("lib.sema"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_load_form() {
+        let dir = tmpdir("load");
+        fs::write(dir.join("defs.sema"), "(define loaded 1)").unwrap();
+        fs::write(dir.join("main.sema"), r#"(load "defs.sema")"#).unwrap();
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        assert!(result.contains_key("defs.sema"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_binary_file_included() {
+        let dir = tmpdir("binary");
+        fs::write(dir.join("data.bin"), &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+        fs::write(dir.join("main.sema"), r#"(import "data.bin")"#).unwrap();
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        assert!(
+            result.contains_key("data.bin"),
+            "binary file should be included"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_nested_imports() {
+        let dir = tmpdir("nested");
+        fs::create_dir_all(dir.join("lib")).unwrap();
+        fs::write(dir.join("lib/deep.sema"), "(define deep 1)").unwrap();
+        fs::write(dir.join("lib/mid.sema"), r#"(import "deep.sema")"#).unwrap();
+        fs::write(dir.join("main.sema"), r#"(import "lib/mid.sema")"#).unwrap();
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        assert!(result.contains_key("lib/mid.sema"));
+        assert!(result.contains_key("lib/deep.sema"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_trace_import_in_begin() {
+        let dir = tmpdir("begin");
+        fs::write(dir.join("lib.sema"), "(define y 1)").unwrap();
+        fs::write(
+            dir.join("main.sema"),
+            r#"(begin (import "lib.sema") (+ 1 2))"#,
+        )
+        .unwrap();
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        assert!(result.contains_key("lib.sema"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
