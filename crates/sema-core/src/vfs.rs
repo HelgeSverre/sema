@@ -206,7 +206,10 @@ mod tests {
 
             // NOT visible from a child thread
             let handle = std::thread::spawn(|| {
-                assert!(!is_vfs_active(), "VFS should not be visible from child thread");
+                assert!(
+                    !is_vfs_active(),
+                    "VFS should not be visible from child thread"
+                );
                 assert_eq!(vfs_read("data.txt"), None);
             });
             handle.join().unwrap();

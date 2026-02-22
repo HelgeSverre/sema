@@ -11204,8 +11204,11 @@ fn test_sema_build_with_load() {
     let dir = build_test_dir("load");
 
     // Helper module loaded by main
-    std::fs::write(dir.join("util.sema"), r#"(define (greet name) (format "hello ~a" name))"#)
-        .unwrap();
+    std::fs::write(
+        dir.join("util.sema"),
+        r#"(define (greet name) (format "hello ~a" name))"#,
+    )
+    .unwrap();
 
     // Main file uses load (not import)
     std::fs::write(
@@ -11243,10 +11246,7 @@ fn test_sema_build_with_load() {
         "bundled executable failed: {}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout).trim(),
-        "hello world"
-    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "hello world");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -11266,11 +11266,7 @@ fn test_sema_build_with_chained_loads() {
     .unwrap();
 
     // a.sema loads b.sema and prints result
-    std::fs::write(
-        dir.join("a.sema"),
-        r#"(load "b.sema") (println doubled)"#,
-    )
-    .unwrap();
+    std::fs::write(dir.join("a.sema"), r#"(load "b.sema") (println doubled)"#).unwrap();
 
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
         .args([
@@ -11414,10 +11410,7 @@ fn test_sema_build_mixed_load_and_import() {
         "bundled executable failed: {}",
         String::from_utf8_lossy(&run.stderr)
     );
-    assert_eq!(
-        String::from_utf8_lossy(&run.stdout).trim(),
-        "result: 25"
-    );
+    assert_eq!(String::from_utf8_lossy(&run.stdout).trim(), "result: 25");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -11460,9 +11453,7 @@ fn test_vfs_chained_loads() {
         sema_core::vfs::init_vfs(files);
 
         let interp = Interpreter::new();
-        let result = interp
-            .eval_str(r#"(begin (load "mid.sema") mid)"#)
-            .unwrap();
+        let result = interp.eval_str(r#"(begin (load "mid.sema") mid)"#).unwrap();
         assert_eq!(result, Value::int(101));
     })
     .join()
@@ -11542,10 +11533,7 @@ fn test_vfs_file_exists_subdirectory() {
 fn test_vfs_file_read_subdirectory() {
     std::thread::spawn(|| {
         let mut files = std::collections::HashMap::new();
-        files.insert(
-            "assets/greeting.txt".to_string(),
-            b"howdy".to_vec(),
-        );
+        files.insert("assets/greeting.txt".to_string(), b"howdy".to_vec());
         sema_core::vfs::init_vfs(files);
 
         let interp = Interpreter::new();
@@ -11586,9 +11574,7 @@ fn test_vfs_accessible_after_llm_call() {
         let interp = Interpreter::new();
 
         // Read VFS before LLM call
-        let before = interp
-            .eval_str(r#"(file/read "config.txt")"#)
-            .unwrap();
+        let before = interp.eval_str(r#"(file/read "config.txt")"#).unwrap();
         assert_eq!(before, Value::string("agent-config"));
 
         // Make an actual LLM call (auto-configure will find the env key)
@@ -11602,9 +11588,7 @@ fn test_vfs_accessible_after_llm_call() {
         let _ = llm_result;
 
         // VFS must still be accessible after the LLM round-trip
-        let after = interp
-            .eval_str(r#"(file/read "config.txt")"#)
-            .unwrap();
+        let after = interp.eval_str(r#"(file/read "config.txt")"#).unwrap();
         assert_eq!(after, Value::string("agent-config"));
 
         assert!(sema_core::vfs::is_vfs_active());
