@@ -22,11 +22,11 @@ How does Sema stack up against other Lisps and Lisp-adjacent languages as a prac
 
 | Feature | Sema | Janet | Racket | Clojure | Fennel | Guile | SBCL |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Standalone executables | ✅ `sema build` | ✅ `jpm` | ✅ `raco exe` | ✅ GraalVM | ❌ needs Lua | ❌ | ✅ `save-lisp-and-die` |
+| Standalone executables | ✅ `sema build` | ✅ `jpm` | ✅ `raco exe` | ⚠️ GraalVM only | ⚠️ `--compile-binary` | ❌ | ✅ `save-lisp-and-die` |
 | Bytecode compilation | ✅ `.semac` | ✅ images | ✅ `.zo` | ✅ `.class` | ❌ | ✅ `.go` | ✅ FASL |
 | WASM / browser | ✅ [sema.run](https://sema.run) | ⚠️ community | ⚠️ WebRacket (subset) | ✅ ClojureScript | ⚠️ via Fengari | ⚠️ Hoot (R7RS subset) | ⚠️ ECL/Emscripten |
-| Web playground | ✅ 20+ examples | ⚠️ community | ✅ RacketScript | ⚠️ community | ✅ on fennel-lang.org | ❌ | ❌ |
-| Shebang scripts | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ⚠️ via Roswell |
+| Web playground | ✅ 20+ examples | ⚠️ community | ⚠️ Try Racket | ⚠️ community | ✅ on fennel-lang.org | ❌ | ❌ |
+| Shebang scripts | ✅ | ✅ | ✅ | ⚠️ `clojure` CLI | ✅ | ✅ | ✅ `--script` |
 | Homebrew install | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Windows support | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ⚠️ |
 | Install script (curl) | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
@@ -36,20 +36,20 @@ How does Sema stack up against other Lisps and Lisp-adjacent languages as a prac
 | Feature | Sema | Janet | Racket | Clojure | Fennel | Guile | SBCL |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Embed in Rust | ✅ crate API | ⚠️ via FFI | ❌ | ❌ | ❌ | ⚠️ via FFI | ❌ |
-| Embed in C/C++ | ⚠️ via FFI | ✅ single `.c`+`.h` | ✅ | ❌ | ✅ single file | ✅ `libguile` | ✅ ECL |
-| Embed in JS/Node | ✅ WASM module | ⚠️ community WASM | ❌ | ✅ ClojureScript | ✅ native | ❌ | ❌ |
-| Sandbox mode | ✅ `--sandbox` | ❌ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Embed in C/C++ | ⚠️ via FFI | ✅ single `.c`+`.h` | ✅ | ❌ | ✅ single file | ✅ `libguile` | ❌ |
+| Runs in JS/browser | ✅ WASM module | ⚠️ community WASM | ❌ | ⚠️ via ClojureScript | ⚠️ via Fengari | ❌ | ❌ |
+| Sandbox mode | ✅ `--sandbox` | ✅ `sandbox` | ✅ | ❌ | ❌ | ✅ `ice-9 sandbox` | ❌ |
 
 ## Built-in Standard Library
 
 | Feature | Sema | Janet | Racket | Clojure | Fennel | Guile | SBCL |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Stdlib functions | 460+ | 600+ | 1000+ | 700+ | ~50 (+ Lua) | 500+ | 900+ |
-| HTTP client | ✅ built-in | ⚠️ via library | ✅ built-in | ⚠️ via library | ⚠️ via Lua | ⚠️ via library | ⚠️ via library |
-| JSON | ✅ built-in | ⚠️ via library | ✅ built-in | ✅ built-in | ❌ | ⚠️ via library | ⚠️ via library |
+| HTTP client | ✅ built-in | ⚠️ via library | ✅ built-in | ⚠️ via library | ⚠️ via Lua | ✅ `(web client)` | ⚠️ via library |
+| JSON | ✅ built-in | ⚠️ via spork | ✅ built-in | ⚠️ via library | ❌ | ⚠️ via library | ⚠️ via library |
 | Regex | ✅ built-in | ✅ PEGs | ✅ built-in | ✅ built-in | ✅ Lua patterns | ✅ built-in | ⚠️ via library |
-| CSV | ✅ built-in | ❌ | ✅ built-in | ❌ | ❌ | ❌ | ❌ |
-| Crypto (SHA, HMAC) | ✅ built-in | ⚠️ via library | ✅ built-in | ⚠️ via library | ❌ | ⚠️ via library | ⚠️ via library |
+| CSV | ✅ built-in | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Crypto (SHA, HMAC) | ✅ built-in | ⚠️ via library | ⚠️ SHA-1/MD5 only | ⚠️ via library | ❌ | ⚠️ via library | ⚠️ via library |
 | PDF extraction | ✅ built-in | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | File I/O | ✅ built-in | ✅ built-in | ✅ built-in | ✅ via Java | ✅ via Lua | ✅ built-in | ✅ built-in |
 | Date/time | ✅ built-in | ✅ built-in | ✅ built-in | ✅ via Java | ✅ via Lua | ✅ built-in | ⚠️ via library |
@@ -83,14 +83,14 @@ This is Sema's primary differentiator. No other Lisp has LLM primitives as first
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Tail-call optimization | ✅ | ✅ | ✅ | ⚠️ `recur` only | ✅ via Lua | ✅ | ⚠️ not guaranteed |
 | Macros | ✅ `defmacro` | ✅ | ✅ hygienic | ✅ | ✅ | ✅ both | ✅ |
-| Pattern matching | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ via library |
-| Modules | ✅ | ✅ | ✅ | ✅ namespaces | ❌ | ✅ | ✅ packages |
-| Continuations | ❌ | ✅ fibers | ✅ `call/cc` | ❌ | ❌ | ✅ `call/cc` | ❌ |
+| Pattern matching | ❌ | ✅ | ✅ | ⚠️ via core.match | ✅ | ✅ | ⚠️ via library |
+| Modules | ✅ | ✅ | ✅ | ✅ namespaces | ✅ via Lua `require` | ✅ | ✅ packages |
+| Continuations | ❌ | ⚠️ fibers | ✅ `call/cc` | ❌ | ❌ | ✅ `call/cc` | ❌ |
 | Multithreading | ❌ | ✅ | ✅ | ✅ | ✅ via Lua | ✅ | ✅ |
 | Persistent data structures | ⚠️ COW maps | ❌ | ❌ | ✅ core design | ❌ | ❌ | ❌ |
 | Keywords | ✅ `:foo` | ✅ `:foo` | ✅ `#:foo` | ✅ `:foo` | ✅ `:foo` | ✅ `#:foo` | ✅ `:foo` |
-| Map literals | ✅ `{:a 1}` | ✅ `@{:a 1}` | ✅ `#hash` | ✅ `{:a 1}` | ✅ `{:a 1}` | ❌ | ❌ |
-| Vector literals | ✅ `[1 2]` | ✅ `@[1 2]` | ✅ `#(1 2)` | ✅ `[1 2]` | ✅ `[1 2]` | ✅ `#(1 2)` | ✅ `#(1 2)` |
+| Map literals | ✅ `{:a 1}` | ✅ `{:a 1}` | ✅ `#hash(...)` | ✅ `{:a 1}` | ✅ `{:a 1}` | ❌ | ❌ |
+| Vector literals | ✅ `[1 2]` | ✅ `[1 2]` | ✅ `#(1 2)` | ✅ `[1 2]` | ✅ `[1 2]` | ✅ `#(1 2)` | ✅ `#(1 2)` |
 | F-strings | ✅ `f"${x}"` | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Short lambdas | ✅ `#(+ % 1)` | ✅ `|(+ $ 1)` | ❌ | ✅ `#(+ % 1)` | ✅ `#(+ $1 1)` | ❌ | ❌ |
 | Threading macros | ✅ `->` `->>` | ✅ `->` `->>` | ⚠️ via library | ✅ `->` `->>` | ✅ `->` `->>` | ❌ | ⚠️ via library |
@@ -100,7 +100,7 @@ This is Sema's primary differentiator. No other Lisp has LLM primitives as first
 | Feature | Sema | Janet | Racket | Clojure | Fennel | Guile | SBCL |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | REPL | ✅ | ✅ | ✅ DrRacket | ✅ nREPL | ✅ | ✅ | ✅ SLIME/Sly |
-| Tab completion | ✅ | ✅ | ✅ | ✅ | ⚠️ | ⚠️ | ✅ |
+| Tab completion | ✅ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ |
 | Editor support | VS Code, Vim, Emacs, Helix | VS Code, Vim, Emacs | DrRacket, Emacs, VS Code | Emacs, VS Code, IntelliJ | Emacs, Vim, VS Code | Emacs (Geiser) | Emacs (SLIME/Sly) |
 | Package manager | ❌ | ✅ `jpm` | ✅ `raco` | ✅ deps.edn/Lein | ❌ (uses Lua) | ⚠️ Guix | ✅ Quicklisp |
 | Debugger | ❌ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ |
