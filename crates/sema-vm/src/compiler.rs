@@ -476,6 +476,9 @@ impl Compiler {
             ("symbol?", 1) => Op::IsSymbol,
             // Collection
             ("length", 1) => Op::Length,
+            ("append", 2) => Op::Append,
+            ("get", 2) => Op::Get,
+            ("contains?", 2) => Op::ContainsQ,
             _ => return Ok(false),
         };
 

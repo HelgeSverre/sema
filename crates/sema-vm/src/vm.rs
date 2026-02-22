@@ -861,13 +861,13 @@ impl VM {
                     }
                     op::IS_NULL => {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        let result = val.is_nil()
-                            || val.as_list().map_or(false, |l| l.is_empty());
+                        let result =
+                            val.is_nil() || val.as_list().is_some_and(|l| l.is_empty());
                         self.stack.push(Value::bool(result));
                     }
                     op::IS_PAIR => {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        let result = val.as_list().map_or(false, |l| !l.is_empty());
+                        let result = val.as_list().is_some_and(|l| !l.is_empty());
                         self.stack.push(Value::bool(result));
                     }
                     op::IS_LIST => {
@@ -903,6 +903,62 @@ impl VM {
                                 "list, vector, string, map, or hashmap",
                                 val.type_name(),
                             );
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        }
+                    }
+
+                    op::APPEND => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
+                        if let (Some(la), Some(lb)) = (a.as_list(), b.as_list()) {
+                            let mut result = Vec::with_capacity(la.len() + lb.len());
+                            result.extend(la.iter().cloned());
+                            result.extend(lb.iter().cloned());
+                            self.stack.push(Value::list(result));
+                        } else {
+                            let mut result = Vec::new();
+                            if let Some(l) = a.as_list() {
+                                result.extend(l.iter().cloned());
+                            } else if let Some(v) = a.as_vector() {
+                                result.extend(v.iter().cloned());
+                            } else {
+                                let err = SemaError::type_error("list or vector", a.type_name());
+                                handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                            }
+                            if let Some(l) = b.as_list() {
+                                result.extend(l.iter().cloned());
+                            } else if let Some(v) = b.as_vector() {
+                                result.extend(v.iter().cloned());
+                            } else {
+                                let err = SemaError::type_error("list or vector", b.type_name());
+                                handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                            }
+                            self.stack.push(Value::list(result));
+                        }
+                    }
+                    op::GET => {
+                        let key = unsafe { pop_unchecked(&mut self.stack) };
+                        let coll = unsafe { pop_unchecked(&mut self.stack) };
+                        if let Some(map) = coll.as_hashmap_ref() {
+                            self.stack
+                                .push(map.get(&key).cloned().unwrap_or(Value::nil()));
+                        } else if let Some(map) = coll.as_map_ref() {
+                            self.stack
+                                .push(map.get(&key).cloned().unwrap_or(Value::nil()));
+                        } else {
+                            let err = SemaError::type_error("map or hashmap", coll.type_name());
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        }
+                    }
+                    op::CONTAINS_Q => {
+                        let key = unsafe { pop_unchecked(&mut self.stack) };
+                        let coll = unsafe { pop_unchecked(&mut self.stack) };
+                        if let Some(map) = coll.as_hashmap_ref() {
+                            self.stack.push(Value::bool(map.contains_key(&key)));
+                        } else if let Some(map) = coll.as_map_ref() {
+                            self.stack.push(Value::bool(map.contains_key(&key)));
+                        } else {
+                            let err = SemaError::type_error("map or hashmap", coll.type_name());
                             handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
                         }
                     }
@@ -1627,6 +1683,7 @@ pub fn compile_program(vals: &[Value]) -> Result<(Rc<Closure>, Vec<Rc<Function>>
     let mut total_locals: u16 = 0;
     for val in vals {
         let core = crate::lower::lower(val)?;
+        let core = crate::optimize::optimize(core);
         let (res, n) = crate::resolve::resolve_with_locals(&core)?;
         total_locals = total_locals.max(n);
         resolved.push(res);

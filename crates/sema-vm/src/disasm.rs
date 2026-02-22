@@ -90,6 +90,9 @@ fn op_name(op: Op) -> &'static str {
         Op::IsString => "IS_STRING",
         Op::IsSymbol => "IS_SYMBOL",
         Op::Length => "LENGTH",
+        Op::Append => "APPEND",
+        Op::Get => "GET",
+        Op::ContainsQ => "CONTAINS_Q",
     }
 }
 
@@ -221,7 +224,7 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
 }
 
 fn op_from_u8(byte: u8) -> Option<Op> {
-    const MAX_OP: u8 = Op::CallGlobal as u8;
+    const MAX_OP: u8 = Op::ContainsQ as u8;
     if byte > MAX_OP {
         return None;
     }
