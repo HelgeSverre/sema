@@ -10796,6 +10796,335 @@ fn test_allowed_paths_none_allows_everything() {
     );
 }
 
+// ── http response helpers ──────────────────────────────────────
+
+#[test]
+fn test_http_ok_with_string() {
+    let result = eval(r#"(http/ok "hello")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+    assert_eq!(
+        map.get(&Value::keyword("body")),
+        Some(&Value::string("\"hello\""))
+    );
+}
+
+#[test]
+fn test_http_ok_with_map() {
+    let result = eval(r#"(http/ok {:msg "hi"})"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+    let body = map.get(&Value::keyword("body")).unwrap();
+    assert!(body.as_str().unwrap().contains("msg"));
+}
+
+#[test]
+fn test_http_not_found() {
+    let result = eval(r#"(http/not-found "gone")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(404)));
+}
+
+#[test]
+fn test_http_redirect() {
+    let result = eval(r#"(http/redirect "/login")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(302)));
+    let headers = map
+        .get(&Value::keyword("headers"))
+        .unwrap()
+        .as_map_rc()
+        .unwrap();
+    assert_eq!(
+        headers.get(&Value::string("location")),
+        Some(&Value::string("/login"))
+    );
+}
+
+#[test]
+fn test_http_error_custom_status() {
+    let result = eval(r#"(http/error 422 {:errors ["invalid"]})"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(422)));
+}
+
+#[test]
+fn test_http_html() {
+    let result = eval(r#"(http/html "<h1>Hi</h1>")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+    let headers = map
+        .get(&Value::keyword("headers"))
+        .unwrap()
+        .as_map_rc()
+        .unwrap();
+    assert_eq!(
+        headers.get(&Value::string("content-type")),
+        Some(&Value::string("text/html"))
+    );
+    assert_eq!(
+        map.get(&Value::keyword("body")),
+        Some(&Value::string("<h1>Hi</h1>"))
+    );
+}
+
+#[test]
+fn test_http_text() {
+    let result = eval(r#"(http/text "plain text")"#);
+    let map = result.as_map_rc().unwrap();
+    let headers = map
+        .get(&Value::keyword("headers"))
+        .unwrap()
+        .as_map_rc()
+        .unwrap();
+    assert_eq!(
+        headers.get(&Value::string("content-type")),
+        Some(&Value::string("text/plain"))
+    );
+}
+
+#[test]
+fn test_http_created() {
+    let result = eval(r#"(http/created {:id 1})"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(201)));
+}
+
+#[test]
+fn test_http_no_content() {
+    let result = eval(r#"(http/no-content)"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(204)));
+    assert_eq!(map.get(&Value::keyword("body")), Some(&Value::string("")));
+}
+
+#[test]
+fn test_http_router_basic() {
+    let result = eval(
+        r#"
+        (let ((router (http/router (list [:get "/" (fn (req) (http/ok "home"))]))))
+          (router {:method :get :path "/" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#,
+    );
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+}
+
+#[test]
+fn test_http_router_params() {
+    let result = eval(
+        r#"
+        (let ((router (http/router (list [:get "/users/:id" (fn (req) (http/ok (:params req)))]))))
+          (router {:method :get :path "/users/42" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#,
+    );
+    let map = result.as_map_rc().unwrap();
+    let body = map.get(&Value::keyword("body")).unwrap();
+    assert!(body.as_str().unwrap().contains("42"));
+}
+
+#[test]
+fn test_http_router_404() {
+    let result = eval(
+        r#"
+        (let ((router (http/router (list [:get "/" (fn (req) (http/ok "home"))]))))
+          (router {:method :get :path "/missing" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#,
+    );
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(404)));
+}
+
+#[test]
+fn test_http_router_method_matching() {
+    let result = eval(
+        r#"
+        (let ((router (http/router (list [:post "/data" (fn (req) (http/ok "posted"))]))))
+          (router {:method :get :path "/data" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#,
+    );
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(404)));
+}
+
+#[test]
+fn test_http_router_any_method() {
+    let result = eval(
+        r#"
+        (let ((router (http/router (list [:any "/health" (fn (req) (http/ok "up"))]))))
+          (router {:method :delete :path "/health" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#,
+    );
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+}
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_basic() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"(http/serve (fn (req) (http/ok {:path (:path req)})) {:port 19876})"#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    // Wait for server to start
+    std::thread::sleep(Duration::from_millis(1500));
+
+    // Make request using reqwest
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get("http://127.0.0.1:19876/test")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().expect("Failed to parse JSON");
+    assert_eq!(body["path"], "/test");
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_with_router() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(
+            r#"
+            (http/serve
+              (http/router
+                [[:get "/hello/:name" (fn (req)
+                   (http/ok {:greeting (string-append "hi " (:name (:params req)))}))]
+                 [:get "/health" (fn (_) (http/ok {:status "up"}))]])
+              {:port 19877})
+        "#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+
+    // Test parameterized route
+    let resp = client
+        .get("http://127.0.0.1:19877/hello/Ada")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert_eq!(body["greeting"], "hi Ada");
+
+    // Test health route
+    let resp = client
+        .get("http://127.0.0.1:19877/health")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET /health");
+    assert_eq!(resp.status(), 200);
+
+    // Test 404
+    let resp = client
+        .get("http://127.0.0.1:19877/nonexistent")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET /nonexistent");
+    assert_eq!(resp.status(), 404);
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_sse() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(
+            r#"
+            (http/serve
+              (http/router
+                [[:get "/stream"
+                  (fn (req)
+                    (http/stream (fn (send)
+                      (send "hello")
+                      (send "world"))))]])
+              {:port 19878})
+        "#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get("http://127.0.0.1:19878/stream")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET /stream");
+
+    let body = resp.text().unwrap();
+    assert!(body.contains("hello"), "body should contain hello: {body}");
+    assert!(body.contains("world"), "body should contain world: {body}");
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_websocket() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(
+            r#"
+            (http/serve
+              (http/router
+                [[:ws "/echo" (fn (conn)
+                  (let ((msg ((:recv conn))))
+                    (when msg
+                      ((:send conn) (string-append "echo:" msg)))))]])
+              {:port 19879})
+        "#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let (mut ws, _) = tungstenite::connect("ws://127.0.0.1:19879/echo").expect("WS connect failed");
+    ws.send(tungstenite::Message::Text("hello".into())).unwrap();
+    let reply = ws.read().unwrap();
+    assert_eq!(reply.into_text().unwrap(), "echo:hello");
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
 // ===========================================================================
 // sema build — standalone executable tests
 // ===========================================================================

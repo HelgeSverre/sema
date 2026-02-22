@@ -30,7 +30,7 @@ regex = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net"] }
 reqwest = { version = "0.13", features = ["json", "stream", "blocking"] }
 futures = "0.3"
 rustyline = "17"
@@ -54,6 +54,8 @@ hostname = "0.4"
 libc = "0.2"
 pdf-extract = "0.10"
 lopdf = "0.38"
+axum = { version = "0.8", features = ["ws"] }
+tokio-stream = "0.1"
 
 [profile.release]
 opt-level = 3

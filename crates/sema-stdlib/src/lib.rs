@@ -22,6 +22,8 @@ mod meta;
 mod pdf;
 mod predicates;
 mod regex_ops;
+#[cfg(not(target_arch = "wasm32"))]
+mod server;
 mod string;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;
@@ -49,6 +51,8 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     regex_ops::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     http::register(env, sandbox);
+    #[cfg(not(target_arch = "wasm32"))]
+    server::register(env, sandbox);
     bitwise::register(env);
     crypto::register(env);
     datetime::register(env);
