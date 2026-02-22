@@ -49,28 +49,30 @@ lint-links:
 examples: build
 	@echo "=== Running examples ==="
 	@for f in examples/*.sema; do \
+		case "$$(basename $$f)" in web-server.sema) echo "  SKIP $$f (server)"; continue;; esac; \
 		echo "--- $$f ---"; \
-		cargo run --quiet -- --no-llm "$$f" || true; \
+		timeout 30 cargo run --quiet -- --no-llm "$$f" || true; \
 	done
 	@echo "=== Running stdlib examples ==="
 	@for f in examples/stdlib/*.sema; do \
 		echo "--- $$f ---"; \
-		cargo run --quiet -- --no-llm "$$f" || true; \
+		timeout 30 cargo run --quiet -- --no-llm "$$f" || true; \
 	done
 
 examples-vm: build
 	@echo "=== Running examples (--vm) ==="
 	@failed=""; \
 	for f in examples/*.sema; do \
+		case "$$(basename $$f)" in web-server.sema) echo "  SKIP $$f (server)"; continue;; esac; \
 		echo "--- $$f ---"; \
-		if ! cargo run --quiet -- --vm --no-llm "$$f"; then \
+		if ! timeout 30 cargo run --quiet -- --vm --no-llm "$$f"; then \
 			failed="$$failed $$f"; \
 		fi; \
 	done; \
 	echo "=== Running stdlib examples (--vm) ==="; \
 	for f in examples/stdlib/*.sema; do \
 		echo "--- $$f ---"; \
-		if ! cargo run --quiet -- --vm --no-llm "$$f"; then \
+		if ! timeout 30 cargo run --quiet -- --vm --no-llm "$$f"; then \
 			failed="$$failed $$f"; \
 		fi; \
 	done; \

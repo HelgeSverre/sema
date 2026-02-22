@@ -34,6 +34,12 @@ run_test() {
             echo "  SKIP  $f (slow meta-eval)"
             return
             ;;
+        web-server.sema)
+            # Starts a blocking server — cannot smoke test
+            skipped=$((skipped + 1))
+            echo "  SKIP  $f (starts server)"
+            return
+            ;;
     esac
 
     local semac="${f%.sema}.semac"
