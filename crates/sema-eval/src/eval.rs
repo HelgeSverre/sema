@@ -334,11 +334,7 @@ pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult
 }
 
 /// Call a multimethod: dispatch on args, look up handler, call it.
-fn call_multimethod(
-    ctx: &EvalContext,
-    mm: &Rc<MultiMethod>,
-    args: &[Value],
-) -> EvalResult {
+fn call_multimethod(ctx: &EvalContext, mm: &Rc<MultiMethod>, args: &[Value]) -> EvalResult {
     let dispatch_val = call_value(ctx, &mm.dispatch_fn, args)?;
     let methods = mm.methods.borrow();
     if let Some(handler) = methods.get(&dispatch_val) {
@@ -1047,9 +1043,7 @@ fn register_vm_delegates(env: &Rc<Env>) {
                     "assistant" => Role::Assistant,
                     "tool" => Role::Tool,
                     other => {
-                        return Err(SemaError::eval(format!(
-                            "message: unknown role '{other}'"
-                        )))
+                        return Err(SemaError::eval(format!("message: unknown role '{other}'")))
                     }
                 }
             } else {
@@ -1185,7 +1179,9 @@ fn register_vm_delegates(env: &Rc<Env>) {
                     return Ok(Value::nil());
                 }
             }
-            mm.methods.borrow_mut().insert(dispatch_val.clone(), handler.clone());
+            mm.methods
+                .borrow_mut()
+                .insert(dispatch_val.clone(), handler.clone());
             Ok(Value::nil())
         })),
     );

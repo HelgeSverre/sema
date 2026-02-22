@@ -10796,7 +10796,6 @@ fn test_allowed_paths_none_allows_everything() {
     );
 }
 
-
 // ── f-string tests ──
 
 #[test]
@@ -10817,10 +10816,7 @@ fn test_fstring_multiple_interpolations() {
 
 #[test]
 fn test_fstring_expression() {
-    assert_eq!(
-        eval(r#"f"result: ${(+ 1 2)}""#),
-        Value::string("result: 3")
-    );
+    assert_eq!(eval(r#"f"result: ${(+ 1 2)}""#), Value::string("result: 3"));
 }
 
 #[test]
@@ -10868,10 +10864,7 @@ fn test_thread_first_bare_fn() {
 
 #[test]
 fn test_thread_last() {
-    assert_eq!(
-        eval("(->> (range 1 6) (filter odd?))"),
-        eval("'(1 3 5)")
-    );
+    assert_eq!(eval("(->> (range 1 6) (filter odd?))"), eval("'(1 3 5)"));
 }
 
 #[test]
@@ -10897,42 +10890,27 @@ fn test_some_thread_non_nil() {
 
 #[test]
 fn test_some_thread_nil() {
-    assert_eq!(
-        eval(r#"(some-> {:a nil} (get :a) (get :b))"#),
-        Value::nil()
-    );
+    assert_eq!(eval(r#"(some-> {:a nil} (get :a) (get :b))"#), Value::nil());
 }
 
 #[test]
 fn test_when_let_truthy() {
-    assert_eq!(
-        eval(r#"(when-let (x 42) (+ x 1))"#),
-        Value::int(43)
-    );
+    assert_eq!(eval(r#"(when-let (x 42) (+ x 1))"#), Value::int(43));
 }
 
 #[test]
 fn test_when_let_nil() {
-    assert_eq!(
-        eval(r#"(when-let (x nil) (+ x 1))"#),
-        Value::nil()
-    );
+    assert_eq!(eval(r#"(when-let (x nil) (+ x 1))"#), Value::nil());
 }
 
 #[test]
 fn test_if_let_truthy() {
-    assert_eq!(
-        eval(r#"(if-let (x 42) (+ x 1) 0)"#),
-        Value::int(43)
-    );
+    assert_eq!(eval(r#"(if-let (x 42) (+ x 1) 0)"#), Value::int(43));
 }
 
 #[test]
 fn test_if_let_nil() {
-    assert_eq!(
-        eval(r#"(if-let (x nil) (+ x 1) 0)"#),
-        Value::int(0)
-    );
+    assert_eq!(eval(r#"(if-let (x nil) (+ x 1) 0)"#), Value::int(0));
 }
 
 // ── nested map functions tests ──
@@ -10947,10 +10925,7 @@ fn test_get_in_basic() {
 
 #[test]
 fn test_get_in_missing_returns_nil() {
-    assert_eq!(
-        eval(r#"(get-in {:a {:b 1}} [:a :c])"#),
-        Value::nil()
-    );
+    assert_eq!(eval(r#"(get-in {:a {:b 1}} [:a :c])"#), Value::nil());
 }
 
 #[test]
@@ -10963,18 +10938,12 @@ fn test_get_in_missing_with_default() {
 
 #[test]
 fn test_get_in_nil_intermediate() {
-    assert_eq!(
-        eval(r#"(get-in {:a nil} [:a :b :c])"#),
-        Value::nil()
-    );
+    assert_eq!(eval(r#"(get-in {:a nil} [:a :b :c])"#), Value::nil());
 }
 
 #[test]
 fn test_get_in_empty_path() {
-    assert_eq!(
-        eval(r#"(get-in {:a 1} [])"#),
-        eval(r#"{:a 1}"#)
-    );
+    assert_eq!(eval(r#"(get-in {:a 1} [])"#), eval(r#"{:a 1}"#));
 }
 
 #[test]
@@ -11041,34 +11010,22 @@ fn test_deep_merge_multiple() {
 
 #[test]
 fn test_short_lambda_basic() {
-    assert_eq!(
-        eval("(map #(+ % 1) '(1 2 3))"),
-        eval("'(2 3 4)")
-    );
+    assert_eq!(eval("(map #(+ % 1) '(1 2 3))"), eval("'(2 3 4)"));
 }
 
 #[test]
 fn test_short_lambda_square() {
-    assert_eq!(
-        eval("(map #(* % %) '(1 2 3 4))"),
-        eval("'(1 4 9 16)")
-    );
+    assert_eq!(eval("(map #(* % %) '(1 2 3 4))"), eval("'(1 4 9 16)"));
 }
 
 #[test]
 fn test_short_lambda_filter() {
-    assert_eq!(
-        eval("(filter #(> % 3) '(1 2 3 4 5))"),
-        eval("'(4 5)")
-    );
+    assert_eq!(eval("(filter #(> % 3) '(1 2 3 4 5))"), eval("'(4 5)"));
 }
 
 #[test]
 fn test_short_lambda_two_args() {
-    assert_eq!(
-        eval("(#(+ %1 %2) 3 4)"),
-        Value::int(7)
-    );
+    assert_eq!(eval("(#(+ %1 %2) 3 4)"), Value::int(7));
 }
 
 #[test]
@@ -11120,7 +11077,10 @@ fn test_destructure_let_vector_from_vector() {
 #[test]
 fn test_destructure_let_vector_rest() {
     // [a b & rest] rest pattern
-    assert_eq!(eval("(let (([a b & rest] '(1 2 3 4 5))) rest)"), eval("'(3 4 5)"));
+    assert_eq!(
+        eval("(let (([a b & rest] '(1 2 3 4 5))) rest)"),
+        eval("'(3 4 5)")
+    );
 }
 
 #[test]
@@ -11136,7 +11096,10 @@ fn test_destructure_let_wildcard() {
 
 #[test]
 fn test_destructure_let_nested_vector() {
-    assert_eq!(eval("(let (([[a b] c] '((1 2) 3))) (+ a b c))"), Value::int(6));
+    assert_eq!(
+        eval("(let (([[a b] c] '((1 2) 3))) (+ a b c))"),
+        Value::int(6)
+    );
 }
 
 // ============================================================
@@ -11145,7 +11108,10 @@ fn test_destructure_let_nested_vector() {
 
 #[test]
 fn test_destructure_let_map_keys() {
-    assert_eq!(eval("(let (({:keys [x y]} {:x 10 :y 20})) (+ x y))"), Value::int(30));
+    assert_eq!(
+        eval("(let (({:keys [x y]} {:x 10 :y 20})) (+ x y))"),
+        Value::int(30)
+    );
 }
 
 #[test]
@@ -11166,10 +11132,7 @@ fn test_destructure_let_map_explicit_key() {
 
 #[test]
 fn test_destructure_let_star_sequential() {
-    assert_eq!(
-        eval("(let* (([a b] '(1 2)) (c (+ a b))) c)"),
-        Value::int(3)
-    );
+    assert_eq!(eval("(let* (([a b] '(1 2)) (c (+ a b))) c)"), Value::int(3));
 }
 
 // ============================================================
@@ -11178,12 +11141,18 @@ fn test_destructure_let_star_sequential() {
 
 #[test]
 fn test_destructure_define_vector() {
-    assert_eq!(eval("(begin (define [a b c] '(1 2 3)) (+ a b c))"), Value::int(6));
+    assert_eq!(
+        eval("(begin (define [a b c] '(1 2 3)) (+ a b c))"),
+        Value::int(6)
+    );
 }
 
 #[test]
 fn test_destructure_define_map() {
-    assert_eq!(eval("(begin (define {:keys [name age]} {:name \"Alice\" :age 30}) age)"), Value::int(30));
+    assert_eq!(
+        eval("(begin (define {:keys [name age]} {:name \"Alice\" :age 30}) age)"),
+        Value::int(30)
+    );
 }
 
 // ============================================================
@@ -11192,10 +11161,7 @@ fn test_destructure_define_map() {
 
 #[test]
 fn test_destructure_lambda_vector_param() {
-    assert_eq!(
-        eval("((lambda ([a b]) (+ a b)) '(1 2))"),
-        Value::int(3)
-    );
+    assert_eq!(eval("((lambda ([a b]) (+ a b)) '(1 2))"), Value::int(3));
 }
 
 #[test]
@@ -11268,18 +11234,12 @@ fn test_match_wildcard() {
 
 #[test]
 fn test_match_symbol_binding() {
-    assert_eq!(
-        eval("(match 42 (x (+ x 8)))"),
-        Value::int(50)
-    );
+    assert_eq!(eval("(match 42 (x (+ x 8)))"), Value::int(50));
 }
 
 #[test]
 fn test_match_vector_pattern() {
-    assert_eq!(
-        eval("(match '(1 2 3) ([a b c] (+ a b c)))"),
-        Value::int(6)
-    );
+    assert_eq!(eval("(match '(1 2 3) ([a b c] (+ a b c)))"), Value::int(6));
 }
 
 #[test]
@@ -11316,18 +11276,12 @@ fn test_match_guard_with_binding() {
 
 #[test]
 fn test_match_no_match_returns_nil() {
-    assert_eq!(
-        eval("(match 42 (1 \"one\") (2 \"two\"))"),
-        Value::nil()
-    );
+    assert_eq!(eval("(match 42 (1 \"one\") (2 \"two\"))"), Value::nil());
 }
 
 #[test]
 fn test_match_multiple_body_exprs() {
-    assert_eq!(
-        eval("(match 1 (1 (define x 10) (+ x 5)))"),
-        Value::int(15)
-    );
+    assert_eq!(eval("(match 1 (1 (define x 10) (+ x 5)))"), Value::int(15));
 }
 
 #[test]
@@ -11404,7 +11358,10 @@ fn test_destructure_wildcard_in_vector() {
 #[test]
 fn test_destructure_map_keys_as_list() {
     // {:keys (x y)} with list syntax instead of vector
-    assert_eq!(eval("(let (({:keys (x y)} {:x 5 :y 6})) (+ x y))"), Value::int(11));
+    assert_eq!(
+        eval("(let (({:keys (x y)} {:x 5 :y 6})) (+ x y))"),
+        Value::int(11)
+    );
 }
 
 #[test]
@@ -11490,19 +11447,13 @@ fn test_match_vector_element_mismatch() {
 #[test]
 fn test_match_rest_pattern() {
     // Rest pattern in match with empty rest
-    assert_eq!(
-        eval("(match '(1) ([a & rest] rest))"),
-        eval("'()")
-    );
+    assert_eq!(eval("(match '(1) ([a & rest] rest))"), eval("'()"));
 }
 
 #[test]
 fn test_match_clause_as_list() {
     // Clauses can be lists too, not just vectors
-    assert_eq!(
-        eval("(match 42 (42 \"yes\"))"),
-        Value::string("yes")
-    );
+    assert_eq!(eval("(match 42 (42 \"yes\"))"), Value::string("yes"));
 }
 
 #[test]
@@ -11560,7 +11511,6 @@ fn test_destructure_nested_map_in_vector() {
         Value::int(3)
     );
 }
-
 
 // ── http response helpers ──────────────────────────────────────
 

@@ -1305,11 +1305,7 @@ mod tests {
             Value::list(vec![
                 Value::symbol("str"),
                 Value::string("result: "),
-                Value::list(vec![
-                    Value::symbol("+"),
-                    Value::int(1),
-                    Value::int(2),
-                ]),
+                Value::list(vec![Value::symbol("+"), Value::int(1), Value::int(2),]),
             ])
         );
     }
@@ -1337,10 +1333,7 @@ mod tests {
         let result = read(r#"f"line1\nline2""#).unwrap();
         assert_eq!(
             result,
-            Value::list(vec![
-                Value::symbol("str"),
-                Value::string("line1\nline2"),
-            ])
+            Value::list(vec![Value::symbol("str"), Value::string("line1\nline2"),])
         );
     }
 
@@ -1428,11 +1421,7 @@ mod tests {
             Value::list(vec![
                 Value::symbol("lambda"),
                 Value::list(vec![Value::symbol("%1")]),
-                Value::list(vec![
-                    Value::symbol("+"),
-                    Value::symbol("%1"),
-                    Value::int(1),
-                ]),
+                Value::list(vec![Value::symbol("+"), Value::symbol("%1"), Value::int(1),]),
             ])
         );
     }
@@ -1482,10 +1471,7 @@ mod tests {
             Value::list(vec![
                 Value::symbol("lambda"),
                 Value::list(vec![]),
-                Value::list(vec![
-                    Value::symbol("println"),
-                    Value::string("hello"),
-                ]),
+                Value::list(vec![Value::symbol("println"), Value::string("hello"),]),
             ])
         );
     }
@@ -1501,11 +1487,7 @@ mod tests {
                 Value::list(vec![
                     Value::symbol("lambda"),
                     Value::list(vec![Value::symbol("%1")]),
-                    Value::list(vec![
-                        Value::symbol("+"),
-                        Value::symbol("%1"),
-                        Value::int(1),
-                    ]),
+                    Value::list(vec![Value::symbol("+"), Value::symbol("%1"), Value::int(1),]),
                 ]),
                 Value::symbol("numbers"),
             ])
@@ -1528,10 +1510,7 @@ mod tests {
                 Value::list(vec![Value::symbol("%1")]),
                 Value::list(vec![
                     Value::symbol(">"),
-                    Value::list(vec![
-                        Value::symbol("string-length"),
-                        Value::symbol("%1"),
-                    ]),
+                    Value::list(vec![Value::symbol("string-length"), Value::symbol("%1"),]),
                     Value::int(3),
                 ]),
             ])

@@ -455,10 +455,7 @@ fn eval_lambda(args: &[Value], env: &Env, name: Option<Spur>) -> Result<Trampoli
                 let temp_spur = intern(&temp_name);
                 temp_spurs.push(temp_spur);
                 // Build (pattern __argN) binding for let*
-                let_bindings.push(Value::list(vec![
-                    p.clone(),
-                    Value::symbol(&temp_name),
-                ]));
+                let_bindings.push(Value::list(vec![p.clone(), Value::symbol(&temp_name)]));
             }
         }
 
@@ -804,12 +801,18 @@ fn eval_defmethod(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampo
     let name_spur = args[0]
         .as_symbol_spur()
         .ok_or_else(|| SemaError::eval("defmethod: name must be a symbol"))?;
-    let mm_val = env
-        .get(name_spur)
-        .ok_or_else(|| SemaError::eval(format!("defmethod: '{}' is not defined", resolve(name_spur))))?;
-    let mm = mm_val
-        .as_multimethod_rc()
-        .ok_or_else(|| SemaError::eval(format!("defmethod: '{}' is not a multimethod", resolve(name_spur))))?;
+    let mm_val = env.get(name_spur).ok_or_else(|| {
+        SemaError::eval(format!(
+            "defmethod: '{}' is not defined",
+            resolve(name_spur)
+        ))
+    })?;
+    let mm = mm_val.as_multimethod_rc().ok_or_else(|| {
+        SemaError::eval(format!(
+            "defmethod: '{}' is not a multimethod",
+            resolve(name_spur)
+        ))
+    })?;
     let dispatch_val = eval::eval_value(ctx, &args[1], env)?;
     let handler = eval::eval_value(ctx, &args[2], env)?;
     // :default sets the default handler
@@ -1593,7 +1596,9 @@ fn eval_match(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
         } else if let Some(v) = clause.as_vector() {
             v
         } else {
-            return Err(SemaError::eval("match: each clause must be a list or vector"));
+            return Err(SemaError::eval(
+                "match: each clause must be a list or vector",
+            ));
         };
 
         if items.is_empty() {
@@ -1641,10 +1646,7 @@ fn eval_match(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
             for expr in &items[body_start..items.len() - 1] {
                 eval::eval_value(ctx, expr, &match_env)?;
             }
-            return Ok(Trampoline::Eval(
-                items.last().unwrap().clone(),
-                match_env,
-            ));
+            return Ok(Trampoline::Eval(items.last().unwrap().clone(), match_env));
         }
     }
 

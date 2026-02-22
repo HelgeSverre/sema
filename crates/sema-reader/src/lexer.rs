@@ -362,10 +362,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             i += 1;
                             col += 1;
                             read_string_escape(&chars, &mut i, &mut col, &mut current, span)?;
-                        } else if chars[i] == '$'
-                            && i + 1 < chars.len()
-                            && chars[i + 1] == '{'
-                        {
+                        } else if chars[i] == '$' && i + 1 < chars.len() && chars[i + 1] == '{' {
                             // Start interpolation
                             if !current.is_empty() {
                                 parts.push(FStringPart::Literal(std::mem::take(&mut current)));
@@ -516,9 +513,7 @@ fn read_string_escape(
         'x' => {
             // R7RS hex escape: \x<hex>;
             let mut hex = String::new();
-            while *i + 1 < chars.len()
-                && chars[*i + 1] != ';'
-                && chars[*i + 1].is_ascii_hexdigit()
+            while *i + 1 < chars.len() && chars[*i + 1] != ';' && chars[*i + 1].is_ascii_hexdigit()
             {
                 *i += 1;
                 *col += 1;

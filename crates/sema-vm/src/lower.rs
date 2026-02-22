@@ -521,9 +521,9 @@ fn lower_lambda(args: &[Value], name: Option<Spur>) -> Result<CoreExpr, SemaErro
     };
 
     let dot = intern(".");
-    let needs_destructuring = param_vals.iter().any(|p| {
-        p.as_symbol_spur() != Some(dot) && is_destructuring_pattern(p)
-    });
+    let needs_destructuring = param_vals
+        .iter()
+        .any(|p| p.as_symbol_spur() != Some(dot) && is_destructuring_pattern(p));
 
     if needs_destructuring {
         // Desugar: generate temp param names, wrap body in let*
@@ -1083,7 +1083,9 @@ fn lower_match_clauses(
     } else if let Some(v) = clauses[0].as_vector() {
         v
     } else {
-        return Err(SemaError::eval("match: each clause must be a list or vector"));
+        return Err(SemaError::eval(
+            "match: each clause must be a list or vector",
+        ));
     };
 
     if clause.is_empty() {
@@ -1114,10 +1116,7 @@ fn lower_match_clauses(
     // Build: (__vm-try-match 'pattern scrut_var)
     let try_call = CoreExpr::Call {
         func: Box::new(CoreExpr::Var(try_match_spur)),
-        args: vec![
-            CoreExpr::Quote(pattern.clone()),
-            CoreExpr::Var(scrut_var),
-        ],
+        args: vec![CoreExpr::Quote(pattern.clone()), CoreExpr::Var(scrut_var)],
         tail: false,
     };
 
@@ -1215,7 +1214,7 @@ fn lower_match_clauses(
     let if_expr = if has_guard {
         CoreExpr::If {
             test: Box::new(test),
-            then: Box::new(else_expr),   // nil? true = no match, try next
+            then: Box::new(else_expr), // nil? true = no match, try next
             else_: Box::new(then_with_guard), // matched, check guard + run body
         }
     } else {

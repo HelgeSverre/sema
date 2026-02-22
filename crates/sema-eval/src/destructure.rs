@@ -136,9 +136,9 @@ fn destructure_map(out: &mut Bindings, pattern: &Value, value: &Value) -> Result
         };
 
         for key_sym in &key_names {
-            let spur = key_sym.as_symbol_spur().ok_or_else(|| {
-                SemaError::eval("destructure: :keys entries must be symbols")
-            })?;
+            let spur = key_sym
+                .as_symbol_spur()
+                .ok_or_else(|| SemaError::eval("destructure: :keys entries must be symbols"))?;
             let kw = Value::keyword(&resolve(spur));
             let val = map_get(value, &kw).unwrap_or(Value::nil());
             out.push((spur, val));
@@ -278,9 +278,9 @@ fn match_map(
         };
 
         for key_sym in &key_names {
-            let spur = key_sym.as_symbol_spur().ok_or_else(|| {
-                SemaError::eval("match: :keys entries must be symbols")
-            })?;
+            let spur = key_sym
+                .as_symbol_spur()
+                .ok_or_else(|| SemaError::eval("match: :keys entries must be symbols"))?;
             let kw = Value::keyword(&resolve(spur));
             let val = map_get(value, &kw).unwrap_or(Value::nil());
             out.push((spur, val));

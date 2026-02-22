@@ -610,9 +610,13 @@ pub fn register(env: &sema_core::Env) {
             }
             // Recursive case: get nested map, recurse, then assoc back
             let nested = if let Some(map) = m.as_map_ref() {
-                map.get(key).cloned().unwrap_or_else(|| Value::map(BTreeMap::new()))
+                map.get(key)
+                    .cloned()
+                    .unwrap_or_else(|| Value::map(BTreeMap::new()))
             } else if let Some(map) = m.as_hashmap_ref() {
-                map.get(key).cloned().unwrap_or_else(|| Value::map(BTreeMap::new()))
+                map.get(key)
+                    .cloned()
+                    .unwrap_or_else(|| Value::map(BTreeMap::new()))
             } else {
                 Value::map(BTreeMap::new())
             };
@@ -644,11 +648,7 @@ pub fn register(env: &sema_core::Env) {
         if path.is_empty() {
             return call_function(&args[2], &[args[0].clone()]);
         }
-        fn update_in_recursive(
-            m: &Value,
-            path: &[Value],
-            f: &Value,
-        ) -> Result<Value, SemaError> {
+        fn update_in_recursive(m: &Value, path: &[Value], f: &Value) -> Result<Value, SemaError> {
             let key = &path[0];
             if path.len() == 1 {
                 let current = if let Some(map) = m.as_map_ref() {
@@ -674,9 +674,13 @@ pub fn register(env: &sema_core::Env) {
                 return Ok(Value::map(map));
             }
             let nested = if let Some(map) = m.as_map_ref() {
-                map.get(key).cloned().unwrap_or_else(|| Value::map(BTreeMap::new()))
+                map.get(key)
+                    .cloned()
+                    .unwrap_or_else(|| Value::map(BTreeMap::new()))
             } else if let Some(map) = m.as_hashmap_ref() {
-                map.get(key).cloned().unwrap_or_else(|| Value::map(BTreeMap::new()))
+                map.get(key)
+                    .cloned()
+                    .unwrap_or_else(|| Value::map(BTreeMap::new()))
             } else {
                 Value::map(BTreeMap::new())
             };
