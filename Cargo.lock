@@ -2110,6 +2110,7 @@ version = "1.10.0"
 dependencies = [
  "clap",
  "clap_complete",
+ "reqwest",
  "rustyline",
  "sema-core",
  "sema-eval",

@@ -10939,3 +10939,90 @@ fn test_http_router_any_method() {
     let map = result.as_map_rc().unwrap();
     assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
 }
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_basic() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"(http/serve (fn (req) (http/ok {:path (:path req)})) {:port 19876})"#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    // Wait for server to start
+    std::thread::sleep(Duration::from_millis(1500));
+
+    // Make request using reqwest
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get("http://127.0.0.1:19876/test")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().expect("Failed to parse JSON");
+    assert_eq!(body["path"], "/test");
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_with_router() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (http/router
+                [[:get "/hello/:name" (fn (req)
+                   (http/ok {:greeting (string-append "hi " (:name (:params req)))}))]
+                 [:get "/health" (fn (_) (http/ok {:status "up"}))]])
+              {:port 19877})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+
+    // Test parameterized route
+    let resp = client
+        .get("http://127.0.0.1:19877/hello/Ada")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET");
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert_eq!(body["greeting"], "hi Ada");
+
+    // Test health route
+    let resp = client
+        .get("http://127.0.0.1:19877/health")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET /health");
+    assert_eq!(resp.status(), 200);
+
+    // Test 404
+    let resp = client
+        .get("http://127.0.0.1:19877/nonexistent")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET /nonexistent");
+    assert_eq!(resp.status(), 404);
+
+    child.kill().ok();
+    child.wait().ok();
+}

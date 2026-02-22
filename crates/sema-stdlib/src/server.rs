@@ -4,6 +4,33 @@ use sema_core::{check_arity, SemaError, Value};
 
 use crate::register_fn;
 
+// --- Raw types for cross-thread communication (Value is !Send due to Rc) ---
+
+/// Raw HTTP request data that is Send-safe for crossing thread boundaries.
+struct RawRequest {
+    method: String,
+    path: String,
+    headers: Vec<(String, String)>,
+    query: Option<String>,
+    body: String,
+    content_type_is_json: bool,
+}
+
+/// Raw HTTP response data that is Send-safe for crossing thread boundaries.
+struct RawResponse {
+    status: u16,
+    headers: Vec<(String, String)>,
+    body: String,
+}
+
+/// A server request sent from the axum handler thread to the main evaluator thread.
+enum ServerRequest {
+    Http {
+        raw: RawRequest,
+        respond: tokio::sync::oneshot::Sender<RawResponse>,
+    },
+}
+
 /// Build a JSON response map: {:status N :headers {"content-type" "application/json"} :body json-string}
 fn json_response(status: i64, val: &Value) -> Result<Value, SemaError> {
     let json = crate::json::value_to_json(val)?;
@@ -23,7 +50,7 @@ fn json_response(status: i64, val: &Value) -> Result<Value, SemaError> {
     Ok(Value::map(result))
 }
 
-pub fn register(env: &sema_core::Env) {
+pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     register_fn(env, "http/ok", |args| {
         check_arity!(args, "http/ok", 1);
         json_response(200, &args[0])
@@ -105,6 +132,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_router(env);
+    register_serve(env, sandbox);
 }
 
 /// Match a URL path against a route pattern, returning extracted parameters on success.
@@ -285,6 +313,324 @@ fn register_router(env: &sema_core::Env) {
             )))
         })),
     );
+}
+
+/// Convert an HTTP method string (e.g. "GET") to a lowercase keyword Value (e.g. :get).
+fn method_keyword(method: &str) -> Value {
+    Value::keyword(&method.to_ascii_lowercase())
+}
+
+/// Parse a query string like "a=1&b=2" into a Sema map {:a "1" :b "2"}.
+fn parse_query_string(query: Option<&str>) -> Value {
+    let mut map = BTreeMap::new();
+    if let Some(qs) = query {
+        for pair in qs.split('&') {
+            if pair.is_empty() {
+                continue;
+            }
+            let (key, val) = match pair.split_once('=') {
+                Some((k, v)) => (k, v),
+                None => (pair, ""),
+            };
+            map.insert(Value::keyword(key), Value::string(val));
+        }
+    }
+    Value::map(map)
+}
+
+/// Convert a RawRequest into a Sema Value map on the main (evaluator) thread.
+fn raw_request_to_value(raw: &RawRequest) -> Value {
+    let mut headers_map = BTreeMap::new();
+    for (k, v) in &raw.headers {
+        headers_map.insert(Value::string(k), Value::string(v));
+    }
+
+    let query_val = parse_query_string(raw.query.as_deref());
+
+    let mut req_map = BTreeMap::new();
+    req_map.insert(Value::keyword("method"), method_keyword(&raw.method));
+    req_map.insert(Value::keyword("path"), Value::string(&raw.path));
+    req_map.insert(Value::keyword("headers"), Value::map(headers_map));
+    req_map.insert(Value::keyword("query"), query_val);
+    req_map.insert(Value::keyword("params"), Value::map(BTreeMap::new()));
+    req_map.insert(Value::keyword("body"), Value::string(&raw.body));
+
+    // Auto-parse JSON body if content-type indicates json
+    if raw.content_type_is_json && !raw.body.is_empty() {
+        if let Ok(json_val) = serde_json::from_str::<serde_json::Value>(&raw.body) {
+            let sema_val = crate::json::json_to_value(&json_val);
+            req_map.insert(Value::keyword("json"), sema_val);
+        }
+    }
+
+    Value::map(req_map)
+}
+
+/// Convert a Sema response Value map into a RawResponse for sending back to the axum thread.
+fn value_to_raw_response(val: &Value) -> RawResponse {
+    let map = match val.as_map_rc() {
+        Some(m) => m,
+        None => {
+            return RawResponse {
+                status: 200,
+                headers: vec![("content-type".to_string(), "text/plain".to_string())],
+                body: val.to_string(),
+            };
+        }
+    };
+
+    let status = map
+        .get(&Value::keyword("status"))
+        .and_then(|v| v.as_int())
+        .unwrap_or(200) as u16;
+
+    let body = map
+        .get(&Value::keyword("body"))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+
+    let mut headers = Vec::new();
+    if let Some(h) = map.get(&Value::keyword("headers")).and_then(|v| v.as_map_rc()) {
+        for (k, v) in h.iter() {
+            let key = k.as_str().map(|s| s.to_string()).unwrap_or_else(|| k.to_string());
+            let val = v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string());
+            headers.push((key, val));
+        }
+    }
+
+    RawResponse {
+        status,
+        headers,
+        body,
+    }
+}
+
+/// Convert a RawResponse into an axum HTTP response.
+fn raw_response_to_axum(raw: &RawResponse) -> axum::response::Response {
+    use axum::http::{HeaderName, HeaderValue, StatusCode};
+    use axum::response::IntoResponse;
+
+    let status = StatusCode::from_u16(raw.status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+    let mut builder = axum::http::Response::builder().status(status);
+    for (k, v) in &raw.headers {
+        if let (Ok(name), Ok(val)) = (
+            HeaderName::try_from(k.as_str()),
+            HeaderValue::try_from(v.as_str()),
+        ) {
+            builder = builder.header(name, val);
+        }
+    }
+
+    builder
+        .body(axum::body::Body::from(raw.body.clone()))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+fn register_serve(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
+    use sema_core::{intern, Caps, EvalContext, NativeFn};
+
+    if sandbox.is_unrestricted() {
+        env.set(
+            intern("http/serve"),
+            Value::native_fn(NativeFn::with_ctx(
+                "http/serve",
+                |ctx: &EvalContext, args: &[Value]| {
+                    http_serve_impl(ctx, args)
+                },
+            )),
+        );
+    } else {
+        let sandbox = sandbox.clone();
+        env.set(
+            intern("http/serve"),
+            Value::native_fn(NativeFn::with_ctx(
+                "http/serve",
+                move |ctx: &EvalContext, args: &[Value]| {
+                    sandbox.check(Caps::NETWORK, "http/serve")?;
+                    http_serve_impl(ctx, args)
+                },
+            )),
+        );
+    }
+}
+
+fn http_serve_impl(ctx: &sema_core::EvalContext, args: &[Value]) -> Result<Value, SemaError> {
+    use sema_core::call_callback;
+
+    if args.is_empty() || args.len() > 2 {
+        return Err(SemaError::arity("http/serve", "1-2", args.len()));
+    }
+
+    let handler = args[0].clone();
+
+    // Parse options map (arg 1): {:port 3000 :host "0.0.0.0"}
+    let mut port: u16 = 3000;
+    let mut host = "0.0.0.0".to_string();
+
+    if args.len() == 2 {
+        if let Some(opts) = args[1].as_map_rc() {
+            if let Some(p) = opts.get(&Value::keyword("port")).and_then(|v| v.as_int()) {
+                port = p as u16;
+            }
+            if let Some(h) = opts.get(&Value::keyword("host")).and_then(|v| v.as_str()) {
+                host = h.to_string();
+            }
+        }
+    }
+
+    // Create the mpsc channel for server requests (tokio async channel)
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<ServerRequest>(256);
+
+    // Create a std sync channel for ready signal
+    let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+
+    let bind_host = host.clone();
+    let bind_port = port;
+
+    // Spawn background thread with its own tokio runtime for axum
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(e) => {
+                let _ = ready_tx.send(Err(format!("failed to create runtime: {e}")));
+                return;
+            }
+        };
+
+        rt.block_on(async move {
+            let tx = tx;
+
+            // Build the axum router with a fallback handler that catches all requests
+            let app = axum::Router::new().fallback(
+                move |req: axum::extract::Request| {
+                    let tx = tx.clone();
+                    async move {
+                        // Extract method, URI, headers from axum request
+                        let method = req.method().to_string();
+                        let uri = req.uri().clone();
+                        let path = uri.path().to_string();
+                        let query = uri.query().map(|q| q.to_string());
+
+                        let mut headers = Vec::new();
+                        let mut content_type_is_json = false;
+                        for (name, value) in req.headers().iter() {
+                            let v = value.to_str().unwrap_or("").to_string();
+                            let n = name.as_str().to_string();
+                            if n == "content-type" && v.contains("json") {
+                                content_type_is_json = true;
+                            }
+                            headers.push((n, v));
+                        }
+
+                        // Read body (up to 10MB)
+                        let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+                            Ok(b) => b,
+                            Err(_) => {
+                                return raw_response_to_axum(&RawResponse {
+                                    status: 413,
+                                    headers: vec![("content-type".to_string(), "text/plain".to_string())],
+                                    body: "Request body too large".to_string(),
+                                });
+                            }
+                        };
+                        let body = String::from_utf8_lossy(&body_bytes).to_string();
+
+                        let raw = RawRequest {
+                            method,
+                            path,
+                            headers,
+                            query,
+                            body,
+                            content_type_is_json,
+                        };
+
+                        // Create oneshot channel for the response
+                        let (resp_tx, resp_rx) = tokio::sync::oneshot::channel();
+
+                        // Send request to main thread
+                        if tx.send(ServerRequest::Http { raw, respond: resp_tx }).await.is_err() {
+                            return raw_response_to_axum(&RawResponse {
+                                status: 503,
+                                headers: vec![("content-type".to_string(), "text/plain".to_string())],
+                                body: "Server shutting down".to_string(),
+                            });
+                        }
+
+                        // Wait for response from main thread
+                        match resp_rx.await {
+                            Ok(raw_resp) => raw_response_to_axum(&raw_resp),
+                            Err(_) => raw_response_to_axum(&RawResponse {
+                                status: 500,
+                                headers: vec![("content-type".to_string(), "text/plain".to_string())],
+                                body: "Handler did not respond".to_string(),
+                            }),
+                        }
+                    }
+                },
+            );
+
+            // Bind TCP listener
+            let addr = format!("{bind_host}:{bind_port}");
+            let listener = match tokio::net::TcpListener::bind(&addr).await {
+                Ok(l) => l,
+                Err(e) => {
+                    let _ = ready_tx.send(Err(format!("bind {addr}: {e}")));
+                    return;
+                }
+            };
+
+            // Signal success
+            let _ = ready_tx.send(Ok(()));
+
+            // Run the server
+            let _ = axum::serve(listener, app).await;
+        });
+    });
+
+    // Wait for ready signal from the background thread
+    match ready_rx.recv() {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            return Err(SemaError::Io(e));
+        }
+        Err(_) => {
+            return Err(SemaError::eval("http/serve: server thread died before binding"));
+        }
+    }
+
+    eprintln!("Listening on {host}:{port}");
+
+    // Main evaluator loop: read requests from channel, call handler, send response
+    while let Some(req) = rx.blocking_recv() {
+        match req {
+            ServerRequest::Http { raw, respond } => {
+                let request_val = raw_request_to_value(&raw);
+                match call_callback(ctx, &handler, &[request_val]) {
+                    Ok(response_val) => {
+                        let raw_resp = value_to_raw_response(&response_val);
+                        let _ = respond.send(raw_resp);
+                    }
+                    Err(e) => {
+                        eprintln!("http/serve handler error: {e}");
+                        let _ = respond.send(RawResponse {
+                            status: 500,
+                            headers: vec![(
+                                "content-type".to_string(),
+                                "application/json".to_string(),
+                            )],
+                            body: format!("{{\"error\":\"{}\"}}", e.to_string().replace('"', "\\\"")),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(Value::nil())
 }
 
 #[cfg(test)]

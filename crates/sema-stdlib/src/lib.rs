@@ -52,7 +52,7 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     #[cfg(not(target_arch = "wasm32"))]
     http::register(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]
-    server::register(env);
+    server::register(env, sandbox);
     bitwise::register(env);
     crypto::register(env);
     datetime::register(env);
