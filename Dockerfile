@@ -1,15 +1,13 @@
-# Stage 1: Build Sema
-FROM rust:bookworm AS builder
+# Stage 1: Build Sema (Alpine = musl = fully static binary)
+FROM rust:alpine AS builder
+RUN apk add --no-cache musl-dev
 WORKDIR /build
 COPY . .
-RUN cargo build --release
+RUN cargo build --release --locked -p sema-lang && strip target/release/sema
 
-# Stage 2: Runtime
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
-
+# Stage 2: Runtime (scratch = zero overhead, just the binary)
+FROM scratch
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /build/target/release/sema /usr/local/bin/sema
 COPY examples/ /app/examples/
 
