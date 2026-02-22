@@ -172,6 +172,26 @@ dual_eval_tests! {
     ]),
 }
 
+// ============================================================
+// String interning — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    string_intern_returns_string: r#"(string/intern "hello")"# => Value::string("hello"),
+    string_intern_eq: r#"(equal? (string/intern "hello") (string/intern "hello"))"# => Value::bool(true),
+    string_intern_same_pointer: r#"(eq? (string/intern "abc") (string/intern "abc"))"# => Value::bool(true),
+    string_intern_different_strings: r#"(eq? (string/intern "a") (string/intern "b"))"# => Value::bool(false),
+    string_intern_as_map_key: r#"
+        (let ((k (string/intern "key")))
+          (get {k 42} k))
+    "# => Value::int(42),
+}
+
+dual_eval_error_tests! {
+    string_intern_wrong_type: "(string/intern 42)",
+    string_intern_no_args: "(string/intern)",
+}
+
 dual_eval_error_tests! {
     // No matching method and no default
     multi_no_method: r#"

@@ -1,7 +1,15 @@
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use sema_core::{check_arity, SemaError, Value, ValueView};
 use unicode_normalization::UnicodeNormalization;
 
 use crate::register_fn;
+
+thread_local! {
+    static STRING_INTERN_TABLE: RefCell<HashMap<String, Rc<String>>> = RefCell::new(HashMap::new());
+}
 
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "string-append", |args| {
@@ -1183,5 +1191,23 @@ pub fn register(env: &sema_core::Env) {
         } else {
             Ok(Value::string(s))
         }
+    });
+
+    register_fn(env, "string/intern", |args| {
+        check_arity!(args, "string/intern", 1);
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let interned_rc = STRING_INTERN_TABLE.with(|table| {
+            let mut table = table.borrow_mut();
+            if let Some(existing) = table.get(s) {
+                existing.clone()
+            } else {
+                let rc = Rc::new(s.to_string());
+                table.insert(s.to_string(), rc.clone());
+                rc
+            }
+        });
+        Ok(Value::string_from_rc(interned_rc))
     });
 }
