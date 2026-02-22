@@ -10795,3 +10795,96 @@ fn test_allowed_paths_none_allows_everything() {
         "no allowed_paths should allow all: {result:?}"
     );
 }
+
+// ── http response helpers ──────────────────────────────────────
+
+#[test]
+fn test_http_ok_with_string() {
+    let result = eval(r#"(http/ok "hello")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+    assert_eq!(
+        map.get(&Value::keyword("body")),
+        Some(&Value::string("\"hello\""))
+    );
+}
+
+#[test]
+fn test_http_ok_with_map() {
+    let result = eval(r#"(http/ok {:msg "hi"})"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+    let body = map.get(&Value::keyword("body")).unwrap();
+    assert!(body.as_str().unwrap().contains("msg"));
+}
+
+#[test]
+fn test_http_not_found() {
+    let result = eval(r#"(http/not-found "gone")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(404)));
+}
+
+#[test]
+fn test_http_redirect() {
+    let result = eval(r#"(http/redirect "/login")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(302)));
+    let headers = map.get(&Value::keyword("headers")).unwrap().as_map_rc().unwrap();
+    assert_eq!(
+        headers.get(&Value::string("location")),
+        Some(&Value::string("/login"))
+    );
+}
+
+#[test]
+fn test_http_error_custom_status() {
+    let result = eval(r#"(http/error 422 {:errors ["invalid"]})"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(422)));
+}
+
+#[test]
+fn test_http_html() {
+    let result = eval(r#"(http/html "<h1>Hi</h1>")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+    let headers = map.get(&Value::keyword("headers")).unwrap().as_map_rc().unwrap();
+    assert_eq!(
+        headers.get(&Value::string("content-type")),
+        Some(&Value::string("text/html"))
+    );
+    assert_eq!(
+        map.get(&Value::keyword("body")),
+        Some(&Value::string("<h1>Hi</h1>"))
+    );
+}
+
+#[test]
+fn test_http_text() {
+    let result = eval(r#"(http/text "plain text")"#);
+    let map = result.as_map_rc().unwrap();
+    let headers = map.get(&Value::keyword("headers")).unwrap().as_map_rc().unwrap();
+    assert_eq!(
+        headers.get(&Value::string("content-type")),
+        Some(&Value::string("text/plain"))
+    );
+}
+
+#[test]
+fn test_http_created() {
+    let result = eval(r#"(http/created {:id 1})"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(201)));
+}
+
+#[test]
+fn test_http_no_content() {
+    let result = eval(r#"(http/no-content)"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(204)));
+    assert_eq!(
+        map.get(&Value::keyword("body")),
+        Some(&Value::string(""))
+    );
+}
