@@ -1537,4 +1537,33 @@ mod tests {
             ])
         );
     }
+
+    #[test]
+    fn test_read_regex_literal_digits() {
+        let result = read(r#"#"\d+""#).unwrap();
+        assert_eq!(result, Value::string(r"\d+"));
+    }
+
+    #[test]
+    fn test_read_regex_literal_char_class() {
+        let result = read(r#"#"[a-z]+""#).unwrap();
+        assert_eq!(result, Value::string("[a-z]+"));
+    }
+
+    #[test]
+    fn test_read_regex_literal_backslashes_literal() {
+        let result = read(r#"#"hello\.world""#).unwrap();
+        assert_eq!(result, Value::string(r"hello\.world"));
+    }
+
+    #[test]
+    fn test_read_regex_literal_escaped_quote() {
+        let result = read(r#"#"foo\"bar""#).unwrap();
+        assert_eq!(result, Value::string(r#"foo"bar"#));
+    }
+
+    #[test]
+    fn test_read_regex_literal_unterminated() {
+        assert!(read(r#"#"abc"#).is_err());
+    }
 }

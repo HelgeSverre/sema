@@ -266,6 +266,39 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                                 span: span.with_end(line, col),
                             });
                         }
+                        '"' => {
+                            // Regex literal: #"pattern" — raw string (no escape processing)
+                            i += 2; // skip #"
+                            col += 2;
+                            let mut s = String::new();
+                            while i < chars.len() && chars[i] != '"' {
+                                if chars[i] == '\\' && i + 1 < chars.len() && chars[i + 1] == '"' {
+                                    s.push('"');
+                                    i += 2;
+                                    col += 2;
+                                } else {
+                                    if chars[i] == '\n' {
+                                        line += 1;
+                                        col = 0;
+                                    }
+                                    s.push(chars[i]);
+                                    i += 1;
+                                    col += 1;
+                                }
+                            }
+                            if i >= chars.len() {
+                                return Err(SemaError::Reader {
+                                    message: "unterminated regex literal".to_string(),
+                                    span,
+                                });
+                            }
+                            i += 1; // closing quote
+                            col += 1;
+                            tokens.push(SpannedToken {
+                                token: Token::String(s),
+                                span: span.with_end(line, col),
+                            });
+                        }
                         '!' if line == 1 && col == 1 => {
                             // Shebang line: #!/usr/bin/env sema
                             while i < chars.len() && chars[i] != '\n' {

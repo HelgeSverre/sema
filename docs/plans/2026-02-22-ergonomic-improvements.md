@@ -75,17 +75,28 @@
 
 ### Backlog — Lower Priority
 
-- [ ] **8. Regex literals `#"..."`**
-  - Effort: Low | Gain: Low-Medium
-  - Regex functions already exist, just need reader syntax
+- [x] **8. Regex literals `#"..."`** ✅
+  - **Effort:** Low | **Gain:** Low-Medium
+  - Reader macro: `#"\\d+"` → string `\d+` (raw, no escape processing except `\"`)
+  - Added `'"'` arm in lexer's `#` match — emits `Token::String` (no new type)
+  - Files changed: `crates/sema-reader/src/lexer.rs`
+  - 5 reader unit tests + 6 dual-eval integration tests added
 
-- [ ] **9. REPL `*1` / `*2` / `*e` history**
-  - Effort: Very Low | Gain: Low
-  - Store last results in REPL loop variables
+- [x] **9. REPL `*1` / `*2` / `*3` / `*e` history** ✅
+  - **Effort:** Very Low | **Gain:** Low
+  - `*1`, `*2`, `*3` hold last 3 results; `*e` holds last error message
+  - Shifts on each successful eval, sets `*e` on error
+  - Updated `,help` with history variables section
+  - Files changed: `crates/sema/src/main.rs`
 
-- [ ] **10. `spy` / `time` / `assert` debug helpers**
-  - Effort: Very Low | Gain: Low-Medium
-  - `tap` already exists; add `spy` (labeled tap) and ensure `time`/`assert` exist
+- [x] **10. `spy` / `time` / `assert` / `assert=` debug helpers** ✅
+  - **Effort:** Very Low | **Gain:** Low-Medium
+  - `spy` — `(spy "label" value)` prints `[label] value` to stderr, returns value
+  - `time` — `(time thunk)` calls thunk, prints elapsed ms to stderr, returns result
+  - `assert` — `(assert condition)` or `(assert condition "msg")` throws on falsy
+  - `assert=` — `(assert= expected actual)` throws on inequality with diff message
+  - Files changed: `crates/sema-stdlib/src/meta.rs`
+  - 12 dual-eval tests added (8 success + 4 error)
 
 - [ ] **11. Multimethods `defmulti` / `defmethod`**
   - Effort: Medium | Gain: Medium

@@ -53,3 +53,35 @@ dual_eval_tests! {
     match_map_structural: "(match {:type :ok :val 42} ({:type :ok :val v} v) (_ nil))" => Value::int(42),
     match_map_structural_fail: r#"(match {:type :err} ({:type :ok :val v} v) (_ "fallback"))"# => Value::string("fallback"),
 }
+
+// ============================================================
+// Regex Literals — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    regex_literal_basic: r#"(regex/match? #"\d+" "abc123")"# => Value::bool(true),
+    regex_literal_class: r#"(regex/match? #"[a-z]+" "hello")"# => Value::bool(true),
+    regex_literal_anchored: r#"(regex/match? #"^hello$" "hello")"# => Value::bool(true),
+}
+
+// ============================================================
+// Debug helpers — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    spy_returns_value: r#"(spy "test" 42)"# => Value::int(42),
+    spy_returns_string: r#"(spy "tag" "hello")"# => Value::string("hello"),
+    assert_true: "(assert #t)" => Value::bool(true),
+    assert_truthy: "(assert 42)" => Value::bool(true),
+    assert_with_msg: r#"(assert #t "ok")"# => Value::bool(true),
+    assert_eq_ints: "(assert= 42 42)" => Value::bool(true),
+    assert_eq_strings: r#"(assert= "hello" "hello")"# => Value::bool(true),
+    time_returns_result: "(time (fn () (+ 1 2)))" => Value::int(3),
+}
+
+dual_eval_error_tests! {
+    assert_false: "(assert #f)",
+    assert_nil: "(assert nil)",
+    assert_with_message: r#"(assert #f "custom error")"#,
+    assert_eq_mismatch: "(assert= 1 2)",
+}

@@ -6,7 +6,7 @@ use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use sema_core::{pretty_print, Env, SemaError, Value, ValueView};
+use sema_core::{intern, pretty_print, Env, SemaError, Value, ValueView};
 use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
 
 const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins"];
@@ -976,6 +976,10 @@ fn print_error(e: &SemaError) {
 
 fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_vm: bool) {
     let env = interpreter.global_env.clone();
+    env.set(intern("*1"), Value::nil());
+    env.set(intern("*2"), Value::nil());
+    env.set(intern("*3"), Value::nil());
+    env.set(intern("*e"), Value::nil());
     let mut rl = Editor::new().expect("failed to create editor");
     rl.set_helper(Some(SemaCompleter { env: env.clone() }));
     let history_path = dirs_path().join("history.txt");
@@ -1046,11 +1050,19 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
 
                 match eval_with_mode(&interpreter, &input, use_vm) {
                     Ok(val) => {
+                        if let Some(v1) = env.get(intern("*1")) {
+                            if let Some(v2) = env.get(intern("*2")) {
+                                env.set(intern("*3"), v2);
+                            }
+                            env.set(intern("*2"), v1);
+                        }
+                        env.set(intern("*1"), val.clone());
                         if !val.is_nil() {
                             println!("{}", pretty_print(&val, 80));
                         }
                     }
                     Err(e) => {
+                        env.set(intern("*e"), Value::string(&e.to_string()));
                         print_error(&e);
                     }
                 }
@@ -1117,6 +1129,10 @@ fn print_help() {
     println!("  Set ANTHROPIC_API_KEY or OPENAI_API_KEY env var, then:");
     println!("  (llm/complete \"Hello!\")");
     println!("  (llm/chat [(message :user \"Hi\")] {{:model \"claude-haiku-4-5-20251001\"}})");
+    println!();
+    println!("History Variables:");
+    println!("  *1, *2, *3   Last three results (most recent first)");
+    println!("  *e           Last error message");
     println!();
     println!("Core Forms:");
     println!("  define/defun, lambda/fn, if, cond, let, let*, begin/do");
