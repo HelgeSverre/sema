@@ -10830,7 +10830,11 @@ fn test_http_redirect() {
     let result = eval(r#"(http/redirect "/login")"#);
     let map = result.as_map_rc().unwrap();
     assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(302)));
-    let headers = map.get(&Value::keyword("headers")).unwrap().as_map_rc().unwrap();
+    let headers = map
+        .get(&Value::keyword("headers"))
+        .unwrap()
+        .as_map_rc()
+        .unwrap();
     assert_eq!(
         headers.get(&Value::string("location")),
         Some(&Value::string("/login"))
@@ -10849,7 +10853,11 @@ fn test_http_html() {
     let result = eval(r#"(http/html "<h1>Hi</h1>")"#);
     let map = result.as_map_rc().unwrap();
     assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
-    let headers = map.get(&Value::keyword("headers")).unwrap().as_map_rc().unwrap();
+    let headers = map
+        .get(&Value::keyword("headers"))
+        .unwrap()
+        .as_map_rc()
+        .unwrap();
     assert_eq!(
         headers.get(&Value::string("content-type")),
         Some(&Value::string("text/html"))
@@ -10864,7 +10872,11 @@ fn test_http_html() {
 fn test_http_text() {
     let result = eval(r#"(http/text "plain text")"#);
     let map = result.as_map_rc().unwrap();
-    let headers = map.get(&Value::keyword("headers")).unwrap().as_map_rc().unwrap();
+    let headers = map
+        .get(&Value::keyword("headers"))
+        .unwrap()
+        .as_map_rc()
+        .unwrap();
     assert_eq!(
         headers.get(&Value::string("content-type")),
         Some(&Value::string("text/plain"))
@@ -10883,28 +10895,29 @@ fn test_http_no_content() {
     let result = eval(r#"(http/no-content)"#);
     let map = result.as_map_rc().unwrap();
     assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(204)));
-    assert_eq!(
-        map.get(&Value::keyword("body")),
-        Some(&Value::string(""))
-    );
+    assert_eq!(map.get(&Value::keyword("body")), Some(&Value::string("")));
 }
 
 #[test]
 fn test_http_router_basic() {
-    let result = eval(r#"
+    let result = eval(
+        r#"
         (let ((router (http/router (list [:get "/" (fn (req) (http/ok "home"))]))))
           (router {:method :get :path "/" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
-    "#);
+    "#,
+    );
     let map = result.as_map_rc().unwrap();
     assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
 }
 
 #[test]
 fn test_http_router_params() {
-    let result = eval(r#"
+    let result = eval(
+        r#"
         (let ((router (http/router (list [:get "/users/:id" (fn (req) (http/ok (:params req)))]))))
           (router {:method :get :path "/users/42" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
-    "#);
+    "#,
+    );
     let map = result.as_map_rc().unwrap();
     let body = map.get(&Value::keyword("body")).unwrap();
     assert!(body.as_str().unwrap().contains("42"));
@@ -10912,30 +10925,36 @@ fn test_http_router_params() {
 
 #[test]
 fn test_http_router_404() {
-    let result = eval(r#"
+    let result = eval(
+        r#"
         (let ((router (http/router (list [:get "/" (fn (req) (http/ok "home"))]))))
           (router {:method :get :path "/missing" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
-    "#);
+    "#,
+    );
     let map = result.as_map_rc().unwrap();
     assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(404)));
 }
 
 #[test]
 fn test_http_router_method_matching() {
-    let result = eval(r#"
+    let result = eval(
+        r#"
         (let ((router (http/router (list [:post "/data" (fn (req) (http/ok "posted"))]))))
           (router {:method :get :path "/data" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
-    "#);
+    "#,
+    );
     let map = result.as_map_rc().unwrap();
     assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(404)));
 }
 
 #[test]
 fn test_http_router_any_method() {
-    let result = eval(r#"
+    let result = eval(
+        r#"
         (let ((router (http/router (list [:any "/health" (fn (req) (http/ok "up"))]))))
           (router {:method :delete :path "/health" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
-    "#);
+    "#,
+    );
     let map = result.as_map_rc().unwrap();
     assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
 }
@@ -10980,14 +10999,16 @@ fn test_http_serve_with_router() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (http/router
                 [[:get "/hello/:name" (fn (req)
                    (http/ok {:greeting (string-append "hi " (:name (:params req)))}))]
                  [:get "/health" (fn (_) (http/ok {:status "up"}))]])
               {:port 19877})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -11062,14 +11083,8 @@ fn test_http_serve_sse() {
         .expect("Failed to GET /stream");
 
     let body = resp.text().unwrap();
-    assert!(
-        body.contains("hello"),
-        "body should contain hello: {body}"
-    );
-    assert!(
-        body.contains("world"),
-        "body should contain world: {body}"
-    );
+    assert!(body.contains("hello"), "body should contain hello: {body}");
+    assert!(body.contains("world"), "body should contain world: {body}");
 
     child.kill().ok();
     child.wait().ok();
@@ -11101,10 +11116,8 @@ fn test_http_serve_websocket() {
 
     std::thread::sleep(Duration::from_millis(1500));
 
-    let (mut ws, _) =
-        tungstenite::connect("ws://127.0.0.1:19879/echo").expect("WS connect failed");
-    ws.send(tungstenite::Message::Text("hello".into()))
-        .unwrap();
+    let (mut ws, _) = tungstenite::connect("ws://127.0.0.1:19879/echo").expect("WS connect failed");
+    ws.send(tungstenite::Message::Text("hello".into())).unwrap();
     let reply = ws.read().unwrap();
     assert_eq!(reply.into_text().unwrap(), "echo:hello");
 

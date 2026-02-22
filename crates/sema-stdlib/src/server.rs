@@ -436,10 +436,19 @@ fn value_to_raw_response(val: &Value) -> RawResponse {
         .unwrap_or_default();
 
     let mut headers = Vec::new();
-    if let Some(h) = map.get(&Value::keyword("headers")).and_then(|v| v.as_map_rc()) {
+    if let Some(h) = map
+        .get(&Value::keyword("headers"))
+        .and_then(|v| v.as_map_rc())
+    {
         for (k, v) in h.iter() {
-            let key = k.as_str().map(|s| s.to_string()).unwrap_or_else(|| k.to_string());
-            let val = v.as_str().map(|s| s.to_string()).unwrap_or_else(|| v.to_string());
+            let key = k
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| k.to_string());
+            let val = v
+                .as_str()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| v.to_string());
             headers.push((key, val));
         }
     }
@@ -654,7 +663,10 @@ fn handle_sse_response(
     use sema_core::{call_callback, NativeFn};
 
     let map = response_val.as_map_rc().unwrap();
-    let stream_handler = map.get(&Value::keyword("__stream_handler")).cloned().unwrap();
+    let stream_handler = map
+        .get(&Value::keyword("__stream_handler"))
+        .cloned()
+        .unwrap();
 
     // Create the SSE channel
     let (sse_tx, sse_rx) = tokio::sync::mpsc::channel::<String>(256);
@@ -776,9 +788,7 @@ fn register_serve(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             intern("http/serve"),
             Value::native_fn(NativeFn::with_ctx(
                 "http/serve",
-                |ctx: &EvalContext, args: &[Value]| {
-                    http_serve_impl(ctx, args)
-                },
+                |ctx: &EvalContext, args: &[Value]| http_serve_impl(ctx, args),
             )),
         );
     } else {
@@ -847,22 +857,20 @@ fn http_serve_impl(ctx: &sema_core::EvalContext, args: &[Value]) -> Result<Value
 
             // Build the axum router with a fallback handler that catches all requests.
             // We manually extract WebSocketUpgrade from request parts when needed.
-            let app = axum::Router::new().fallback(
-                move |req: axum::extract::Request| {
-                    let tx = tx.clone();
-                    async move {
-                        // Try to extract WebSocketUpgrade from request parts
-                        use axum::extract::FromRequestParts;
-                        let (mut parts, body) = req.into_parts();
-                        let ws_upgrade: Option<axum::extract::ws::WebSocketUpgrade> =
-                            axum::extract::ws::WebSocketUpgrade::from_request_parts(
-                                &mut parts, &()
-                            ).await.ok();
-                        let req = axum::extract::Request::from_parts(parts, body);
-                        handle_axum_request(ws_upgrade, req, tx).await
-                    }
-                },
-            );
+            let app = axum::Router::new().fallback(move |req: axum::extract::Request| {
+                let tx = tx.clone();
+                async move {
+                    // Try to extract WebSocketUpgrade from request parts
+                    use axum::extract::FromRequestParts;
+                    let (mut parts, body) = req.into_parts();
+                    let ws_upgrade: Option<axum::extract::ws::WebSocketUpgrade> =
+                        axum::extract::ws::WebSocketUpgrade::from_request_parts(&mut parts, &())
+                            .await
+                            .ok();
+                    let req = axum::extract::Request::from_parts(parts, body);
+                    handle_axum_request(ws_upgrade, req, tx).await
+                }
+            });
 
             // Bind TCP listener
             let addr = format!("{bind_host}:{bind_port}");
@@ -889,7 +897,9 @@ fn http_serve_impl(ctx: &sema_core::EvalContext, args: &[Value]) -> Result<Value
             return Err(SemaError::Io(e));
         }
         Err(_) => {
-            return Err(SemaError::eval("http/serve: server thread died before binding"));
+            return Err(SemaError::eval(
+                "http/serve: server thread died before binding",
+            ));
         }
     }
 
@@ -920,7 +930,10 @@ fn http_serve_impl(ctx: &sema_core::EvalContext, args: &[Value]) -> Result<Value
                                 "content-type".to_string(),
                                 "application/json".to_string(),
                             )],
-                            body: format!("{{\"error\":\"{}\"}}", e.to_string().replace('"', "\\\"")),
+                            body: format!(
+                                "{{\"error\":\"{}\"}}",
+                                e.to_string().replace('"', "\\\"")
+                            ),
                         }));
                     }
                 }
