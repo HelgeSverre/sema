@@ -85,3 +85,109 @@ dual_eval_error_tests! {
     assert_with_message: r#"(assert #f "custom error")"#,
     assert_eq_mismatch: "(assert= 1 2)",
 }
+
+// ============================================================
+// Multimethods — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // Basic dispatch on keyword
+    multi_basic_dispatch: r#"
+        (begin
+          (defmulti area (fn (shape) (get shape :type)))
+          (defmethod area :circle (fn (s) (* 3 (get s :radius) (get s :radius))))
+          (defmethod area :rect (fn (s) (* (get s :width) (get s :height))))
+          (area {:type :circle :radius 5}))
+    "# => Value::int(75),
+
+    multi_rect_dispatch: r#"
+        (begin
+          (defmulti area (fn (shape) (get shape :type)))
+          (defmethod area :circle (fn (s) (* 3 (get s :radius) (get s :radius))))
+          (defmethod area :rect (fn (s) (* (get s :width) (get s :height))))
+          (area {:type :rect :width 4 :height 6}))
+    "# => Value::int(24),
+
+    // Default method
+    multi_default_method: r#"
+        (begin
+          (defmulti greet (fn (x) (get x :lang)))
+          (defmethod greet :en (fn (x) "hello"))
+          (defmethod greet :default (fn (x) "hi"))
+          (greet {:lang :fr}))
+    "# => Value::string("hi"),
+
+    // Dispatch on runtime type
+    multi_type_dispatch: r#"
+        (begin
+          (defmulti describe (fn (x) (type x)))
+          (defmethod describe :int (fn (x) "integer"))
+          (defmethod describe :string (fn (x) "text"))
+          (list (describe 42) (describe "hi")))
+    "# => Value::list(vec![Value::string("integer"), Value::string("text")]),
+
+    // Multi-argument dispatch
+    multi_two_arg_dispatch: r#"
+        (begin
+          (defmulti combine (fn (a b) (list (type a) (type b))))
+          (defmethod combine '(:int :int) (fn (a b) (+ a b)))
+          (defmethod combine '(:string :string) (fn (a b) (string-append a b)))
+          (list (combine 1 2) (combine "a" "b")))
+    "# => Value::list(vec![Value::int(3), Value::string("ab")]),
+
+    // defmethod returns nil
+    multi_defmethod_returns_nil: r#"
+        (begin
+          (defmulti f (fn (x) x))
+          (defmethod f :a (fn (x) 1)))
+    "# => Value::nil(),
+
+    // Adding methods after initial definition
+    multi_open_extension: r#"
+        (begin
+          (defmulti op (fn (x) (get x :kind)))
+          (defmethod op :add (fn (x) (+ (get x :a) (get x :b))))
+          (let ((r1 (op {:kind :add :a 1 :b 2})))
+            (defmethod op :mul (fn (x) (* (get x :a) (get x :b))))
+            (+ r1 (op {:kind :mul :a 3 :b 4}))))
+    "# => Value::int(15),
+
+    // Dispatch on integer values
+    multi_int_dispatch: r#"
+        (begin
+          (defmulti fizzbuzz (fn (n) (cond ((= (modulo n 15) 0) :fizzbuzz)
+                                           ((= (modulo n 3) 0) :fizz)
+                                           ((= (modulo n 5) 0) :buzz)
+                                           (#t :num))))
+          (defmethod fizzbuzz :fizzbuzz (fn (n) "FizzBuzz"))
+          (defmethod fizzbuzz :fizz (fn (n) "Fizz"))
+          (defmethod fizzbuzz :buzz (fn (n) "Buzz"))
+          (defmethod fizzbuzz :num (fn (n) n))
+          (list (fizzbuzz 15) (fizzbuzz 9) (fizzbuzz 10) (fizzbuzz 7)))
+    "# => Value::list(vec![
+        Value::string("FizzBuzz"),
+        Value::string("Fizz"),
+        Value::string("Buzz"),
+        Value::int(7),
+    ]),
+}
+
+dual_eval_error_tests! {
+    // No matching method and no default
+    multi_no_method: r#"
+        (begin
+          (defmulti f (fn (x) x))
+          (defmethod f :a (fn (x) 1))
+          (f :b))
+    "#,
+    // defmethod on non-multimethod
+    multi_defmethod_not_multi: r#"
+        (begin
+          (define x 42)
+          (defmethod x :a (fn (x) 1)))
+    "#,
+    // defmulti wrong arity
+    multi_defmulti_no_args: "(defmulti)",
+    // defmethod wrong arity
+    multi_defmethod_no_args: "(defmethod)",
+}

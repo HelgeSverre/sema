@@ -238,6 +238,32 @@ pub struct Agent {
     pub model: String,
 }
 
+/// A multimethod: dispatch-function + method table.
+/// Interior-mutable so `defmethod` can add methods after creation.
+pub struct MultiMethod {
+    pub name: Spur,
+    pub dispatch_fn: Value,
+    pub methods: RefCell<BTreeMap<Value, Value>>,
+    pub default: RefCell<Option<Value>>,
+}
+
+impl fmt::Debug for MultiMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<multimethod {}>", resolve(self.name))
+    }
+}
+
+impl Clone for MultiMethod {
+    fn clone(&self) -> Self {
+        MultiMethod {
+            name: self.name,
+            dispatch_fn: self.dispatch_fn.clone(),
+            methods: RefCell::new(self.methods.borrow().clone()),
+            default: RefCell::new(self.default.borrow().clone()),
+        }
+    }
+}
+
 // ── NaN-boxing constants ──────────────────────────────────────────
 
 // IEEE 754 double layout:
@@ -288,6 +314,7 @@ const TAG_AGENT: u64 = 20;
 const TAG_THUNK: u64 = 21;
 const TAG_RECORD: u64 = 22;
 const TAG_BYTEVECTOR: u64 = 23;
+const TAG_MULTIMETHOD: u64 = 24;
 
 /// Small-int range: [-2^44, 2^44 - 1] = [-17_592_186_044_416, +17_592_186_044_415]
 const SMALL_INT_MIN: i64 = -(1i64 << 44);
@@ -377,6 +404,7 @@ pub enum ValueView {
     Thunk(Rc<Thunk>),
     Record(Rc<Record>),
     Bytevector(Rc<Vec<u8>>),
+    MultiMethod(Rc<MultiMethod>),
 }
 
 // ── The NaN-boxed Value type ──────────────────────────────────────
@@ -607,6 +635,14 @@ impl Value {
     pub fn bytevector_from_rc(rc: Rc<Vec<u8>>) -> Value {
         Value::from_rc_ptr(TAG_BYTEVECTOR, rc)
     }
+
+    pub fn multimethod(m: MultiMethod) -> Value {
+        Value::from_rc_ptr(TAG_MULTIMETHOD, Rc::new(m))
+    }
+
+    pub fn multimethod_from_rc(rc: Rc<MultiMethod>) -> Value {
+        Value::from_rc_ptr(TAG_MULTIMETHOD, rc)
+    }
 }
 
 // Const-compatible boxed encoding (no function calls)
@@ -739,6 +775,7 @@ impl Value {
             TAG_THUNK => ValueView::Thunk(unsafe { self.get_rc::<Thunk>() }),
             TAG_RECORD => ValueView::Record(unsafe { self.get_rc::<Record>() }),
             TAG_BYTEVECTOR => ValueView::Bytevector(unsafe { self.get_rc::<Vec<u8>>() }),
+            TAG_MULTIMETHOD => ValueView::MultiMethod(unsafe { self.get_rc::<MultiMethod>() }),
             _ => unreachable!("invalid NaN-boxed tag: {}", tag),
         }
     }
@@ -772,6 +809,7 @@ impl Value {
             TAG_THUNK => "promise",
             TAG_RECORD => "record",
             TAG_BYTEVECTOR => "bytevector",
+            TAG_MULTIMETHOD => "multimethod",
             _ => "unknown",
         }
     }
@@ -1202,6 +1240,14 @@ impl Value {
             None
         }
     }
+
+    pub fn as_multimethod_rc(&self) -> Option<Rc<MultiMethod>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_MULTIMETHOD {
+            Some(unsafe { self.get_rc::<MultiMethod>() })
+        } else {
+            None
+        }
+    }
 }
 
 // ── Clone ─────────────────────────────────────────────────────────
@@ -1245,6 +1291,7 @@ impl Clone for Value {
                         TAG_THUNK => Rc::increment_strong_count(ptr as *const Thunk),
                         TAG_RECORD => Rc::increment_strong_count(ptr as *const Record),
                         TAG_BYTEVECTOR => Rc::increment_strong_count(ptr as *const Vec<u8>),
+                        TAG_MULTIMETHOD => Rc::increment_strong_count(ptr as *const MultiMethod),
                         _ => unreachable!("invalid heap tag in clone: {}", tag),
                     }
                 }
@@ -1291,6 +1338,7 @@ impl Drop for Value {
                         TAG_THUNK => drop(Rc::from_raw(ptr as *const Thunk)),
                         TAG_RECORD => drop(Rc::from_raw(ptr as *const Record)),
                         TAG_BYTEVECTOR => drop(Rc::from_raw(ptr as *const Vec<u8>)),
+                        TAG_MULTIMETHOD => drop(Rc::from_raw(ptr as *const MultiMethod)),
                         _ => {} // unreachable, but don't panic in drop
                     }
                 }
@@ -1570,6 +1618,7 @@ impl fmt::Display for Value {
                 }
                 write!(f, ")")
             }
+            ValueView::MultiMethod(m) => with_resolved(m.name, |n| write!(f, "<multimethod {n}>")),
         }
     }
 }
@@ -1726,6 +1775,7 @@ impl fmt::Debug for Value {
             ValueView::Thunk(t) => write!(f, "{t:?}"),
             ValueView::Record(r) => write!(f, "{r:?}"),
             ValueView::Bytevector(bv) => write!(f, "Bytevector({bv:?})"),
+            ValueView::MultiMethod(m) => write!(f, "{m:?}"),
         }
     }
 }

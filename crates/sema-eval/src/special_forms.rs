@@ -2,8 +2,8 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use sema_core::{
-    intern, resolve, Agent, Env, EvalContext, Lambda, Macro, Record, SemaError, Spur, Thunk,
-    ToolDefinition, Value,
+    intern, resolve, Agent, Env, EvalContext, Lambda, Macro, MultiMethod, Record, SemaError, Spur,
+    Thunk, ToolDefinition, Value,
 };
 
 use crate::destructure;
@@ -25,6 +25,8 @@ struct SpecialFormSpurs {
     define: Spur,
     define_record_type: Spur,
     defmacro: Spur,
+    defmethod: Spur,
+    defmulti: Spur,
     defun: Spur,
     delay: Spur,
     do_: Spur,
@@ -73,6 +75,8 @@ impl SpecialFormSpurs {
             define: intern("define"),
             define_record_type: intern("define-record-type"),
             defmacro: intern("defmacro"),
+            defmethod: intern("defmethod"),
+            defmulti: intern("defmulti"),
             defun: intern("defun"),
             delay: intern("delay"),
             do_: intern("do"),
@@ -139,6 +143,8 @@ pub const SPECIAL_FORM_NAMES: &[&str] = &[
     "define",
     "define-record-type",
     "defmacro",
+    "defmethod",
+    "defmulti",
     "defun",
     "delay",
     "do",
@@ -202,6 +208,10 @@ pub fn try_eval_special(
         Some(eval_define_record_type(args, env))
     } else if head_spur == sf.defmacro {
         Some(eval_defmacro(args, env))
+    } else if head_spur == sf.defmethod {
+        Some(eval_defmethod(args, env, ctx))
+    } else if head_spur == sf.defmulti {
+        Some(eval_defmulti(args, env, ctx))
     } else if head_spur == sf.defun {
         Some(eval_defun(args, env, ctx))
     } else if head_spur == sf.delay {
@@ -764,6 +774,52 @@ fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         name: name_spur,
     });
     env.set(name_spur, mac);
+    Ok(Trampoline::Value(Value::nil()))
+}
+
+/// (defmulti name dispatch-fn)
+fn eval_defmulti(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("defmulti", "2", args.len()));
+    }
+    let name_spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::eval("defmulti: name must be a symbol"))?;
+    let dispatch_fn = eval::eval_value(ctx, &args[1], env)?;
+    let mm = Value::multimethod(MultiMethod {
+        name: name_spur,
+        dispatch_fn,
+        methods: std::cell::RefCell::new(std::collections::BTreeMap::new()),
+        default: std::cell::RefCell::new(None),
+    });
+    env.set(name_spur, mm);
+    Ok(Trampoline::Value(Value::nil()))
+}
+
+/// (defmethod multi-name dispatch-value handler-fn)
+fn eval_defmethod(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 3 {
+        return Err(SemaError::arity("defmethod", "3", args.len()));
+    }
+    let name_spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::eval("defmethod: name must be a symbol"))?;
+    let mm_val = env
+        .get(name_spur)
+        .ok_or_else(|| SemaError::eval(format!("defmethod: '{}' is not defined", resolve(name_spur))))?;
+    let mm = mm_val
+        .as_multimethod_rc()
+        .ok_or_else(|| SemaError::eval(format!("defmethod: '{}' is not a multimethod", resolve(name_spur))))?;
+    let dispatch_val = eval::eval_value(ctx, &args[1], env)?;
+    let handler = eval::eval_value(ctx, &args[2], env)?;
+    // :default sets the default handler
+    if let Some(kw) = dispatch_val.as_keyword_spur() {
+        if resolve(kw) == "default" {
+            *mm.default.borrow_mut() = Some(handler);
+            return Ok(Trampoline::Value(Value::nil()));
+        }
+    }
+    mm.methods.borrow_mut().insert(dispatch_val, handler);
     Ok(Trampoline::Value(Value::nil()))
 }
 

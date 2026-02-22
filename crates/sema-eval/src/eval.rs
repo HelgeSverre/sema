@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use sema_core::{
-    intern, resolve, CallFrame, Env, EvalContext, Lambda, Macro, NativeFn, SemaError, Span, Thunk,
-    Value, ValueView,
+    intern, resolve, CallFrame, Env, EvalContext, Lambda, Macro, MultiMethod, NativeFn, SemaError,
+    Span, Thunk, Value, ValueView,
 };
 
 use crate::special_forms;
@@ -325,10 +325,38 @@ pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult
                 _ => Err(SemaError::type_error("map", args[0].type_name())),
             }
         }
+        ValueView::MultiMethod(mm) => call_multimethod(ctx, &mm, args),
         _ => Err(
             SemaError::eval(format!("not callable: {} ({})", func, func.type_name()))
                 .with_hint("expected a function, lambda, or keyword"),
         ),
+    }
+}
+
+/// Call a multimethod: dispatch on args, look up handler, call it.
+fn call_multimethod(
+    ctx: &EvalContext,
+    mm: &Rc<MultiMethod>,
+    args: &[Value],
+) -> EvalResult {
+    let dispatch_val = call_value(ctx, &mm.dispatch_fn, args)?;
+    let methods = mm.methods.borrow();
+    if let Some(handler) = methods.get(&dispatch_val) {
+        let handler = handler.clone();
+        drop(methods);
+        call_value(ctx, &handler, args)
+    } else {
+        drop(methods);
+        let default = mm.default.borrow().clone();
+        if let Some(handler) = default {
+            call_value(ctx, &handler, args)
+        } else {
+            Err(SemaError::eval(format!(
+                "no method in multimethod '{}' for dispatch value: {}",
+                resolve(mm.name),
+                dispatch_val
+            )))
+        }
     }
 }
 
@@ -576,6 +604,14 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
                         )),
                         _ => Err(SemaError::type_error("map", map_val.type_name())),
                     }
+                }
+                ValueView::MultiMethod(mm) => {
+                    let mut eval_args = Vec::with_capacity(args.len());
+                    for arg in args {
+                        eval_args.push(eval_value(ctx, arg, env)?);
+                    }
+                    let result = call_multimethod(ctx, &mm, &eval_args)?;
+                    Ok(Trampoline::Value(result))
                 }
                 _ => Err(
                     SemaError::eval(format!("not callable: {} ({})", func, func.type_name()))
@@ -1109,6 +1145,48 @@ fn register_vm_delegates(env: &Rc<Env>) {
                 }
                 None => Ok(Value::nil()),
             }
+        })),
+    );
+
+    // __vm-make-multi: create a MultiMethod value
+    env.set(
+        intern("__vm-make-multi"),
+        Value::native_fn(NativeFn::simple("__vm-make-multi", |args| {
+            if args.len() != 2 {
+                return Err(SemaError::arity("__vm-make-multi", "2", args.len()));
+            }
+            let name_spur = args[0]
+                .as_symbol_spur()
+                .ok_or_else(|| SemaError::eval("__vm-make-multi: expected symbol"))?;
+            Ok(Value::multimethod(MultiMethod {
+                name: name_spur,
+                dispatch_fn: args[1].clone(),
+                methods: RefCell::new(std::collections::BTreeMap::new()),
+                default: RefCell::new(None),
+            }))
+        })),
+    );
+
+    // __vm-defmethod: add a method to an existing MultiMethod
+    env.set(
+        intern("__vm-defmethod"),
+        Value::native_fn(NativeFn::simple("__vm-defmethod", |args| {
+            if args.len() != 3 {
+                return Err(SemaError::arity("__vm-defmethod", "3", args.len()));
+            }
+            let mm = args[0]
+                .as_multimethod_rc()
+                .ok_or_else(|| SemaError::eval("defmethod: first argument is not a multimethod"))?;
+            let dispatch_val = &args[1];
+            let handler = &args[2];
+            if let Some(kw) = dispatch_val.as_keyword_spur() {
+                if resolve(kw) == "default" {
+                    *mm.default.borrow_mut() = Some(handler.clone());
+                    return Ok(Value::nil());
+                }
+            }
+            mm.methods.borrow_mut().insert(dispatch_val.clone(), handler.clone());
+            Ok(Value::nil())
         })),
     );
 }

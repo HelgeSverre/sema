@@ -162,6 +162,10 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             return lower_define_record_type(args);
         } else if s == sf("match") {
             return lower_match(args, tail);
+        } else if s == sf("defmulti") {
+            return lower_defmulti(args);
+        } else if s == sf("defmethod") {
+            return lower_defmethod(args);
         }
     }
 
@@ -779,6 +783,38 @@ fn lower_defmacro(args: &[Value]) -> Result<CoreExpr, SemaError> {
     Ok(CoreExpr::Call {
         func: Box::new(CoreExpr::Var(intern("__vm-defmacro-form"))),
         args: vec![CoreExpr::Const(Value::list(form))],
+        tail: false,
+    })
+}
+
+fn lower_defmulti(args: &[Value]) -> Result<CoreExpr, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("defmulti", "2", args.len()));
+    }
+    let name = require_symbol(&args[0], "defmulti")?;
+    let dispatch_fn = lower_expr(&args[1], false)?;
+    // (define name (__vm-make-multi name dispatch-fn))
+    Ok(CoreExpr::Define(
+        name,
+        Box::new(CoreExpr::Call {
+            func: Box::new(CoreExpr::Var(intern("__vm-make-multi"))),
+            args: vec![CoreExpr::Const(Value::symbol_from_spur(name)), dispatch_fn],
+            tail: false,
+        }),
+    ))
+}
+
+fn lower_defmethod(args: &[Value]) -> Result<CoreExpr, SemaError> {
+    if args.len() != 3 {
+        return Err(SemaError::arity("defmethod", "3", args.len()));
+    }
+    let name = require_symbol(&args[0], "defmethod")?;
+    let dispatch_val = lower_expr(&args[1], false)?;
+    let handler = lower_expr(&args[2], false)?;
+    // (__vm-defmethod multi dispatch-val handler)
+    Ok(CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(intern("__vm-defmethod"))),
+        args: vec![CoreExpr::Var(name), dispatch_val, handler],
         tail: false,
     })
 }

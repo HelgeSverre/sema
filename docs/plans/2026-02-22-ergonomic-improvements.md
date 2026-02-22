@@ -98,14 +98,19 @@
   - Files changed: `crates/sema-stdlib/src/meta.rs`
   - 12 dual-eval tests added (8 success + 4 error)
 
-- [ ] **11. Multimethods `defmulti` / `defmethod`**
+- [x] **11. Multimethods `defmulti` / `defmethod`** ✅
   - Effort: Medium | Gain: Medium
-  - User-space pattern exists in `examples/multimethods.sema`
-  - Promote to builtins if demand warrants
+  - New `MultiMethod` value type with interior-mutable dispatch table (NaN-boxed, TAG 24)
+  - `defmulti` creates a multimethod with a dispatch function; directly callable
+  - `defmethod` adds handlers for specific dispatch values; `:default` sets fallback
+  - Open extension: add methods from anywhere without touching existing code
+  - Dispatch on any value: keywords, types, integers, computed multi-arg values
+  - Files changed: `crates/sema-core/src/value.rs`, `crates/sema-core/src/lib.rs`, `crates/sema-eval/src/special_forms.rs`, `crates/sema-eval/src/eval.rs`, `crates/sema-vm/src/lower.rs`
+  - 24 dual-eval tests added (16 success + 8 error)
 
-- [ ] **12. Keyword arguments `&keys`**
+- [ ] **12. Keyword arguments `&keys`** — Deferred
   - Effort: Medium | Gain: Low
-  - Options-map pattern is idiomatic enough
+  - Options-map pattern + existing destructuring covers most use cases
 
 ---
 
