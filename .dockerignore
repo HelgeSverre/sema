@@ -1,0 +1,9 @@
+target/
+.git/
+node_modules/
+playground/node_modules/
+website/node_modules/
+benchmarks/
+corpus/
+artifacts/
+*.md

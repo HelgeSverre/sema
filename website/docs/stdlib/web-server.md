@@ -1,0 +1,510 @@
+---
+outline: [2, 3]
+---
+
+# Web Server
+
+Sema includes a built-in HTTP server powered by [axum](https://github.com/tokio-rs/axum), with data-driven routing, middleware as function composition, SSE streaming, and WebSocket support. The server runs on a background thread with a Tokio runtime while keeping all Sema evaluation single-threaded — the same model as Node.js.
+
+## Quick Start
+
+```scheme
+(define (handler req)
+  (http/ok {:message "Hello from Sema!"}))
+
+(http/serve handler {:port 3000})
+```
+
+```bash
+$ curl http://localhost:3000
+{"message":"Hello from Sema!"}
+```
+
+## Serving
+
+### `http/serve`
+
+Start an HTTP server. Takes a handler function and an optional options map. The handler receives a request map and returns a response map. This function blocks — it becomes the server's run loop.
+
+```scheme
+(http/serve handler)
+(http/serve handler {:port 3000})
+(http/serve handler {:port 8080 :host "127.0.0.1"})
+```
+
+| Option  | Default     | Description        |
+| ------- | ----------- | ------------------ |
+| `:port` | `3000`      | TCP port to bind   |
+| `:host` | `"0.0.0.0"` | Address to bind to |
+
+The handler is any function `(request-map -> response-map)`. This can be a plain function, a router, or a middleware-wrapped stack.
+
+## Routing
+
+### `http/router`
+
+Create a handler function from a list of route definitions. Each route is a vector of `[method pattern handler]`.
+
+```scheme
+(define routes
+  [[:get  "/"            handle-home]
+   [:get  "/users/:id"   handle-user]
+   [:post "/users"       handle-create]
+   [:any  "/echo"        handle-echo]])
+
+(define app (http/router routes))
+(http/serve app {:port 3000})
+```
+
+Supported methods: `:get`, `:post`, `:put`, `:patch`, `:delete`, `:any` (matches all methods), and `:ws` (WebSocket upgrade).
+
+Routes are matched top-to-bottom — first match wins. Unmatched routes return 404.
+
+### Path Parameters
+
+Use `:param` syntax to capture path segments. Extracted values appear in the request's `:params` map.
+
+```scheme
+;; Route: [:get "/users/:id" handle-user]
+;; Request: GET /users/42
+
+(define (handle-user req)
+  (let ((id (:id (:params req))))
+    (http/ok {:user-id id})))
+; => {"user-id":"42"}
+```
+
+Multiple parameters work as expected:
+
+```scheme
+[:get "/users/:uid/posts/:pid" handler]
+;; GET /users/1/posts/99 → {:uid "1" :pid "99"}
+```
+
+### Wildcard Routes
+
+Use `*` to capture the rest of the path.
+
+```scheme
+[:get "/files/*" handle-files]
+;; GET /files/docs/readme.md → {:* "docs/readme.md"}
+```
+
+## Request Map
+
+Every handler receives a request map with the following fields:
+
+```scheme
+{:method  :get                                    ; HTTP method as keyword
+ :path    "/users/42"                             ; Request path
+ :headers {"content-type" "application/json" ...} ; Headers (string keys)
+ :query   {:search "term" :page "1"}              ; Query params (keyword keys)
+ :params  {:id "42"}                              ; Route params (keyword keys)
+ :body    "{\"name\": \"Ada\"}"                   ; Raw body string
+ :json    {:name "Ada"}}                          ; Parsed JSON body (if applicable)
+```
+
+The `:json` field is automatically populated when the request has `Content-Type: application/json`.
+
+### Accessing Request Data
+
+```scheme
+;; Method
+(:method req)         ; => :get
+
+;; Path
+(:path req)           ; => "/users/42"
+
+;; A specific header
+(get (:headers req) "authorization")  ; => "Bearer ..."
+
+;; Query parameter
+(:page (:query req))  ; => "2"
+
+;; Route parameter
+(:id (:params req))   ; => "42"
+
+;; JSON body field
+(:name (:json req))   ; => "Ada"
+```
+
+## Response Map
+
+Handlers return a response map with `:status`, `:headers`, and `:body`:
+
+```scheme
+{:status  200
+ :headers {"content-type" "application/json"}
+ :body    "{\"message\": \"ok\"}"}
+```
+
+You can construct these by hand, but the response helpers below are more convenient.
+
+## Response Helpers
+
+### `http/ok`
+
+Return 200 with a JSON-encoded body.
+
+```scheme
+(http/ok {:message "success"})
+; => {:status 200 :headers {"content-type" "application/json"} :body "{\"message\":\"success\"}"}
+
+(http/ok [1 2 3])
+; => {:status 200 :body "[1,2,3]" ...}
+```
+
+### `http/created`
+
+Return 201 with a JSON-encoded body.
+
+```scheme
+(http/created {:id 42 :name "Ada"})
+```
+
+### `http/no-content`
+
+Return 204 with an empty body.
+
+```scheme
+(http/no-content)
+```
+
+### `http/not-found`
+
+Return 404 with a JSON-encoded body.
+
+```scheme
+(http/not-found {:error "User not found"})
+```
+
+### `http/error`
+
+Return a custom status code with a JSON-encoded body.
+
+```scheme
+(http/error 422 {:errors ["Invalid email" "Name required"]})
+(http/error 503 {:error "Service unavailable"})
+```
+
+### `http/redirect`
+
+Return a 302 redirect to a URL.
+
+```scheme
+(http/redirect "https://example.com/login")
+```
+
+### `http/html`
+
+Return 200 with `Content-Type: text/html`.
+
+```scheme
+(http/html "<h1>Hello</h1><p>Welcome to Sema.</p>")
+```
+
+### `http/text`
+
+Return 200 with `Content-Type: text/plain`.
+
+```scheme
+(http/text "OK")
+```
+
+## Middleware
+
+Middleware in Sema is just function composition — a function that takes a handler and returns a new handler. No special framework needed.
+
+### Writing Middleware
+
+```scheme
+;; Logging middleware
+(define (with-logging handler)
+  (fn (req)
+    (let ((resp (handler req)))
+      (println (:method req) (:path req) "->" (:status resp))
+      resp)))
+```
+
+```scheme
+;; CORS middleware
+(define (with-cors handler)
+  (fn (req)
+    (let ((resp (handler req)))
+      (assoc resp :headers
+        (merge (or (:headers resp) {})
+          {"access-control-allow-origin" "*"
+           "access-control-allow-methods" "GET, POST, PUT, DELETE"})))))
+```
+
+```scheme
+;; Auth middleware
+(define (with-auth handler)
+  (fn (req)
+    (let ((token (get (:headers req) "authorization")))
+      (if token
+        (handler req)
+        (http/error 401 {:error "Unauthorized"})))))
+```
+
+### Composing Middleware
+
+Stack middleware by nesting function calls. The outermost middleware runs first.
+
+```scheme
+(define app
+  (with-logging
+    (with-cors
+      (with-auth
+        (http/router routes)))))
+
+(http/serve app {:port 3000})
+```
+
+Or use the threading macro for a cleaner pipeline:
+
+```scheme
+(define app
+  (-> (http/router routes)
+      with-auth
+      with-cors
+      with-logging))
+```
+
+## SSE Streaming
+
+### `http/stream`
+
+Return a Server-Sent Events stream. Takes a handler function that receives a `send` callback.
+
+```scheme
+(define (handle-events req)
+  (http/stream
+    (fn (send)
+      (send "connected")
+      (sleep 1000)
+      (send "update 1")
+      (sleep 1000)
+      (send "update 2"))))
+```
+
+The stream stays open as long as the handler is running. When the handler returns, the stream closes.
+
+```scheme
+;; Route it like any other handler
+(define routes
+  [[:get "/events" handle-events]])
+```
+
+```bash
+$ curl -N http://localhost:3000/events
+data: connected
+
+data: update 1
+
+data: update 2
+```
+
+### Streaming LLM Responses
+
+SSE is particularly useful for streaming LLM completions to the browser:
+
+```scheme
+(define (handle-chat req)
+  (http/stream
+    (fn (send)
+      (let ((prompt (:prompt (:json req))))
+        ;; Stream each token as an SSE event
+        (llm/chat {:prompt prompt
+                   :stream (fn (token) (send token))})))))
+```
+
+## WebSocket
+
+### `http/websocket`
+
+Handle bidirectional WebSocket connections. Takes a handler function that receives a connection map with `:send`, `:recv`, and `:close` functions.
+
+```scheme
+(define (handle-ws conn)
+  (let ((msg ((:recv conn))))
+    (when msg
+      ((:send conn) (string-append "echo: " msg))
+      (handle-ws conn))))
+```
+
+The connection map:
+
+| Key      | Description                                              |
+| -------- | -------------------------------------------------------- |
+| `:send`  | `(send message)` — Send a string to the client           |
+| `:recv`  | `(recv)` — Block until a message arrives, `nil` on close |
+| `:close` | `(close)` — Close the connection                         |
+
+### WebSocket Routes
+
+Use the `:ws` method in the router:
+
+```scheme
+(define routes
+  [[:get "/api/status" handle-status]
+   [:ws  "/ws/chat"    handle-ws]])
+
+(http/serve (http/router routes) {:port 3000})
+```
+
+### Chat Room Example
+
+```scheme
+(define clients (atom '()))
+
+(define (broadcast msg)
+  (for-each (fn (send) (send msg))
+            @clients))
+
+(define (handle-ws conn)
+  ;; Add this client's send function to the list
+  (swap! clients (fn (lst) (cons (:send conn) lst)))
+  ;; Read loop
+  (let loop ((msg ((:recv conn))))
+    (when msg
+      (broadcast msg)
+      (loop ((:recv conn))))))
+
+(define routes
+  [[:ws "/chat" handle-ws]])
+
+(http/serve (http/router routes) {:port 3000})
+```
+
+## Complete Examples
+
+### REST API
+
+A JSON API with CRUD operations, middleware, and error handling.
+
+```scheme
+;; In-memory data store
+(define db (atom {}))
+(define next-id (atom 0))
+
+(define (gen-id)
+  (swap! next-id (fn (n) (+ n 1)))
+  @next-id)
+
+;; Handlers
+(define (list-users _)
+  (http/ok (vals @db)))
+
+(define (get-user req)
+  (let ((id (:id (:params req)))
+        (user (get @db id)))
+    (if user
+      (http/ok user)
+      (http/not-found {:error "User not found"}))))
+
+(define (create-user req)
+  (let ((data (:json req))
+        (id   (str (gen-id)))
+        (user (assoc data :id id)))
+    (swap! db (fn (d) (assoc d id user)))
+    (http/created user)))
+
+(define (delete-user req)
+  (let ((id (:id (:params req))))
+    (swap! db (fn (d) (dissoc d id)))
+    (http/no-content)))
+
+;; Middleware
+(define (with-json-errors handler)
+  (fn (req)
+    (let ((resp (handler req)))
+      (if (map? resp) resp
+        (http/error 500 {:error "Internal server error"})))))
+
+(define (with-cors handler)
+  (fn (req)
+    (let ((resp (handler req)))
+      (assoc resp :headers
+        (merge (or (:headers resp) {})
+          {"access-control-allow-origin" "*"
+           "access-control-allow-methods" "GET, POST, DELETE"})))))
+
+;; Routes
+(define routes
+  [[:get    "/users"     list-users]
+   [:get    "/users/:id" get-user]
+   [:post   "/users"     create-user]
+   [:delete "/users/:id" delete-user]])
+
+;; Start
+(define app
+  (-> (http/router routes)
+      with-json-errors
+      with-cors))
+
+(http/serve app {:port 3000})
+```
+
+### LLM-Powered API
+
+An API endpoint that uses Sema's built-in LLM primitives to generate responses.
+
+```scheme
+(define (handle-summarize req)
+  (let ((text (:text (:json req))))
+    (if text
+      (http/ok {:summary (llm/chat (str "Summarize this:\n\n" text))})
+      (http/error 400 {:error "Missing 'text' field"}))))
+
+(define (handle-extract req)
+  (let ((text (:text (:json req))))
+    (http/ok (llm/extract text {:name "string"
+                                 :date "string"
+                                 :amount "number"}))))
+
+(define routes
+  [[:post "/summarize" handle-summarize]
+   [:post "/extract"   handle-extract]
+   [:get  "/health"    (fn (_) (http/ok {:status "up"}))]])
+
+(http/serve (http/router routes) {:port 3000})
+```
+
+### HTML Application
+
+Serve dynamic HTML pages.
+
+```scheme
+(define (page title body)
+  (http/html
+    (str "<!DOCTYPE html><html><head><title>" title "</title>"
+         "<style>body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:2rem}</style>"
+         "</head><body>" body "</body></html>")))
+
+(define (handle-home _)
+  (page "Home" "<h1>Welcome</h1><p>Built with Sema.</p>"))
+
+(define (handle-greet req)
+  (let ((name (or (:name (:params req)) "world")))
+    (page "Greeting" (str "<h1>Hello, " name "!</h1>"))))
+
+(define routes
+  [[:get "/"            handle-home]
+   [:get "/greet/:name" handle-greet]])
+
+(http/serve (http/router routes) {:port 3000})
+```
+
+## Architecture Notes
+
+- **Single-threaded evaluation**: All Sema code runs on the main thread. HTTP I/O runs on a background Tokio runtime. Requests are bridged via channels.
+- **Concurrency model**: Requests are processed sequentially by the evaluator. For LLM-backed services (where each request takes 1–5s of LLM latency), this is fine. For high-throughput APIs, consider a reverse proxy.
+- **Graceful shutdown**: Ctrl+C breaks the channel and the server exits cleanly.
+- **Sandbox-aware**: `http/serve` requires the `NETWORK` capability when running in sandbox mode.
+
+## See Also
+
+- [HTTP Client & JSON](./http-json) — outbound HTTP requests and JSON encoding/decoding
+- [LLM Primitives](/docs/llm/) — building LLM-powered endpoints
+- [Key-Value Store](./kv-store) — persistent storage for server state

@@ -9,6 +9,9 @@ use rustyline::Editor;
 use sema_core::{intern, pretty_print, Env, SemaError, Value, ValueView};
 use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
 
+mod archive;
+mod import_tracer;
+
 const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins"];
 
 struct SemaCompleter {
@@ -209,9 +212,31 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Build a standalone executable from a sema source file
+    Build {
+        /// Source file to compile and bundle
+        file: String,
+
+        /// Output executable path (default: filename without extension)
+        #[arg(short, long)]
+        output: Option<String>,
+
+        /// Additional files or directories to bundle (repeatable)
+        #[arg(long = "include", action = clap::ArgAction::Append)]
+        includes: Vec<String>,
+
+        /// Sema binary to use as runtime base (default: current executable)
+        #[arg(long)]
+        runtime: Option<String>,
+    },
 }
 
 fn main() {
+    // Check for embedded archive before parsing CLI args
+    if let Some(exit_code) = try_run_embedded() {
+        std::process::exit(exit_code);
+    }
+
     let cli = Cli::parse();
 
     let sandbox = match &cli.sandbox {
@@ -251,6 +276,14 @@ fn main() {
             }
             Commands::Disasm { file, json } => {
                 run_disasm(&file, json);
+            }
+            Commands::Build {
+                file,
+                output,
+                includes,
+                runtime,
+            } => {
+                run_build(&file, output.as_deref(), &includes, runtime.as_deref());
             }
         }
         return;
@@ -457,6 +490,325 @@ fn run_compile(file: &str, output: Option<&str>) {
         eprintln!("Error writing {}: {e}", out_path.display());
         std::process::exit(1);
     }
+}
+
+fn try_run_embedded() -> Option<i32> {
+    let exe_path = std::env::current_exe().ok()?;
+
+    // Try named section first (macOS Mach-O / Windows PE via libsui),
+    // fall back to trailer scan (Linux ELF raw append).
+    let archive_data = if let Ok(Some(data)) = libsui::find_section("semaexec") {
+        data.to_vec()
+    } else if archive::has_embedded_archive(&exe_path).ok()? {
+        match std::fs::read(&exe_path) {
+            Ok(data) => {
+                let len = data.len();
+                let trailer = &data[len - 16..];
+                let archive_size = u64::from_le_bytes(trailer[0..8].try_into().unwrap()) as usize;
+                data[len - 16 - archive_size..len - 16].to_vec()
+            }
+            Err(_) => return None,
+        }
+    } else {
+        return None;
+    };
+
+    let arch = match archive::deserialize_archive_from_bytes(&archive_data) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Error: failed to load embedded archive: {e}");
+            return Some(1);
+        }
+    };
+
+    let entry_point = arch
+        .metadata
+        .get("entry-point")
+        .and_then(|v| std::str::from_utf8(v).ok())
+        .unwrap_or("__main__.semac")
+        .to_string();
+
+    let bytecode = match arch.files.get(&entry_point) {
+        Some(b) => b.clone(),
+        None => {
+            eprintln!("Error: entry point '{entry_point}' not found in embedded archive");
+            return Some(1);
+        }
+    };
+
+    sema_core::vfs::init_vfs(arch.files);
+
+    let sandbox = sema_core::Sandbox::allow_all();
+    let interpreter = Interpreter::new_with_sandbox(&sandbox);
+
+    let _ = interpreter.eval_str("(llm/auto-configure)");
+
+    match run_bytecode_bytes(&interpreter, &bytecode) {
+        Ok(_) => Some(0),
+        Err(e) => {
+            print_error(&e);
+            Some(1)
+        }
+    }
+}
+
+fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Option<&str>) {
+    let path = std::path::Path::new(file);
+
+    // Validate input file exists
+    if !path.exists() {
+        eprintln!("Error: source file not found: {file}");
+        std::process::exit(1);
+    }
+
+    let source = match std::fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading {file}: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    eprintln!("[1/5] Compiling {file}...");
+
+    // Compute source hash and compile to bytecode
+    let source_hash = crc32_simple(source.as_bytes());
+    let sandbox = sema_core::Sandbox::allow_all();
+    let interpreter = Interpreter::new_with_sandbox(&sandbox);
+
+    let result = match interpreter.compile_to_bytecode(&source) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Compile error: {}", e.inner());
+            std::process::exit(1);
+        }
+    };
+
+    let bytecode = match sema_vm::serialize_to_bytes(&result, source_hash) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("Serialization error: {}", e.inner());
+            std::process::exit(1);
+        }
+    };
+
+    eprintln!("[2/5] Tracing imports...");
+
+    // Trace transitive imports
+    let imports = match import_tracer::trace_imports(path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Error tracing imports: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    eprintln!("[3/5] Collecting assets...");
+
+    // Build VFS files map
+    let mut files = std::collections::HashMap::new();
+
+    // Entry point bytecode
+    files.insert("__main__.semac".to_string(), bytecode);
+
+    // Traced imports
+    for (rel_path, contents) in &imports {
+        if let Err(e) = sema_core::vfs::validate_vfs_path(rel_path) {
+            eprintln!("Warning: skipping import with invalid VFS path: {e}");
+            continue;
+        }
+        files.insert(rel_path.clone(), contents.clone());
+    }
+
+    // Additional --include assets
+    for include in includes {
+        let inc_path = std::path::Path::new(include);
+        if inc_path.is_dir() {
+            let base = inc_path
+                .file_name()
+                .unwrap_or(inc_path.as_os_str())
+                .to_string_lossy()
+                .to_string();
+            collect_directory_files(inc_path, &base, &mut files);
+        } else if inc_path.is_file() {
+            let rel = inc_path
+                .file_name()
+                .unwrap_or(inc_path.as_os_str())
+                .to_string_lossy()
+                .to_string();
+            if let Err(e) = sema_core::vfs::validate_vfs_path(&rel) {
+                eprintln!("Warning: skipping {include}: {e}");
+                continue;
+            }
+            match std::fs::read(inc_path) {
+                Ok(data) => {
+                    files.insert(rel, data);
+                }
+                Err(e) => {
+                    eprintln!("Warning: cannot read {include}: {e}");
+                }
+            }
+        } else {
+            eprintln!("Warning: --include path not found: {include}");
+        }
+    }
+
+    eprintln!("[4/5] Building archive ({} files)...", files.len());
+
+    // Build metadata
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert(
+        "sema-version".to_string(),
+        env!("CARGO_PKG_VERSION").as_bytes().to_vec(),
+    );
+    metadata.insert(
+        "build-timestamp".to_string(),
+        build_timestamp().into_bytes(),
+    );
+    metadata.insert("entry-point".to_string(), b"__main__.semac".to_vec());
+
+    let canonical_root = path
+        .parent()
+        .and_then(|p| p.canonicalize().ok())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    metadata.insert(
+        "build-root".to_string(),
+        canonical_root.to_string_lossy().into_owned().into_bytes(),
+    );
+
+    let archive_bytes = archive::serialize_archive(&metadata, &files);
+
+    eprintln!("[5/5] Writing executable...");
+
+    // Determine output path
+    let output_path = match output {
+        Some(o) => std::path::PathBuf::from(o),
+        None => {
+            let stem = path.file_stem().unwrap_or(path.as_os_str());
+            std::path::PathBuf::from(stem)
+        }
+    };
+
+    // Determine runtime binary
+    let runtime_path = match runtime {
+        Some(r) => std::path::PathBuf::from(r),
+        None => match std::env::current_exe() {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Error: cannot determine current executable path: {e}");
+                std::process::exit(1);
+            }
+        },
+    };
+
+    if let Err(e) = write_executable_platform(&runtime_path, &output_path, &archive_bytes) {
+        eprintln!("Error writing executable: {e}");
+        std::process::exit(1);
+    }
+
+    eprintln!(
+        "Built: {} ({} bytes, {} bundled files)",
+        output_path.display(),
+        std::fs::metadata(&output_path)
+            .map(|m| m.len())
+            .unwrap_or(0),
+        files.len()
+    );
+}
+
+/// Write the executable using platform-specific injection.
+fn write_executable_platform(
+    runtime_path: &std::path::Path,
+    output_path: &std::path::Path,
+    archive_bytes: &[u8],
+) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "macos")]
+    {
+        let runtime = std::fs::read(runtime_path)?;
+        let mut out = std::fs::File::create(output_path)?;
+        libsui::Macho::from(runtime)?
+            .write_section("semaexec", archive_bytes.to_vec())?
+            .build_and_sign(&mut out)?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let perms = std::fs::Permissions::from_mode(0o755);
+            std::fs::set_permissions(output_path, perms)?;
+        }
+
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let runtime = std::fs::read(runtime_path)?;
+        let mut out = std::fs::File::create(output_path)?;
+        libsui::PortableExecutable::from(&runtime)?
+            .write_resource(&["semaexec"], archive_bytes.to_vec())?
+            .build(&mut out)?;
+        return Ok(());
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        archive::write_bundled_executable(runtime_path, output_path, archive_bytes)?;
+        return Ok(());
+    }
+
+    // Unreachable, but satisfies the compiler for all cfg combinations
+    #[allow(unreachable_code)]
+    Ok(())
+}
+
+/// Recursively collect files from a directory into the VFS files map.
+fn collect_directory_files(
+    dir: &std::path::Path,
+    base: &str,
+    files: &mut std::collections::HashMap<String, Vec<u8>>,
+) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Warning: cannot read directory {}: {e}", dir.display());
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let entry_path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        let vfs_path = if base.is_empty() {
+            name.clone()
+        } else {
+            format!("{base}/{name}")
+        };
+
+        if entry_path.is_dir() {
+            collect_directory_files(&entry_path, &vfs_path, files);
+        } else if entry_path.is_file() {
+            if let Err(e) = sema_core::vfs::validate_vfs_path(&vfs_path) {
+                eprintln!("Warning: skipping {}: {e}", entry_path.display());
+                continue;
+            }
+            match std::fs::read(&entry_path) {
+                Ok(data) => {
+                    files.insert(vfs_path, data);
+                }
+                Err(e) => {
+                    eprintln!("Warning: cannot read {}: {e}", entry_path.display());
+                }
+            }
+        }
+    }
+}
+
+/// Return current Unix timestamp as a string (seconds since epoch).
+fn build_timestamp() -> String {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs().to_string())
+        .unwrap_or_else(|_| "0".to_string())
 }
 
 fn run_check(file: &str) {
@@ -1184,11 +1536,5 @@ fn print_builtins(interpreter: &Interpreter) {
 }
 
 fn dirs_path() -> std::path::PathBuf {
-    dirs_home().join(".sema")
-}
-
-fn dirs_home() -> std::path::PathBuf {
-    std::env::var("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+    sema_core::sema_home()
 }

@@ -545,6 +545,10 @@
       <p>Optional bytecode compiler and stack-based VM via <code>--vm</code>. 1.7x faster than tree-walking.</p>
     </div>
     <div class="feat">
+      <h3>Standalone Executables</h3>
+      <p><code>sema build</code> compiles programs into self-contained binaries with auto-traced imports and bundled assets.</p>
+    </div>
+    <div class="feat">
       <h3>Caching &amp; Resilience</h3>
       <p>Response caching, cost budgets, rate limiting, fallback chains, and retry with exponential backoff.</p>
     </div>
@@ -665,6 +669,7 @@
 <span class="prompt">$</span> sema --vm script.sema             <span class="comment"># Use the bytecode VM</span>
 <span class="prompt">$</span> sema compile script.sema          <span class="comment"># Compile to .semac bytecode</span>
 <span class="prompt">$</span> sema script.semac                 <span class="comment"># Run compiled bytecode</span>
+<span class="prompt">$</span> sema build app.sema -o myapp      <span class="comment"># Build standalone executable</span>
 <span class="prompt">$</span> sema disasm script.semac          <span class="comment"># Disassemble bytecode</span>
 <span class="prompt">$</span> sema --sandbox=strict script.sema <span class="comment"># Sandboxed execution</span>
 <span class="prompt">$</span> sema --no-llm script.sema         <span class="comment"># No LLM features</span></code></pre>

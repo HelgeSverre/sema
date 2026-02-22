@@ -70,6 +70,7 @@ Sema is a Lisp where prompts are s-expressions, conversations are persistent dat
 - [Architecture](https://sema-lang.com/docs/internals/architecture.html): Crate structure, dependency flow
 - [Bytecode VM](https://sema-lang.com/docs/internals/bytecode-vm.html): Bytecode compiler and virtual machine
 - [Bytecode File Format](https://sema-lang.com/docs/internals/bytecode-format.html): .semac binary format specification
+- [Executable Format](https://sema-lang.com/docs/internals/executable-format.html): Standalone executable binary format (sema build)
 - [Evaluator & TCO](https://sema-lang.com/docs/internals/evaluator.html): Trampoline-based tail-call optimization
 - [Reader & Spans](https://sema-lang.com/docs/internals/reader.html): Lexer, parser, source spans
 - [Performance](https://sema-lang.com/docs/internals/performance.html): Benchmarks, optimization notes

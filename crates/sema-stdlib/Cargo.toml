@@ -35,3 +35,6 @@ hostname.workspace = true
 libc.workspace = true
 pdf-extract.workspace = true
 lopdf.workspace = true
+axum.workspace = true
+tokio-stream.workspace = true
+futures.workspace = true

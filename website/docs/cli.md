@@ -69,6 +69,33 @@ sema compile --check script.semac
 # ✓ script.semac: valid (format v1, sema 1.6.2, 3 functions, 847 bytes)
 ```
 
+### `sema build`
+
+Build a standalone executable from a Sema source file. The resulting binary embeds the compiled bytecode, all transitive imports, and any explicitly included assets into a self-contained executable. See [Executable Format](./internals/executable-format.md) for details on the binary format.
+
+```
+sema build [OPTIONS] <FILE>
+```
+
+| Flag                     | Description                                               |
+| ------------------------ | --------------------------------------------------------- |
+| `-o, --output <PATH>`   | Output executable path (default: filename without extension) |
+| `--include <PATH>...`   | Additional files or directories to bundle (repeatable)    |
+| `--runtime <PATH>`      | Sema binary to use as runtime base (default: current exe) |
+
+```bash
+# Build a standalone executable
+sema build script.sema                        # → ./script
+sema build script.sema -o myapp              # explicit output path
+
+# Bundle additional files
+sema build script.sema --include data.json   # bundle a file
+sema build script.sema --include assets/     # bundle a directory
+
+# Run the standalone executable
+./myapp --arg1 --arg2
+```
+
 ### `sema disasm`
 
 Disassemble a compiled `.semac` bytecode file, printing a human-readable listing of the main chunk and all function templates.

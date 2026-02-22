@@ -234,6 +234,8 @@ sema                          # REPL (with tab completion)
 sema script.sema              # Run a file
 sema -e '(+ 1 2)'             # Evaluate expression
 sema --no-llm script.sema     # Run without LLM (faster startup)
+sema build app.sema -o myapp  # Build standalone executable
+./myapp                       # Run without sema installed
 ```
 
 ### Shell Completions
@@ -303,6 +305,7 @@ The [`examples/`](https://github.com/helgesverre/sema/tree/main/examples) direct
 - **Pipeline-ready** — response caching, fallback chains, rate limiting, retry with backoff, text chunking, prompt templates, vector store, and a persistent KV store
 - **Cost-aware** — built-in budget tracking with dynamic pricing from [llm-prices.com](https://www.llm-prices.com)
 - **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and 460+ stdlib functions
+- **Standalone executables** — `sema build` compiles programs into self-contained binaries with auto-traced imports and bundled assets
 - **Embeddable** — [available on crates.io](https://crates.io/crates/sema-lang), clean Rust crate structure with a builder API
 - **Developer-friendly** — REPL with tab completion, structured error messages with hints, and 50+ example programs
 
@@ -326,7 +329,7 @@ crates/
   sema-stdlib/   460+ built-in functions across 21 modules
   sema-llm/      LLM provider trait + multi-provider clients
   sema-wasm/     WebAssembly build for sema.run playground
-  sema/          CLI binary: REPL + file runner
+  sema/          CLI binary: REPL + file runner + standalone builder
 ```
 
 > 🔬 Deep-dive into the internals: [Architecture](https://sema-lang.com/docs/internals/architecture.html) · [Evaluator](https://sema-lang.com/docs/internals/evaluator.html) · [Lisp Comparison](https://sema-lang.com/docs/internals/lisp-comparison.html)
