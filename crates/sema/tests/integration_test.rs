@@ -10888,3 +10888,54 @@ fn test_http_no_content() {
         Some(&Value::string(""))
     );
 }
+
+#[test]
+fn test_http_router_basic() {
+    let result = eval(r#"
+        (let ((router (http/router (list [:get "/" (fn (req) (http/ok "home"))]))))
+          (router {:method :get :path "/" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+}
+
+#[test]
+fn test_http_router_params() {
+    let result = eval(r#"
+        (let ((router (http/router (list [:get "/users/:id" (fn (req) (http/ok (:params req)))]))))
+          (router {:method :get :path "/users/42" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#);
+    let map = result.as_map_rc().unwrap();
+    let body = map.get(&Value::keyword("body")).unwrap();
+    assert!(body.as_str().unwrap().contains("42"));
+}
+
+#[test]
+fn test_http_router_404() {
+    let result = eval(r#"
+        (let ((router (http/router (list [:get "/" (fn (req) (http/ok "home"))]))))
+          (router {:method :get :path "/missing" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(404)));
+}
+
+#[test]
+fn test_http_router_method_matching() {
+    let result = eval(r#"
+        (let ((router (http/router (list [:post "/data" (fn (req) (http/ok "posted"))]))))
+          (router {:method :get :path "/data" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(404)));
+}
+
+#[test]
+fn test_http_router_any_method() {
+    let result = eval(r#"
+        (let ((router (http/router (list [:any "/health" (fn (req) (http/ok "up"))]))))
+          (router {:method :delete :path "/health" :headers {} :query {} :params {} :body "" :remote "127.0.0.1"}))
+    "#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(map.get(&Value::keyword("status")), Some(&Value::int(200)));
+}
