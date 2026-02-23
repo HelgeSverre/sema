@@ -159,7 +159,7 @@ fn cmd_add_registry(spec: &str, registry: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn cmd_install() -> Result<(), String> {
+pub fn cmd_install(registry: Option<&str>) -> Result<(), String> {
     let toml_path = Path::new("sema.toml");
     if !toml_path.exists() {
         return Err("No sema.toml found in current directory. Run `sema pkg init` first.".into());
@@ -190,20 +190,20 @@ pub fn cmd_install() -> Result<(), String> {
         let spec = format!("{name}@{version}");
         println!("Installing {name}...");
         // Keys with / are git deps; otherwise registry deps
-        cmd_add(&spec, None)?;
+        cmd_add(&spec, registry)?;
     }
 
     Ok(())
 }
 
-pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
+pub fn cmd_update(name: Option<&str>, registry: Option<&str>) -> Result<(), String> {
     let pkg_dir = packages_dir();
 
     if let Some(name) = name {
         let dir = find_package_dir(&pkg_dir, name).ok_or_else(|| {
             format!("Package '{name}' not found. Run `sema pkg list` to see installed packages.")
         })?;
-        update_single_package(&pkg_dir, &dir)?;
+        update_single_package(&pkg_dir, &dir, registry)?;
     } else {
         let packages = find_all_packages(&pkg_dir);
         if packages.is_empty() {
@@ -212,7 +212,7 @@ pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
         }
         for dir in &packages {
             let rel = dir.strip_prefix(&pkg_dir).unwrap_or(dir);
-            if let Err(e) = update_single_package(&pkg_dir, dir) {
+            if let Err(e) = update_single_package(&pkg_dir, dir, registry) {
                 eprintln!("✗ Failed to update {}: {e}", rel.display());
             }
         }
@@ -221,7 +221,11 @@ pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
-fn update_single_package(pkg_dir: &Path, dir: &Path) -> Result<(), String> {
+fn update_single_package(
+    pkg_dir: &Path,
+    dir: &Path,
+    registry_override: Option<&str>,
+) -> Result<(), String> {
     let rel = dir.strip_prefix(pkg_dir).unwrap_or(dir);
 
     if let Some(meta) = read_pkg_meta(dir) {
@@ -235,10 +239,11 @@ fn update_single_package(pkg_dir: &Path, dir: &Path) -> Result<(), String> {
             .get("version")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let registry = meta
-            .get("registry")
-            .and_then(|v| v.as_str())
-            .unwrap_or(DEFAULT_REGISTRY);
+        let registry = registry_override.unwrap_or_else(|| {
+            meta.get("registry")
+                .and_then(|v| v.as_str())
+                .unwrap_or(DEFAULT_REGISTRY)
+        });
 
         let info = registry_package_info(&name, registry)?;
         let latest = latest_version(&info)
@@ -310,100 +315,29 @@ pub fn cmd_remove(name: &str) -> Result<(), String> {
 fn add_dep_to_toml(toml_path: &Path, pkg_path: &str, git_ref: &str) -> Result<bool, String> {
     let content =
         std::fs::read_to_string(toml_path).map_err(|e| format!("Failed to read sema.toml: {e}"))?;
+    let mut doc: toml_edit::DocumentMut = content
+        .parse()
+        .map_err(|e| format!("Failed to parse sema.toml: {e}"))?;
 
-    let new_line = format!("\"{}\" = \"{}\"", pkg_path, git_ref);
-    let mut in_deps = false;
-    let mut found = false;
-    let mut changed = false;
-    let mut deps_end = None;
-    let mut output: Vec<String> = Vec::new();
-
-    for (i, line) in content.lines().enumerate() {
-        let trimmed = line.trim();
-
-        if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
-            if in_deps {
-                deps_end = None; // We're leaving [deps], insert point was last non-empty line
-            }
-            in_deps = trimmed == "[deps]";
-        }
-
-        if in_deps && !trimmed.starts_with('[') && !trimmed.is_empty() && !trimmed.starts_with('#')
-        {
-            let key = if let Some(rest) = trimmed.strip_prefix('"') {
-                rest.split('"').next()
-            } else {
-                trimmed.split('=').next().map(|s| s.trim())
-            };
-
-            if let Some(key) = key {
-                if key == pkg_path {
-                    found = true;
-                    if trimmed != new_line {
-                        output.push(new_line.clone());
-                        changed = true;
-                    } else {
-                        output.push(line.to_string());
-                    }
-                    continue;
-                }
-            }
-        }
-
-        if in_deps && !trimmed.starts_with('[') {
-            deps_end = Some(i);
-        }
-
-        output.push(line.to_string());
+    if doc.get("deps").is_none() {
+        doc["deps"] = toml_edit::Item::Table(toml_edit::Table::new());
     }
 
-    // If not found, append to the [deps] section
-    if !found {
-        if in_deps {
-            // [deps] was the last section — append at end
-            output.push(new_line);
-            changed = true;
-        } else if deps_end.is_some() {
-            // [deps] exists but another section follows — find where [deps] content ends
-            // Re-scan to find correct insertion point
-            let mut insert_at = None;
-            let mut scanning_deps = false;
-            for (i, line) in output.iter().enumerate() {
-                let trimmed = line.trim();
-                if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
-                    if scanning_deps {
-                        insert_at = Some(i);
-                        break;
-                    }
-                    scanning_deps = trimmed == "[deps]";
-                }
-            }
-            if let Some(pos) = insert_at {
-                output.insert(pos, new_line);
-            } else {
-                output.push(new_line);
-            }
-            changed = true;
-        } else {
-            // No [deps] section at all — append one
-            if !content.ends_with('\n') && !output.is_empty() {
-                output.push(String::new());
-            }
-            output.push("[deps]".to_string());
-            output.push(new_line);
-            changed = true;
+    let deps = doc["deps"]
+        .as_table_mut()
+        .ok_or("sema.toml [deps] is not a table")?;
+
+    if let Some(existing) = deps.get(pkg_path).and_then(|v| v.as_str()) {
+        if existing == git_ref {
+            return Ok(false);
         }
     }
 
-    if changed {
-        let mut result = output.join("\n");
-        if content.ends_with('\n') || !content.contains('\n') {
-            result.push('\n');
-        }
-        std::fs::write(toml_path, result).map_err(|e| format!("Failed to write sema.toml: {e}"))?;
-    }
+    deps[pkg_path] = toml_edit::value(git_ref);
 
-    Ok(changed)
+    std::fs::write(toml_path, doc.to_string())
+        .map_err(|e| format!("Failed to write sema.toml: {e}"))?;
+    Ok(true)
 }
 
 /// Remove a dep entry from a sema.toml file by package path.
@@ -411,47 +345,19 @@ fn add_dep_to_toml(toml_path: &Path, pkg_path: &str, git_ref: &str) -> Result<bo
 fn remove_dep_from_toml(toml_path: &Path, pkg_path: &str) -> Result<bool, String> {
     let content =
         std::fs::read_to_string(toml_path).map_err(|e| format!("Failed to read sema.toml: {e}"))?;
+    let mut doc: toml_edit::DocumentMut = content
+        .parse()
+        .map_err(|e| format!("Failed to parse sema.toml: {e}"))?;
 
-    let mut in_deps = false;
-    let mut removed = false;
-    let mut output: Vec<&str> = Vec::new();
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-
-        // Track which section we're in
-        if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
-            in_deps = trimmed == "[deps]";
-        }
-
-        if in_deps && !trimmed.starts_with('[') && !trimmed.is_empty() && !trimmed.starts_with('#')
-        {
-            // Extract the key, handling both quoted and unquoted forms:
-            //   "github.com/user/repo" = "v1.0"
-            //   github.com/user/repo = "v1.0"
-            let key = if let Some(rest) = trimmed.strip_prefix('"') {
-                rest.split('"').next()
-            } else {
-                trimmed.split('=').next().map(|s| s.trim())
-            };
-
-            if let Some(key) = key {
-                if key == pkg_path {
-                    removed = true;
-                    continue;
-                }
-            }
-        }
-
-        output.push(line);
-    }
+    let removed = if let Some(deps) = doc.get_mut("deps").and_then(|d| d.as_table_mut()) {
+        deps.remove(pkg_path).is_some()
+    } else {
+        false
+    };
 
     if removed {
-        let mut result = output.join("\n");
-        if content.ends_with('\n') {
-            result.push('\n');
-        }
-        std::fs::write(toml_path, result).map_err(|e| format!("Failed to write sema.toml: {e}"))?;
+        std::fs::write(toml_path, doc.to_string())
+            .map_err(|e| format!("Failed to write sema.toml: {e}"))?;
     }
 
     Ok(removed)
@@ -1103,6 +1009,107 @@ fn urlencoded(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+
+    fn tmpdir(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "sema-pkg-test-{name}-{}", std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn add_dep_preserves_comments() {
+        let dir = tmpdir("add-comments");
+        let toml_path = dir.join("sema.toml");
+        let input = "# Project config\n[package]\nname = \"my-app\"\n\n# Dependencies\n[deps]\n\"github.com/test/foo\" = \"v1.0.0\"\n";
+        fs::write(&toml_path, input).unwrap();
+
+        add_dep_to_toml(&toml_path, "github.com/test/bar", "v2.0.0").unwrap();
+
+        let output = fs::read_to_string(&toml_path).unwrap();
+        let doc: toml_edit::DocumentMut = output.parse().unwrap();
+
+        let deps = doc["deps"].as_table().expect("deps table must exist");
+        assert_eq!(deps.get("github.com/test/foo").and_then(|v| v.as_str()), Some("v1.0.0"), "existing dep preserved");
+        assert_eq!(deps.get("github.com/test/bar").and_then(|v| v.as_str()), Some("v2.0.0"), "new dep added");
+
+        // Comments survived
+        assert!(output.contains("# Project config"), "top comment lost");
+        assert!(output.contains("# Dependencies"), "deps comment lost");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn add_dep_creates_deps_section_if_missing() {
+        let dir = tmpdir("add-no-deps");
+        let toml_path = dir.join("sema.toml");
+        fs::write(&toml_path, "[package]\nname = \"bare\"\n").unwrap();
+
+        let changed = add_dep_to_toml(&toml_path, "github.com/a/b", "v1.0.0").unwrap();
+        assert!(changed);
+
+        let output = fs::read_to_string(&toml_path).unwrap();
+        let doc: toml_edit::DocumentMut = output.parse().unwrap();
+        assert_eq!(doc["deps"]["github.com/a/b"].as_str(), Some("v1.0.0"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn add_dep_updates_existing_version() {
+        let dir = tmpdir("add-update");
+        let toml_path = dir.join("sema.toml");
+        fs::write(&toml_path, "[deps]\n\"github.com/a/b\" = \"v1.0.0\"\n").unwrap();
+
+        let changed = add_dep_to_toml(&toml_path, "github.com/a/b", "v2.0.0").unwrap();
+        assert!(changed);
+
+        let output = fs::read_to_string(&toml_path).unwrap();
+        let doc: toml_edit::DocumentMut = output.parse().unwrap();
+        assert_eq!(doc["deps"]["github.com/a/b"].as_str(), Some("v2.0.0"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn add_dep_returns_false_if_already_set() {
+        let dir = tmpdir("add-noop");
+        let toml_path = dir.join("sema.toml");
+        fs::write(&toml_path, "[deps]\n\"github.com/a/b\" = \"v1.0.0\"\n").unwrap();
+
+        let changed = add_dep_to_toml(&toml_path, "github.com/a/b", "v1.0.0").unwrap();
+        assert!(!changed);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_dep_removes_entry_preserves_others() {
+        let dir = tmpdir("remove");
+        let toml_path = dir.join("sema.toml");
+        fs::write(&toml_path, "[deps]\n\"github.com/a/b\" = \"v1.0.0\"\n\"github.com/c/d\" = \"v2.0.0\"\n").unwrap();
+
+        let removed = remove_dep_from_toml(&toml_path, "github.com/a/b").unwrap();
+        assert!(removed);
+
+        let output = fs::read_to_string(&toml_path).unwrap();
+        let doc: toml_edit::DocumentMut = output.parse().unwrap();
+        let deps = doc["deps"].as_table().unwrap();
+        assert!(deps.get("github.com/a/b").is_none(), "removed dep should be gone");
+        assert_eq!(deps.get("github.com/c/d").and_then(|v| v.as_str()), Some("v2.0.0"), "other dep preserved");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn remove_dep_returns_false_if_not_found() {
+        let dir = tmpdir("remove-noop");
+        let toml_path = dir.join("sema.toml");
+        fs::write(&toml_path, "[deps]\n\"github.com/a/b\" = \"v1.0.0\"\n").unwrap();
+
+        let removed = remove_dep_from_toml(&toml_path, "github.com/x/y").unwrap();
+        assert!(!removed);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn test_find_all_packages_empty() {
@@ -1421,13 +1428,13 @@ version = "0.1.0"
     }
 
     #[test]
-    fn test_remove_dep_from_toml_unquoted_key() {
+    fn test_remove_dep_from_toml_quoted_key_with_slashes() {
         let tmp = std::env::temp_dir().join(format!("sema-pkg-rmdep2-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
         let toml_path = tmp.join("sema.toml");
-        std::fs::write(&toml_path, "[deps]\ngithub.com/user/repo = \"v1.0.0\"\n").unwrap();
+        std::fs::write(&toml_path, "[deps]\n\"github.com/user/repo\" = \"v1.0.0\"\n").unwrap();
 
         let removed = remove_dep_from_toml(&toml_path, "github.com/user/repo").unwrap();
         assert!(removed);

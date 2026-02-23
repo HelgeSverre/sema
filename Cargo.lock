@@ -2224,6 +2224,7 @@ dependencies = [
  "lasso",
  "serde_json",
  "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]
@@ -2256,6 +2257,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "toml",
+ "toml_edit",
  "tungstenite",
 ]
 

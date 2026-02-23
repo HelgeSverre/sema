@@ -398,8 +398,10 @@ fn main() {
                     PkgCommands::Add { spec, registry } => {
                         pkg::cmd_add(&spec, registry.as_deref())
                     }
-                    PkgCommands::Install => pkg::cmd_install(),
-                    PkgCommands::Update { name } => pkg::cmd_update(name.as_deref()),
+                    PkgCommands::Install => pkg::cmd_install(None),
+                    PkgCommands::Update { name } => {
+                        pkg::cmd_update(name.as_deref(), None)
+                    }
                     PkgCommands::Remove { name } => pkg::cmd_remove(&name),
                     PkgCommands::List => pkg::cmd_list(),
                     PkgCommands::Init => pkg::cmd_init(),
