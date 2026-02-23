@@ -419,6 +419,15 @@ a:hover { opacity: 0.8; }
 .site-footer a { color: var(--text-dim); text-decoration: underline; }
 .site-footer a:hover { color: var(--gold); }
 
+/* ── Shiki overrides ── */
+.readme pre .shiki,
+.readme pre .shiki code {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.6;
+  background: none !important;
+}
+
 /* ── Responsive ── */
 @media (max-width: 640px) {
   .site-header { padding: 0 1rem; }

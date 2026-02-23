@@ -400,6 +400,38 @@
     });
   </script>
 
+  <script type="module">
+    import { createHighlighterCore } from 'https://esm.sh/shiki@3.0.0/core';
+    import { createOnigurumaEngine } from 'https://esm.sh/shiki@3.0.0/engine/oniguruma';
+
+    const semaGrammar = await fetch('sema.tmLanguage.json').then(r => r.json());
+
+    const highlighter = await createHighlighterCore({
+      themes: [import('https://esm.sh/shiki@3.0.0/themes/vesper.mjs')],
+      langs: [{
+        ...semaGrammar,
+        name: 'sema',
+        scopeName: 'source.sema',
+      }],
+      engine: createOnigurumaEngine(import('https://esm.sh/shiki@3.0.0/wasm')),
+    });
+
+    document.querySelectorAll('.readme pre code').forEach(el => {
+      const code = el.textContent;
+      const html = highlighter.codeToHtml(code, {
+        lang: 'sema',
+        theme: 'vesper',
+      });
+      const wrapper = el.closest('pre');
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      const shikiPre = tmp.querySelector('pre');
+      // Preserve our styling, just replace the inner HTML
+      wrapper.innerHTML = shikiPre.innerHTML;
+      wrapper.style.background = 'var(--bg-code)';
+    });
+  </script>
+
 </div>
 
 <footer class="site-footer">
