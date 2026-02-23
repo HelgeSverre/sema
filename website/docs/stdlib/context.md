@@ -14,7 +14,7 @@ Context data is automatically appended as metadata to log output (`log/info`, `l
 
 Set a key-value pair in the current context frame.
 
-```scheme
+```sema
 (context/set :trace-id "abc-123")
 (context/set :user-id 42)
 ```
@@ -23,7 +23,7 @@ Set a key-value pair in the current context frame.
 
 Retrieve a value by key. Returns `nil` if the key doesn't exist.
 
-```scheme
+```sema
 (context/get :trace-id)   ; => "abc-123"
 (context/get :missing)    ; => nil
 ```
@@ -32,7 +32,7 @@ Retrieve a value by key. Returns `nil` if the key doesn't exist.
 
 Check if a key exists in the context.
 
-```scheme
+```sema
 (context/has? :trace-id)  ; => #t
 (context/has? :missing)   ; => #f
 ```
@@ -41,7 +41,7 @@ Check if a key exists in the context.
 
 Remove a key from all context frames. Returns the removed value, or `nil`.
 
-```scheme
+```sema
 (context/set :temp "data")
 (context/remove :temp)    ; => "data"
 (context/remove :temp)    ; => nil (already gone)
@@ -51,7 +51,7 @@ Remove a key from all context frames. Returns the removed value, or `nil`.
 
 Get a value and remove it in one step (identical to `context/remove`).
 
-```scheme
+```sema
 (context/set :token "abc")
 (context/pull :token)     ; => "abc"
 (context/has? :token)     ; => #f
@@ -61,7 +61,7 @@ Get a value and remove it in one step (identical to `context/remove`).
 
 Get all context as a merged map.
 
-```scheme
+```sema
 (context/set :a 1)
 (context/set :b 2)
 (context/all)  ; => {:a 1 :b 2}
@@ -71,7 +71,7 @@ Get all context as a merged map.
 
 Merge a map of key-value pairs into the current context.
 
-```scheme
+```sema
 (context/merge {:trace-id "abc" :env "production" :version "1.0"})
 (context/get :env)  ; => "production"
 ```
@@ -80,7 +80,7 @@ Merge a map of key-value pairs into the current context.
 
 Clear all context, resetting to an empty state.
 
-```scheme
+```sema
 (context/clear)
 (context/all)  ; => {}
 ```
@@ -91,7 +91,7 @@ Clear all context, resetting to an empty state.
 
 Push a temporary context frame for the duration of a thunk. The frame is automatically popped when the thunk completes — even if it raises an error.
 
-```scheme
+```sema
 (context/set :env "production")
 
 (context/with {:env "staging" :debug #t}
@@ -105,7 +105,7 @@ Push a temporary context frame for the duration of a thunk. The frame is automat
 
 Scopes nest naturally — inner values shadow outer ones:
 
-```scheme
+```sema
 (context/set :a 1)
 (context/with {:b 2}
   (lambda ()
@@ -127,7 +127,7 @@ Context stacks are ordered lists of values that you can push to and pop from. Un
 
 Append a value to a named stack.
 
-```scheme
+```sema
 (context/push :breadcrumbs "login")
 (context/push :breadcrumbs "dashboard")
 (context/push :breadcrumbs "settings")
@@ -137,7 +137,7 @@ Append a value to a named stack.
 
 Get all values in a named stack as a list.
 
-```scheme
+```sema
 (context/stack :breadcrumbs)
 ; => ("login" "dashboard" "settings")
 ```
@@ -146,7 +146,7 @@ Get all values in a named stack as a list.
 
 Remove and return the last value from a stack. Returns `nil` if the stack is empty.
 
-```scheme
+```sema
 (context/pop :breadcrumbs)  ; => "settings"
 (context/stack :breadcrumbs)
 ; => ("login" "dashboard")
@@ -158,20 +158,20 @@ Hidden context stores values that are **not visible** via `context/get`, `contex
 
 ### `context/set-hidden`
 
-```scheme
+```sema
 (context/set-hidden :api-key "sk-secret-123")
 ```
 
 ### `context/get-hidden`
 
-```scheme
+```sema
 (context/get-hidden :api-key)  ; => "sk-secret-123"
 (context/get :api-key)         ; => nil (not visible in regular context)
 ```
 
 ### `context/has-hidden?`
 
-```scheme
+```sema
 (context/has-hidden? :api-key)  ; => #t
 ```
 
@@ -179,7 +179,7 @@ Hidden context stores values that are **not visible** via `context/get`, `contex
 
 When context is non-empty, `log/info`, `log/warn`, `log/error`, and `log/debug` automatically append the context map as metadata:
 
-```scheme
+```sema
 (context/set :trace-id "abc-123")
 (context/set :user-id 42)
 (log/info "Request processed")
@@ -197,7 +197,7 @@ Hidden context is **not** included in log output.
 
 ### Request tracing
 
-```scheme
+```sema
 (context/set :request-id (uuid/v4))
 (context/set :method "GET")
 (context/set :path "/api/users")
@@ -211,7 +211,7 @@ Hidden context is **not** included in log output.
 
 ### Pipeline breadcrumbs
 
-```scheme
+```sema
 (define (process-document doc)
   (context/push :steps "parse")
   (let ((parsed (parse doc)))
@@ -227,7 +227,7 @@ Hidden context is **not** included in log output.
 
 ### Scoped configuration
 
-```scheme
+```sema
 ;; Set default model
 (context/set :model "claude-sonnet")
 

@@ -8,7 +8,7 @@ Bytevectors are sequences of unsigned 8-bit integers (0–255), useful for binar
 
 ## Literal Syntax
 
-```scheme
+```sema
 #u8(1 2 3)       ; bytevector literal
 #u8()            ; empty bytevector
 #u8(255 0 128)   ; arbitrary byte values
@@ -20,7 +20,7 @@ Bytevectors are sequences of unsigned 8-bit integers (0–255), useful for binar
 
 Create a bytevector from byte values.
 
-```scheme
+```sema
 (bytevector 1 2 3)       ; => #u8(1 2 3)
 (bytevector)             ; => #u8()
 ```
@@ -29,7 +29,7 @@ Create a bytevector from byte values.
 
 Create a bytevector of a given length, optionally filled with a value.
 
-```scheme
+```sema
 (make-bytevector 4)       ; => #u8(0 0 0 0)
 (make-bytevector 3 255)   ; => #u8(255 255 255)
 ```
@@ -40,7 +40,7 @@ Create a bytevector of a given length, optionally filled with a value.
 
 Return the length of a bytevector.
 
-```scheme
+```sema
 (bytevector-length #u8(1 2 3))   ; => 3
 (bytevector-length #u8())        ; => 0
 ```
@@ -49,7 +49,7 @@ Return the length of a bytevector.
 
 Return the byte at a given index.
 
-```scheme
+```sema
 (bytevector-u8-ref #u8(10 20 30) 1)   ; => 20
 (bytevector-u8-ref #u8(10 20 30) 0)   ; => 10
 ```
@@ -58,7 +58,7 @@ Return the byte at a given index.
 
 Set the byte at a given index. Uses copy-on-write — the original bytevector is unchanged.
 
-```scheme
+```sema
 (bytevector-u8-set! #u8(1 2 3) 0 9)   ; => #u8(9 2 3)
 ```
 
@@ -68,7 +68,7 @@ Set the byte at a given index. Uses copy-on-write — the original bytevector is
 
 Copy a slice of a bytevector. `(bytevector-copy bv start end)`.
 
-```scheme
+```sema
 (bytevector-copy #u8(1 2 3 4 5) 1 3)   ; => #u8(2 3)
 ```
 
@@ -76,7 +76,7 @@ Copy a slice of a bytevector. `(bytevector-copy bv start end)`.
 
 Concatenate bytevectors.
 
-```scheme
+```sema
 (bytevector-append #u8(1 2) #u8(3 4))   ; => #u8(1 2 3 4)
 ```
 
@@ -86,7 +86,7 @@ Concatenate bytevectors.
 
 Convert a bytevector to a list of integers.
 
-```scheme
+```sema
 (bytevector->list #u8(65 66))   ; => (65 66)
 ```
 
@@ -94,7 +94,7 @@ Convert a bytevector to a list of integers.
 
 Convert a list of integers to a bytevector.
 
-```scheme
+```sema
 (list->bytevector '(1 2 3))   ; => #u8(1 2 3)
 ```
 
@@ -104,7 +104,7 @@ Convert a list of integers to a bytevector.
 
 Decode a bytevector as a UTF-8 string.
 
-```scheme
+```sema
 (utf8->string #u8(104 105))       ; => "hi"
 (utf8->string #u8(72 101 108))    ; => "Hel"
 ```
@@ -113,7 +113,7 @@ Decode a bytevector as a UTF-8 string.
 
 Encode a string as a UTF-8 bytevector.
 
-```scheme
+```sema
 (string->utf8 "hi")     ; => #u8(104 105)
 (string->utf8 "Hello")  ; => #u8(72 101 108 108 111)
 ```

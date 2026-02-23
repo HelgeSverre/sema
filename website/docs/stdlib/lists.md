@@ -12,7 +12,7 @@ Lists are the fundamental data structure in Sema. They are built from cons pairs
 
 Create a new list.
 
-```scheme
+```sema
 (list 1 2 3)       ; => (1 2 3)
 (list)             ; => ()
 (list "a" "b")     ; => ("a" "b")
@@ -22,7 +22,7 @@ Create a new list.
 
 Prepend an element to a list.
 
-```scheme
+```sema
 (cons 0 '(1 2 3))  ; => (0 1 2 3)
 (cons 1 '())       ; => (1)
 ```
@@ -31,7 +31,7 @@ Prepend an element to a list.
 
 Return the first element of a list.
 
-```scheme
+```sema
 (car '(1 2 3))     ; => 1
 ```
 
@@ -39,7 +39,7 @@ Return the first element of a list.
 
 Return the rest of a list (everything after the first element).
 
-```scheme
+```sema
 (cdr '(1 2 3))     ; => (2 3)
 (cdr '(1))         ; => ()
 ```
@@ -52,7 +52,7 @@ Return the rest of a list (everything after the first element).
 
 Alias for `car`. Return the first element.
 
-```scheme
+```sema
 (first '(1 2 3))   ; => 1
 ```
 
@@ -60,7 +60,7 @@ Alias for `car`. Return the first element.
 
 Alias for `cdr`. Return the rest of the list.
 
-```scheme
+```sema
 (rest '(1 2 3))    ; => (2 3)
 ```
 
@@ -68,7 +68,7 @@ Alias for `cdr`. Return the rest of the list.
 
 Compositions of `car` and `cdr`. Available: `caar`, `cadr`, `cdar`, `cddr`, `caaar`, `caadr`, `cadar`, `caddr`, `cdaar`, `cdadr`, `cddar`, `cdddr`.
 
-```scheme
+```sema
 (cadr '(1 2 3))    ; => 2
 (caddr '(1 2 3))   ; => 3
 ```
@@ -77,7 +77,7 @@ Compositions of `car` and `cdr`. Available: `caar`, `cadr`, `cdar`, `cddr`, `caa
 
 Return the last element of a list.
 
-```scheme
+```sema
 (last '(1 2 3))    ; => 3
 ```
 
@@ -85,7 +85,7 @@ Return the last element of a list.
 
 Return the element at index N (zero-based).
 
-```scheme
+```sema
 (nth '(10 20 30) 1)   ; => 20
 (nth '(10 20 30) 0)   ; => 10
 ```
@@ -96,7 +96,7 @@ Return the element at index N (zero-based).
 
 Look up a key in an association list (list of pairs). Uses `equal?` comparison.
 
-```scheme
+```sema
 (define alist '(("a" 1) ("b" 2) ("c" 3)))
 (assoc "b" alist)   ; => ("b" 2)
 (assoc "z" alist)   ; => #f
@@ -106,7 +106,7 @@ Look up a key in an association list (list of pairs). Uses `equal?` comparison.
 
 Like `assoc` but uses `eq?` comparison (pointer/symbol equality).
 
-```scheme
+```sema
 (assq 'b '((a 1) (b 2)))   ; => (b 2)
 ```
 
@@ -114,7 +114,7 @@ Like `assoc` but uses `eq?` comparison (pointer/symbol equality).
 
 Like `assoc` but uses `eqv?` comparison (value equality for numbers).
 
-```scheme
+```sema
 (assv 2 '((1 "one") (2 "two")))   ; => (2 "two")
 ```
 
@@ -124,7 +124,7 @@ Like `assoc` but uses `eqv?` comparison (value equality for numbers).
 
 Return the number of elements in a list.
 
-```scheme
+```sema
 (length '(1 2 3))  ; => 3
 (length '())       ; => 0
 ```
@@ -133,7 +133,7 @@ Return the number of elements in a list.
 
 Concatenate lists.
 
-```scheme
+```sema
 (append '(1 2) '(3 4))     ; => (1 2 3 4)
 (append '(1) '(2) '(3))    ; => (1 2 3)
 ```
@@ -142,7 +142,7 @@ Concatenate lists.
 
 Reverse a list.
 
-```scheme
+```sema
 (reverse '(1 2 3))   ; => (3 2 1)
 ```
 
@@ -150,7 +150,7 @@ Reverse a list.
 
 Generate a list of integers. With one argument, generates 0 to N-1. With two, generates from start to end-1.
 
-```scheme
+```sema
 (range 5)       ; => (0 1 2 3 4)
 (range 1 5)     ; => (1 2 3 4)
 ```
@@ -161,7 +161,7 @@ Generate a list of integers. With one argument, generates 0 to N-1. With two, ge
 
 Apply a function to each element of one or more lists.
 
-```scheme
+```sema
 (map (fn (x) (* x x)) '(1 2 3))      ; => (1 4 9)
 (map + '(1 2 3) '(10 20 30))          ; => (11 22 33)
 ```
@@ -170,7 +170,7 @@ Apply a function to each element of one or more lists.
 
 Return elements that satisfy a predicate.
 
-```scheme
+```sema
 (filter even? '(1 2 3 4 5))   ; => (2 4)
 (filter string? '(1 "a" 2))   ; => ("a")
 ```
@@ -179,7 +179,7 @@ Return elements that satisfy a predicate.
 
 Left fold. `(foldl f init list)` — accumulates from left to right.
 
-```scheme
+```sema
 (foldl + 0 '(1 2 3 4 5))   ; => 15
 (foldl cons '() '(1 2 3))  ; => (3 2 1)
 ```
@@ -188,7 +188,7 @@ Left fold. `(foldl f init list)` — accumulates from left to right.
 
 Right fold. `(foldr f init list)` — accumulates from right to left.
 
-```scheme
+```sema
 (foldr cons '() '(1 2 3))   ; => (1 2 3)
 ```
 
@@ -196,7 +196,7 @@ Right fold. `(foldr f init list)` — accumulates from right to left.
 
 Like `foldl` but uses the first element as the initial value.
 
-```scheme
+```sema
 (reduce + '(1 2 3 4 5))   ; => 15
 ```
 
@@ -204,7 +204,7 @@ Like `foldl` but uses the first element as the initial value.
 
 Apply a function to each element for side effects.
 
-```scheme
+```sema
 (for-each println '("a" "b" "c"))
 ;; prints: a, b, c (each on a new line)
 ```
@@ -213,7 +213,7 @@ Apply a function to each element for side effects.
 
 Sort a list in ascending order.
 
-```scheme
+```sema
 (sort '(3 1 4 1 5))   ; => (1 1 3 4 5)
 ```
 
@@ -221,7 +221,7 @@ Sort a list in ascending order.
 
 Sort a list by a key function.
 
-```scheme
+```sema
 (sort-by length '("bb" "a" "ccc"))   ; => ("a" "bb" "ccc")
 (sort-by abs '(-3 1 -2))             ; => (1 -2 -3)
 ```
@@ -230,7 +230,7 @@ Sort a list by a key function.
 
 Map a function over a list and flatten the results by one level.
 
-```scheme
+```sema
 (flat-map (fn (x) (list x (* x 10))) '(1 2 3))
 ; => (1 10 2 20 3 30)
 ```
@@ -239,7 +239,7 @@ Map a function over a list and flatten the results by one level.
 
 Apply a function to a list of arguments.
 
-```scheme
+```sema
 (apply + '(1 2 3))   ; => 6
 (apply max '(3 1 4)) ; => 4
 ```
@@ -250,7 +250,7 @@ Apply a function to a list of arguments.
 
 Take the first N elements.
 
-```scheme
+```sema
 (take 3 '(1 2 3 4 5))   ; => (1 2 3)
 (take 10 '(1 2))         ; => (1 2)
 ```
@@ -259,7 +259,7 @@ Take the first N elements.
 
 Drop the first N elements.
 
-```scheme
+```sema
 (drop 2 '(1 2 3 4 5))   ; => (3 4 5)
 ```
 
@@ -267,7 +267,7 @@ Drop the first N elements.
 
 Flatten nested lists into a single list.
 
-```scheme
+```sema
 (flatten '(1 (2 (3)) 4))   ; => (1 2 3 4)
 ```
 
@@ -275,7 +275,7 @@ Flatten nested lists into a single list.
 
 Recursively flatten all nested lists.
 
-```scheme
+```sema
 (flatten-deep '(1 (2 (3 (4)))))   ; => (1 2 3 4)
 ```
 
@@ -283,7 +283,7 @@ Recursively flatten all nested lists.
 
 Combine corresponding elements from two lists into pairs.
 
-```scheme
+```sema
 (zip '(1 2 3) '("a" "b" "c"))   ; => ((1 "a") (2 "b") (3 "c"))
 ```
 
@@ -291,7 +291,7 @@ Combine corresponding elements from two lists into pairs.
 
 Split a list into two lists based on a predicate. Returns a list of two lists: elements that satisfy the predicate and those that don't.
 
-```scheme
+```sema
 (partition even? '(1 2 3 4 5))   ; => ((2 4) (1 3 5))
 ```
 
@@ -301,7 +301,7 @@ Split a list into two lists based on a predicate. Returns a list of two lists: e
 
 Return the tail of the list starting from the first matching element.
 
-```scheme
+```sema
 (member 3 '(1 2 3 4))   ; => (3 4)
 (member 9 '(1 2 3))     ; => #f
 ```
@@ -310,7 +310,7 @@ Return the tail of the list starting from the first matching element.
 
 Test if any element satisfies a predicate.
 
-```scheme
+```sema
 (any even? '(1 3 5 6))   ; => #t
 (any even? '(1 3 5))     ; => #f
 ```
@@ -319,7 +319,7 @@ Test if any element satisfies a predicate.
 
 Test if all elements satisfy a predicate.
 
-```scheme
+```sema
 (every even? '(2 4 6))     ; => #t
 (every even? '(2 3 6))     ; => #f
 ```
@@ -328,7 +328,7 @@ Test if all elements satisfy a predicate.
 
 Return the index of the first occurrence of a value, or -1 if not found.
 
-```scheme
+```sema
 (list/index-of '(10 20 30) 20)   ; => 1
 (list/index-of '(10 20 30) 99)   ; => -1
 ```
@@ -337,7 +337,7 @@ Return the index of the first occurrence of a value, or -1 if not found.
 
 Remove duplicate elements, preserving order.
 
-```scheme
+```sema
 (list/unique '(1 2 2 3 3 3))   ; => (1 2 3)
 ```
 
@@ -345,7 +345,7 @@ Remove duplicate elements, preserving order.
 
 Remove consecutive duplicates from a list.
 
-```scheme
+```sema
 (list/dedupe '(1 1 2 2 3 3 2))   ; => (1 2 3 2)
 ```
 
@@ -355,7 +355,7 @@ Remove consecutive duplicates from a list.
 
 Group elements by a function, returning a map.
 
-```scheme
+```sema
 (list/group-by even? '(1 2 3 4 5))   ; => {#f (1 3 5) #t (2 4)}
 ```
 
@@ -363,7 +363,7 @@ Group elements by a function, returning a map.
 
 Interleave elements from two lists.
 
-```scheme
+```sema
 (list/interleave '(1 2 3) '(a b c))   ; => (1 a 2 b 3 c)
 ```
 
@@ -371,7 +371,7 @@ Interleave elements from two lists.
 
 Split a list into chunks of a given size.
 
-```scheme
+```sema
 (list/chunk 2 '(1 2 3 4 5))   ; => ((1 2) (3 4) (5))
 (list/chunk 3 '(1 2 3 4 5 6)) ; => ((1 2 3) (4 5 6))
 ```
@@ -380,7 +380,7 @@ Split a list into chunks of a given size.
 
 Count occurrences of each element, returning a map.
 
-```scheme
+```sema
 (frequencies '(a b a c b a))   ; => {a 3 b 2 c 1}
 ```
 
@@ -388,7 +388,7 @@ Count occurrences of each element, returning a map.
 
 Insert a separator between elements.
 
-```scheme
+```sema
 (interpose ", " '("a" "b" "c"))   ; => ("a" ", " "b" ", " "c")
 ```
 
@@ -398,7 +398,7 @@ Insert a separator between elements.
 
 Sum all numbers in a list.
 
-```scheme
+```sema
 (list/sum '(1 2 3 4 5))   ; => 15
 ```
 
@@ -406,7 +406,7 @@ Sum all numbers in a list.
 
 Return the minimum value in a list.
 
-```scheme
+```sema
 (list/min '(3 1 4 1 5))   ; => 1
 ```
 
@@ -414,7 +414,7 @@ Return the minimum value in a list.
 
 Return the maximum value in a list.
 
-```scheme
+```sema
 (list/max '(3 1 4 1 5))   ; => 5
 ```
 
@@ -424,7 +424,7 @@ Return the maximum value in a list.
 
 Return a randomly shuffled copy of a list.
 
-```scheme
+```sema
 (list/shuffle '(1 2 3 4 5))   ; => (3 1 5 2 4) (varies)
 ```
 
@@ -432,7 +432,7 @@ Return a randomly shuffled copy of a list.
 
 Pick a random element from a list.
 
-```scheme
+```sema
 (list/pick '(1 2 3 4 5))   ; => 3 (varies)
 ```
 
@@ -442,7 +442,7 @@ Pick a random element from a list.
 
 Create a list by repeating a value N times.
 
-```scheme
+```sema
 (list/repeat 3 0)   ; => (0 0 0)
 (list/repeat 4 "x") ; => ("x" "x" "x" "x")
 ```
@@ -451,7 +451,7 @@ Create a list by repeating a value N times.
 
 Alias for `list/repeat`.
 
-```scheme
+```sema
 (make-list 3 0)   ; => (0 0 0)
 ```
 
@@ -459,7 +459,7 @@ Alias for `list/repeat`.
 
 Generate a list of numbers. `(iota count)`, `(iota count start)`, or `(iota count start step)`.
 
-```scheme
+```sema
 (iota 5)         ; => (0 1 2 3 4)
 (iota 3 10)      ; => (10 11 12)
 (iota 4 0 2)     ; => (0 2 4 6)
@@ -471,7 +471,7 @@ Generate a list of numbers. `(iota count)`, `(iota count start)`, or `(iota coun
 
 Split a list at a given index, returning two lists.
 
-```scheme
+```sema
 (list/split-at '(1 2 3 4 5) 3)   ; => ((1 2 3) (4 5))
 ```
 
@@ -479,7 +479,7 @@ Split a list at a given index, returning two lists.
 
 Take elements from the front while a predicate holds.
 
-```scheme
+```sema
 (list/take-while (fn (x) (< x 4)) '(1 2 3 4 5))   ; => (1 2 3)
 ```
 
@@ -487,7 +487,7 @@ Take elements from the front while a predicate holds.
 
 Drop elements from the front while a predicate holds.
 
-```scheme
+```sema
 (list/drop-while (fn (x) (< x 4)) '(1 2 3 4 5))   ; => (4 5)
 ```
 
@@ -497,7 +497,7 @@ Drop elements from the front while a predicate holds.
 
 Return elements that do NOT satisfy a predicate (inverse of `filter`).
 
-```scheme
+```sema
 (list/reject even? '(1 2 3 4 5))   ; => (1 3 5)
 ```
 
@@ -505,7 +505,7 @@ Return elements that do NOT satisfy a predicate (inverse of `filter`).
 
 Return the first element that satisfies a predicate, or `nil` if none found.
 
-```scheme
+```sema
 (list/find even? '(1 3 4 5 6))   ; => 4
 (list/find even? '(1 3 5))       ; => nil
 ```
@@ -514,7 +514,7 @@ Return the first element that satisfies a predicate, or `nil` if none found.
 
 Return the single element matching a predicate. Errors if zero or more than one match.
 
-```scheme
+```sema
 (list/sole (fn (x) (> x 4)) '(1 2 3 4 5))   ; => 5
 ```
 
@@ -524,7 +524,7 @@ Return the single element matching a predicate. Errors if zero or more than one 
 
 Return elements in the first list that are not in the second list.
 
-```scheme
+```sema
 (list/diff '(1 2 3 4 5) '(3 4))   ; => (1 2 5)
 ```
 
@@ -532,7 +532,7 @@ Return elements in the first list that are not in the second list.
 
 Return elements present in both lists.
 
-```scheme
+```sema
 (list/intersect '(1 2 3 4 5) '(3 4 6))   ; => (3 4)
 ```
 
@@ -540,7 +540,7 @@ Return elements present in both lists.
 
 Return values that appear more than once in a list.
 
-```scheme
+```sema
 (list/duplicates '(1 2 2 3 3 3 4))   ; => (2 3)
 ```
 
@@ -550,7 +550,7 @@ Return values that appear more than once in a list.
 
 Extract a specific key from each map in a list.
 
-```scheme
+```sema
 (define people (list {:name "Alice" :age 30} {:name "Bob" :age 25}))
 (list/pluck :name people)   ; => ("Alice" "Bob")
 ```
@@ -559,7 +559,7 @@ Extract a specific key from each map in a list.
 
 Transform a list of maps into a map keyed by a function result.
 
-```scheme
+```sema
 (list/key-by (fn (p) (get p :id)) people)   ; => map keyed by :id
 ```
 
@@ -569,7 +569,7 @@ Transform a list of maps into a map keyed by a function result.
 
 Return the average of a numeric list.
 
-```scheme
+```sema
 (list/avg '(2 4 6))   ; => 4.0
 ```
 
@@ -577,7 +577,7 @@ Return the average of a numeric list.
 
 Return the statistical median.
 
-```scheme
+```sema
 (list/median '(3 1 2))     ; => 2.0
 (list/median '(1 2 3 4))   ; => 2.5
 ```
@@ -586,7 +586,7 @@ Return the statistical median.
 
 Return the most frequent value. If tied, returns a list.
 
-```scheme
+```sema
 (list/mode '(1 2 2 3 3 3))   ; => 3
 (list/mode '(1 1 2 2))       ; => (1 2)
 ```
@@ -597,7 +597,7 @@ Return the most frequent value. If tied, returns a list.
 
 Create a sliding window over a list. Optional step parameter.
 
-```scheme
+```sema
 (list/sliding '(1 2 3 4 5) 2)     ; => ((1 2) (2 3) (3 4) (4 5))
 (list/sliding '(1 2 3 4 5 6) 2 3) ; => ((1 2) (4 5))
 ```
@@ -606,7 +606,7 @@ Create a sliding window over a list. Optional step parameter.
 
 Paginate a list. `(list/page items page per-page)` — 1-indexed pages.
 
-```scheme
+```sema
 (list/page (range 20) 1 5)   ; => (0 1 2 3 4)
 (list/page (range 20) 2 5)   ; => (5 6 7 8 9)
 ```
@@ -615,7 +615,7 @@ Paginate a list. `(list/page items page per-page)` — 1-indexed pages.
 
 Cartesian product of two lists.
 
-```scheme
+```sema
 (list/cross-join '(1 2) '(3 4))   ; => ((1 3) (1 4) (2 3) (2 4))
 ```
 
@@ -625,7 +625,7 @@ Cartesian product of two lists.
 
 Pad a list to a target length with a fill value.
 
-```scheme
+```sema
 (list/pad '(1 2 3) 5 0)   ; => (1 2 3 0 0)
 ```
 
@@ -633,7 +633,7 @@ Pad a list to a target length with a fill value.
 
 Join list elements into a string. Optional final separator.
 
-```scheme
+```sema
 (list/join '(1 2 3) ", ")             ; => "1, 2, 3"
 (list/join '(1 2 3) ", " " and ")     ; => "1, 2 and 3"
 ```
@@ -644,7 +644,7 @@ Join list elements into a string. Optional final separator.
 
 Generate a list by calling a function N times with the index (0-based).
 
-```scheme
+```sema
 (list/times 5 (fn (i) (* i i)))   ; => (0 1 4 9 16)
 ```
 
@@ -654,6 +654,6 @@ Generate a list by calling a function N times with the index (0-based).
 
 Apply a side-effect function to a value, then return the original value.
 
-```scheme
+```sema
 (tap 42 (fn (x) (println x)))   ; prints 42, returns 42
 ```

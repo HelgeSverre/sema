@@ -6,7 +6,7 @@ outline: [2, 3]
 
 Conversations are immutable data structures that maintain chat history. Each operation returns a new conversation value — the original is never modified. This means you always re-bind the result:
 
-```scheme
+```sema
 (define conv (conversation/new {:model "claude-haiku-4-5-20251001"}))
 (define conv (conversation/set-system conv "You are a concise tutor."))
 (define conv (conversation/say conv "Explain closures in 2 bullets."))
@@ -24,7 +24,7 @@ Conversations are immutable data structures that maintain chat history. Each ope
 
 Create a new conversation, optionally with a model. `(conversation/new)` is equivalent to `(conversation/new {})`.
 
-```scheme
+```sema
 (define conv (conversation/new {:model "claude-haiku-4-5-20251001"}))
 (define conv (conversation/new))
 ```
@@ -35,7 +35,7 @@ Create a new conversation, optionally with a model. `(conversation/new)` is equi
 
 Send a user message to the LLM and get a response. Returns a new conversation with both the user message and the assistant's reply appended.
 
-```scheme
+```sema
 (define conv (conversation/new {:model "claude-haiku-4-5-20251001"}))
 (define conv (conversation/say conv "Remember: the secret number is 7"))
 (define conv (conversation/say conv "What is the secret number?"))
@@ -44,7 +44,7 @@ Send a user message to the LLM and get a response. Returns a new conversation wi
 
 With options:
 
-```scheme
+```sema
 (define conv (conversation/say conv "Explain more"
   {:temperature 0.5 :max-tokens 500}))
 ```
@@ -53,7 +53,7 @@ With options:
 
 Manually add a message without making an LLM call. Useful for constructing conversation history programmatically.
 
-```scheme
+```sema
 (define c (conversation/new))
 (define c (conversation/add-message c :system "You are helpful."))
 (define c (conversation/add-message c :user "hello"))
@@ -64,7 +64,7 @@ Manually add a message without making an LLM call. Useful for constructing conve
 
 Send a message with a different system prompt for one turn only. The override applies to the API call but doesn't change the conversation's stored system message. Accepts a system string or a prompt value.
 
-```scheme
+```sema
 ;; With a prompt value — uses its system message for this turn
 (define argue-for (prompt (system "You argue IN FAVOR of Lisp.")))
 (define conv (conversation/new {:model "claude-sonnet-4-20250514"}))
@@ -80,7 +80,7 @@ Send a message with a different system prompt for one turn only. The override ap
 
 Get the content of the last assistant message.
 
-```scheme
+```sema
 (conversation/last-reply conv)   ; => "The secret number is 7."
 ```
 
@@ -88,7 +88,7 @@ Get the content of the last assistant message.
 
 Get the full list of messages as message values.
 
-```scheme
+```sema
 (conversation/messages conv)   ; => list of message values
 (length (conversation/messages conv))  ; => 5
 ```
@@ -97,7 +97,7 @@ Get the full list of messages as message values.
 
 Get the model associated with the conversation.
 
-```scheme
+```sema
 (conversation/model conv)   ; => "claude-haiku-4-5-20251001"
 ```
 
@@ -107,7 +107,7 @@ Get the model associated with the conversation.
 
 Get the system message content, or `nil` if none is set.
 
-```scheme
+```sema
 (define c (conversation/add-message (conversation/new) :system "Be helpful."))
 (conversation/system c)                 ; => "Be helpful."
 (conversation/system (conversation/new))  ; => nil
@@ -117,7 +117,7 @@ Get the system message content, or `nil` if none is set.
 
 Set or replace the system message. All existing system messages are replaced with one new one; other messages are preserved.
 
-```scheme
+```sema
 (define c (conversation/set-system (conversation/new) "You are a code reviewer."))
 (conversation/system c)   ; => "You are a code reviewer."
 ```
@@ -128,7 +128,7 @@ Set or replace the system message. All existing system messages are replaced wit
 
 Keep only messages matching a predicate. Returns a new conversation.
 
-```scheme
+```sema
 ;; Keep only user messages
 (define user-only
   (conversation/filter conv (fn (m) (= (message/role m) :user))))
@@ -142,7 +142,7 @@ Keep only messages matching a predicate. Returns a new conversation.
 
 Apply a function to each message, returning a list of results (not a conversation).
 
-```scheme
+```sema
 ;; Extract all message contents
 (conversation/map conv message/content)
 
@@ -158,7 +158,7 @@ Apply a function to each message, returning a list of results (not a conversatio
 
 Estimated token count for the conversation (heuristic: ~4 characters per token).
 
-```scheme
+```sema
 (conversation/token-count conv)   ; => 342
 ```
 
@@ -166,7 +166,7 @@ Estimated token count for the conversation (heuristic: ~4 characters per token).
 
 Estimated input cost in dollars based on the conversation's model pricing. Returns `nil` if pricing is unavailable for the model.
 
-```scheme
+```sema
 (conversation/cost conv)   ; => 0.00034 (or nil)
 ```
 
@@ -176,7 +176,7 @@ Estimated input cost in dollars based on the conversation's model pricing. Retur
 
 Create an independent copy of a conversation. Since conversations are immutable, forking lets you explore different directions from the same point.
 
-```scheme
+```sema
 (define conv (conversation/new {:model "claude-haiku-4-5-20251001"}))
 (define conv (conversation/say conv "Remember the number 7"))
 
@@ -192,7 +192,7 @@ Create an independent copy of a conversation. Since conversations are immutable,
 
 Check if a value is a conversation.
 
-```scheme
+```sema
 (conversation? conv)   ; => #t
 (conversation? 42)     ; => #f
 ```

@@ -12,7 +12,7 @@ Records are user-defined data types with named fields, created via the `define-r
 
 Define a new record type with a constructor, predicate, and field accessors.
 
-```scheme
+```sema
 (define-record-type point
   (make-point x y)       ; constructor
   point?                  ; predicate
@@ -22,7 +22,7 @@ Define a new record type with a constructor, predicate, and field accessors.
 
 The syntax is:
 
-```scheme
+```sema
 (define-record-type <type-name>
   (<constructor> <field-name> ...)
   <predicate>
@@ -37,7 +37,7 @@ This defines:
 
 ## Usage
 
-```scheme
+```sema
 (define-record-type point
   (make-point x y)
   point?
@@ -56,7 +56,7 @@ This defines:
 
 Records support structural equality with `equal?` — two records of the same type with equal fields are equal.
 
-```scheme
+```sema
 (equal? (make-point 1 2) (make-point 1 2))   ; => #t
 (equal? (make-point 1 2) (make-point 3 4))   ; => #f
 ```
@@ -67,7 +67,7 @@ Records support structural equality with `equal?` — two records of the same ty
 
 Test if a value is any record instance.
 
-```scheme
+```sema
 (record? (make-point 3 4))   ; => #t
 (record? 42)                 ; => #f
 ```
@@ -76,13 +76,13 @@ Test if a value is any record instance.
 
 Return the type tag of a record as a keyword.
 
-```scheme
+```sema
 (type (make-point 3 4))   ; => :point
 ```
 
 ## Example: Multiple Record Types
 
-```scheme
+```sema
 (define-record-type color
   (make-color r g b)
   color?

@@ -8,7 +8,7 @@ Prompts in Sema are composable data structures — not string templates. They ar
 
 The core idea: build small prompt pieces, compose them together, fill in template slots, and send the result. Everything is a value you can pass around, store, and introspect.
 
-```scheme
+```sema
 ;; Build reusable prompt pieces
 (define safety
   (prompt (system "Follow policy. Refuse unsafe requests.")))
@@ -33,7 +33,7 @@ A message is a role–content pair. The role is a keyword: `:system`, `:user`, o
 
 Create a message with a role and content.
 
-```scheme
+```sema
 (message :system "You are a helpful assistant.")
 (message :user "What is Lisp?")
 (message :assistant "Lisp is a family of programming languages.")
@@ -43,7 +43,7 @@ Create a message with a role and content.
 
 Get the role of a message as a keyword.
 
-```scheme
+```sema
 (message/role (message :user "hi"))     ; => :user
 ```
 
@@ -51,7 +51,7 @@ Get the role of a message as a keyword.
 
 Get the text content of a message.
 
-```scheme
+```sema
 (message/content (message :user "hi"))  ; => "hi"
 ```
 
@@ -61,7 +61,7 @@ Get the text content of a message.
 
 Build a prompt from message expressions. Inside `prompt`, use the shorthand constructors `(system ...)`, `(user ...)`, and `(assistant ...)` — these are equivalent to `(message :system ...)`, etc.
 
-```scheme
+```sema
 (define review-prompt
   (prompt
     (system "You are a code reviewer. Be concise.")
@@ -72,7 +72,7 @@ Build a prompt from message expressions. Inside `prompt`, use the shorthand cons
 
 Get the list of messages from a prompt.
 
-```scheme
+```sema
 (prompt/messages my-prompt)   ; => list of message values
 (length (prompt/messages my-prompt))  ; => 2
 ```
@@ -83,7 +83,7 @@ Get the list of messages from a prompt.
 
 Compose prompts by appending their messages together. Variadic — accepts 2 or more prompts.
 
-```scheme
+```sema
 (define base (prompt (system "You are helpful.")))
 (define question (prompt (user "What is 2+2?")))
 (define full (prompt/append base question))
@@ -99,7 +99,7 @@ Compose prompts by appending their messages together. Variadic — accepts 2 or 
 
 Alias for `prompt/append`. Use whichever name reads better in context.
 
-```scheme
+```sema
 (define full (prompt/concat base-prompt safety-prompt domain-prompt))
 ```
 
@@ -109,7 +109,7 @@ Alias for `prompt/append`. Use whichever name reads better in context.
 
 Substitute `{{key}}` placeholders in all message contents using a map. Unfilled slots are left as-is, so you can partially fill a template and fill the rest later.
 
-```scheme
+```sema
 (define template
   (prompt
     (system "You are a {{role}} reviewing {{language}} code.")
@@ -127,7 +127,7 @@ Substitute `{{key}}` placeholders in all message contents using a map. Unfilled 
 
 Return a list of unfilled `{{slot}}` names as keywords. Duplicates are removed.
 
-```scheme
+```sema
 (prompt/slots template)   ; => (:role :language :query)
 
 ;; After partial fill, only unfilled slots remain
@@ -140,7 +140,7 @@ Return a list of unfilled `{{slot}}` names as keywords. Duplicates are removed.
 
 Use `prompt/slots` to validate that all required slots are filled before sending:
 
-```scheme
+```sema
 (when (not (null? (prompt/slots my-prompt)))
   (error "unfilled slots remain"))
 ```
@@ -151,7 +151,7 @@ Use `prompt/slots` to validate that all required slots are filled before sending
 
 Replace all system messages with a single new one. Non-system messages are preserved.
 
-```scheme
+```sema
 (define p (prompt (system "old system") (user "hello")))
 (define p2 (prompt/set-system p "new system instructions"))
 ;; p2 has: [(system "new system instructions"), (user "hello")]
@@ -163,7 +163,7 @@ Replace all system messages with a single new one. Non-system messages are prese
 
 Check if a value is a prompt.
 
-```scheme
+```sema
 (prompt? review-prompt)   ; => #t
 (prompt? 42)              ; => #f
 ```
@@ -172,7 +172,7 @@ Check if a value is a prompt.
 
 Check if a value is a message.
 
-```scheme
+```sema
 (message? (message :user "hi"))   ; => #t
 (message? "not a message")       ; => #f
 ```

@@ -12,7 +12,7 @@ Extract structured data from unstructured text using LLM-powered schema-based ex
 
 Extract structured data from text according to a schema. The schema defines the expected fields and their types.
 
-```scheme
+```sema
 (llm/extract
   {:vendor {:type :string}
    :amount {:type :number}
@@ -27,7 +27,7 @@ The schema map specifies field names as keys and type descriptors as values. Sup
 
 `llm/extract` accepts an optional third argument — an options map:
 
-```scheme
+```sema
 (llm/extract schema text {:model "claude-haiku-4-5-20251001"})
 ```
 
@@ -44,7 +44,7 @@ With `:validate true`, the extracted result is checked against the schema:
 - All schema keys must be present in the result
 - Types must match: `:string` → string, `:number` → integer or float, `:boolean` → boolean, `:list`/`:array` → list or vector
 
-```scheme
+```sema
 ;; Strict extraction with validation
 (llm/extract
   {:name {:type :string}
@@ -60,7 +60,7 @@ If validation fails, an error is raised with details about which fields didn't m
 
 Combine `:validate` with `:retries` to automatically re-send the request when the LLM returns data that doesn't match the schema:
 
-```scheme
+```sema
 (llm/extract
   {:items {:type :list}
    :total {:type :number}}
@@ -76,7 +76,7 @@ On each retry, the validation errors are fed back to the LLM to improve the next
 
 Classify text into one of a set of categories. Returns the matching keyword.
 
-```scheme
+```sema
 (llm/classify [:positive :negative :neutral]
               "This product is amazing!")
 ; => :positive
@@ -90,7 +90,7 @@ Pass a vector of keyword labels and the text to classify. The LLM picks the best
 
 Extract structured data from images using vision-capable LLMs. Accepts a schema, an image source (file path or bytevector), and optional options.
 
-```scheme
+```sema
 ;; Extract from a file path
 (llm/extract-from-image
   {:text :string :background_color :string}
@@ -111,7 +111,7 @@ Supported image formats (detected automatically via magic bytes): PNG, JPEG, GIF
 
 `llm/extract-from-image` accepts an optional third argument — an options map:
 
-```scheme
+```sema
 (llm/extract-from-image schema source {:model "gpt-4o"})
 ```
 
@@ -125,7 +125,7 @@ Supported image formats (detected automatically via magic bytes): PNG, JPEG, GIF
 
 Create a message that includes both text and an image, for use with `llm/chat`.
 
-```scheme
+```sema
 (define img (file/read-bytes "photo.jpg"))
 (define msg (message/with-image :user "What do you see?" img))
 (llm/chat (list msg))
@@ -135,7 +135,7 @@ The image must be a bytevector (use `file/read-bytes` to load from disk). The me
 
 You can combine image messages with regular messages:
 
-```scheme
+```sema
 (llm/chat
   [(message :system "You are a helpful image analyst.")
    (message/with-image :user "Describe this chart." (file/read-bytes "chart.png"))])

@@ -10,7 +10,7 @@ outline: [2, 3]
 
 Print a value without a trailing newline.
 
-```scheme
+```sema
 (display "no newline")
 (display 42)
 ```
@@ -19,7 +19,7 @@ Print a value without a trailing newline.
 
 Print a value followed by a newline.
 
-```scheme
+```sema
 (println "with newline")
 (println 42)
 ```
@@ -28,7 +28,7 @@ Print a value followed by a newline.
 
 Alias for `display`. Print without a trailing newline.
 
-```scheme
+```sema
 (print "also no newline")
 ```
 
@@ -36,7 +36,7 @@ Alias for `display`. Print without a trailing newline.
 
 Print to stderr without a trailing newline.
 
-```scheme
+```sema
 (print-error "warning: something happened")
 ```
 
@@ -44,7 +44,7 @@ Print to stderr without a trailing newline.
 
 Print to stderr with a trailing newline.
 
-```scheme
+```sema
 (println-error "error: file not found")
 ```
 
@@ -52,7 +52,7 @@ Print to stderr with a trailing newline.
 
 Print a newline character.
 
-```scheme
+```sema
 (newline)
 ```
 
@@ -60,7 +60,7 @@ Print a newline character.
 
 Read a line of input from stdin.
 
-```scheme
+```sema
 (define name (read-line))
 ```
 
@@ -68,7 +68,7 @@ Read a line of input from stdin.
 
 Read all of stdin as a string (until EOF).
 
-```scheme
+```sema
 (define input (read-stdin))
 ```
 
@@ -78,7 +78,7 @@ Read all of stdin as a string (until EOF).
 
 Read the entire contents of a file as a string.
 
-```scheme
+```sema
 (file/read "data.txt")   ; => "file contents..."
 ```
 
@@ -86,7 +86,7 @@ Read the entire contents of a file as a string.
 
 Write a string to a file, overwriting any existing content.
 
-```scheme
+```sema
 (file/write "out.txt" "content")
 ```
 
@@ -94,7 +94,7 @@ Write a string to a file, overwriting any existing content.
 
 Append a string to a file.
 
-```scheme
+```sema
 (file/append "log.txt" "new line\n")
 ```
 
@@ -102,7 +102,7 @@ Append a string to a file.
 
 Read a file as a list of lines.
 
-```scheme
+```sema
 (file/read-lines "data.txt")   ; => ("line 1" "line 2" "line 3")
 ```
 
@@ -110,7 +110,7 @@ Read a file as a list of lines.
 
 Write a list of strings to a file, one per line.
 
-```scheme
+```sema
 (file/write-lines "out.txt" '("a" "b" "c"))
 ```
 
@@ -118,7 +118,7 @@ Write a list of strings to a file, one per line.
 
 Iterate over lines of a file, calling a function on each line. Memory-efficient for large files.
 
-```scheme
+```sema
 (file/for-each-line "data.txt"
   (fn (line) (println line)))
 ```
@@ -127,7 +127,7 @@ Iterate over lines of a file, calling a function on each line. Memory-efficient 
 
 Fold over lines of a file with an accumulator. Uses a 256KB buffer for high throughput on large files.
 
-```scheme
+```sema
 (file/fold-lines "data.csv"
   (fn (acc line) (+ acc 1))
   0)
@@ -138,7 +138,7 @@ Fold over lines of a file with an accumulator. Uses a 256KB buffer for high thro
 
 Delete a file.
 
-```scheme
+```sema
 (file/delete "tmp.txt")
 ```
 
@@ -146,7 +146,7 @@ Delete a file.
 
 Rename or move a file.
 
-```scheme
+```sema
 (file/rename "old.txt" "new.txt")
 ```
 
@@ -154,7 +154,7 @@ Rename or move a file.
 
 Copy a file.
 
-```scheme
+```sema
 (file/copy "src.txt" "dst.txt")
 ```
 
@@ -164,7 +164,7 @@ Copy a file.
 
 Read a file as a bytevector (binary data).
 
-```scheme
+```sema
 (file/read-bytes "image.png")   ; => #u8(137 80 78 71 ...)
 ```
 
@@ -172,7 +172,7 @@ Read a file as a bytevector (binary data).
 
 Write a bytevector to a file.
 
-```scheme
+```sema
 (file/write-bytes "output.bin" my-bytes)
 ```
 
@@ -182,7 +182,7 @@ Write a bytevector to a file.
 
 Test if a file or directory exists.
 
-```scheme
+```sema
 (file/exists? "data.txt")   ; => #t or #f
 ```
 
@@ -190,7 +190,7 @@ Test if a file or directory exists.
 
 Test if a path is a regular file.
 
-```scheme
+```sema
 (file/is-file? "data.txt")   ; => #t
 ```
 
@@ -198,7 +198,7 @@ Test if a path is a regular file.
 
 Test if a path is a directory.
 
-```scheme
+```sema
 (file/is-directory? "src/")   ; => #t
 ```
 
@@ -206,7 +206,7 @@ Test if a path is a directory.
 
 Test if a path is a symbolic link.
 
-```scheme
+```sema
 (file/is-symlink? "link")   ; => #t or #f
 ```
 
@@ -216,7 +216,7 @@ Test if a path is a symbolic link.
 
 List entries in a directory.
 
-```scheme
+```sema
 (file/list "src/")   ; => ("main.rs" "lib.rs" ...)
 ```
 
@@ -224,7 +224,7 @@ List entries in a directory.
 
 Create a directory.
 
-```scheme
+```sema
 (file/mkdir "new-dir")
 ```
 
@@ -232,7 +232,7 @@ Create a directory.
 
 Find files matching a glob pattern.
 
-```scheme
+```sema
 (file/glob "src/**/*.rs")      ; => ("src/main.rs" "src/lib.rs" ...)
 (file/glob "*.txt")            ; => ("readme.txt" "notes.txt")
 ```
@@ -241,7 +241,7 @@ Find files matching a glob pattern.
 
 Get file metadata. Returns a map with `:size`, `:modified`, and other keys.
 
-```scheme
+```sema
 (file/info "data.txt")   ; => {:size 1234 :modified 1707955200 ...}
 ```
 
@@ -251,7 +251,7 @@ Get file metadata. Returns a map with `:size`, `:modified`, and other keys.
 
 Join path components.
 
-```scheme
+```sema
 (path/join "src" "main.rs")   ; => "src/main.rs"
 (path/join "a" "b" "c.txt")  ; => "a/b/c.txt"
 ```
@@ -260,7 +260,7 @@ Join path components.
 
 Return the directory portion of a path.
 
-```scheme
+```sema
 (path/dirname "/a/b/c.txt")   ; => "/a/b"
 ```
 
@@ -268,7 +268,7 @@ Return the directory portion of a path.
 
 Return the filename portion of a path.
 
-```scheme
+```sema
 (path/basename "/a/b/c.txt")   ; => "c.txt"
 ```
 
@@ -276,7 +276,7 @@ Return the filename portion of a path.
 
 Return the file extension (without the dot).
 
-```scheme
+```sema
 (path/extension "file.rs")     ; => "rs"
 (path/extension "Makefile")    ; => ""
 ```
@@ -285,7 +285,7 @@ Return the file extension (without the dot).
 
 Return the absolute path.
 
-```scheme
+```sema
 (path/absolute ".")   ; => "/full/path/to/current/dir"
 ```
 
@@ -293,7 +293,7 @@ Return the absolute path.
 
 Return the file extension (without the dot).
 
-```scheme
+```sema
 (path/ext "file.rs")     ; => "rs"
 (path/ext "Makefile")    ; => ""
 ```
@@ -302,7 +302,7 @@ Return the file extension (without the dot).
 
 Return the filename without extension.
 
-```scheme
+```sema
 (path/stem "file.rs")      ; => "file"
 (path/stem "archive.tar.gz")  ; => "archive.tar"
 ```
@@ -311,7 +311,7 @@ Return the filename without extension.
 
 Return the directory portion of a path.
 
-```scheme
+```sema
 (path/dir "/a/b/c.txt")   ; => "/a/b"
 ```
 
@@ -319,7 +319,7 @@ Return the directory portion of a path.
 
 Return the filename portion of a path.
 
-```scheme
+```sema
 (path/filename "/a/b/c.txt")   ; => "c.txt"
 ```
 
@@ -327,7 +327,7 @@ Return the filename portion of a path.
 
 Test if a path is absolute.
 
-```scheme
+```sema
 (path/absolute? "/usr/bin")   ; => #t
 (path/absolute? "relative")  ; => #f
 ```

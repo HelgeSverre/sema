@@ -12,7 +12,7 @@ Sema supports `defmacro`-style macros with quasiquoting, unquoting, and splicing
 
 Define a macro that transforms code at expansion time.
 
-```scheme
+```sema
 (defmacro unless2 (test . body)
   `(if ,test nil (begin ,@body)))
 
@@ -23,7 +23,7 @@ Define a macro that transforms code at expansion time.
 
 Inspect the expansion of a macro call without evaluating it.
 
-```scheme
+```sema
 (macroexpand '(unless2 #f (println "x")))
 ```
 
@@ -31,7 +31,7 @@ Inspect the expansion of a macro call without evaluating it.
 
 Generate a unique symbol for hygienic-ish macro writing.
 
-```scheme
+```sema
 (gensym "tmp")   ; => tmp_42 (unique each call)
 ```
 
@@ -50,7 +50,7 @@ See [Special Forms](./special-forms.html) for full documentation.
 
 Evaluate data as code.
 
-```scheme
+```sema
 (eval '(+ 1 2))   ; => 3
 ```
 
@@ -58,7 +58,7 @@ Evaluate data as code.
 
 Parse a string into a Sema value.
 
-```scheme
+```sema
 (read "(+ 1 2)")   ; => (+ 1 2) as a list value
 ```
 
@@ -66,7 +66,7 @@ Parse a string into a Sema value.
 
 Parse a string containing multiple forms.
 
-```scheme
+```sema
 (read-many "(+ 1 2) (* 3 4)")   ; => ((+ 1 2) (* 3 4))
 ```
 
@@ -74,7 +74,7 @@ Parse a string containing multiple forms.
 
 Return the type of a value as a string.
 
-```scheme
+```sema
 (type 42)              ; => "integer"
 (type "hi")            ; => "string"
 (type :foo)            ; => "keyword"
@@ -82,7 +82,7 @@ Return the type of a value as a string.
 
 ### Type Conversion Functions
 
-```scheme
+```sema
 (string->symbol "foo")       ; => foo
 (keyword->string :bar)       ; => "bar"
 (string->keyword "name")     ; => :name
@@ -95,7 +95,7 @@ Return the type of a value as a string.
 
 Define a module with explicit exports.
 
-```scheme
+```sema
 ;; math-utils.sema
 (module math-utils
   (export square cube)
@@ -108,7 +108,7 @@ Define a module with explicit exports.
 
 Import a module from a file. Only exported bindings become available.
 
-```scheme
+```sema
 ;; main.sema
 (import "math-utils.sema")
 (square 5)   ; => 25

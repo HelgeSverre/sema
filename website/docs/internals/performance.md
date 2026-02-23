@@ -37,7 +37,7 @@ match Rc::try_unwrap(m) {
 
 The key insight is pairing this with `Env::take()` — by _removing_ the accumulator from the environment before passing it to `assoc`, the refcount drops to 1, enabling the in-place path. User code looks like:
 
-```scheme
+```sema
 (file/fold-lines "data.csv"
   (lambda (acc line)
     (let ((parts (string/split line ";")))
@@ -161,7 +161,7 @@ if head_spur == sf.if_ {
 
 **Solution:** Added a `Value::HashMap` variant backed by [hashbrown](https://crates.io/crates/hashbrown) (the same hash map used inside Rust's `std::collections::HashMap`, but exposed directly for `no_std` compatibility and raw API access).
 
-```scheme
+```sema
 ;; User code: opt into HashMap for the accumulator
 (file/fold-lines "data.csv"
   (lambda (acc line) ...)

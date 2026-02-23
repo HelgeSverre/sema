@@ -10,7 +10,7 @@ outline: [2, 3]
 
 Wraps a thunk with a fallback chain of providers. If the LLM call fails with one provider, automatically tries the next provider in the list.
 
-```scheme
+```sema
 (llm/with-fallback [:anthropic :openai :groq]
   (lambda () (llm/complete "Hello")))
 ```
@@ -21,7 +21,7 @@ Wraps a thunk with a fallback chain of providers. If the LLM call fails with one
 
 Wraps a thunk with token-bucket rate limiting. Takes a rate (requests per second) and a thunk. Useful to avoid hitting API rate limits.
 
-```scheme
+```sema
 (llm/with-rate-limit 5 (lambda () (llm/complete "Hello")))
 ```
 
@@ -31,7 +31,7 @@ Wraps a thunk with token-bucket rate limiting. Takes a rate (requests per second
 
 Retries a thunk on failure with exponential backoff. Takes a thunk and an optional options map.
 
-```scheme
+```sema
 ;; Default: 3 attempts, 100ms base delay, 2.0 backoff
 (retry (lambda () (http/get "https://example.com")))
 
@@ -56,7 +56,7 @@ Options:
 
 Summarize text using an LLM. Takes text and an optional options map.
 
-```scheme
+```sema
 (llm/summarize "Long article text here...")
 (llm/summarize "Long text" {:model "claude-haiku-4-5-20251001" :max-tokens 200})
 ```
@@ -65,7 +65,7 @@ Summarize text using an LLM. Takes text and an optional options map.
 
 Compare two texts using an LLM. Takes two strings and an optional options map.
 
-```scheme
+```sema
 (llm/compare "Text A" "Text B")
 (llm/compare "Text A" "Text B" {:model "claude-haiku-4-5-20251001"})
 ```

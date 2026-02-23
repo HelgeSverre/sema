@@ -12,7 +12,7 @@ Sema includes an in-memory vector store for semantic search over embeddings. Cre
 
 Create a named in-memory vector store. Returns the store name.
 
-```scheme
+```sema
 (vector-store/create "my-store")
 ```
 
@@ -20,7 +20,7 @@ Create a named in-memory vector store. Returns the store name.
 
 Open a named store backed by a file. If the file exists, its contents are loaded; otherwise an empty store is created. The path is remembered for subsequent `vector-store/save` calls.
 
-```scheme
+```sema
 (vector-store/open "my-store" "embeddings.json")
 ```
 
@@ -28,7 +28,7 @@ Open a named store backed by a file. If the file exists, its contents are loaded
 
 Add a document with an ID, embedding (bytevector), and metadata map.
 
-```scheme
+```sema
 (vector-store/add "my-store" "doc-1"
   (llm/embed "Hello world")
   {:source "greeting.txt" :page 1})
@@ -40,7 +40,7 @@ If a document with the same ID exists, it is replaced.
 
 Search by cosine similarity. Takes store name, query embedding, and k (number of results). Returns a list of maps with `:id`, `:score`, and `:metadata`.
 
-```scheme
+```sema
 (vector-store/search "my-store" (llm/embed "Hi there") 5)
 ;; => ({:id "doc-1" :score 0.92 :metadata {:source "greeting.txt" :page 1}} ...)
 ```
@@ -49,7 +49,7 @@ Search by cosine similarity. Takes store name, query embedding, and k (number of
 
 Delete a document by ID. Returns `#t` if found, `#f` otherwise.
 
-```scheme
+```sema
 (vector-store/delete "my-store" "doc-1")  ; => #t
 ```
 
@@ -57,7 +57,7 @@ Delete a document by ID. Returns `#t` if found, `#f` otherwise.
 
 Return the number of documents in a store.
 
-```scheme
+```sema
 (vector-store/count "my-store")  ; => 42
 ```
 
@@ -65,7 +65,7 @@ Return the number of documents in a store.
 
 Save a store to disk as JSON. If the store was opened with `vector-store/open`, the path is used automatically. Otherwise, pass a path explicitly.
 
-```scheme
+```sema
 ;; Explicit path
 (vector-store/save "my-store" "embeddings.json")
 
@@ -83,7 +83,7 @@ These functions operate on embedding bytevectors (packed f64 arrays in little-en
 
 Cosine similarity between two embedding vectors. Returns a float between -1.0 and 1.0.
 
-```scheme
+```sema
 (vector/cosine-similarity
   (embedding/list->embedding '(1.0 0.0))
   (embedding/list->embedding '(0.0 1.0)))
@@ -94,7 +94,7 @@ Cosine similarity between two embedding vectors. Returns a float between -1.0 an
 
 Dot product of two embedding vectors.
 
-```scheme
+```sema
 (vector/dot-product
   (embedding/list->embedding '(1.0 2.0 3.0))
   (embedding/list->embedding '(4.0 5.0 6.0)))
@@ -105,7 +105,7 @@ Dot product of two embedding vectors.
 
 Return a unit-length copy of the vector.
 
-```scheme
+```sema
 (vector/normalize (embedding/list->embedding '(3.0 4.0)))
 ;; => embedding with values (0.6 0.8)
 ```
@@ -114,7 +114,7 @@ Return a unit-length copy of the vector.
 
 Euclidean distance between two embedding vectors.
 
-```scheme
+```sema
 (vector/distance
   (embedding/list->embedding '(0.0 0.0))
   (embedding/list->embedding '(3.0 4.0)))
@@ -125,7 +125,7 @@ Euclidean distance between two embedding vectors.
 
 A RAG-style workflow: embed documents, store them, search semantically, and persist to disk.
 
-```scheme
+```sema
 ;; Open a persistent store (creates file if it doesn't exist)
 (vector-store/open "docs" "my-docs.json")
 

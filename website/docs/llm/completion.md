@@ -10,14 +10,14 @@ outline: [2, 3]
 
 Send a single prompt string and get a completion back.
 
-```scheme
+```sema
 ;; Simple completion
 (llm/complete "Say hello in 5 words" {:max-tokens 50})
 ```
 
 With options:
 
-```scheme
+```sema
 (llm/complete "Explain monads"
   {:model "claude-haiku-4-5-20251001"
    :max-tokens 200
@@ -29,13 +29,13 @@ With options:
 
 Stream a completion, printing chunks as they arrive.
 
-```scheme
+```sema
 (llm/stream "Tell me a story" {:max-tokens 200})
 ```
 
 With a callback function:
 
-```scheme
+```sema
 (llm/stream "Tell me a story"
   (fn (chunk) (display chunk))
   {:max-tokens 200})
@@ -47,7 +47,7 @@ With a callback function:
 
 Send a list of messages and get a response. Supports system, user, and assistant messages.
 
-```scheme
+```sema
 (llm/chat
   [(message :system "You are a helpful assistant.")
    (message :user "What is Lisp? One sentence.")]
@@ -58,7 +58,7 @@ Send a list of messages and get a response. Supports system, user, and assistant
 
 Send messages that include images alongside text using `message/with-image`.
 
-```scheme
+```sema
 ;; Load an image and ask the LLM about it
 (define img (file/read-bytes "photo.jpg"))
 (define msg (message/with-image :user "Describe this image." img))
@@ -67,7 +67,7 @@ Send messages that include images alongside text using `message/with-image`.
 
 Combine with regular messages:
 
-```scheme
+```sema
 (llm/chat
   [(message :system "You are an image analyst.")
    (message/with-image :user "What text is in this image?" (file/read-bytes "doc.png"))])
@@ -79,7 +79,7 @@ The image must be a bytevector. Media type (PNG, JPEG, GIF, WebP, PDF) is detect
 
 Send a prompt value (composed from `prompt` expressions) to the LLM.
 
-```scheme
+```sema
 (define review-prompt
   (prompt
     (system "You are a code reviewer. Be concise.")

@@ -1,4 +1,6 @@
 import { defineConfig } from 'vitepress'
+// Canonical source: editors/vscode/sema/syntaxes/sema.tmLanguage.json
+import semaLang from './sema.tmLanguage.json'
 
 export default defineConfig({
   title: 'Sema',
@@ -134,4 +136,8 @@ export default defineConfig({
   },
 
   srcExclude: ['**/node_modules/**'],
+
+  markdown: {
+    languages: [semaLang as any],
+  },
 })

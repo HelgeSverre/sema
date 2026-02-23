@@ -12,7 +12,7 @@ Sema auto-detects and configures all available providers from environment variab
 
 Manually trigger auto-configuration (runs automatically on startup unless `--no-llm` is used).
 
-```scheme
+```sema
 (llm/auto-configure)
 ```
 
@@ -22,7 +22,7 @@ Manually trigger auto-configuration (runs automatically on startup unless `--no-
 
 Manually configure a known provider with specific options.
 
-```scheme
+```sema
 (llm/configure :anthropic {:api-key "sk-..."})
 
 ;; Ollama with custom host
@@ -34,7 +34,7 @@ Manually configure a known provider with specific options.
 
 Any provider with an OpenAI-compatible API can be registered by passing `:api-key` and `:base-url` with any provider name. No Rust code required.
 
-```scheme
+```sema
 ;; Together AI
 (llm/configure :together
   {:api-key (env "TOGETHER_API_KEY")
@@ -65,7 +65,7 @@ For full control over request/response handling, you can define providers entire
 
 ### `llm/define-provider`
 
-```scheme
+```sema
 (llm/define-provider :name {:complete fn :default-model "..."})
 ```
 
@@ -112,7 +112,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
 
 **Echo provider** — returns the user's message back:
 
-```scheme
+```sema
 (llm/define-provider :echo
   {:complete (fn (req)
     (string-append "Echo: " (:content (last (:messages req)))))
@@ -123,7 +123,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
 
 **HTTP proxy** — forward to a custom API:
 
-```scheme
+```sema
 (llm/define-provider :my-api
   {:complete (fn (req)
     (define resp (json/decode
@@ -140,7 +140,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
 
 **Mock provider for testing** — deterministic responses without API calls:
 
-```scheme
+```sema
 (define responses (list "First response" "Second response" "Third response"))
 (define call-count (atom 0))
 
@@ -158,7 +158,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
 
 **Routing provider** — dispatch to different backends by model name:
 
-```scheme
+```sema
 (llm/configure :anthropic {:api-key (env "ANTHROPIC_API_KEY")})
 (llm/configure :openai {:api-key (env "OPENAI_API_KEY")})
 
@@ -180,7 +180,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
 
 Lisp-defined providers integrate with the standard provider management functions:
 
-```scheme
+```sema
 (llm/define-provider :mock
   {:complete (fn (req) "mock response") :default-model "m1"})
 
@@ -199,7 +199,7 @@ Lisp-defined providers integrate with the standard provider management functions
 
 List all configured providers.
 
-```scheme
+```sema
 (llm/list-providers)   ; => (:anthropic :gemini :openai ...)
 (llm/providers)        ; => same (alias)
 ```
@@ -208,7 +208,7 @@ List all configured providers.
 
 Get the currently active provider and model.
 
-```scheme
+```sema
 (llm/current-provider)   ; => {:name :anthropic :model "claude-sonnet-4-20250514"}
 (llm/default-provider)   ; => same (alias)
 ```
@@ -217,7 +217,7 @@ Get the currently active provider and model.
 
 Switch the active provider at runtime.
 
-```scheme
+```sema
 (llm/set-default :openai)
 ```
 

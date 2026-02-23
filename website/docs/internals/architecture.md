@@ -169,7 +169,7 @@ String interning is as old as Lisp itself. McCarthy's original LISP 1.5 (1962) i
 
 `Prompt`, `Message`, `Conversation`, `ToolDef`, and `Agent` sit in the `Value` enum at the same level as `List` and `Map`. They're not encoded as maps-with-conventions — they're distinct types with their own constructors, pattern matching, and display representations:
 
-```scheme
+```sema
 ;; These are values, not strings or maps
 (define msg (message :user "Hello"))    ; => <message user "Hello">
 (define p (prompt msg))                 ; => <prompt 1 messages>
@@ -375,7 +375,7 @@ Embedding providers (Jina, Voyage, Cohere) are registered separately and selecte
 
 Every completion records token usage in `SESSION_USAGE` and computes dollar cost via a built-in pricing table (`pricing.rs`). The `llm/with-budget` function sets a scoped spending cap:
 
-```scheme
+```sema
 (llm/with-budget {:max-cost-usd 0.50 :max-tokens 10000} (lambda ()
   (llm/complete "Summarize this document...")))
 ;; Raises an error if cumulative cost exceeds $0.50 or 10000 tokens

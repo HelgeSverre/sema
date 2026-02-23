@@ -10,7 +10,7 @@ outline: [2, 3]
 
 Get token usage from the most recent LLM call.
 
-```scheme
+```sema
 (llm/last-usage)   ; => {:prompt-tokens 42 :completion-tokens 15 ...}
 ```
 
@@ -18,7 +18,7 @@ Get token usage from the most recent LLM call.
 
 Get cumulative usage across all LLM calls in the current session.
 
-```scheme
+```sema
 (llm/session-usage)
 ```
 
@@ -26,7 +26,7 @@ Get cumulative usage across all LLM calls in the current session.
 
 Reset session usage counters.
 
-```scheme
+```sema
 (llm/reset-usage)
 ```
 
@@ -45,7 +45,7 @@ Dynamic pricing is fetched with a short timeout (2s) and failures are silently i
 
 Check which pricing source is active and when it was last updated.
 
-```scheme
+```sema
 (llm/pricing-status)
 ; => {:source fetched :updated-at "2025-10-10"}
 ; or {:source hardcoded} if no dynamic pricing is available
@@ -59,7 +59,7 @@ Check which pricing source is active and when it was last updated.
 
 Set a spending limit (in dollars) for the session. LLM calls that would exceed the budget will fail.
 
-```scheme
+```sema
 (llm/set-budget 1.00)   ; set $1.00 spending limit
 ```
 
@@ -67,7 +67,7 @@ Set a spending limit (in dollars) for the session. LLM calls that would exceed t
 
 Check current budget status.
 
-```scheme
+```sema
 (llm/budget-remaining)   ; => {:limit 1.0 :spent 0.05 :remaining 0.95}
 ```
 
@@ -75,7 +75,7 @@ Check current budget status.
 
 Scoped budget — sets spending limits for the duration of a thunk, then restores the previous budget when done. At least one of `:max-cost-usd` or `:max-tokens` is required. When both are provided, **whichever limit is hit first** triggers the error.
 
-```scheme
+```sema
 ;; Cost-based budget
 (llm/with-budget {:max-cost-usd 0.50} (lambda ()
   (llm/complete "Expensive operation")))
@@ -96,7 +96,7 @@ When a token budget is active, `llm/budget-remaining` includes `:token-limit`, `
 
 Remove the spending limit.
 
-```scheme
+```sema
 (llm/clear-budget)
 ```
 
@@ -104,7 +104,7 @@ Remove the spending limit.
 
 Set custom pricing for a model (overrides both dynamic and built-in pricing). Costs are per million tokens.
 
-```scheme
+```sema
 (llm/set-pricing "my-model" 1.0 3.0)   ; $1.00/M input, $3.00/M output
 ```
 
@@ -114,7 +114,7 @@ Set custom pricing for a model (overrides both dynamic and built-in pricing). Co
 
 Send multiple prompts concurrently and collect all results.
 
-```scheme
+```sema
 (llm/batch ["Translate 'hello' to French"
             "Translate 'hello' to Spanish"
             "Translate 'hello' to German"])
@@ -124,7 +124,7 @@ Send multiple prompts concurrently and collect all results.
 
 Map a function over items, sending all resulting prompts in parallel.
 
-```scheme
+```sema
 (llm/pmap
   (fn (word) (format "Define: ~a" word))
   '("serendipity" "ephemeral" "ubiquitous")

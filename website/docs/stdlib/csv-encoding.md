@@ -10,7 +10,7 @@ outline: [2, 3]
 
 Parse a CSV string into a list of lists (rows of fields).
 
-```scheme
+```sema
 (csv/parse "a,b\n1,2\n3,4")
 ; => (("a" "b") ("1" "2") ("3" "4"))
 ```
@@ -19,7 +19,7 @@ Parse a CSV string into a list of lists (rows of fields).
 
 Parse a CSV string into a list of maps, using the first row as keys.
 
-```scheme
+```sema
 (csv/parse-maps "name,age\nAda,36\nBob,25")
 ; => ({:age "36" :name "Ada"} {:age "25" :name "Bob"})
 ```
@@ -28,7 +28,7 @@ Parse a CSV string into a list of maps, using the first row as keys.
 
 Encode a list of lists into a CSV string.
 
-```scheme
+```sema
 (csv/encode '(("a" "b") ("1" "2")))
 ; => "a,b\n1,2\n"
 ```
@@ -39,7 +39,7 @@ Encode a list of lists into a CSV string.
 
 Generate a random UUID v4 string.
 
-```scheme
+```sema
 (uuid/v4)   ; => "550e8400-e29b-41d4-a716-446655440000" (varies)
 ```
 
@@ -49,7 +49,7 @@ Generate a random UUID v4 string.
 
 Encode a string to Base64.
 
-```scheme
+```sema
 (base64/encode "hello")   ; => "aGVsbG8="
 (base64/encode "")        ; => ""
 ```
@@ -58,7 +58,7 @@ Encode a string to Base64.
 
 Decode a Base64 string.
 
-```scheme
+```sema
 (base64/decode "aGVsbG8=")   ; => "hello"
 ```
 
@@ -66,7 +66,7 @@ Decode a Base64 string.
 
 Encode a bytevector to Base64.
 
-```scheme
+```sema
 (base64/encode-bytes (file/read-bytes "image.png"))   ; => "iVBORw0KGgo..."
 ```
 
@@ -74,7 +74,7 @@ Encode a bytevector to Base64.
 
 Decode a Base64 string to a bytevector.
 
-```scheme
+```sema
 (base64/decode-bytes "aGVsbG8=")   ; => #u8(104 101 108 108 111)
 ```
 
@@ -84,7 +84,7 @@ Decode a Base64 string to a bytevector.
 
 Compute the SHA-256 hash of a string. Returns a hex-encoded string.
 
-```scheme
+```sema
 (hash/sha256 "hello")   ; => "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
 ```
 
@@ -92,7 +92,7 @@ Compute the SHA-256 hash of a string. Returns a hex-encoded string.
 
 Compute the MD5 hash of a string. Returns a hex-encoded string.
 
-```scheme
+```sema
 (hash/md5 "hello")   ; => "5d41402abc4b2a76b9719d911017c592"
 ```
 
@@ -100,6 +100,6 @@ Compute the MD5 hash of a string. Returns a hex-encoded string.
 
 Compute an HMAC-SHA256 of a message with a secret key. Returns a hex-encoded string.
 
-```scheme
+```sema
 (hash/hmac-sha256 "secret-key" "message")   ; => "hex-encoded-hmac..."
 ```

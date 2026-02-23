@@ -10,14 +10,14 @@ Sema provides two map types: sorted **maps** (BTreeMap-backed, deterministic ord
 
 Maps use curly-brace literal syntax with keyword keys:
 
-```scheme
+```sema
 {:name "Ada" :age 36}   ; map literal
 {:a 1 :b 2 :c 3}       ; keywords as keys
 ```
 
 Keywords are callable — when used as a function, they look up their value in a map:
 
-```scheme
+```sema
 (:name {:name "Ada" :age 36})   ; => "Ada"
 ```
 
@@ -25,7 +25,7 @@ Keywords are callable — when used as a function, they look up their value in a
 
 Create a map from key-value pairs.
 
-```scheme
+```sema
 (hash-map :a 1 :b 2)   ; => {:a 1 :b 2}
 ```
 
@@ -33,7 +33,7 @@ Create a map from key-value pairs.
 
 Look up a value by key. Works on both maps and hashmaps.
 
-```scheme
+```sema
 (get {:a 1 :b 2} :a)   ; => 1
 (get {:a 1 :b 2} :z)   ; => nil
 ```
@@ -42,7 +42,7 @@ Look up a value by key. Works on both maps and hashmaps.
 
 Add or update a key-value pair, returning a new map.
 
-```scheme
+```sema
 (assoc {:a 1} :b 2)     ; => {:a 1 :b 2}
 (assoc {:a 1} :a 99)    ; => {:a 99}
 ```
@@ -51,7 +51,7 @@ Add or update a key-value pair, returning a new map.
 
 Remove a key, returning a new map. Works on both maps and hashmaps.
 
-```scheme
+```sema
 (dissoc {:a 1 :b 2} :a)                     ; => {:b 2}
 (dissoc (hashmap/new :a 1 :b 2) :a)         ; hashmap without :a
 ```
@@ -60,7 +60,7 @@ Remove a key, returning a new map. Works on both maps and hashmaps.
 
 Merge multiple maps together. Later maps override earlier ones. Works on both maps and hashmaps — the result type matches the first argument.
 
-```scheme
+```sema
 (merge {:a 1} {:b 2} {:c 3})   ; => {:a 1 :b 2 :c 3}
 (merge {:a 1} {:a 99})         ; => {:a 99}
 (merge (hashmap/new :a 1) {:b 2})  ; hashmap with :a and :b
@@ -70,7 +70,7 @@ Merge multiple maps together. Later maps override earlier ones. Works on both ma
 
 Return the keys of a map as a list.
 
-```scheme
+```sema
 (keys {:a 1 :b 2})   ; => (:a :b)
 ```
 
@@ -78,7 +78,7 @@ Return the keys of a map as a list.
 
 Return the values of a map as a list.
 
-```scheme
+```sema
 (vals {:a 1 :b 2})   ; => (1 2)
 ```
 
@@ -86,7 +86,7 @@ Return the values of a map as a list.
 
 Test if a map contains a key.
 
-```scheme
+```sema
 (contains? {:a 1} :a)   ; => #t
 (contains? {:a 1} :b)   ; => #f
 ```
@@ -95,7 +95,7 @@ Test if a map contains a key.
 
 Return the number of key-value pairs.
 
-```scheme
+```sema
 (count {:a 1 :b 2})   ; => 2
 ```
 
@@ -103,7 +103,7 @@ Return the number of key-value pairs.
 
 Return the entries as a list of key-value pairs.
 
-```scheme
+```sema
 (map/entries {:a 1 :b 2})   ; => ((:a 1) (:b 2))
 ```
 
@@ -111,7 +111,7 @@ Return the entries as a list of key-value pairs.
 
 Create a map from a list of key-value pairs.
 
-```scheme
+```sema
 (map/from-entries '((:a 1) (:b 2)))   ; => {:a 1 :b 2}
 ```
 
@@ -121,7 +121,7 @@ Create a map from a list of key-value pairs.
 
 Apply a function to every value in a map.
 
-```scheme
+```sema
 (map/map-vals (fn (v) (* v 2)) {:a 1 :b 2})   ; => {:a 2 :b 4}
 ```
 
@@ -129,7 +129,7 @@ Apply a function to every value in a map.
 
 Apply a function to every key in a map.
 
-```scheme
+```sema
 (map/map-keys
   (fn (k) (string->keyword (string/upper (keyword->string k))))
   {:a 1})
@@ -140,7 +140,7 @@ Apply a function to every key in a map.
 
 Filter entries by a predicate that takes key and value.
 
-```scheme
+```sema
 (map/filter (fn (k v) (> v 1)) {:a 1 :b 2 :c 3})   ; => {:b 2 :c 3}
 ```
 
@@ -148,7 +148,7 @@ Filter entries by a predicate that takes key and value.
 
 Select only the given keys from a map.
 
-```scheme
+```sema
 (map/select-keys {:a 1 :b 2 :c 3} '(:a :c))   ; => {:a 1 :c 3}
 ```
 
@@ -156,7 +156,7 @@ Select only the given keys from a map.
 
 Update a value at a key by applying a function.
 
-```scheme
+```sema
 (map/update {:a 1} :a (fn (v) (+ v 10)))   ; => {:a 11}
 ```
 
@@ -168,7 +168,7 @@ For performance-critical workloads with many keys, use `hashmap` for O(1) lookup
 
 Create a new hashmap from key-value pairs.
 
-```scheme
+```sema
 (hashmap/new :a 1 :b 2 :c 3)   ; create a hashmap
 (hashmap/new)                    ; empty hashmap
 ```
@@ -177,7 +177,7 @@ Create a new hashmap from key-value pairs.
 
 Look up a value in a hashmap.
 
-```scheme
+```sema
 (hashmap/get (hashmap/new :a 1) :a)   ; => 1
 ```
 
@@ -185,7 +185,7 @@ Look up a value in a hashmap.
 
 Add a key-value pair to a hashmap.
 
-```scheme
+```sema
 (hashmap/assoc (hashmap/new) :a 1)   ; hashmap with :a 1
 ```
 
@@ -193,7 +193,7 @@ Add a key-value pair to a hashmap.
 
 Convert a hashmap to a sorted map.
 
-```scheme
+```sema
 (hashmap/to-map (hashmap/new :b 2 :a 1))   ; => {:a 1 :b 2}
 ```
 
@@ -201,7 +201,7 @@ Convert a hashmap to a sorted map.
 
 Return the keys of a hashmap (unordered).
 
-```scheme
+```sema
 (hashmap/keys (hashmap/new :a 1 :b 2))   ; => (:a :b)
 ```
 
@@ -209,7 +209,7 @@ Return the keys of a hashmap (unordered).
 
 Test if a hashmap contains a key.
 
-```scheme
+```sema
 (hashmap/contains? (hashmap/new :a 1) :a)   ; => #t
 ```
 
@@ -217,7 +217,7 @@ Test if a hashmap contains a key.
 
 The generic functions `get`, `assoc`, `dissoc`, `keys`, `vals`, `merge`, `count`, `contains?`, and all `map/*` higher-order operations also work on hashmaps, preserving the hashmap type:
 
-```scheme
+```sema
 (get (hashmap/new :a 1 :b 2) :a)       ; => 1
 (assoc (hashmap/new) :x 42)            ; hashmap with :x 42
 (dissoc (hashmap/new :a 1 :b 2) :a)    ; hashmap without :a
@@ -231,7 +231,7 @@ The generic functions `get`, `assoc`, `dissoc`, `keys`, `vals`, `merge`, `count`
 
 Sort a map by its keys. Converts hashmaps to sorted maps.
 
-```scheme
+```sema
 (map/sort-keys (hashmap/new :c 3 :a 1 :b 2))   ; => {:a 1 :b 2 :c 3}
 ```
 
@@ -239,7 +239,7 @@ Sort a map by its keys. Converts hashmaps to sorted maps.
 
 Remove specified keys from a map (inverse of `map/select-keys`).
 
-```scheme
+```sema
 (map/except {:a 1 :b 2 :c 3} '(:b))       ; => {:a 1 :c 3}
 (map/except {:a 1 :b 2 :c 3} '(:a :c))    ; => {:b 2}
 ```
@@ -248,7 +248,7 @@ Remove specified keys from a map (inverse of `map/select-keys`).
 
 Create a map from a list of keys and a list of values.
 
-```scheme
+```sema
 (map/zip '(:a :b :c) '(1 2 3))   ; => {:a 1 :b 2 :c 3}
 ```
 
@@ -258,7 +258,7 @@ Create a map from a list of keys and a list of values.
 
 Access a value at a nested key path. Returns `nil` (or a default) if any key is missing.
 
-```scheme
+```sema
 (get-in {:a {:b {:c 42}}} [:a :b :c])           ; => 42
 (get-in {:a {:b 1}} [:a :c])                     ; => nil
 (get-in {:a {:b 1}} [:a :c] "default")           ; => "default"
@@ -268,7 +268,7 @@ Access a value at a nested key path. Returns `nil` (or a default) if any key is 
 
 Set a value at a nested key path. Creates intermediate maps if they don't exist.
 
-```scheme
+```sema
 (assoc-in {:a {:b 1}} [:a :b] 42)                ; => {:a {:b 42}}
 (assoc-in {} [:a :b :c] 99)                      ; => {:a {:b {:c 99}}}
 ```
@@ -277,7 +277,7 @@ Set a value at a nested key path. Creates intermediate maps if they don't exist.
 
 Update a value at a nested key path by applying a function.
 
-```scheme
+```sema
 (update-in {:a {:b 10}} [:a :b] #(+ % 1))       ; => {:a {:b 11}}
 ```
 
@@ -285,7 +285,7 @@ Update a value at a nested key path by applying a function.
 
 Recursively merge maps. Nested maps are merged rather than replaced. Non-map values in the overlay override the base.
 
-```scheme
+```sema
 (deep-merge {:a {:b 1 :c 2}} {:a {:b 99}})      ; => {:a {:b 99 :c 2}}
 (deep-merge {:a {:b 1}} {:a 42})                 ; => {:a 42}
 (deep-merge {:a 1} {:b 2} {:c 3})               ; => {:a 1 :b 2 :c 3}

@@ -12,7 +12,7 @@ Sema includes utilities for text chunking, cleaning, prompt templates, and struc
 
 Recursively split text into chunks, trying natural boundaries (paragraphs, sentences, words) before hard-splitting. Takes text and an optional options map.
 
-```scheme
+```sema
 (text/chunk "Long text here...")
 (text/chunk "Long text here..." {:size 500 :overlap 100})
 ```
@@ -23,7 +23,7 @@ Options: `:size` (default 1000), `:overlap` (default 200). Returns a list of str
 
 Split text by a specific separator string.
 
-```scheme
+```sema
 (text/chunk-by-separator "a\nb\nc" "\n")  ; => ("a" "b" "c")
 ```
 
@@ -31,7 +31,7 @@ Split text by a specific separator string.
 
 Split text into sentences at `.`, `!`, `?` boundaries.
 
-```scheme
+```sema
 (text/split-sentences "Hello world. How are you? Fine.")
 ; => ("Hello world." "How are you?" "Fine.")
 ```
@@ -42,7 +42,7 @@ Split text into sentences at `.`, `!`, `?` boundaries.
 
 Collapse multiple whitespace characters (spaces, newlines, tabs) into single spaces.
 
-```scheme
+```sema
 (text/clean-whitespace "  hello   world  \n\n  foo  ")
 ; => "hello world foo"
 ```
@@ -51,7 +51,7 @@ Collapse multiple whitespace characters (spaces, newlines, tabs) into single spa
 
 Remove HTML tags and decode common entities (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#39;`, `&apos;`, `&nbsp;`).
 
-```scheme
+```sema
 (text/strip-html "<p>Hello <b>world</b></p>")  ; => "Hello world"
 (text/strip-html "a &amp; b &lt; c")            ; => "a & b < c"
 ```
@@ -60,7 +60,7 @@ Remove HTML tags and decode common entities (`&amp;`, `&lt;`, `&gt;`, `&quot;`, 
 
 Truncate text to a maximum length with a suffix. Takes text, max-length, and optional suffix (default `"..."`).
 
-```scheme
+```sema
 (text/truncate "hello world" 5)       ; => "he..."
 (text/truncate "hello world" 8 "…")   ; => "hello w…"
 (text/truncate "hi" 10)               ; => "hi"
@@ -70,7 +70,7 @@ Truncate text to a maximum length with a suffix. Takes text, max-length, and opt
 
 Count words in text (split by whitespace).
 
-```scheme
+```sema
 (text/word-count "hello world foo bar")  ; => 4
 ```
 
@@ -78,7 +78,7 @@ Count words in text (split by whitespace).
 
 Remove common leading indentation from all lines.
 
-```scheme
+```sema
 (text/trim-indent "    hello\n    world")   ; => "hello\nworld"
 (text/trim-indent "    hello\n      world") ; => "hello\n  world"
 ```
@@ -87,7 +87,7 @@ Remove common leading indentation from all lines.
 
 Extract a snippet around a search term with omission markers. Case-insensitive search. Returns `nil` if query not found.
 
-```scheme
+```sema
 (text/excerpt "The quick brown fox jumps over the lazy dog" "fox" {:radius 10})
 ; => "...brown fox jumps ov..."
 
@@ -108,7 +108,7 @@ Options map (optional third argument):
 
 Convert `\r\n` (Windows) and `\r` (old Mac) line endings to `\n` (Unix).
 
-```scheme
+```sema
 (text/normalize-newlines "line1\r\nline2\rline3")
 ; => "line1\nline2\nline3"
 ```
@@ -119,7 +119,7 @@ Convert `\r\n` (Windows) and `\r` (old Mac) line endings to `\n` (Unix).
 
 Create a template string for use with `prompt/render`.
 
-```scheme
+```sema
 (define tmpl (prompt/template "Hello {{name}}, welcome to {{place}}."))
 ```
 
@@ -127,7 +127,7 @@ Create a template string for use with `prompt/render`.
 
 Render a template by substituting `{{key}}` placeholders with values from a map. Missing keys are left as-is.
 
-```scheme
+```sema
 (prompt/render "Hello {{name}}, welcome to {{place}}."
   {:name "Alice" :place "Wonderland"})
 ; => "Hello Alice, welcome to Wonderland."
@@ -148,7 +148,7 @@ Structured documents with metadata, designed for use with chunking and vector st
 
 Create a document map with `:text` and `:metadata`.
 
-```scheme
+```sema
 (document/create "Hello world" {:source "test.txt" :page 1})
 ; => {:metadata {:page 1 :source "test.txt"} :text "Hello world"}
 ```
@@ -157,7 +157,7 @@ Create a document map with `:text` and `:metadata`.
 
 Extract the text from a document.
 
-```scheme
+```sema
 (document/text doc)  ; => "Hello world"
 ```
 
@@ -165,7 +165,7 @@ Extract the text from a document.
 
 Extract the metadata from a document.
 
-```scheme
+```sema
 (document/metadata doc)  ; => {:source "test.txt" :page 1}
 ```
 
@@ -173,7 +173,7 @@ Extract the metadata from a document.
 
 Chunk a document, preserving and extending metadata. Each chunk gets `:chunk-index` and `:total-chunks` added to its metadata.
 
-```scheme
+```sema
 (document/chunk
   (document/create "long text..." {:source "paper.pdf"})
   {:size 500})

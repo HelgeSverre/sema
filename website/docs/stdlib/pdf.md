@@ -16,7 +16,7 @@ These functions use the `pdf-extract` and `lopdf` Rust crates internally. They w
 
 Extract all text from a PDF file, concatenated across all pages.
 
-```scheme
+```sema
 (pdf/extract-text "invoice.pdf")
 ; => "Invoice\nDate: 2025-01-15\nAmount: $50.00 USD\n..."
 
@@ -29,7 +29,7 @@ Extract all text from a PDF file, concatenated across all pages.
 
 Extract text from a PDF, returning a list of strings — one per page.
 
-```scheme
+```sema
 (pdf/extract-text-pages "report.pdf")
 ; => ("Page 1 content..." "Page 2 content..." "Page 3 content...")
 
@@ -50,7 +50,7 @@ Extract text from a PDF, returning a list of strings — one per page.
 
 Return the number of pages in a PDF.
 
-```scheme
+```sema
 (pdf/page-count "report.pdf")
 ; => 12
 ```
@@ -59,7 +59,7 @@ Return the number of pages in a PDF.
 
 Return a map of PDF metadata fields. Always includes `:pages`; other fields (`:title`, `:author`, `:subject`, `:creator`, `:producer`) are included when present in the PDF.
 
-```scheme
+```sema
 (pdf/metadata "document.pdf")
 ; => {:author "John Doe" :pages 5 :producer "LibreOffice" :title "Quarterly Report"}
 
@@ -75,7 +75,7 @@ Return a map of PDF metadata fields. Always includes `:pages`; other fields (`:t
 
 Combine PDF extraction with [LLM structured extraction](../llm/extraction) to build an intelligent document processor:
 
-```scheme
+```sema
 ;; Extract text from a PDF invoice
 (define text (text/clean-whitespace (pdf/extract-text "invoice.pdf")))
 (define pages (pdf/page-count "invoice.pdf"))

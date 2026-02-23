@@ -12,7 +12,7 @@ Predicates return `#t` or `#f` and conventionally end with `?`.
 
 Test if a value is the empty list.
 
-```scheme
+```sema
 (null? '())    ; => #t
 (null? '(1))   ; => #f
 ```
@@ -21,7 +21,7 @@ Test if a value is the empty list.
 
 Test if a value is `nil`.
 
-```scheme
+```sema
 (nil? nil)     ; => #t
 (nil? 0)       ; => #f
 ```
@@ -30,7 +30,7 @@ Test if a value is `nil`.
 
 Test if a collection or string is empty.
 
-```scheme
+```sema
 (empty? "")        ; => #t
 (empty? '())       ; => #t
 (empty? "hello")   ; => #f
@@ -42,7 +42,7 @@ Test if a collection or string is empty.
 
 Test if a value is a list.
 
-```scheme
+```sema
 (list? '(1))    ; => #t
 (list? 42)      ; => #f
 ```
@@ -51,7 +51,7 @@ Test if a value is a list.
 
 Test if a value is a non-empty list (Scheme compatibility).
 
-```scheme
+```sema
 (pair? '(1 2))   ; => #t
 (pair? '())      ; => #f
 ```
@@ -60,7 +60,7 @@ Test if a value is a non-empty list (Scheme compatibility).
 
 Test if a value is a vector.
 
-```scheme
+```sema
 (vector? [1])   ; => #t
 (vector? '(1))  ; => #f
 ```
@@ -69,7 +69,7 @@ Test if a value is a vector.
 
 Test if a value is a map.
 
-```scheme
+```sema
 (map? {:a 1})   ; => #t
 (map? '())      ; => #f
 ```
@@ -80,7 +80,7 @@ Test if a value is a map.
 
 Test if a value is a number (integer or float).
 
-```scheme
+```sema
 (number? 42)     ; => #t
 (number? 3.14)   ; => #t
 (number? "42")   ; => #f
@@ -90,7 +90,7 @@ Test if a value is a number (integer or float).
 
 Test if a value is an integer.
 
-```scheme
+```sema
 (integer? 42)     ; => #t
 (integer? 3.14)   ; => #f
 ```
@@ -99,7 +99,7 @@ Test if a value is an integer.
 
 Test if a value is a floating-point number.
 
-```scheme
+```sema
 (float? 3.14)   ; => #t
 (float? 42)     ; => #f
 ```
@@ -108,7 +108,7 @@ Test if a value is a floating-point number.
 
 Test if a number is zero.
 
-```scheme
+```sema
 (zero? 0)   ; => #t
 (zero? 1)   ; => #f
 ```
@@ -117,7 +117,7 @@ Test if a number is zero.
 
 Test if an integer is even.
 
-```scheme
+```sema
 (even? 4)   ; => #t
 (even? 3)   ; => #f
 ```
@@ -126,7 +126,7 @@ Test if an integer is even.
 
 Test if an integer is odd.
 
-```scheme
+```sema
 (odd? 3)   ; => #t
 (odd? 4)   ; => #f
 ```
@@ -135,7 +135,7 @@ Test if an integer is odd.
 
 Test if a number is positive.
 
-```scheme
+```sema
 (positive? 1)    ; => #t
 (positive? -1)   ; => #f
 ```
@@ -144,7 +144,7 @@ Test if a number is positive.
 
 Test if a number is negative.
 
-```scheme
+```sema
 (negative? -1)   ; => #t
 (negative? 1)    ; => #f
 ```
@@ -155,7 +155,7 @@ Test if a number is negative.
 
 Test if a value is a string.
 
-```scheme
+```sema
 (string? "hi")   ; => #t
 (string? 42)     ; => #f
 ```
@@ -164,7 +164,7 @@ Test if a value is a string.
 
 Test if a value is a symbol.
 
-```scheme
+```sema
 (symbol? 'x)     ; => #t
 (symbol? "x")    ; => #f
 ```
@@ -173,7 +173,7 @@ Test if a value is a symbol.
 
 Test if a value is a keyword.
 
-```scheme
+```sema
 (keyword? :k)    ; => #t
 (keyword? "k")   ; => #f
 ```
@@ -182,7 +182,7 @@ Test if a value is a keyword.
 
 Test if a value is a character.
 
-```scheme
+```sema
 (char? #\a)      ; => #t
 (char? "a")      ; => #f
 ```
@@ -191,7 +191,7 @@ Test if a value is a character.
 
 Test if a value is a boolean. `boolean?` is an alias.
 
-```scheme
+```sema
 (bool? #t)   ; => #t
 (bool? 0)    ; => #f
 ```
@@ -200,7 +200,7 @@ Test if a value is a boolean. `boolean?` is an alias.
 
 Test if a value is a function. `procedure?` is an alias.
 
-```scheme
+```sema
 (fn? car)        ; => #t
 (fn? 42)         ; => #f
 ```
@@ -209,7 +209,7 @@ Test if a value is a function. `procedure?` is an alias.
 
 Test if a value is a record instance.
 
-```scheme
+```sema
 (record? my-record)   ; => #t
 (record? 42)          ; => #f
 ```
@@ -218,7 +218,7 @@ Test if a value is a record instance.
 
 Test if a value is a bytevector.
 
-```scheme
+```sema
 (bytevector? #u8())   ; => #t
 (bytevector? '())     ; => #f
 ```
@@ -229,7 +229,7 @@ Test if a value is a bytevector.
 
 Test if a value is a promise (created with `delay`).
 
-```scheme
+```sema
 (promise? (delay 1))   ; => #t
 (promise? 42)          ; => #f
 ```
@@ -238,7 +238,7 @@ Test if a value is a promise (created with `delay`).
 
 Test if a promise has been forced (evaluated).
 
-```scheme
+```sema
 (define p (delay (+ 1 2)))
 (promise-forced? p)   ; => #f
 (force p)
@@ -251,7 +251,7 @@ Test if a promise has been forced (evaluated).
 
 Test structural equality. `equal?` is an alias.
 
-```scheme
+```sema
 (eq? 'a 'a)           ; => #t
 (eq? '(1 2) '(1 2))   ; => #t
 (eq? 1 2)             ; => #f
@@ -261,7 +261,7 @@ Test structural equality. `equal?` is an alias.
 
 Numeric equality.
 
-```scheme
+```sema
 (= 1 1)       ; => #t
 (= 1 1.0)     ; => #t
 (= 1 2)       ; => #f
@@ -273,7 +273,7 @@ Numeric equality.
 
 Test if a value is an LLM prompt.
 
-```scheme
+```sema
 (prompt? (prompt (user "hi")))   ; => #t
 ```
 
@@ -281,7 +281,7 @@ Test if a value is an LLM prompt.
 
 Test if a value is an LLM message.
 
-```scheme
+```sema
 (message? (message :user "hi"))   ; => #t
 ```
 
@@ -289,7 +289,7 @@ Test if a value is an LLM message.
 
 Test if a value is a conversation.
 
-```scheme
+```sema
 (conversation? (conversation/new {}))   ; => #t
 ```
 
@@ -297,7 +297,7 @@ Test if a value is a conversation.
 
 Test if a value is a tool definition.
 
-```scheme
+```sema
 (deftool my-tool "A test tool" {:x {:type :string}} (lambda (x) x))
 (tool? my-tool)   ; => #t
 (tool? 42)        ; => #f
@@ -307,7 +307,7 @@ Test if a value is a tool definition.
 
 Test if a value is an agent.
 
-```scheme
+```sema
 (defagent my-agent {:system "test"})
 (agent? my-agent)   ; => #t
 (agent? 42)         ; => #f

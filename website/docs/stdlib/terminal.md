@@ -14,7 +14,7 @@ These wrap text in ANSI escape codes and return the styled string.
 
 **Colors:** `term/black`, `term/red`, `term/green`, `term/yellow`, `term/blue`, `term/magenta`, `term/cyan`, `term/white`, `term/gray`
 
-```scheme
+```sema
 (term/bold "important")     ; => bold text
 (term/red "error")          ; => red text
 (println (term/green "success"))
@@ -24,7 +24,7 @@ These wrap text in ANSI escape codes and return the styled string.
 
 Apply multiple styles at once using keywords.
 
-```scheme
+```sema
 (term/style "warning" :bold :yellow)
 (term/style "error" :bold :red :underline)
 ```
@@ -35,7 +35,7 @@ Available keywords: `:bold`, `:dim`, `:italic`, `:underline`, `:inverse`, `:stri
 
 Apply 24-bit true color to text. Takes text, red, green, blue (0-255).
 
-```scheme
+```sema
 (term/rgb "custom color" 255 128 0)   ; => orange text
 ```
 
@@ -43,7 +43,7 @@ Apply 24-bit true color to text. Takes text, red, green, blue (0-255).
 
 Remove ANSI escape sequences from a string.
 
-```scheme
+```sema
 (term/strip (term/bold "hello"))   ; => "hello"
 ```
 
@@ -55,7 +55,7 @@ Animated terminal spinners for long-running operations.
 
 Start a spinner with a message. Returns a spinner ID.
 
-```scheme
+```sema
 (define id (term/spinner-start "Processing..."))
 ```
 
@@ -63,7 +63,7 @@ Start a spinner with a message. Returns a spinner ID.
 
 Update the spinner message while it's running.
 
-```scheme
+```sema
 (term/spinner-update id "Still processing...")
 ```
 
@@ -71,7 +71,7 @@ Update the spinner message while it's running.
 
 Stop a spinner. Optionally show a final status.
 
-```scheme
+```sema
 (term/spinner-stop id)
 
 ;; With final status

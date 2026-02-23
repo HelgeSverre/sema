@@ -12,7 +12,7 @@ Regular expression functions for pattern matching, searching, and replacement. P
 
 Test if a pattern matches anywhere in a string. Returns `#t` or `#f`.
 
-```scheme
+```sema
 (regex/match? "\\d+" "abc123")     ; => #t
 (regex/match? "\\d+" "no digits")  ; => #f
 ```
@@ -21,7 +21,7 @@ Test if a pattern matches anywhere in a string. Returns `#t` or `#f`.
 
 Match a pattern and return the full match plus any capture groups as a list. Returns `#f` if no match.
 
-```scheme
+```sema
 (regex/match "^(\\w+)@(\\w+)" "user@host")
 ; => ("user@host" "user" "host")
 
@@ -36,7 +36,7 @@ Match a pattern and return the full match plus any capture groups as a list. Ret
 
 Find all non-overlapping matches of a pattern.
 
-```scheme
+```sema
 (regex/find-all "\\d+" "a1b2c3")    ; => ("1" "2" "3")
 (regex/find-all "[A-Z]" "Hello World")  ; => ("H" "W")
 ```
@@ -47,7 +47,7 @@ Find all non-overlapping matches of a pattern.
 
 Replace the first match of a pattern.
 
-```scheme
+```sema
 (regex/replace "\\d" "a1b2" "X")   ; => "aXb2"
 ```
 
@@ -55,7 +55,7 @@ Replace the first match of a pattern.
 
 Replace all matches of a pattern.
 
-```scheme
+```sema
 (regex/replace-all "\\d" "a1b2" "X")   ; => "aXbX"
 (regex/replace-all "\\s+" "a  b  c" " ")  ; => "a b c"
 ```
@@ -66,7 +66,7 @@ Replace all matches of a pattern.
 
 Split a string by a regex pattern.
 
-```scheme
+```sema
 (regex/split "," "a,b,c")          ; => ("a" "b" "c")
 (regex/split "\\s+" "hello  world")  ; => ("hello" "world")
 ```

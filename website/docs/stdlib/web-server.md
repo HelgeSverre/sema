@@ -8,7 +8,7 @@ Sema includes a built-in HTTP server powered by [axum](https://github.com/tokio-
 
 ## Quick Start
 
-```scheme
+```sema
 (define (handler req)
   (http/ok {:message "Hello from Sema!"}))
 
@@ -26,7 +26,7 @@ $ curl http://localhost:3000
 
 Start an HTTP server. Takes a handler function and an optional options map. The handler receives a request map and returns a response map. This function blocks — it becomes the server's run loop.
 
-```scheme
+```sema
 (http/serve handler)
 (http/serve handler {:port 3000})
 (http/serve handler {:port 8080 :host "127.0.0.1"})
@@ -45,7 +45,7 @@ The handler is any function `(request-map -> response-map)`. This can be a plain
 
 Create a handler function from a list of route definitions. Each route is a vector of `[method pattern handler]`.
 
-```scheme
+```sema
 (define routes
   [[:get  "/"            handle-home]
    [:get  "/users/:id"   handle-user]
@@ -64,7 +64,7 @@ Routes are matched top-to-bottom — first match wins. Unmatched routes return 4
 
 Use `:param` syntax to capture path segments. Extracted values appear in the request's `:params` map.
 
-```scheme
+```sema
 ;; Route: [:get "/users/:id" handle-user]
 ;; Request: GET /users/42
 
@@ -76,7 +76,7 @@ Use `:param` syntax to capture path segments. Extracted values appear in the req
 
 Multiple parameters work as expected:
 
-```scheme
+```sema
 [:get "/users/:uid/posts/:pid" handler]
 ;; GET /users/1/posts/99 → {:uid "1" :pid "99"}
 ```
@@ -85,7 +85,7 @@ Multiple parameters work as expected:
 
 Use `*` to capture the rest of the path.
 
-```scheme
+```sema
 [:get "/files/*" handle-files]
 ;; GET /files/docs/readme.md → {:* "docs/readme.md"}
 ```
@@ -94,7 +94,7 @@ Use `*` to capture the rest of the path.
 
 Every handler receives a request map with the following fields:
 
-```scheme
+```sema
 {:method  :get                                    ; HTTP method as keyword
  :path    "/users/42"                             ; Request path
  :headers {"content-type" "application/json" ...} ; Headers (string keys)
@@ -108,7 +108,7 @@ The `:json` field is automatically populated when the request has `Content-Type:
 
 ### Accessing Request Data
 
-```scheme
+```sema
 ;; Method
 (:method req)         ; => :get
 
@@ -132,7 +132,7 @@ The `:json` field is automatically populated when the request has `Content-Type:
 
 Handlers return a response map with `:status`, `:headers`, and `:body`:
 
-```scheme
+```sema
 {:status  200
  :headers {"content-type" "application/json"}
  :body    "{\"message\": \"ok\"}"}
@@ -146,7 +146,7 @@ You can construct these by hand, but the response helpers below are more conveni
 
 Return 200 with a JSON-encoded body.
 
-```scheme
+```sema
 (http/ok {:message "success"})
 ; => {:status 200 :headers {"content-type" "application/json"} :body "{\"message\":\"success\"}"}
 
@@ -158,7 +158,7 @@ Return 200 with a JSON-encoded body.
 
 Return 201 with a JSON-encoded body.
 
-```scheme
+```sema
 (http/created {:id 42 :name "Ada"})
 ```
 
@@ -166,7 +166,7 @@ Return 201 with a JSON-encoded body.
 
 Return 204 with an empty body.
 
-```scheme
+```sema
 (http/no-content)
 ```
 
@@ -174,7 +174,7 @@ Return 204 with an empty body.
 
 Return 404 with a JSON-encoded body.
 
-```scheme
+```sema
 (http/not-found {:error "User not found"})
 ```
 
@@ -182,7 +182,7 @@ Return 404 with a JSON-encoded body.
 
 Return a custom status code with a JSON-encoded body.
 
-```scheme
+```sema
 (http/error 422 {:errors ["Invalid email" "Name required"]})
 (http/error 503 {:error "Service unavailable"})
 ```
@@ -191,7 +191,7 @@ Return a custom status code with a JSON-encoded body.
 
 Return a 302 redirect to a URL.
 
-```scheme
+```sema
 (http/redirect "https://example.com/login")
 ```
 
@@ -199,7 +199,7 @@ Return a 302 redirect to a URL.
 
 Return 200 with `Content-Type: text/html`.
 
-```scheme
+```sema
 (http/html "<h1>Hello</h1><p>Welcome to Sema.</p>")
 ```
 
@@ -207,7 +207,7 @@ Return 200 with `Content-Type: text/html`.
 
 Return 200 with `Content-Type: text/plain`.
 
-```scheme
+```sema
 (http/text "OK")
 ```
 
@@ -215,7 +215,7 @@ Return 200 with `Content-Type: text/plain`.
 
 Return a file from disk with automatic MIME type detection. The file is read on the I/O thread (not the evaluator), so it handles binary files efficiently.
 
-```scheme
+```sema
 (http/file "public/index.html")
 (http/file "data/report.pdf" "application/pdf")  ; explicit content type
 ```
@@ -228,7 +228,7 @@ The path is resolved relative to the current working directory. If the file does
 
 Serve an entire directory of static files using the `:static` route type in `http/router`. Files are served with automatic MIME types, cache headers, and path traversal protection.
 
-```scheme
+```sema
 (define routes
   [[:static "/assets" "./public"]
    [:get    "/*"      handle-spa]])
@@ -253,7 +253,7 @@ The `:static` route takes a URL prefix and a directory path. Requests matching t
 
 **Fallthrough**: If a file doesn't exist, the route does *not* match — the router continues to the next route. This enables SPA (single-page application) patterns where a catch-all route serves `index.html` for client-side routing:
 
-```scheme
+```sema
 (define routes
   [[:static "/assets" "./dist/assets"]
    [:get    "/*"      (fn (_) (http/file "./dist/index.html"))]])
@@ -269,7 +269,7 @@ Middleware in Sema is just function composition — a function that takes a hand
 
 ### Writing Middleware
 
-```scheme
+```sema
 ;; Logging middleware
 (define (with-logging handler)
   (fn (req)
@@ -278,7 +278,7 @@ Middleware in Sema is just function composition — a function that takes a hand
       resp)))
 ```
 
-```scheme
+```sema
 ;; CORS middleware
 (define (with-cors handler)
   (fn (req)
@@ -289,7 +289,7 @@ Middleware in Sema is just function composition — a function that takes a hand
            "access-control-allow-methods" "GET, POST, PUT, DELETE"})))))
 ```
 
-```scheme
+```sema
 ;; Auth middleware
 (define (with-auth handler)
   (fn (req)
@@ -303,7 +303,7 @@ Middleware in Sema is just function composition — a function that takes a hand
 
 Stack middleware by nesting function calls. The outermost middleware runs first.
 
-```scheme
+```sema
 (define app
   (with-logging
     (with-cors
@@ -315,7 +315,7 @@ Stack middleware by nesting function calls. The outermost middleware runs first.
 
 Or use the threading macro for a cleaner pipeline:
 
-```scheme
+```sema
 (define app
   (-> (http/router routes)
       with-auth
@@ -329,7 +329,7 @@ Or use the threading macro for a cleaner pipeline:
 
 Return a Server-Sent Events stream. Takes a handler function that receives a `send` callback.
 
-```scheme
+```sema
 (define (handle-events req)
   (http/stream
     (fn (send)
@@ -342,7 +342,7 @@ Return a Server-Sent Events stream. Takes a handler function that receives a `se
 
 The stream stays open as long as the handler is running. When the handler returns, the stream closes.
 
-```scheme
+```sema
 ;; Route it like any other handler
 (define routes
   [[:get "/events" handle-events]])
@@ -361,7 +361,7 @@ data: update 2
 
 SSE is particularly useful for streaming LLM completions to the browser:
 
-```scheme
+```sema
 (define (handle-chat req)
   (http/stream
     (fn (send)
@@ -377,7 +377,7 @@ SSE is particularly useful for streaming LLM completions to the browser:
 
 Handle bidirectional WebSocket connections. Takes a handler function that receives a connection map with `:send`, `:recv`, and `:close` functions.
 
-```scheme
+```sema
 (define (handle-ws conn)
   (let ((msg ((:recv conn))))
     (when msg
@@ -397,7 +397,7 @@ The connection map:
 
 Use the `:ws` method in the router:
 
-```scheme
+```sema
 (define routes
   [[:get "/api/status" handle-status]
    [:ws  "/ws/chat"    handle-ws]])
@@ -407,7 +407,7 @@ Use the `:ws` method in the router:
 
 ### Chat Room Example
 
-```scheme
+```sema
 (define clients (atom '()))
 
 (define (broadcast msg)
@@ -435,7 +435,7 @@ Use the `:ws` method in the router:
 
 A JSON API with CRUD operations, middleware, and error handling.
 
-```scheme
+```sema
 ;; In-memory data store
 (define db (atom {}))
 (define next-id (atom 0))
@@ -502,7 +502,7 @@ A JSON API with CRUD operations, middleware, and error handling.
 
 An API endpoint that uses Sema's built-in LLM primitives to generate responses.
 
-```scheme
+```sema
 (define (handle-summarize req)
   (let ((text (:text (:json req))))
     (if text
@@ -527,7 +527,7 @@ An API endpoint that uses Sema's built-in LLM primitives to generate responses.
 
 Serve dynamic HTML pages.
 
-```scheme
+```sema
 (define (page title body)
   (http/html
     (str "<!DOCTYPE html><html><head><title>" title "</title>"
@@ -552,7 +552,7 @@ Serve dynamic HTML pages.
 
 Serve a single-page application with static assets and a catch-all for client-side routing.
 
-```scheme
+```sema
 (define routes
   [[:get    "/api/health" (fn (_) (http/ok {:status "up"}))]
    [:static "/assets"     "./dist/assets"]

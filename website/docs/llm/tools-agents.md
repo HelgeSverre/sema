@@ -12,7 +12,7 @@ Tools let you define functions that the LLM can invoke during a conversation. Th
 
 Define a tool with a name, description, parameter schema, and handler function.
 
-```scheme
+```sema
 (deftool lookup-capital
   "Look up the capital of a country"
   {:country {:type :string :description "Country name"}}
@@ -27,7 +27,7 @@ Define a tool with a name, description, parameter schema, and handler function.
 
 Pass tools to `llm/chat` — the LLM will call them automatically when needed.
 
-```scheme
+```sema
 (llm/chat
   [(message :user "What is the capital of Norway?")]
   {:tools [lookup-capital] :max-tokens 100})
@@ -37,25 +37,25 @@ Pass tools to `llm/chat` — the LLM will call them automatically when needed.
 
 ### `tool/name`
 
-```scheme
+```sema
 (tool/name lookup-capital)              ; => "lookup-capital"
 ```
 
 ### `tool/description`
 
-```scheme
+```sema
 (tool/description lookup-capital)       ; => "Look up the capital..."
 ```
 
 ### `tool/parameters`
 
-```scheme
+```sema
 (tool/parameters lookup-capital)        ; => {:country {:type :string ...}}
 ```
 
 ### `tool?`
 
-```scheme
+```sema
 (tool? lookup-capital)                  ; => #t
 ```
 
@@ -67,7 +67,7 @@ Agents combine a system prompt, tools, and a multi-turn loop. They handle the ba
 
 Define an agent with a system prompt, tools, model, and turn limit.
 
-```scheme
+```sema
 (deftool get-weather
   "Get weather for a city"
   {:city {:type :string}}
@@ -85,7 +85,7 @@ Define an agent with a system prompt, tools, model, and turn limit.
 
 Run an agent with a user message. The agent will loop, calling tools as needed, until it has a final answer or hits the turn limit.
 
-```scheme
+```sema
 (agent/run weather-bot "What's the weather in Tokyo?")
 ```
 
@@ -93,36 +93,36 @@ Run an agent with a user message. The agent will loop, calling tools as needed, 
 
 ### `agent/name`
 
-```scheme
+```sema
 (agent/name weather-bot)                ; => "weather-bot"
 ```
 
 ### `agent/system`
 
-```scheme
+```sema
 (agent/system weather-bot)              ; => "You are a weather assistant..."
 ```
 
 ### `agent/tools`
 
-```scheme
+```sema
 (agent/tools weather-bot)               ; => list of tool values
 ```
 
 ### `agent/model`
 
-```scheme
+```sema
 (agent/model weather-bot)               ; => "claude-haiku-4-5-20251001"
 ```
 
 ### `agent/max-turns`
 
-```scheme
+```sema
 (agent/max-turns weather-bot)           ; => 3
 ```
 
 ### `agent?`
 
-```scheme
+```sema
 (agent? weather-bot)                    ; => #t
 ```

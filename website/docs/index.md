@@ -52,7 +52,7 @@ sema -e '(+ 1 2)'             # Evaluate an expression
 sema -p '(map sqr (range 5))' # Evaluate and always print
 ```
 
-```scheme
+```sema
 ;; In the REPL:
 sema> (define (greet name) f"Hello, ${name}!")
 sema> (greet "world")
@@ -70,7 +70,7 @@ sema> (:name person)
 
 ### Working with Data
 
-```scheme
+```sema
 ;; Keywords as accessor functions, short lambdas with #(...)
 (define people [{:name "Ada" :age 36}
                 {:name "Bob" :age 28}
@@ -97,7 +97,7 @@ sema> (:name person)
 
 ### LLM Completion
 
-```scheme
+```sema
 ;; Simple completion (requires an API key env var)
 (llm/complete "Explain recursion in one sentence" {:max-tokens 50})
 
@@ -110,7 +110,7 @@ sema> (:name person)
 
 ### Persistent Conversations
 
-```scheme
+```sema
 (define conv (conversation/new {:model "claude-haiku-4-5-20251001"}))
 (define conv (conversation/say conv "Remember: the secret number is 7"))
 (define conv (conversation/say conv "What is the secret number?"))

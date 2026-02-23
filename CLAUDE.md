@@ -128,7 +128,7 @@ Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. Both 
 - Hosted at **sema-lang.com**, deployed via `cd website && vercel --prod`
 - VitePress site, URLs require `.html` suffix: e.g. `https://sema-lang.com/docs/internals/lisp-comparison.html`
 - All docs pages are under `/docs/`: `https://sema-lang.com/docs/...`
-- **Syntax highlighting**: Use `` ```scheme `` for Sema code blocks in all `.md` files (website docs and GitHub). There is no custom Shiki language definition for `sema`, and `scheme` provides good highlighting.
+- **Syntax highlighting**: Use `` ```sema `` for code blocks in website docs. The custom TextMate grammar is at `website/.vitepress/sema.tmLanguage.json` (copied from canonical source `editors/vscode/sema/syntaxes/sema.tmLanguage.json` — keep in sync). For GitHub markdown outside the website, `sema` won't be recognized — use `` ```scheme `` as fallback there.
 
 ## Design Docs
 

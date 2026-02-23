@@ -150,7 +150,7 @@ interp.register_fn("add1", |args| {
 });
 ```
 
-```scheme
+```sema
 (add1 41) ; => 42
 ```
 
@@ -170,7 +170,7 @@ interp.register_fn("inc!", move |_| {
 });
 ```
 
-```scheme
+```sema
 (inc!) ; => 1
 (inc!) ; => 2
 (inc!) ; => 3
@@ -241,7 +241,7 @@ fn make_record(name: &str, age: i64, dept: &str) -> Value {
 
 ### User Script (`transform.sema`)
 
-```scheme
+```sema
 (define (transform record)
   (log (format "Processing: ~a" (:name record)))
   (if (> (:age record) 30)
@@ -339,7 +339,7 @@ interp.preload_module("math", r#"
 
 Scripts can then import these modules as if they were files:
 
-```scheme
+```sema
 (import "utils")
 (double pi)  ; => 6.28318
 

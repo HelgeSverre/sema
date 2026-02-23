@@ -38,7 +38,7 @@ Sema has 20 built-in data types covering numbers, text, collections, and LLM pri
 
 Whole numbers. Standard arithmetic applies.
 
-```scheme
+```sema
 42
 -7
 0
@@ -48,7 +48,7 @@ Whole numbers. Standard arithmetic applies.
 
 Floating-point numbers with a decimal point.
 
-```scheme
+```sema
 3.14
 -0.5
 0.001
@@ -58,7 +58,7 @@ Floating-point numbers with a decimal point.
 
 Double-quoted text with escape sequences.
 
-```scheme
+```sema
 "hello"
 "line\nbreak"
 "\x1B;"
@@ -68,7 +68,7 @@ Double-quoted text with escape sequences.
 
 String interpolation with embedded expressions. `f"..."` expands to a `(str ...)` call at read time.
 
-```scheme
+```sema
 f"Hello ${name}"              ; => (str "Hello " name)
 f"2 + 2 = ${(+ 2 2)}"        ; => "2 + 2 = 4"
 f"${(:name user)} is ${(:age user)} years old"
@@ -80,7 +80,7 @@ Use `\$` to include a literal dollar sign: `f"costs \$5"`.
 
 `#t` for true, `#f` for false.
 
-```scheme
+```sema
 #t
 #f
 ```
@@ -89,7 +89,7 @@ Use `\$` to include a literal dollar sign: `f"costs \$5"`.
 
 The empty/null value.
 
-```scheme
+```sema
 nil
 ```
 
@@ -97,7 +97,7 @@ nil
 
 Bare identifiers used as variable names and in quoted data.
 
-```scheme
+```sema
 foo
 my-var
 +
@@ -107,7 +107,7 @@ my-var
 
 Colon-prefixed identifiers. Keywords are self-evaluating and can be used as accessor functions on maps.
 
-```scheme
+```sema
 :name
 :type
 :ok
@@ -120,7 +120,7 @@ Colon-prefixed identifiers. Keywords are self-evaluating and can be used as acce
 
 Character literals with `#\` prefix. Named characters are supported.
 
-```scheme
+```sema
 #\a
 #\space
 #\newline
@@ -137,7 +137,7 @@ Parenthesized sequences. Lists are the fundamental data structure in Sema. Acces
 These names come from the [IBM 704](http://bitsavers.informatik.uni-stuttgart.de/pdf/ibm/704/24-6661-2_704_Manual_1955.pdf) (1955), the machine Lisp was born on. The 704 stored each cons cell in a single 36-bit word: `car` ("Contents of the Address Register") extracted one 15-bit pointer field, `cdr` ("Contents of the Decrement Register") extracted the other. They were single hardware instructions. Sema also provides `first`/`rest` as aliases.
 :::
 
-```scheme
+```sema
 (1 2 3)
 (+ a b)
 '(hello world)
@@ -147,7 +147,7 @@ These names come from the [IBM 704](http://bitsavers.informatik.uni-stuttgart.de
 
 Bracketed sequences with O(1) indexed access.
 
-```scheme
+```sema
 [1 2 3]
 ["a" "b"]
 ```
@@ -156,7 +156,7 @@ Bracketed sequences with O(1) indexed access.
 
 Curly-braced key-value pairs with deterministic (sorted) ordering. Maps support [destructuring](./special-forms.md#map-destructuring) in `let`, `define`, `lambda`, and [`match`](./special-forms.md#match) patterns.
 
-```scheme
+```sema
 {:name "Ada" :age 36}
 {:a 1 :b 2 :c 3}
 ```
@@ -165,7 +165,7 @@ Curly-braced key-value pairs with deterministic (sorted) ordering. Maps support 
 
 Hash-based maps for O(1) lookup performance with many keys.
 
-```scheme
+```sema
 (hashmap/new :a 1 :b 2 :c 3)
 ```
 
@@ -173,7 +173,7 @@ Hash-based maps for O(1) lookup performance with many keys.
 
 Byte arrays with `#u8(...)` literal syntax.
 
-```scheme
+```sema
 #u8(1 2 3)
 #u8()
 (bytevector 1 2 3)
@@ -186,7 +186,7 @@ Byte arrays with `#u8(...)` literal syntax.
 
 Lazy evaluation via `delay`/`force`. The expression is not evaluated until forced, and the result is memoized.
 
-```scheme
+```sema
 (define p (delay (+ 1 2)))
 (force p)       ; => 3
 (promise? p)    ; => #t
@@ -196,7 +196,7 @@ Lazy evaluation via `delay`/`force`. The expression is not evaluated until force
 
 User-defined record types with constructors, predicates, and field accessors.
 
-```scheme
+```sema
 (define-record-type point
   (make-point x y)
   point?
@@ -224,7 +224,7 @@ User-defined record types with constructors, predicates, and field accessors.
 
 ## Type Predicates
 
-```scheme
+```sema
 (null? '())        (nil? nil)         (empty? "")
 (list? '(1))       (vector? [1])      (map? {:a 1})
 (pair? '(1 2))     ; #t (non-empty list, Scheme compat)
@@ -246,7 +246,7 @@ User-defined record types with constructors, predicates, and field accessors.
 
 ## Type Conversions
 
-```scheme
+```sema
 (str 42)                    ; => "42" (any value to string)
 (string->number "42")       ; => 42
 (number->string 42)         ; => "42"

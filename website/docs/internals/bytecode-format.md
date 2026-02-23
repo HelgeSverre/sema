@@ -397,7 +397,7 @@ If validation fails, the loader returns a `SemaError` with a descriptive message
 
 Given this source file:
 
-```scheme
+```sema
 ;; hello.sema
 (define greeting "Hello, World!")
 (println greeting)

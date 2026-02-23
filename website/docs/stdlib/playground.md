@@ -14,7 +14,7 @@ These functions are **only available in the WASM playground** — they access br
 
 Return the browser's `navigator.userAgent` string. Works in all browsers.
 
-```scheme
+```sema
 (web/user-agent)
 ; => "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ..."
 ```
@@ -23,7 +23,7 @@ Return the browser's `navigator.userAgent` string. Works in all browsers.
 
 Return structured browser information from `navigator.userAgentData`. Returns a map on Chromium-based browsers (Chrome, Edge, Opera), `nil` on Firefox and Safari.
 
-```scheme
+```sema
 (web/user-agent-data)
 ; Chromium => {:mobile false :platform "macOS" :brands ("Chromium/120" "Google Chrome/120")}
 ; Firefox/Safari => nil
@@ -56,7 +56,7 @@ These always return `nil` in WASM: `sys/hostname`, `sys/user`, `sys/home-dir`, `
 
 File operations work against an **in-memory virtual filesystem** (VFS). Files persist for the duration of your session but are **lost on page reload**.
 
-```scheme
+```sema
 ;; These all work in the playground
 (file/write "/hello.txt" "Hello from WASM!")
 (file/read "/hello.txt")       ; => "Hello from WASM!"
@@ -76,7 +76,7 @@ The `load` function reads from the VFS and evaluates the parsed expressions.
 
 All `term/*` functions work but return text **without ANSI formatting** (since the browser has no terminal):
 
-```scheme
+```sema
 (term/bold "hello")   ; => "hello" (no bold applied)
 (term/red "error")    ; => "error" (no color applied)
 (term/style "hi" :bold :cyan)  ; => "hi"
@@ -86,7 +86,7 @@ All `term/*` functions work but return text **without ANSI formatting** (since t
 
 HTTP functions work in the playground via the browser's `fetch()` API. They return the same `{:status :headers :body}` map as the native CLI.
 
-```scheme
+```sema
 (define resp (http/get "https://httpbin.org/get"))
 (:status resp)    ; => 200
 (:body resp)      ; => "{\"args\": {}, ...}"

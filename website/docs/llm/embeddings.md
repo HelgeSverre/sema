@@ -12,7 +12,7 @@ Generate vector embeddings from text and compute similarity between them. Embedd
 
 Configure a dedicated embedding provider separately from the chat provider.
 
-```scheme
+```sema
 (llm/configure-embeddings :jina {:api-key (env "JINA_API_KEY")})
 (llm/configure-embeddings :voyage {:api-key (env "VOYAGE_API_KEY")})
 (llm/configure-embeddings :cohere {:api-key (env "COHERE_API_KEY")})
@@ -29,7 +29,7 @@ This allows you to use one provider for chat (e.g., Anthropic) and a different o
 
 Generate an embedding for a string or a list of strings. Returns a **bytevector** containing densely-packed f64 values in little-endian format. This representation is 2× more memory efficient and 4× faster for similarity computations compared to a list of floats.
 
-```scheme
+```sema
 ;; Single embedding (returns a bytevector)
 (define v1 (llm/embed "hello world"))
 
@@ -43,7 +43,7 @@ Generate an embedding for a string or a list of strings. Returns a **bytevector*
 
 Returns the number of dimensions (f64 elements) in an embedding bytevector.
 
-```scheme
+```sema
 (define v (llm/embed "hello"))
 (embedding/length v)                   ; => 1024 (depends on provider)
 ```
@@ -52,7 +52,7 @@ Returns the number of dimensions (f64 elements) in an embedding bytevector.
 
 Access a specific dimension by index.
 
-```scheme
+```sema
 (define v (llm/embed "hello"))
 (embedding/ref v 0)                    ; => 0.0123 (first dimension)
 ```
@@ -61,7 +61,7 @@ Access a specific dimension by index.
 
 Convert an embedding bytevector to a list of floats (useful for interop).
 
-```scheme
+```sema
 (define v (llm/embed "hello"))
 (embedding/->list v)                   ; => (0.0123 -0.0456 ...)
 ```
@@ -70,7 +70,7 @@ Convert an embedding bytevector to a list of floats (useful for interop).
 
 Convert a list of numbers to an embedding bytevector.
 
-```scheme
+```sema
 (define v (embedding/list->embedding '(0.1 0.2 0.3)))
 (embedding/length v)                   ; => 3
 ```
@@ -81,7 +81,7 @@ Convert a list of numbers to an embedding bytevector.
 
 Compute cosine similarity between two embedding vectors. Returns a value between -1.0 and 1.0. Accepts both bytevectors (fast path) and lists of floats (backward compatible).
 
-```scheme
+```sema
 (define v1 (llm/embed "hello world"))
 (define v2 (llm/embed "hi there"))
 (llm/similarity v1 v2)                 ; => 0.87 (cosine similarity)
@@ -96,7 +96,7 @@ Compute cosine similarity between two embedding vectors. Returns a value between
 
 Estimate the number of tokens in a string or list of strings. Uses a heuristic (chars/4) — no tokenizer dependency required.
 
-```scheme
+```sema
 (llm/token-count "hello world")           ; => 3
 (llm/token-count '("hello" "world"))      ; => sum of individual counts
 ```
@@ -105,7 +105,7 @@ Estimate the number of tokens in a string or list of strings. Uses a heuristic (
 
 Returns a detailed estimate map with the token count and the estimation method used.
 
-```scheme
+```sema
 (llm/token-estimate "hello world")
 ; => {:method "chars/4" :tokens 3}
 ```

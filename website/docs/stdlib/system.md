@@ -10,7 +10,7 @@ outline: [2, 3]
 
 Get the value of an environment variable. Returns `nil` if not set.
 
-```scheme
+```sema
 (env "HOME")       ; => "/Users/ada"
 (env "PATH")       ; => "/usr/bin:/bin:..."
 (env "MISSING")    ; => nil
@@ -20,7 +20,7 @@ Get the value of an environment variable. Returns `nil` if not set.
 
 Return all environment variables as a map.
 
-```scheme
+```sema
 (sys/env-all)   ; => {:HOME "/Users/ada" :PATH "..." ...}
 ```
 
@@ -28,7 +28,7 @@ Return all environment variables as a map.
 
 Set an environment variable for the current process.
 
-```scheme
+```sema
 (sys/set-env "KEY" "value")
 (env "KEY")   ; => "value"
 ```
@@ -39,7 +39,7 @@ Set an environment variable for the current process.
 
 Return the command-line arguments as a list.
 
-```scheme
+```sema
 (sys/args)   ; => ("sema" "script.sema" "--flag")
 ```
 
@@ -47,7 +47,7 @@ Return the command-line arguments as a list.
 
 Return the current working directory.
 
-```scheme
+```sema
 (sys/cwd)   ; => "/current/dir"
 ```
 
@@ -55,7 +55,7 @@ Return the current working directory.
 
 Return the platform name.
 
-```scheme
+```sema
 (sys/platform)   ; => "macos" / "linux" / "windows"
 ```
 
@@ -63,7 +63,7 @@ Return the platform name.
 
 Return the operating system name.
 
-```scheme
+```sema
 (sys/os)   ; => "macos"
 ```
 
@@ -71,7 +71,7 @@ Return the operating system name.
 
 Return the CPU architecture.
 
-```scheme
+```sema
 (sys/arch)   ; => "aarch64" / "x86_64"
 ```
 
@@ -81,7 +81,7 @@ Return the CPU architecture.
 
 Return the current process ID.
 
-```scheme
+```sema
 (sys/pid)   ; => 12345
 ```
 
@@ -89,7 +89,7 @@ Return the current process ID.
 
 Return the TTY device path, or `nil` if not running in a terminal.
 
-```scheme
+```sema
 (sys/tty)   ; => "/dev/ttys003" or nil
 ```
 
@@ -97,7 +97,7 @@ Return the TTY device path, or `nil` if not running in a terminal.
 
 Find the full path to an executable, or `nil` if not found.
 
-```scheme
+```sema
 (sys/which "cargo")   ; => "/Users/ada/.cargo/bin/cargo"
 (sys/which "nonexistent")  ; => nil
 ```
@@ -106,7 +106,7 @@ Find the full path to an executable, or `nil` if not found.
 
 Return nanoseconds elapsed since the process started.
 
-```scheme
+```sema
 (sys/elapsed)   ; => 482937100
 ```
 
@@ -116,7 +116,7 @@ Return nanoseconds elapsed since the process started.
 
 Test if stdin is a TTY (i.e., running interactively).
 
-```scheme
+```sema
 (sys/interactive?)   ; => #t in REPL, #f in scripts
 ```
 
@@ -124,7 +124,7 @@ Test if stdin is a TTY (i.e., running interactively).
 
 Return the system hostname.
 
-```scheme
+```sema
 (sys/hostname)   ; => "my-machine"
 ```
 
@@ -132,7 +132,7 @@ Return the system hostname.
 
 Return the current username.
 
-```scheme
+```sema
 (sys/user)   ; => "ada"
 ```
 
@@ -142,7 +142,7 @@ Return the current username.
 
 Return the user's home directory.
 
-```scheme
+```sema
 (sys/home-dir)   ; => "/Users/ada"
 ```
 
@@ -150,7 +150,7 @@ Return the user's home directory.
 
 Return the system temporary directory.
 
-```scheme
+```sema
 (sys/temp-dir)   ; => "/tmp"
 ```
 
@@ -160,7 +160,7 @@ Return the system temporary directory.
 
 Run a shell command and return its stdout as a string.
 
-```scheme
+```sema
 (shell "ls -la")       ; => "total 42\n..."
 (shell "echo hello")   ; => "hello\n"
 ```
@@ -169,7 +169,7 @@ Run a shell command and return its stdout as a string.
 
 Exit the process with a given status code.
 
-```scheme
+```sema
 (exit 0)   ; exit successfully
 (exit 1)   ; exit with error
 ```

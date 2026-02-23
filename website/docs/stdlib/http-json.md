@@ -12,7 +12,7 @@ HTTP functions make synchronous requests and return a map with `:status`, `:head
 
 Make an HTTP GET request.
 
-```scheme
+```sema
 (http/get "https://httpbin.org/get")
 ; => {:status 200 :headers {...} :body "..."}
 ```
@@ -21,7 +21,7 @@ Make an HTTP GET request.
 
 Make an HTTP POST request. Maps in `:body` are automatically serialized as JSON.
 
-```scheme
+```sema
 (http/post "https://httpbin.org/post"
   {:body {:key "value"}
    :headers {"Authorization" "Bearer ..."}})
@@ -32,7 +32,7 @@ Make an HTTP POST request. Maps in `:body` are automatically serialized as JSON.
 
 Make an HTTP PUT request.
 
-```scheme
+```sema
 (http/put "https://example.com/resource"
   {:body "data"})
 ```
@@ -41,7 +41,7 @@ Make an HTTP PUT request.
 
 Make an HTTP DELETE request.
 
-```scheme
+```sema
 (http/delete "https://example.com/resource/123")
 ```
 
@@ -49,7 +49,7 @@ Make an HTTP DELETE request.
 
 Make a generic HTTP request with full control over method and options.
 
-```scheme
+```sema
 (http/request "PATCH" "https://example.com/resource"
   {:headers {"Content-Type" "text/plain"}}
   "data")
@@ -61,7 +61,7 @@ Make a generic HTTP request with full control over method and options.
 
 Encode a Sema value as a JSON string.
 
-```scheme
+```sema
 (json/encode {:name "Ada" :age 36})
 ; => "{\"age\":36,\"name\":\"Ada\"}"
 
@@ -73,7 +73,7 @@ Encode a Sema value as a JSON string.
 
 Encode a Sema value as a pretty-printed JSON string.
 
-```scheme
+```sema
 (json/encode-pretty {:a 1 :b [2 3]})
 ; => "{\n  \"a\": 1,\n  \"b\": [\n    2,\n    3\n  ]\n}"
 ```
@@ -82,7 +82,7 @@ Encode a Sema value as a pretty-printed JSON string.
 
 Decode a JSON string into a Sema value.
 
-```scheme
+```sema
 (json/decode "{\"name\":\"Ada\"}")   ; => {:name "Ada"}
 (json/decode "[1,2,3]")             ; => (1 2 3)
 ```

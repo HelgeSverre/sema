@@ -58,7 +58,7 @@ Closures use the Lua/Steel upvalue model. When a lambda references a variable fr
 1. The resolver marks the outer local as **captured**
 2. An `UpvalueDesc` entry is added to the inner lambda: `ParentLocal(slot)` if capturing from the immediate parent, `ParentUpvalue(index)` if capturing through an intermediate function
 
-```scheme
+```sema
 (lambda (x)           ; x = Local slot 0
   (lambda ()          ; captures x: UpvalueDesc::ParentLocal(0)
     (lambda ()        ; captures through chain: UpvalueDesc::ParentUpvalue(0)

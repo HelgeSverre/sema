@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "Sema",
+  "name": "sema", "displayName": "Sema",
   "scopeName": "source.sema",
   "patterns": [
     { "include": "#block-comment" },

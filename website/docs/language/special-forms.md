@@ -12,7 +12,7 @@ Special forms are built into the evaluator — they control evaluation order and
 
 Bind a value or define a function.
 
-```scheme
+```sema
 (define x 42)                          ; bind a value
 (define (square x) (* x x))           ; define a function (shorthand)
 ```
@@ -21,7 +21,7 @@ Bind a value or define a function.
 
 Mutate an existing binding.
 
-```scheme
+```sema
 (set! x 99)
 ```
 
@@ -31,7 +31,7 @@ Mutate an existing binding.
 
 Create an anonymous function.
 
-```scheme
+```sema
 (lambda (x y) (+ x y))
 ```
 
@@ -39,7 +39,7 @@ Create an anonymous function.
 
 Alias for `lambda`.
 
-```scheme
+```sema
 (fn (x) (* x x))
 (fn (x . rest) rest)                   ; rest parameters with dot notation
 ```
@@ -50,7 +50,7 @@ Alias for `lambda`.
 
 Two-branch conditional.
 
-```scheme
+```sema
 (if (> x 0) "positive" "non-positive")
 ```
 
@@ -58,7 +58,7 @@ Two-branch conditional.
 
 Multi-branch conditional with `else` fallback.
 
-```scheme
+```sema
 (cond
   ((< x 0) "negative")
   ((= x 0) "zero")
@@ -69,7 +69,7 @@ Multi-branch conditional with `else` fallback.
 
 Match a value against literal alternatives.
 
-```scheme
+```sema
 (case (:status response)
   ((:ok) "success")
   ((:error :timeout) "failure")
@@ -80,7 +80,7 @@ Match a value against literal alternatives.
 
 Execute body only if condition is true. Returns `nil` otherwise.
 
-```scheme
+```sema
 (when (> x 0) (println "positive"))
 ```
 
@@ -88,7 +88,7 @@ Execute body only if condition is true. Returns `nil` otherwise.
 
 Execute body only if condition is false.
 
-```scheme
+```sema
 (unless (> x 0) (println "not positive"))
 ```
 
@@ -100,7 +100,7 @@ Built-in macros for pipeline-style code. Available automatically — no import n
 
 Thread-first: inserts the value as the first argument of each form.
 
-```scheme
+```sema
 (-> 5 (+ 3) (* 2))                    ; => 16
 (-> response :body json/decode :data)  ; nested access
 ```
@@ -109,7 +109,7 @@ Thread-first: inserts the value as the first argument of each form.
 
 Thread-last: inserts the value as the last argument of each form.
 
-```scheme
+```sema
 (->> (range 1 100)
      (filter even?)
      (map #(* % %))
@@ -120,7 +120,7 @@ Thread-last: inserts the value as the last argument of each form.
 
 Thread-as: bind the threaded value to a name for arbitrary placement.
 
-```scheme
+```sema
 (as-> 5 x (+ x 3) (* x x) (- x 1))   ; => 63
 ```
 
@@ -128,7 +128,7 @@ Thread-as: bind the threaded value to a name for arbitrary placement.
 
 Nil-safe thread-first: stops and returns `nil` if any step produces `nil`.
 
-```scheme
+```sema
 (some-> config :database :connection-string db/connect)
 ;; returns nil if any step is nil, instead of crashing
 ```
@@ -139,7 +139,7 @@ Nil-safe thread-first: stops and returns `nil` if any step produces `nil`.
 
 Bind a value and execute body only if non-nil.
 
-```scheme
+```sema
 (when-let (user (db/find-user id))
   (send-email user "Welcome back"))
 ```
@@ -148,7 +148,7 @@ Bind a value and execute body only if non-nil.
 
 Bind a value and branch on nil/non-nil.
 
-```scheme
+```sema
 (if-let (cached (cache/get key))
   cached
   (compute-fresh-value))
@@ -160,7 +160,7 @@ Bind a value and branch on nil/non-nil.
 
 Concise anonymous functions. `%` (or `%1`) is the first argument, `%2` the second, etc.
 
-```scheme
+```sema
 (map #(+ % 1) '(1 2 3))               ; => (2 3 4)
 (map #(* % %) '(1 2 3 4))             ; => (1 4 9 16)
 (filter #(> % 3) '(1 2 3 4 5))        ; => (4 5)
@@ -173,7 +173,7 @@ Concise anonymous functions. `%` (or `%1`) is the first argument, `%2` the secon
 
 Parallel bindings — all init expressions are evaluated before any binding is created.
 
-```scheme
+```sema
 (let ((x 10) (y 20))
   (+ x y))
 ```
@@ -182,7 +182,7 @@ Parallel bindings — all init expressions are evaluated before any binding is c
 
 Sequential bindings — each binding is visible to subsequent ones.
 
-```scheme
+```sema
 (let* ((x 10) (y (* x 2)))
   (+ x y))
 ```
@@ -191,7 +191,7 @@ Sequential bindings — each binding is visible to subsequent ones.
 
 Recursive bindings — all bindings are visible to all init expressions. Useful for mutually recursive functions.
 
-```scheme
+```sema
 (letrec ((even? (fn (n) (if (= n 0) #t (odd? (- n 1)))))
          (odd?  (fn (n) (if (= n 0) #f (even? (- n 1))))))
   (even? 10))
@@ -201,7 +201,7 @@ Recursive bindings — all bindings are visible to all init expressions. Useful 
 
 Loop construct with tail-call optimization.
 
-```scheme
+```sema
 (let loop ((i 0) (sum 0))
   (if (= i 100)
     sum
@@ -216,7 +216,7 @@ Loop construct with tail-call optimization.
 
 Extract elements from lists and vectors by position.
 
-```scheme
+```sema
 (let (([a b c] '(1 2 3)))
   (+ a b c))                           ; => 6
 
@@ -231,28 +231,28 @@ Extract elements from lists and vectors by position.
 
 Extract values from maps using `{:keys [...]}`.
 
-```scheme
+```sema
 (let (({:keys [name age]} {:name "Alice" :age 30}))
   (println name))                       ; prints "Alice"
 ```
 
 Explicit key-pattern pairs:
 
-```scheme
+```sema
 (let (({:x val} {:x 42}))
   val)                                  ; => 42
 ```
 
 ### Destructuring in `define`
 
-```scheme
+```sema
 (define [a b c] '(1 2 3))              ; binds a=1, b=2, c=3
 (define {:keys [host port]} config)     ; binds host, port from map
 ```
 
 ### Destructuring in Function Parameters
 
-```scheme
+```sema
 (define (sum-pair [a b])
   (+ a b))
 (sum-pair '(3 4))                       ; => 7
@@ -264,7 +264,7 @@ Explicit key-pattern pairs:
 
 Nested patterns are supported:
 
-```scheme
+```sema
 (let (([[a b] c] '((1 2) 3)))
   (+ a b c))                           ; => 6
 ```
@@ -275,7 +275,7 @@ Nested patterns are supported:
 
 Match a value against patterns with optional guards. Returns `nil` if no clause matches.
 
-```scheme
+```sema
 (match value
   (pattern body ...)
   (pattern when guard body ...)
@@ -284,7 +284,7 @@ Match a value against patterns with optional guards. Returns `nil` if no clause 
 
 #### Literal Matching
 
-```scheme
+```sema
 (match status
   (:ok "success")
   (:error "failure")
@@ -295,14 +295,14 @@ Match a value against patterns with optional guards. Returns `nil` if no clause 
 
 Symbols bind the matched value. `_` is a wildcard.
 
-```scheme
+```sema
 (match (+ 1 2)
   (x (format "got ~a" x)))             ; => "got 3"
 ```
 
 #### Vector Patterns
 
-```scheme
+```sema
 (match '(1 2 3)
   ([a b c] (+ a b c)))                 ; => 6
 
@@ -315,7 +315,7 @@ Symbols bind the matched value. `_` is a wildcard.
 
 Structural matching — keys must exist in the value:
 
-```scheme
+```sema
 (match response
   ({:type :ok :data d}   (process d))
   ({:type :error :msg m} (log-error m))
@@ -324,7 +324,7 @@ Structural matching — keys must exist in the value:
 
 With `{:keys [...]}` shorthand:
 
-```scheme
+```sema
 (match config
   ({:keys [host port]} (connect host port)))
 ```
@@ -333,7 +333,7 @@ With `{:keys [...]}` shorthand:
 
 Add `when` after a pattern for conditional matching:
 
-```scheme
+```sema
 (match n
   (x when (> x 100) "big")
   (x when (> x 0)   "small")
@@ -342,7 +342,7 @@ Add `when` after a pattern for conditional matching:
 
 #### Nested Patterns
 
-```scheme
+```sema
 (match '(1 (2 3))
   ([a [b c]] (+ a b c)))               ; => 6
 ```
@@ -353,7 +353,7 @@ Add `when` after a pattern for conditional matching:
 
 Evaluate expressions in order, return the last result.
 
-```scheme
+```sema
 (begin expr1 expr2 ... exprN)
 ```
 
@@ -361,7 +361,7 @@ Evaluate expressions in order, return the last result.
 
 Short-circuit logical AND. Returns the last truthy value or `#f`.
 
-```scheme
+```sema
 (and a b c)
 ```
 
@@ -369,7 +369,7 @@ Short-circuit logical AND. Returns the last truthy value or `#f`.
 
 Short-circuit logical OR. Returns the first truthy value or `#f`.
 
-```scheme
+```sema
 (or a b c)
 ```
 
@@ -379,7 +379,7 @@ Short-circuit logical OR. Returns the first truthy value or `#f`.
 
 Scheme `do` loop with variable bindings, step expressions, and a termination test.
 
-```scheme
+```sema
 ;; (do ((var init step) ...) (test result ...) body ...)
 (do ((i 0 (+ i 1))
      (sum 0 (+ sum i)))
@@ -388,7 +388,7 @@ Scheme `do` loop with variable bindings, step expressions, and a termination tes
 
 With a body for side effects:
 
-```scheme
+```sema
 (do ((i 0 (+ i 1)))
     ((= i 5))
   (println i))                         ; prints 0..4
@@ -400,7 +400,7 @@ With a body for side effects:
 
 Create a promise — the expression is not evaluated until forced.
 
-```scheme
+```sema
 (define p (delay (+ 1 2)))
 ```
 
@@ -408,7 +408,7 @@ Create a promise — the expression is not evaluated until forced.
 
 Evaluate a promise and memoize the result. Non-promise values pass through.
 
-```scheme
+```sema
 (force p)                              ; => 3 (evaluate and memoize)
 (force p)                              ; => 3 (returns cached value)
 (force 42)                             ; => 42 (non-promise passes through)
@@ -418,7 +418,7 @@ Evaluate a promise and memoize the result. Non-promise values pass through.
 
 Check if a value is a promise.
 
-```scheme
+```sema
 (promise? p)                           ; => #t
 ```
 
@@ -426,7 +426,7 @@ Check if a value is a promise.
 
 Check if a promise has already been forced.
 
-```scheme
+```sema
 (promise-forced? p)                    ; => #t (after forcing)
 ```
 
@@ -436,7 +436,7 @@ Check if a promise has already been forced.
 
 Define a record type with constructor, predicate, and field accessors.
 
-```scheme
+```sema
 (define-record-type point
   (make-point x y)
   point?
@@ -458,7 +458,7 @@ Define a record type with constructor, predicate, and field accessors.
 
 Catch errors with structured error maps.
 
-```scheme
+```sema
 (try
   (/ 1 0)
   (catch e
@@ -490,7 +490,7 @@ Every caught error is a map with at least `:type`, `:message`, and `:stack-trace
 
 Use the `:type` field to handle specific errors and re-throw the rest:
 
-```scheme
+```sema
 (try
   (some-operation)
   (catch e
@@ -507,7 +507,7 @@ Use the `:type` field to handle specific errors and re-throw the rest:
 
 Throw any value as an error.
 
-```scheme
+```sema
 (throw "something went wrong")
 (throw {:code 404 :reason "not found"})
 ```

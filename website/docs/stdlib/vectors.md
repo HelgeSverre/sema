@@ -10,7 +10,7 @@ Vectors are fixed-size, indexed collections written with bracket syntax. Most li
 
 Vectors use square brackets:
 
-```scheme
+```sema
 [1 2 3]              ; a vector of three integers
 ["a" "b" "c"]        ; a vector of strings
 []                   ; empty vector
@@ -23,7 +23,7 @@ Vectors use square brackets:
 
 Create a vector from arguments.
 
-```scheme
+```sema
 (vector 1 2 3)       ; => [1 2 3]
 (vector)             ; => []
 (vector "a" "b")     ; => ["a" "b"]
@@ -35,7 +35,7 @@ Create a vector from arguments.
 
 Convert a vector to a list.
 
-```scheme
+```sema
 (vector->list [1 2 3])   ; => (1 2 3)
 (vector->list [])         ; => ()
 ```
@@ -44,7 +44,7 @@ Convert a vector to a list.
 
 Convert a list to a vector.
 
-```scheme
+```sema
 (list->vector '(1 2 3))   ; => [1 2 3]
 (list->vector '())         ; => []
 ```
@@ -53,7 +53,7 @@ Convert a list to a vector.
 
 Most list functions work seamlessly with vectors:
 
-```scheme
+```sema
 (map (fn (x) (* x x)) [1 2 3])     ; => (1 4 9)
 (filter even? [1 2 3 4 5])          ; => (2 4)
 (length [1 2 3])                    ; => 3

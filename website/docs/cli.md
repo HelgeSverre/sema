@@ -180,7 +180,7 @@ sema --sandbox=strict --allowed-paths=./data script.sema
 
 Sema supports `#!` (shebang) lines, so you can write executable scripts:
 
-```scheme
+```sema
 #!/usr/bin/env sema
 (println "Hello from a sema script!")
 ```

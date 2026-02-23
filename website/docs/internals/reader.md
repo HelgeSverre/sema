@@ -123,7 +123,7 @@ The key distinction: the _syntax_ (`` ` , ,@ ' ``) is reader-level, but the _sem
 
 Sema supports dotted pair notation `(a . b)` for compatibility with Scheme's cons-cell tradition, but the representation is unconventional. Since `Value::List` wraps a `Vec<Value>` (not a linked list of cons cells), dotted pairs are represented using a marker symbol:
 
-```scheme
+```sema
 (a . b)    ;; parses as a list of three elements: [a, ".", b]
 (1 2 . 3)  ;; parses as: [1, 2, ".", 3]
 ```
