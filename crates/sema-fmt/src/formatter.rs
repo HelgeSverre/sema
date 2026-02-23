@@ -9,6 +9,9 @@ use sema_reader::lexer::{tokenize, FStringPart, SpannedToken, Token};
 enum Node {
     /// A single semantic token (symbol, number, string, keyword, bool, char, dot, etc.)
     Atom(Token),
+    /// A string/fstring/regex token with original source text preserved exactly.
+    /// This ensures multi-line strings, f-strings, and regex literals round-trip correctly.
+    StringAtom(String),
     /// A comment (already includes leading semicolons)
     Comment(String),
     /// A newline separator (used to track blank lines between forms)
@@ -32,11 +35,11 @@ enum Node {
 // Building the node tree from the flat token stream
 // ---------------------------------------------------------------------------
 
-fn build_nodes(tokens: &[SpannedToken]) -> Result<Vec<Node>, SemaError> {
+fn build_nodes(tokens: &[SpannedToken], source: &str) -> Result<Vec<Node>, SemaError> {
     let mut pos = 0;
     let mut nodes = Vec::new();
     while pos < tokens.len() {
-        let (node, next) = build_one(tokens, pos)?;
+        let (node, next) = build_one(tokens, pos, source)?;
         nodes.push(node);
         pos = next;
     }
@@ -44,7 +47,7 @@ fn build_nodes(tokens: &[SpannedToken]) -> Result<Vec<Node>, SemaError> {
 }
 
 /// Parse one node starting at `pos`, returning `(node, next_pos)`.
-fn build_one(tokens: &[SpannedToken], pos: usize) -> Result<(Node, usize), SemaError> {
+fn build_one(tokens: &[SpannedToken], pos: usize, source: &str) -> Result<(Node, usize), SemaError> {
     if pos >= tokens.len() {
         return Err(SemaError::eval("unexpected end of token stream"));
     }
@@ -53,32 +56,42 @@ fn build_one(tokens: &[SpannedToken], pos: usize) -> Result<(Node, usize), SemaE
         Token::Comment(text) => Ok((Node::Comment(text.clone()), pos + 1)),
         Token::Newline => Ok((Node::Newline, pos + 1)),
 
+        // String/FString/Regex — preserve original source text for exact round-tripping
+        Token::String(_) | Token::FString(_) | Token::Regex(_) => {
+            let raw = &source[st.byte_start..st.byte_end];
+            Ok((Node::StringAtom(raw.to_string()), pos + 1))
+        }
+
         // Prefix tokens — attach to the following node
         Token::Quote | Token::Quasiquote | Token::Unquote | Token::UnquoteSplice => {
             let prefix_tok = st.token.clone();
             if pos + 1 >= tokens.len() {
                 return Err(SemaError::eval("prefix token at end of input"));
             }
-            let (inner, next) = build_one(tokens, pos + 1)?;
+            let (inner, next) = build_one(tokens, pos + 1, source)?;
             Ok((Node::Prefix(prefix_tok, Box::new(inner)), next))
         }
 
         // Grouped forms
-        Token::LParen => build_group(tokens, pos + 1, Token::RParen, |children| {
+        Token::LParen => build_group(tokens, pos + 1, Token::RParen, source, |children| {
             Node::List(children)
         }),
-        Token::LBracket => build_group(tokens, pos + 1, Token::RBracket, |children| {
+        Token::LBracket => build_group(tokens, pos + 1, Token::RBracket, source, |children| {
             Node::Vector(children)
         }),
-        Token::LBrace => build_group(tokens, pos + 1, Token::RBrace, |children| {
+        Token::LBrace => build_group(tokens, pos + 1, Token::RBrace, source, |children| {
             Node::Map(children)
         }),
-        Token::ShortLambdaStart => build_group(tokens, pos + 1, Token::RParen, |children| {
-            Node::ShortLambda(children)
-        }),
-        Token::BytevectorStart => build_group(tokens, pos + 1, Token::RParen, |children| {
-            Node::ByteVector(children)
-        }),
+        Token::ShortLambdaStart => {
+            build_group(tokens, pos + 1, Token::RParen, source, |children| {
+                Node::ShortLambda(children)
+            })
+        }
+        Token::BytevectorStart => {
+            build_group(tokens, pos + 1, Token::RParen, source, |children| {
+                Node::ByteVector(children)
+            })
+        }
 
         // Closing delimiters — should not appear here at top-level
         Token::RParen | Token::RBracket | Token::RBrace => {
@@ -94,6 +107,7 @@ fn build_group<F>(
     tokens: &[SpannedToken],
     start: usize,
     closer: Token,
+    source: &str,
     make: F,
 ) -> Result<(Node, usize), SemaError>
 where
@@ -105,7 +119,7 @@ where
         if std::mem::discriminant(&tokens[pos].token) == std::mem::discriminant(&closer) {
             return Ok((make(children), pos + 1));
         }
-        let (node, next) = build_one(tokens, pos)?;
+        let (node, next) = build_one(tokens, pos, source)?;
         children.push(node);
         pos = next;
     }
@@ -179,7 +193,125 @@ fn is_trivia(n: &Node) -> bool {
     matches!(n, Node::Comment(_) | Node::Newline)
 }
 
+/// Check if a node or any of its descendants contains comments.
+fn has_any_comments(node: &Node) -> bool {
+    match node {
+        Node::Comment(_) => true,
+        Node::List(children)
+        | Node::Vector(children)
+        | Node::Map(children)
+        | Node::ShortLambda(children)
+        | Node::ByteVector(children) => children.iter().any(has_any_comments),
+        Node::Prefix(_, inner) => has_any_comments(inner),
+        _ => false,
+    }
+}
 
+/// Check if a node or any of its descendants contains newlines.
+fn has_any_newlines(node: &Node) -> bool {
+    match node {
+        Node::Newline => true,
+        Node::List(children)
+        | Node::Vector(children)
+        | Node::Map(children)
+        | Node::ShortLambda(children)
+        | Node::ByteVector(children) => children.iter().any(has_any_newlines),
+        Node::Prefix(_, inner) => has_any_newlines(inner),
+        _ => false,
+    }
+}
+
+/// How many "distinguished" args go on the first line for a body form.
+fn body_first_line_count(head_name: &str, semantic: &[&Node]) -> usize {
+    match head_name {
+        "define" => {
+            if semantic.len() > 1 && matches!(semantic[1], Node::List(_)) {
+                2 // (define (f x) body...)
+            } else {
+                semantic.len().min(3) // (define x val)
+            }
+        }
+        // (defn name (params) body...) — head + name + params
+        "defn" | "defun" | "defmacro" => 3.min(semantic.len()),
+        // (define-record-type Name (ctor ...) pred? (field accessor)...)
+        "define-record-type" => 4.min(semantic.len()),
+        // (define-syntax name rules...)
+        "define-syntax" => 2.min(semantic.len()),
+        // deftool/defagent: only head + name on first line (docstring goes on its own line)
+        "deftool" | "defagent" => 2.min(semantic.len()),
+        // fn/lambda: head + params
+        "fn" | "lambda" => {
+            if semantic.len() > 1 {
+                2
+            } else {
+                1
+            }
+        }
+        // when/unless/while: head + condition on first line
+        "when" | "unless" | "while" => {
+            if semantic.len() > 1 {
+                2
+            } else {
+                1
+            }
+        }
+        _ => 1,
+    }
+}
+
+/// Check if a form should be forced to multi-line layout for structural reasons,
+/// even if it would fit on one line.
+fn should_force_multiline(kind: FormKind, semantic: &[&Node]) -> bool {
+    match kind {
+        FormKind::Body => {
+            let head_name = match semantic.first() {
+                Some(Node::Atom(Token::Symbol(s))) => s.as_str(),
+                _ => return false,
+            };
+            let first_line_count = body_first_line_count(head_name, semantic);
+            // Force multi-line if there are 2+ body expressions
+            semantic.len() > first_line_count + 1
+        }
+        FormKind::Binding => {
+            // Force multi-line if bindings list has 2+ bindings
+            let bindings_idx = if is_named_let(semantic) { 2 } else { 1 };
+            if semantic.len() > bindings_idx {
+                if let Some(count) = count_bindings(semantic[bindings_idx]) {
+                    return count >= 2;
+                }
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+/// Check if this is a named let: (let NAME BINDINGS body...)
+fn is_named_let(semantic: &[&Node]) -> bool {
+    if semantic.len() >= 3 {
+        if let Node::Atom(Token::Symbol(s)) = semantic[0] {
+            if s == "let" {
+                if let Node::Atom(Token::Symbol(_)) = semantic[1] {
+                    return matches!(semantic[2], Node::List(_) | Node::Vector(_));
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Count the number of bindings in a binding list node.
+fn count_bindings(node: &Node) -> Option<usize> {
+    match node {
+        Node::List(children) | Node::Vector(children) => Some(
+            children
+                .iter()
+                .filter(|n| matches!(n, Node::List(_) | Node::Vector(_)))
+                .count(),
+        ),
+        _ => None,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Measuring the flat (single-line) width of a node
@@ -188,6 +320,14 @@ fn is_trivia(n: &Node) -> bool {
 fn flat_width(node: &Node) -> usize {
     match node {
         Node::Atom(tok) => token_text(tok).len(),
+        Node::StringAtom(raw) => {
+            // Multi-line strings can never fit on a single line
+            if raw.contains('\n') {
+                10_000
+            } else {
+                raw.len()
+            }
+        }
         Node::Comment(text) => text.len(),
         Node::Newline => 0,
         Node::List(children) => grouped_flat_width(children, "(", ")"),
@@ -204,9 +344,12 @@ fn grouped_flat_width(children: &[Node], open: &str, close: &str) -> usize {
     if semantic.is_empty() {
         return open.len() + close.len();
     }
-    let inner: usize = semantic.iter().map(|n| flat_width(n)).sum::<usize>();
+    let inner: usize = semantic
+        .iter()
+        .map(|n| flat_width(n))
+        .fold(0usize, |a, b| a.saturating_add(b));
     let spaces = semantic.len().saturating_sub(1);
-    open.len() + inner + spaces + close.len()
+    open.len().saturating_add(inner).saturating_add(spaces).saturating_add(close.len())
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +412,8 @@ fn escape_string(s: &str) -> String {
     }
     out
 }
+
+
 
 fn escape_regex(s: &str) -> String {
     // For regex, we only need to escape literal double-quotes
@@ -428,6 +573,9 @@ impl Formatter {
             Node::Atom(tok) => {
                 self.output.push_str(&token_text(tok));
             }
+            Node::StringAtom(raw) => {
+                self.output.push_str(raw);
+            }
             Node::Comment(text) => {
                 self.output.push_str(text);
             }
@@ -468,12 +616,14 @@ impl Formatter {
         }
 
         let kind = classify_form(children);
-        let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
+        let has_comments = children.iter().any(has_any_comments);
+        let originally_multiline = children.iter().any(has_any_newlines);
 
-        // Try one-line format first (only if no inner comments).
-        // House style: if the form fits on one line, keep it — even body forms
-        // like (fn (a) (fn (b) (f a b))). Only break when it exceeds width.
-        if !has_comments {
+        // Try one-line format:
+        // - No inner comments
+        // - Not originally multi-line anywhere in tree (respect layout intent)
+        // - No structural reason to force multi-line (e.g. 2+ body exprs)
+        if !has_comments && !originally_multiline && !should_force_multiline(kind, &semantic) {
             let one_line = self.format_flat(&semantic, open, close);
             if indent + one_line.len() <= self.width {
                 self.output.push_str(&one_line);
@@ -514,6 +664,7 @@ impl Formatter {
     fn node_to_flat_string(&self, node: &Node) -> String {
         match node {
             Node::Atom(tok) => token_text(tok),
+            Node::StringAtom(raw) => raw.clone(),
             Node::Comment(text) => text.clone(),
             Node::Newline => String::new(),
             Node::List(children) => {
@@ -559,66 +710,49 @@ impl Formatter {
             return;
         }
 
-        // Determine how many "distinguished" args go on the first line.
-        // For define/defn: head + name + params (up to 3)
-        // For fn/lambda: head + params (up to 2)
-        // For do/begin/when/unless: just head (1)
         let head_name = match &semantic[0].1 {
             Node::Atom(Token::Symbol(s)) => s.as_str(),
             _ => "",
         };
-        let first_line_count = match head_name {
-            "define" => {
-                // (define x 42) — head + name + value = 3 on first line
-                // (define (f x) body...) — head + signature = 2 on first line
-                if semantic.len() > 1 && matches!(semantic[1].1, Node::List(_)) {
-                    // Scheme-style: (define (name args...) body...)
-                    2
-                } else {
-                    // (define name value) or (define name)
-                    semantic.len().min(3)
-                }
-            }
-            "defn" | "defun" | "defmacro" | "defagent" | "deftool" | "define-record-type"
-            | "define-syntax" => {
-                // (defn name [params] body...) — head + name + params
-                let mut count = 1; // the head symbol
-                for (_idx, node) in semantic.iter().skip(1) {
-                    match node {
-                        Node::Atom(_) | Node::Vector(_) | Node::Prefix(_, _) | Node::List(_) => {
-                            count += 1;
-                        }
-                        _ => break,
-                    }
-                }
-                count
-            }
-            "fn" | "lambda" => {
-                // head + params
-                if semantic.len() > 1 {
-                    2
-                } else {
-                    1
-                }
-            }
-            _ => 1, // do, begin, when, unless, etc: just the head
-        };
+        let semantic_refs: Vec<&Node> = semantic.iter().map(|(_, n)| *n).collect();
+        let first_line_count = body_first_line_count(head_name, &semantic_refs);
 
         let first_count = first_line_count.min(semantic.len());
 
         self.output.push_str(open);
 
-        // Emit first-line args
-        for (j, (_orig_idx, node)) in semantic.iter().enumerate().take(first_count) {
-            if j > 0 {
-                self.output.push(' ');
+        // Always emit head
+        self.format_node(semantic[0].1, indent + open.len());
+        let mut emitted = 1;
+
+        // Try to put subsequent first-line args on the same line
+        let body_indent = indent + 2;
+        for (j, (_orig_idx, node)) in semantic.iter().enumerate().skip(1).take(first_count - 1) {
+            let w = flat_width(node);
+            let current_col = match self.output.rfind('\n') {
+                Some(pos) => self.output.len() - pos - 1,
+                None => self.output.len(),
+            };
+
+            // Check if it fits flat on this line
+            if current_col + 1 + w > self.width {
+                break;
             }
-            self.format_node(node, indent + open.len());
+
+            let checkpoint = self.output.len();
+            self.output.push(' ');
+            self.format_node(node, body_indent);
+
+            // If it went multi-line, undo and break
+            if self.output[checkpoint..].contains('\n') {
+                self.output.truncate(checkpoint);
+                break;
+            }
+            emitted = j + 1;
         }
 
-        // Emit body forms with interleaved comments preserved
-        let body_indent = indent + 2;
-        let body_start = Self::index_after_nth_semantic(children, first_count);
+        // Remaining args as body at indent+2
+        let body_start = Self::index_after_nth_semantic(children, emitted);
         self.emit_body_with_comments(children, body_start, body_indent);
 
         self.output.push_str(close);
@@ -642,13 +776,32 @@ impl Formatter {
         self.format_node(semantic[0], indent + open.len());
         self.output.push(' ');
 
-        // bindings (the second semantic child, usually a vector or list)
-        let bindings_indent = indent + open.len() + flat_width(semantic[0]) + 1;
-        self.format_node(semantic[1], bindings_indent);
+        // Check for named let: (let name bindings body...)
+        let (bindings_idx, bindings_indent) = if is_named_let(&semantic) {
+            let name_col = indent + open.len() + flat_width(semantic[0]) + 1;
+            self.format_node(semantic[1], name_col);
+            self.output.push(' ');
+            let bi = name_col + flat_width(semantic[1]) + 1;
+            (2, bi)
+        } else {
+            let bi = indent + open.len() + flat_width(semantic[0]) + 1;
+            (1, bi)
+        };
+
+        // Format bindings as a collection (aligns elements under first element)
+        match semantic[bindings_idx] {
+            Node::List(inner) => {
+                self.format_collection(inner, bindings_indent, "(", ")");
+            }
+            Node::Vector(inner) => {
+                self.format_collection(inner, bindings_indent, "[", "]");
+            }
+            other => self.format_node(other, bindings_indent),
+        }
 
         // body forms with interleaved comments preserved
         let body_indent = indent + 2;
-        let body_start = Self::index_after_nth_semantic(children, 2);
+        let body_start = Self::index_after_nth_semantic(children, bindings_idx + 1);
         self.emit_body_with_comments(children, body_start, body_indent);
 
         self.output.push_str(close);
@@ -695,10 +848,7 @@ impl Formatter {
         self.format_node(semantic[0], indent + open.len());
         self.output.push(' ');
         // first value
-        self.format_node(
-            semantic[1],
-            indent + open.len() + flat_width(semantic[0]) + 1,
-        );
+        self.format_node(semantic[1], indent + 2);
 
         // steps with interleaved comments preserved
         let step_indent = indent + 2;
@@ -723,10 +873,7 @@ impl Formatter {
         if semantic.len() > 1 {
             self.output.push(' ');
             // test
-            self.format_node(
-                semantic[1],
-                indent + open.len() + flat_width(semantic[0]) + 1,
-            );
+            self.format_node(semantic[1], indent + 2);
         }
 
         // then/else branches with interleaved comments preserved
@@ -752,10 +899,11 @@ impl Formatter {
         }
 
         // If children contain comments, force multi-line to preserve them
-        let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
+        let has_comments = children.iter().any(has_any_comments);
+        let originally_multiline = children.iter().any(has_any_newlines);
 
-        // Try one-line first (only if no inner comments)
-        if !has_comments {
+        // Try one-line first (only if no inner comments and not originally multi-line)
+        if !has_comments && !originally_multiline {
             let one_line = self.format_flat(&semantic, open, close);
             if indent + one_line.len() <= self.width {
                 self.output.push_str(&one_line);
@@ -787,6 +935,15 @@ impl Formatter {
             return;
         }
 
+        // Detect hash-map/assoc for key-value pair grouping
+        let head_name = match semantic[0] {
+            Node::Atom(Token::Symbol(s)) => Some(s.as_str()),
+            _ => None,
+        };
+        if matches!(head_name, Some("hash-map" | "assoc")) {
+            return self.format_kv_call(children, indent, open, close);
+        }
+
         self.output.push_str(open);
         // head
         self.format_node(semantic[0], indent + open.len());
@@ -801,19 +958,108 @@ impl Formatter {
         let first_arg_col = indent + open.len() + head_width + 1;
         let arg_indent = indent + 2;
 
-        // Check if head + first arg fits on one line
+        // Check if head + first arg fits on one line (flat)
         if first_arg_col + flat_width(semantic[1]) <= self.width {
-            // First arg on same line
+            // Try first arg on same line
+            let checkpoint = self.output.len();
             self.output.push(' ');
-            self.format_node(semantic[1], first_arg_col);
+            self.format_node(semantic[1], arg_indent);
 
-            // Remaining args indented 2 from opening paren, with comments preserved
-            let rest_start = Self::index_after_nth_semantic(children, 2);
-            self.emit_body_with_comments(children, rest_start, arg_indent);
-        } else {
-            // Everything indented 2 from opening paren, with comments preserved
-            let rest_start = Self::index_after_nth_semantic(children, 1);
-            self.emit_body_with_comments(children, rest_start, arg_indent);
+            // If the first arg went multi-line, undo and put everything on new lines
+            if self.output[checkpoint..].contains('\n') {
+                self.output.truncate(checkpoint);
+                // Fall through to all-on-new-lines path below
+            } else {
+                // First arg stayed single-line, emit rest at indent+2
+                let rest_start = Self::index_after_nth_semantic(children, 2);
+                self.emit_body_with_comments(children, rest_start, arg_indent);
+                self.output.push_str(close);
+                return;
+            }
+        }
+        // All args on new lines at indent+2
+        let rest_start = Self::index_after_nth_semantic(children, 1);
+        self.emit_body_with_comments(children, rest_start, arg_indent);
+
+        self.output.push_str(close);
+    }
+
+    // -----------------------------------------------------------------------
+    // Key-value call: (hash-map k1 v1 k2 v2) / (assoc m k1 v1 k2 v2)
+    // -----------------------------------------------------------------------
+
+    fn format_kv_call(&mut self, children: &[Node], indent: usize, open: &str, close: &str) {
+        let semantic: Vec<&Node> = children.iter().filter(|n| !is_trivia(n)).collect();
+        let head_name = match semantic[0] {
+            Node::Atom(Token::Symbol(s)) => s.as_str(),
+            _ => "",
+        };
+
+        // For assoc, first arg is the map; for hash-map, all args are kv pairs
+        let kv_start = if head_name == "assoc" { 2 } else { 1 };
+        let kv_args: Vec<&Node> = semantic[kv_start..].to_vec();
+
+        // Try one-line first
+        let has_comments = children.iter().any(has_any_comments);
+        let originally_multiline = children.iter().any(has_any_newlines);
+        if !has_comments && !originally_multiline {
+            let one_line = self.format_flat(&semantic, open, close);
+            if indent + one_line.len() <= self.width {
+                self.output.push_str(&one_line);
+                return;
+            }
+        }
+
+        let pair_indent = indent + 2;
+
+        self.output.push_str(open);
+        // head
+        self.format_node(semantic[0], indent + open.len());
+
+        // For assoc, emit the map arg first
+        if head_name == "assoc" && semantic.len() > 1 {
+            self.output.push(' ');
+            self.format_node(semantic[1], pair_indent);
+        }
+
+        // Emit key-value pairs, each pair on its own line at indent+2
+        let mut i = 0;
+        while i < kv_args.len() {
+            self.output.push('\n');
+            self.push_indent(pair_indent);
+            // Key
+            self.format_node(kv_args[i], pair_indent);
+
+            if i + 1 < kv_args.len() {
+                // Try key + value on one line
+                let key_col = match self.output.rfind('\n') {
+                    Some(pos) => self.output.len() - pos - 1,
+                    None => self.output.len(),
+                };
+                let val_width = flat_width(kv_args[i + 1]);
+
+                if key_col + 1 + val_width <= self.width {
+                    let checkpoint = self.output.len();
+                    self.output.push(' ');
+                    self.format_node(kv_args[i + 1], pair_indent);
+                    // If value went multi-line, undo and put on next line
+                    if self.output[checkpoint..].contains('\n') {
+                        self.output.truncate(checkpoint);
+                        self.output.push('\n');
+                        self.push_indent(pair_indent + 2);
+                        self.format_node(kv_args[i + 1], pair_indent + 2);
+                    }
+                } else {
+                    // Value on next line indented further
+                    self.output.push('\n');
+                    self.push_indent(pair_indent + 2);
+                    self.format_node(kv_args[i + 1], pair_indent + 2);
+                }
+                i += 2;
+            } else {
+                // Odd arg (shouldn't happen normally, but handle gracefully)
+                i += 1;
+            }
         }
 
         self.output.push_str(close);
@@ -833,10 +1079,11 @@ impl Formatter {
         }
 
         // If children contain comments, force multi-line to preserve them
-        let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
+        let has_comments = children.iter().any(has_any_comments);
+        let originally_multiline = children.iter().any(has_any_newlines);
 
-        // Try one-line (only if no inner comments)
-        if !has_comments {
+        // Try one-line (only if no inner comments and not originally multi-line)
+        if !has_comments && !originally_multiline {
             let one_line = self.format_flat(&semantic, open, close);
             if indent + one_line.len() <= self.width {
                 self.output.push_str(&one_line);
@@ -847,6 +1094,12 @@ impl Formatter {
         // One per line, with comments preserved
         let elem_indent = indent + open.len();
         self.output.push_str(open);
+        // Emit any comments before the first semantic element
+        let had_leading_comments = self.emit_leading_comments(children, elem_indent);
+        if had_leading_comments {
+            self.output.push('\n');
+            self.push_indent(elem_indent);
+        }
         self.format_node(semantic[0], elem_indent);
 
         let rest_start = Self::index_after_nth_semantic(children, 1);
@@ -869,10 +1122,11 @@ impl Formatter {
         }
 
         // If children contain comments, force multi-line to preserve them
-        let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
+        let has_comments = children.iter().any(has_any_comments);
+        let originally_multiline = children.iter().any(has_any_newlines);
 
-        // Try one-line (only if no inner comments)
-        if !has_comments {
+        // Try one-line (only if no inner comments and not originally multi-line)
+        if !has_comments && !originally_multiline {
             let one_line = self.format_flat(&semantic, open, close);
             if indent + one_line.len() <= self.width {
                 self.output.push_str(&one_line);
@@ -895,6 +1149,7 @@ impl Formatter {
                     self.output.push('\n');
                     self.push_indent(pair_indent);
                     self.output.push_str(text);
+                    first_pair = false; // ensure next key gets a newline
                 }
                 _ if is_trivia(child) => {}
                 _ => {
@@ -923,6 +1178,26 @@ impl Formatter {
     // Helper: emit body children with interleaved comments preserved
     // -----------------------------------------------------------------------
 
+    /// Emit any comments that appear before the first semantic element.
+    /// Returns true if any comments were emitted.
+    fn emit_leading_comments(&mut self, all_children: &[Node], indent: usize) -> bool {
+        let mut emitted = false;
+        for child in all_children {
+            match child {
+                Node::Comment(text) => {
+                    self.output.push('\n');
+                    self.push_indent(indent);
+                    self.output.push_str(text);
+                    emitted = true;
+                }
+                Node::Newline => {}
+                _ if is_trivia(child) => {}
+                _ => break, // Hit first semantic element
+            }
+        }
+        emitted
+    }
+
     /// Find the index in `all_children` just past the `n`th semantic (non-trivia) node.
     /// Returns `all_children.len()` if fewer than `n` semantic nodes exist.
     fn index_after_nth_semantic(all_children: &[Node], n: usize) -> usize {
@@ -940,34 +1215,40 @@ impl Formatter {
 
     /// Emit all children starting from `start_idx`, preserving comments inline.
     /// Semantic nodes are formatted on their own lines at `body_indent`.
-    /// Comments are emitted at `body_indent`. Multiple blank lines are collapsed.
+    /// Comments are emitted at `body_indent`. Blank lines (2+ consecutive
+    /// Newlines) are preserved as a single blank line.
     fn emit_body_with_comments(
         &mut self,
         all_children: &[Node],
         start_idx: usize,
         body_indent: usize,
     ) {
-        let mut prev_was_newline = false;
+        let mut consecutive_newlines: usize = 0;
         for child in &all_children[start_idx..] {
             match child {
                 Node::Newline => {
-                    prev_was_newline = true;
+                    consecutive_newlines += 1;
                 }
                 Node::Comment(text) => {
-                    if prev_was_newline {
-                        // blank line before the comment — already emitting newlines
+                    // Preserve blank line if there were 2+ consecutive newlines
+                    if consecutive_newlines >= 2 {
+                        self.output.push('\n');
                     }
                     self.output.push('\n');
                     self.push_indent(body_indent);
                     self.output.push_str(text);
-                    prev_was_newline = false;
+                    consecutive_newlines = 0;
                 }
                 _ if is_trivia(child) => {}
                 _ => {
+                    // Preserve blank line if there were 2+ consecutive newlines
+                    if consecutive_newlines >= 2 {
+                        self.output.push('\n');
+                    }
                     self.output.push('\n');
                     self.push_indent(body_indent);
                     self.format_node(child, body_indent);
-                    prev_was_newline = false;
+                    consecutive_newlines = 0;
                 }
             }
         }
@@ -1019,8 +1300,8 @@ pub fn format_source(input: &str, width: usize) -> Result<String, SemaError> {
 
     let tokens = tokenize(rest)?;
 
-    // 3. Build node tree from tokens
-    let nodes = build_nodes(&tokens)?;
+    // 3. Build node tree from tokens (passing source for string round-tripping)
+    let nodes = build_nodes(&tokens, rest)?;
 
     // 4. Format node tree to string
     let mut fmt = Formatter::new(width);
@@ -1400,9 +1681,28 @@ mod tests {
 
     #[test]
     fn test_string_escaping_roundtrip() {
+        // \n escapes stay as \n escapes (original source preserved)
         let input = "\"hello\\nworld\\t!\"";
         let result = fmt(input);
         assert_eq!(result, "\"hello\\nworld\\t!\"\n");
+    }
+
+    #[test]
+    fn test_multiline_string_preserved() {
+        // Multi-line strings stay multi-line (original source preserved)
+        let input = "\"line one\nline two\nline three\"";
+        let result = fmt(input);
+        assert_eq!(result, "\"line one\nline two\nline three\"\n");
+        let result2 = fmt(&result);
+        assert_eq!(result, result2, "multi-line string should be idempotent");
+    }
+
+    #[test]
+    fn test_short_escape_stays_escaped() {
+        // Short strings with \n stay escaped
+        let input = "(string/join items \"\\n\\n\")";
+        let result = fmt(input);
+        assert_eq!(result, "(string/join items \"\\n\\n\")\n");
     }
 
     #[test]
