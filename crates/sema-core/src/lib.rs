@@ -2,6 +2,7 @@
 pub mod context;
 pub mod error;
 pub mod home;
+pub mod resolve;
 pub mod sandbox;
 pub mod value;
 pub mod vfs;
