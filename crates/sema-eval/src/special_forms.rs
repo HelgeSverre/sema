@@ -1293,8 +1293,10 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         .as_str()
         .ok_or_else(|| SemaError::type_error("string", path_val.type_name()))?;
 
-    // Resolve path relative to current file
-    let resolved = if std::path::Path::new(path_str).is_absolute() {
+    // Resolve path: package imports first, then relative/absolute
+    let resolved = if sema_core::resolve::is_package_import(path_str) {
+        sema_core::resolve::resolve_package_import(path_str)?
+    } else if std::path::Path::new(path_str).is_absolute() {
         std::path::PathBuf::from(path_str)
     } else if let Some(dir) = ctx.current_file_dir() {
         dir.join(path_str)

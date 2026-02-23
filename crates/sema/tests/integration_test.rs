@@ -12661,3 +12661,34 @@ fn test_vfs_import_selective() {
     .join()
     .unwrap();
 }
+
+#[test]
+fn test_package_import() {
+    let tmp = std::env::temp_dir().join(format!(
+        "sema-pkg-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&tmp);
+
+    // Create a fake package at <tmp>/packages/github.com/test/mylib/mod.sema
+    let pkg_dir = tmp.join("packages/github.com/test/mylib");
+    std::fs::create_dir_all(&pkg_dir).unwrap();
+    std::fs::write(
+        pkg_dir.join("mod.sema"),
+        "(module mylib (export greet) (define (greet name) (string-append \"hello \" name)))",
+    )
+    .unwrap();
+
+    // Set SEMA_HOME so resolve picks up our temp dir
+    std::env::set_var("SEMA_HOME", &tmp);
+
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(r#"(begin (import "github.com/test/mylib") (greet "world"))"#)
+        .unwrap();
+    assert_eq!(result, Value::string("hello world"));
+
+    // Cleanup
+    std::env::remove_var("SEMA_HOME");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
