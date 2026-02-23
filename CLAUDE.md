@@ -128,6 +128,7 @@ Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. Both 
 - Hosted at **sema-lang.com**, deployed via `cd website && vercel --prod`
 - VitePress site, URLs require `.html` suffix: e.g. `https://sema-lang.com/docs/internals/lisp-comparison.html`
 - All docs pages are under `/docs/`: `https://sema-lang.com/docs/...`
+- **Syntax highlighting**: Use `` ```scheme `` for Sema code blocks in all `.md` files (website docs and GitHub). There is no custom Shiki language definition for `sema`, and `scheme` provides good highlighting.
 
 ## Design Docs
 
