@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en" style="scroll-behavior:smooth;">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Account — Sema Pkg</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:wght@300;400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+  .account-grid {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 2.5rem;
+    align-items: start;
+  }
+
+  .account-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .account-nav a {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .account-nav a:hover { color: var(--text); background: var(--gold-glow); opacity: 1; }
+  .account-nav a.active { color: var(--gold); background: var(--gold-glow); }
+
+  .account-section {
+    margin-bottom: 2.5rem;
+  }
+
+  .account-section h2 {
+    font-size: 0.95rem;
+    color: var(--text-bright);
+    margin-bottom: 1rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .token-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+  }
+
+  .token-name {
+    font-size: 0.78rem;
+    color: var(--text-bright);
+  }
+
+  .token-meta {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+  }
+
+  .token-preview {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+
+  @media (max-width: 640px) {
+    .account-grid {
+      grid-template-columns: 1fr;
+    }
+    .account-nav {
+      flex-direction: row;
+      gap: 0.25rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="logo">Sema<span class="logo-suffix">pkg</span></a>
+  <nav class="header-nav">
+    <a href="search.html" class="header-link">Browse</a>
+    <a href="https://sema-lang.com/docs/" class="header-link">Docs</a>
+    <a href="account.html" class="header-link active">Account</a>
+  </nav>
+</header>
+
+<div class="page-content">
+
+  <h1 style="font-family:var(--serif); font-size:1.6rem; font-weight:300; color:var(--text-bright); margin-bottom:1.5rem;">
+    Account
+  </h1>
+
+  <div class="account-grid">
+
+    <!-- Side nav -->
+    <nav class="account-nav">
+      <a href="#profile" class="active">Profile</a>
+      <a href="#packages">My Packages</a>
+      <a href="#tokens">API Tokens</a>
+    </nav>
+
+    <!-- Content -->
+    <div>
+
+      <!-- Profile -->
+      <div class="account-section" id="profile">
+        <h2>Profile</h2>
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" class="form-input" value="helge" readonly style="opacity:0.6; cursor:not-allowed;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="email" class="form-input" value="helge@example.com">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Homepage</label>
+          <input type="url" class="form-input" value="https://helgesverre.com" placeholder="https://…">
+        </div>
+        <button class="btn btn-primary" style="margin-top:0.5rem;">Save</button>
+      </div>
+
+      <!-- My Packages -->
+      <div class="account-section" id="packages">
+        <h2>My Packages</h2>
+        <div class="pkg-list">
+          <a href="package.html" class="pkg-list-item">
+            <div class="pkg-list-left">
+              <span class="pkg-list-name">sema/http</span><span class="pkg-list-version">1.2.0</span>
+              <div class="pkg-list-desc">HTTP client and server primitives for Sema</div>
+            </div>
+            <div class="pkg-list-right">↓ 3.2k</div>
+          </a>
+          <a href="package.html" class="pkg-list-item">
+            <div class="pkg-list-left">
+              <span class="pkg-list-name">sema/test</span><span class="pkg-list-version">2.0.3</span>
+              <div class="pkg-list-desc">Testing framework with assertions and test runners</div>
+            </div>
+            <div class="pkg-list-right">↓ 5.1k</div>
+          </a>
+          <a href="package.html" class="pkg-list-item">
+            <div class="pkg-list-left">
+              <span class="pkg-list-name">sema/webhook</span><span class="pkg-list-version">0.1.3</span>
+              <div class="pkg-list-desc">Webhook receiver with signature verification</div>
+            </div>
+            <div class="pkg-list-right">↓ 210</div>
+          </a>
+        </div>
+      </div>
+
+      <!-- API Tokens -->
+      <div class="account-section" id="tokens">
+        <h2>API Tokens</h2>
+        <p style="font-size:0.78rem; color:var(--text-dim); margin-bottom:1rem;">
+          Tokens are used by <code style="font-family:var(--mono); color:var(--gold); font-size:0.82em;">sema pkg publish</code> to authenticate.
+        </p>
+
+        <div class="token-row" style="border-top:1px solid var(--border);">
+          <div>
+            <div class="token-name">deploy-ci</div>
+            <div class="token-meta">Created Feb 10, 2026 · Last used 2 days ago</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.75rem;">
+            <span class="token-preview">sema_pk_••••a8f3</span>
+            <button class="btn btn-danger" style="font-size:0.65rem; padding:0.3rem 0.6rem;">Revoke</button>
+          </div>
+        </div>
+
+        <div class="token-row">
+          <div>
+            <div class="token-name">laptop</div>
+            <div class="token-meta">Created Jan 5, 2026 · Last used 1 hour ago</div>
+          </div>
+          <div style="display:flex; align-items:center; gap:0.75rem;">
+            <span class="token-preview">sema_pk_••••d21b</span>
+            <button class="btn btn-danger" style="font-size:0.65rem; padding:0.3rem 0.6rem;">Revoke</button>
+          </div>
+        </div>
+
+        <div style="margin-top:1rem;">
+          <div class="form-group" style="margin-bottom:0.5rem;">
+            <label class="form-label">New Token Name</label>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+              <input type="text" class="form-input" placeholder="e.g. github-actions" style="max-width:16rem;">
+              <button class="btn btn-primary" style="font-size:0.7rem; padding:0.45rem 0.8rem;">Generate</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<footer class="site-footer">
+  <a href="https://sema-lang.com">sema-lang.com</a> · <a href="https://sema.run">playground</a> · <a href="https://github.com/HelgeSverre/sema">github</a>
+</footer>
+
+</body>
+</html>

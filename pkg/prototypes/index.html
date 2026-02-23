@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sema Pkg — Package Registry</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:wght@300;400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="logo">Sema<span class="logo-suffix">pkg</span></a>
+  <nav class="header-nav">
+    <a href="search.html" class="header-link">Browse</a>
+    <a href="https://sema-lang.com/docs/" class="header-link">Docs</a>
+    <a href="login.html" class="header-link">Sign In</a>
+  </nav>
+</header>
+
+<div class="page-content">
+
+  <!-- Hero search -->
+  <section style="text-align:center; padding: 4rem 0 3.5rem;">
+    <h1 style="font-family:var(--serif); font-size:2.4rem; font-weight:300; color:var(--text-bright); margin-bottom:0.4rem;">
+      Sema Packages
+    </h1>
+    <p style="color:var(--text-dim); font-size:0.82rem; margin-bottom:2rem; font-style:italic;">
+      Discover and share Sema libraries
+    </p>
+    <form action="search.html" method="get" class="search-bar" style="max-width:28rem; margin:0 auto;">
+      <input type="text" name="q" class="search-input" placeholder="Search packages…" autofocus>
+      <button type="submit" class="search-btn">Search</button>
+    </form>
+    <div style="margin-top:1rem; font-size:0.65rem; color:var(--text-dim);">
+      142 packages published
+    </div>
+  </section>
+
+  <!-- Featured -->
+  <section style="margin-bottom:2.5rem;">
+    <div class="section-label">Featured</div>
+    <div class="pkg-grid">
+      <a href="package.html" class="pkg-card">
+        <div class="pkg-card-name">sema/http<span class="pkg-card-version">1.2.0</span></div>
+        <div class="pkg-card-desc">HTTP client and server primitives for Sema</div>
+        <div class="pkg-card-meta">
+          <span>↓ 3.2k</span>
+          <span>★ 48</span>
+          <span>helge</span>
+        </div>
+      </a>
+      <a href="package.html" class="pkg-card">
+        <div class="pkg-card-name">sema/json-schema<span class="pkg-card-version">0.9.1</span></div>
+        <div class="pkg-card-desc">JSON Schema validation and generation</div>
+        <div class="pkg-card-meta">
+          <span>↓ 1.8k</span>
+          <span>★ 31</span>
+          <span>contributor42</span>
+        </div>
+      </a>
+      <a href="package.html" class="pkg-card">
+        <div class="pkg-card-name">sema/test<span class="pkg-card-version">2.0.3</span></div>
+        <div class="pkg-card-desc">Testing framework with assertions and test runners</div>
+        <div class="pkg-card-meta">
+          <span>↓ 5.1k</span>
+          <span>★ 72</span>
+          <span>helge</span>
+        </div>
+      </a>
+    </div>
+  </section>
+
+  <!-- Recently updated -->
+  <section style="margin-bottom:2.5rem;">
+    <div class="section-label">Recently Updated</div>
+    <div class="pkg-list">
+      <a href="package.html" class="pkg-list-item">
+        <div class="pkg-list-left">
+          <span class="pkg-list-name">sema/csv</span><span class="pkg-list-version">1.0.0</span>
+          <div class="pkg-list-desc">CSV parsing and writing with streaming support</div>
+        </div>
+        <div class="pkg-list-right">2 hours ago</div>
+      </a>
+      <a href="package.html" class="pkg-list-item">
+        <div class="pkg-list-left">
+          <span class="pkg-list-name">sema/dotenv</span><span class="pkg-list-version">0.3.2</span>
+          <div class="pkg-list-desc">Load environment variables from .env files</div>
+        </div>
+        <div class="pkg-list-right">5 hours ago</div>
+      </a>
+      <a href="package.html" class="pkg-list-item">
+        <div class="pkg-list-left">
+          <span class="pkg-list-name">sema/cli</span><span class="pkg-list-version">1.1.0</span>
+          <div class="pkg-list-desc">Command-line argument parsing and help generation</div>
+        </div>
+        <div class="pkg-list-right">1 day ago</div>
+      </a>
+      <a href="package.html" class="pkg-list-item">
+        <div class="pkg-list-left">
+          <span class="pkg-list-name">sema/sqlite</span><span class="pkg-list-version">0.5.0</span>
+          <div class="pkg-list-desc">SQLite bindings for Sema</div>
+        </div>
+        <div class="pkg-list-right">2 days ago</div>
+      </a>
+      <a href="package.html" class="pkg-list-item">
+        <div class="pkg-list-left">
+          <span class="pkg-list-name">sema/template</span><span class="pkg-list-version">0.2.1</span>
+          <div class="pkg-list-desc">Lightweight template engine with s-expression syntax</div>
+        </div>
+        <div class="pkg-list-right">3 days ago</div>
+      </a>
+    </div>
+  </section>
+
+  <!-- Install hint -->
+  <section style="text-align:center; padding:2rem 0;">
+    <div class="install-snippet" style="display:inline-flex;">
+      <span class="prompt">$</span> sema pkg install sema/http
+    </div>
+  </section>
+
+</div>
+
+<footer class="site-footer">
+  <a href="https://sema-lang.com">sema-lang.com</a> · <a href="https://sema.run">playground</a> · <a href="https://github.com/HelgeSverre/sema">github</a>
+</footer>
+
+</body>
+</html>

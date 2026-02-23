@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>sema/http — Sema Pkg</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:wght@300;400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+<style>
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 240px;
+    gap: 2.5rem;
+    align-items: start;
+  }
+
+  .detail-sidebar section {
+    margin-bottom: 1.5rem;
+  }
+
+  .detail-sidebar .section-label {
+    margin-bottom: 0.4rem;
+  }
+
+  .sidebar-value {
+    font-size: 0.78rem;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  .sidebar-link {
+    font-size: 0.78rem;
+    color: var(--gold);
+    display: block;
+    line-height: 1.6;
+  }
+
+  .readme {
+    font-size: 0.82rem;
+    line-height: 1.75;
+    color: var(--text);
+  }
+
+  .readme h2 {
+    font-size: 1rem;
+    color: var(--text-bright);
+    margin: 2rem 0 0.5rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .readme h2:first-child { margin-top: 0; }
+
+  .readme p { margin-bottom: 0.75rem; }
+
+  .readme pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem;
+    overflow-x: auto;
+    margin-bottom: 0.75rem;
+    font-size: 0.78rem;
+    line-height: 1.6;
+  }
+
+  .readme code {
+    font-family: var(--mono);
+    font-size: 0.82em;
+    color: var(--gold);
+  }
+
+  .readme pre code {
+    color: var(--text-bright);
+    font-size: inherit;
+  }
+
+  .dep-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .dep-list a {
+    font-size: 0.75rem;
+    color: var(--gold);
+  }
+
+  .dep-list span {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    margin-left: 0.25rem;
+  }
+
+  /* ── Tab panels ── */
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  .dep-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.78rem;
+  }
+
+  .dep-table th {
+    text-align: left;
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--border);
+    font-weight: normal;
+  }
+
+  .dep-table td {
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+
+  .dep-table td:first-child a {
+    color: var(--gold);
+    font-size: 0.8rem;
+  }
+
+  .dep-table td:nth-child(2) {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+
+  .dep-table td:nth-child(3) {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+  }
+
+  .dep-direction {
+    margin-bottom: 2rem;
+  }
+
+  .dep-direction h3 {
+    font-size: 0.78rem;
+    color: var(--text-bright);
+    margin-bottom: 0.5rem;
+  }
+
+  @media (max-width: 768px) {
+    .detail-grid {
+      grid-template-columns: 1fr;
+    }
+    .detail-sidebar {
+      order: -1;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+  }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="logo">Sema<span class="logo-suffix">pkg</span></a>
+  <form action="search.html" method="get" class="search-bar" style="max-width:22rem;">
+    <input type="text" name="q" class="search-input" placeholder="Search packages…">
+    <button type="submit" class="search-btn">Search</button>
+  </form>
+  <nav class="header-nav">
+    <a href="search.html" class="header-link">Browse</a>
+    <a href="https://sema-lang.com/docs/" class="header-link">Docs</a>
+    <a href="login.html" class="header-link">Sign In</a>
+  </nav>
+</header>
+
+<div class="page-content">
+
+  <!-- Package header -->
+  <div style="margin-bottom:1.5rem;">
+    <div style="display:flex; align-items:baseline; gap:0.6rem; flex-wrap:wrap;">
+      <h1 style="font-size:1.3rem; color:var(--gold); font-weight:500;">sema/http</h1>
+      <span class="badge badge-gold">1.2.0</span>
+      <span class="tag">networking</span>
+    </div>
+    <p style="font-size:0.82rem; color:var(--text); margin-top:0.35rem;">
+      HTTP client and server primitives for Sema
+    </p>
+    <div style="margin-top:0.75rem;">
+      <div class="install-snippet" style="display:inline-flex;">
+        <span class="prompt">$</span> sema pkg install sema/http
+      </div>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <a href="#readme" class="tab active" data-tab="readme">Readme</a>
+    <a href="#versions" class="tab" data-tab="versions">Versions <span style="font-size:0.6rem; color:var(--text-dim);">8</span></a>
+    <a href="#deps" class="tab" data-tab="deps">Dependencies <span style="font-size:0.6rem; color:var(--text-dim);">2</span></a>
+  </div>
+
+  <!-- Content grid -->
+  <div class="detail-grid">
+
+    <div>
+      <!-- Tab: Readme -->
+      <div class="tab-panel active" id="readme">
+        <div class="readme">
+          <h2>Usage</h2>
+          <p>Add <code>sema/http</code> to your project:</p>
+          <pre><code>(import sema/http)</code></pre>
+
+          <h2>Making Requests</h2>
+          <p>Simple GET request:</p>
+          <pre><code>(define resp (http/get "https://api.example.com/data"))
+(println (:status resp))  ; =&gt; 200
+(println (:body resp))    ; =&gt; "{...}"</code></pre>
+
+          <p>POST with JSON body:</p>
+          <pre><code>(define resp
+  (http/post "https://api.example.com/items"
+    {:headers {"Content-Type" "application/json"}
+     :body (json/encode {:name "widget" :price 9.99})}))</code></pre>
+
+          <h2>Server</h2>
+          <p>Start a minimal HTTP server:</p>
+          <pre><code>(http/serve 8080
+  (lambda (req)
+    {:status 200
+     :headers {"Content-Type" "text/plain"}
+     :body "Hello from Sema!"}))</code></pre>
+
+          <h2>Middleware</h2>
+          <p>Compose middleware as higher-order functions:</p>
+          <pre><code>(define (with-logging handler)
+  (lambda (req)
+    (println (format "~a ~a" (:method req) (:path req)))
+    (handler req)))
+
+(http/serve 8080
+  (with-logging
+    (lambda (req)
+      {:status 200 :body "OK"})))</code></pre>
+
+          <h2>License</h2>
+          <p>MIT</p>
+        </div>
+      </div>
+
+      <!-- Tab: Versions -->
+      <div class="tab-panel" id="versions">
+        <div class="section-label" style="margin-bottom:0.5rem;">Current Tags</div>
+        <table class="dep-table" style="margin-bottom:2rem;">
+          <thead><tr><th>Version</th><th>Tag</th></tr></thead>
+          <tbody>
+            <tr><td><a href="package.html">1.2.0</a></td><td>latest</td></tr>
+          </tbody>
+        </table>
+
+        <div class="section-label" style="margin-bottom:0.5rem;">Version History</div>
+        <table class="dep-table">
+          <thead><tr><th>Version</th><th>Downloads</th><th>Published</th></tr></thead>
+          <tbody>
+            <tr><td><a href="package.html">1.2.0</a></td><td>1,204</td><td>4 days ago</td></tr>
+            <tr><td><a href="package.html">1.1.0</a></td><td>892</td><td>3 weeks ago</td></tr>
+            <tr><td><a href="package.html">1.0.0</a></td><td>643</td><td>6 weeks ago</td></tr>
+            <tr><td><a href="package.html">0.9.0</a></td><td>187</td><td>2 months ago</td></tr>
+            <tr><td><a href="package.html">0.8.0</a></td><td>94</td><td>2 months ago</td></tr>
+            <tr><td><a href="package.html">0.7.0</a></td><td>51</td><td>3 months ago</td></tr>
+            <tr><td><a href="package.html">0.5.0</a></td><td>32</td><td>3 months ago</td></tr>
+            <tr><td><a href="package.html">0.1.0</a></td><td>144</td><td>5 months ago</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Tab: Dependencies -->
+      <div class="tab-panel" id="deps">
+        <div class="dep-direction">
+          <h3>Dependencies <span style="font-size:0.65rem; color:var(--text-dim); font-weight:normal; margin-left:0.3rem;">packages this depends on</span></h3>
+          <table class="dep-table">
+            <thead>
+              <tr><th>Package</th><th>Version</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="package.html">sema/json</a></td>
+                <td>^1.0.0</td>
+                <td>JSON parsing, encoding, and path queries</td>
+              </tr>
+              <tr>
+                <td><a href="package.html">sema/url</a></td>
+                <td>^0.3.0</td>
+                <td>URL parsing, building, and query string encoding</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="dep-direction">
+          <h3>Dependents <span style="font-size:0.65rem; color:var(--text-dim); font-weight:normal; margin-left:0.3rem;">packages that depend on this</span></h3>
+          <table class="dep-table">
+            <thead>
+              <tr><th>Package</th><th>Version</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="package.html">sema/http-router</a></td>
+                <td>^1.0.0</td>
+                <td>Trie-based HTTP router with middleware support</td>
+              </tr>
+              <tr>
+                <td><a href="package.html">sema/http-mock</a></td>
+                <td>^1.0.0</td>
+                <td>HTTP request mocking for testing</td>
+              </tr>
+              <tr>
+                <td><a href="package.html">sema/webhook</a></td>
+                <td>^0.9.0</td>
+                <td>Webhook receiver with signature verification</td>
+              </tr>
+              <tr>
+                <td><a href="package.html">sema/fetch</a></td>
+                <td>^1.1.0</td>
+                <td>Simplified HTTP fetch API</td>
+              </tr>
+              <tr>
+                <td><a href="package.html">sema/oauth</a></td>
+                <td>^1.0.0</td>
+                <td>OAuth 2.0 client flows</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="detail-sidebar">
+      <section>
+        <div class="section-label">Author</div>
+        <div class="sidebar-value">helge</div>
+      </section>
+
+      <section>
+        <div class="section-label">Repository</div>
+        <a href="#" class="sidebar-link">github.com/helgesverre/sema-http</a>
+      </section>
+
+      <section>
+        <div class="section-label">License</div>
+        <div class="sidebar-value">MIT</div>
+      </section>
+
+      <section>
+        <div class="section-label">Downloads</div>
+        <div class="sidebar-value">3,247</div>
+      </section>
+
+      <section>
+        <div class="section-label">Published</div>
+        <div class="sidebar-value">Feb 19, 2026</div>
+      </section>
+
+      <section>
+        <div class="section-label">Sema Version</div>
+        <div class="sidebar-value">≥ 0.12.0</div>
+      </section>
+
+      <section>
+        <div class="section-label">Dependencies</div>
+        <div class="dep-list">
+          <div><a href="package.html">sema/json</a><span>^1.0.0</span></div>
+          <div><a href="package.html">sema/url</a><span>^0.3.0</span></div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-label">Versions</div>
+        <table class="data-table" style="font-size:0.72rem;">
+          <tr><td style="color:var(--gold);">1.2.0</td><td style="color:var(--text-dim);">Feb 19</td></tr>
+          <tr><td>1.1.0</td><td style="color:var(--text-dim);">Jan 30</td></tr>
+          <tr><td>1.0.0</td><td style="color:var(--text-dim);">Jan 12</td></tr>
+          <tr><td>0.9.0</td><td style="color:var(--text-dim);">Dec 28</td></tr>
+        </table>
+      </section>
+    </aside>
+
+  </div>
+
+  <script>
+    document.querySelectorAll('.tab[data-tab]').forEach(tab => {
+      tab.addEventListener('click', e => {
+        e.preventDefault();
+        document.querySelectorAll('.tab[data-tab]').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(tab.dataset.tab).classList.add('active');
+      });
+    });
+  </script>
+
+</div>
+
+<footer class="site-footer">
+  <a href="https://sema-lang.com">sema-lang.com</a> · <a href="https://sema.run">playground</a> · <a href="https://github.com/HelgeSverre/sema">github</a>
+</footer>
+
+</body>
+</html>

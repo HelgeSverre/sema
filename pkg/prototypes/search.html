@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Search — Sema Pkg</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:wght@300;400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+
+<header class="site-header">
+  <a href="index.html" class="logo">Sema<span class="logo-suffix">pkg</span></a>
+  <form action="search.html" method="get" class="search-bar" style="max-width:22rem;">
+    <input type="text" name="q" class="search-input" placeholder="Search packages…" value="http">
+    <button type="submit" class="search-btn">Search</button>
+  </form>
+  <nav class="header-nav">
+    <a href="search.html" class="header-link active">Browse</a>
+    <a href="https://sema-lang.com/docs/" class="header-link">Docs</a>
+    <a href="login.html" class="header-link">Sign In</a>
+  </nav>
+</header>
+
+<div class="page-content">
+
+  <!-- Results header -->
+  <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:1.5rem;">
+    <div>
+      <span style="font-size:0.85rem; color:var(--text-bright);">Results for </span>
+      <span style="font-size:0.85rem; color:var(--gold);">"http"</span>
+      <span style="font-size:0.7rem; color:var(--text-dim); margin-left:0.5rem;">12 packages</span>
+    </div>
+    <div style="display:flex; gap:0.75rem; align-items:center;">
+      <span style="font-size:0.65rem; color:var(--text-dim);">Sort:</span>
+      <a href="#" style="font-size:0.65rem; color:var(--gold);">Relevance</a>
+      <a href="#" style="font-size:0.65rem; color:var(--text-dim);">Downloads</a>
+      <a href="#" style="font-size:0.65rem; color:var(--text-dim);">Recent</a>
+    </div>
+  </div>
+
+  <!-- Results list -->
+  <div class="pkg-list">
+    <a href="package.html" class="pkg-list-item">
+      <div class="pkg-list-left">
+        <span class="pkg-list-name">sema/http</span><span class="pkg-list-version">1.2.0</span>
+        <div class="pkg-list-desc">HTTP client and server primitives for Sema</div>
+        <div class="pkg-card-meta" style="margin-top:0.3rem;">
+          <span>↓ 3.2k</span>
+          <span>★ 48</span>
+          <span>helge</span>
+        </div>
+      </div>
+      <div class="pkg-list-right">
+        <div>updated 4 days ago</div>
+        <div style="margin-top:0.2rem;"><span class="tag">networking</span></div>
+      </div>
+    </a>
+
+    <a href="package.html" class="pkg-list-item">
+      <div class="pkg-list-left">
+        <span class="pkg-list-name">sema/http-router</span><span class="pkg-list-version">0.4.0</span>
+        <div class="pkg-list-desc">Trie-based HTTP router with middleware support</div>
+        <div class="pkg-card-meta" style="margin-top:0.3rem;">
+          <span>↓ 890</span>
+          <span>★ 19</span>
+          <span>contributor42</span>
+        </div>
+      </div>
+      <div class="pkg-list-right">
+        <div>updated 1 week ago</div>
+        <div style="margin-top:0.2rem;"><span class="tag">web</span></div>
+      </div>
+    </a>
+
+    <a href="package.html" class="pkg-list-item">
+      <div class="pkg-list-left">
+        <span class="pkg-list-name">sema/http-mock</span><span class="pkg-list-version">0.2.1</span>
+        <div class="pkg-list-desc">HTTP request mocking for testing</div>
+        <div class="pkg-card-meta" style="margin-top:0.3rem;">
+          <span>↓ 420</span>
+          <span>★ 8</span>
+          <span>testfan</span>
+        </div>
+      </div>
+      <div class="pkg-list-right">
+        <div>updated 2 weeks ago</div>
+        <div style="margin-top:0.2rem;"><span class="tag">testing</span></div>
+      </div>
+    </a>
+
+    <a href="package.html" class="pkg-list-item">
+      <div class="pkg-list-left">
+        <span class="pkg-list-name">sema/fetch</span><span class="pkg-list-version">1.0.0</span>
+        <div class="pkg-list-desc">Simplified HTTP fetch API inspired by the Web Fetch standard</div>
+        <div class="pkg-card-meta" style="margin-top:0.3rem;">
+          <span>↓ 1.5k</span>
+          <span>★ 22</span>
+          <span>webdev</span>
+        </div>
+      </div>
+      <div class="pkg-list-right">
+        <div>updated 3 weeks ago</div>
+        <div style="margin-top:0.2rem;"><span class="tag">networking</span></div>
+      </div>
+    </a>
+
+    <a href="package.html" class="pkg-list-item">
+      <div class="pkg-list-left">
+        <span class="pkg-list-name">sema/webhook</span><span class="pkg-list-version">0.1.3</span>
+        <div class="pkg-list-desc">Webhook receiver with signature verification</div>
+        <div class="pkg-card-meta" style="margin-top:0.3rem;">
+          <span>↓ 210</span>
+          <span>★ 5</span>
+          <span>helge</span>
+        </div>
+      </div>
+      <div class="pkg-list-right">
+        <div>updated 1 month ago</div>
+        <div style="margin-top:0.2rem;"><span class="tag">web</span></div>
+      </div>
+    </a>
+  </div>
+
+  <!-- Pagination -->
+  <div style="display:flex; justify-content:center; gap:0.5rem; margin-top:2rem;">
+    <span class="btn btn-ghost" style="color:var(--gold); border-color:var(--gold-dim);">1</span>
+    <a href="#" class="btn btn-ghost">2</a>
+    <a href="#" class="btn btn-ghost">3</a>
+  </div>
+
+</div>
+
+<footer class="site-footer">
+  <a href="https://sema-lang.com">sema-lang.com</a> · <a href="https://sema.run">playground</a> · <a href="https://github.com/HelgeSverre/sema">github</a>
+</footer>
+
+</body>
+</html>
