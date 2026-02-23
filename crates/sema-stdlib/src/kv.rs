@@ -30,6 +30,8 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             let data = if std::path::Path::new(path).exists() {
                 let content = std::fs::read_to_string(path)
                     .map_err(|e| SemaError::Io(format!("kv/open: {e}")))?;
+                // TODO: consider returning an error (or at least a warning) instead of
+                // silently falling back to an empty store when the file contains malformed JSON.
                 serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&content)
                     .unwrap_or_default()
             } else {
@@ -62,7 +64,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 .get(name)
                 .ok_or_else(|| SemaError::eval(format!("kv store '{}' not open", name)))?;
             match store.data.get(key) {
-                Some(v) => Ok(json_val_to_sema(v)),
+                Some(v) => Ok(sema_core::json_to_value(v)),
                 None => Ok(Value::nil()),
             }
         })
@@ -83,7 +85,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let key = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        let val = sema_to_json_val(&args[2]);
+        let val = sema_core::value_to_json_lossy(&args[2]);
         KV_STORES.with(|s| {
             let mut s = s.borrow_mut();
             let store = s
@@ -161,64 +163,4 @@ fn flush_store(store: &KvStore) -> Result<(), SemaError> {
 
 fn flush_store_ref(store: &KvStore) -> Result<(), SemaError> {
     flush_store(store)
-}
-
-fn sema_to_json_val(val: &Value) -> serde_json::Value {
-    if val.is_nil() {
-        return serde_json::Value::Null;
-    }
-    if let Some(b) = val.as_bool() {
-        return serde_json::Value::Bool(b);
-    }
-    if let Some(i) = val.as_int() {
-        return serde_json::Value::Number(i.into());
-    }
-    if let Some(f) = val.as_float() {
-        return serde_json::Number::from_f64(f)
-            .map(serde_json::Value::Number)
-            .unwrap_or(serde_json::Value::Null);
-    }
-    if let Some(s) = val.as_str() {
-        return serde_json::Value::String(s.to_string());
-    }
-    if let Some(l) = val.as_list() {
-        return serde_json::Value::Array(l.iter().map(sema_to_json_val).collect());
-    }
-    if let Some(m) = val.as_map_rc() {
-        let mut obj = serde_json::Map::new();
-        for (k, v) in m.iter() {
-            let key = k
-                .as_keyword()
-                .or_else(|| k.as_str().map(|s| s.to_string()))
-                .unwrap_or_else(|| k.to_string());
-            obj.insert(key, sema_to_json_val(v));
-        }
-        return serde_json::Value::Object(obj);
-    }
-    serde_json::Value::String(val.to_string())
-}
-
-fn json_val_to_sema(json: &serde_json::Value) -> Value {
-    match json {
-        serde_json::Value::Null => Value::nil(),
-        serde_json::Value::Bool(b) => Value::bool(*b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Value::int(i)
-            } else if let Some(f) = n.as_f64() {
-                Value::float(f)
-            } else {
-                Value::nil()
-            }
-        }
-        serde_json::Value::String(s) => Value::string(s),
-        serde_json::Value::Array(a) => Value::list(a.iter().map(json_val_to_sema).collect()),
-        serde_json::Value::Object(o) => {
-            let mut map = std::collections::BTreeMap::new();
-            for (k, v) in o {
-                map.insert(Value::keyword(k), json_val_to_sema(v));
-            }
-            Value::map(map)
-        }
-    }
 }
