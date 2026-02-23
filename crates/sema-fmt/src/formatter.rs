@@ -129,12 +129,14 @@ enum FormKind {
 }
 
 fn classify_form(children: &[Node]) -> FormKind {
-    // Find the first non-trivia child to determine the head symbol
-    let head = children.iter().find_map(|n| match n {
-        Node::Atom(Token::Symbol(s)) => Some(s.as_str()),
-        _ if is_trivia(n) => None,
-        _ => None,
-    });
+    // Find the first non-trivia child; only classify if it's a symbol
+    let head = children
+        .iter()
+        .find(|n| !is_trivia(n))
+        .and_then(|n| match n {
+            Node::Atom(Token::Symbol(s)) => Some(s.as_str()),
+            _ => None,
+        });
 
     match head {
         Some(
@@ -463,11 +465,16 @@ impl Formatter {
             return;
         }
 
-        // Try one-line format first
-        let one_line = self.format_flat(&semantic, open, close);
-        if indent + one_line.len() <= self.width {
-            self.output.push_str(&one_line);
-            return;
+        // If children contain comments, force multi-line to preserve them
+        let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
+
+        // Try one-line format first (only if no inner comments)
+        if !has_comments {
+            let one_line = self.format_flat(&semantic, open, close);
+            if indent + one_line.len() <= self.width {
+                self.output.push_str(&one_line);
+                return;
+            }
         }
 
         // Multi-line: classify and dispatch
@@ -606,17 +613,10 @@ impl Formatter {
             self.format_node(node, indent + open.len());
         }
 
-        // Emit body forms, each on its own line indented 2 from the opening paren
+        // Emit body forms with interleaved comments preserved
         let body_indent = indent + 2;
-        for (_orig_idx, node) in semantic.iter().skip(first_count) {
-            self.output.push('\n');
-            self.push_indent(body_indent);
-            self.format_node(node, body_indent);
-        }
-
-        // Emit inline comments from the original children that were after the
-        // semantic children (comments within the body)
-        self.emit_inner_comments(children, indent + 2);
+        let body_start = Self::index_after_nth_semantic(children, first_count);
+        self.emit_body_with_comments(children, body_start, body_indent);
 
         self.output.push_str(close);
     }
@@ -643,13 +643,10 @@ impl Formatter {
         let bindings_indent = indent + open.len() + flat_width(semantic[0]) + 1;
         self.format_node(semantic[1], bindings_indent);
 
-        // body forms
+        // body forms with interleaved comments preserved
         let body_indent = indent + 2;
-        for node in &semantic[2..] {
-            self.output.push('\n');
-            self.push_indent(body_indent);
-            self.format_node(node, body_indent);
-        }
+        let body_start = Self::index_after_nth_semantic(children, 2);
+        self.emit_body_with_comments(children, body_start, body_indent);
 
         self.output.push_str(close);
     }
@@ -671,13 +668,10 @@ impl Formatter {
         // head
         self.format_node(semantic[0], indent + open.len());
 
-        // clauses
+        // clauses with interleaved comments preserved
         let clause_indent = indent + 2;
-        for node in &semantic[1..] {
-            self.output.push('\n');
-            self.push_indent(clause_indent);
-            self.format_node(node, clause_indent);
-        }
+        let clause_start = Self::index_after_nth_semantic(children, 1);
+        self.emit_body_with_comments(children, clause_start, clause_indent);
 
         self.output.push_str(close);
     }
@@ -703,13 +697,10 @@ impl Formatter {
             indent + open.len() + flat_width(semantic[0]) + 1,
         );
 
-        // steps
+        // steps with interleaved comments preserved
         let step_indent = indent + 2;
-        for node in &semantic[2..] {
-            self.output.push('\n');
-            self.push_indent(step_indent);
-            self.format_node(node, step_indent);
-        }
+        let step_start = Self::index_after_nth_semantic(children, 2);
+        self.emit_body_with_comments(children, step_start, step_indent);
 
         self.output.push_str(close);
     }
@@ -735,12 +726,10 @@ impl Formatter {
             );
         }
 
+        // then/else branches with interleaved comments preserved
         let body_indent = indent + 2;
-        for node in semantic.iter().skip(2) {
-            self.output.push('\n');
-            self.push_indent(body_indent);
-            self.format_node(node, body_indent);
-        }
+        let body_start = Self::index_after_nth_semantic(children, 2);
+        self.emit_body_with_comments(children, body_start, body_indent);
 
         self.output.push_str(close);
     }
@@ -759,22 +748,25 @@ impl Formatter {
             return;
         }
 
-        // Try one-line first
-        let one_line = self.format_flat(&semantic, open, close);
-        if indent + one_line.len() <= self.width {
-            self.output.push_str(&one_line);
-            return;
+        // If children contain comments, force multi-line to preserve them
+        let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
+
+        // Try one-line first (only if no inner comments)
+        if !has_comments {
+            let one_line = self.format_flat(&semantic, open, close);
+            if indent + one_line.len() <= self.width {
+                self.output.push_str(&one_line);
+                return;
+            }
         }
 
         self.output.push_str(open);
         self.format_node(semantic[0], indent + open.len());
 
+        // args with interleaved comments preserved
         let arg_indent = indent + 2;
-        for node in &semantic[1..] {
-            self.output.push('\n');
-            self.push_indent(arg_indent);
-            self.format_node(node, arg_indent);
-        }
+        let arg_start = Self::index_after_nth_semantic(children, 1);
+        self.emit_body_with_comments(children, arg_start, arg_indent);
 
         self.output.push_str(close);
     }
@@ -811,20 +803,14 @@ impl Formatter {
             self.output.push(' ');
             self.format_node(semantic[1], first_arg_col);
 
-            // Remaining args aligned with first arg
-            for node in &semantic[2..] {
-                self.output.push('\n');
-                self.push_indent(first_arg_col);
-                self.format_node(node, first_arg_col);
-            }
+            // Remaining args aligned with first arg, with comments preserved
+            let rest_start = Self::index_after_nth_semantic(children, 2);
+            self.emit_body_with_comments(children, rest_start, first_arg_col);
         } else {
-            // Everything indented 2 from opening paren
+            // Everything indented 2 from opening paren, with comments preserved
             let arg_indent = indent + 2;
-            for node in &semantic[1..] {
-                self.output.push('\n');
-                self.push_indent(arg_indent);
-                self.format_node(node, arg_indent);
-            }
+            let rest_start = Self::index_after_nth_semantic(children, 1);
+            self.emit_body_with_comments(children, rest_start, arg_indent);
         }
 
         self.output.push_str(close);
@@ -843,23 +829,25 @@ impl Formatter {
             return;
         }
 
-        // Try one-line
-        let one_line = self.format_flat(&semantic, open, close);
-        if indent + one_line.len() <= self.width {
-            self.output.push_str(&one_line);
-            return;
+        // If children contain comments, force multi-line to preserve them
+        let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
+
+        // Try one-line (only if no inner comments)
+        if !has_comments {
+            let one_line = self.format_flat(&semantic, open, close);
+            if indent + one_line.len() <= self.width {
+                self.output.push_str(&one_line);
+                return;
+            }
         }
 
-        // One per line
+        // One per line, with comments preserved
         let elem_indent = indent + open.len();
         self.output.push_str(open);
         self.format_node(semantic[0], elem_indent);
 
-        for node in &semantic[1..] {
-            self.output.push('\n');
-            self.push_indent(elem_indent);
-            self.format_node(node, elem_indent);
-        }
+        let rest_start = Self::index_after_nth_semantic(children, 1);
+        self.emit_body_with_comments(children, rest_start, elem_indent);
 
         self.output.push_str(close);
     }
@@ -877,52 +865,109 @@ impl Formatter {
             return;
         }
 
-        // Try one-line
-        let one_line = self.format_flat(&semantic, open, close);
-        if indent + one_line.len() <= self.width {
-            self.output.push_str(&one_line);
-            return;
+        // If children contain comments, force multi-line to preserve them
+        let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
+
+        // Try one-line (only if no inner comments)
+        if !has_comments {
+            let one_line = self.format_flat(&semantic, open, close);
+            if indent + one_line.len() <= self.width {
+                self.output.push_str(&one_line);
+                return;
+            }
         }
 
-        // Multi-line: each key-value pair on its own line
+        // Multi-line: each key-value pair on its own line, with comments preserved
         let pair_indent = indent + open.len();
         self.output.push_str(open);
 
-        let mut i = 0;
-        let mut first = true;
-        while i < semantic.len() {
-            if !first {
-                self.output.push('\n');
-                self.push_indent(pair_indent);
+        // Iterate through all children, tracking pair state
+        // semantic_count: 0 = expecting key (start of pair), 1 = expecting value
+        let mut semantic_count = 0;
+        let mut first_pair = true;
+        for child in children.iter() {
+            match child {
+                Node::Newline => {}
+                Node::Comment(text) => {
+                    self.output.push('\n');
+                    self.push_indent(pair_indent);
+                    self.output.push_str(text);
+                }
+                _ if is_trivia(child) => {}
+                _ => {
+                    if semantic_count % 2 == 0 {
+                        // Key position — start a new pair
+                        if !first_pair {
+                            self.output.push('\n');
+                            self.push_indent(pair_indent);
+                        }
+                        self.format_node(child, pair_indent);
+                        first_pair = false;
+                    } else {
+                        // Value position — on same line as key
+                        self.output.push(' ');
+                        self.format_node(child, pair_indent);
+                    }
+                    semantic_count += 1;
+                }
             }
-            // key
-            self.format_node(semantic[i], pair_indent);
-            i += 1;
-            // value (if present)
-            if i < semantic.len() {
-                self.output.push(' ');
-                self.format_node(semantic[i], pair_indent + flat_width(semantic[i - 1]) + 1);
-                i += 1;
-            }
-            first = false;
         }
 
         self.output.push_str(close);
     }
 
     // -----------------------------------------------------------------------
-    // Helper: emit any inline comments found within children
+    // Helper: emit body children with interleaved comments preserved
     // -----------------------------------------------------------------------
 
-    fn emit_inner_comments(&mut self, _children: &[Node], _indent: usize) {
-        // Comments within forms are complex. For now, we handle them through
-        // the main traversal. Inner comments that are on their own lines
-        // within a form body are handled by the build_nodes step that
-        // preserves them as nodes. The formatting functions filter them out
-        // when computing layout but we would need to track them more carefully.
-        // This is a simplification — comments inside forms are preserved via
-        // the token tree and are output when encountered in children lists
-        // by the specialized format functions.
+    /// Find the index in `all_children` just past the `n`th semantic (non-trivia) node.
+    /// Returns `all_children.len()` if fewer than `n` semantic nodes exist.
+    fn index_after_nth_semantic(all_children: &[Node], n: usize) -> usize {
+        let mut count = 0;
+        for (i, child) in all_children.iter().enumerate() {
+            if !is_trivia(child) {
+                count += 1;
+                if count == n {
+                    return i + 1;
+                }
+            }
+        }
+        all_children.len()
+    }
+
+    /// Emit all children starting from `start_idx`, preserving comments inline.
+    /// Semantic nodes are formatted on their own lines at `body_indent`.
+    /// Comments are emitted at `body_indent`. Multiple blank lines are collapsed.
+    fn emit_body_with_comments(
+        &mut self,
+        all_children: &[Node],
+        start_idx: usize,
+        body_indent: usize,
+    ) {
+        let mut prev_was_newline = false;
+        for child in &all_children[start_idx..] {
+            match child {
+                Node::Newline => {
+                    prev_was_newline = true;
+                }
+                Node::Comment(text) => {
+                    if prev_was_newline {
+                        // blank line before the comment — already emitting newlines
+                    }
+                    self.output.push('\n');
+                    self.push_indent(body_indent);
+                    self.output.push_str(text);
+                    prev_was_newline = false;
+                }
+                _ if is_trivia(child) => {}
+                _ => {
+                    self.output.push('\n');
+                    self.push_indent(body_indent);
+                    self.format_node(child, body_indent);
+                    prev_was_newline = false;
+                }
+            }
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -1503,6 +1548,66 @@ mod tests {
         assert_eq!(
             first, second,
             "define function formatting should be idempotent"
+        );
+    }
+
+    // Bug fix tests: inner comments preserved
+
+    #[test]
+    fn test_inner_comment_in_define() {
+        let input = "(define (foo x)\n  ;; compute result\n  (+ x 1))";
+        let result = format_source(input, 80).unwrap();
+        assert!(
+            result.contains(";; compute result"),
+            "inner comment should be preserved, got: {result}"
+        );
+        assert!(
+            result.contains("(+ x 1)"),
+            "body should be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_inner_comment_in_let() {
+        let input = "(let ((x 1))\n  ;; use x\n  (+ x 2))";
+        let result = format_source(input, 80).unwrap();
+        assert!(
+            result.contains(";; use x"),
+            "inner comment in let should be preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_inner_comment_in_cond() {
+        let input = "(cond\n  ;; first case\n  ((= x 1) \"one\")\n  ;; second case\n  ((= x 2) \"two\"))";
+        let result = format_source(input, 80).unwrap();
+        assert!(
+            result.contains(";; first case"),
+            "comment before first clause preserved, got: {result}"
+        );
+        assert!(
+            result.contains(";; second case"),
+            "comment before second clause preserved, got: {result}"
+        );
+    }
+
+    #[test]
+    fn test_classify_form_non_symbol_head() {
+        // (42 define x) should NOT be classified as Body
+        let input = "(42 define x)";
+        let result = format_source(input, 80).unwrap();
+        // Should be formatted as a function call, not as a body form
+        assert_eq!(result.trim(), "(42 define x)");
+    }
+
+    #[test]
+    fn test_inner_comment_idempotency() {
+        let input = "(define (foo x)\n  ;; compute result\n  (+ x 1))";
+        let first = format_source(input, 80).unwrap();
+        let second = format_source(&first, 80).unwrap();
+        assert_eq!(
+            first, second,
+            "formatting with inner comments should be idempotent"
         );
     }
 }
