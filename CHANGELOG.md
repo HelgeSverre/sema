@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.12.0
+## 1.11.0
 
 ### Added
 
@@ -9,6 +9,19 @@
 - **`toml/decode` and `toml/encode`** — new stdlib module for TOML parsing and serialization.
 - **Prompt/conversation APIs** — 12 new LLM builtins: `prompt/append` (variadic), `prompt/concat`, `prompt/fill`, `prompt/slots`, `conversation/system`, `conversation/set-system`, `conversation/filter`, `conversation/map`, `conversation/say-as`, `conversation/token-count`, `conversation/cost`.
 - **Static file serving** — `http/file` function and `:static` route type in `http/router` for serving static files with automatic MIME type detection, path traversal protection, directory `index.html` resolution, and SPA fallback.
+- **Destructuring bind** — `let`, `define`, and lambda parameters now support destructuring lists (`(let (((a b) (list 1 2))) a)`), vectors, maps (`:keys` shorthand), and nested patterns. Works in both tree-walker and VM.
+- **Pattern matching (`match`)** — `(match expr (pattern body) ...)` with literal, list, vector, map, `when` guards (`(pattern when guard body)`), rest (`&`), and wildcard (`_`) patterns. Dual-eval tested.
+- **Multimethods (`defmulti`/`defmethod`)** — dispatch on return value of a discriminator function. Supports `:default` fallback method.
+- **Regex literals** — `#"pattern"` raw string syntax for regex patterns. No escape processing except `\"`. Compiled to regex values at runtime via `regex/match`, `regex/find-all`, etc.
+- **F-strings** — `f"Hello ${name}, you are ${(+ age 1)} years old"` with embedded `${expr}` interpolation.
+- **Threading macros** — `->` (thread-first), `->>` (thread-last), `as->` (thread-as), `some->` (nil-short-circuiting) for pipeline-style data transformation.
+- **Short lambdas** — `#(+ %1 %2)` Clojure-style anonymous function shorthand with `%` (alias for `%1`) and `%1`–`%9` positional parameters.
+- **Nested map operations** — `get-in`, `assoc-in`, `update-in` for deep map access and modification.
+- **Web server** — `http/serve` with Axum-based routing, path/query params, SSE streaming, and WebSocket support. Response helpers: `http/ok`, `http/created`, `http/no-content`, `http/not-found`, `http/html`, `http/text`, `http/redirect`, `http/error`, `http/stream`, `http/websocket`. Routing via `http/router`.
+- **`sema build`** — compile Sema programs into standalone executables. Traces imports recursively, bundles source into a VFS archive appended to the binary. Auto-detected on load.
+- **`string/intern`** — opt-in string value interning with thread-local intern table. Returns shared `Rc<String>` for O(1) equality via NaN-boxed pointer comparison.
+- **Shebang support** — `#!/usr/bin/env sema` lines are ignored in source files.
+- **`sys/sema-home`** — builtin returning the Sema home directory path.
 - **"Did you mean?" suggestions** — unbound variable errors now suggest similar names using Levenshtein distance (threshold: 1/3 name length, max 3 suggestions). Searches both the current environment and a curated map of ~35 veteran hints from other Lisp dialects.
 - **Veteran hints** — typing names from other dialects (e.g., `setq`, `funcall`, `loop`, `while`, `call/cc`) triggers targeted advice pointing to the Sema equivalent, before falling back to fuzzy matching.
 - **Silent aliases for special forms** — `defn` (defun), `progn` (begin) are now accepted as silent aliases to support muscle memory from Clojure and Common Lisp.
@@ -17,7 +30,16 @@
 - **REPL `,time` command** — evaluates an expression, prints the result, and displays elapsed execution time.
 - **REPL `,doc` command** — displays binding information: whether it is a `native-fn`, `special form`, or `lambda` (including parameter lists).
 - **REPL shadowing warnings** — `define` and `set!` now warn when shadowing a built-in native function.
+- **REPL history search** — Ctrl-R reverse search through REPL history.
+- **Prelude macros** — `when-let`, `if-let` for conditional binding.
+- **Debug helpers** — `type` (value type as keyword), `spy` (labeled debug print to stderr), `time` (measure thunk execution time).
 - **7 first-party packages** — scaffolded `sema-test`, `sema-html`, `sema-validate`, `sema-fmt`, `sema-url`, `sema-dot-env`, and `sema-cli` to dogfood the package manager.
+
+### Performance
+
+- **13 new VM intrinsic opcodes** — `car`/`first`, `cdr`/`rest`, `cons`, `null?`, `pair?`, `list?`, `number?`, `string?`, `symbol?`, `length`, `append` (2-arg), `get` (2-arg), `contains?` (2-arg) compiled as inline opcodes, eliminating global hash lookup, `Rc` downcast, and argument allocation. Total intrinsified operations: 23. **deriv: 1,123ms → 879ms (1.28×), closure-storm: 1,135ms → 1,029ms (1.10×).**
+- **Constant folding optimizer** — new `optimize.rs` pass between lowering and resolution. Folds constant arithmetic, comparisons, boolean ops, `if`/`and`/`or` with constant tests, and dead constants in `begin` blocks.
+- **Docker image optimization** — reduced from ~100MB to 11.5MB.
 
 ### Changed
 
@@ -33,6 +55,8 @@
 - **Stack overflow hints** — "maximum eval depth exceeded" errors now suggest checking for infinite recursion, using TCO, or the `do` form.
 - **Mismatched bracket detection** — the reader now specifically detects and reports mismatched bracket types (e.g., `[1 2 3)`) with helpful hints.
 - **VM match guard fallthrough** — fixed bytecode compiler bug where match clauses with guards returned nil instead of falling through to the next clause when the pattern itself failed to match.
+- **Constant folding division semantics** — `(/ 3 2)` now correctly folds to `1.5` instead of `1`, matching VM runtime behavior.
+- **VM prompt/message parity** — prompt and message special forms now build values directly instead of delegating, matching tree-walker output.
 - **`value_to_json_lossy` recursion** — fixed to properly traverse nested structures so NaN values inside maps/lists become `null` locally instead of stringifying the entire structure.
 - **VFS package import resolution** — VFS is now checked before filesystem resolution, allowing bundled executables to resolve embedded package imports.
 - **Git checkout in package manager** — removed erroneous `--` separator that caused refs to be interpreted as file paths.
@@ -45,41 +69,6 @@
 - **Static file serving docs** — documented `http/file` and `:static` route support in web server reference.
 - **KV store reference** — expanded with implementation details and examples.
 - **Sema syntax highlighting** — custom Shiki grammar for VitePress and updated TextMate grammar.
-
-## 1.11.0
-
-### Added
-
-- **Destructuring bind** — `let`, `define`, and lambda parameters now support destructuring lists (`(let (((a b) (list 1 2))) a)`), vectors, maps (`:keys` shorthand), and nested patterns. Works in both tree-walker and VM.
-- **Pattern matching (`match`)** — `(match expr (pattern body) ...)` with literal, list, vector, map, `when` guards (`(pattern when guard body)`), rest (`&`), and wildcard (`_`) patterns. Dual-eval tested.
-- **Multimethods (`defmulti`/`defmethod`)** — dispatch on return value of a discriminator function. Supports `:default` fallback method.
-- **Regex literals** — `#"pattern"` raw string syntax for regex patterns. No escape processing except `\"`. Compiled to regex values at runtime via `regex/match`, `regex/find-all`, etc.
-- **F-strings** — `f"Hello ${name}, you are ${(+ age 1)} years old"` with embedded `${expr}` interpolation.
-- **Threading macros** — `->` (thread-first), `->>` (thread-last), `as->` (thread-as), `some->` (nil-short-circuiting) for pipeline-style data transformation.
-- **Short lambdas** — `#(+ %1 %2)` Clojure-style anonymous function shorthand with `%` (alias for `%1`) and `%1`–`%9` positional parameters.
-- **Nested map operations** — `get-in`, `assoc-in`, `update-in` for deep map access and modification.
-- **Web server** — `http/serve` with Axum-based routing, path/query params, SSE streaming, and WebSocket support. Response helpers: `http/ok`, `http/created`, `http/no-content`, `http/not-found`, `http/html`, `http/text`, `http/redirect`, `http/error`, `http/stream`, `http/websocket`. Routing via `http/router`.
-- **`sema build`** — compile Sema programs into standalone executables. Traces imports recursively, bundles source into a VFS archive appended to the binary. Auto-detected on load.
-- **`string/intern`** — opt-in string value interning with thread-local intern table. Returns shared `Rc<String>` for O(1) equality via NaN-boxed pointer comparison.
-- **Shebang support** — `#!/usr/bin/env sema` lines are ignored in source files.
-- **`sys/sema-home`** — builtin returning the Sema home directory path.
-- **REPL history search** — Ctrl-R reverse search through REPL history.
-- **Prelude macros** — `when-let`, `if-let` for conditional binding.
-- **Debug helpers** — `type` (value type as keyword), `spy` (labeled debug print to stderr), `time` (measure thunk execution time).
-
-### Performance
-
-- **13 new VM intrinsic opcodes** — `car`/`first`, `cdr`/`rest`, `cons`, `null?`, `pair?`, `list?`, `number?`, `string?`, `symbol?`, `length`, `append` (2-arg), `get` (2-arg), `contains?` (2-arg) compiled as inline opcodes, eliminating global hash lookup, `Rc` downcast, and argument allocation. Total intrinsified operations: 23. **deriv: 1,123ms → 879ms (1.28×), closure-storm: 1,135ms → 1,029ms (1.10×).**
-- **Constant folding optimizer** — new `optimize.rs` pass between lowering and resolution. Folds constant arithmetic, comparisons, boolean ops, `if`/`and`/`or` with constant tests, and dead constants in `begin` blocks.
-- **Docker image optimization** — reduced from ~100MB to 11.5MB.
-
-### Fixed
-
-- **Constant folding division semantics** — `(/ 3 2)` now correctly folds to `1.5` instead of `1`, matching VM runtime behavior.
-- **VM prompt/message parity** — prompt and message special forms now build values directly instead of delegating, matching tree-walker output.
-
-### Documentation
-
 - **Performance roadmap** — tiered optimization plan with measured results and status tracking.
 - **Feature comparison matrix** — Sema vs SBCL, Racket, Guile, Chez, Clojure, Janet, Fennel.
 - **Web server docs** — routing, middleware patterns, SSE/WebSocket examples.
