@@ -68,9 +68,7 @@ mkdir my-package && cd my-package
 sema pkg init
 ```
 
-::: tip
-`sema pkg init` only creates `sema.toml`. You'll need to create `package.sema` yourself to define your package's public API.
-:::
+This creates both `sema.toml` (with `entrypoint = "package.sema"`) and a starter `package.sema` file. If `package.sema` already exists, only the manifest is created.
 
 ### `sema pkg add`
 

@@ -399,6 +399,7 @@ pub fn cmd_init() -> Result<(), String> {
         r#"[package]
 name = "{project_name}"
 version = "0.1.0"
+entrypoint = "package.sema"
 
 [deps]
 "#
@@ -406,6 +407,15 @@ version = "0.1.0"
 
     std::fs::write(toml_path, content).map_err(|e| format!("Failed to write sema.toml: {e}"))?;
     println!("✓ Created sema.toml");
+
+    let entry_path = Path::new("package.sema");
+    if !entry_path.exists() {
+        let entry_content =
+            ";; package entrypoint — all top-level definitions are available to importers\n";
+        std::fs::write(entry_path, entry_content)
+            .map_err(|e| format!("Failed to write package.sema: {e}"))?;
+        println!("✓ Created package.sema");
+    }
 
     Ok(())
 }
@@ -1321,7 +1331,17 @@ mod tests {
             content.contains("version = \"0.1.0\""),
             "should have version"
         );
+        assert!(
+            content.contains("entrypoint = \"package.sema\""),
+            "should have entrypoint"
+        );
         assert!(content.contains("[deps]"), "should have [deps] section");
+
+        let entry = std::fs::read_to_string(tmp.join("package.sema")).unwrap();
+        assert!(
+            entry.contains("entrypoint"),
+            "package.sema should have comment"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
