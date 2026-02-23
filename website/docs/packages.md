@@ -4,14 +4,14 @@ outline: [2, 3]
 
 # Package Manager
 
-Sema uses Go-style URL-based packages. Packages are git repositories — there is no central registry. Any public git repo with a `sema.toml` and `mod.sema` is a valid package.
+Sema uses Go-style URL-based packages. Packages are git repositories — there is no central registry. Any public git repo with a `mod.sema` (or a `sema.toml` with a custom entrypoint) is a valid package.
 
 ## Package Format
 
-A package is a directory containing at minimum:
+A package is a directory containing at minimum one of:
 
-- **`sema.toml`** — package metadata and dependencies
-- **`mod.sema`** — the package entrypoint (what gets loaded on import)
+- **`mod.sema`** — the default entrypoint (what gets loaded on import)
+- **`sema.toml`** — optional package metadata, dependencies, and custom entrypoint
 
 ### `sema.toml`
 
@@ -20,7 +20,7 @@ A package is a directory containing at minimum:
 name = "my-package"
 version = "0.1.0"
 description = "A useful Sema library"
-entrypoint = "mod.sema"
+entrypoint = "lib.sema"
 
 [deps]
 github.com/user/other-lib = "v1.0.0"
@@ -38,26 +38,41 @@ The `[package]` section defines metadata:
 
 The `[deps]` section maps package URLs to git refs (tags, branches, or commit SHAs).
 
+### Entrypoint Resolution
+
+When you import a package, Sema resolves the entrypoint in this order:
+
+1. **Direct file** — `~/.sema/packages/<spec>.sema` (for sub-module imports like `github.com/user/repo/utils`)
+2. **Custom entrypoint** — if `sema.toml` exists and has an `entrypoint = "..."` field, that file is loaded
+3. **Default entrypoint** — `mod.sema` in the package directory
+
 ## CLI Commands
 
 ### `sema pkg init`
 
-Initialize a new package in the current directory. Creates a `sema.toml` and `mod.sema` if they don't exist.
+Initialize a new project in the current directory. Creates a `sema.toml` with the directory name as the package name.
 
 ```bash
 mkdir my-package && cd my-package
 sema pkg init
 ```
 
+::: tip
+`sema pkg init` only creates `sema.toml`. You'll need to create `mod.sema` yourself to define your package's public API.
+:::
+
 ### `sema pkg get`
 
-Add a dependency and fetch it.
+Fetch a package (clone or update) to the global package cache.
 
 ```bash
-sema pkg get github.com/user/repo          # latest default branch
+sema pkg get github.com/user/repo          # latest default branch (main)
 sema pkg get github.com/user/repo@v1.2.0   # specific tag
 sema pkg get github.com/user/repo@main     # specific branch
+sema pkg get github.com/user/repo@abc123   # specific commit SHA
 ```
+
+Package URLs must be valid git-hostable paths (e.g., `github.com/user/repo`). Full URLs with schemes (`https://...`), Windows paths (`C:\...`), and SCP-style paths (`git@github.com:...`) are not accepted — use the bare host/path format.
 
 ### `sema pkg install`
 
@@ -67,34 +82,47 @@ Fetch all dependencies listed in `sema.toml`.
 sema pkg install
 ```
 
+Reads the `[deps]` section and runs `sema pkg get` for each entry. Requires a `sema.toml` in the current directory.
+
 ### `sema pkg update`
 
-Update a specific dependency or all dependencies to their latest refs.
+Pull the latest changes for installed packages.
 
 ```bash
-sema pkg update                    # update all
-sema pkg update github.com/user/repo  # update one
+sema pkg update                       # update all installed packages
+sema pkg update github.com/user/repo  # update a specific package
+sema pkg update repo                  # update by short name
 ```
 
 ### `sema pkg remove`
 
-Remove a dependency from `sema.toml` and delete its cached files.
+Delete an installed package from the global cache.
 
 ```bash
-sema pkg remove github.com/user/repo
+sema pkg remove github.com/user/repo  # by full path
+sema pkg remove repo                  # by short name
 ```
+
+::: warning
+`sema pkg remove` only deletes the cached package files from `~/.sema/packages/`. It does **not** modify your project's `sema.toml` — you'll need to remove the entry from `[deps]` manually.
+:::
 
 ### `sema pkg list`
 
-List all installed dependencies and their versions.
+List all installed packages and their current git refs.
 
 ```bash
 sema pkg list
 ```
 
+```
+  github.com/user/repo (v1.2.0)
+  github.com/user/utils (main)
+```
+
 ## Importing Packages
 
-Import a package by its URL:
+Import a package by its URL path:
 
 ```sema
 (import "github.com/user/string-utils")
@@ -103,7 +131,43 @@ Import a package by its URL:
 ; => "hello-world"
 ```
 
-The package name (last segment of the URL) becomes the namespace prefix.
+The package name (last segment of the URL) becomes the namespace prefix. You can also use selective imports:
+
+```sema
+(import "github.com/user/string-utils" (slugify titlecase))
+
+(slugify "Hello World")
+; => "hello-world"
+```
+
+### Sub-module Imports
+
+You can import sub-modules from a package by appending a path:
+
+```sema
+;; Resolves to ~/.sema/packages/github.com/user/repo/utils.sema
+(import "github.com/user/repo/utils")
+```
+
+### How Sema Distinguishes Package vs File Imports
+
+An import string is treated as a **package import** when it:
+- Contains `/` (path separator)
+- Does **not** start with `./` or `../` (relative path)
+- Does **not** end with `.sema` (explicit file)
+- Is **not** an absolute path
+
+Otherwise, it's resolved as a relative file import from the current file's directory.
+
+```sema
+;; Package imports
+(import "github.com/user/repo")        ; → ~/.sema/packages/github.com/user/repo/mod.sema
+(import "github.com/user/repo/utils")  ; → ~/.sema/packages/github.com/user/repo/utils.sema
+
+;; File imports (relative to current file)
+(import "./helpers.sema")              ; relative file
+(import "../lib/utils.sema")           ; parent directory
+```
 
 ## On-Disk Layout
 
@@ -118,7 +182,11 @@ Packages are cached globally at `~/.sema/packages/`, mirroring the URL structure
         mod.sema
         src/
           ...
+      other-lib/
+        mod.sema
 ```
+
+The `~/.sema/` directory is also used for REPL history (`history.txt`).
 
 ## Creating a Package
 
@@ -131,10 +199,10 @@ sema pkg init
 
 ### 2. Write Your Code
 
-Edit `mod.sema` to export your package's public API:
+Create `mod.sema` to define your package's public API:
 
 ```sema
-;; mod.sema
+;; mod.sema — package entrypoint
 (defun parse-row (line)
   (string/split line ","))
 
@@ -148,7 +216,14 @@ Edit `mod.sema` to export your package's public API:
 sema pkg get github.com/user/string-utils@v1.0.0
 ```
 
-Then use them in your code:
+Add the dependency to your `sema.toml`:
+
+```toml
+[deps]
+github.com/user/string-utils = "v1.0.0"
+```
+
+Then use it in your code:
 
 ```sema
 (import "github.com/user/string-utils")
@@ -183,7 +258,7 @@ sema pkg init
 sema pkg get github.com/user/http-helpers@v2.0.0
 sema pkg get github.com/user/json-schema@v1.1.0
 
-# Install everything
+# Install everything (if cloning the project fresh)
 sema pkg install
 
 # List what's installed
@@ -203,3 +278,45 @@ sema pkg list
 ```bash
 sema main.sema
 ```
+
+## Troubleshooting
+
+### "package not found"
+
+```
+Error: package not found: github.com/user/repo
+Hint: Run: sema pkg get github.com/user/repo
+```
+
+The package hasn't been fetched yet. Run the suggested command to install it.
+
+### "invalid package spec: URL schemes not allowed"
+
+```
+Error: invalid package spec: URL schemes not allowed: https://github.com/user/repo
+```
+
+Use the bare host/path format without `https://`:
+
+```bash
+# ✗ Wrong
+sema pkg get https://github.com/user/repo
+
+# ✓ Correct
+sema pkg get github.com/user/repo
+```
+
+### "invalid package spec: path traversal not allowed"
+
+The package path contains `..`, `.`, or empty segments. Package paths must be clean, forward-slash-separated identifiers like `github.com/user/repo`.
+
+### "No sema.toml found"
+
+`sema pkg install` requires a `sema.toml` in the current directory. Run `sema pkg init` to create one, or `cd` to the project root.
+
+### "git clone/fetch failed"
+
+The package URL couldn't be reached. Check that:
+- The repository exists and is public (or you have git credentials configured)
+- The git ref (tag/branch) exists on the remote
+- You have network access

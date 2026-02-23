@@ -137,8 +137,9 @@ pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
     let pkg_dir = packages_dir();
 
     if let Some(name) = name {
-        let dir = find_package_dir(&pkg_dir, name)
-            .ok_or_else(|| format!("Package '{name}' not found"))?;
+        let dir = find_package_dir(&pkg_dir, name).ok_or_else(|| {
+            format!("Package '{name}' not found. Run `sema pkg list` to see installed packages.")
+        })?;
         run_git(Some(&dir), &["pull"])?;
         let current = current_git_ref(&dir);
         println!(
@@ -170,8 +171,9 @@ pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
 
 pub fn cmd_remove(name: &str) -> Result<(), String> {
     let pkg_dir = packages_dir();
-    let dir =
-        find_package_dir(&pkg_dir, name).ok_or_else(|| format!("Package '{name}' not found"))?;
+    let dir = find_package_dir(&pkg_dir, name).ok_or_else(|| {
+        format!("Package '{name}' not found. Run `sema pkg list` to see installed packages.")
+    })?;
 
     std::fs::remove_dir_all(&dir).map_err(|e| format!("Failed to remove package: {e}"))?;
     println!(

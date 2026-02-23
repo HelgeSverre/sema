@@ -31,12 +31,14 @@ pub fn validate_package_spec(spec: &str) -> Result<(), SemaError> {
     if spec.contains("://") {
         return Err(SemaError::eval(format!(
             "invalid package spec: URL schemes not allowed: {spec}"
-        )));
+        ))
+        .with_hint("Use bare host/path format, e.g.: github.com/user/repo"));
     }
     if spec.starts_with('/') {
         return Err(SemaError::eval(format!(
             "invalid package spec: absolute paths not allowed: {spec}"
-        )));
+        ))
+        .with_hint("Use bare host/path format, e.g.: github.com/user/repo"));
     }
     if spec.contains('\\') {
         return Err(SemaError::eval(format!(
@@ -107,9 +109,10 @@ impl PackageSpec {
         let path = PackagePath::parse(path_str)?;
 
         if git_ref.is_empty() {
-            return Err(SemaError::eval(format!(
-                "invalid package spec: empty git ref: {spec}"
-            )));
+            return Err(
+                SemaError::eval(format!("invalid package spec: empty git ref: {spec}"))
+                    .with_hint("Provide a ref after @, e.g.: github.com/user/repo@v1.0"),
+            );
         }
         if git_ref.contains('\0') {
             return Err(SemaError::eval(

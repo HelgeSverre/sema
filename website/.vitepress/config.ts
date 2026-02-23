@@ -53,6 +53,7 @@ export default defineConfig({
             { text: 'Editor Support', link: '/docs/editors' },
             { text: 'Embedding in Rust', link: '/docs/embedding' },
             { text: 'Embedding in JavaScript', link: '/docs/embedding-js' },
+            { text: 'Packages', link: '/docs/packages' },
           ],
         },
         {
