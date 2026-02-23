@@ -8,6 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
+use sema_core::resolve::{is_package_import, resolve_package_import};
 use sema_core::Value;
 
 /// Trace all transitive `(import "...")` and `(load "...")` dependencies
@@ -125,6 +126,10 @@ fn process_import(
     visited: &mut HashSet<PathBuf>,
     result: &mut HashMap<String, Vec<u8>>,
 ) -> Result<(), String> {
+    if is_package_import(import_path) {
+        return process_package_import(import_path, root_dir, visited, result);
+    }
+
     // Resolve relative to the directory of the importing file.
     let base_dir = current_file
         .parent()
@@ -165,6 +170,54 @@ fn process_import(
             trace_file_imports(&exprs, &canonical, root_dir, visited, result)?;
         }
         // If parsing fails, we still included the file -- just don't trace deeper.
+    }
+
+    Ok(())
+}
+
+/// Resolve a package import via `resolve_package_import`, read its contents,
+/// and add it to the result map using the package path as the VFS key.
+fn process_package_import(
+    import_path: &str,
+    root_dir: &Path,
+    visited: &mut HashSet<PathBuf>,
+    result: &mut HashMap<String, Vec<u8>>,
+) -> Result<(), String> {
+    let resolved = match resolve_package_import(import_path) {
+        Ok(p) => p,
+        Err(_) => {
+            eprintln!(
+                "warning: package \"{}\" is not installed; \
+                 skipping for bundling (will be resolved at runtime)",
+                import_path
+            );
+            return Ok(());
+        }
+    };
+
+    let canonical = resolved.canonicalize().map_err(|e| {
+        format!(
+            "cannot canonicalize package import \"{}\": {e}",
+            import_path
+        )
+    })?;
+
+    if visited.contains(&canonical) {
+        return Ok(());
+    }
+    visited.insert(canonical.clone());
+
+    let contents = std::fs::read(&canonical)
+        .map_err(|e| format!("cannot read {}: {e}", canonical.display()))?;
+
+    // Use the package path as the VFS key for portability.
+    result.insert(import_path.to_string(), contents.clone());
+
+    // Recursively trace the package file's own imports.
+    if let Ok(source) = std::str::from_utf8(&contents) {
+        if let Ok(exprs) = sema_reader::read_many(source) {
+            trace_file_imports(&exprs, &canonical, root_dir, visited, result)?;
+        }
     }
 
     Ok(())
