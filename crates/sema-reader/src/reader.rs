@@ -21,17 +21,38 @@ impl Parser {
     }
 
     fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.pos).map(|t| &t.token)
+        let mut pos = self.pos;
+        while let Some(t) = self.tokens.get(pos) {
+            match &t.token {
+                Token::Comment(_) | Token::Newline => pos += 1,
+                _ => return Some(&t.token),
+            }
+        }
+        None
     }
 
     fn span(&self) -> Span {
-        self.tokens
-            .get(self.pos)
-            .map(|t| t.span)
-            .unwrap_or(Span::point(0, 0))
+        let mut pos = self.pos;
+        while let Some(t) = self.tokens.get(pos) {
+            match &t.token {
+                Token::Comment(_) | Token::Newline => pos += 1,
+                _ => return t.span,
+            }
+        }
+        Span::point(0, 0)
+    }
+
+    fn skip_trivia(&mut self) {
+        while let Some(t) = self.tokens.get(self.pos) {
+            match &t.token {
+                Token::Comment(_) | Token::Newline => self.pos += 1,
+                _ => break,
+            }
+        }
     }
 
     fn advance(&mut self) -> Option<&SpannedToken> {
+        self.skip_trivia();
         let tok = self.tokens.get(self.pos);
         if tok.is_some() {
             self.pos += 1;
@@ -304,6 +325,10 @@ impl Parser {
                 ..
             }) => Ok(Value::string(s)),
             Some(SpannedToken {
+                token: Token::Regex(s),
+                ..
+            }) => Ok(Value::string(s)),
+            Some(SpannedToken {
                 token: Token::Symbol(s),
                 ..
             }) => {
@@ -404,6 +429,9 @@ fn token_display(tok: &Token) -> &'static str {
         Token::Char(_) => "character",
         Token::FString(_) => "f-string",
         Token::ShortLambdaStart => "#(",
+        Token::Comment(_) => "comment",
+        Token::Newline => "newline",
+        Token::Regex(_) => "regex",
     }
 }
 
@@ -458,19 +486,16 @@ fn rewrite_percent_args(expr: &Value, max_arg: &mut usize) -> Value {
 /// Read a single s-expression from a string.
 pub fn read(input: &str) -> Result<Value, SemaError> {
     let tokens = tokenize(input)?;
-    if tokens.is_empty() {
+    let mut parser = Parser::new(tokens);
+    if parser.peek().is_none() {
         return Ok(Value::nil());
     }
-    let mut parser = Parser::new(tokens);
     parser.parse_expr()
 }
 
 /// Read all s-expressions from a string.
 pub fn read_many(input: &str) -> Result<Vec<Value>, SemaError> {
     let tokens = tokenize(input)?;
-    if tokens.is_empty() {
-        return Ok(Vec::new());
-    }
     let mut parser = Parser::new(tokens);
     let mut exprs = Vec::new();
     while parser.peek().is_some() {
@@ -482,9 +507,6 @@ pub fn read_many(input: &str) -> Result<Vec<Value>, SemaError> {
 /// Read all s-expressions and return the accumulated span map.
 pub fn read_many_with_spans(input: &str) -> Result<(Vec<Value>, SpanMap), SemaError> {
     let tokens = tokenize(input)?;
-    if tokens.is_empty() {
-        return Ok((Vec::new(), SpanMap::new()));
-    }
     let mut parser = Parser::new(tokens);
     let mut exprs = Vec::new();
     while parser.peek().is_some() {

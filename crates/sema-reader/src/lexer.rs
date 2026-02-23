@@ -29,6 +29,9 @@ pub enum Token {
     Char(char),
     BytevectorStart,
     Dot,
+    Comment(String),
+    Newline,
+    Regex(String),
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +58,10 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                 i += 1;
             }
             '\n' => {
+                tokens.push(SpannedToken {
+                    token: Token::Newline,
+                    span: span.with_end(line, col + 1),
+                });
                 line += 1;
                 col = 1;
                 i += 1;
@@ -62,9 +69,17 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
 
             // Comments
             ';' => {
+                let start = i;
                 while i < chars.len() && chars[i] != '\n' {
                     i += 1;
                 }
+                let text: String = chars[start..i].iter().collect();
+                let end_col = col + (i - start);
+                tokens.push(SpannedToken {
+                    token: Token::Comment(text),
+                    span: span.with_end(line, end_col),
+                });
+                col = end_col;
             }
 
             // Delimiters
@@ -298,7 +313,7 @@ pub fn tokenize(input: &str) -> Result<Vec<SpannedToken>, SemaError> {
                             i += 1; // closing quote
                             col += 1;
                             tokens.push(SpannedToken {
-                                token: Token::String(s),
+                                token: Token::Regex(s),
                                 span: span.with_end(line, col),
                             });
                         }
@@ -644,4 +659,116 @@ fn is_symbol_start(ch: char) -> bool {
 
 fn is_symbol_char(ch: char) -> bool {
     is_symbol_start(ch) || ch.is_ascii_digit() || matches!(ch, '-' | '/' | '.')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_comment_token_emitted() {
+        let tokens = tokenize("(+ 1 2) ; comment").unwrap();
+        let comment_tokens: Vec<_> = tokens
+            .iter()
+            .filter(|t| matches!(&t.token, Token::Comment(_)))
+            .collect();
+        assert_eq!(comment_tokens.len(), 1);
+        match &comment_tokens[0].token {
+            Token::Comment(text) => assert_eq!(text, "; comment"),
+            _ => panic!("expected Comment token"),
+        }
+    }
+
+    #[test]
+    fn test_newline_token_emitted() {
+        let tokens = tokenize("a\nb").unwrap();
+        let token_types: Vec<_> = tokens.iter().map(|t| &t.token).collect();
+        assert!(
+            matches!(token_types[0], Token::Symbol(s) if s == "a"),
+            "first token should be symbol 'a'"
+        );
+        assert!(
+            matches!(token_types[1], Token::Newline),
+            "second token should be Newline"
+        );
+        assert!(
+            matches!(token_types[2], Token::Symbol(s) if s == "b"),
+            "third token should be symbol 'b'"
+        );
+    }
+
+    #[test]
+    fn test_regex_token_emitted() {
+        let tokens = tokenize(r#"#"\d+""#).unwrap();
+        assert_eq!(tokens.len(), 1);
+        match &tokens[0].token {
+            Token::Regex(s) => assert_eq!(s, r"\d+"),
+            other => panic!("expected Regex token, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_regex_not_string() {
+        // Regex should NOT produce Token::String
+        let tokens = tokenize(r#"#"[a-z]+""#).unwrap();
+        assert_eq!(tokens.len(), 1);
+        assert!(
+            !matches!(&tokens[0].token, Token::String(_)),
+            "regex should not produce Token::String"
+        );
+        assert!(
+            matches!(&tokens[0].token, Token::Regex(_)),
+            "regex should produce Token::Regex"
+        );
+    }
+
+    #[test]
+    fn test_multiple_comments_and_newlines_preserved() {
+        let tokens = tokenize("; first\n; second\n42").unwrap();
+        let token_types: Vec<&Token> = tokens.iter().map(|t| &t.token).collect();
+        assert!(matches!(token_types[0], Token::Comment(s) if s == "; first"));
+        assert!(matches!(token_types[1], Token::Newline));
+        assert!(matches!(token_types[2], Token::Comment(s) if s == "; second"));
+        assert!(matches!(token_types[3], Token::Newline));
+        assert!(matches!(token_types[4], Token::Int(42)));
+    }
+
+    #[test]
+    fn test_comment_does_not_include_trailing_newline() {
+        let tokens = tokenize("; hello world\n").unwrap();
+        match &tokens[0].token {
+            Token::Comment(text) => {
+                assert!(!text.ends_with('\n'), "comment should not include trailing newline");
+                assert_eq!(text, "; hello world");
+            }
+            _ => panic!("expected Comment token"),
+        }
+        // The newline should be a separate token
+        assert!(matches!(&tokens[1].token, Token::Newline));
+    }
+
+    #[test]
+    fn test_inline_comment_after_code() {
+        let tokens = tokenize("(define x 42) ; set x").unwrap();
+        let has_comment = tokens.iter().any(|t| matches!(&t.token, Token::Comment(s) if s == "; set x"));
+        assert!(has_comment, "should have inline comment token");
+    }
+
+    #[test]
+    fn test_trivia_order_preserved() {
+        let tokens = tokenize("a\n\n; comment\nb").unwrap();
+        let types: Vec<String> = tokens
+            .iter()
+            .map(|t| match &t.token {
+                Token::Symbol(s) => format!("sym:{}", s),
+                Token::Newline => "newline".to_string(),
+                Token::Comment(s) => format!("comment:{}", s),
+                other => format!("{:?}", other),
+            })
+            .collect();
+        assert_eq!(
+            types,
+            vec!["sym:a", "newline", "newline", "comment:; comment", "newline", "sym:b"]
+        );
+    }
 }

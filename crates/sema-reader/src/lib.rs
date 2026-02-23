@@ -1,5 +1,5 @@
 #![allow(clippy::mutable_key_type)]
-mod lexer;
+pub mod lexer;
 mod reader;
 
 pub use reader::read;
