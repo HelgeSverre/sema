@@ -60,6 +60,7 @@ tokio-stream = "0.1"
 mime_guess = "2"
 toml = "0.8"
 toml_edit = "0.22"
+semver = "1"
 
 [profile.release]
 opt-level = 3

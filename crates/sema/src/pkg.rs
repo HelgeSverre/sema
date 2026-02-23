@@ -159,7 +159,7 @@ fn cmd_add_registry(spec: &str, registry: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
-pub fn cmd_install(registry: Option<&str>) -> Result<(), String> {
+pub fn cmd_install() -> Result<(), String> {
     let toml_path = Path::new("sema.toml");
     if !toml_path.exists() {
         return Err("No sema.toml found in current directory. Run `sema pkg init` first.".into());
@@ -190,20 +190,20 @@ pub fn cmd_install(registry: Option<&str>) -> Result<(), String> {
         let spec = format!("{name}@{version}");
         println!("Installing {name}...");
         // Keys with / are git deps; otherwise registry deps
-        cmd_add(&spec, registry)?;
+        cmd_add(&spec, None)?;
     }
 
     Ok(())
 }
 
-pub fn cmd_update(name: Option<&str>, registry: Option<&str>) -> Result<(), String> {
+pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
     let pkg_dir = packages_dir();
 
     if let Some(name) = name {
         let dir = find_package_dir(&pkg_dir, name).ok_or_else(|| {
             format!("Package '{name}' not found. Run `sema pkg list` to see installed packages.")
         })?;
-        update_single_package(&pkg_dir, &dir, registry)?;
+        update_single_package(&pkg_dir, &dir)?;
     } else {
         let packages = find_all_packages(&pkg_dir);
         if packages.is_empty() {
@@ -212,7 +212,7 @@ pub fn cmd_update(name: Option<&str>, registry: Option<&str>) -> Result<(), Stri
         }
         for dir in &packages {
             let rel = dir.strip_prefix(&pkg_dir).unwrap_or(dir);
-            if let Err(e) = update_single_package(&pkg_dir, dir, registry) {
+            if let Err(e) = update_single_package(&pkg_dir, dir) {
                 eprintln!("✗ Failed to update {}: {e}", rel.display());
             }
         }
@@ -221,11 +221,7 @@ pub fn cmd_update(name: Option<&str>, registry: Option<&str>) -> Result<(), Stri
     Ok(())
 }
 
-fn update_single_package(
-    pkg_dir: &Path,
-    dir: &Path,
-    registry_override: Option<&str>,
-) -> Result<(), String> {
+fn update_single_package(pkg_dir: &Path, dir: &Path) -> Result<(), String> {
     let rel = dir.strip_prefix(pkg_dir).unwrap_or(dir);
 
     if let Some(meta) = read_pkg_meta(dir) {
@@ -239,11 +235,10 @@ fn update_single_package(
             .get("version")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown");
-        let registry = registry_override.unwrap_or_else(|| {
-            meta.get("registry")
-                .and_then(|v| v.as_str())
-                .unwrap_or(DEFAULT_REGISTRY)
-        });
+        let registry = meta
+            .get("registry")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_REGISTRY);
 
         let info = registry_package_info(&name, registry)?;
         let latest = latest_version(&info)
@@ -752,6 +747,11 @@ fn latest_version(info: &serde_json::Value) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+fn validate_version(version: &str) -> Result<semver::Version, String> {
+    semver::Version::parse(version)
+        .map_err(|_| format!("Invalid semver version: {version} (expected X.Y.Z[-prerelease][+build])"))
+}
+
 pub fn cmd_publish(registry: Option<&str>) -> Result<(), String> {
     let toml_path = Path::new("sema.toml");
     if !toml_path.exists() {
@@ -775,13 +775,7 @@ pub fn cmd_publish(registry: Option<&str>) -> Result<(), String> {
         .and_then(|v| v.as_str())
         .ok_or("sema.toml [package] missing 'version'")?;
 
-    // Basic semver format check
-    let parts: Vec<&str> = version.split('.').collect();
-    if parts.len() != 3 || parts.iter().any(|p| p.parse::<u64>().is_err()) {
-        return Err(format!(
-            "Invalid semver version in sema.toml: {version} (expected X.Y.Z)"
-        ));
-    }
+    validate_version(version)?;
 
     let token =
         read_token().ok_or("Not logged in. Run `sema pkg login --token <token>` first.")?;
@@ -1593,5 +1587,33 @@ name = "myproject"
         let result = cmd_yank("my-package", None);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Expected format"));
+    }
+
+    #[test]
+    fn validate_version_accepts_standard() {
+        assert!(validate_version("1.0.0").is_ok());
+        assert!(validate_version("0.1.0").is_ok());
+        assert!(validate_version("10.20.30").is_ok());
+    }
+
+    #[test]
+    fn validate_version_accepts_prerelease() {
+        assert!(validate_version("1.0.0-alpha.1").is_ok());
+        assert!(validate_version("1.0.0-beta").is_ok());
+        assert!(validate_version("1.0.0-rc.1").is_ok());
+    }
+
+    #[test]
+    fn validate_version_accepts_build_metadata() {
+        assert!(validate_version("1.0.0+build.123").is_ok());
+        assert!(validate_version("1.0.0-alpha+001").is_ok());
+    }
+
+    #[test]
+    fn validate_version_rejects_invalid() {
+        assert!(validate_version("not-a-version").is_err());
+        assert!(validate_version("1.0").is_err());
+        assert!(validate_version("").is_err());
+        assert!(validate_version("v1.0.0").is_err());
     }
 }

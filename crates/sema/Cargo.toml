@@ -34,6 +34,7 @@ toml.workspace = true
 toml_edit.workspace = true
 reqwest.workspace = true
 sha2.workspace = true
+semver.workspace = true
 
 [dev-dependencies]
 paste = "1"
