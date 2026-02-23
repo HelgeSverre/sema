@@ -96,7 +96,7 @@ pub async fn publish(
 
     // Find or create package
     let package_id: i64;
-    let existing = sqlx::query("SELECT id FROM packages WHERE name = ?")
+    let existing = sqlx::query("SELECT id, source FROM packages WHERE name = ?")
         .bind(&name)
         .fetch_optional(&state.db)
         .await
@@ -105,6 +105,17 @@ pub async fn publish(
 
     if let Some(row) = existing {
         package_id = row.get("id");
+
+        let source: String = row.get("source");
+        if source == "github" {
+            return (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({
+                    "error": "This package is GitHub-linked and cannot be published via CLI. Push a new semver tag to the linked repository instead."
+                })),
+            )
+                .into_response();
+        }
 
         let owner_row = sqlx::query(
             "SELECT COUNT(*) as cnt FROM owners WHERE package_id = ? AND user_id = ?",
@@ -136,7 +147,7 @@ pub async fn publish(
         };
 
         let r = sqlx::query(
-            "INSERT INTO packages (name, description, repository_url) VALUES (?, ?, ?)",
+            "INSERT INTO packages (name, description, repository_url, source) VALUES (?, ?, ?, 'upload')",
         )
         .bind(&name)
         .bind(&metadata.description)

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Link Repository — Sema Pkg{% endblock %}
+{% block content %}
+<div class="page-content" x-data="{ url: '', loading: false, result: null, error: null }">
+  <h1 style="font-family:var(--serif); font-size:1.6rem; font-weight:300; color:var(--text-bright); margin-bottom:0.5rem;">Link GitHub Repository</h1>
+  <p style="font-size:0.82rem; color:var(--text-dim); margin-bottom:1.5rem;">
+    Import a Sema package from a GitHub repository. The repo must contain a <code style="font-family:var(--mono); color:var(--gold); font-size:0.82em;">sema.toml</code> at the root. Semver tags (e.g. <code style="font-family:var(--mono); color:var(--gold); font-size:0.82em;">v1.0.0</code>) will be imported as versions, and a webhook will be registered for automatic updates.
+  </p>
+
+  {% if !github_connected %}
+  <div style="padding:1rem; background:var(--bg-code); border:1px solid var(--border); border-radius:6px; margin-bottom:1.5rem;">
+    <p style="font-size:0.82rem; color:var(--text-bright); margin-bottom:0.5rem;">Connect GitHub to continue</p>
+    <p style="font-size:0.75rem; color:var(--text-dim); margin-bottom:0.75rem;">We need permission to read your repositories and register webhooks.</p>
+    <a href="/auth/github?mode=connect&return_to=/link" class="btn btn-primary" style="font-size:0.7rem; padding:0.45rem 0.8rem;">Connect GitHub</a>
+  </div>
+  {% else %}
+  <p style="font-size:0.72rem; color:var(--text-dim); margin-bottom:1rem;">
+    Connected as <strong style="color:var(--gold);">{% if let Some(login) = github_login %}{{ login }}{% endif %}</strong> · <a href="/auth/github?mode=connect&return_to=/link" style="color:var(--gold);">Reconnect</a>
+  </p>
+
+  <div class="form-group" style="max-width:32rem;">
+    <label class="form-label">GitHub Repository URL</label>
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+      <input type="text" class="form-input" placeholder="github.com/user/my-sema-package" x-model="url" :disabled="loading">
+      <button class="btn btn-primary" style="font-size:0.7rem; padding:0.45rem 0.8rem; white-space:nowrap;" :disabled="loading || !url.trim()" @click="
+        loading = true; error = null; result = null;
+        try {
+          const res = await fetch('/api/v1/packages/link', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({repository_url: url})});
+          const data = await res.json();
+          if (res.ok) { result = data; } else { error = data.error || 'Unknown error'; }
+        } catch(e) { error = e.message; }
+        loading = false;
+      " x-text="loading ? 'Linking…' : 'Link Repository'"></button>
+    </div>
+  </div>
+
+  <div x-show="error" style="margin-top:1rem; padding:0.75rem; background:rgba(255,82,82,0.08); border:1px solid rgba(255,82,82,0.2); border-radius:4px;">
+    <p style="font-size:0.78rem; color:#ff5252;" x-text="error"></p>
+  </div>
+
+  <div x-show="result" style="margin-top:1rem; padding:0.75rem; background:var(--gold-glow); border:1px solid var(--gold-dim); border-radius:4px;">
+    <p style="font-size:0.82rem; color:var(--text-bright);">✓ Linked <strong x-text="result?.package"></strong></p>
+    <p style="font-size:0.72rem; color:var(--text-dim); margin-top:0.25rem;">
+      <span x-text="result?.tags_found"></span> tags found, <span x-text="result?.versions_imported"></span> versions imported
+    </p>
+    <a :href="'/packages/' + result?.package" class="btn btn-secondary" style="font-size:0.7rem; padding:0.35rem 0.7rem; margin-top:0.5rem;">View Package →</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

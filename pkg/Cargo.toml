@@ -25,6 +25,9 @@ semver = { version = "1", features = ["serde"] }
 time = { version = "0.3", features = ["serde"] }
 hex = "0.4"
 reqwest = { version = "0.12", features = ["json"] }
+aes-gcm = "0.10"
+toml = "0.8"
+hmac = "0.12"
 
 [dev-dependencies]
 tempfile = "3"

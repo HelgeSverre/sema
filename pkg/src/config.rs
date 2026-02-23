@@ -9,6 +9,7 @@ pub struct Config {
     pub github_client_id: Option<String>,
     pub github_client_secret: Option<String>,
     pub session_secret: String,
+    pub oauth_token_key: String,
     pub max_tarball_bytes: usize,
 }
 
@@ -29,6 +30,8 @@ impl Config {
             github_client_secret: env::var("GITHUB_CLIENT_SECRET").ok(),
             session_secret: env::var("SESSION_SECRET")
                 .unwrap_or_else(|_| "change-me-in-production".into()),
+            oauth_token_key: env::var("OAUTH_TOKEN_KEY")
+                .unwrap_or_else(|_| "change-me-32-bytes-in-production!".into()),
             max_tarball_bytes: env::var("MAX_TARBALL_BYTES")
                 .ok()
                 .and_then(|v| v.parse().ok())

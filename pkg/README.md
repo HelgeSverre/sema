@@ -30,6 +30,7 @@ All configuration is via environment variables with sensible defaults:
 | `MAX_TARBALL_BYTES` | `52428800` (50 MB) | Max upload size |
 | `GITHUB_CLIENT_ID` | — | GitHub OAuth app client ID (optional) |
 | `GITHUB_CLIENT_SECRET` | — | GitHub OAuth app secret (optional) |
+| `OAUTH_TOKEN_KEY` | — | 32-char key for encrypting stored GitHub tokens (required for repo linking) |
 
 ## API Endpoints
 
@@ -66,6 +67,38 @@ All configuration is via environment variables with sensible defaults:
 | `GET` | `/api/v1/packages/{name}/owners` | — | List owners |
 | `PUT` | `/api/v1/packages/{name}/owners` | Bearer | Add owner `{username}` |
 | `DELETE` | `/api/v1/packages/{name}/owners` | Bearer | Remove owner `{username}` |
+
+### GitHub-Linked Packages
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/packages/link` | Session | Link a GitHub repo `{repo_url}` |
+| `POST` | `/api/v1/packages/{name}/sync` | Session | Manual re-sync from GitHub (owner only) |
+| `POST` | `/api/v1/webhooks/github` | HMAC | Webhook receiver for tag events |
+
+## GitHub-Linked Packages
+
+Link a GitHub repository to automatically publish packages from semver tags.
+
+### Prerequisites
+
+- GitHub OAuth configured (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`)
+- `OAUTH_TOKEN_KEY` set to a random 32-character string (used to encrypt stored GitHub tokens)
+
+### How It Works
+
+1. User connects their GitHub account via OAuth
+2. User pastes a repo URL on the `/link` page
+3. Registry validates the repo contains a `sema.toml`, then imports existing semver tags as versions
+4. A webhook is registered on the repo — new semver tags are published automatically
+
+### Tag-to-Version Mapping
+
+Git tags are mapped to package versions: `v1.0.0` → `1.0.0`. Tags that don't match semver (e.g., `nightly`, `latest`) are skipped.
+
+### Source Locking
+
+A package is either **CLI-uploaded** or **GitHub-linked**, never both. Once a package is linked to a repo, it cannot be published via `sema publish`, and vice versa.
 
 ## Self-Hosting
 

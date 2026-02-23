@@ -2,8 +2,10 @@ pub mod api;
 pub mod auth;
 pub mod blob;
 pub mod config;
+pub mod crypto;
 pub mod db;
 pub mod github;
+pub mod github_sync;
 pub mod web;
 
 use axum::{
@@ -27,6 +29,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/packages/{name}", get(web::package_detail))
         .route("/login", get(web::login))
         .route("/account", get(web::account))
+        .route("/link", get(web::link_page))
         // GitHub OAuth
         .route("/auth/github", get(github::start))
         .route("/auth/github/callback", get(github::callback))
@@ -63,5 +66,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                 .delete(api::packages::remove_owner),
         )
         .route("/api/v1/search", get(api::packages::search))
+        // GitHub-linked packages API
+        .route("/api/v1/packages/link", post(api::github::link))
+        .route(
+            "/api/v1/packages/{name}/sync",
+            post(api::github::sync),
+        )
+        .route(
+            "/api/v1/webhooks/github",
+            post(api::github::webhook),
+        )
         .with_state(state)
 }

@@ -85,6 +85,8 @@ pub struct PackageTemplate {
     pub name: String,
     pub description: String,
     pub repository_url: Option<String>,
+    pub source: String,
+    pub github_repo: Option<String>,
     pub owners: Vec<String>,
     pub versions: Vec<VersionInfo>,
     pub deps: Vec<DepInfo>,
@@ -98,11 +100,21 @@ pub struct LoginTemplate {
 }
 
 #[derive(Template)]
+#[template(path = "link.html")]
+pub struct LinkTemplate {
+    pub username: Option<String>,
+    pub github_connected: bool,
+    pub github_login: Option<String>,
+}
+
+#[derive(Template)]
 #[template(path = "account.html")]
 pub struct AccountTemplate {
     pub username: Option<String>,
     pub user_email: String,
     pub user_homepage: Option<String>,
+    pub github_connected: bool,
+    pub github_login: Option<String>,
     pub packages: Vec<PackageSummary>,
     pub tokens: Vec<TokenInfo>,
 }
@@ -205,7 +217,7 @@ pub async fn package_detail(
 ) -> impl IntoResponse {
     let username = get_username(&state, &headers).await;
 
-    let pkg = sqlx::query("SELECT id, name, description, repository_url FROM packages WHERE name = ?")
+    let pkg = sqlx::query("SELECT id, name, description, repository_url, source, github_repo FROM packages WHERE name = ?")
         .bind(&name)
         .fetch_optional(&state.db)
         .await
@@ -220,6 +232,8 @@ pub async fn package_detail(
     let pkg_id: i64 = pkg.get("id");
     let description: String = pkg.get("description");
     let repository_url: Option<String> = pkg.get("repository_url");
+    let source: String = pkg.get("source");
+    let github_repo: Option<String> = pkg.get("github_repo");
 
     let version_rows = sqlx::query(
         "SELECT version, published_at, yanked, size_bytes, checksum_sha256, sema_version_req FROM package_versions WHERE package_id = ? ORDER BY id DESC",
@@ -276,7 +290,7 @@ pub async fn package_detail(
     .unwrap_or_default();
     let owners: Vec<String> = owner_rows.iter().map(|r| r.get("username")).collect();
 
-    render(PackageTemplate { username, name, description, repository_url, owners, versions, deps }).into_response()
+    render(PackageTemplate { username, name, description, repository_url, source, github_repo, owners, versions, deps }).into_response()
 }
 
 pub async fn login(
@@ -289,6 +303,44 @@ pub async fn login(
     }
     let github_enabled = state.config.github_client_id.is_some();
     render(LoginTemplate { username: None, github_enabled }).into_response()
+}
+
+pub async fn link_page(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let cookie = headers.get(header::COOKIE).and_then(|v| v.to_str().ok()).unwrap_or("");
+    let session_id = cookie.split(';')
+        .filter_map(|c| c.trim().strip_prefix("session="))
+        .next();
+
+    let session_id = match session_id {
+        Some(s) => s,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    let user = match get_session_user(&state.db, session_id).await {
+        Some(u) => u,
+        None => return Redirect::to("/login").into_response(),
+    };
+
+    let github_row = sqlx::query(
+        "SELECT provider_login FROM oauth_connections WHERE user_id = ? AND provider = 'github' AND revoked_at IS NULL"
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let github_connected = github_row.is_some();
+    let github_login = github_row.map(|r| r.get::<String, _>("provider_login"));
+
+    render(LinkTemplate {
+        username: Some(user.username),
+        github_connected,
+        github_login,
+    }).into_response()
 }
 
 pub async fn account(
@@ -361,10 +413,25 @@ pub async fn account(
         last_used_at: r.get("last_used_at"),
     }).collect();
 
+    // Get GitHub connection status
+    let github_row = sqlx::query(
+        "SELECT provider_login FROM oauth_connections WHERE user_id = ? AND provider = 'github' AND revoked_at IS NULL"
+    )
+    .bind(user.id)
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let github_connected = github_row.is_some();
+    let github_login = github_row.map(|r| r.get::<String, _>("provider_login"));
+
     render(AccountTemplate {
         username: Some(user.username),
         user_email,
         user_homepage,
+        github_connected,
+        github_login,
         packages,
         tokens,
     }).into_response()

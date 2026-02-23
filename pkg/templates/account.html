@@ -82,6 +82,7 @@
   <div class="account-grid">
     <nav class="account-nav">
       <a href="#profile" class="active">Profile</a>
+      <a href="#github">GitHub</a>
       <a href="#packages">My Packages</a>
       <a href="#tokens">API Tokens</a>
     </nav>
@@ -110,10 +111,27 @@
         {% endif %}
       </div>
 
+      <div class="account-section" id="github">
+        <h2>GitHub Integration</h2>
+        {% if github_connected %}
+        <p style="font-size:0.78rem; color:var(--text);">
+          Connected as <strong style="color:var(--gold);">{% if let Some(login) = github_login %}{{ login }}{% endif %}</strong>
+        </p>
+        <div style="margin-top:0.75rem; display:flex; gap:0.5rem;">
+          <a href="/auth/github?mode=connect&return_to=/account" class="btn btn-secondary" style="font-size:0.7rem; padding:0.4rem 0.8rem;">Reconnect</a>
+        </div>
+        {% else %}
+        <p style="font-size:0.78rem; color:var(--text-dim); margin-bottom:0.75rem;">
+          Connect your GitHub account to link repositories and auto-publish packages from tags.
+        </p>
+        <a href="/auth/github?mode=connect&return_to=/account" class="btn btn-primary" style="font-size:0.7rem; padding:0.45rem 0.8rem;">Connect GitHub</a>
+        {% endif %}
+      </div>
+
       <div class="account-section" id="packages">
         <h2>My Packages</h2>
         {% if packages.is_empty() %}
-        <div class="empty-state">You haven't published any packages yet.</div>
+        <div class="empty-state">You haven't published any packages yet. <a href="/link" style="color:var(--gold); margin-left:0.25rem;">Link a GitHub repository →</a></div>
         {% else %}
         <div class="pkg-list">
           {% for pkg in packages %}

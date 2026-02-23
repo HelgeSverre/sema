@@ -166,6 +166,9 @@
       {% if let Some(v) = versions.first() %}
       <span class="badge badge-gold">{{ v.version }}</span>
       {% endif %}
+      {% if source == "github" %}
+      <span class="badge" style="background:rgba(255,255,255,0.06); color:var(--text-dim); font-size:0.6rem;">GitHub</span>
+      {% endif %}
     </div>
     <p style="font-size:0.82rem; color:var(--text); margin-top:0.35rem;">{{ description }}</p>
     <div style="margin-top:0.75rem;">
@@ -217,6 +220,16 @@
     </div>
 
     <aside class="detail-sidebar">
+      {% if source == "github" %}
+      {% if let Some(gh) = github_repo %}
+      <section>
+        <div class="section-label">Source</div>
+        <a href="https://github.com/{{ gh }}" class="sidebar-link">{{ gh }}</a>
+        <div style="font-size:0.65rem; color:var(--text-dim); margin-top:0.25rem;">Auto-published from GitHub tags</div>
+      </section>
+      {% endif %}
+      {% endif %}
+
       <section>
         <div class="section-label">Owners</div>
         {% for owner in owners %}

@@ -16,8 +16,22 @@ fn generate_state() -> String {
     hex::encode(bytes)
 }
 
+#[derive(Deserialize)]
+pub struct StartParams {
+    #[serde(default = "default_login")]
+    pub mode: String,
+    #[serde(default = "default_account")]
+    pub return_to: String,
+}
+
+fn default_login() -> String { "login".into() }
+fn default_account() -> String { "/account".into() }
+
 /// GET /auth/github — redirect to GitHub authorize URL
-pub async fn start(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+pub async fn start(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<StartParams>,
+) -> impl IntoResponse {
     let (client_id, _) = match github_creds(&state) {
         Some(c) => c,
         None => {
@@ -27,15 +41,17 @@ pub async fn start(State(state): State<Arc<AppState>>) -> impl IntoResponse {
 
     let oauth_state = generate_state();
 
+    let scopes = "read:user,user:email,public_repo,admin:repo_hook";
     let url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}/auth/github/callback&scope=read:user%20user:email&state={}",
-        client_id, state.config.base_url, oauth_state,
+        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}/auth/github/callback&scope={}&state={}",
+        client_id, state.config.base_url, scopes, oauth_state,
     );
 
-    // Store state in a cookie so we can verify on callback
+    // Encode mode and return_to in the cookie alongside the CSRF state
+    let cookie_value = format!("{}|{}|{}", oauth_state, params.mode, params.return_to);
     let cookie = format!(
         "github_oauth_state={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=600",
-        oauth_state
+        cookie_value
     );
 
     ([(header::SET_COOKIE, cookie)], Redirect::to(&url)).into_response()
@@ -78,16 +94,21 @@ pub async fn callback(
         }
     };
 
-    // Verify state cookie matches
+    // Parse state cookie: "csrf_state|mode|return_to"
     let cookie_header = headers
         .get(header::COOKIE)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    let stored_state = cookie_header
+    let stored_cookie = cookie_header
         .split(';')
         .filter_map(|c| c.trim().strip_prefix("github_oauth_state="))
         .next()
         .unwrap_or("");
+
+    let parts: Vec<&str> = stored_cookie.splitn(3, '|').collect();
+    let stored_state = parts.first().copied().unwrap_or("");
+    let mode = parts.get(1).copied().unwrap_or("login");
+    let return_to = parts.get(2).copied().unwrap_or("/account");
 
     if stored_state.is_empty() || stored_state != params.state {
         tracing::error!("OAuth state mismatch: stored={:?} vs param={:?}", stored_state, params.state);
@@ -143,12 +164,79 @@ pub async fn callback(
         }
     };
 
-    // Fetch primary email
+    // Encrypt the access token for storage
+    let token_enc = crate::crypto::encrypt(&token_body.access_token, &state.config.oauth_token_key);
+    let scopes_str = "read:user,user:email,public_repo,admin:repo_hook";
+
+    // ── Connect mode: link GitHub to existing session user ──
+    if mode == "connect" {
+        let session_id = cookie_header
+            .split(';')
+            .filter_map(|c| c.trim().strip_prefix("session="))
+            .next()
+            .unwrap_or("");
+        let current_user = crate::auth::get_session_user(&state.db, session_id).await;
+        let current_user = match current_user {
+            Some(u) => u,
+            None => return (StatusCode::UNAUTHORIZED, "Must be logged in to connect GitHub").into_response(),
+        };
+
+        // Check if this github_id is already linked to a different user
+        let existing = sqlx::query("SELECT user_id FROM oauth_connections WHERE provider = 'github' AND provider_user_id = ?")
+            .bind(gh_user.id.to_string())
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
+        if let Some(row) = existing {
+            let linked_user_id: i64 = row.get("user_id");
+            if linked_user_id != current_user.id {
+                return (StatusCode::CONFLICT, "This GitHub account is linked to another user").into_response();
+            }
+        }
+
+        // Upsert oauth_connections
+        sqlx::query(
+            "INSERT INTO oauth_connections (user_id, provider, provider_user_id, provider_login, access_token_enc, scopes, updated_at)
+             VALUES (?, 'github', ?, ?, ?, ?, datetime('now'))
+             ON CONFLICT(user_id, provider) DO UPDATE SET
+               provider_user_id = excluded.provider_user_id,
+               provider_login = excluded.provider_login,
+               access_token_enc = excluded.access_token_enc,
+               scopes = excluded.scopes,
+               revoked_at = NULL,
+               updated_at = datetime('now')"
+        )
+        .bind(current_user.id)
+        .bind(gh_user.id.to_string())
+        .bind(&gh_user.login)
+        .bind(&token_enc)
+        .bind(scopes_str)
+        .execute(&state.db)
+        .await
+        .ok();
+
+        // Also set github_id on users table if not set
+        sqlx::query("UPDATE users SET github_id = ? WHERE id = ? AND github_id IS NULL")
+            .bind(gh_user.id)
+            .bind(current_user.id)
+            .execute(&state.db)
+            .await
+            .ok();
+
+        let clear_state = "github_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0".to_string();
+        return (
+            AppendHeaders([(header::SET_COOKIE, clear_state)]),
+            Redirect::to(return_to),
+        ).into_response();
+    }
+
+    // ── Login mode (default): find/create user, create session ──
+
     let email = fetch_primary_email(&client, &token_body.access_token)
         .await
         .unwrap_or_else(|| format!("{}@users.noreply.github.com", gh_user.login));
 
-    // Find or create user
     let user_id = find_or_create_user(&state.db, gh_user.id, &gh_user.login, &email).await;
 
     let user_id = match user_id {
@@ -160,8 +248,29 @@ pub async fn callback(
         }
     };
 
+    // Store token for GitHub-linked packages
+    sqlx::query(
+        "INSERT INTO oauth_connections (user_id, provider, provider_user_id, provider_login, access_token_enc, scopes, updated_at)
+         VALUES (?, 'github', ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(user_id, provider) DO UPDATE SET
+           provider_user_id = excluded.provider_user_id,
+           provider_login = excluded.provider_login,
+           access_token_enc = excluded.access_token_enc,
+           scopes = excluded.scopes,
+           revoked_at = NULL,
+           updated_at = datetime('now')"
+    )
+    .bind(user_id)
+    .bind(gh_user.id.to_string())
+    .bind(&gh_user.login)
+    .bind(&token_enc)
+    .bind(scopes_str)
+    .execute(&state.db)
+    .await
+    .ok();
+
     let session_id = create_session(&state.db, user_id).await;
-    tracing::info!("GitHub OAuth: created session for user_id={}, redirecting to /account", user_id);
+    tracing::info!("GitHub OAuth: created session for user_id={}, redirecting to {}", user_id, return_to);
 
     let session_cookie = format!(
         "session={}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800",
@@ -174,7 +283,7 @@ pub async fn callback(
             (header::SET_COOKIE, session_cookie),
             (header::SET_COOKIE, clear_state),
         ]),
-        Redirect::to("/account"),
+        Redirect::to(return_to),
     )
         .into_response()
 }
@@ -191,7 +300,6 @@ async fn fetch_primary_email(client: &reqwest::Client, access_token: &str) -> Op
         .await
         .ok()?;
 
-    // Prefer primary+verified, then any verified (never return unverified)
     emails
         .iter()
         .find(|e| e.primary && e.verified)
@@ -205,7 +313,6 @@ async fn find_or_create_user(
     login: &str,
     email: &str,
 ) -> Result<i64, String> {
-    // Check if user with this github_id already exists
     let existing = sqlx::query("SELECT id FROM users WHERE github_id = ?")
         .bind(github_id)
         .fetch_optional(db)
@@ -216,7 +323,6 @@ async fn find_or_create_user(
         return Ok(row.get("id"));
     }
 
-    // Check if username is taken — if so, append github id
     let username_taken = sqlx::query("SELECT id FROM users WHERE username = ?")
         .bind(login)
         .fetch_optional(db)
@@ -229,7 +335,6 @@ async fn find_or_create_user(
         login.to_string()
     };
 
-    // Check if email is taken — if so, use a modified email to avoid conflicts
     let email_taken = sqlx::query("SELECT id FROM users WHERE email = ?")
         .bind(email)
         .fetch_optional(db)
@@ -242,7 +347,6 @@ async fn find_or_create_user(
         email.to_string()
     };
 
-    // Create new user
     let result = sqlx::query(
         "INSERT INTO users (username, email, github_id) VALUES (?, ?, ?)",
     )
