@@ -467,17 +467,13 @@ impl Formatter {
             return;
         }
 
-        // Classify the form early — special forms with body content force multi-line
         let kind = classify_form(children);
         let has_comments = children.iter().any(|n| matches!(n, Node::Comment(_)));
 
-        // Determine if this form should be forced multi-line regardless of width.
-        // Body/binding/clause/threading forms with body expressions beyond
-        // the distinguished args should always use multi-line layout.
-        let force_multiline = has_comments || self.should_force_multiline(kind, &semantic);
-
-        // Try one-line format first (only for forms that don't require multi-line)
-        if !force_multiline {
+        // Try one-line format first (only if no inner comments).
+        // House style: if the form fits on one line, keep it — even body forms
+        // like (fn (a) (fn (b) (f a b))). Only break when it exceeds width.
+        if !has_comments {
             let one_line = self.format_flat(&semantic, open, close);
             if indent + one_line.len() <= self.width {
                 self.output.push_str(&one_line);
@@ -495,65 +491,6 @@ impl Formatter {
             FormKind::Cond => self.format_conditional(children, indent, open, close),
             FormKind::Import => self.format_import(children, indent, open, close),
             FormKind::Call => self.format_call(children, indent, open, close),
-        }
-    }
-
-    /// Determine if a special form should be forced multi-line even if it fits on one line.
-    /// Body forms with body exprs, binding forms, clause forms with multiple clauses,
-    /// and threading forms with multiple steps should always be multi-line.
-    fn should_force_multiline(&self, kind: FormKind, semantic: &[&Node]) -> bool {
-        match kind {
-            FormKind::Body => {
-                // Force multi-line if there are body expressions beyond the
-                // distinguished args. Count: head + name/params on first line,
-                // anything after = body.
-                let head_name = match semantic.first() {
-                    Some(Node::Atom(Token::Symbol(s))) => s.as_str(),
-                    _ => return false,
-                };
-                let first_line_count = match head_name {
-                    "define" => {
-                        if semantic.len() > 1 && matches!(semantic[1], Node::List(_)) {
-                            2 // (define (f x) body...)
-                        } else {
-                            semantic.len().min(3) // (define x val) — no body
-                        }
-                    }
-                    "defn" | "defun" | "defmacro" | "defagent" | "deftool"
-                    | "define-record-type" | "define-syntax" => {
-                        // head + name + params
-                        let mut count = 1;
-                        for node in semantic.iter().skip(1) {
-                            match node {
-                                Node::Atom(_) | Node::Vector(_) | Node::Prefix(_, _)
-                                | Node::List(_) => count += 1,
-                                _ => break,
-                            }
-                        }
-                        count
-                    }
-                    "fn" | "lambda" => {
-                        if semantic.len() > 1 { 2 } else { 1 }
-                    }
-                    _ => 1, // do, begin, when, unless, etc.
-                };
-                // Has body expressions beyond the first-line args
-                semantic.len() > first_line_count
-            }
-            FormKind::Binding => {
-                // let/let*/letrec with body: head + bindings + body
-                semantic.len() > 2
-            }
-            FormKind::Clause => {
-                // cond/case/match: always multi-line if > 1 clause
-                semantic.len() > 2
-            }
-            FormKind::Threading => {
-                // ->/->>: let width check decide (short pipelines stay on one line)
-                false
-            }
-            FormKind::TryCatch => semantic.len() > 1,
-            _ => false, // Call, Cond, Import: only break on width
         }
     }
 
@@ -862,6 +799,7 @@ impl Formatter {
         // Try: head + first arg on same line
         let head_width = flat_width(semantic[0]);
         let first_arg_col = indent + open.len() + head_width + 1;
+        let arg_indent = indent + 2;
 
         // Check if head + first arg fits on one line
         if first_arg_col + flat_width(semantic[1]) <= self.width {
@@ -869,12 +807,11 @@ impl Formatter {
             self.output.push(' ');
             self.format_node(semantic[1], first_arg_col);
 
-            // Remaining args aligned with first arg, with comments preserved
+            // Remaining args indented 2 from opening paren, with comments preserved
             let rest_start = Self::index_after_nth_semantic(children, 2);
-            self.emit_body_with_comments(children, rest_start, first_arg_col);
+            self.emit_body_with_comments(children, rest_start, arg_indent);
         } else {
             // Everything indented 2 from opening paren, with comments preserved
-            let arg_indent = indent + 2;
             let rest_start = Self::index_after_nth_semantic(children, 1);
             self.emit_body_with_comments(children, rest_start, arg_indent);
         }
