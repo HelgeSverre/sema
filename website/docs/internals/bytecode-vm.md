@@ -67,6 +67,10 @@ Closures use the Lua/Steel upvalue model. When a lambda references a variable fr
 
 ### Phase 3: Bytecode Compilation (ResolvedExpr → Chunk)
 
+::: details The instruction format echoes the IBM 704 (1955)
+The [704's](http://bitsavers.informatik.uni-stuttgart.de/pdf/ibm/704/24-6661-2_704_Manual_1955.pdf) Type A instruction packed four fields into a single 36-bit word: **prefix** (opcode), **decrement** (constant parameter), **tag** (register selector), and **address** (operand location). Sema's bytecode uses a strikingly similar structure — each instruction is an opcode byte followed by inline operands (constant indices, slot numbers, jump offsets). The 704 also had a `CAS` (Compare Accumulator with Storage) instruction that performed a 3-way branch in a single operation: skip 0, 1, or 2 instructions depending on less-than, equal, or greater-than. This is pattern matching as a hardware primitive — the ancestor of the conditional jump patterns Sema's compiler generates for `cond` and `match`.
+:::
+
 The compiler (`compiler.rs`) transforms `ResolvedExpr` into bytecode `Chunk`s. The `Compiler` struct wraps an `Emitter` (bytecode builder) and collects `Function` templates for inner lambdas.
 
 **Compilation strategies:**

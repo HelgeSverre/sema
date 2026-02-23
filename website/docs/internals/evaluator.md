@@ -53,6 +53,10 @@ The key optimization here is that `eval_value_inner` no longer clones `expr` and
 
 This is the same technique described in Guy Steele's ["Rabbit" compiler paper](https://dspace.mit.edu/handle/1721.1/6913) (1978), where he showed that tail calls in Scheme can be compiled as jumps. In a native-code compiler (like Chez Scheme), the tail call becomes an actual `jmp` instruction. In a tree-walking interpreter, we can't jump — but we can return a "please evaluate this next" token and loop. The trampoline bounces between returning tokens and evaluating them, hence the name.
 
+::: details Why Lisp needed software stacks in the first place
+The [IBM 704](http://bitsavers.informatik.uni-stuttgart.de/pdf/ibm/704/24-6661-2_704_Manual_1955.pdf) (1955) — the machine Lisp was born on — had no hardware call stack. Its subroutine instruction (`TSX`, Transfer and Set Index) saved the return address in one of three index registers and jumped to the target. This meant recursive calls would overwrite the return address, making recursion impossible without explicitly managing a stack in memory. McCarthy had to build Lisp's stack discipline and environment chain entirely in software on top of this constraint — which is why the explicit environment model (closures capturing their defining scope) became central to Lisp rather than the implicit stack-frame model used by Fortran. Sema's trampoline is a direct descendant: we still manage our own "stack" of pending evaluations rather than relying on the host language's call stack.
+:::
+
 ### Concrete Example
 
 Consider this tail-recursive loop:

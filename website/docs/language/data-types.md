@@ -131,7 +131,11 @@ Character literals with `#\` prefix. Named characters are supported.
 
 ### List
 
-Parenthesized sequences. Lists are the fundamental data structure in Sema.
+Parenthesized sequences. Lists are the fundamental data structure in Sema. Access the first element with `car` (or `first`) and the rest with `cdr` (or `rest`).
+
+::: details Why `car`/`cdr`?
+These names come from the [IBM 704](http://bitsavers.informatik.uni-stuttgart.de/pdf/ibm/704/24-6661-2_704_Manual_1955.pdf) (1955), the machine Lisp was born on. The 704 stored each cons cell in a single 36-bit word: `car` ("Contents of the Address Register") extracted one 15-bit pointer field, `cdr` ("Contents of the Decrement Register") extracted the other. They were single hardware instructions. Sema also provides `first`/`rest` as aliases.
+:::
 
 ```scheme
 (1 2 3)

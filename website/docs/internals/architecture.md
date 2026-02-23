@@ -88,6 +88,10 @@ pub struct Value(u64);
 // Pattern matching via val.view() → ValueView enum
 ```
 
+::: details The IBM 704 connection (1955)
+The idea of packing type information and data into a single machine word goes back to the [IBM 704](http://bitsavers.informatik.uni-stuttgart.de/pdf/ibm/704/24-6661-2_704_Manual_1955.pdf) — the machine Lisp was born on. The 704's 36-bit word was divided into sub-fields: a 3-bit **prefix** (opcode), a 15-bit **decrement**, a 3-bit **tag** (register selector), and a 15-bit **address**. The same word could be an instruction, a fixed-point number, a floating-point number, or six BCD characters — depending entirely on context. Sema's NaN-boxing is the same fundamental idea scaled to 64 bits: 6 tag bits + 45 payload bits, where the tag determines how to interpret the payload. The 704 also pioneered the biased-exponent floating-point format (sign + 8-bit characteristic biased by +128 + 27-bit fraction) that would eventually become IEEE 754 thirty years later — the very standard whose NaN space we now exploit for type tagging.
+:::
+
 Several design choices here are worth examining.
 
 ### Why `Rc`, Not `Arc`
@@ -100,7 +104,13 @@ Sema uses NaN-boxing — encoding values in the unused bits of IEEE 754 NaN repr
 
 ### Why Vector-Backed Lists
 
-`Value::List(Rc<Vec<Value>>)` stores list elements in a contiguous `Vec`, not a linked list of cons cells. This is a deliberate departure from traditional Lisp:
+`Value::List(Rc<Vec<Value>>)` stores list elements in a contiguous `Vec`, not a linked list of cons cells. This is a deliberate departure from traditional Lisp.
+
+::: details Why `car` and `cdr` have those names
+McCarthy's original Lisp (1958) ran on the [IBM 704](http://bitsavers.informatik.uni-stuttgart.de/pdf/ibm/704/24-6661-2_704_Manual_1955.pdf), which packed cons cells into a single 36-bit machine word. The **address** field (bits 21-35) held a pointer to the first element; the **decrement** field (bits 3-17) held a pointer to the rest of the list. The 704 had hardware instructions to extract these fields directly — `car` is literally "Contents of the Address Register" and `cdr` is "Contents of the Decrement Register." They were single machine instructions, not function calls. Sema keeps the names for Scheme compatibility but the implementation is completely different — `car` is a Vec index (`v[0]`) and `cdr` is a slice copy (`v[1..]`).
+:::
+
+The performance trade-offs:
 
 | Operation                      | Vec-backed     | Cons cells      |
 | ------------------------------ | -------------- | --------------- |
