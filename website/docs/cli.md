@@ -113,6 +113,48 @@ sema disasm script.semac          # human-readable text
 sema disasm --json script.semac   # structured JSON output
 ```
 
+### `sema pkg`
+
+Package manager for installing, publishing, and managing Sema packages. See the full [Packages](./packages.md) documentation for details.
+
+```
+sema pkg <COMMAND>
+```
+
+| Subcommand                  | Description                                         |
+| --------------------------- | --------------------------------------------------- |
+| `init`                      | Initialize a new `sema.toml` in the current directory |
+| `add <spec> [--registry]`   | Add a package from the registry or git              |
+| `install`                   | Install all deps from `sema.toml`                   |
+| `update [name]`             | Update packages (all or specific)                   |
+| `remove <name>`             | Remove an installed package                         |
+| `list`                      | List installed packages                             |
+| `publish [--registry]`      | Publish current package to the registry             |
+| `search <query> [--registry]` | Search the registry for packages                 |
+| `info <name> [--registry]`  | Show package info from the registry                 |
+| `yank <name@version> [--registry]` | Yank a published version                     |
+| `login [--token] [--registry]` | Authenticate with a registry                     |
+| `logout`                    | Remove stored registry credentials                  |
+| `config [key] [value]`      | View or set package manager configuration           |
+
+```bash
+# Install a registry package
+sema pkg add http-helpers@1.0.0
+
+# Install a git package
+sema pkg add github.com/user/repo@v2.0
+
+# Publish to the registry
+sema pkg login --token sema_pat_...
+sema pkg publish
+
+# Search for packages
+sema pkg search json
+
+# Set default registry
+sema pkg config registry.url https://my-registry.com
+```
+
 ### `sema completions`
 
 Generate shell completion scripts. See [Shell Completions](./shell-completions.md) for installation instructions.
@@ -263,12 +305,36 @@ sema --sandbox=no-shell,no-network --allowed-paths=./data script.sema
 
 ## REPL Commands
 
-| Command        | Description                 |
-| -------------- | --------------------------- |
-| `,quit` / `,q` | Exit the REPL               |
-| `,help` / `,h` | Show help                   |
-| `,env`         | Show user-defined bindings  |
-| `,builtins`    | List all built-in functions |
+| Command        | Description                          |
+| -------------- | ------------------------------------ |
+| `,quit` / `,q` | Exit the REPL                        |
+| `,help` / `,h` | Show help                            |
+| `,env`         | Show user-defined bindings           |
+| `,builtins`    | List all built-in functions          |
+| `,type EXPR`   | Evaluate expression and show its type |
+| `,time EXPR`   | Evaluate expression and show elapsed time |
+| `,doc NAME`    | Show info about a binding or special form |
+
+```
+sema> ,type 42
+:integer
+
+sema> ,type '(1 2 3)
+:list
+
+sema> ,doc map
+  map : native-fn
+
+sema> ,doc if
+  if : special form
+
+sema> ,doc factorial
+  factorial : lambda (n)
+
+sema> ,time (foldl + 0 (range 100000))
+4999950000
+elapsed: 58.424ms
+```
 
 ## REPL Features
 
@@ -276,10 +342,10 @@ sema --sandbox=no-shell,no-network --allowed-paths=./data script.sema
 
 The REPL supports tab completion for:
 
-- All 350+ built-in function names (e.g., `string/tr` → `string/trim`)
+- All 460+ built-in function names (e.g., `string/tr` → `string/trim`)
 - Special forms (`def` → `define`, `defun`, `defmacro`, ...)
 - User-defined bindings
-- REPL commands (`,` → `,quit`, `,help`, `,env`, `,builtins`)
+- REPL commands (`,` → `,quit`, `,help`, `,env`, `,builtins`, `,type`, `,time`, `,doc`)
 
 ### Multiline Input
 
@@ -294,6 +360,105 @@ sema> (factorial 10)
 3628800
 ```
 
+### Shadowing Warnings
+
+The REPL warns when you accidentally redefine a built-in function:
+
+```
+sema> (define map 42)
+  warning: redefining builtin 'map'
+```
+
+This is only a warning — the redefinition still works. It helps catch accidental name collisions.
+
 ### History
 
 Command history is saved to `~/.sema/history.txt` and persists across sessions.
+
+## Error Messages
+
+Sema provides detailed, colorized error messages with source context and actionable hints.
+
+### Source Context
+
+Errors show the offending source line with a caret pointing to the problem:
+
+```
+Error: Reader error at 1:16: unterminated string
+  --> script.sema:1:16
+   |
+ 1 | (define name "hello
+   |                ^
+  hint: add a closing `"` to end the string
+```
+
+### Type Errors
+
+Type errors show the actual value that caused the problem:
+
+```
+Error: Type error: expected number, got string ("hello")
+  --> <input>:1:1
+   |
+ 1 | (+ "hello" 42)
+   | ^
+  at + (<input>:1:1)
+```
+
+### Arity Errors
+
+When you pass the wrong number of arguments, the error shows what you called:
+
+```
+Error: Arity error: f expects 1 args, got 3
+  --> <input>:1:18
+   |
+ 1 | (define (f x) x) (f 1 2 3)
+   |                  ^
+  at f (<input>:1:18)
+  note: in: (f 1 2 3)
+```
+
+### Mismatched Brackets
+
+Mixed bracket types are caught with specific guidance:
+
+```
+Error: Reader error at 1:7: mismatched bracket: expected `]` to close `[`, found `)`
+  hint: this vector was opened with `[` — close it with `]`
+```
+
+### "Did You Mean?"
+
+Typos in function or variable names trigger fuzzy suggestions:
+
+```
+Error: Unbound variable: pritnln
+  hint: Did you mean 'println'?
+```
+
+### Lisp Dialect Hints
+
+If you use names from other Lisp dialects (Common Lisp, Clojure, Scheme), Sema provides targeted guidance:
+
+```
+Error: Unbound variable: setq
+  hint: Sema uses 'set!' for variable assignment
+
+Error: Unbound variable: funcall
+  hint: In Sema, functions are called directly: (f arg ...)
+```
+
+### Stack Overflow
+
+Infinite recursion gets a helpful hint:
+
+```
+Error: Eval error: maximum eval depth exceeded (1024)
+  hint: this usually means infinite recursion; ensure recursive calls are in
+        tail position for TCO, or use 'do' for iteration
+```
+
+### NO_COLOR Support
+
+Set `NO_COLOR=1` to disable colored output, or pipe stderr to a file — Sema auto-detects non-TTY output and strips colors.
