@@ -2359,6 +2359,28 @@ fn json_to_value(json: &serde_json::Value) -> Value {
     }
 }
 
+/// Format Sema source code. Returns JSON: {"formatted": "...", "error": null}
+/// or {"formatted": null, "error": "..."}
+#[wasm_bindgen(js_name = formatCode)]
+pub fn format_code(code: &str, width: usize, indent: usize, align: bool) -> JsValue {
+    match sema_fmt::format_source_opts(code, width, indent, align) {
+        Ok(formatted) => {
+            let json_str = format!(
+                "{{\"formatted\":\"{}\",\"error\":null}}",
+                escape_json(&formatted)
+            );
+            js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+        }
+        Err(e) => {
+            let json_str = format!(
+                "{{\"formatted\":null,\"error\":\"{}\"}}",
+                escape_json(&format!("{}", e.inner()))
+            );
+            js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+        }
+    }
+}
+
 fn escape_json(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")

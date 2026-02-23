@@ -4,6 +4,10 @@
 
 ### Added
 
+- **Code formatter (`sema fmt`)** — built-in formatter with Lisp-aware indentation for body forms, binding forms, clause forms, threading macros, and conditionals. Supports `--check`, `--diff`, `--width`, `--indent`, and `--align` flags. Preserves all comments, shebang lines, and multi-line strings. Idempotent output.
+- **Project configuration (`sema.toml`)** — project-level config file with `[fmt]` section for `width`, `indent`, and `align` settings. Discovery walks up from CWD. CLI flags override config values.
+- **Decorative alignment** — opt-in column alignment (`--align`) for consecutive defines, cond/case/match clauses, and let bindings.
+- **Playground formatter** — "Fmt" button in the playground toolbar, powered by the formatter compiled to WASM.
 - **Destructuring bind** — `let`, `define`, and lambda parameters now support destructuring lists (`(let (((a b) (list 1 2))) a)`), vectors, maps (`:keys` shorthand), and nested patterns. Works in both tree-walker and VM.
 - **Pattern matching (`match`)** — `(match expr (pattern body) ...)` with literal, list, vector, map, `when` guards (`(pattern when guard body)`), rest (`&`), and wildcard (`_`) patterns. Dual-eval tested.
 - **Multimethods (`defmulti`/`defmethod`)** — dispatch on return value of a discriminator function. Supports `:default` fallback method.
@@ -34,6 +38,7 @@
 
 ### Documentation
 
+- **Formatter docs** — dedicated `formatter.md` page covering usage, configuration, formatting rules, and decorative alignment. CLI reference updated with `sema fmt` section.
 - **Performance roadmap** — tiered optimization plan with measured results and status tracking.
 - **Feature comparison matrix** — Sema vs SBCL, Racket, Guile, Chez, Clojure, Janet, Fennel.
 - **Web server docs** — routing, middleware patterns, SSE/WebSocket examples.
@@ -42,7 +47,7 @@
 ### Internal
 
 - **Dual-eval test infrastructure** — `dual_eval_tests!` and `dual_eval_error_tests!` macros for testing both tree-walker and VM in a single test definition.
-- **Playground improvements** — draggable splitters, VFS explorer integration, file upload, example reorganization.
+- **Playground improvements** — draggable splitters, VFS explorer integration, file upload, example reorganization, CSS tooltips on all controls, VFS backend toggle moved to Files panel.
 - **CI improvements** — example and bytecode smoke tests, VM examples smoke test.
 
 ## 1.10.0

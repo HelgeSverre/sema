@@ -53,18 +53,12 @@
     <div class="pane-header">
       <span class="pane-title">Source</span>
       <div style="display:flex;align-items:center;gap:0.75rem;">
-        <div class="engine-toggle" id="backend-toggle" data-testid="backend-toggle">
-          <label class="active"><input type="radio" name="backend" value="memory" checked>Memory</label>
-          <label><input type="radio" name="backend" value="local">Local</label>
-          <label><input type="radio" name="backend" value="session">Session</label>
-          <label><input type="radio" name="backend" value="indexeddb">IDB</label>
-        </div>
-        <div class="toggle-separator"></div>
         <div class="engine-toggle" id="engine-toggle" data-testid="engine-toggle">
-          <label class="active" data-testid="engine-tree"><input type="radio" name="engine" value="tree" checked>Tree</label>
-          <label data-testid="engine-vm"><input type="radio" name="engine" value="vm">VM</label>
+          <label class="active" data-testid="engine-tree" data-tooltip="Tree-walking interpreter (slower, full feature support)"><input type="radio" name="engine" value="tree" checked>Tree</label>
+          <label data-testid="engine-vm" data-tooltip="Bytecode VM (faster, experimental)"><input type="radio" name="engine" value="vm">VM</label>
         </div>
-        <button class="run-btn" id="run-btn" data-testid="run-btn" disabled>
+        <button class="run-btn fmt-btn" id="fmt-btn" data-testid="fmt-btn" disabled data-tooltip="Format code (sema fmt)">Fmt</button>
+        <button class="run-btn" id="run-btn" data-testid="run-btn" disabled data-tooltip="Run code (⌘+Enter)" data-tooltip-pos="right">
           Run<span class="shortcut">⌘↵</span>
         </button>
       </div>
@@ -85,7 +79,7 @@
     <div class="pane output-pane">
       <div class="pane-header">
         <span class="pane-title">Output</span>
-        <button class="run-btn" id="clear-btn" data-testid="clear-btn" style="background: transparent; color: var(--text-dim); border: 1px solid var(--border);">Clear</button>
+        <button class="run-btn" id="clear-btn" data-testid="clear-btn" style="background: transparent; color: var(--text-dim); border: 1px solid var(--border);" data-tooltip="Clear output" data-tooltip-pos="right">Clear</button>
       </div>
       <div id="output" data-testid="output">
         <div class="output-welcome">Initializing Sema interpreter…</div>
@@ -97,9 +91,15 @@
         <span class="pane-title">Files</span>
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span class="vfs-stats" id="vfs-stats" data-testid="vfs-stats"></span>
-          <button class="btn-upload" id="upload-btn" title="Upload files into /uploads/">Upload…</button>
-          <button class="btn-clear-vfs" id="clear-vfs-btn" title="Clear all VFS files">Clear</button>
-          <button class="btn-collapse" id="files-collapse-btn" title="Collapse files panel">▾</button>
+          <div class="engine-toggle" id="backend-toggle" data-testid="backend-toggle">
+            <label class="active" data-tooltip="In-memory only, lost on refresh"><input type="radio" name="backend" value="memory" checked>Memory</label>
+            <label data-tooltip="localStorage, persists across sessions"><input type="radio" name="backend" value="local">Local</label>
+            <label data-tooltip="sessionStorage, cleared when tab closes"><input type="radio" name="backend" value="session">Session</label>
+            <label data-tooltip="IndexedDB, persistent with larger storage" data-tooltip-pos="right"><input type="radio" name="backend" value="indexeddb">IDB</label>
+          </div>
+          <button class="btn-upload" id="upload-btn" data-tooltip="Upload files into the virtual filesystem">Upload</button>
+          <button class="btn-clear-vfs" id="clear-vfs-btn" data-tooltip="Delete all files from the virtual filesystem" data-tooltip-pos="right">Clear</button>
+          <button class="btn-collapse" id="files-collapse-btn" data-tooltip="Collapse files panel" data-tooltip-pos="right">▾</button>
         </div>
       </div>
       <div class="files-body" id="files-body">

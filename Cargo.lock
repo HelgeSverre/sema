@@ -2344,6 +2344,7 @@ dependencies = [
  "js-sys",
  "sema-core",
  "sema-eval",
+ "sema-fmt",
  "sema-reader",
  "sema-stdlib",
  "serde_json",
