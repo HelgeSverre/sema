@@ -40,8 +40,8 @@
 (println "\n--- Roundtrip Encode/Decode ---\n")
 
 (define original (hash-map "x" 1 "y" (list 2 3) "z" (hash-map "nested" #t)))
-(define json-roundtrip (json/encode original))
-(define roundtripped (json/decode json-roundtrip))
+(define json-roundtrip  (json/encode original))
+(define roundtripped    (json/decode json-roundtrip))
 (println f"Original:     ${original}")
 (println f"As JSON:      ${json-roundtrip}")
 (println f"Decoded back: ${roundtripped}")
@@ -69,8 +69,8 @@
 (define price-summary
   (map
     (fn (cat)
-      (let* ((items (get by-category cat))
-             (prices (map #(get % :price) items)))
+      (let* ((items   (get by-category cat))
+             (prices  (map #(get % :price) items)))
         (hash-map
           "category" cat
           "count" (length items)
@@ -91,10 +91,10 @@
   (hash-map "status" code "ok" #f "error" message))
 
 (defun api-paginated (items page per-page)
-  (let* ((total (length items))
-         (start (* (- page 1) per-page))
-         (page-items (take per-page (drop start items)))
-         (total-pages (ceil (/ total per-page))))
+  (let* ((total        (length items))
+         (start        (* (- page 1) per-page))
+         (page-items   (take per-page (drop start items)))
+         (total-pages  (ceil (/ total per-page))))
     (api-ok
       (hash-map
         "items" page-items

@@ -1770,9 +1770,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         }
         let mut messages = Vec::new();
         for (i, arg) in args.iter().enumerate() {
-            let p = arg.as_prompt_rc().ok_or_else(|| {
-                SemaError::type_error("prompt", args[i].type_name())
-            })?;
+            let p = arg
+                .as_prompt_rc()
+                .ok_or_else(|| SemaError::type_error("prompt", args[i].type_name()))?;
             messages.extend(p.messages.iter().cloned());
         }
         Ok(Value::prompt(Prompt { messages }))
@@ -1785,9 +1785,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         }
         let mut messages = Vec::new();
         for (i, arg) in args.iter().enumerate() {
-            let p = arg.as_prompt_rc().ok_or_else(|| {
-                SemaError::type_error("prompt", args[i].type_name())
-            })?;
+            let p = arg
+                .as_prompt_rc()
+                .ok_or_else(|| SemaError::type_error("prompt", args[i].type_name()))?;
             messages.extend(p.messages.iter().cloned());
         }
         Ok(Value::prompt(Prompt { messages }))
@@ -2701,11 +2701,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
     // (conversation/set-system conv "new system message") — set/replace the system message
     register_fn(env, "conversation/set-system", |args| {
         if args.len() != 2 {
-            return Err(SemaError::arity(
-                "conversation/set-system",
-                "2",
-                args.len(),
-            ));
+            return Err(SemaError::arity("conversation/set-system", "2", args.len()));
         }
         let conv = args[0]
             .as_conversation_rc()

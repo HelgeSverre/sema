@@ -47,7 +47,11 @@ fn build_nodes(tokens: &[SpannedToken], source: &str) -> Result<Vec<Node>, SemaE
 }
 
 /// Parse one node starting at `pos`, returning `(node, next_pos)`.
-fn build_one(tokens: &[SpannedToken], pos: usize, source: &str) -> Result<(Node, usize), SemaError> {
+fn build_one(
+    tokens: &[SpannedToken],
+    pos: usize,
+    source: &str,
+) -> Result<(Node, usize), SemaError> {
     if pos >= tokens.len() {
         return Err(SemaError::eval("unexpected end of token stream"));
     }
@@ -57,7 +61,11 @@ fn build_one(tokens: &[SpannedToken], pos: usize, source: &str) -> Result<(Node,
         Token::Newline => Ok((Node::Newline, pos + 1)),
 
         // String/FString/Regex/Numbers — preserve original source text for exact round-tripping
-        Token::String(_) | Token::FString(_) | Token::Regex(_) | Token::Int(_) | Token::Float(_) => {
+        Token::String(_)
+        | Token::FString(_)
+        | Token::Regex(_)
+        | Token::Int(_)
+        | Token::Float(_) => {
             let raw = &source[st.byte_start..st.byte_end];
             Ok((Node::StringAtom(raw.to_string()), pos + 1))
         }
@@ -87,11 +95,9 @@ fn build_one(tokens: &[SpannedToken], pos: usize, source: &str) -> Result<(Node,
                 Node::ShortLambda(children)
             })
         }
-        Token::BytevectorStart => {
-            build_group(tokens, pos + 1, Token::RParen, source, |children| {
-                Node::ByteVector(children)
-            })
-        }
+        Token::BytevectorStart => build_group(tokens, pos + 1, Token::RParen, source, |children| {
+            Node::ByteVector(children)
+        }),
 
         // Closing delimiters — should not appear here at top-level
         Token::RParen | Token::RBracket | Token::RBrace => {
@@ -325,7 +331,11 @@ fn measure_width(node: &Node, budget: usize) -> Option<usize> {
     match node {
         Node::Atom(tok) => {
             let w = token_text(tok).len();
-            if w <= budget { Some(w) } else { None }
+            if w <= budget {
+                Some(w)
+            } else {
+                None
+            }
         }
         Node::StringAtom(raw) => {
             if raw.contains('\n') {
@@ -337,7 +347,11 @@ fn measure_width(node: &Node, budget: usize) -> Option<usize> {
             }
         }
         Node::Comment(text) => {
-            if text.len() <= budget { Some(text.len()) } else { None }
+            if text.len() <= budget {
+                Some(text.len())
+            } else {
+                None
+            }
         }
         Node::Newline => Some(0),
         Node::List(children) => grouped_measure_width(children, 1, 1, budget),
@@ -355,7 +369,12 @@ fn measure_width(node: &Node, budget: usize) -> Option<usize> {
     }
 }
 
-fn grouped_measure_width(children: &[Node], open_len: usize, close_len: usize, budget: usize) -> Option<usize> {
+fn grouped_measure_width(
+    children: &[Node],
+    open_len: usize,
+    close_len: usize,
+    budget: usize,
+) -> Option<usize> {
     let mut total = open_len + close_len;
     if total > budget {
         return None;
@@ -919,7 +938,9 @@ impl Formatter {
             .filter(|n| !is_trivia(n))
             .collect();
 
-        let has_comments = children[clause_start..].iter().any(|n| matches!(n, Node::Comment(_)));
+        let has_comments = children[clause_start..]
+            .iter()
+            .any(|n| matches!(n, Node::Comment(_)));
 
         if self.align
             && !has_comments
@@ -1429,12 +1450,7 @@ impl Formatter {
     ///
     /// `split_fn(semantic_children) -> Option<(left_parts, right_parts)>`
     /// where both are rendered flat and padded to align.
-    fn try_format_aligned_group<F>(
-        &mut self,
-        forms: &[&Node],
-        indent: usize,
-        split_fn: F,
-    ) -> bool
+    fn try_format_aligned_group<F>(&mut self, forms: &[&Node], indent: usize, split_fn: F) -> bool
     where
         F: Fn(&[&Node]) -> Option<(String, String)>,
     {
@@ -1637,7 +1653,12 @@ pub fn format_source(input: &str, width: usize) -> Result<String, SemaError> {
 }
 
 /// Format Sema source code with full options.
-pub fn format_source_opts(input: &str, width: usize, indent: usize, align: bool) -> Result<String, SemaError> {
+pub fn format_source_opts(
+    input: &str,
+    width: usize,
+    indent: usize,
+    align: bool,
+) -> Result<String, SemaError> {
     if input.is_empty() {
         return Ok(String::new());
     }
@@ -2250,7 +2271,8 @@ mod tests {
 
     #[test]
     fn test_inner_comment_in_cond() {
-        let input = "(cond\n  ;; first case\n  ((= x 1) \"one\")\n  ;; second case\n  ((= x 2) \"two\"))";
+        let input =
+            "(cond\n  ;; first case\n  ((= x 1) \"one\")\n  ;; second case\n  ((= x 2) \"two\"))";
         let result = format_source(input, 80).unwrap();
         assert!(
             result.contains(";; first case"),
@@ -2309,7 +2331,10 @@ mod tests {
         for input in &["42", "-7", "3.14", "-0.5", "100.0"] {
             let first = fmt(input);
             let second = fmt(&first);
-            assert_eq!(first, second, "numeric literal {input} should be idempotent");
+            assert_eq!(
+                first, second,
+                "numeric literal {input} should be idempotent"
+            );
         }
     }
 
@@ -2352,16 +2377,15 @@ mod tests {
                 Ok(f) => f,
                 Err(_) => continue,
             };
-            let second = format_source(&first, 80).unwrap_or_else(|e| {
-                panic!("second format of {entry} failed: {e}")
-            });
-            assert_eq!(
-                first, second,
-                "idempotency failed for {entry}"
-            );
+            let second = format_source(&first, 80)
+                .unwrap_or_else(|e| panic!("second format of {entry} failed: {e}"));
+            assert_eq!(first, second, "idempotency failed for {entry}");
             files_checked += 1;
         }
-        assert!(files_checked > 0, "should have checked at least one example file");
+        assert!(
+            files_checked > 0,
+            "should have checked at least one example file"
+        );
     }
 
     /// Recursively collect all .sema files under a directory.
@@ -2395,10 +2419,7 @@ mod tests {
         let lines: Vec<&str> = result.lines().collect();
         assert_eq!(lines.len(), 3);
         // All body expressions should start at the same column
-        let body_cols: Vec<usize> = lines
-            .iter()
-            .map(|l| l.find("(hash-map").unwrap())
-            .collect();
+        let body_cols: Vec<usize> = lines.iter().map(|l| l.find("(hash-map").unwrap()).collect();
         assert!(
             body_cols.iter().all(|&c| c == body_cols[0]),
             "bodies should be aligned at same column, got {:?}\n{}",
@@ -2439,10 +2460,7 @@ mod tests {
         let lines: Vec<&str> = result.lines().collect();
         // Find the result-expression columns
         let clause_lines: Vec<&str> = lines[1..].to_vec();
-        let result_cols: Vec<Option<usize>> = clause_lines
-            .iter()
-            .map(|l| l.find('"'))
-            .collect();
+        let result_cols: Vec<Option<usize>> = clause_lines.iter().map(|l| l.find('"')).collect();
         // All string results should start at the same column
         let valid_cols: Vec<usize> = result_cols.iter().filter_map(|c| *c).collect();
         if valid_cols.len() >= 2 {
@@ -2564,20 +2582,14 @@ mod tests {
     fn test_indent_1_nested() {
         let input = "(define (f x)\n  (when (> x 0)\n    (println x)))";
         let result = fmt_indent(input, 1);
-        assert_eq!(
-            result,
-            "(define (f x)\n (when (> x 0)\n  (println x)))\n"
-        );
+        assert_eq!(result, "(define (f x)\n (when (> x 0)\n  (println x)))\n");
     }
 
     #[test]
     fn test_indent_4_let_form() {
         let input = "(let ((x 1)\n      (y 2))\n  (+ x y))";
         let result = fmt_indent(input, 4);
-        assert_eq!(
-            result,
-            "(let ((x 1)\n      (y 2))\n    (+ x y))\n"
-        );
+        assert_eq!(result, "(let ((x 1)\n      (y 2))\n    (+ x y))\n");
     }
 
     #[test]
@@ -2594,17 +2606,24 @@ mod tests {
     fn test_indent_4_threading() {
         let input = "(-> x\n  (foo)\n  (bar)\n  (baz))";
         let result = fmt_indent(input, 4);
-        assert_eq!(
-            result,
-            "(-> x\n    (foo)\n    (bar)\n    (baz))\n"
-        );
+        assert_eq!(result, "(-> x\n    (foo)\n    (bar)\n    (baz))\n");
     }
 
     #[test]
     fn test_indent_4_if_form() {
         // Narrow width to force multi-line
-        let result = format_source_opts("(if (some-long-condition? x) (do-something x) (do-other x))", 40, 4, false).unwrap();
-        assert!(result.contains("\n    "), "indent 4 should produce 4-space body indent:\n{}", result);
+        let result = format_source_opts(
+            "(if (some-long-condition? x) (do-something x) (do-other x))",
+            40,
+            4,
+            false,
+        )
+        .unwrap();
+        assert!(
+            result.contains("\n    "),
+            "indent 4 should produce 4-space body indent:\n{}",
+            result
+        );
     }
 
     #[test]
@@ -2617,7 +2636,8 @@ mod tests {
 
     #[test]
     fn test_indent_idempotent_4() {
-        let input = "(define (f x)\n    (when (> x 0)\n        (println x)\n        (println (+ x 1))))";
+        let input =
+            "(define (f x)\n    (when (> x 0)\n        (println x)\n        (println (+ x 1))))";
         let first = fmt_indent(input, 4);
         let second = fmt_indent(&first, 4);
         assert_eq!(first, second, "indent=4 should be idempotent");
@@ -2642,7 +2662,10 @@ mod tests {
     fn test_indent_4_do_block() {
         let input = "(do\n  (println \"a\")\n  (println \"b\")\n  (println \"c\"))";
         let result = fmt_indent(input, 4);
-        assert_eq!(result, "(do\n    (println \"a\")\n    (println \"b\")\n    (println \"c\"))\n");
+        assert_eq!(
+            result,
+            "(do\n    (println \"a\")\n    (println \"b\")\n    (println \"c\"))\n"
+        );
     }
 
     #[test]
@@ -2665,8 +2688,11 @@ mod tests {
         // Regular call that overflows
         let result = format_source_opts(
             "(some-function-with-long-name argument-one argument-two argument-three argument-four)",
-            50, 4, false
-        ).unwrap();
+            50,
+            4,
+            false,
+        )
+        .unwrap();
         assert!(result.contains("\n"), "should break to multi-line");
     }
 
@@ -2711,14 +2737,20 @@ mod tests {
     #[test]
     fn test_opts_width_narrow() {
         let result = format_source_opts("(+ 1 2 3 4 5 6 7 8 9 10)", 15, 2, false).unwrap();
-        assert!(result.contains("\n"), "narrow width should force line break");
+        assert!(
+            result.contains("\n"),
+            "narrow width should force line break"
+        );
     }
 
     #[test]
     fn test_opts_width_very_wide() {
         let long_form = "(define (my-function a b c d e f) (+ a b c d e f))";
         let result = format_source_opts(long_form, 200, 2, false).unwrap();
-        assert!(!result.trim().contains('\n'), "wide width should keep on one line");
+        assert!(
+            !result.trim().contains('\n'),
+            "wide width should keep on one line"
+        );
     }
 
     #[test]
@@ -2727,13 +2759,19 @@ mod tests {
         let result = format_source_opts(input, 80, 2, false).unwrap();
         // Without align, defines should NOT have extra padding
         assert!(result.contains("(define x 1)"), "no alignment padding");
-        assert!(result.contains("(define longer-name 2)"), "no alignment padding");
+        assert!(
+            result.contains("(define longer-name 2)"),
+            "no alignment padding"
+        );
     }
 
     #[test]
     fn test_opts_shebang_preserved() {
         let input = "#!/usr/bin/env sema\n(println \"hello\")";
         let result = format_source_opts(input, 80, 4, false).unwrap();
-        assert!(result.starts_with("#!/usr/bin/env sema\n"), "shebang should be preserved");
+        assert!(
+            result.starts_with("#!/usr/bin/env sema\n"),
+            "shebang should be preserved"
+        );
     }
 }

@@ -817,7 +817,10 @@ mod tests {
         let tokens = tokenize("; hello world\n").unwrap();
         match &tokens[0].token {
             Token::Comment(text) => {
-                assert!(!text.ends_with('\n'), "comment should not include trailing newline");
+                assert!(
+                    !text.ends_with('\n'),
+                    "comment should not include trailing newline"
+                );
                 assert_eq!(text, "; hello world");
             }
             _ => panic!("expected Comment token"),
@@ -829,7 +832,9 @@ mod tests {
     #[test]
     fn test_inline_comment_after_code() {
         let tokens = tokenize("(define x 42) ; set x").unwrap();
-        let has_comment = tokens.iter().any(|t| matches!(&t.token, Token::Comment(s) if s == "; set x"));
+        let has_comment = tokens
+            .iter()
+            .any(|t| matches!(&t.token, Token::Comment(s) if s == "; set x"));
         assert!(has_comment, "should have inline comment token");
     }
 
@@ -847,7 +852,14 @@ mod tests {
             .collect();
         assert_eq!(
             types,
-            vec!["sym:a", "newline", "newline", "comment:; comment", "newline", "sym:b"]
+            vec![
+                "sym:a",
+                "newline",
+                "newline",
+                "comment:; comment",
+                "newline",
+                "sym:b"
+            ]
         );
     }
 }

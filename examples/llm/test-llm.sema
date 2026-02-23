@@ -64,15 +64,15 @@
     ;; Simple eval: parse "a op b" and compute
     (let ((parts (string/split expr " ")))
       (if (= (length parts) 3)
-        (let ((a (string->number (nth parts 0)))
-              (op (nth parts 1))
-              (b (string->number (nth parts 2))))
+        (let ((a   (string->number (nth parts 0)))
+              (op  (nth parts 1))
+              (b   (string->number (nth parts 2))))
           (cond
-            ((= op "+") (number->string (+ a b)))
-            ((= op "-") (number->string (- a b)))
-            ((= op "*") (number->string (* a b)))
-            ((= op "/") (number->string (/ a b)))
-            (else "unknown operator")))
+            ((= op "+")  (number->string (+ a b)))
+            ((= op "-")  (number->string (- a b)))
+            ((= op "*")  (number->string (* a b)))
+            ((= op "/")  (number->string (/ a b)))
+            (else        "unknown operator")))
         expr))))
 
 (define tool-result

@@ -34,9 +34,9 @@
 (assert-eq parsed 1736943000.0 "time/parse known datetime")
 
 ;; Roundtrip
-(define roundtrip-ts 1700000000.0)
-(define formatted (time/format roundtrip-ts "%Y-%m-%d %H:%M:%S"))
-(define parsed-back (time/parse formatted "%Y-%m-%d %H:%M:%S"))
+(define roundtrip-ts  1700000000.0)
+(define formatted     (time/format roundtrip-ts "%Y-%m-%d %H:%M:%S"))
+(define parsed-back   (time/parse formatted "%Y-%m-%d %H:%M:%S"))
 (assert-eq parsed-back roundtrip-ts "time/parse roundtrip")
 
 ;; --- time/date-parts ---

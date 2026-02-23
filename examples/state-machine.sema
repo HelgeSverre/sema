@@ -19,8 +19,8 @@
 
 (defun run-traffic (state steps)
   (when (> steps 0)
-    (let ((label (get traffic-labels state))
-          (duration (get-in traffic-fsm [state "duration"])))
+    (let ((label     (get traffic-labels state))
+          (duration  (get-in traffic-fsm [state "duration"])))
       (println f"  ${label}  (duration: ${duration}s)")
       (run-traffic (traffic-step state) (- steps 1)))))
 
@@ -89,8 +89,8 @@
 (defun fsm-run (fsm state events)
   (if (null? events)
     state
-    (let* ((event (car events))
-           (next (get-in fsm [state event])))
+    (let* ((event  (car events))
+           (next   (get-in fsm [state event])))
       (if-let (next next)
         (begin
           (println f"  ${state} --[${event}]--> ${next}")

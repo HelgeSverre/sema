@@ -36,8 +36,12 @@ impl Default for FmtConfig {
     }
 }
 
-fn default_width() -> usize { 80 }
-fn default_indent() -> usize { 2 }
+fn default_width() -> usize {
+    80
+}
+fn default_indent() -> usize {
+    2
+}
 
 /// Walk up from cwd to find sema.toml
 fn find_config() -> Option<SemaConfig> {
@@ -367,7 +371,14 @@ fn main() {
                 let effective_width = width.unwrap_or(config.fmt.width);
                 let effective_indent = indent.unwrap_or(config.fmt.indent);
                 let effective_align = if align { true } else { config.fmt.align };
-                run_fmt(&files, check, diff, effective_width, effective_indent, effective_align);
+                run_fmt(
+                    &files,
+                    check,
+                    diff,
+                    effective_width,
+                    effective_indent,
+                    effective_align,
+                );
             }
         }
         return;
@@ -1176,7 +1187,14 @@ fn crc32_simple(data: &[u8]) -> u32 {
     !crc
 }
 
-fn run_fmt(patterns: &[String], check: bool, show_diff: bool, width: usize, indent: usize, align: bool) {
+fn run_fmt(
+    patterns: &[String],
+    check: bool,
+    show_diff: bool,
+    width: usize,
+    indent: usize,
+    align: bool,
+) {
     // Determine which files to format
     let files = if patterns.is_empty() {
         // Default: all .sema files in current directory recursively

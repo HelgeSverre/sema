@@ -52,8 +52,8 @@
 
 ;; Apply Game of Life rules to compute next cell state
 (define (next-cell grid r c)
-  (let* ((alive (grid-get grid r c ROWS COLS))
-         (n (count-neighbors grid r c)))
+  (let* ((alive  (grid-get grid r c ROWS COLS))
+         (n      (count-neighbors grid r c)))
     (cond
       ((and (= alive 1) (< n 2)) 0)
       ; underpopulation
@@ -82,8 +82,8 @@
 
 ;; Display the grid
 (define (display-grid grid gen)
-  (let ((alive (count-alive grid))
-        (border (string/repeat "─" COLS)))
+  (let ((alive   (count-alive grid))
+        (border  (string/repeat "─" COLS)))
     (println (format "Generation ~a  |  Live cells: ~a" gen alive))
     (println (string-append "┌" border "┐"))
     (for-each
