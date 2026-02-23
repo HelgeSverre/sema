@@ -40,6 +40,18 @@ run_test() {
             echo "  SKIP  $f (starts server)"
             return
             ;;
+        glados-downloads.sema)
+            # Requires LLM API keys and PDF fixtures
+            skipped=$((skipped + 1))
+            echo "  SKIP  $f (requires LLM API keys)"
+            return
+            ;;
+        http.sema)
+            # External HTTP calls may timeout in CI
+            skipped=$((skipped + 1))
+            echo "  SKIP  $f (network-dependent)"
+            return
+            ;;
     esac
 
     local semac="${f%.sema}.semac"

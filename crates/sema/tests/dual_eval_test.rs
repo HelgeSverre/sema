@@ -52,6 +52,53 @@ dual_eval_tests! {
     match_vector_mismatch: r#"(match '(1 2 3) ([a b] "two") (_ "other"))"# => Value::string("other"),
     match_map_structural: "(match {:type :ok :val 42} ({:type :ok :val v} v) (_ nil))" => Value::int(42),
     match_map_structural_fail: r#"(match {:type :err} ({:type :ok :val v} v) (_ "fallback"))"# => Value::string("fallback"),
+
+    // Guard + pattern failure fallthrough (regression: VM returned nil instead of trying next clause)
+    match_guard_pattern_fail_fallthrough: r#"
+        (match {:a 1}
+          ({:a x :b y} when (> x 0) "has-both")
+          ({:a x} "has-a")
+          (_ "nothing"))
+    "# => Value::string("has-a"),
+
+    match_guard_pattern_fail_to_wildcard: r#"
+        (match {:x 1}
+          ({:x v :y w} when #t "both")
+          (_ "fallback"))
+    "# => Value::string("fallback"),
+
+    match_guard_false_then_pattern_fail: r#"
+        (define (ok? v) (> v 10))
+        (match {:id 5}
+          ({:id n} when (ok? n) "big")
+          ({:id n :name s} "has-name")
+          ({:id n} (+ n 100))
+          (_ 0))
+    "# => Value::int(105),
+
+    match_map_guard_multi_clause: r#"
+        (define (find-user id) (if (= id 1) "Alice" #f))
+        (match {:method :GET :path "/users" :id 99}
+          ({:method :GET :path "/users" :id id} when (find-user id)
+            (find-user id))
+          ({:method :GET :path "/users" :id id}
+            "not-found")
+          ({:method :GET :path "/users"}
+            "all")
+          (_ "404"))
+    "# => Value::string("not-found"),
+
+    match_map_guard_no_key_falls_to_later: r#"
+        (define (find-user id) (if (= id 1) "Alice" #f))
+        (match {:method :GET :path "/users"}
+          ({:method :GET :path "/users" :id id} when (find-user id)
+            (find-user id))
+          ({:method :GET :path "/users" :id id}
+            "not-found")
+          ({:method :GET :path "/users"}
+            "all")
+          (_ "404"))
+    "# => Value::string("all"),
 }
 
 // ============================================================

@@ -432,4 +432,260 @@ fn test_http_response_helpers_arity() {
     let _err = eval_err(r#"(http/text 123)"#);
     // http/no-content requires 0 args
     let _err = eval_err(r#"(http/no-content "extra")"#);
+    // http/file requires 1-2 args
+    let _err = eval_err(r#"(http/file)"#);
+    let _err = eval_err(r#"(http/file "a" "b" "c")"#);
+    let _err = eval_err(r#"(http/file 123)"#);
+}
+
+#[test]
+fn test_http_file_returns_marker() {
+    // http/file on an existing file returns a map with __file marker
+    let result = eval(r#"(http/file "Cargo.toml")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(
+        map.get(&Value::keyword("__file")).and_then(|v| v.as_bool()),
+        Some(true)
+    );
+    assert!(map
+        .get(&Value::keyword("__file_path"))
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .contains("Cargo.toml"));
+    assert_eq!(
+        map.get(&Value::keyword("__file_content_type"))
+            .and_then(|v| v.as_str()),
+        Some("text/x-toml")
+    );
+}
+
+#[test]
+fn test_http_file_custom_content_type() {
+    let result = eval(r#"(http/file "Cargo.toml" "application/json")"#);
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(
+        map.get(&Value::keyword("__file_content_type"))
+            .and_then(|v| v.as_str()),
+        Some("application/json")
+    );
+}
+
+#[test]
+fn test_http_file_nonexistent() {
+    let err = eval_err(r#"(http/file "nonexistent-file-12345.txt")"#);
+    let msg = err.to_string();
+    assert!(
+        msg.contains("http/file"),
+        "error should mention http/file: {msg}"
+    );
+}
+
+#[test]
+fn test_http_router_static_route() {
+    // Create a temp directory with a test file
+    let tmp = std::env::temp_dir().join("sema-static-route-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("hello.txt"), "hello world").unwrap();
+    let dir = tmp.to_string_lossy().replace('\\', "/");
+
+    let result = eval(&format!(
+        r#"
+        (let ((router (http/router
+                       [[:static "/assets" "{dir}"]])))
+          (router {{:method :get :path "/assets/hello.txt" :headers {{}} :query {{}} :params {{}} :body "" :remote "127.0.0.1"}}))
+    "#
+    ));
+    let map = result.as_map_rc().unwrap();
+    assert_eq!(
+        map.get(&Value::keyword("__file")).and_then(|v| v.as_bool()),
+        Some(true),
+        "should return a file marker for existing file"
+    );
+    assert!(map
+        .get(&Value::keyword("__file_path"))
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .contains("hello.txt"));
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_http_router_static_fallthrough() {
+    let tmp = std::env::temp_dir().join("sema-static-fallthrough-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("exists.txt"), "yes").unwrap();
+    let dir = tmp.to_string_lossy().replace('\\', "/");
+
+    let result = eval(&format!(
+        r#"
+        (let ((router (http/router
+                       [[:static "/assets" "{dir}"]
+                        [:get "/*" (fn (req) (http/html "<h1>SPA</h1>"))]])))
+          (router {{:method :get :path "/assets/nonexistent.xyz" :headers {{}} :query {{}} :params {{}} :body "" :remote "127.0.0.1"}}))
+    "#
+    ));
+    let map = result.as_map_rc().unwrap();
+    let body = map
+        .get(&Value::keyword("body"))
+        .and_then(|v| v.as_str())
+        .unwrap();
+    assert!(
+        body.contains("SPA"),
+        "non-existent static file should fall through to SPA route, got: {body}"
+    );
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_http_router_static_path_traversal() {
+    let tmp = std::env::temp_dir().join("sema-static-traversal-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("safe.txt"), "safe").unwrap();
+    let dir = tmp.to_string_lossy().replace('\\', "/");
+
+    let result = eval(&format!(
+        r#"
+        (let ((router (http/router
+                       [[:static "/assets" "{dir}"]])))
+          (router {{:method :get :path "/assets/../etc/passwd" :headers {{}} :query {{}} :params {{}} :body "" :remote "127.0.0.1"}}))
+    "#
+    ));
+    let map = result.as_map_rc().unwrap();
+    let status = map
+        .get(&Value::keyword("status"))
+        .and_then(|v| v.as_int())
+        .unwrap();
+    assert_eq!(status, 400, "path traversal should return 400");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_http_router_static_post_rejected() {
+    let tmp = std::env::temp_dir().join("sema-static-post-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("file.txt"), "content").unwrap();
+    let dir = tmp.to_string_lossy().replace('\\', "/");
+
+    let result = eval(&format!(
+        r#"
+        (let ((router (http/router
+                       [[:static "/assets" "{dir}"]])))
+          (router {{:method :post :path "/assets/file.txt" :headers {{}} :query {{}} :params {{}} :body "" :remote "127.0.0.1"}}))
+    "#
+    ));
+    let map = result.as_map_rc().unwrap();
+    let status = map
+        .get(&Value::keyword("status"))
+        .and_then(|v| v.as_int())
+        .unwrap();
+    assert_eq!(status, 404, "POST to static should 404");
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+#[ignore] // requires network
+fn test_http_serve_static_files() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    // Create a temp directory with test files
+    let tmp = std::env::temp_dir().join("sema-static-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("index.html"), "<h1>Hello</h1>").unwrap();
+    std::fs::write(tmp.join("style.css"), "body { color: red; }").unwrap();
+    std::fs::write(tmp.join("app.js"), "console.log('hi');").unwrap();
+
+    let sema_code = format!(
+        r#"(http/serve
+             (http/router
+               [[:static "/static" "{dir}"]
+                [:get "/*" (fn (_) (http/file "{dir}/index.html"))]])
+             {{:port 19895}})"#,
+        dir = tmp.to_string_lossy().replace('\\', "/")
+    );
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(&sema_code)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+
+    // Serve HTML
+    let resp = client
+        .get("http://127.0.0.1:19895/static/index.html")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET html");
+    assert_eq!(resp.status(), 200);
+    assert!(resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("text/html"));
+    assert_eq!(resp.text().unwrap(), "<h1>Hello</h1>");
+
+    // Serve CSS with correct MIME type
+    let resp = client
+        .get("http://127.0.0.1:19895/static/style.css")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET css");
+    assert_eq!(resp.status(), 200);
+    assert!(resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("text/css"));
+
+    // Serve JS with correct MIME type
+    let resp = client
+        .get("http://127.0.0.1:19895/static/app.js")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET js");
+    assert_eq!(resp.status(), 200);
+    assert!(resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("javascript"));
+
+    // Non-existent static file falls through to SPA
+    let resp = client
+        .get("http://127.0.0.1:19895/about")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET spa");
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.text().unwrap(), "<h1>Hello</h1>");
+
+    // 404 for non-existent static file (no SPA match for /static/ prefix)
+    let resp = client
+        .get("http://127.0.0.1:19895/static/nonexistent.txt")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("Failed to GET nonexistent");
+    // Falls through static, then matches SPA catch-all
+    assert_eq!(resp.status(), 200);
+
+    child.kill().ok();
+    child.wait().ok();
+    let _ = std::fs::remove_dir_all(&tmp);
 }

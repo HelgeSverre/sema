@@ -37,6 +37,11 @@ enum ServerResponse {
         /// Receives messages from the evaluator (server handler) to axum (client).
         outgoing_rx: tokio::sync::mpsc::Receiver<String>,
     },
+    /// A file to serve from disk (binary-safe, read on the axum/tokio side).
+    File {
+        path: std::path::PathBuf,
+        content_type: String,
+    },
 }
 
 /// A server request sent from the axum handler thread to the main evaluator thread.
@@ -145,6 +150,54 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         result.insert(Value::keyword("headers"), Value::map(headers));
         result.insert(Value::keyword("body"), Value::string(content));
         Ok(Value::map(result))
+    });
+
+    register_fn(env, "http/file", |args| {
+        if args.is_empty() || args.len() > 2 {
+            return Err(SemaError::arity("http/file", "1-2", args.len()));
+        }
+        let file_path = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+
+        // Resolve to absolute path
+        let path = std::path::Path::new(file_path);
+        let abs_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .map_err(|e| SemaError::eval(format!("http/file: {e}")))?
+                .join(path)
+        };
+
+        // Canonicalize to resolve symlinks and ..
+        let abs_path = abs_path
+            .canonicalize()
+            .map_err(|e| SemaError::eval(format!("http/file: {}: {e}", abs_path.display())))?;
+
+        // Determine content type: explicit override or guess from extension
+        let content_type = if args.len() == 2 {
+            args[1]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?
+                .to_string()
+        } else {
+            mime_guess::from_path(&abs_path)
+                .first_or_octet_stream()
+                .to_string()
+        };
+
+        let mut map = BTreeMap::new();
+        map.insert(Value::keyword("__file"), Value::bool(true));
+        map.insert(
+            Value::keyword("__file_path"),
+            Value::string(&abs_path.to_string_lossy()),
+        );
+        map.insert(
+            Value::keyword("__file_content_type"),
+            Value::string(&content_type),
+        );
+        Ok(Value::map(map))
     });
 
     register_fn(env, "http/stream", |args| {
@@ -262,6 +315,43 @@ fn register_router(env: &sema_core::Env) {
                     .as_str()
                     .ok_or_else(|| SemaError::type_error("string", elems[1].type_name()))?
                     .to_string();
+
+                // For :static routes, resolve the directory path at definition time
+                // and ensure the pattern ends with /* for wildcard matching
+                if method == "static" {
+                    let dir_path = elems[2]
+                        .as_str()
+                        .ok_or_else(|| SemaError::eval(
+                            "http/router: :static route directory must be a string"
+                        ))?;
+
+                    let dir = std::path::Path::new(dir_path);
+                    let abs_dir = if dir.is_absolute() {
+                        dir.to_path_buf()
+                    } else {
+                        std::env::current_dir()
+                            .map_err(|e| SemaError::eval(format!("http/router: {e}")))?
+                            .join(dir)
+                    };
+                    let abs_dir = abs_dir
+                        .canonicalize()
+                        .map_err(|e| SemaError::eval(format!(
+                            "http/router: static directory '{}': {e}", abs_dir.display()
+                        )))?;
+
+                    // Store the resolved absolute directory path as the handler value
+                    let handler = Value::string(&abs_dir.to_string_lossy());
+
+                    // Ensure the pattern has a wildcard suffix for matching
+                    let static_pattern = if pattern.ends_with("/*") || pattern.ends_with("*") {
+                        pattern
+                    } else {
+                        format!("{}/*", pattern.trim_end_matches('/'))
+                    };
+                    routes.push((method, static_pattern, handler));
+                    continue;
+                }
+
                 let handler = elems[2].clone();
                 routes.push((method, pattern, handler));
             }
@@ -298,8 +388,10 @@ fn register_router(env: &sema_core::Env) {
                     for (method, pattern, handler) in routes.iter() {
                         // WebSocket routes match GET requests (WS upgrade starts as GET)
                         let is_ws_route = method == "ws";
-                        if is_ws_route {
-                            if req_method != "get" {
+                        // Static routes only match GET/HEAD requests
+                        let is_static_route = method == "static";
+                        if is_ws_route || is_static_route {
+                            if req_method != "get" && req_method != "head" {
                                 continue;
                             }
                         } else if method != "any" && method != &req_method {
@@ -308,6 +400,62 @@ fn register_router(env: &sema_core::Env) {
 
                         // Path matching
                         if let Some(params) = match_path(pattern, &req_path) {
+                            // For static routes, resolve the file and return a file marker
+                            if is_static_route {
+                                let dir_path = handler
+                                    .as_str()
+                                    .unwrap_or("");
+                                let rel_path = params.iter()
+                                    .find(|(k, _)| k == "*")
+                                    .map(|(_, v)| v.as_str())
+                                    .unwrap_or("");
+
+                                // Security: reject path traversal
+                                if rel_path.contains("..") {
+                                    let mut headers = BTreeMap::new();
+                                    headers.insert(
+                                        Value::string("content-type"),
+                                        Value::string("text/plain"),
+                                    );
+                                    let mut result = BTreeMap::new();
+                                    result.insert(Value::keyword("status"), Value::int(400));
+                                    result.insert(Value::keyword("headers"), Value::map(headers));
+                                    result.insert(Value::keyword("body"), Value::string("Bad Request"));
+                                    return Ok(Value::map(result));
+                                }
+
+                                let file_path = std::path::Path::new(dir_path).join(rel_path);
+
+                                // If it's a directory, try index.html
+                                let file_path = if file_path.is_dir() {
+                                    file_path.join("index.html")
+                                } else {
+                                    file_path
+                                };
+
+                                if !file_path.exists() {
+                                    // Don't match — fall through to other routes
+                                    // (allows SPA fallback as a later catch-all)
+                                    continue;
+                                }
+
+                                let content_type = mime_guess::from_path(&file_path)
+                                    .first_or_octet_stream()
+                                    .to_string();
+
+                                let mut map = BTreeMap::new();
+                                map.insert(Value::keyword("__file"), Value::bool(true));
+                                map.insert(
+                                    Value::keyword("__file_path"),
+                                    Value::string(&file_path.to_string_lossy()),
+                                );
+                                map.insert(
+                                    Value::keyword("__file_content_type"),
+                                    Value::string(&content_type),
+                                );
+                                return Ok(Value::map(map));
+                            }
+
                             // Build params map (keyword keys)
                             let mut params_map = BTreeMap::new();
                             for (k, v) in &params {
@@ -576,6 +724,31 @@ async fn handle_axum_request(
                 })
             }
         }
+        Ok(ServerResponse::File { path, content_type }) => {
+            match tokio::fs::read(&path).await {
+                Ok(bytes) => {
+                    use axum::http::{HeaderValue, StatusCode};
+
+                    let mut response = axum::http::Response::builder()
+                        .status(StatusCode::OK)
+                        .body(axum::body::Body::from(bytes))
+                        .unwrap();
+                    if let Ok(ct) = HeaderValue::try_from(&content_type) {
+                        response.headers_mut().insert("content-type", ct);
+                    }
+                    // Set cache headers for static assets
+                    if let Ok(val) = HeaderValue::from_str("public, max-age=3600") {
+                        response.headers_mut().insert("cache-control", val);
+                    }
+                    response
+                }
+                Err(_) => raw_response_to_axum(&RawResponse {
+                    status: 404,
+                    headers: vec![("content-type".to_string(), "text/plain".to_string())],
+                    body: "Not Found".to_string(),
+                }),
+            }
+        }
         Err(_) => raw_response_to_axum(&RawResponse {
             status: 500,
             headers: vec![("content-type".to_string(), "text/plain".to_string())],
@@ -651,6 +824,38 @@ fn is_websocket_response(val: &Value) -> bool {
     } else {
         false
     }
+}
+
+/// Check if a response Value is a file response marker.
+fn is_file_response(val: &Value) -> bool {
+    if let Some(m) = val.as_map_rc() {
+        m.get(&Value::keyword("__file"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    } else {
+        false
+    }
+}
+
+/// Extract file path and content type from a file response marker and send to axum.
+fn handle_file_response(
+    response_val: &Value,
+    respond: tokio::sync::oneshot::Sender<ServerResponse>,
+) {
+    let map = response_val.as_map_rc().unwrap();
+    let path_str = map
+        .get(&Value::keyword("__file_path"))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_default();
+    let content_type = map
+        .get(&Value::keyword("__file_content_type"))
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+
+    let _ = respond.send(ServerResponse::File {
+        path: std::path::PathBuf::from(path_str),
+        content_type,
+    });
 }
 
 /// Handle an SSE stream response: extract the stream handler, create channels,
@@ -917,6 +1122,8 @@ fn http_serve_impl(ctx: &sema_core::EvalContext, args: &[Value]) -> Result<Value
                             handle_sse_response(ctx, &response_val, respond);
                         } else if is_websocket_response(&response_val) {
                             handle_ws_response(ctx, &response_val, respond);
+                        } else if is_file_response(&response_val) {
+                            handle_file_response(&response_val, respond);
                         } else {
                             let raw_resp = value_to_raw_response(&response_val);
                             let _ = respond.send(ServerResponse::Raw(raw_resp));

@@ -1189,21 +1189,16 @@ fn lower_match_clauses(
         then_expr
     };
 
-    // Else: try remaining clauses
-    let else_expr = if has_guard {
-        // Already handled above in the guard branch
-        CoreExpr::Const(Value::nil()) // placeholder, won't be reached
-    } else {
-        lower_match_clauses(
-            &clauses[1..],
-            scrut_var,
-            try_match_spur,
-            get_spur,
-            nil_q_spur,
-            when_spur,
-            tail,
-        )?
-    };
+    // Else: try remaining clauses (always needed — pattern may fail even with guard)
+    let else_expr = lower_match_clauses(
+        &clauses[1..],
+        scrut_var,
+        try_match_spur,
+        get_spur,
+        nil_q_spur,
+        when_spur,
+        tail,
+    )?;
 
     // Build: (let ((map_tmp (try-match ...))) (if (nil? map_tmp) else then))
     let test = CoreExpr::Call {
