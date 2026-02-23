@@ -159,6 +159,7 @@ Sema's stdlib follows consistent naming patterns:
 | `http/ok`, `http/created`, `http/no-content`, `http/not-found`, `http/error`     | JSON response helpers  |
 | `http/redirect`                                                                  | HTTP redirect          |
 | `http/html`, `http/text`                                                         | Content-type responses |
+| `http/file`                                                                      | Serve a file from disk |
 | `http/stream`                                                                    | SSE streaming          |
 | `http/websocket`                                                                 | WebSocket connections  |
 

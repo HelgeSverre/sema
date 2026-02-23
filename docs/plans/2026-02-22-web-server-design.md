@@ -208,5 +208,5 @@ axum = { version = "0.8", features = ["ws"] }
 - No template engine (`prompt/render` exists)
 - No session management (JWTs + KV store)
 - No form parsing (JSON APIs only)
-- No static file serving (future addition)
+- ~~No static file serving~~ — added via `http/file` and `:static` routes
 - No `defroute` special form (data-driven routing is sufficient and more composable)

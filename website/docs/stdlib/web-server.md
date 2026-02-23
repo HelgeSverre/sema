@@ -56,7 +56,7 @@ Create a handler function from a list of route definitions. Each route is a vect
 (http/serve app {:port 3000})
 ```
 
-Supported methods: `:get`, `:post`, `:put`, `:patch`, `:delete`, `:any` (matches all methods), and `:ws` (WebSocket upgrade).
+Supported methods: `:get`, `:post`, `:put`, `:patch`, `:delete`, `:any` (matches all methods), `:ws` (WebSocket upgrade), and `:static` (static file directory).
 
 Routes are matched top-to-bottom — first match wins. Unmatched routes return 404.
 
@@ -210,6 +210,58 @@ Return 200 with `Content-Type: text/plain`.
 ```scheme
 (http/text "OK")
 ```
+
+### `http/file`
+
+Return a file from disk with automatic MIME type detection. The file is read on the I/O thread (not the evaluator), so it handles binary files efficiently.
+
+```scheme
+(http/file "public/index.html")
+(http/file "data/report.pdf" "application/pdf")  ; explicit content type
+```
+
+The path is resolved relative to the current working directory. If the file doesn't exist, an error is raised. The MIME type is guessed from the file extension (e.g. `.html` → `text/html`, `.css` → `text/css`, `.js` → `application/javascript`).
+
+## Static File Serving
+
+### `:static` Routes
+
+Serve an entire directory of static files using the `:static` route type in `http/router`. Files are served with automatic MIME types, cache headers, and path traversal protection.
+
+```scheme
+(define routes
+  [[:static "/assets" "./public"]
+   [:get    "/*"      handle-spa]])
+
+(http/serve (http/router routes) {:port 3000})
+```
+
+```bash
+$ curl http://localhost:3000/assets/style.css
+body { color: red; }
+
+$ curl -I http://localhost:3000/assets/style.css
+Content-Type: text/css
+Cache-Control: public, max-age=3600
+```
+
+The `:static` route takes a URL prefix and a directory path. Requests matching the prefix are mapped to files in the directory:
+
+- `GET /assets/style.css` → reads `./public/style.css`
+- `GET /assets/js/app.js` → reads `./public/js/app.js`
+- `GET /assets/` → reads `./public/index.html` (directory index)
+
+**Fallthrough**: If a file doesn't exist, the route does *not* match — the router continues to the next route. This enables SPA (single-page application) patterns where a catch-all route serves `index.html` for client-side routing:
+
+```scheme
+(define routes
+  [[:static "/assets" "./dist/assets"]
+   [:get    "/*"      (fn (_) (http/file "./dist/index.html"))]])
+
+(http/serve (http/router routes) {:port 3000})
+```
+
+**Security**: Path traversal attempts (e.g. `../etc/passwd`) are rejected with a 400 response. Only GET and HEAD methods are accepted.
 
 ## Middleware
 
@@ -495,6 +547,21 @@ Serve dynamic HTML pages.
 
 (http/serve (http/router routes) {:port 3000})
 ```
+
+### SPA with Static Assets
+
+Serve a single-page application with static assets and a catch-all for client-side routing.
+
+```scheme
+(define routes
+  [[:get    "/api/health" (fn (_) (http/ok {:status "up"}))]
+   [:static "/assets"     "./dist/assets"]
+   [:get    "/*"          (fn (_) (http/file "./dist/index.html"))]])
+
+(http/serve (http/router routes) {:port 3000})
+```
+
+CSS, JS, and images under `./dist/assets/` are served with correct MIME types and cache headers. All other GET requests serve `index.html` for client-side routing.
 
 ## Architecture Notes
 
