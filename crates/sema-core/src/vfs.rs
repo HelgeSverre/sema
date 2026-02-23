@@ -39,9 +39,10 @@ pub fn vfs_resolve_and_read(path: &str, base_dir: Option<&str>) -> Option<Vec<u8
     // Try resolving relative to base_dir
     if let Some(base) = base_dir {
         let resolved = std::path::Path::new(base).join(path);
-        let normalized = normalize_path(&resolved);
-        if let Some(data) = vfs_read(&normalized) {
-            return Some(data);
+        if let Some(normalized) = normalize_path(&resolved) {
+            if let Some(data) = vfs_read(&normalized) {
+                return Some(data);
+            }
         }
     }
 
@@ -49,18 +50,20 @@ pub fn vfs_resolve_and_read(path: &str, base_dir: Option<&str>) -> Option<Vec<u8
 }
 
 /// Normalize a path by resolving `.` and `..` components without hitting the filesystem.
-fn normalize_path(path: &std::path::Path) -> String {
+/// Returns `None` if the path would traverse above the starting point (e.g., `../secret`
+/// or `a/../../secret`), preventing cross-package reads in the VFS.
+fn normalize_path(path: &std::path::Path) -> Option<String> {
     let mut components = Vec::new();
     for comp in path.components() {
         match comp {
             std::path::Component::CurDir => {} // skip "."
             std::path::Component::ParentDir => {
-                components.pop(); // handle ".."
+                components.pop()?; // traversal above root → None
             }
             other => components.push(other.as_os_str().to_string_lossy().to_string()),
         }
     }
-    components.join("/")
+    Some(components.join("/"))
 }
 
 /// Validate a VFS path at build time. Rejects unsafe paths.
@@ -74,7 +77,7 @@ pub fn validate_vfs_path(path: &str) -> Result<(), String> {
     if path.contains('\0') {
         return Err(format!("NUL byte in VFS path: {path}"));
     }
-    if path.contains("..") {
+    if path.split('/').any(|seg| seg == "..") {
         return Err(format!("path traversal not allowed in VFS: {path}"));
     }
     // Reject Windows device names
@@ -125,6 +128,9 @@ mod tests {
     fn test_validate_dotdot() {
         assert!(validate_vfs_path("../etc/passwd").is_err());
         assert!(validate_vfs_path("foo/../bar").is_err());
+        // Filenames that contain ".." as a substring but aren't traversal
+        assert!(validate_vfs_path("foo..bar.sema").is_ok());
+        assert!(validate_vfs_path("a..b/c.sema").is_ok());
     }
 
     #[test]
@@ -156,19 +162,60 @@ mod tests {
     #[test]
     fn test_normalize_removes_cur_dir() {
         let p = std::path::Path::new("./foo/./bar");
-        assert_eq!(normalize_path(p), "foo/bar");
+        assert_eq!(normalize_path(p), Some("foo/bar".to_string()));
     }
 
     #[test]
     fn test_normalize_resolves_parent_dir() {
         let p = std::path::Path::new("foo/baz/../bar");
-        assert_eq!(normalize_path(p), "foo/bar");
+        assert_eq!(normalize_path(p), Some("foo/bar".to_string()));
     }
 
     #[test]
     fn test_normalize_simple_path() {
         let p = std::path::Path::new("lib/utils.sema");
-        assert_eq!(normalize_path(p), "lib/utils.sema");
+        assert_eq!(normalize_path(p), Some("lib/utils.sema".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_rejects_traversal_past_root() {
+        // "pkg/../../secret" should NOT normalize to "secret" — that would
+        // allow cross-package reads in the VFS. normalize_path should return
+        // None when traversal escapes above the starting point.
+        let p = std::path::Path::new("pkg/../../secret");
+        assert_eq!(
+            normalize_path(p),
+            None,
+            "traversal past root must return None, not alias an unrelated key"
+        );
+    }
+
+    #[test]
+    fn test_normalize_rejects_leading_dotdot() {
+        let p = std::path::Path::new("../etc/passwd");
+        assert_eq!(normalize_path(p), None, "leading .. must return None");
+    }
+
+    #[test]
+    fn test_normalize_allows_safe_dotdot() {
+        // "a/b/../c" is fine — stays within the base
+        let p = std::path::Path::new("a/b/../c");
+        assert_eq!(normalize_path(p), Some("a/c".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_empty_path() {
+        let p = std::path::Path::new("");
+        assert_eq!(normalize_path(p), Some("".to_string()));
+    }
+
+    #[test]
+    fn test_normalize_multi_component_traversal() {
+        // With a multi-component base, .. can escape a "subroots" —
+        // this is intentionally allowed by normalize_path (it only blocks
+        // escaping above the *entire* joined path's starting point).
+        let p = std::path::Path::new("github.com/a/lib/../../b/util");
+        assert_eq!(normalize_path(p), Some("github.com/b/util".to_string()));
     }
 
     // -- VFS lifecycle --

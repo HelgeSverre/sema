@@ -158,13 +158,16 @@ fn process_import(
         .map_err(|e| format!("cannot read {}: {e}", canonical.display()))?;
 
     // Compute relative path for the VFS key.
-    // Project files: relative to root_dir. Package files: relative to packages_dir.
-    let rel_path = if let Ok(rel) = canonical.strip_prefix(root_dir) {
-        rel.to_string_lossy().replace('\\', "/")
-    } else {
+    // Check packages_dir FIRST — package files must get package-relative keys
+    // (e.g., "json-utils/helpers.sema"), not project-relative keys that would
+    // leak the SEMA_HOME path.
+    let rel_path = {
         let pkg_dir = sema_core::resolve::packages_dir();
-        if let Ok(canon_pkg) = pkg_dir.canonicalize() {
-            if let Ok(rel) = canonical.strip_prefix(&canon_pkg) {
+        let canon_pkg = pkg_dir.canonicalize().ok();
+        if let Some(ref cpkg) = canon_pkg {
+            if let Ok(rel) = canonical.strip_prefix(cpkg) {
+                rel.to_string_lossy().replace('\\', "/")
+            } else if let Ok(rel) = canonical.strip_prefix(root_dir) {
                 rel.to_string_lossy().replace('\\', "/")
             } else {
                 return Err(format!(
@@ -172,15 +175,32 @@ fn process_import(
                     canonical.display()
                 ));
             }
+        } else if let Ok(rel) = canonical.strip_prefix(root_dir) {
+            rel.to_string_lossy().replace('\\', "/")
         } else {
             return Err(format!(
-                "cannot resolve packages directory for import: {}",
+                "imported file is outside project directory: {}",
                 canonical.display()
             ));
         }
     };
 
-    result.insert(rel_path, contents.clone());
+    // Validate the VFS key before inserting
+    sema_core::vfs::validate_vfs_path(&rel_path)
+        .map_err(|e| format!("invalid VFS key for {}: {e}", canonical.display()))?;
+
+    // Detect collisions: if a key already exists with different content, error
+    if let Some(existing) = result.get(&rel_path) {
+        if *existing != contents {
+            return Err(format!(
+                "VFS key collision: \"{}\" maps to two different files with different content",
+                rel_path
+            ));
+        }
+        // Same content — skip reinserting (diamond dependency)
+    } else {
+        result.insert(rel_path, contents.clone());
+    }
 
     // Recursively trace the imported file's own imports.
     // Only parse if it looks like a text file (sema source).
@@ -228,7 +248,20 @@ fn process_package_import(
         .map_err(|e| format!("cannot read {}: {e}", canonical.display()))?;
 
     // Use the package path as the VFS key for portability.
-    result.insert(import_path.to_string(), contents.clone());
+    // Validate and check for collisions.
+    sema_core::vfs::validate_vfs_path(import_path)
+        .map_err(|e| format!("invalid VFS key for package \"{import_path}\": {e}"))?;
+
+    if let Some(existing) = result.get(import_path) {
+        if *existing != contents {
+            return Err(format!(
+                "VFS key collision: \"{}\" maps to two different files with different content",
+                import_path
+            ));
+        }
+    } else {
+        result.insert(import_path.to_string(), contents.clone());
+    }
 
     // Recursively trace the package file's own imports.
     if let Ok(source) = std::str::from_utf8(&contents) {
@@ -244,6 +277,10 @@ fn process_package_import(
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::Mutex;
+
+    /// Serialize all tests that set SEMA_HOME to avoid env var races.
+    static SEMA_HOME_LOCK: Mutex<()> = Mutex::new(());
 
     fn tmpdir(name: &str) -> PathBuf {
         let d =
@@ -251,6 +288,34 @@ mod tests {
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// Run a test body in a dedicated thread with an isolated SEMA_HOME.
+    ///
+    /// Creates a project dir and a separate sema-home dir, sets `SEMA_HOME`
+    /// to point at the sema-home, runs the closure, then cleans up both dirs
+    /// and restores the env var. The thread isolation prevents env var races
+    /// with parallel tests.
+    fn with_fake_sema_home<F>(name: &str, f: F)
+    where
+        F: FnOnce(&Path, &Path) + Send + 'static,
+    {
+        let name = name.to_owned();
+        std::thread::spawn(move || {
+            let _lock = SEMA_HOME_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+            let dir = tmpdir(&name);
+            let sema_home = tmpdir(&format!("{name}-home"));
+            fs::create_dir_all(sema_home.join("packages")).unwrap();
+            std::env::set_var("SEMA_HOME", &sema_home);
+
+            f(&dir, &sema_home);
+
+            std::env::remove_var("SEMA_HOME");
+            let _ = fs::remove_dir_all(&dir);
+            let _ = fs::remove_dir_all(&sema_home);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]
@@ -377,19 +442,15 @@ mod tests {
     // run sequentially in a single thread to avoid races with other tests.
     #[test]
     fn test_trace_package_imports() {
-        std::thread::spawn(|| {
-            let dir = tmpdir("pkg-all");
-            let sema_home = dir.join("home");
-
+        with_fake_sema_home("pkg-all", |dir, sema_home| {
             // --- Set up fake packages ---
+            let pkgs = sema_home.join("packages");
 
-            // Basic package with package.sema
-            let mylib = sema_home.join("packages/github.com/test/mylib");
+            let mylib = pkgs.join("github.com/test/mylib");
             fs::create_dir_all(&mylib).unwrap();
             fs::write(mylib.join("package.sema"), "(define pkg-val 42)").unwrap();
 
-            // Package with transitive local imports
-            let translib = sema_home.join("packages/github.com/test/translib");
+            let translib = pkgs.join("github.com/test/translib");
             fs::create_dir_all(&translib).unwrap();
             fs::write(
                 translib.join("package.sema"),
@@ -398,21 +459,14 @@ mod tests {
             .unwrap();
             fs::write(translib.join("helpers.sema"), "(define helper-val 2)").unwrap();
 
-            // Package with custom entrypoint
-            let custom = sema_home.join("packages/github.com/test/custom");
+            let custom = pkgs.join("github.com/test/custom");
             fs::create_dir_all(&custom).unwrap();
             fs::write(custom.join("sema.toml"), "entrypoint = \"lib.sema\"\n").unwrap();
             fs::write(custom.join("lib.sema"), "(define custom-val 99)").unwrap();
 
-            // Utils package for mixed import test
-            let utils = sema_home.join("packages/github.com/test/utils");
+            let utils = pkgs.join("github.com/test/utils");
             fs::create_dir_all(&utils).unwrap();
             fs::write(utils.join("package.sema"), "(define util-fn 1)").unwrap();
-
-            // Ensure packages dir exists for not-installed test
-            fs::create_dir_all(sema_home.join("packages")).unwrap();
-
-            std::env::set_var("SEMA_HOME", &sema_home);
 
             // --- Basic package import ---
             {
@@ -440,18 +494,13 @@ mod tests {
                     result.contains_key("github.com/test/translib"),
                     "package should be traced: {result:?}"
                 );
-                let has_helpers = result.keys().any(|k| k.contains("helpers.sema"));
                 assert!(
-                    has_helpers,
-                    "transitive import from package should be traced: {result:?}"
+                    result.contains_key("github.com/test/translib/helpers.sema"),
+                    "transitive import should have portable key 'github.com/test/translib/helpers.sema': {result:?}"
                 );
 
-                // VFS keys must be portable — no absolute paths
                 for key in result.keys() {
-                    assert!(
-                        !key.starts_with('/'),
-                        "VFS key should be relative, not absolute: {key}"
-                    );
+                    assert!(!key.starts_with('/'), "VFS key should be relative: {key}");
                     assert!(
                         !key.contains(&*sema_home.to_string_lossy()),
                         "VFS key must not contain SEMA_HOME path: {key}"
@@ -469,14 +518,8 @@ mod tests {
                 let result = trace_imports(&dir.join("main.sema"));
                 assert!(result.is_err(), "missing package should be a hard error");
                 let err = result.unwrap_err();
-                assert!(
-                    err.contains("not installed"),
-                    "error should mention 'not installed', got: {err}"
-                );
-                assert!(
-                    err.contains("sema pkg add"),
-                    "error should hint 'sema pkg add', got: {err}"
-                );
+                assert!(err.contains("not installed"), "got: {err}");
+                assert!(err.contains("sema pkg add"), "got: {err}");
             }
 
             // --- Mixed local and package imports ---
@@ -488,14 +531,8 @@ mod tests {
                 )
                 .unwrap();
                 let result = trace_imports(&dir.join("main.sema")).unwrap();
-                assert!(
-                    result.contains_key("local.sema"),
-                    "local import should be traced: {result:?}"
-                );
-                assert!(
-                    result.contains_key("github.com/test/utils"),
-                    "package import should be traced: {result:?}"
-                );
+                assert!(result.contains_key("local.sema"), "{result:?}");
+                assert!(result.contains_key("github.com/test/utils"), "{result:?}");
             }
 
             // --- Custom entrypoint via sema.toml ---
@@ -506,22 +543,13 @@ mod tests {
                 )
                 .unwrap();
                 let result = trace_imports(&dir.join("main.sema")).unwrap();
-                assert!(
-                    result.contains_key("github.com/test/custom"),
-                    "custom entrypoint package should be traced: {result:?}"
-                );
+                assert!(result.contains_key("github.com/test/custom"), "{result:?}");
                 assert_eq!(
                     result.get("github.com/test/custom").unwrap(),
                     b"(define custom-val 99)"
                 );
             }
-
-            // Cleanup
-            std::env::remove_var("SEMA_HOME");
-            let _ = fs::remove_dir_all(&dir);
-        })
-        .join()
-        .unwrap();
+        });
     }
 
     #[test]
@@ -555,22 +583,18 @@ mod tests {
 
     #[test]
     fn test_trace_package_advanced_scenarios() {
-        std::thread::spawn(|| {
-            let dir = tmpdir("pkg-advanced");
-            // Put sema_home OUTSIDE the project dir so transitive package
-            // imports fall through to the packages_dir prefix-strip path
-            // (mirrors real-world usage where ~/.sema != project dir).
-            let sema_home = tmpdir("pkg-advanced-home");
+        with_fake_sema_home("pkg-advanced", |dir, sema_home| {
+            let pkgs = sema_home.join("packages");
 
             // --- Create all package directories up front ---
 
             // 1. Registry short-name package
-            let json_utils = sema_home.join("packages/json-utils");
+            let json_utils = pkgs.join("json-utils");
             fs::create_dir_all(&json_utils).unwrap();
             fs::write(json_utils.join("package.sema"), "(define json-val 42)").unwrap();
 
             // 2. Registry package with transitive relative imports
-            let json_utils2 = sema_home.join("packages/json-utils");
+            let json_utils2 = pkgs.join("json-utils");
             // Already created above, just add helpers.sema
             fs::write(
                 json_utils2.join("package.sema"),
@@ -580,45 +604,45 @@ mod tests {
             fs::write(json_utils2.join("helpers.sema"), "(define helper-fn 2)").unwrap();
 
             // 3. Package-to-package chain
-            let a_lib = sema_home.join("packages/github.com/a/lib");
+            let a_lib = pkgs.join("github.com/a/lib");
             fs::create_dir_all(&a_lib).unwrap();
             fs::write(
                 a_lib.join("package.sema"),
                 r#"(import "github.com/b/util") (define a-val 1)"#,
             )
             .unwrap();
-            let b_util = sema_home.join("packages/github.com/b/util");
+            let b_util = pkgs.join("github.com/b/util");
             fs::create_dir_all(&b_util).unwrap();
             fs::write(b_util.join("package.sema"), "(define b-val 2)").unwrap();
 
             // 4. Registry package importing a git-style package (cross-type)
-            let json_tools = sema_home.join("packages/json-tools");
+            let json_tools = pkgs.join("json-tools");
             fs::create_dir_all(&json_tools).unwrap();
             fs::write(
                 json_tools.join("package.sema"),
                 r#"(import "github.com/x/parser") (define tool-val 1)"#,
             )
             .unwrap();
-            let x_parser = sema_home.join("packages/github.com/x/parser");
+            let x_parser = pkgs.join("github.com/x/parser");
             fs::create_dir_all(&x_parser).unwrap();
             fs::write(x_parser.join("package.sema"), "(define parser-val 2)").unwrap();
 
             // 5. Diamond dependency
-            let da_lib = sema_home.join("packages/github.com/a/lib");
+            let da_lib = pkgs.join("github.com/a/lib");
             // Already created, overwrite for this scenario later
-            let db_lib = sema_home.join("packages/github.com/b/lib");
+            let db_lib = pkgs.join("github.com/b/lib");
             fs::create_dir_all(&db_lib).unwrap();
             fs::write(
                 db_lib.join("package.sema"),
                 r#"(import "github.com/c/shared") (define b-val 2)"#,
             )
             .unwrap();
-            let c_shared = sema_home.join("packages/github.com/c/shared");
+            let c_shared = pkgs.join("github.com/c/shared");
             fs::create_dir_all(&c_shared).unwrap();
             fs::write(c_shared.join("package.sema"), "(define shared-val 99)").unwrap();
 
             // 6. Package with nested subdirectory imports
-            let deeplib = sema_home.join("packages/github.com/x/deeplib");
+            let deeplib = pkgs.join("github.com/x/deeplib");
             fs::create_dir_all(deeplib.join("src")).unwrap();
             fs::write(
                 deeplib.join("package.sema"),
@@ -628,7 +652,7 @@ mod tests {
             fs::write(deeplib.join("src/utils.sema"), "(define util-val 2)").unwrap();
 
             // 7. Custom entrypoint with transitive deps
-            let customdeps = sema_home.join("packages/github.com/x/customdeps");
+            let customdeps = pkgs.join("github.com/x/customdeps");
             fs::create_dir_all(&customdeps).unwrap();
             fs::write(customdeps.join("sema.toml"), "entrypoint = \"lib.sema\"\n").unwrap();
             fs::write(
@@ -639,7 +663,7 @@ mod tests {
             fs::write(customdeps.join("internal.sema"), "(define internal-val 2)").unwrap();
 
             // 8. Package using load instead of import
-            let loadpkg = sema_home.join("packages/github.com/x/loadpkg");
+            let loadpkg = pkgs.join("github.com/x/loadpkg");
             fs::create_dir_all(&loadpkg).unwrap();
             fs::write(
                 loadpkg.join("package.sema"),
@@ -649,28 +673,23 @@ mod tests {
             fs::write(loadpkg.join("defs.sema"), "(define loaded 10)").unwrap();
 
             // 10. Deeply nested chain (3 levels)
-            let l1 = sema_home.join("packages/github.com/l1/pkg");
+            let l1 = pkgs.join("github.com/l1/pkg");
             fs::create_dir_all(&l1).unwrap();
             fs::write(
                 l1.join("package.sema"),
                 r#"(import "github.com/l2/pkg") (define l1-val 1)"#,
             )
             .unwrap();
-            let l2 = sema_home.join("packages/github.com/l2/pkg");
+            let l2 = pkgs.join("github.com/l2/pkg");
             fs::create_dir_all(&l2).unwrap();
             fs::write(
                 l2.join("package.sema"),
                 r#"(import "github.com/l3/pkg") (define l2-val 2)"#,
             )
             .unwrap();
-            let l3 = sema_home.join("packages/github.com/l3/pkg");
+            let l3 = pkgs.join("github.com/l3/pkg");
             fs::create_dir_all(&l3).unwrap();
             fs::write(l3.join("package.sema"), "(define l3-val 3)").unwrap();
-
-            // Ensure packages dir exists
-            fs::create_dir_all(sema_home.join("packages")).unwrap();
-
-            std::env::set_var("SEMA_HOME", &sema_home);
 
             // Helper closure to assert all VFS keys are portable
             let assert_portable_keys = |result: &HashMap<String, Vec<u8>>, scenario: &str| {
@@ -888,13 +907,149 @@ mod tests {
                 );
                 assert_portable_keys(&result, "10-deeply-nested");
             }
+        });
+    }
 
-            // Cleanup
-            std::env::remove_var("SEMA_HOME");
+    #[test]
+    fn test_trace_package_internal_files_have_portable_keys() {
+        // When a package has transitive relative imports (e.g., helpers.sema),
+        // the VFS key for the internal file must be relative to the package
+        // (e.g., "json-utils/helpers.sema"), NOT contain the absolute
+        // SEMA_HOME path.
+        with_fake_sema_home("pkg-internal-keys", |dir, sema_home| {
+            let pkgs = sema_home.join("packages");
+            fs::create_dir_all(pkgs.join("json-utils")).unwrap();
+            fs::write(
+                pkgs.join("json-utils/package.sema"),
+                r#"(import "helpers.sema") (define pkg-val 1)"#,
+            )
+            .unwrap();
+            fs::write(
+                pkgs.join("json-utils/helpers.sema"),
+                "(define helper-val 99)",
+            )
+            .unwrap();
+
+            fs::write(dir.join("main.sema"), r#"(import "json-utils")"#).unwrap();
+
+            let result = trace_imports(&dir.join("main.sema")).unwrap();
+            assert!(
+                result.contains_key("json-utils"),
+                "expected key 'json-utils': {:?}",
+                result.keys().collect::<Vec<_>>()
+            );
+            assert!(
+                result.contains_key("json-utils/helpers.sema"),
+                "expected portable key, got: {:?}",
+                result.keys().collect::<Vec<_>>()
+            );
+            for key in result.keys() {
+                assert!(!key.starts_with('/'), "absolute key: {key}");
+                assert!(!key.contains("sema-home"), "SEMA_HOME leak: {key}");
+            }
+        });
+    }
+
+    #[test]
+    fn test_trace_distinct_files_get_distinct_keys() {
+        // Two files with the same name in different directories should get
+        // distinct VFS keys (root-relative), not collide.
+        std::thread::spawn(|| {
+            let dir = tmpdir("distinct-keys");
+
+            fs::write(dir.join("utils.sema"), "(define a 1)").unwrap();
+            fs::create_dir_all(dir.join("sub")).unwrap();
+            fs::write(dir.join("sub/utils.sema"), "(define b 2)").unwrap();
+
+            fs::write(dir.join("sub/lib.sema"), r#"(load "utils.sema")"#).unwrap();
+            fs::write(
+                dir.join("main.sema"),
+                r#"(load "utils.sema") (load "sub/lib.sema")"#,
+            )
+            .unwrap();
+
+            let result = trace_imports(&dir.join("main.sema")).unwrap();
+
+            assert!(
+                result.contains_key("utils.sema"),
+                "missing root utils.sema: {:?}",
+                result.keys().collect::<Vec<_>>()
+            );
+            assert!(
+                result.contains_key("sub/utils.sema"),
+                "missing sub/utils.sema: {:?}",
+                result.keys().collect::<Vec<_>>()
+            );
+            // Verify they have different content — proves they're truly distinct files
+            assert_ne!(
+                result.get("utils.sema").unwrap(),
+                result.get("sub/utils.sema").unwrap(),
+                "distinct files should have different content"
+            );
+
             let _ = fs::remove_dir_all(&dir);
-            let _ = fs::remove_dir_all(&sema_home);
         })
         .join()
         .unwrap();
+    }
+
+    #[test]
+    fn test_trace_diamond_local_deduplication() {
+        // Diamond dependency: main→a→c and main→b→c.
+        // c.sema should appear exactly once in the result (same canonical file).
+        std::thread::spawn(|| {
+            let dir = tmpdir("diamond-local");
+
+            fs::write(dir.join("c.sema"), "(define shared 1)").unwrap();
+            fs::write(dir.join("a.sema"), r#"(import "c.sema") (define a 1)"#).unwrap();
+            fs::write(dir.join("b.sema"), r#"(import "c.sema") (define b 2)"#).unwrap();
+            fs::write(
+                dir.join("main.sema"),
+                r#"(import "a.sema") (import "b.sema")"#,
+            )
+            .unwrap();
+
+            let result = trace_imports(&dir.join("main.sema")).unwrap();
+
+            assert!(result.contains_key("c.sema"));
+            assert_eq!(result.get("c.sema").unwrap(), b"(define shared 1)");
+            // Should have a, b, and c — c only once
+            assert_eq!(
+                result.len(),
+                3,
+                "expected 3 entries: {:?}",
+                result.keys().collect::<Vec<_>>()
+            );
+
+            let _ = fs::remove_dir_all(&dir);
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn test_trace_validates_vfs_keys() {
+        // All VFS keys produced by the tracer should pass validate_vfs_path.
+        // Uses only local file imports to avoid SEMA_HOME dependency.
+        let dir = tmpdir("validate-keys");
+
+        fs::create_dir_all(dir.join("lib")).unwrap();
+        fs::write(dir.join("lib/utils.sema"), "(define y 2)").unwrap();
+        fs::write(dir.join("data.sema"), "(define z 3)").unwrap();
+        fs::write(
+            dir.join("main.sema"),
+            r#"(load "lib/utils.sema") (load "data.sema")"#,
+        )
+        .unwrap();
+
+        let result = trace_imports(&dir.join("main.sema")).unwrap();
+        for key in result.keys() {
+            assert!(
+                sema_core::vfs::validate_vfs_path(key).is_ok(),
+                "VFS key failed validation: {key}"
+            );
+        }
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
