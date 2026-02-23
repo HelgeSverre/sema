@@ -342,6 +342,8 @@ dual_eval_tests! {
     alias_hash_map_q: "(hash-map? (hash-map :a 1))" => Value::bool(true),
     alias_hash_ref: "(hash-ref {:a 1 :b 2} :b)" => Value::int(2),
     alias_type_of: "(type-of 42)" => common::eval_tw("(type 42)"),
+    alias_def_simple: "(def x 42) x" => Value::int(42),
+    alias_def_function: "(def (add a b) (+ a b)) (add 3 4)" => Value::int(7),
     alias_defn: "(defn add (a b) (+ a b)) (add 3 4)" => Value::int(7),
     alias_progn: "(progn (define x 10) (define y 20) (+ x y))" => Value::int(30),
 }

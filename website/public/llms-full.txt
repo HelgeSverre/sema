@@ -3165,7 +3165,7 @@ Sema's stdlib follows consistent naming patterns:
 | `regex/match?`, `regex/match`, `regex/find-all`     | Matching                |
 | `regex/replace`, `regex/replace-all`, `regex/split` | Replacement & splitting |
 
-### [CSV, Crypto & Encoding](./csv-encoding)
+### [CSV, Crypto & Encoding](./csv)
 
 | Function                                      | Description     |
 | --------------------------------------------- | --------------- |

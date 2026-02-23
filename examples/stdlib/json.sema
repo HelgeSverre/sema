@@ -1,62 +1,73 @@
-;;; stdlib-json.sema — Exercise all JSON stdlib functions
+;; Verify ALL JSON code samples from http-json.md
+;; (HTTP samples can't be tested without network)
 
 (define (assert-eq actual expected label)
   (if (equal? actual expected)
     (println "  ✓ " label)
     (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
 
-(println "=== JSON Operations ===")
-(newline)
+(println "=== http-json.md JSON verification ===")
 
-;; --- json/encode ---
-(println "-- json/encode --")
-(assert-eq (json/encode 42) "42" "json/encode integer")
-(assert-eq (json/encode "hello") "\"hello\"" "json/encode string")
-(assert-eq (json/encode #t) "true" "json/encode boolean true")
-(assert-eq (json/encode #f) "false" "json/encode boolean false")
-(assert-eq (json/encode nil) "null" "json/encode nil")
-(assert-eq (json/encode (list 1 2 3)) "[1,2,3]" "json/encode list")
-(assert-eq (json/encode [1 2 3]) "[1,2,3]" "json/encode vector")
+;; json/encode
+(assert-eq (json/encode 42) "42" "encode int")
+(assert-eq (json/encode "hello") "\"hello\"" "encode string")
+(assert-eq (json/encode #t) "true" "encode true")
+(assert-eq (json/encode nil) "null" "encode nil")
+(assert-eq (json/encode '(1 2 3)) "[1,2,3]" "encode list")
+(assert-eq (json/encode [1 2 3]) "[1,2,3]" "encode vector")
+(assert-eq (json/encode {:name "Ada" :age 36}) "{\"age\":36,\"name\":\"Ada\"}" "encode map")
 
-;; Map with keyword keys
-(define m        {:name "Alice" :age 30})
-(define encoded  (json/encode m))
-(println "  ✓ json/encode map = " encoded)
+;; json/encode errors
+(try
+  (json/encode (/ 0.0 0.0))
+  (catch e (println "  ✓  encode NaN error caught")))
 
-;; --- json/encode-pretty ---
-(println "-- json/encode-pretty --")
-(define pretty (json/encode-pretty {:x 1 :y 2}))
-(assert-eq (string? pretty) #t "json/encode-pretty returns string")
-(println "  ✓ json/encode-pretty output:")
-(println pretty)
+(try
+  (json/encode println)
+  (catch e (println "  ✓  encode function error caught")))
 
-;; --- json/decode ---
-(println "-- json/decode --")
-(assert-eq (json/decode "42") 42 "json/decode integer")
-(assert-eq (json/decode "\"hello\"") "hello" "json/decode string")
-(assert-eq (json/decode "true") #t "json/decode true")
-(assert-eq (json/decode "false") #f "json/decode false")
-(assert-eq (json/decode "null") nil "json/decode null")
+;; json/encode-pretty
+(define pretty (json/encode-pretty {:name "Ada" :scores [95 87 92]}))
+(assert-eq (string? pretty) #t "encode-pretty returns string")
+(assert-eq (string/contains? pretty "\n") #t "encode-pretty has newlines")
 
-;; Decode array
-(define arr (json/decode "[1, 2, 3]"))
-(assert-eq (length arr) 3 "json/decode array length")
-(assert-eq (car arr) 1 "json/decode array first element")
+;; json/decode
+(assert-eq (json/decode "42") 42 "decode int")
+(assert-eq (json/decode "3.14") 3.14 "decode float")
+(assert-eq (json/decode "\"hello\"") "hello" "decode string")
+(assert-eq (json/decode "true") #t "decode true")
+(assert-eq (json/decode "null") nil "decode null")
+(assert-eq (json/decode "[1, 2, 3]") '(1 2 3) "decode array")
+(assert-eq (json/decode "{\"name\": \"Ada\"}") {:name "Ada"} "decode object")
 
-;; Decode object
-(define obj (json/decode "{\"name\": \"Bob\", \"age\": 25}"))
-(assert-eq (get obj :name) "Bob" "json/decode object string field")
-(assert-eq (get obj :age) 25 "json/decode object int field")
+;; json/decode errors
+(try
+  (json/decode "not json")
+  (catch e (println "  ✓  decode invalid JSON error caught")))
 
-;; Roundtrip
-(println "-- roundtrip --")
-(define data          {:items [1 2 3] :label "test" :active #t})
-(define roundtripped  (json/decode (json/encode data)))
-(assert-eq (get roundtripped :label) "test" "roundtrip preserves string")
-(assert-eq (get roundtripped :active) #t "roundtrip preserves boolean")
-(assert-eq (length (get roundtripped :items))
-  3
-  "roundtrip preserves array length")
+(try
+  (json/decode 42)
+  (catch e (println "  ✓  decode non-string error caught")))
 
-(println "")
-(println "=== All JSON tests passed! ===")
+;; Roundtrips
+(assert-eq (json/decode (json/encode [1 2 3])) '(1 2 3) "roundtrip vector->list")
+(assert-eq (json/decode (json/encode {:a 1 :b 2})) {:a 1 :b 2} "roundtrip map")
+
+;; Nested roundtrip
+(define data {:users [{:name "Ada"} {:name "Bob"}]
+              :count 2
+              :active #t})
+(define roundtripped (json/decode (json/encode data)))
+(assert-eq (:count roundtripped) 2 "nested roundtrip :count")
+(assert-eq (:active roundtripped) #t "nested roundtrip :active")
+
+;; Error handling patterns
+(try
+  (json/encode (/ 0.0 0.0))
+  (catch e (println "  ✓  error handling: encode catch")))
+
+(try
+  (json/decode "invalid json {{{")
+  (catch e (println "  ✓  error handling: decode catch")))
+
+(println "=== http-json.md JSON: ALL PASSED ===")

@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Standard Library
 
-Sema ships with **460+ built-in functions** across **21 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
+Sema ships with **460+ built-in functions** across **24 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
 
 ## Naming Conventions
 
@@ -170,7 +170,7 @@ Sema's stdlib follows consistent naming patterns:
 | `regex/match?`, `regex/match`, `regex/find-all`     | Matching                |
 | `regex/replace`, `regex/replace-all`, `regex/split` | Replacement & splitting |
 
-### [CSV, Crypto & Encoding](./csv-encoding)
+### [CSV, Crypto & Encoding](./csv)
 
 | Function                                      | Description     |
 | --------------------------------------------- | --------------- |
@@ -259,6 +259,13 @@ Sema's stdlib follows consistent naming patterns:
 | `kv/open`, `kv/close`           | Open/close a JSON-backed store |
 | `kv/get`, `kv/set`, `kv/delete` | CRUD operations                |
 | `kv/keys`                       | List all keys                  |
+
+### [TOML](./toml)
+
+| Function                        | Description          |
+| ------------------------------- | -------------------- |
+| `toml/decode`                   | Decode TOML to Sema  |
+| `toml/encode`                   | Encode Sema to TOML  |
 
 ### [Playground & WASM](./playground)
 

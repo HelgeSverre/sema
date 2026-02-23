@@ -63,6 +63,7 @@ struct SpecialFormSpurs {
     prompt: Spur,
 
     // Silent aliases for other Lisp dialects
+    def: Spur,
     defn: Spur,
     progn: Spur,
 }
@@ -117,6 +118,7 @@ impl SpecialFormSpurs {
             prompt: intern("prompt"),
 
             // Silent aliases
+            def: intern("def"),
             defn: intern("defn"),
             progn: intern("progn"),
         }
@@ -185,6 +187,7 @@ pub const SPECIAL_FORM_NAMES: &[&str] = &[
     "message",
     "prompt",
     // Silent aliases for other Lisp dialects (undocumented)
+    "def",
     "defn",
     "progn",
 ];
@@ -201,7 +204,7 @@ pub fn try_eval_special(
     // Core language — hot path forms first (if, define, let, begin, lambda)
     if head_spur == sf.if_ {
         Some(eval_if(args, env, ctx))
-    } else if head_spur == sf.define {
+    } else if head_spur == sf.define || head_spur == sf.def {
         Some(eval_define(args, env, ctx))
     } else if head_spur == sf.let_ {
         Some(eval_let(args, env, ctx))

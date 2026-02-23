@@ -470,12 +470,12 @@ When the limit is non-zero, every trampoline step increments `ctx.eval_steps` an
 
 ## Environment Model
 
-Sema uses a linked-list scope chain, where each scope is a `BTreeMap` keyed by `Spur`:
+Sema uses a linked-list scope chain, where each scope is a `hashbrown::HashMap` keyed by `Spur`:
 
 ```rust
 // crates/sema-core/src/value.rs
 pub struct Env {
-    pub bindings: Rc<RefCell<BTreeMap<Spur, Value>>>,
+    pub bindings: Rc<RefCell<SpurMap<Spur, Value>>>,
     pub parent: Option<Rc<Env>>,
 }
 ```

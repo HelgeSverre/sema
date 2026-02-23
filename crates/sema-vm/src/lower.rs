@@ -101,7 +101,7 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             return lower_if(args, tail);
         } else if s == sf("cond") {
             return lower_cond(args, tail);
-        } else if s == sf("define") {
+        } else if s == sf("define") || s == sf("def") {
             return lower_define(args);
         } else if s == sf("defun") || s == sf("defn") {
             return lower_defun(args);

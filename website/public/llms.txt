@@ -4,7 +4,7 @@
 
 Sema is a Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. It combines a Scheme core with Clojure-style keywords (`:foo`), map literals (`{:key val}`), and vector literals (`[1 2 3]`).
 
-- 460+ built-in functions across 21 modules
+- 500+ built-in functions across 25 modules
 - Multi-provider LLM support (Anthropic, OpenAI, Gemini, Ollama, Groq, xAI, Mistral, and more)
 - Tools & agents, structured extraction, conversations, embeddings, vector store
 - Cost tracking, response caching, fallback chains, retry with backoff
@@ -19,6 +19,9 @@ Sema is a Lisp where prompts are s-expressions, conversations are persistent dat
 - [Shell Completions](https://sema-lang.com/docs/shell-completions.html): Tab completion for bash, zsh, fish
 - [Editor Support](https://sema-lang.com/docs/editors.html): VS Code, Vim, Emacs, Helix, Zed
 - [Embedding in Rust](https://sema-lang.com/docs/embedding.html): Using Sema as a library in Rust projects
+- [Embedding in JavaScript](https://sema-lang.com/docs/embedding-js.html): Using Sema via WebAssembly in the browser
+- [Formatter](https://sema-lang.com/docs/formatter.html): Built-in code formatter for consistent style
+- [Package Manager](https://sema-lang.com/docs/packages.html): Git-based package manager, dependencies, sema.toml
 
 ## Language Reference
 
@@ -54,7 +57,7 @@ Sema is a Lisp where prompts are s-expressions, conversations are persistent dat
 - [PDF Processing](https://sema-lang.com/docs/stdlib/pdf.html): PDF text extraction
 - [HTTP & JSON](https://sema-lang.com/docs/stdlib/http-json.html): HTTP client, JSON encode/decode
 - [Regex](https://sema-lang.com/docs/stdlib/regex.html): Regular expressions
-- [CSV & Encoding](https://sema-lang.com/docs/stdlib/csv-encoding.html): CSV parsing, base64, hex encoding
+- [CSV & Encoding](https://sema-lang.com/docs/stdlib/csv.html): CSV parsing, base64, hex encoding
 - [Date & Time](https://sema-lang.com/docs/stdlib/datetime.html): Date/time operations
 - [System](https://sema-lang.com/docs/stdlib/system.html): Shell commands, environment, exit
 - [Bytevectors](https://sema-lang.com/docs/stdlib/bytevectors.html): Binary data operations
@@ -63,6 +66,8 @@ Sema is a Lisp where prompts are s-expressions, conversations are persistent dat
 - [Key-Value Store](https://sema-lang.com/docs/stdlib/kv-store.html): Persistent JSON-backed KV store
 - [Context](https://sema-lang.com/docs/stdlib/context.html): Dynamic context/configuration
 - [Terminal Styling](https://sema-lang.com/docs/stdlib/terminal.html): ANSI colors, text styling
+- [TOML](https://sema-lang.com/docs/stdlib/toml.html): TOML encoding and decoding
+- [Web Server](https://sema-lang.com/docs/stdlib/web-server.html): Built-in HTTP server with routing, middleware, SSE, WebSockets
 - [Playground & WASM](https://sema-lang.com/docs/stdlib/playground.html): WASM-specific functions
 
 ## Internals
@@ -74,4 +79,5 @@ Sema is a Lisp where prompts are s-expressions, conversations are persistent dat
 - [Evaluator & TCO](https://sema-lang.com/docs/internals/evaluator.html): Trampoline-based tail-call optimization
 - [Reader & Spans](https://sema-lang.com/docs/internals/reader.html): Lexer, parser, source spans
 - [Performance](https://sema-lang.com/docs/internals/performance.html): Benchmarks, optimization notes
+- [Feature Comparison](https://sema-lang.com/docs/internals/feature-comparison.html): Feature comparison with other Lisps and scripting languages
 - [Lisp Dialect Benchmark](https://sema-lang.com/docs/internals/lisp-comparison.html): Comparison with other Lisp implementations

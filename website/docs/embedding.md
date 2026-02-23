@@ -14,7 +14,7 @@ Add Sema to your project:
 
 ```toml
 [dependencies]
-sema-lang = "1.6"
+sema-lang = "1.11"
 ```
 
 Or use the latest unreleased version from git:

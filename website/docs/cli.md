@@ -164,10 +164,24 @@ sema pkg config registry.url https://my-registry.com
 Generate shell completion scripts. See [Shell Completions](./shell-completions.md) for installation instructions.
 
 ```
-sema completions <SHELL>
+sema completions [OPTIONS] <SHELL>
 ```
 
+| Flag        | Description                                                        |
+| ----------- | ------------------------------------------------------------------ |
+| `--install` | Auto-detect the shell's completion directory and install the script |
+
 Supported shells: `bash`, `zsh`, `fish`, `elvish`, `powershell`.
+
+The `--install` flag is supported for Bash, Zsh, Fish, and Elvish. For PowerShell, use `sema completions powershell` and follow the manual installation steps in [Shell Completions](./shell-completions.md).
+
+```bash
+# Print completion script to stdout
+sema completions zsh
+
+# Auto-install to the correct directory
+sema completions --install zsh
+```
 
 ### `sema fmt`
 
