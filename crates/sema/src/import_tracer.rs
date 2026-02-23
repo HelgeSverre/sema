@@ -155,11 +155,28 @@ fn process_import(
     let contents = std::fs::read(&canonical)
         .map_err(|e| format!("cannot read {}: {e}", canonical.display()))?;
 
-    // Compute relative path from root_dir for the VFS key.
-    let rel_path = canonical
-        .strip_prefix(root_dir)
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| canonical.to_string_lossy().into_owned());
+    // Compute relative path for the VFS key.
+    // Project files: relative to root_dir. Package files: relative to packages_dir.
+    let rel_path = if let Ok(rel) = canonical.strip_prefix(root_dir) {
+        rel.to_string_lossy().into_owned()
+    } else {
+        let pkg_dir = sema_core::resolve::packages_dir();
+        if let Ok(canon_pkg) = pkg_dir.canonicalize() {
+            if let Ok(rel) = canonical.strip_prefix(&canon_pkg) {
+                rel.to_string_lossy().replace('\\', "/")
+            } else {
+                return Err(format!(
+                    "imported file is outside project and packages directory: {}",
+                    canonical.display()
+                ));
+            }
+        } else {
+            return Err(format!(
+                "cannot resolve packages directory for import: {}",
+                canonical.display()
+            ));
+        }
+    };
 
     result.insert(rel_path, contents.clone());
 
@@ -186,12 +203,10 @@ fn process_package_import(
     let resolved = match resolve_package_import(import_path) {
         Ok(p) => p,
         Err(_) => {
-            eprintln!(
-                "warning: package \"{}\" is not installed; \
-                 skipping for bundling (will be resolved at runtime)",
-                import_path
-            );
-            return Ok(());
+            return Err(format!(
+                "package \"{}\" is not installed (hint: sema pkg add {})",
+                import_path, import_path
+            ));
         }
     };
 
@@ -411,7 +426,7 @@ mod tests {
                 );
             }
 
-            // --- Transitive imports through package ---
+            // --- Transitive imports through package with portable VFS keys ---
             {
                 fs::write(
                     dir.join("main.sema"),
@@ -428,19 +443,37 @@ mod tests {
                     has_helpers,
                     "transitive import from package should be traced: {result:?}"
                 );
+
+                // VFS keys must be portable — no absolute paths
+                for key in result.keys() {
+                    assert!(
+                        !key.starts_with('/'),
+                        "VFS key should be relative, not absolute: {key}"
+                    );
+                    assert!(
+                        !key.contains(&*sema_home.to_string_lossy()),
+                        "VFS key must not contain SEMA_HOME path: {key}"
+                    );
+                }
             }
 
-            // --- Uninstalled package warns but doesn't error ---
+            // --- Uninstalled package is a hard error ---
             {
                 fs::write(
                     dir.join("main.sema"),
                     r#"(import "github.com/nonexistent/pkg")"#,
                 )
                 .unwrap();
-                let result = trace_imports(&dir.join("main.sema")).unwrap();
+                let result = trace_imports(&dir.join("main.sema"));
+                assert!(result.is_err(), "missing package should be a hard error");
+                let err = result.unwrap_err();
                 assert!(
-                    result.is_empty(),
-                    "uninstalled package should be skipped: {result:?}"
+                    err.contains("not installed"),
+                    "error should mention 'not installed', got: {err}"
+                );
+                assert!(
+                    err.contains("sema pkg add"),
+                    "error should hint 'sema pkg add', got: {err}"
                 );
             }
 
