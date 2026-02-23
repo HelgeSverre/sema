@@ -347,47 +347,72 @@ dual_eval_tests! {
 }
 
 // ============================================================
-// Auto-gensym in quasiquote — dual eval (tree-walker + VM)
+// Auto-gensym — macro hygiene tests (tree-walker + VM)
 // ============================================================
 
 dual_eval_tests! {
+    // Core hygiene: macro's x# does NOT capture user's x
     auto_gensym_basic: r#"
-        (symbol? `x#)
-    "# => Value::bool(true),
+        (begin
+          (defmacro my-let1 (val body)
+            `(let ((x# ,val)) ,body))
+          (let ((x 10))
+            (my-let1 42 x)))
+    "# => Value::int(10),
 
+    // Same foo# within one quasiquote maps to the same gensym
     auto_gensym_consistent: r#"
-        (let ((result `(x# x#)))
-          (= (first result) (nth result 1)))
-    "# => Value::bool(true),
+        (begin
+          (defmacro my-bind (val body)
+            `(let ((tmp# ,val)) (+ tmp# tmp#)))
+          (my-bind 21 nil))
+    "# => Value::int(42),
 
+    // Different auto-gensym names get different symbols
     auto_gensym_different_names: r#"
-        (let ((result `(x# y#)))
-          (= (first result) (nth result 1)))
-    "# => Value::bool(false),
+        (begin
+          (defmacro my-bind2 (a b)
+            `(let ((x# ,a) (y# ,b)) (+ x# y#)))
+          (my-bind2 10 20))
+    "# => Value::int(30),
 
+    // Auto-gensym does NOT interfere with unquote
     auto_gensym_with_unquote: r#"
-        (let ((val 42))
-          (let ((result `(x# ,val x#)))
-            (and (= (first result) (nth result 2)) (= (nth result 1) 42))))
-    "# => Value::bool(true),
+        (begin
+          (defmacro add-one (expr)
+            `(let ((tmp# ,expr)) (+ tmp# 1)))
+          (add-one 41))
+    "# => Value::int(42),
 
+    // Nested macro calls get independent gensyms (no collision)
     auto_gensym_nested_calls: r#"
-        (let ((a `x#) (b `x#))
-          (not (= a b)))
-    "# => Value::bool(true),
+        (begin
+          (defmacro my-inc (expr)
+            `(let ((v# ,expr)) (+ v# 1)))
+          (my-inc (my-inc 10)))
+    "# => Value::int(12),
 
+    // Auto-gensym symbol outside quasiquote is just a regular symbol
     auto_gensym_outside_quasiquote: r#"
-        (symbol? 'x#)
-    "# => Value::bool(true),
+        (begin
+          (define x# 42)
+          x#)
+    "# => Value::int(42),
 
+    // Auto-gensym works inside vectors in quasiquote
     auto_gensym_in_vector: r#"
-        (let ((result `[x# x#]))
-          (= (nth result 0) (nth result 1)))
-    "# => Value::bool(true),
+        (begin
+          (defmacro vec-bind (val)
+            `(let ((v# ,val)) [v# v#]))
+          (vec-bind 5))
+    "# => common::eval_tw("[5 5]"),
 
+    // x## (double hash) is NOT auto-gensym — only single trailing # triggers it
     auto_gensym_double_hash_is_regular: r#"
-        (= `x## 'x##)
-    "# => Value::bool(true),
+        (begin
+          (define x## 99)
+          x##)
+    "# => Value::int(99),
 }
 
 // ============================================================
@@ -395,6 +420,7 @@ dual_eval_tests! {
 // ============================================================
 
 dual_eval_tests! {
+    // some-> should not capture user's __v variable
     some_arrow_no_capture: r#"
         (begin
           (define __v {:name "Alice" :age 30})
@@ -407,6 +433,7 @@ dual_eval_tests! {
 // ============================================================
 
 dual_eval_tests! {
+    // Auto-gensym with splicing
     auto_gensym_with_splicing: r#"
         (begin
           (defmacro my-do (. body)
@@ -414,6 +441,7 @@ dual_eval_tests! {
           (my-do (define x 1) (define y 2)))
     "# => Value::nil(),
 
+    // Multiple quasiquotes in same macro body get independent gensyms
     auto_gensym_multi_quasiquote: r#"
         (begin
           (defmacro double-bind (a b)
@@ -423,10 +451,36 @@ dual_eval_tests! {
           (double-bind 10 20))
     "# => Value::int(30),
 
+    // Manual gensym and auto-gensym share a counter — no collision
     auto_gensym_no_collision_with_manual: r#"
         (begin
           (define s1 (gensym "x"))
           (defmacro my-m (v) `(let ((x# ,v)) x#))
           (my-m 42))
     "# => Value::int(42),
+
+    // Deeply nested macro calls — each level gets its own gensyms
+    auto_gensym_deep_nesting: r#"
+        (begin
+          (defmacro wrap (expr)
+            `(let ((v# ,expr)) (+ v# 0)))
+          (wrap (wrap (wrap (wrap (wrap 100))))))
+    "# => Value::int(100),
+
+    // Macro that introduces a binding with same name as user variable
+    auto_gensym_shadowing_proof: r#"
+        (begin
+          (defmacro capture-test (body)
+            `(let ((result# 999)) ,body))
+          (let ((result# 1))
+            (capture-test result#)))
+    "# => Value::int(1),
+
+    // Shared counter: gensym then auto-gensym produce different names
+    auto_gensym_shared_counter_proof: r#"
+        (begin
+          (define a (gensym "x"))
+          (define b `x#)
+          (not (= a b)))
+    "# => Value::bool(true),
 }

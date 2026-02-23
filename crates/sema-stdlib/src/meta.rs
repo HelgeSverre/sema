@@ -1,12 +1,6 @@
-use std::cell::Cell;
-
 use sema_core::{check_arity, SemaError, Value};
 
 use crate::register_fn;
-
-thread_local! {
-    static GENSYM_COUNTER: Cell<u64> = const { Cell::new(0) };
-}
 
 pub fn register(env: &sema_core::Env) {
     // (retry thunk) or (retry thunk {:max-attempts 3 :base-delay-ms 100 :backoff 2.0})
@@ -120,11 +114,6 @@ pub fn register(env: &sema_core::Env) {
         } else {
             "g".to_string()
         };
-        let n = GENSYM_COUNTER.with(|c| {
-            let val = c.get();
-            c.set(val + 1);
-            val
-        });
-        Ok(Value::symbol(&format!("{prefix}__{n}")))
+        Ok(Value::symbol(&sema_core::next_gensym(&prefix)))
     });
 }

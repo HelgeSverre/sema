@@ -54,18 +54,21 @@ pub fn interner_stats() -> (usize, usize) {
     })
 }
 
-/// Generate a unique gensym name with the given prefix.
-/// Returns a string like `prefix__auto42`. The counter is thread-local and monotonically increasing.
+// ── Gensym counter ────────────────────────────────────────────────
+
+thread_local! {
+    static GENSYM_COUNTER: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Generate a unique symbol name: `<prefix>__<counter>`.
+/// Used by both manual `(gensym)` and auto-gensym `foo#` in quasiquote.
+/// Single shared counter prevents collisions between the two mechanisms.
 pub fn next_gensym(prefix: &str) -> String {
-    thread_local! {
-        static AUTO_GENSYM_COUNTER: Cell<u64> = const { Cell::new(0) };
-    }
-    let n = AUTO_GENSYM_COUNTER.with(|c| {
-        let v = c.get();
-        c.set(v + 1);
-        v
-    });
-    format!("{prefix}__auto{n}")
+    GENSYM_COUNTER.with(|c| {
+        let val = c.get();
+        c.set(val.wrapping_add(1));
+        format!("{prefix}__{val}")
+    })
 }
 
 /// Compare two Spurs by their resolved string content (lexicographic).
