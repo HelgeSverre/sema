@@ -12892,3 +12892,58 @@ fn test_package_imports() {
     .join()
     .unwrap();
 }
+
+/// Verify that package imports work through the VFS, simulating what happens
+/// when a bundled executable runs with packages embedded in its archive.
+#[test]
+fn test_package_imports_via_vfs() {
+    std::thread::spawn(|| {
+        // Initialize VFS with package content keyed by package path
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "github.com/test/vfslib".to_string(),
+            b"(module vfslib (export vfs-val) (define vfs-val 777))".to_vec(),
+        );
+
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "github.com/test/vfslib") vfs-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(777), "VFS package import should work");
+    })
+    .join()
+    .unwrap();
+}
+
+/// Verify that mixed local (VFS) and package imports work in a bundled context.
+#[test]
+fn test_vfs_mixed_local_and_package() {
+    std::thread::spawn(|| {
+        let mut files = std::collections::HashMap::new();
+        files.insert(
+            "local-lib.sema".to_string(),
+            b"(module local-lib (export local-val) (define local-val 100))".to_vec(),
+        );
+        files.insert(
+            "github.com/test/remote".to_string(),
+            b"(module remote (export remote-val) (define remote-val 200))".to_vec(),
+        );
+
+        sema_core::vfs::init_vfs(files);
+
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(
+                r#"(begin
+                    (import "local-lib.sema")
+                    (import "github.com/test/remote")
+                    (+ local-val remote-val))"#,
+            )
+            .unwrap();
+        assert_eq!(result, Value::int(300), "mixed VFS imports should work");
+    })
+    .join()
+    .unwrap();
+}

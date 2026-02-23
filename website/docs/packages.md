@@ -23,8 +23,8 @@ description = "A useful Sema library"
 entrypoint = "lib.sema"
 
 [deps]
-github.com/user/other-lib = "v1.0.0"
-github.com/user/utils = "main"
+"github.com/user/other-lib" = "v1.0.0"
+"github.com/user/utils" = "main"
 ```
 
 The `[package]` section defines metadata:
@@ -61,18 +61,20 @@ sema pkg init
 `sema pkg init` only creates `sema.toml`. You'll need to create `mod.sema` yourself to define your package's public API.
 :::
 
-### `sema pkg get`
+### `sema pkg add`
 
-Fetch a package (clone or update) to the global package cache.
+Add a package to the global cache and your project's `sema.toml`.
 
 ```bash
-sema pkg get github.com/user/repo          # latest default branch (main)
-sema pkg get github.com/user/repo@v1.2.0   # specific tag
-sema pkg get github.com/user/repo@main     # specific branch
-sema pkg get github.com/user/repo@abc123   # specific commit SHA
+sema pkg add github.com/user/repo          # latest default branch (main)
+sema pkg add github.com/user/repo@v1.2.0   # specific tag
+sema pkg add github.com/user/repo@main     # specific branch
+sema pkg add github.com/user/repo@abc123   # specific commit SHA
 ```
 
 Package URLs must be valid git-hostable paths (e.g., `github.com/user/repo`). Full URLs with schemes (`https://...`), Windows paths (`C:\...`), and SCP-style paths (`git@github.com:...`) are not accepted — use the bare host/path format.
+
+If a `sema.toml` exists in the current directory, the package is automatically added to the `[deps]` section (or updated if already present).
 
 ### `sema pkg install`
 
@@ -82,7 +84,7 @@ Fetch all dependencies listed in `sema.toml`.
 sema pkg install
 ```
 
-Reads the `[deps]` section and runs `sema pkg get` for each entry. Requires a `sema.toml` in the current directory.
+Reads the `[deps]` section and fetches each dependency. Requires a `sema.toml` in the current directory.
 
 ### `sema pkg update`
 
@@ -96,16 +98,14 @@ sema pkg update repo                  # update by short name
 
 ### `sema pkg remove`
 
-Delete an installed package from the global cache.
+Remove an installed package from the global cache and your project's `sema.toml`.
 
 ```bash
 sema pkg remove github.com/user/repo  # by full path
 sema pkg remove repo                  # by short name
 ```
 
-::: warning
-`sema pkg remove` only deletes the cached package files from `~/.sema/packages/`. It does **not** modify your project's `sema.toml` — you'll need to remove the entry from `[deps]` manually.
-:::
+If a `sema.toml` exists in the current directory and contains a matching entry in `[deps]`, it will be removed automatically.
 
 ### `sema pkg list`
 
@@ -204,32 +204,25 @@ Create `mod.sema` to define your package's public API:
 ```sema
 ;; mod.sema — package entrypoint
 (defun parse-row (line)
-  (string/split line ","))
+  (map string/trim (string/split line ",")))
 
 (defun parse-csv (text)
-  (map parse-row (string/split-lines text)))
+  (map parse-row (string/split text "\n")))
 ```
 
 ### 3. Add Dependencies (Optional)
 
 ```bash
-sema pkg get github.com/user/string-utils@v1.0.0
+sema pkg add github.com/user/csv-options@v1.0.0
 ```
 
-Add the dependency to your `sema.toml`:
-
-```toml
-[deps]
-github.com/user/string-utils = "v1.0.0"
-```
-
-Then use it in your code:
+This fetches the package and adds it to your `sema.toml` automatically. Then use it in your code:
 
 ```sema
-(import "github.com/user/string-utils")
+(import "github.com/user/csv-options")
 
 (defun parse-row (line)
-  (map string-utils/trim (string/split line ",")))
+  (map string/trim (string/split line (csv-options/delimiter))))
 ```
 
 ### 4. Publish
@@ -244,7 +237,7 @@ git push origin main --tags
 Others can now install your package:
 
 ```bash
-sema pkg get github.com/yourname/sema-csv-utils@v0.1.0
+sema pkg add github.com/yourname/sema-csv-utils@v0.1.0
 ```
 
 ## Example Workflow
@@ -255,8 +248,8 @@ mkdir my-project && cd my-project
 sema pkg init
 
 # Add dependencies
-sema pkg get github.com/user/http-helpers@v2.0.0
-sema pkg get github.com/user/json-schema@v1.1.0
+sema pkg add github.com/user/http-helpers@v2.0.0
+sema pkg add github.com/user/json-schema@v1.1.0
 
 # Install everything (if cloning the project fresh)
 sema pkg install
@@ -285,7 +278,7 @@ sema main.sema
 
 ```
 Error: package not found: github.com/user/repo
-Hint: Run: sema pkg get github.com/user/repo
+Hint: Run: sema pkg add github.com/user/repo
 ```
 
 The package hasn't been fetched yet. Run the suggested command to install it.
@@ -300,10 +293,10 @@ Use the bare host/path format without `https://`:
 
 ```bash
 # ✗ Wrong
-sema pkg get https://github.com/user/repo
+sema pkg add https://github.com/user/repo
 
 # ✓ Correct
-sema pkg get github.com/user/repo
+sema pkg add github.com/user/repo
 ```
 
 ### "invalid package spec: path traversal not allowed"

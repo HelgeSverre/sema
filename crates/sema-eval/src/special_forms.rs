@@ -1293,17 +1293,6 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         .as_str()
         .ok_or_else(|| SemaError::type_error("string", path_val.type_name()))?;
 
-    // Resolve path: package imports first, then relative/absolute
-    let resolved = if sema_core::resolve::is_package_import(path_str) {
-        sema_core::resolve::resolve_package_import(path_str)?
-    } else if std::path::Path::new(path_str).is_absolute() {
-        std::path::PathBuf::from(path_str)
-    } else if let Some(dir) = ctx.current_file_dir() {
-        dir.join(path_str)
-    } else {
-        std::path::PathBuf::from(path_str)
-    };
-
     // Selective import names
     let selective: Vec<String> = args[1..]
         .iter()
@@ -1314,20 +1303,16 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         })
         .collect::<Result<_, _>>()?;
 
-    // Check cache for preloaded modules (before canonicalize, which requires a real file).
-    if let Some(cached) = ctx.get_cached_module(&resolved) {
-        copy_exports_to_env(&cached, &selective, env)?;
-        return Ok(Trampoline::Value(Value::nil()));
-    }
-
-    // Check VFS before hitting the filesystem
+    // Check VFS first — bundled executables have packages embedded in the VFS
+    // and won't have them installed on the filesystem.
     if sema_core::vfs::is_vfs_active() {
         let base_dir = ctx
             .current_file_dir()
             .map(|d| d.to_string_lossy().to_string());
 
-        // Check cache first (using resolved as key since we can't canonicalize VFS paths)
-        if let Some(cached) = ctx.get_cached_module(&resolved) {
+        // Use the import path as VFS key for cache lookups
+        let vfs_key = std::path::PathBuf::from(path_str);
+        if let Some(cached) = ctx.get_cached_module(&vfs_key) {
             copy_exports_to_env(&cached, &selective, env)?;
             return Ok(Trampoline::Value(Value::nil()));
         }
@@ -1339,7 +1324,7 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                 SemaError::Io(format!("import {path_str}: invalid UTF-8 in VFS: {e}"))
             })?;
 
-            ctx.begin_module_load(&resolved)?;
+            ctx.begin_module_load(&vfs_key)?;
 
             let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> =
                 (|| {
@@ -1347,7 +1332,7 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                     ctx.merge_span_table(spans);
 
                     let module_env = eval::create_module_env(env);
-                    ctx.push_file_path(resolved.clone());
+                    ctx.push_file_path(vfs_key.clone());
                     ctx.clear_module_exports();
 
                     let eval_result = (|| {
@@ -1364,14 +1349,31 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                     Ok(collect_module_exports(&module_env, declared.as_deref()))
                 })();
 
-            ctx.end_module_load(&resolved);
+            ctx.end_module_load(&vfs_key);
             let exports = load_result?;
 
-            ctx.cache_module(resolved, exports.clone());
+            ctx.cache_module(vfs_key, exports.clone());
             copy_exports_to_env(&exports, &selective, env)?;
 
             return Ok(Trampoline::Value(Value::nil()));
         }
+    }
+
+    // Resolve path: package imports first, then relative/absolute
+    let resolved = if sema_core::resolve::is_package_import(path_str) {
+        sema_core::resolve::resolve_package_import(path_str)?
+    } else if std::path::Path::new(path_str).is_absolute() {
+        std::path::PathBuf::from(path_str)
+    } else if let Some(dir) = ctx.current_file_dir() {
+        dir.join(path_str)
+    } else {
+        std::path::PathBuf::from(path_str)
+    };
+
+    // Check cache for preloaded modules (before canonicalize, which requires a real file).
+    if let Some(cached) = ctx.get_cached_module(&resolved) {
+        copy_exports_to_env(&cached, &selective, env)?;
+        return Ok(Trampoline::Value(Value::nil()));
     }
 
     let canonical = resolved

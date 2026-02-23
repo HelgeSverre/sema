@@ -239,8 +239,8 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum PkgCommands {
-    /// Install a package from a git URL
-    Get {
+    /// Add a package from a git URL
+    Add {
         /// Package URL, optionally with @ref (e.g., github.com/user/repo@v1.0)
         url: String,
     },
@@ -310,7 +310,7 @@ fn main() {
             }
             Commands::Pkg { command } => {
                 let result = match command {
-                    PkgCommands::Get { url } => pkg::cmd_get(&url),
+                    PkgCommands::Add { url } => pkg::cmd_add(&url),
                     PkgCommands::Install => pkg::cmd_install(),
                     PkgCommands::Update { name } => pkg::cmd_update(name.as_deref()),
                     PkgCommands::Remove { name } => pkg::cmd_remove(&name),

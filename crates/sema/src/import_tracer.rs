@@ -355,4 +355,137 @@ mod tests {
         assert!(result.contains_key("lib.sema"));
         let _ = fs::remove_dir_all(&dir);
     }
+
+    // All package import tracer tests share a single SEMA_HOME env var and must
+    // run sequentially in a single thread to avoid races with other tests.
+    #[test]
+    fn test_trace_package_imports() {
+        std::thread::spawn(|| {
+            let dir = tmpdir("pkg-all");
+            let sema_home = dir.join("home");
+
+            // --- Set up fake packages ---
+
+            // Basic package with mod.sema
+            let mylib = sema_home.join("packages/github.com/test/mylib");
+            fs::create_dir_all(&mylib).unwrap();
+            fs::write(mylib.join("mod.sema"), "(define pkg-val 42)").unwrap();
+
+            // Package with transitive local imports
+            let translib = sema_home.join("packages/github.com/test/translib");
+            fs::create_dir_all(&translib).unwrap();
+            fs::write(
+                translib.join("mod.sema"),
+                r#"(import "helpers.sema") (define main-val 1)"#,
+            )
+            .unwrap();
+            fs::write(translib.join("helpers.sema"), "(define helper-val 2)").unwrap();
+
+            // Package with custom entrypoint
+            let custom = sema_home.join("packages/github.com/test/custom");
+            fs::create_dir_all(&custom).unwrap();
+            fs::write(custom.join("sema.toml"), "entrypoint = \"lib.sema\"\n").unwrap();
+            fs::write(custom.join("lib.sema"), "(define custom-val 99)").unwrap();
+
+            // Utils package for mixed import test
+            let utils = sema_home.join("packages/github.com/test/utils");
+            fs::create_dir_all(&utils).unwrap();
+            fs::write(utils.join("mod.sema"), "(define util-fn 1)").unwrap();
+
+            // Ensure packages dir exists for not-installed test
+            fs::create_dir_all(sema_home.join("packages")).unwrap();
+
+            std::env::set_var("SEMA_HOME", &sema_home);
+
+            // --- Basic package import ---
+            {
+                fs::write(dir.join("main.sema"), r#"(import "github.com/test/mylib")"#).unwrap();
+                let result = trace_imports(&dir.join("main.sema")).unwrap();
+                assert!(
+                    result.contains_key("github.com/test/mylib"),
+                    "package import should be traced: {result:?}"
+                );
+                assert_eq!(
+                    result.get("github.com/test/mylib").unwrap(),
+                    b"(define pkg-val 42)"
+                );
+            }
+
+            // --- Transitive imports through package ---
+            {
+                fs::write(
+                    dir.join("main.sema"),
+                    r#"(import "github.com/test/translib")"#,
+                )
+                .unwrap();
+                let result = trace_imports(&dir.join("main.sema")).unwrap();
+                assert!(
+                    result.contains_key("github.com/test/translib"),
+                    "package should be traced: {result:?}"
+                );
+                let has_helpers = result.keys().any(|k| k.contains("helpers.sema"));
+                assert!(
+                    has_helpers,
+                    "transitive import from package should be traced: {result:?}"
+                );
+            }
+
+            // --- Uninstalled package warns but doesn't error ---
+            {
+                fs::write(
+                    dir.join("main.sema"),
+                    r#"(import "github.com/nonexistent/pkg")"#,
+                )
+                .unwrap();
+                let result = trace_imports(&dir.join("main.sema")).unwrap();
+                assert!(
+                    result.is_empty(),
+                    "uninstalled package should be skipped: {result:?}"
+                );
+            }
+
+            // --- Mixed local and package imports ---
+            {
+                fs::write(dir.join("local.sema"), "(define local-val 2)").unwrap();
+                fs::write(
+                    dir.join("main.sema"),
+                    "(import \"local.sema\")\n(import \"github.com/test/utils\")",
+                )
+                .unwrap();
+                let result = trace_imports(&dir.join("main.sema")).unwrap();
+                assert!(
+                    result.contains_key("local.sema"),
+                    "local import should be traced: {result:?}"
+                );
+                assert!(
+                    result.contains_key("github.com/test/utils"),
+                    "package import should be traced: {result:?}"
+                );
+            }
+
+            // --- Custom entrypoint via sema.toml ---
+            {
+                fs::write(
+                    dir.join("main.sema"),
+                    r#"(import "github.com/test/custom")"#,
+                )
+                .unwrap();
+                let result = trace_imports(&dir.join("main.sema")).unwrap();
+                assert!(
+                    result.contains_key("github.com/test/custom"),
+                    "custom entrypoint package should be traced: {result:?}"
+                );
+                assert_eq!(
+                    result.get("github.com/test/custom").unwrap(),
+                    b"(define custom-val 99)"
+                );
+            }
+
+            // Cleanup
+            std::env::remove_var("SEMA_HOME");
+            let _ = fs::remove_dir_all(&dir);
+        })
+        .join()
+        .unwrap();
+    }
 }

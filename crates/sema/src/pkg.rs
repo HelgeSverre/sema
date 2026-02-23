@@ -74,7 +74,7 @@ fn collect_packages(dir: &Path, packages: &mut Vec<PathBuf>) {
     }
 }
 
-pub fn cmd_get(spec: &str) -> Result<(), String> {
+pub fn cmd_add(spec: &str) -> Result<(), String> {
     let spec = sema_core::resolve::PackageSpec::parse(spec).map_err(|e| e.to_string())?;
     let pkg_dir = packages_dir();
     let dest = spec.dest_dir(&pkg_dir);
@@ -93,6 +93,16 @@ pub fn cmd_get(spec: &str) -> Result<(), String> {
         run_git(Some(&dest), &["checkout", &spec.git_ref])?;
         let current = current_git_ref(&dest);
         println!("✓ Installed {} → {current}", spec.path);
+    }
+
+    // Add to sema.toml [deps] if present
+    let toml_path = Path::new("sema.toml");
+    if toml_path.exists() {
+        match add_dep_to_toml(toml_path, spec.path.as_str(), &spec.git_ref) {
+            Ok(true) => println!("✓ Added {} = \"{}\" to sema.toml", spec.path, spec.git_ref),
+            Ok(false) => {}
+            Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
+        }
     }
 
     Ok(())
@@ -118,16 +128,17 @@ pub fn cmd_install() -> Result<(), String> {
     };
 
     for (name, value) in deps {
-        let spec = match value.as_str() {
-            Some(s) => s.to_string(),
+        let git_ref = match value.as_str() {
+            Some(s) => s,
             None => {
                 return Err(format!(
-                    "dep '{name}': expected a string URL (e.g., \"github.com/user/repo@v1.0\")"
+                    "dep '{name}': expected a git ref string (e.g., \"v1.0.0\" or \"main\")"
                 ));
             }
         };
+        let spec = format!("{name}@{git_ref}");
         println!("Installing {name}...");
-        cmd_get(&spec)?;
+        cmd_add(&spec)?;
     }
 
     Ok(())
@@ -175,11 +186,14 @@ pub fn cmd_remove(name: &str) -> Result<(), String> {
         format!("Package '{name}' not found. Run `sema pkg list` to see installed packages.")
     })?;
 
+    let rel_path = dir
+        .strip_prefix(&pkg_dir)
+        .unwrap_or(&dir)
+        .to_string_lossy()
+        .to_string();
+
     std::fs::remove_dir_all(&dir).map_err(|e| format!("Failed to remove package: {e}"))?;
-    println!(
-        "✓ Removed {}",
-        dir.strip_prefix(&pkg_dir).unwrap_or(&dir).display()
-    );
+    println!("✓ Removed {rel_path}");
 
     // Clean up empty parent directories
     let mut parent = dir.parent();
@@ -195,7 +209,169 @@ pub fn cmd_remove(name: &str) -> Result<(), String> {
         }
     }
 
+    // Remove from sema.toml [deps] if present
+    let toml_path = Path::new("sema.toml");
+    if toml_path.exists() {
+        match remove_dep_from_toml(toml_path, &rel_path) {
+            Ok(true) => println!("✓ Removed {rel_path} from sema.toml"),
+            Ok(false) => {}
+            Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
+        }
+    }
+
     Ok(())
+}
+
+/// Add or update a dep entry in a sema.toml file.
+/// Returns true if the entry was added or updated, false if already up-to-date.
+fn add_dep_to_toml(toml_path: &Path, pkg_path: &str, git_ref: &str) -> Result<bool, String> {
+    let content =
+        std::fs::read_to_string(toml_path).map_err(|e| format!("Failed to read sema.toml: {e}"))?;
+
+    let new_line = format!("\"{}\" = \"{}\"", pkg_path, git_ref);
+    let mut in_deps = false;
+    let mut found = false;
+    let mut changed = false;
+    let mut deps_end = None;
+    let mut output: Vec<String> = Vec::new();
+
+    for (i, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
+            if in_deps {
+                deps_end = None; // We're leaving [deps], insert point was last non-empty line
+            }
+            in_deps = trimmed == "[deps]";
+        }
+
+        if in_deps && !trimmed.starts_with('[') && !trimmed.is_empty() && !trimmed.starts_with('#')
+        {
+            let key = if let Some(rest) = trimmed.strip_prefix('"') {
+                rest.split('"').next()
+            } else {
+                trimmed.split('=').next().map(|s| s.trim())
+            };
+
+            if let Some(key) = key {
+                if key == pkg_path {
+                    found = true;
+                    if trimmed != new_line {
+                        output.push(new_line.clone());
+                        changed = true;
+                    } else {
+                        output.push(line.to_string());
+                    }
+                    continue;
+                }
+            }
+        }
+
+        if in_deps && !trimmed.starts_with('[') {
+            deps_end = Some(i);
+        }
+
+        output.push(line.to_string());
+    }
+
+    // If not found, append to the [deps] section
+    if !found {
+        if in_deps {
+            // [deps] was the last section — append at end
+            output.push(new_line);
+            changed = true;
+        } else if deps_end.is_some() {
+            // [deps] exists but another section follows — find where [deps] content ends
+            // Re-scan to find correct insertion point
+            let mut insert_at = None;
+            let mut scanning_deps = false;
+            for (i, line) in output.iter().enumerate() {
+                let trimmed = line.trim();
+                if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
+                    if scanning_deps {
+                        insert_at = Some(i);
+                        break;
+                    }
+                    scanning_deps = trimmed == "[deps]";
+                }
+            }
+            if let Some(pos) = insert_at {
+                output.insert(pos, new_line);
+            } else {
+                output.push(new_line);
+            }
+            changed = true;
+        } else {
+            // No [deps] section at all — append one
+            if !content.ends_with('\n') && !output.is_empty() {
+                output.push(String::new());
+            }
+            output.push("[deps]".to_string());
+            output.push(new_line);
+            changed = true;
+        }
+    }
+
+    if changed {
+        let mut result = output.join("\n");
+        if content.ends_with('\n') || !content.contains('\n') {
+            result.push('\n');
+        }
+        std::fs::write(toml_path, result).map_err(|e| format!("Failed to write sema.toml: {e}"))?;
+    }
+
+    Ok(changed)
+}
+
+/// Remove a dep entry from a sema.toml file by package path.
+/// Returns true if a matching entry was found and removed.
+fn remove_dep_from_toml(toml_path: &Path, pkg_path: &str) -> Result<bool, String> {
+    let content =
+        std::fs::read_to_string(toml_path).map_err(|e| format!("Failed to read sema.toml: {e}"))?;
+
+    let mut in_deps = false;
+    let mut removed = false;
+    let mut output: Vec<&str> = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+
+        // Track which section we're in
+        if trimmed.starts_with('[') && !trimmed.starts_with("[[") {
+            in_deps = trimmed == "[deps]";
+        }
+
+        if in_deps && !trimmed.starts_with('[') && !trimmed.is_empty() && !trimmed.starts_with('#')
+        {
+            // Extract the key, handling both quoted and unquoted forms:
+            //   "github.com/user/repo" = "v1.0"
+            //   github.com/user/repo = "v1.0"
+            let key = if let Some(rest) = trimmed.strip_prefix('"') {
+                rest.split('"').next()
+            } else {
+                trimmed.split('=').next().map(|s| s.trim())
+            };
+
+            if let Some(key) = key {
+                if key == pkg_path {
+                    removed = true;
+                    continue;
+                }
+            }
+        }
+
+        output.push(line);
+    }
+
+    if removed {
+        let mut result = output.join("\n");
+        if content.ends_with('\n') {
+            result.push('\n');
+        }
+        std::fs::write(toml_path, result).map_err(|e| format!("Failed to write sema.toml: {e}"))?;
+    }
+
+    Ok(removed)
 }
 
 pub fn cmd_list() -> Result<(), String> {
@@ -360,16 +536,16 @@ mod tests {
     }
 
     #[test]
-    fn test_cmd_get_rejects_traversal() {
-        let result = cmd_get("github.com/../../etc/passwd");
+    fn test_cmd_add_rejects_traversal() {
+        let result = cmd_add("github.com/../../etc/passwd");
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("path traversal"), "got: {err}");
     }
 
     #[test]
-    fn test_cmd_get_rejects_scheme() {
-        let result = cmd_get("https://github.com/user/repo");
+    fn test_cmd_add_rejects_scheme() {
+        let result = cmd_add("https://github.com/user/repo");
         assert!(result.is_err());
     }
 
@@ -396,6 +572,262 @@ mod tests {
             "should have version"
         );
         assert!(content.contains("[deps]"), "should have [deps] section");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_add_dep_to_toml_new_entry() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-adddep1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(
+            &toml_path,
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[deps]\n",
+        )
+        .unwrap();
+
+        let added = add_dep_to_toml(&toml_path, "github.com/user/repo", "v1.0.0").unwrap();
+        assert!(added, "should have added the dep");
+
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(
+            content.contains("\"github.com/user/repo\" = \"v1.0.0\""),
+            "dep should be present: {content}"
+        );
+        assert!(content.contains("[package]"), "package section preserved");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_add_dep_to_toml_updates_existing() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-adddep2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(
+            &toml_path,
+            "[deps]\n\"github.com/user/repo\" = \"v1.0.0\"\n",
+        )
+        .unwrap();
+
+        let added = add_dep_to_toml(&toml_path, "github.com/user/repo", "v2.0.0").unwrap();
+        assert!(added, "should have updated the dep");
+
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(
+            content.contains("\"github.com/user/repo\" = \"v2.0.0\""),
+            "dep should be updated: {content}"
+        );
+        assert!(
+            !content.contains("v1.0.0"),
+            "old version should be gone: {content}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_add_dep_to_toml_already_up_to_date() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-adddep3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(
+            &toml_path,
+            "[deps]\n\"github.com/user/repo\" = \"v1.0.0\"\n",
+        )
+        .unwrap();
+
+        let added = add_dep_to_toml(&toml_path, "github.com/user/repo", "v1.0.0").unwrap();
+        assert!(!added, "should not change anything");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_add_dep_to_toml_no_deps_section() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-adddep4-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(&toml_path, "[package]\nname = \"test\"\n").unwrap();
+
+        let added = add_dep_to_toml(&toml_path, "github.com/user/repo", "main").unwrap();
+        assert!(added, "should have added dep and section");
+
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(content.contains("[deps]"), "should have [deps]: {content}");
+        assert!(
+            content.contains("\"github.com/user/repo\" = \"main\""),
+            "dep should be present: {content}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_add_dep_to_toml_preserves_existing_deps() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-adddep5-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(
+            &toml_path,
+            "[deps]\n\"github.com/user/existing\" = \"v1.0.0\"\n",
+        )
+        .unwrap();
+
+        let added = add_dep_to_toml(&toml_path, "github.com/user/new", "v2.0.0").unwrap();
+        assert!(added);
+
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(
+            content.contains("\"github.com/user/existing\" = \"v1.0.0\""),
+            "existing dep preserved: {content}"
+        );
+        assert!(
+            content.contains("\"github.com/user/new\" = \"v2.0.0\""),
+            "new dep added: {content}"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_remove_dep_from_toml_quoted_key() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-rmdep1-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(
+            &toml_path,
+            r#"[package]
+name = "myproject"
+version = "0.1.0"
+
+[deps]
+"github.com/user/repo" = "v1.0.0"
+"github.com/user/other" = "main"
+"#,
+        )
+        .unwrap();
+
+        let removed = remove_dep_from_toml(&toml_path, "github.com/user/repo").unwrap();
+        assert!(removed, "should have removed the dep");
+
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(
+            !content.contains("github.com/user/repo"),
+            "removed dep should be gone: {content}"
+        );
+        assert!(
+            content.contains("github.com/user/other"),
+            "other dep should remain: {content}"
+        );
+        assert!(content.contains("[package]"), "package section preserved");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_remove_dep_from_toml_unquoted_key() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-rmdep2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(&toml_path, "[deps]\ngithub.com/user/repo = \"v1.0.0\"\n").unwrap();
+
+        let removed = remove_dep_from_toml(&toml_path, "github.com/user/repo").unwrap();
+        assert!(removed);
+
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(
+            !content.contains("github.com/user/repo"),
+            "dep should be gone: {content}"
+        );
+        assert!(content.contains("[deps]"), "section header preserved");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_remove_dep_from_toml_not_found() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-rmdep3-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(
+            &toml_path,
+            "[deps]\n\"github.com/user/other\" = \"v1.0.0\"\n",
+        )
+        .unwrap();
+
+        let removed = remove_dep_from_toml(&toml_path, "github.com/user/repo").unwrap();
+        assert!(!removed, "should not have removed anything");
+
+        // File should be unchanged
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(content.contains("github.com/user/other"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_remove_dep_from_toml_no_deps_section() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-rmdep4-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(&toml_path, "[package]\nname = \"test\"\n").unwrap();
+
+        let removed = remove_dep_from_toml(&toml_path, "github.com/user/repo").unwrap();
+        assert!(!removed);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_remove_dep_from_toml_preserves_comments() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-rmdep5-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let toml_path = tmp.join("sema.toml");
+        std::fs::write(
+            &toml_path,
+            r#"[package]
+name = "myproject"
+
+[deps]
+# My core dependency
+"github.com/user/core" = "v2.0.0"
+"github.com/user/remove-me" = "v1.0.0"
+"#,
+        )
+        .unwrap();
+
+        let removed = remove_dep_from_toml(&toml_path, "github.com/user/remove-me").unwrap();
+        assert!(removed);
+
+        let content = std::fs::read_to_string(&toml_path).unwrap();
+        assert!(
+            content.contains("# My core dependency"),
+            "comment should be preserved: {content}"
+        );
+        assert!(content.contains("github.com/user/core"));
+        assert!(!content.contains("remove-me"));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

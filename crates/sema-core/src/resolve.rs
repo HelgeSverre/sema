@@ -185,7 +185,7 @@ pub fn resolve_package_import_in(spec: &str, base: &Path) -> Result<PathBuf, Sem
     }
 
     Err(SemaError::eval(format!("package not found: {spec}"))
-        .with_hint(format!("Run: sema pkg get {spec}")))
+        .with_hint(format!("Run: sema pkg add {spec}")))
 }
 
 /// Verify that a resolved path stays within the expected base directory.
@@ -405,7 +405,7 @@ mod tests {
         let base = temp_packages_dir();
         let err = resolve_package_import_in("github.com/user/repo", &base).unwrap_err();
         assert!(err.to_string().contains("package not found"));
-        assert_eq!(err.hint(), Some("Run: sema pkg get github.com/user/repo"));
+        assert_eq!(err.hint(), Some("Run: sema pkg add github.com/user/repo"));
     }
 
     #[test]
