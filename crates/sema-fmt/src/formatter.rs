@@ -56,8 +56,8 @@ fn build_one(tokens: &[SpannedToken], pos: usize, source: &str) -> Result<(Node,
         Token::Comment(text) => Ok((Node::Comment(text.clone()), pos + 1)),
         Token::Newline => Ok((Node::Newline, pos + 1)),
 
-        // String/FString/Regex — preserve original source text for exact round-tripping
-        Token::String(_) | Token::FString(_) | Token::Regex(_) => {
+        // String/FString/Regex/Numbers — preserve original source text for exact round-tripping
+        Token::String(_) | Token::FString(_) | Token::Regex(_) | Token::Int(_) | Token::Float(_) => {
             let raw = &source[st.byte_start..st.byte_end];
             Ok((Node::StringAtom(raw.to_string()), pos + 1))
         }
@@ -317,39 +317,74 @@ fn count_bindings(node: &Node) -> Option<usize> {
 // Measuring the flat (single-line) width of a node
 // ---------------------------------------------------------------------------
 
-fn flat_width(node: &Node) -> usize {
+const TOO_WIDE: usize = 10_000;
+
+/// Measure the flat width of a node, short-circuiting if it exceeds `budget`.
+/// Returns `None` if the node cannot fit (multiline content or exceeds budget).
+fn measure_width(node: &Node, budget: usize) -> Option<usize> {
     match node {
-        Node::Atom(tok) => token_text(tok).len(),
+        Node::Atom(tok) => {
+            let w = token_text(tok).len();
+            if w <= budget { Some(w) } else { None }
+        }
         Node::StringAtom(raw) => {
-            // Multi-line strings can never fit on a single line
             if raw.contains('\n') {
-                10_000
+                None
+            } else if raw.len() <= budget {
+                Some(raw.len())
             } else {
-                raw.len()
+                None
             }
         }
-        Node::Comment(text) => text.len(),
-        Node::Newline => 0,
-        Node::List(children) => grouped_flat_width(children, "(", ")"),
-        Node::Vector(children) => grouped_flat_width(children, "[", "]"),
-        Node::Map(children) => grouped_flat_width(children, "{", "}"),
-        Node::ShortLambda(children) => grouped_flat_width(children, "#(", ")"),
-        Node::ByteVector(children) => grouped_flat_width(children, "#u8(", ")"),
-        Node::Prefix(tok, inner) => prefix_text(tok).len() + flat_width(inner),
+        Node::Comment(text) => {
+            if text.len() <= budget { Some(text.len()) } else { None }
+        }
+        Node::Newline => Some(0),
+        Node::List(children) => grouped_measure_width(children, 1, 1, budget),
+        Node::Vector(children) => grouped_measure_width(children, 1, 1, budget),
+        Node::Map(children) => grouped_measure_width(children, 1, 1, budget),
+        Node::ShortLambda(children) => grouped_measure_width(children, 2, 1, budget),
+        Node::ByteVector(children) => grouped_measure_width(children, 4, 1, budget),
+        Node::Prefix(tok, inner) => {
+            let prefix_w = prefix_text(tok).len();
+            if prefix_w > budget {
+                return None;
+            }
+            measure_width(inner, budget - prefix_w).map(|w| prefix_w + w)
+        }
     }
 }
 
-fn grouped_flat_width(children: &[Node], open: &str, close: &str) -> usize {
-    let semantic: Vec<&Node> = children.iter().filter(|n| !is_trivia(n)).collect();
-    if semantic.is_empty() {
-        return open.len() + close.len();
+fn grouped_measure_width(children: &[Node], open_len: usize, close_len: usize, budget: usize) -> Option<usize> {
+    let mut total = open_len + close_len;
+    if total > budget {
+        return None;
     }
-    let inner: usize = semantic
-        .iter()
-        .map(|n| flat_width(n))
-        .fold(0usize, |a, b| a.saturating_add(b));
-    let spaces = semantic.len().saturating_sub(1);
-    open.len().saturating_add(inner).saturating_add(spaces).saturating_add(close.len())
+    let mut first = true;
+    for child in children {
+        if is_trivia(child) {
+            continue;
+        }
+        if !first {
+            total += 1; // space separator
+            if total > budget {
+                return None;
+            }
+        }
+        let remaining = budget - total;
+        let w = measure_width(child, remaining)?;
+        total += w;
+        if total > budget {
+            return None;
+        }
+        first = false;
+    }
+    Some(total)
+}
+
+/// Convenience wrapper: returns the flat width or TOO_WIDE if it doesn't fit.
+fn flat_width(node: &Node) -> usize {
+    measure_width(node, TOO_WIDE).unwrap_or(TOO_WIDE)
 }
 
 // ---------------------------------------------------------------------------
@@ -413,8 +448,6 @@ fn escape_string(s: &str) -> String {
     out
 }
 
-
-
 fn escape_regex(s: &str) -> String {
     // For regex, we only need to escape literal double-quotes
     s.replace('"', "\\\"")
@@ -476,13 +509,17 @@ fn format_char(c: char) -> String {
 
 struct Formatter {
     width: usize,
+    indent_size: usize,
+    align: bool,
     output: String,
 }
 
 impl Formatter {
-    fn new(width: usize) -> Self {
+    fn new(width: usize, indent_size: usize, align: bool) -> Self {
         Self {
             width,
+            indent_size,
+            align,
             output: String::new(),
         }
     }
@@ -531,9 +568,57 @@ impl Formatter {
                     }
                     pending_blank_lines = 0;
 
-                    // Collect any trailing comment on the same "logical line"
-                    // (i.e. the next non-newline token after the form, if it's
-                    // a comment and there's no newline in between)
+                    // Try to collect a group of consecutive alignable defines
+                    if self.align && Self::is_alignable_define(&nodes[i]) {
+                        let group_start = i;
+                        let mut group_end = i + 1;
+                        // Look ahead for more consecutive defines (skip newlines but not blank lines)
+                        while group_end < len {
+                            match &nodes[group_end] {
+                                Node::Newline => {
+                                    // Check if this is a blank line (2+ consecutive newlines)
+                                    let mut peek = group_end;
+                                    let mut nl_count = 0;
+                                    while peek < len && matches!(&nodes[peek], Node::Newline) {
+                                        nl_count += 1;
+                                        peek += 1;
+                                    }
+                                    if nl_count > 1 {
+                                        break; // blank line breaks the group
+                                    }
+                                    // Single newline — check if next semantic node is also an alignable define
+                                    if peek < len && Self::is_alignable_define(&nodes[peek]) {
+                                        group_end = peek + 1;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                _ if Self::is_alignable_define(&nodes[group_end]) => {
+                                    group_end += 1;
+                                }
+                                _ => break,
+                            }
+                        }
+
+                        // Collect the define nodes in this group
+                        let group: Vec<&Node> = nodes[group_start..group_end]
+                            .iter()
+                            .filter(|n| !is_trivia(n))
+                            .collect();
+
+                        if group.len() >= 2
+                            && self.try_format_aligned_group(&group, 0, Self::split_define)
+                        {
+                            if !self.output.ends_with('\n') {
+                                self.output.push('\n');
+                            }
+                            i = group_end;
+                            first_content = false;
+                            continue;
+                        }
+                    }
+
+                    // Normal (non-aligned) formatting
                     let trailing_comment = self.find_trailing_comment(nodes, i + 1);
 
                     self.format_node(&nodes[i], 0);
@@ -726,7 +811,7 @@ impl Formatter {
         let mut emitted = 1;
 
         // Try to put subsequent first-line args on the same line
-        let body_indent = indent + 2;
+        let body_indent = indent + self.indent_size;
         for (j, (_orig_idx, node)) in semantic.iter().enumerate().skip(1).take(first_count - 1) {
             let w = flat_width(node);
             let current_col = match self.output.rfind('\n') {
@@ -800,7 +885,7 @@ impl Formatter {
         }
 
         // body forms with interleaved comments preserved
-        let body_indent = indent + 2;
+        let body_indent = indent + self.indent_size;
         let body_start = Self::index_after_nth_semantic(children, bindings_idx + 1);
         self.emit_body_with_comments(children, body_start, body_indent);
 
@@ -824,12 +909,75 @@ impl Formatter {
         // head
         self.format_node(semantic[0], indent + open.len());
 
-        // clauses with interleaved comments preserved
-        let clause_indent = indent + 2;
+        let clause_indent = indent + self.indent_size;
         let clause_start = Self::index_after_nth_semantic(children, 1);
+
+        // Try aligned clause formatting: collect consecutive clause forms
+        // (skipping comments/newlines) and try to align their test/result columns
+        let clauses: Vec<&Node> = children[clause_start..]
+            .iter()
+            .filter(|n| !is_trivia(n))
+            .collect();
+
+        let has_comments = children[clause_start..].iter().any(|n| matches!(n, Node::Comment(_)));
+
+        if self.align
+            && !has_comments
+            && clauses.len() >= 2
+            && self.try_format_clause_aligned(&clauses, clause_indent)
+        {
+            self.output.push_str(close);
+            return;
+        }
+
+        // Fall back to normal body-with-comments
         self.emit_body_with_comments(children, clause_start, clause_indent);
 
         self.output.push_str(close);
+    }
+
+    /// Try to format cond/case/match clauses with aligned result columns.
+    fn try_format_clause_aligned(&mut self, clauses: &[&Node], indent: usize) -> bool {
+        // All clauses must be flat-renderable 2-element lists
+        let mut splits: Vec<(String, String)> = Vec::new();
+        for clause in clauses {
+            let children = match clause {
+                Node::List(c) => c,
+                _ => return false,
+            };
+            let semantic: Vec<&Node> = children.iter().filter(|n| !is_trivia(n)).collect();
+            match Self::split_clause(&semantic) {
+                Some(pair) => splits.push(pair),
+                None => return false,
+            }
+        }
+
+        let max_left = splits.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
+        let min_left = splits.iter().map(|(l, _)| l.len()).min().unwrap_or(0);
+
+        // If all lefts are the same width, use normal spacing (no alignment needed)
+        let min_gap = if max_left == min_left { 1 } else { 2 };
+
+        // Check all lines fit
+        for (_left, right) in &splits {
+            let line_width = indent + max_left + min_gap + right.len();
+            if line_width > self.width {
+                return false;
+            }
+        }
+
+        // Emit aligned clauses
+        for (left, right) in &splits {
+            self.output.push('\n');
+            self.push_indent(indent);
+            self.output.push_str(left);
+            let pad = max_left - left.len() + min_gap;
+            for _ in 0..pad {
+                self.output.push(' ');
+            }
+            self.output.push_str(right);
+        }
+        true
     }
 
     // -----------------------------------------------------------------------
@@ -848,10 +996,10 @@ impl Formatter {
         self.format_node(semantic[0], indent + open.len());
         self.output.push(' ');
         // first value
-        self.format_node(semantic[1], indent + 2);
+        self.format_node(semantic[1], indent + self.indent_size);
 
         // steps with interleaved comments preserved
-        let step_indent = indent + 2;
+        let step_indent = indent + self.indent_size;
         let step_start = Self::index_after_nth_semantic(children, 2);
         self.emit_body_with_comments(children, step_start, step_indent);
 
@@ -873,11 +1021,11 @@ impl Formatter {
         if semantic.len() > 1 {
             self.output.push(' ');
             // test
-            self.format_node(semantic[1], indent + 2);
+            self.format_node(semantic[1], indent + self.indent_size);
         }
 
         // then/else branches with interleaved comments preserved
-        let body_indent = indent + 2;
+        let body_indent = indent + self.indent_size;
         let body_start = Self::index_after_nth_semantic(children, 2);
         self.emit_body_with_comments(children, body_start, body_indent);
 
@@ -915,7 +1063,7 @@ impl Formatter {
         self.format_node(semantic[0], indent + open.len());
 
         // args with interleaved comments preserved
-        let arg_indent = indent + 2;
+        let arg_indent = indent + self.indent_size;
         let arg_start = Self::index_after_nth_semantic(children, 1);
         self.emit_body_with_comments(children, arg_start, arg_indent);
 
@@ -956,7 +1104,7 @@ impl Formatter {
         // Try: head + first arg on same line
         let head_width = flat_width(semantic[0]);
         let first_arg_col = indent + open.len() + head_width + 1;
-        let arg_indent = indent + 2;
+        let arg_indent = indent + self.indent_size;
 
         // Check if head + first arg fits on one line (flat)
         if first_arg_col + flat_width(semantic[1]) <= self.width {
@@ -1010,7 +1158,7 @@ impl Formatter {
             }
         }
 
-        let pair_indent = indent + 2;
+        let pair_indent = indent + self.indent_size;
 
         self.output.push_str(open);
         // head
@@ -1046,14 +1194,14 @@ impl Formatter {
                     if self.output[checkpoint..].contains('\n') {
                         self.output.truncate(checkpoint);
                         self.output.push('\n');
-                        self.push_indent(pair_indent + 2);
-                        self.format_node(kv_args[i + 1], pair_indent + 2);
+                        self.push_indent(pair_indent + self.indent_size);
+                        self.format_node(kv_args[i + 1], pair_indent + self.indent_size);
                     }
                 } else {
                     // Value on next line indented further
                     self.output.push('\n');
-                    self.push_indent(pair_indent + 2);
-                    self.format_node(kv_args[i + 1], pair_indent + 2);
+                    self.push_indent(pair_indent + self.indent_size);
+                    self.format_node(kv_args[i + 1], pair_indent + self.indent_size);
                 }
                 i += 2;
             } else {
@@ -1091,8 +1239,25 @@ impl Formatter {
             }
         }
 
-        // One per line, with comments preserved
+        // Multi-line: try aligned binding pairs if all children are 2-element lists/vectors
         let elem_indent = indent + open.len();
+        if self.align && !has_comments && semantic.len() >= 2 {
+            let all_binding_pairs = semantic
+                .iter()
+                .all(|n| matches!(n, Node::List(_) | Node::Vector(_)));
+            if all_binding_pairs {
+                self.output.push_str(open);
+                if self.try_format_aligned_group(&semantic, elem_indent, Self::split_binding) {
+                    self.output.push_str(close);
+                    return;
+                }
+                // Undo the open we just pushed — fall through to normal
+                let open_len = open.len();
+                self.output.truncate(self.output.len() - open_len);
+            }
+        }
+
+        // Normal one per line, with comments preserved
         self.output.push_str(open);
         // Emit any comments before the first semantic element
         let had_leading_comments = self.emit_leading_comments(children, elem_indent);
@@ -1255,6 +1420,163 @@ impl Formatter {
     }
 
     // -----------------------------------------------------------------------
+    // Decorative alignment
+    // -----------------------------------------------------------------------
+
+    /// Try to format a group of sibling forms with aligned columns.
+    /// Each form is split at `split_fn` into left and right parts.
+    /// Returns true if alignment was applied, false if it fell back.
+    ///
+    /// `split_fn(semantic_children) -> Option<(left_parts, right_parts)>`
+    /// where both are rendered flat and padded to align.
+    fn try_format_aligned_group<F>(
+        &mut self,
+        forms: &[&Node],
+        indent: usize,
+        split_fn: F,
+    ) -> bool
+    where
+        F: Fn(&[&Node]) -> Option<(String, String)>,
+    {
+        if forms.len() < 2 {
+            return false;
+        }
+
+        // Compute left/right splits for each form
+        let mut splits: Vec<(String, String)> = Vec::new();
+        for form in forms {
+            let children = match form {
+                Node::List(c) | Node::Vector(c) | Node::ShortLambda(c) => c,
+                _ => return false,
+            };
+            let semantic: Vec<&Node> = children.iter().filter(|n| !is_trivia(n)).collect();
+            match split_fn(&semantic) {
+                Some(pair) => splits.push(pair),
+                None => return false,
+            }
+        }
+
+        // Find the max left width to determine the alignment column
+        let max_left = splits.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
+
+        // Check that all aligned lines fit within width
+        let min_gap = 2;
+        for (_left, right) in &splits {
+            if indent + max_left + min_gap + right.len() > self.width {
+                return false;
+            }
+        }
+
+        // Also verify that the alignment actually matters — if all lefts are the
+        // same width, there's nothing to align (just normal spacing)
+        let min_left = splits.iter().map(|(l, _)| l.len()).min().unwrap_or(0);
+        if max_left == min_left {
+            return false;
+        }
+
+        // Emit aligned lines
+        for (idx, (left, right)) in splits.iter().enumerate() {
+            if idx > 0 {
+                self.output.push('\n');
+                self.push_indent(indent);
+            }
+            self.output.push_str(left);
+            // Pad to align
+            let pad = max_left - left.len() + min_gap;
+            for _ in 0..pad {
+                self.output.push(' ');
+            }
+            self.output.push_str(right);
+        }
+        true
+    }
+
+    /// Check if a top-level form is a simple one-liner define (define name value)
+    /// or (define (name args...) single-body).
+    fn is_alignable_define(node: &Node) -> bool {
+        let children = match node {
+            Node::List(c) => c,
+            _ => return false,
+        };
+        let semantic: Vec<&Node> = children.iter().filter(|n| !is_trivia(n)).collect();
+        if semantic.len() != 3 {
+            return false;
+        }
+        match semantic[0] {
+            Node::Atom(Token::Symbol(s)) => {
+                matches!(s.as_str(), "define" | "defn" | "defun" | "defmacro")
+            }
+            _ => false,
+        }
+    }
+
+    /// Split a define form into left="(define sig" and right="body)" for alignment.
+    fn split_define(semantic: &[&Node]) -> Option<(String, String)> {
+        if semantic.len() != 3 {
+            return None;
+        }
+        match semantic[0] {
+            Node::Atom(Token::Symbol(s))
+                if matches!(s.as_str(), "define" | "defn" | "defun" | "defmacro") => {}
+            _ => return None,
+        }
+        // Check that neither the signature nor body contain newlines
+        if has_any_newlines(semantic[1]) || has_any_newlines(semantic[2]) {
+            return None;
+        }
+        if has_any_comments(semantic[1]) || has_any_comments(semantic[2]) {
+            return None;
+        }
+        let head = node_to_flat_string_static(semantic[0]);
+        let sig = node_to_flat_string_static(semantic[1]);
+        let body = node_to_flat_string_static(semantic[2]);
+        let left = format!("({head} {sig}");
+        let right = format!("{body})");
+        Some((left, right))
+    }
+
+    /// Split a cond/case clause into left="(test" and right="result)" for alignment.
+    fn split_clause(semantic: &[&Node]) -> Option<(String, String)> {
+        if semantic.len() != 2 {
+            return None;
+        }
+        if has_any_newlines(semantic[0]) || has_any_newlines(semantic[1]) {
+            return None;
+        }
+        if has_any_comments(semantic[0]) || has_any_comments(semantic[1]) {
+            return None;
+        }
+        let test = node_to_flat_string_static(semantic[0]);
+        let result = node_to_flat_string_static(semantic[1]);
+        let left = format!("({test}");
+        let right = format!("{result})");
+        Some((left, right))
+    }
+
+    /// Split a let binding pair into left="(name" and right="value)" for alignment.
+    fn split_binding(semantic: &[&Node]) -> Option<(String, String)> {
+        if semantic.len() != 2 {
+            return None;
+        }
+        if has_any_newlines(semantic[0]) || has_any_newlines(semantic[1]) {
+            return None;
+        }
+        if has_any_comments(semantic[0]) || has_any_comments(semantic[1]) {
+            return None;
+        }
+        let name = node_to_flat_string_static(semantic[0]);
+        let value = node_to_flat_string_static(semantic[1]);
+        // Only align if the name is a simple atom (not a destructuring pattern)
+        match semantic[0] {
+            Node::Atom(_) | Node::StringAtom(_) => {}
+            _ => return None,
+        }
+        let left = format!("({name}");
+        let right = format!("{value})");
+        Some((left, right))
+    }
+
+    // -----------------------------------------------------------------------
     // Utilities
     // -----------------------------------------------------------------------
 
@@ -1265,6 +1587,42 @@ impl Formatter {
     }
 }
 
+/// Render a node as a flat string (standalone, no Formatter state needed).
+fn node_to_flat_string_static(node: &Node) -> String {
+    match node {
+        Node::Atom(tok) => token_text(tok),
+        Node::StringAtom(raw) => raw.clone(),
+        Node::Comment(text) => text.clone(),
+        Node::Newline => String::new(),
+        Node::List(children) => flat_string_grouped(children, "(", ")"),
+        Node::Vector(children) => flat_string_grouped(children, "[", "]"),
+        Node::Map(children) => flat_string_grouped(children, "{", "}"),
+        Node::ShortLambda(children) => flat_string_grouped(children, "#(", ")"),
+        Node::ByteVector(children) => flat_string_grouped(children, "#u8(", ")"),
+        Node::Prefix(tok, inner) => {
+            format!("{}{}", prefix_text(tok), node_to_flat_string_static(inner))
+        }
+    }
+}
+
+fn flat_string_grouped(children: &[Node], open: &str, close: &str) -> String {
+    let mut out = String::new();
+    out.push_str(open);
+    let mut first = true;
+    for child in children {
+        if is_trivia(child) {
+            continue;
+        }
+        if !first {
+            out.push(' ');
+        }
+        out.push_str(&node_to_flat_string_static(child));
+        first = false;
+    }
+    out.push_str(close);
+    out
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -1272,8 +1630,14 @@ impl Formatter {
 /// Format Sema source code, targeting the given line width.
 ///
 /// The formatter preserves all comments, handles shebang lines, and produces
-/// idempotent output.
+/// idempotent output. When `align` is true, consecutive similar forms
+/// (defines, cond clauses, let bindings) are column-aligned for readability.
 pub fn format_source(input: &str, width: usize) -> Result<String, SemaError> {
+    format_source_opts(input, width, 2, false)
+}
+
+/// Format Sema source code with full options.
+pub fn format_source_opts(input: &str, width: usize, indent: usize, align: bool) -> Result<String, SemaError> {
     if input.is_empty() {
         return Ok(String::new());
     }
@@ -1304,7 +1668,7 @@ pub fn format_source(input: &str, width: usize) -> Result<String, SemaError> {
     let nodes = build_nodes(&tokens, rest)?;
 
     // 4. Format node tree to string
-    let mut fmt = Formatter::new(width);
+    let mut fmt = Formatter::new(width, indent, align);
     fmt.format_top_level(&nodes);
 
     // 5. Assemble result
@@ -1344,6 +1708,10 @@ mod tests {
 
     fn fmt_narrow(input: &str) -> String {
         format_source(input, 40).unwrap()
+    }
+
+    fn fmt_aligned(input: &str) -> String {
+        format_source_opts(input, 80, 2, true).unwrap()
     }
 
     // 1. Simple atom formatting
@@ -1912,5 +2280,460 @@ mod tests {
             first, second,
             "formatting with inner comments should be idempotent"
         );
+    }
+
+    // Numeric literal source preservation (integers and floats use raw source text)
+
+    #[test]
+    fn test_integer_preserved() {
+        assert_eq!(fmt("42"), "42\n");
+        assert_eq!(fmt("-7"), "-7\n");
+        assert_eq!(fmt("0"), "0\n");
+    }
+
+    #[test]
+    fn test_float_preserved() {
+        assert_eq!(fmt("3.14"), "3.14\n");
+        assert_eq!(fmt("-0.5"), "-0.5\n");
+        assert_eq!(fmt("100.0"), "100.0\n");
+    }
+
+    #[test]
+    fn test_numeric_in_form_preserved() {
+        assert_eq!(fmt("(define x 42)"), "(define x 42)\n");
+        assert_eq!(fmt("(+ 3.14 2.0)"), "(+ 3.14 2.0)\n");
+    }
+
+    #[test]
+    fn test_numeric_literal_idempotency() {
+        for input in &["42", "-7", "3.14", "-0.5", "100.0"] {
+            let first = fmt(input);
+            let second = fmt(&first);
+            assert_eq!(first, second, "numeric literal {input} should be idempotent");
+        }
+    }
+
+    // Unicode preservation
+
+    #[test]
+    fn test_unicode_in_strings() {
+        assert_eq!(fmt("\"héllo wörld\""), "\"héllo wörld\"\n");
+        assert_eq!(fmt("\"日本語\""), "\"日本語\"\n");
+        assert_eq!(fmt("\"emoji: 🎉\""), "\"emoji: 🎉\"\n");
+    }
+
+    #[test]
+    fn test_unicode_in_symbols() {
+        assert_eq!(fmt("(café 42)"), "(café 42)\n");
+    }
+
+    // Example corpus idempotency
+
+    #[test]
+    fn test_example_corpus_idempotency() {
+        let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("examples");
+
+        if !examples_dir.exists() {
+            return;
+        }
+
+        let mut files_checked = 0;
+        for entry in walkdir(examples_dir.to_str().unwrap()) {
+            let source = match std::fs::read_to_string(&entry) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let first = match format_source(&source, 80) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            let second = format_source(&first, 80).unwrap_or_else(|e| {
+                panic!("second format of {entry} failed: {e}")
+            });
+            assert_eq!(
+                first, second,
+                "idempotency failed for {entry}"
+            );
+            files_checked += 1;
+        }
+        assert!(files_checked > 0, "should have checked at least one example file");
+    }
+
+    /// Recursively collect all .sema files under a directory.
+    fn walkdir(dir: &str) -> Vec<String> {
+        let mut files = Vec::new();
+        walkdir_inner(std::path::Path::new(dir), &mut files);
+        files
+    }
+
+    fn walkdir_inner(dir: &std::path::Path, files: &mut Vec<String>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walkdir_inner(&path, files);
+                } else if path.extension().and_then(|e| e.to_str()) == Some("sema") {
+                    files.push(path.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    // === Alignment-specific tests ===
+
+    #[test]
+    fn test_aligned_define_group() {
+        let input = "(define (make-num n) (hash-map :type :number :value n))\n\
+                     (define (make-bool b) (hash-map :type :bool :value b))\n\
+                     (define (make-var name) (hash-map :type :var :name name))";
+        let result = fmt_aligned(input);
+        let lines: Vec<&str> = result.lines().collect();
+        assert_eq!(lines.len(), 3);
+        // All body expressions should start at the same column
+        let body_cols: Vec<usize> = lines
+            .iter()
+            .map(|l| l.find("(hash-map").unwrap())
+            .collect();
+        assert!(
+            body_cols.iter().all(|&c| c == body_cols[0]),
+            "bodies should be aligned at same column, got {:?}\n{}",
+            body_cols,
+            result
+        );
+    }
+
+    #[test]
+    fn test_aligned_define_not_applied_without_flag() {
+        let input = "(define (make-num n) (hash-map :type :number :value n))\n\
+                     (define (make-bool b) (hash-map :type :bool :value b))\n\
+                     (define (make-var name) (hash-map :type :var :name name))";
+        let result = fmt(input);
+        // Without --align, each define has single-space separation
+        for line in result.lines() {
+            assert!(
+                !line.contains("  (hash-map"),
+                "without --align, defines should not be column-aligned: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_aligned_define_group_idempotent() {
+        let input = "(define (make-num n) (hash-map :type :number :value n))\n\
+                     (define (make-bool b) (hash-map :type :bool :value b))\n\
+                     (define (make-var name) (hash-map :type :var :name name))";
+        let first = fmt_aligned(input);
+        let second = fmt_aligned(&first);
+        assert_eq!(first, second, "aligned defines should be idempotent");
+    }
+
+    #[test]
+    fn test_aligned_cond_clauses() {
+        let input = "(cond\n  ((= x 1) \"one\")\n  ((= x 100) \"hundred\")\n  (else \"other\"))";
+        let result = fmt_aligned(input);
+        let lines: Vec<&str> = result.lines().collect();
+        // Find the result-expression columns
+        let clause_lines: Vec<&str> = lines[1..].to_vec();
+        let result_cols: Vec<Option<usize>> = clause_lines
+            .iter()
+            .map(|l| l.find('"'))
+            .collect();
+        // All string results should start at the same column
+        let valid_cols: Vec<usize> = result_cols.iter().filter_map(|c| *c).collect();
+        if valid_cols.len() >= 2 {
+            assert!(
+                valid_cols.iter().all(|&c| c == valid_cols[0]),
+                "cond results should be aligned, got {:?}\n{}",
+                valid_cols,
+                result
+            );
+        }
+    }
+
+    #[test]
+    fn test_aligned_cond_idempotent() {
+        let input = "(cond\n  ((= x 1) \"one\")\n  ((= x 100) \"hundred\")\n  (else \"other\"))";
+        let first = fmt_aligned(input);
+        let second = fmt_aligned(&first);
+        assert_eq!(first, second, "aligned cond should be idempotent");
+    }
+
+    #[test]
+    fn test_aligned_let_bindings() {
+        let input = "(let ((x 1)\n      (longer-name 42)\n      (y 2))\n  (+ x y))";
+        let result = fmt_aligned(input);
+        let first = fmt_aligned(&result);
+        assert_eq!(result, first, "aligned let bindings should be idempotent");
+    }
+
+    #[test]
+    fn test_define_group_broken_by_blank_line() {
+        let input = "(define x 1)\n\n(define y 2)";
+        let result = fmt_aligned(input);
+        // Blank line should prevent alignment grouping
+        assert_eq!(result, "(define x 1)\n\n(define y 2)\n");
+    }
+
+    #[test]
+    fn test_single_define_not_aligned() {
+        // A single define should not try alignment
+        assert_eq!(fmt_aligned("(define x 1)"), "(define x 1)\n");
+    }
+
+    #[test]
+    fn test_alignment_visual_output() {
+        let cases = vec![
+            (
+                "Aligned defines",
+                "(define (make-num n) (hash-map :type :number :value n))\n\
+                 (define (make-bool b) (hash-map :type :bool :value b))\n\
+                 (define (make-var name) (hash-map :type :var :name name))\n\
+                 (define (make-binop op l r) (hash-map :type :binop :op op :left l :right r))\n\
+                 (define (make-if c t f) (hash-map :type :if :cond c :then t :else f))",
+            ),
+            (
+                "Aligned cond",
+                "(cond\n  ((= x 1) \"one\")\n  ((= x 2) \"two\")\n  ((= x 100) \"hundred\")\n  (else \"other\"))",
+            ),
+            (
+                "FizzBuzz cond",
+                "(cond\n  ((= 0 (math/remainder i 15)) \"FizzBuzz\")\n  ((= 0 (math/remainder i 3)) \"Fizz\")\n  ((= 0 (math/remainder i 5)) \"Buzz\")\n  (else i))",
+            ),
+            (
+                "Let bindings",
+                "(let ((x 1)\n      (longer-name 42)\n      (y 2))\n  (+ x y))",
+            ),
+        ];
+
+        for (name, input) in &cases {
+            let result = fmt_aligned(input);
+            eprintln!("\n=== {} ===", name);
+            eprint!("{}", result);
+        }
+    }
+
+    fn fmt_indent(input: &str, indent: usize) -> String {
+        format_source_opts(input, 80, indent, false).unwrap()
+    }
+
+    // ---------------------------------------------------------------
+    // Custom indent size
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_indent_1_body_form() {
+        let input = "(define (foo x)\n (+ x 1))";
+        let result = fmt_indent(input, 1);
+        assert_eq!(result, "(define (foo x)\n (+ x 1))\n");
+    }
+
+    #[test]
+    fn test_indent_4_body_form() {
+        let input = "(define (foo x) (+ x 1))";
+        let result = fmt_indent(input, 4);
+        // Should still fit on one line at width 80
+        assert_eq!(result, "(define (foo x) (+ x 1))\n");
+    }
+
+    #[test]
+    fn test_indent_4_multiline_body() {
+        let input = "(define (a-long-function-name some-parameter)\n  (do-something some-parameter)\n  (do-another-thing some-parameter))";
+        let result = fmt_indent(input, 4);
+        assert_eq!(
+            result,
+            "(define (a-long-function-name some-parameter)\n    (do-something some-parameter)\n    (do-another-thing some-parameter))\n"
+        );
+    }
+
+    #[test]
+    fn test_indent_4_nested() {
+        let input = "(define (f x)\n  (when (> x 0)\n    (println x)))";
+        let result = fmt_indent(input, 4);
+        assert_eq!(
+            result,
+            "(define (f x)\n    (when (> x 0)\n        (println x)))\n"
+        );
+    }
+
+    #[test]
+    fn test_indent_1_nested() {
+        let input = "(define (f x)\n  (when (> x 0)\n    (println x)))";
+        let result = fmt_indent(input, 1);
+        assert_eq!(
+            result,
+            "(define (f x)\n (when (> x 0)\n  (println x)))\n"
+        );
+    }
+
+    #[test]
+    fn test_indent_4_let_form() {
+        let input = "(let ((x 1)\n      (y 2))\n  (+ x y))";
+        let result = fmt_indent(input, 4);
+        assert_eq!(
+            result,
+            "(let ((x 1)\n      (y 2))\n    (+ x y))\n"
+        );
+    }
+
+    #[test]
+    fn test_indent_4_cond_form() {
+        let input = "(cond\n  ((= x 1) \"one\")\n  ((= x 2) \"two\")\n  (else \"other\"))";
+        let result = fmt_indent(input, 4);
+        assert_eq!(
+            result,
+            "(cond\n    ((= x 1) \"one\")\n    ((= x 2) \"two\")\n    (else \"other\"))\n"
+        );
+    }
+
+    #[test]
+    fn test_indent_4_threading() {
+        let input = "(-> x\n  (foo)\n  (bar)\n  (baz))";
+        let result = fmt_indent(input, 4);
+        assert_eq!(
+            result,
+            "(-> x\n    (foo)\n    (bar)\n    (baz))\n"
+        );
+    }
+
+    #[test]
+    fn test_indent_4_if_form() {
+        // Narrow width to force multi-line
+        let result = format_source_opts("(if (some-long-condition? x) (do-something x) (do-other x))", 40, 4, false).unwrap();
+        assert!(result.contains("\n    "), "indent 4 should produce 4-space body indent:\n{}", result);
+    }
+
+    #[test]
+    fn test_indent_default_is_2() {
+        // Verify format_source uses indent=2 by default
+        let with_default = format_source("(define (f x)\n  (+ x 1))", 80).unwrap();
+        let with_explicit = format_source_opts("(define (f x)\n  (+ x 1))", 80, 2, false).unwrap();
+        assert_eq!(with_default, with_explicit);
+    }
+
+    #[test]
+    fn test_indent_idempotent_4() {
+        let input = "(define (f x)\n    (when (> x 0)\n        (println x)\n        (println (+ x 1))))";
+        let first = fmt_indent(input, 4);
+        let second = fmt_indent(&first, 4);
+        assert_eq!(first, second, "indent=4 should be idempotent");
+    }
+
+    #[test]
+    fn test_indent_idempotent_1() {
+        let input = "(define (f x)\n (when (> x 0)\n  (println x)))";
+        let first = fmt_indent(input, 1);
+        let second = fmt_indent(&first, 1);
+        assert_eq!(first, second, "indent=1 should be idempotent");
+    }
+
+    #[test]
+    fn test_indent_4_fn_lambda() {
+        let input = "(fn (x y)\n  (+ x y))";
+        let result = fmt_indent(input, 4);
+        assert_eq!(result, "(fn (x y)\n    (+ x y))\n");
+    }
+
+    #[test]
+    fn test_indent_4_do_block() {
+        let input = "(do\n  (println \"a\")\n  (println \"b\")\n  (println \"c\"))";
+        let result = fmt_indent(input, 4);
+        assert_eq!(result, "(do\n    (println \"a\")\n    (println \"b\")\n    (println \"c\"))\n");
+    }
+
+    #[test]
+    fn test_indent_4_defn() {
+        let input = "(defn add (a b)\n  (+ a b))";
+        let result = fmt_indent(input, 4);
+        assert_eq!(result, "(defn add (a b)\n    (+ a b))\n");
+    }
+
+    #[test]
+    fn test_indent_4_import() {
+        // Import forms should also use custom indent
+        let input = "(import\n  \"math\"\n  \"strings\")";
+        let result = fmt_indent(input, 4);
+        assert_eq!(result, "(import\n    \"math\"\n    \"strings\")\n");
+    }
+
+    #[test]
+    fn test_indent_4_call() {
+        // Regular call that overflows
+        let result = format_source_opts(
+            "(some-function-with-long-name argument-one argument-two argument-three argument-four)",
+            50, 4, false
+        ).unwrap();
+        assert!(result.contains("\n"), "should break to multi-line");
+    }
+
+    #[test]
+    fn test_indent_4_aligned() {
+        // Verify indent and align can be combined
+        let input = "(define x 1)\n(define longer-name 2)\n(define z 3)";
+        let result = format_source_opts(input, 80, 4, true).unwrap();
+        // Alignment should still work with custom indent
+        assert!(result.contains("(define x"), "should contain defines");
+        let first = format_source_opts(&result, 80, 4, true).unwrap();
+        assert_eq!(result, first, "indent=4 + align should be idempotent");
+    }
+
+    #[test]
+    fn test_indent_various_sizes() {
+        // Test that different indent sizes produce different output for multiline forms
+        let input = "(define (f x)\n  (+ x 1))";
+        let i1 = fmt_indent(input, 1);
+        let i2 = fmt_indent(input, 2);
+        let i4 = fmt_indent(input, 4);
+
+        assert!(i1.contains("\n "), "indent 1 should have 1-space indent");
+        assert!(i2.contains("\n  "), "indent 2 should have 2-space indent");
+        assert!(i4.contains("\n    "), "indent 4 should have 4-space indent");
+    }
+
+    // ---------------------------------------------------------------
+    // format_source_opts API coverage
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn test_opts_empty_input() {
+        assert_eq!(format_source_opts("", 80, 2, false).unwrap(), "");
+    }
+
+    #[test]
+    fn test_opts_whitespace_only() {
+        assert_eq!(format_source_opts("   \n  \n  ", 80, 2, false).unwrap(), "");
+    }
+
+    #[test]
+    fn test_opts_width_narrow() {
+        let result = format_source_opts("(+ 1 2 3 4 5 6 7 8 9 10)", 15, 2, false).unwrap();
+        assert!(result.contains("\n"), "narrow width should force line break");
+    }
+
+    #[test]
+    fn test_opts_width_very_wide() {
+        let long_form = "(define (my-function a b c d e f) (+ a b c d e f))";
+        let result = format_source_opts(long_form, 200, 2, false).unwrap();
+        assert!(!result.trim().contains('\n'), "wide width should keep on one line");
+    }
+
+    #[test]
+    fn test_opts_align_false_no_alignment() {
+        let input = "(define x 1)\n(define longer-name 2)";
+        let result = format_source_opts(input, 80, 2, false).unwrap();
+        // Without align, defines should NOT have extra padding
+        assert!(result.contains("(define x 1)"), "no alignment padding");
+        assert!(result.contains("(define longer-name 2)"), "no alignment padding");
+    }
+
+    #[test]
+    fn test_opts_shebang_preserved() {
+        let input = "#!/usr/bin/env sema\n(println \"hello\")";
+        let result = format_source_opts(input, 80, 4, false).unwrap();
+        assert!(result.starts_with("#!/usr/bin/env sema\n"), "shebang should be preserved");
     }
 }

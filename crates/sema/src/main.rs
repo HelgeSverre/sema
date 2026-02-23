@@ -8,6 +8,51 @@ use rustyline::Editor;
 
 use sema_core::{intern, pretty_print, Env, SemaError, Value, ValueView};
 use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
+use serde::Deserialize;
+
+#[derive(Debug, Default, Deserialize)]
+struct SemaConfig {
+    #[serde(default)]
+    fmt: FmtConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct FmtConfig {
+    #[serde(default = "default_width")]
+    width: usize,
+    #[serde(default = "default_indent")]
+    indent: usize,
+    #[serde(default)]
+    align: bool,
+}
+
+impl Default for FmtConfig {
+    fn default() -> Self {
+        Self {
+            width: 80,
+            indent: 2,
+            align: false,
+        }
+    }
+}
+
+fn default_width() -> usize { 80 }
+fn default_indent() -> usize { 2 }
+
+/// Walk up from cwd to find sema.toml
+fn find_config() -> Option<SemaConfig> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let candidate = dir.join("sema.toml");
+        if candidate.is_file() {
+            let text = std::fs::read_to_string(&candidate).ok()?;
+            return toml::from_str(&text).ok();
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
 
 mod archive;
 mod import_tracer;
@@ -243,8 +288,16 @@ enum Commands {
         diff: bool,
 
         /// Max line width
-        #[arg(long, default_value = "80")]
-        width: usize,
+        #[arg(long)]
+        width: Option<usize>,
+
+        /// Indentation width for body forms
+        #[arg(long)]
+        indent: Option<usize>,
+
+        /// Align consecutive similar forms (defines, cond clauses, let bindings)
+        #[arg(long)]
+        align: bool,
     },
 }
 
@@ -307,8 +360,14 @@ fn main() {
                 check,
                 diff,
                 width,
+                indent,
+                align,
             } => {
-                run_fmt(&files, check, diff, width);
+                let config = find_config().unwrap_or_default();
+                let effective_width = width.unwrap_or(config.fmt.width);
+                let effective_indent = indent.unwrap_or(config.fmt.indent);
+                let effective_align = if align { true } else { config.fmt.align };
+                run_fmt(&files, check, diff, effective_width, effective_indent, effective_align);
             }
         }
         return;
@@ -1117,7 +1176,7 @@ fn crc32_simple(data: &[u8]) -> u32 {
     !crc
 }
 
-fn run_fmt(patterns: &[String], check: bool, show_diff: bool, width: usize) {
+fn run_fmt(patterns: &[String], check: bool, show_diff: bool, width: usize, indent: usize, align: bool) {
     // Determine which files to format
     let files = if patterns.is_empty() {
         // Default: all .sema files in current directory recursively
@@ -1175,7 +1234,7 @@ fn run_fmt(patterns: &[String], check: bool, show_diff: bool, width: usize) {
             }
         };
 
-        let formatted = match sema_fmt::format_source(&source, width) {
+        let formatted = match sema_fmt::format_source_opts(&source, width, indent, align) {
             Ok(f) => f,
             Err(e) => {
                 eprintln!("Error formatting {file}: {e}");
