@@ -312,7 +312,7 @@ The [`examples/`](https://github.com/helgesverre/sema/tree/main/examples) direct
 ### Why Not Sema?
 
 - No full numeric tower (rationals, bignums, complex numbers)
-- No continuations (`call/cc`) or hygienic macros (`syntax-rules`)
+- No continuations (`call/cc`) or fully hygienic macros (`syntax-rules`) — has auto-gensym (`foo#`) for preventing variable capture
 - Single-threaded — `Rc`-based, no cross-thread sharing of values
 - No JIT — tree-walking interpreter and bytecode VM, no native code generation
 - No package manager — `import` resolves local files only

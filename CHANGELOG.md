@@ -4,6 +4,8 @@
 
 ### Added
 
+- **Auto-gensym (`foo#`)** — Clojure-style automatic gensym in quasiquote templates. Symbols ending with `#` inside backtick forms are replaced with unique generated symbols, preventing variable capture in macros. Same `foo#` within one quasiquote maps to the same gensym; each quasiquote evaluation gets fresh symbols. Works in both tree-walker and bytecode VM. Built-in `some->` macro updated to use `v#` instead of hardcoded `__v`. Manual `(gensym)` and auto-gensym share a single counter to prevent collisions.
+
 - **Package manager (`sema pkg`)** — full CLI subcommand for managing Git-based packages: `sema pkg add` (install + auto-add to `sema.toml`), `sema pkg remove` (uninstall + auto-remove from `sema.toml`), `sema pkg install` (restore all deps from manifest), `sema pkg update`, `sema pkg list`, `sema pkg init`. Packages resolve from `~/.sema/packages/` with `package.sema` entrypoint convention.
 - **Package imports** — `(import "pkg-name")` now resolves packages from the local package store. Supported in both tree-walker and `sema build` import tracer. VFS-first resolution for bundled executables.
 - **`toml/decode` and `toml/encode`** — new stdlib module for TOML parsing and serialization.
