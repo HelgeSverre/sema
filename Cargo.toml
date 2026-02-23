@@ -9,29 +9,30 @@ members = [
     "crates/sema",
     "crates/sema-wasm",
 ]
+exclude = ["pkg"]
 resolver = "2"
 
 [workspace.package]
-version = "1.11.0"
+version = "1.12.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/HelgeSverre/sema"
 homepage = "https://sema-lang.com"
 
 [workspace.dependencies]
-sema-core = { version = "=1.11.0", path = "crates/sema-core" }
-sema-reader = { version = "=1.11.0", path = "crates/sema-reader" }
-sema-eval = { version = "=1.11.0", path = "crates/sema-eval" }
-sema-llm = { version = "=1.11.0", path = "crates/sema-llm" }
-sema-stdlib = { version = "=1.11.0", path = "crates/sema-stdlib" }
-sema-vm = { version = "=1.11.0", path = "crates/sema-vm" }
+sema-core = { version = "=1.12.0", path = "crates/sema-core" }
+sema-reader = { version = "=1.12.0", path = "crates/sema-reader" }
+sema-eval = { version = "=1.12.0", path = "crates/sema-eval" }
+sema-llm = { version = "=1.12.0", path = "crates/sema-llm" }
+sema-stdlib = { version = "=1.12.0", path = "crates/sema-stdlib" }
+sema-vm = { version = "=1.12.0", path = "crates/sema-vm" }
 
 regex = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net"] }
-reqwest = { version = "0.13", features = ["json", "stream", "blocking"] }
+reqwest = { version = "0.13", features = ["json", "stream", "blocking", "multipart"] }
 futures = "0.3"
 rustyline = "17"
 clap = { version = "4", features = ["derive"] }

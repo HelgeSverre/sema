@@ -1210,4 +1210,24 @@ pub fn register(env: &sema_core::Env) {
         });
         Ok(Value::string_from_rc(interned_rc))
     });
+
+    // Silent aliases for other Lisp dialects (undocumented)
+    if let Some(v) = env.get(sema_core::intern("string/join")) {
+        env.set(sema_core::intern("string-join"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string/split")) {
+        env.set(sema_core::intern("string-split"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string/trim")) {
+        env.set(sema_core::intern("string-trim"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string/repeat")) {
+        env.set(sema_core::intern("make-string"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string/upper")) {
+        env.set(sema_core::intern("string-upcase"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string/lower")) {
+        env.set(sema_core::intern("string-downcase"), v);
+    }
 }

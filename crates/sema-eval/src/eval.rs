@@ -185,7 +185,7 @@ impl Interpreter {
                     eval_value(&self.ctx, expr, &self.global_env)?;
                     return Ok(Value::nil());
                 }
-                if name == "begin" {
+                if name == "begin" || name == "progn" {
                     let mut new_items = vec![Value::symbol_from_spur(s)];
                     for item in &items[1..] {
                         new_items.push(self.expand_for_vm(item)?);
@@ -232,10 +232,6 @@ pub fn eval_string(ctx: &EvalContext, input: &str, env: &Env) -> EvalResult {
     for expr in &exprs {
         result = eval_value(ctx, expr, env)?;
     }
-    eprintln!(
-        "[debug] max eval_depth reached: {}",
-        ctx.max_eval_depth.get()
-    );
     Ok(result)
 }
 
@@ -272,7 +268,23 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
             if let Some(val) = env.get(spur) {
                 return Ok(val);
             }
-            let err = SemaError::Unbound(resolve(spur));
+            let name = resolve(spur);
+            let mut err = SemaError::Unbound(name.clone());
+            // Check for common names from other Lisp dialects first
+            if let Some(hint) = sema_core::error::veteran_hint(&name) {
+                err = err.with_hint(hint);
+            } else {
+                // Fall back to fuzzy matching
+                let all_names: Vec<String> =
+                    env.all_names().iter().map(|s| resolve(*s)).collect();
+                let candidates: Vec<&str> =
+                    all_names.iter().map(|s| s.as_str()).collect();
+                if let Some(suggestion) =
+                    sema_core::error::suggest_similar(&name, &candidates)
+                {
+                    err = err.with_hint(format!("Did you mean '{suggestion}'?"));
+                }
+            }
             let trace = ctx.capture_stack_trace();
             return Err(err.with_stack_trace(trace));
         }
@@ -291,7 +303,7 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
         ctx.eval_depth.set(ctx.eval_depth.get().saturating_sub(1));
         return Err(SemaError::eval(format!(
             "maximum eval depth exceeded ({MAX_EVAL_DEPTH})"
-        )));
+        )).with_hint("this usually means infinite recursion; ensure recursive calls are in tail position for TCO, or use 'do' for iteration"));
     }
 
     let result = eval_value_inner(ctx, expr, env);
@@ -322,7 +334,7 @@ pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult
             match args[0].view() {
                 ValueView::Map(map) => Ok(map.get(&key).cloned().unwrap_or(Value::nil())),
                 ValueView::HashMap(map) => Ok(map.get(&key).cloned().unwrap_or(Value::nil())),
-                _ => Err(SemaError::type_error("map", args[0].type_name())),
+                _ => Err(SemaError::type_error_with_value("map", args[0].type_name(), &args[0])),
             }
         }
         ValueView::MultiMethod(mm) => call_multimethod(ctx, &mm, args),
@@ -508,10 +520,24 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
         ValueView::HashMap(_) => Ok(Trampoline::Value(expr.clone())),
 
         // Symbol lookup
-        ValueView::Symbol(spur) => env
-            .get(spur)
-            .map(Trampoline::Value)
-            .ok_or_else(|| SemaError::Unbound(resolve(spur))),
+        ValueView::Symbol(spur) => env.get(spur).map(Trampoline::Value).ok_or_else(|| {
+            let name = resolve(spur);
+            let mut err = SemaError::Unbound(name.clone());
+            if let Some(hint) = sema_core::error::veteran_hint(&name) {
+                err = err.with_hint(hint);
+            } else {
+                let all_names: Vec<String> =
+                    env.all_names().iter().map(|s| resolve(*s)).collect();
+                let candidates: Vec<&str> =
+                    all_names.iter().map(|s| s.as_str()).collect();
+                if let Some(suggestion) =
+                    sema_core::error::suggest_similar(&name, &candidates)
+                {
+                    err = err.with_hint(format!("Did you mean '{suggestion}'?"));
+                }
+            }
+            err
+        }),
 
         // Function application / special forms
         ValueView::List(items) => {
@@ -557,7 +583,7 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
                             Ok(Trampoline::Value(v))
                         }
                         // On error, leave frame for stack trace capture
-                        Err(e) => Err(e),
+                        Err(e) => Err(annotate_arity_error(e, expr)),
                     }
                 }
                 ValueView::Lambda(lambda) => {
@@ -577,6 +603,7 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
                     };
                     ctx.push_call_frame(frame);
                     apply_lambda(ctx, &lambda, &eval_args)
+                        .map_err(|e| annotate_arity_error(e, expr))
                 }
                 ValueView::Macro(mac) => {
                     // Macros receive unevaluated arguments
@@ -599,7 +626,7 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
                         ValueView::HashMap(map) => Ok(Trampoline::Value(
                             map.get(&key).cloned().unwrap_or(Value::nil()),
                         )),
-                        _ => Err(SemaError::type_error("map", map_val.type_name())),
+                        _ => Err(SemaError::type_error_with_value("map", map_val.type_name(), &map_val)),
                     }
                 }
                 ValueView::MultiMethod(mm) => {
@@ -618,6 +645,21 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
         }
 
         _other => Ok(Trampoline::Value(expr.clone())),
+    }
+}
+
+/// If `err` is an arity error, attach a note showing the original call form.
+fn annotate_arity_error(err: SemaError, expr: &Value) -> SemaError {
+    if matches!(err.inner(), SemaError::Arity { .. }) && err.note().is_none() {
+        let form_str = format!("{}", expr);
+        let truncated = if form_str.len() > 80 {
+            format!("{}…", &form_str[..79])
+        } else {
+            form_str
+        };
+        err.with_note(format!("in: {truncated}"))
+    } else {
+        err
     }
 }
 

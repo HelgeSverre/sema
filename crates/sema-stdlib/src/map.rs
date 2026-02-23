@@ -746,4 +746,12 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(result)
     });
+
+    // Silent aliases for other Lisp dialects (undocumented)
+    if let Some(v) = env.get(sema_core::intern("map?")) {
+        env.set(sema_core::intern("hash-map?"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("get")) {
+        env.set(sema_core::intern("hash-ref"), v);
+    }
 }

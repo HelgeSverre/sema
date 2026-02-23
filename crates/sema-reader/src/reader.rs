@@ -147,6 +147,22 @@ impl Parser {
                 }
                 .with_hint("add a closing `)`"));
             }
+            if self.peek() == Some(&Token::RBracket) {
+                return Err(SemaError::Reader {
+                    message: "mismatched bracket: expected `)` to close `(`, found `]`"
+                        .to_string(),
+                    span: self.span(),
+                }
+                .with_hint("this list was opened with `(` — close it with `)`"));
+            }
+            if self.peek() == Some(&Token::RBrace) {
+                return Err(SemaError::Reader {
+                    message: "mismatched bracket: expected `)` to close `(`, found `}`"
+                        .to_string(),
+                    span: self.span(),
+                }
+                .with_hint("this list was opened with `(` — close it with `)`"));
+            }
             // Handle dotted pairs: (a . b)
             if self.peek() == Some(&Token::Dot) {
                 self.advance(); // skip dot
@@ -176,6 +192,22 @@ impl Parser {
                 }
                 .with_hint("add a closing `]`"));
             }
+            if self.peek() == Some(&Token::RParen) {
+                return Err(SemaError::Reader {
+                    message: "mismatched bracket: expected `]` to close `[`, found `)`"
+                        .to_string(),
+                    span: self.span(),
+                }
+                .with_hint("this vector was opened with `[` — close it with `]`"));
+            }
+            if self.peek() == Some(&Token::RBrace) {
+                return Err(SemaError::Reader {
+                    message: "mismatched bracket: expected `]` to close `[`, found `}`"
+                        .to_string(),
+                    span: self.span(),
+                }
+                .with_hint("this vector was opened with `[` — close it with `]`"));
+            }
             items.push(self.parse_expr()?);
         }
         self.expect(&Token::RBracket)?;
@@ -197,6 +229,22 @@ impl Parser {
                     span: open_span,
                 }
                 .with_hint("add a closing `}`"));
+            }
+            if self.peek() == Some(&Token::RParen) {
+                return Err(SemaError::Reader {
+                    message: "mismatched bracket: expected `}` to close `{`, found `)`"
+                        .to_string(),
+                    span: self.span(),
+                }
+                .with_hint("this map was opened with `{` — close it with `}`"));
+            }
+            if self.peek() == Some(&Token::RBracket) {
+                return Err(SemaError::Reader {
+                    message: "mismatched bracket: expected `}` to close `{`, found `]`"
+                        .to_string(),
+                    span: self.span(),
+                }
+                .with_hint("this map was opened with `{` — close it with `}`"));
             }
             let key = self.parse_expr()?;
             if self.peek() == Some(&Token::RBrace) || self.peek().is_none() {
@@ -1544,5 +1592,54 @@ mod tests {
     #[test]
     fn test_read_regex_literal_unterminated() {
         assert!(read(r#"#"abc"#).is_err());
+    }
+
+    #[test]
+    fn test_mismatched_paren_bracket() {
+        let err = read("(list [1 2 3)").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("mismatched"), "expected mismatched error, got: {msg}");
+    }
+
+    #[test]
+    fn test_mismatched_bracket_paren() {
+        let err = read("[1 2 3)").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("mismatched"), "expected mismatched error, got: {msg}");
+    }
+
+    #[test]
+    fn test_mismatched_paren_brace() {
+        let err = read("(+ 1 2}").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("mismatched"), "expected mismatched error, got: {msg}");
+    }
+
+    #[test]
+    fn test_mismatched_brace_paren() {
+        let err = read("{:a 1)").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("mismatched"), "expected mismatched error, got: {msg}");
+    }
+
+    #[test]
+    fn test_mismatched_brace_bracket() {
+        let err = read("{:a 1]").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("mismatched"), "expected mismatched error, got: {msg}");
+    }
+
+    #[test]
+    fn test_mismatched_bracket_brace() {
+        let err = read("[1 2}").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("mismatched"), "expected mismatched error, got: {msg}");
+    }
+
+    #[test]
+    fn test_correct_brackets_still_work() {
+        assert!(read("(list [1 2 3])").is_ok());
+        assert!(read("{:a 1}").is_ok());
+        assert!(read("[1 [2 3] 4]").is_ok());
     }
 }

@@ -1118,6 +1118,21 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::bool(false))
     });
+
+    // Silent aliases for other Lisp dialects (undocumented)
+    if let Some(v) = env.get(sema_core::intern("map")) {
+        env.set(sema_core::intern("mapcar"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("foldl")) {
+        env.set(sema_core::intern("fold"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("any")) {
+        env.set(sema_core::intern("some?"), v.clone());
+        env.set(sema_core::intern("any?"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("every")) {
+        env.set(sema_core::intern("every?"), v);
+    }
 }
 
 fn first(args: &[Value]) -> Result<Value, SemaError> {

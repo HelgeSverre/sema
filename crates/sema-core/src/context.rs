@@ -29,6 +29,7 @@ pub struct EvalContext {
     pub context_stacks: RefCell<BTreeMap<Value, Vec<Value>>>,
     pub eval_fn: Cell<Option<EvalCallbackFn>>,
     pub call_fn: Cell<Option<CallCallbackFn>>,
+    pub interactive: Cell<bool>,
 }
 
 impl EvalContext {
@@ -50,6 +51,7 @@ impl EvalContext {
             context_stacks: RefCell::new(BTreeMap::new()),
             eval_fn: Cell::new(None),
             call_fn: Cell::new(None),
+            interactive: Cell::new(false),
         }
     }
 
@@ -71,6 +73,7 @@ impl EvalContext {
             context_stacks: RefCell::new(BTreeMap::new()),
             eval_fn: Cell::new(None),
             call_fn: Cell::new(None),
+            interactive: Cell::new(false),
         }
     }
 

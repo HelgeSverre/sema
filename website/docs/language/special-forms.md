@@ -44,6 +44,19 @@ Alias for `lambda`.
 (fn (x . rest) rest)                   ; rest parameters with dot notation
 ```
 
+### `defun`
+
+Define a named function (equivalent to `(define (name params...) body...)`).
+
+```sema
+(defun square (x) (* x x))
+(defun greet (name) f"Hello, ${name}!")
+```
+
+::: tip Clojure alias
+`defn` is accepted as an alias for `defun`.
+:::
+
 ## Conditionals
 
 ### `if`
@@ -356,6 +369,10 @@ Evaluate expressions in order, return the last result.
 ```sema
 (begin expr1 expr2 ... exprN)
 ```
+
+::: tip Common Lisp alias
+`progn` is accepted as an alias for `begin`.
+:::
 
 ### `and`
 

@@ -325,3 +325,23 @@ dual_eval_error_tests! {
     // defmethod wrong arity
     multi_defmethod_no_args: "(defmethod)",
 }
+
+// ============================================================
+// Dialect Aliases — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    alias_mapcar: "(mapcar (fn (x) (* x 2)) '(1 2 3))" => common::eval_tw("'(2 4 6)"),
+    alias_fold: "(fold + 0 '(1 2 3))" => Value::int(6),
+    alias_every_q: "(every? odd? '(1 3 5))" => Value::bool(true),
+    alias_any_q: "(any? even? '(1 2 3))" => Value::bool(true),
+    alias_some_q: "(some? even? '(1 2 3))" => Value::bool(true),
+    alias_string_join: r#"(string-join '("a" "b" "c") ",")"# => Value::string("a,b,c"),
+    alias_string_split: r#"(string-split "a,b,c" ",")"# => common::eval_tw(r#"'("a" "b" "c")"#),
+    alias_string_trim: r#"(string-trim "  hello  ")"# => Value::string("hello"),
+    alias_hash_map_q: "(hash-map? (hash-map :a 1))" => Value::bool(true),
+    alias_hash_ref: "(hash-ref {:a 1 :b 2} :b)" => Value::int(2),
+    alias_type_of: "(type-of 42)" => common::eval_tw("(type 42)"),
+    alias_defn: "(defn add (a b) (+ a b)) (add 3 4)" => Value::int(7),
+    alias_progn: "(progn (define x 10) (define y 20) (+ x y))" => Value::int(30),
+}

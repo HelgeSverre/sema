@@ -1491,7 +1491,7 @@ fn error_to_value(err: &SemaError) -> Value {
             map.insert(Value::keyword("type"), Value::keyword("eval"));
             map.insert(Value::keyword("message"), Value::string(msg));
         }
-        SemaError::Type { expected, got } => {
+        SemaError::Type { expected, got, .. } => {
             map.insert(Value::keyword("type"), Value::keyword("type-error"));
             map.insert(
                 Value::keyword("message"),

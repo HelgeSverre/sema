@@ -58,6 +58,21 @@ fn test_factorial() {
 }
 
 #[test]
+fn test_stack_overflow_hint() {
+    let result = std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            let interp = Interpreter::new();
+            interp.eval_str("(define (f x) (+ 1 (f x))) (f 0)").unwrap_err()
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    assert!(result.hint().is_some());
+    assert!(result.hint().unwrap().contains("recursion"));
+}
+
+#[test]
 fn test_lambda() {
     assert_eq!(eval("((lambda (x y) (+ x y)) 3 4)"), Value::int(7));
 }
@@ -596,7 +611,7 @@ fn test_module_import() {
           internal)
     "#,
     );
-    assert!(matches!(err, SemaError::Unbound(_)));
+    assert!(matches!(err.inner(), SemaError::Unbound(_)));
 }
 
 #[test]
@@ -622,7 +637,7 @@ fn test_selective_import() {
           (bar))
     "#,
     );
-    assert!(matches!(err, SemaError::Unbound(_)));
+    assert!(matches!(err.inner(), SemaError::Unbound(_)));
 }
 
 #[test]
@@ -1429,6 +1444,23 @@ fn test_arity_errors() {
     assert!(eval_err("(car 1 2)").to_string().contains("expects"));
     assert!(eval_err("(not)").to_string().contains("expects"));
     assert!(eval_err("(string-length)").to_string().contains("expects"));
+}
+
+#[test]
+fn test_arity_error_shows_call_form() {
+    // Lambda arity error should include the call form in a note
+    let err = eval_err("(define (f x) x) (f 1 2 3)");
+    assert!(err.note().is_some(), "arity error should have a note");
+    let note = err.note().unwrap();
+    assert!(note.contains("in:"), "note should contain 'in:': {note}");
+    assert!(note.contains("f"), "note should contain function name: {note}");
+
+    // Native fn arity error should also include the call form
+    let err = eval_err("(car 1 2)");
+    assert!(err.note().is_some(), "native arity error should have a note");
+    let note = err.note().unwrap();
+    assert!(note.contains("in:"), "note should contain 'in:': {note}");
+    assert!(note.contains("car"), "note should contain function name: {note}");
 }
 
 #[test]
@@ -12654,14 +12686,14 @@ fn test_vfs_load_then_import() {
             b"(define (fmt x) (format \"v=~a\" x))".to_vec(),
         );
         files.insert(
-            "lib/mod.sema".to_string(),
+            "lib/package.sema".to_string(),
             b"(module mymod (export val) (define val 99))".to_vec(),
         );
         sema_core::vfs::init_vfs(files);
 
         let interp = Interpreter::new();
         let result = interp
-            .eval_str(r#"(begin (load "helpers.sema") (import "lib/mod.sema") (fmt val))"#)
+            .eval_str(r#"(begin (load "helpers.sema") (import "lib/package.sema") (fmt val))"#)
             .unwrap();
         assert_eq!(result, Value::string("v=99"));
     })
@@ -12794,7 +12826,7 @@ fn test_package_imports() {
         let mylib = tmp.join("packages/github.com/test/mylib");
         std::fs::create_dir_all(&mylib).unwrap();
         std::fs::write(
-            mylib.join("mod.sema"),
+            mylib.join("package.sema"),
             "(module mylib (export greet) (define (greet name) (string-append \"hello \" name)))",
         )
         .unwrap();
@@ -12802,7 +12834,7 @@ fn test_package_imports() {
         let mathlib = tmp.join("packages/github.com/test/mathlib");
         std::fs::create_dir_all(&mathlib).unwrap();
         std::fs::write(
-            mathlib.join("mod.sema"),
+            mathlib.join("package.sema"),
             "(module mathlib (export square cube) (define (square x) (* x x)) (define (cube x) (* x x x)) (define (internal) 999))",
         )
         .unwrap();
@@ -12819,7 +12851,7 @@ fn test_package_imports() {
         let cached = tmp.join("packages/github.com/test/cached");
         std::fs::create_dir_all(&cached).unwrap();
         std::fs::write(
-            cached.join("mod.sema"),
+            cached.join("package.sema"),
             "(module cached (export val) (define val 99))",
         )
         .unwrap();

@@ -138,4 +138,9 @@ pub fn register(env: &sema_core::Env) {
             _ => Err(SemaError::type_error("promise", args[0].type_name())),
         }
     });
+
+    // Silent aliases for other Lisp dialects (undocumented)
+    if let Some(v) = env.get(sema_core::intern("type")) {
+        env.set(sema_core::intern("type-of"), v);
+    }
 }

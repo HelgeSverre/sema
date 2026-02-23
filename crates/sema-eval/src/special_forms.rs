@@ -61,6 +61,10 @@ struct SpecialFormSpurs {
     deftool: Spur,
     message: Spur,
     prompt: Spur,
+
+    // Silent aliases for other Lisp dialects
+    defn: Spur,
+    progn: Spur,
 }
 
 impl SpecialFormSpurs {
@@ -111,6 +115,10 @@ impl SpecialFormSpurs {
             deftool: intern("deftool"),
             message: intern("message"),
             prompt: intern("prompt"),
+
+            // Silent aliases
+            defn: intern("defn"),
+            progn: intern("progn"),
         }
     }
 }
@@ -176,6 +184,9 @@ pub const SPECIAL_FORM_NAMES: &[&str] = &[
     "deftool",
     "message",
     "prompt",
+    // Silent aliases for other Lisp dialects (undocumented)
+    "defn",
+    "progn",
 ];
 
 /// Evaluate a special form. Returns Some(result) if the head is a special form, None otherwise.
@@ -194,7 +205,7 @@ pub fn try_eval_special(
         Some(eval_define(args, env, ctx))
     } else if head_spur == sf.let_ {
         Some(eval_let(args, env, ctx))
-    } else if head_spur == sf.begin {
+    } else if head_spur == sf.begin || head_spur == sf.progn {
         Some(eval_begin(args, env, ctx))
     } else if head_spur == sf.lambda || head_spur == sf.fn_ {
         Some(eval_lambda(args, env, None))
@@ -212,7 +223,7 @@ pub fn try_eval_special(
         Some(eval_defmethod(args, env, ctx))
     } else if head_spur == sf.defmulti {
         Some(eval_defmulti(args, env, ctx))
-    } else if head_spur == sf.defun {
+    } else if head_spur == sf.defun || head_spur == sf.defn {
         Some(eval_defun(args, env, ctx))
     } else if head_spur == sf.delay {
         Some(eval_delay(args, env))
@@ -325,6 +336,13 @@ fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             return Err(SemaError::arity("define", "2", args.len()));
         }
         let val = eval::eval_value(ctx, &args[1], env)?;
+        if ctx.interactive.get() {
+            if let Some(existing) = env.get(spur) {
+                if existing.as_native_fn_rc().is_some() {
+                    eprintln!("  warning: redefining builtin '{}'", resolve(spur));
+                }
+            }
+        }
         env.set(spur, val);
         Ok(Trampoline::Value(Value::nil()))
     } else if let Some(sig) = args[0].as_list() {
@@ -354,6 +372,13 @@ fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             env: env.clone(),
             name: Some(name_spur),
         });
+        if ctx.interactive.get() {
+            if let Some(existing) = env.get(name_spur) {
+                if existing.as_native_fn_rc().is_some() {
+                    eprintln!("  warning: redefining builtin '{}'", resolve(name_spur));
+                }
+            }
+        }
         env.set(name_spur, lambda);
         Ok(Trampoline::Value(Value::nil()))
     } else if destructure::is_destructuring_pattern(&args[0]) {
@@ -405,7 +430,14 @@ fn eval_set(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
         .ok_or_else(|| SemaError::eval("set!: first argument must be a symbol"))?;
     let val = eval::eval_value(ctx, &args[1], env)?;
     if !env.set_existing(spur, val) {
-        return Err(SemaError::Unbound(resolve(spur)));
+        let name = resolve(spur);
+        let mut err = SemaError::Unbound(name.clone());
+        let all_names: Vec<String> = env.all_names().iter().map(|s| resolve(*s)).collect();
+        let candidates: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
+        if let Some(suggestion) = sema_core::error::suggest_similar(&name, &candidates) {
+            err = err.with_hint(format!("Did you mean '{suggestion}'?"));
+        }
+        return Err(err);
     }
     Ok(Trampoline::Value(Value::nil()))
 }
@@ -1145,7 +1177,7 @@ fn error_to_value(err: &SemaError) -> Value {
             map.insert(Value::keyword("type"), Value::keyword("eval"));
             map.insert(Value::keyword("message"), Value::string(msg));
         }
-        SemaError::Type { expected, got } => {
+        SemaError::Type { expected, got, .. } => {
             map.insert(Value::keyword("type"), Value::keyword("type-error"));
             map.insert(
                 Value::keyword("message"),

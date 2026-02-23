@@ -1,5 +1,51 @@
 # Changelog
 
+## 1.12.0
+
+### Added
+
+- **Package manager (`sema pkg`)** — full CLI subcommand for managing Git-based packages: `sema pkg add` (install + auto-add to `sema.toml`), `sema pkg remove` (uninstall + auto-remove from `sema.toml`), `sema pkg install` (restore all deps from manifest), `sema pkg update`, `sema pkg list`, `sema pkg init`. Packages resolve from `~/.sema/packages/` with `package.sema` entrypoint convention.
+- **Package imports** — `(import "pkg-name")` now resolves packages from the local package store. Supported in both tree-walker and `sema build` import tracer. VFS-first resolution for bundled executables.
+- **`toml/decode` and `toml/encode`** — new stdlib module for TOML parsing and serialization.
+- **Prompt/conversation APIs** — 12 new LLM builtins: `prompt/append` (variadic), `prompt/concat`, `prompt/fill`, `prompt/slots`, `conversation/system`, `conversation/set-system`, `conversation/filter`, `conversation/map`, `conversation/say-as`, `conversation/token-count`, `conversation/cost`.
+- **Static file serving** — `http/file` function and `:static` route type in `http/router` for serving static files with automatic MIME type detection, path traversal protection, directory `index.html` resolution, and SPA fallback.
+- **"Did you mean?" suggestions** — unbound variable errors now suggest similar names using Levenshtein distance (threshold: 1/3 name length, max 3 suggestions). Searches both the current environment and a curated map of ~35 veteran hints from other Lisp dialects.
+- **Veteran hints** — typing names from other dialects (e.g., `setq`, `funcall`, `loop`, `while`, `call/cc`) triggers targeted advice pointing to the Sema equivalent, before falling back to fuzzy matching.
+- **Silent aliases for special forms** — `defn` (defun), `progn` (begin) are now accepted as silent aliases to support muscle memory from Clojure and Common Lisp.
+- **Silent aliases for stdlib functions** — `mapcar` (map), `fold` (foldl), `some?`/`any?` (any), `every?` (every), `string-join`/`string-split`/`string-trim` (string/join, string/split, string/trim), `make-string` (string/repeat), `string-upcase`/`string-downcase` (string/upper, string/lower), `hash-map?` (map?), `hash-ref` (get), `type-of` (type).
+- **REPL `,type` command** — evaluates an expression and displays its type (uses record tags for records).
+- **REPL `,time` command** — evaluates an expression, prints the result, and displays elapsed execution time.
+- **REPL `,doc` command** — displays binding information: whether it is a `native-fn`, `special form`, or `lambda` (including parameter lists).
+- **REPL shadowing warnings** — `define` and `set!` now warn when shadowing a built-in native function.
+- **7 first-party packages** — scaffolded `sema-test`, `sema-html`, `sema-validate`, `sema-fmt`, `sema-url`, `sema-dot-env`, and `sema-cli` to dogfood the package manager.
+
+### Changed
+
+- **Package entrypoint renamed** — default package entrypoint changed from `mod.sema` to `package.sema` across resolution logic, CLI discovery, and documentation.
+- **Consolidated JSON module** — unified 4 duplicated JSON `Value`↔`serde_json` conversions into canonical `sema-core::json` module (`value_to_json`, `value_to_json_lossy`, `json_to_value`, `key_to_string`). All crates now use the shared implementation.
+
+### Fixed
+
+- **Colorized error output** — errors now display with ANSI colors: red-bold "Error:" prefix, cyan "hint:", yellow "note:", dim stack traces. Includes TTY detection and `NO_COLOR` environment variable support.
+- **Source line snippets in errors** — Reader and Eval errors now show Rust-style source context with `-->` location markers and `^` caret pointers.
+- **Type errors show offending values** — type errors now display the actual value, e.g., `expected string, got integer (42)`, with 40-character truncation for large values.
+- **Arity errors show call context** — arity mismatch errors now include a `note: in: (expr...)` showing the original call form.
+- **Stack overflow hints** — "maximum eval depth exceeded" errors now suggest checking for infinite recursion, using TCO, or the `do` form.
+- **Mismatched bracket detection** — the reader now specifically detects and reports mismatched bracket types (e.g., `[1 2 3)`) with helpful hints.
+- **VM match guard fallthrough** — fixed bytecode compiler bug where match clauses with guards returned nil instead of falling through to the next clause when the pattern itself failed to match.
+- **`value_to_json_lossy` recursion** — fixed to properly traverse nested structures so NaN values inside maps/lists become `null` locally instead of stringifying the entire structure.
+- **VFS package import resolution** — VFS is now checked before filesystem resolution, allowing bundled executables to resolve embedded package imports.
+- **Git checkout in package manager** — removed erroneous `--` separator that caused refs to be interpreted as file paths.
+
+### Documentation
+
+- **Package manager guide** — new documentation page covering `sema pkg` commands, `sema.toml` manifest format, and package authoring.
+- **TOML stdlib reference** — new documentation page for `toml/decode` and `toml/encode`.
+- **Prompt & conversation docs** — restructured `prompts.md` and `conversations.md` with workflow examples and accurate API descriptions.
+- **Static file serving docs** — documented `http/file` and `:static` route support in web server reference.
+- **KV store reference** — expanded with implementation details and examples.
+- **Sema syntax highlighting** — custom Shiki grammar for VitePress and updated TextMate grammar.
+
 ## 1.11.0
 
 ### Added

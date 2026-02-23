@@ -102,7 +102,7 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             return lower_cond(args, tail);
         } else if s == sf("define") {
             return lower_define(args);
-        } else if s == sf("defun") {
+        } else if s == sf("defun") || s == sf("defn") {
             return lower_defun(args);
         } else if s == sf("set!") {
             return lower_set(args);
@@ -114,7 +114,7 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             return lower_let_star(args, tail);
         } else if s == sf("letrec") {
             return lower_letrec(args, tail);
-        } else if s == sf("begin") {
+        } else if s == sf("begin") || s == sf("progn") {
             return lower_begin(args, tail);
         } else if s == sf("do") {
             return lower_do(args, tail);

@@ -1884,6 +1884,17 @@ impl Env {
             }
         }
     }
+
+    /// Collect all bound variable names across all scopes (for suggestions).
+    pub fn all_names(&self) -> Vec<Spur> {
+        let mut names: Vec<Spur> = self.bindings.borrow().keys().copied().collect();
+        if let Some(parent) = &self.parent {
+            names.extend(parent.all_names());
+        }
+        names.sort_unstable();
+        names.dedup();
+        names
+    }
 }
 
 impl Default for Env {
