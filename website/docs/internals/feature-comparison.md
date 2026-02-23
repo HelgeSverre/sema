@@ -44,7 +44,7 @@ How does Sema stack up against other Lisps and Lisp-adjacent languages as a prac
 
 | Feature | Sema | Janet | Racket | Clojure | Fennel | Guile | SBCL |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Stdlib functions | 500+ | 600+ | 1000+ | 700+ | ~50 (+ Lua) | 500+ | 900+ |
+| Stdlib functions | 570+ | 600+ | 1000+ | 700+ | ~50 (+ Lua) | 500+ | 900+ |
 | HTTP client | ✅ built-in | ⚠️ via library | ✅ built-in | ⚠️ via library | ⚠️ via Lua | ✅ `(web client)` | ⚠️ via library |
 | JSON | ✅ built-in | ⚠️ via spork | ✅ built-in | ⚠️ via library | ❌ | ⚠️ via library | ⚠️ via library |
 | Regex | ✅ built-in | ✅ PEGs | ✅ built-in | ✅ built-in | ✅ Lua patterns | ✅ built-in | ⚠️ via library |
