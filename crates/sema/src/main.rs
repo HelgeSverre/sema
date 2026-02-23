@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -13,7 +15,33 @@ mod archive;
 mod import_tracer;
 mod pkg;
 
-const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins"];
+mod colors {
+    use std::io::IsTerminal;
+
+    fn enabled() -> bool {
+        std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+    }
+
+    pub fn red_bold(s: &str) -> String {
+        if enabled() { format!("\x1b[1;31m{s}\x1b[0m") } else { s.to_string() }
+    }
+    pub fn yellow(s: &str) -> String {
+        if enabled() { format!("\x1b[33m{s}\x1b[0m") } else { s.to_string() }
+    }
+    pub fn cyan(s: &str) -> String {
+        if enabled() { format!("\x1b[36m{s}\x1b[0m") } else { s.to_string() }
+    }
+    pub fn dim(s: &str) -> String {
+        if enabled() { format!("\x1b[2m{s}\x1b[0m") } else { s.to_string() }
+    }
+}
+
+thread_local! {
+    static LAST_SOURCE: RefCell<Option<String>> = const { RefCell::new(None) };
+    static LAST_FILE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins", ",type", ",time", ",doc"];
 
 struct SemaCompleter {
     env: Rc<Env>,
@@ -239,10 +267,14 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum PkgCommands {
-    /// Add a package from a git URL
+    /// Add a package (from registry or git URL)
     Add {
-        /// Package URL, optionally with @ref (e.g., github.com/user/repo@v1.0)
-        url: String,
+        /// Package name or URL, optionally with @version (e.g., http-helpers@1.0.0 or github.com/user/repo@v1.0)
+        spec: String,
+
+        /// Registry URL override
+        #[arg(long)]
+        registry: Option<String>,
     },
     /// Install all dependencies from sema.toml
     Install,
@@ -260,6 +292,59 @@ enum PkgCommands {
     List,
     /// Initialize a new sema.toml in the current directory
     Init,
+    /// Authenticate with a package registry
+    Login {
+        /// API token (from registry account page)
+        #[arg(long)]
+        token: Option<String>,
+
+        /// Registry URL (default: https://pkg.sema-lang.com)
+        #[arg(long, default_value = "https://pkg.sema-lang.com")]
+        registry: String,
+    },
+    /// Remove stored registry credentials
+    Logout,
+    /// View or set package manager configuration
+    Config {
+        /// Config key (e.g., registry.url). Omit to show all config
+        key: Option<String>,
+
+        /// Value to set. Omit to read the current value
+        value: Option<String>,
+    },
+    /// Publish current package to the registry
+    Publish {
+        /// Registry URL override
+        #[arg(long)]
+        registry: Option<String>,
+    },
+    /// Search the registry for packages
+    Search {
+        /// Search query
+        query: String,
+
+        /// Registry URL override
+        #[arg(long)]
+        registry: Option<String>,
+    },
+    /// Yank a published version (prevent new installs)
+    Yank {
+        /// Package@version to yank (e.g., my-package@0.1.0)
+        spec: String,
+
+        /// Registry URL override
+        #[arg(long)]
+        registry: Option<String>,
+    },
+    /// Show package info from the registry
+    Info {
+        /// Package name
+        name: String,
+
+        /// Registry URL override
+        #[arg(long)]
+        registry: Option<String>,
+    },
 }
 
 fn main() {
@@ -310,12 +395,33 @@ fn main() {
             }
             Commands::Pkg { command } => {
                 let result = match command {
-                    PkgCommands::Add { url } => pkg::cmd_add(&url),
+                    PkgCommands::Add { spec, registry } => {
+                        pkg::cmd_add(&spec, registry.as_deref())
+                    }
                     PkgCommands::Install => pkg::cmd_install(),
                     PkgCommands::Update { name } => pkg::cmd_update(name.as_deref()),
                     PkgCommands::Remove { name } => pkg::cmd_remove(&name),
                     PkgCommands::List => pkg::cmd_list(),
                     PkgCommands::Init => pkg::cmd_init(),
+                    PkgCommands::Login { token, registry } => {
+                        pkg::cmd_login(token.as_deref(), &registry)
+                    }
+                    PkgCommands::Logout => pkg::cmd_logout(),
+                    PkgCommands::Config { key, value } => {
+                        pkg::cmd_config(key.as_deref(), value.as_deref())
+                    }
+                    PkgCommands::Publish { registry } => {
+                        pkg::cmd_publish(registry.as_deref())
+                    }
+                    PkgCommands::Search { query, registry } => {
+                        pkg::cmd_search(&query, registry.as_deref())
+                    }
+                    PkgCommands::Yank { spec, registry } => {
+                        pkg::cmd_yank(&spec, registry.as_deref())
+                    }
+                    PkgCommands::Info { name, registry } => {
+                        pkg::cmd_info(&name, registry.as_deref())
+                    }
                 };
                 if let Err(e) = result {
                     eprintln!("Error: {e}");
@@ -378,17 +484,21 @@ fn main() {
             interpreter.ctx.push_file_path(canonical);
         }
         match std::fs::read_to_string(load_file) {
-            Ok(content) => match eval_with_mode(&interpreter, &content, cli.vm) {
-                Ok(_) => {
-                    interpreter.ctx.pop_file_path();
+            Ok(content) => {
+                LAST_SOURCE.with(|s| *s.borrow_mut() = Some(content.clone()));
+                LAST_FILE.with(|f| *f.borrow_mut() = Some(PathBuf::from(load_file)));
+                match eval_with_mode(&interpreter, &content, cli.vm) {
+                    Ok(_) => {
+                        interpreter.ctx.pop_file_path();
+                    }
+                    Err(e) => {
+                        interpreter.ctx.pop_file_path();
+                        eprint!("Error loading {load_file}: ");
+                        print_error(&e);
+                        std::process::exit(1);
+                    }
                 }
-                Err(e) => {
-                    interpreter.ctx.pop_file_path();
-                    eprint!("Error loading {load_file}: ");
-                    print_error(&e);
-                    std::process::exit(1);
-                }
-            },
+            }
             Err(e) => {
                 eprintln!("Error reading {load_file}: {e}");
                 std::process::exit(1);
@@ -398,6 +508,8 @@ fn main() {
 
     // Handle --eval
     if let Some(expr) = &cli.eval {
+        LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.clone()));
+        LAST_FILE.with(|f| *f.borrow_mut() = None);
         match eval_with_mode(&interpreter, expr, cli.vm) {
             Ok(val) => {
                 if !val.is_nil() {
@@ -417,6 +529,8 @@ fn main() {
 
     // Handle --print
     if let Some(expr) = &cli.print {
+        LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.clone()));
+        LAST_FILE.with(|f| *f.borrow_mut() = None);
         match eval_with_mode(&interpreter, expr, cli.vm) {
             Ok(val) => println!("{val}"),
             Err(e) => {
@@ -455,16 +569,20 @@ fn main() {
             interpreter.ctx.push_file_path(canonical);
         }
         match std::fs::read_to_string(file) {
-            Ok(content) => match eval_with_mode(&interpreter, &content, cli.vm) {
-                Ok(_) => {
-                    interpreter.ctx.pop_file_path();
+            Ok(content) => {
+                LAST_SOURCE.with(|s| *s.borrow_mut() = Some(content.clone()));
+                LAST_FILE.with(|f| *f.borrow_mut() = Some(PathBuf::from(file)));
+                match eval_with_mode(&interpreter, &content, cli.vm) {
+                    Ok(_) => {
+                        interpreter.ctx.pop_file_path();
+                    }
+                    Err(e) => {
+                        interpreter.ctx.pop_file_path();
+                        print_error(&e);
+                        std::process::exit(1);
+                    }
                 }
-                Err(e) => {
-                    interpreter.ctx.pop_file_path();
-                    print_error(&e);
-                    std::process::exit(1);
-                }
-            },
+            }
             Err(e) => {
                 eprintln!("Error reading {file}: {e}");
                 std::process::exit(1);
@@ -1358,16 +1476,95 @@ fn print_ast(val: &Value, indent: usize) {
     }
 }
 
+fn format_source_snippet(
+    span: &sema_core::Span,
+    file_override: Option<&std::path::Path>,
+) -> Option<String> {
+    let (source, file) = if let Some(path) = file_override {
+        let content = std::fs::read_to_string(path).ok()?;
+        (content, Some(path.to_path_buf()))
+    } else {
+        let source = LAST_SOURCE.with(|s| s.borrow().clone())?;
+        let file = LAST_FILE.with(|f| f.borrow().clone());
+        (source, file)
+    };
+
+    let lines: Vec<&str> = source.lines().collect();
+    let line_idx = span.line.checked_sub(1)?;
+    let source_line = lines.get(line_idx)?;
+    let col = span.col.saturating_sub(1);
+    let line_num = span.line;
+    let gutter_width = format!("{line_num}").len().max(2);
+    let location = if let Some(path) = &file {
+        format!("{}:{}:{}", path.display(), line_num, span.col)
+    } else {
+        format!("<input>:{}:{}", line_num, span.col)
+    };
+
+    let mut out = String::new();
+    out.push_str(&format!("  {} {}\n", colors::cyan("-->"), location));
+    out.push_str(&format!("  {:>gutter_width$} {}\n", "", colors::cyan("|")));
+    out.push_str(&format!(
+        "  {} {} {}\n",
+        colors::cyan(&format!("{:>gutter_width$}", line_num)),
+        colors::cyan("|"),
+        source_line
+    ));
+    out.push_str(&format!(
+        "  {:>gutter_width$} {} {}{}",
+        "",
+        colors::cyan("|"),
+        " ".repeat(col),
+        colors::red_bold("^")
+    ));
+    Some(out)
+}
+
 fn print_error(e: &SemaError) {
-    eprintln!("Error: {}", e.inner());
+    let inner = e.inner();
+    eprintln!("{} {}", colors::red_bold("Error:"), inner);
+
+    // Show source snippet for reader errors
+    if let SemaError::Reader { span, .. } = inner {
+        if let Some(snippet) = format_source_snippet(span, None) {
+            eprintln!("{snippet}");
+        }
+    }
+
     if let Some(trace) = e.stack_trace() {
-        eprint!("{trace}");
+        // Show source context for innermost frame
+        if let Some(first_frame) = trace.0.first() {
+            if let Some(span) = &first_frame.span {
+                let snippet = if first_frame.file.is_some() {
+                    format_source_snippet(span, first_frame.file.as_deref())
+                } else {
+                    format_source_snippet(span, None)
+                };
+                if let Some(snippet) = snippet {
+                    eprintln!("{snippet}");
+                }
+            }
+        }
+
+        for frame in &trace.0 {
+            let loc = match (&frame.file, &frame.span) {
+                (Some(file), Some(span)) => format!("({}:{span})", file.display()),
+                (Some(file), None) => format!("({})", file.display()),
+                (None, Some(span)) => format!("(<input>:{span})"),
+                (None, None) => String::new(),
+            };
+            if loc.is_empty() {
+                eprintln!("  {} {}", colors::dim("at"), frame.name);
+            } else {
+                eprintln!("  {} {} {}", colors::dim("at"), frame.name, colors::dim(&loc));
+            }
+        }
     }
     if let Some(hint) = e.hint() {
-        eprintln!("  hint: {hint}");
+        eprintln!("  {} {hint}", colors::cyan("hint:"));
     }
     if let Some(note) = e.note() {
-        eprintln!("  note: {note}");
+        eprintln!("  {} {note}", colors::yellow("note:"));
     }
 }
 
@@ -1377,6 +1574,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
     env.set(intern("*2"), Value::nil());
     env.set(intern("*3"), Value::nil());
     env.set(intern("*e"), Value::nil());
+    interpreter.ctx.interactive.set(true);
     let mut rl = Editor::new().expect("failed to create editor");
     rl.set_helper(Some(SemaCompleter { env: env.clone() }));
     let history_path = dirs_path().join("history.txt");
@@ -1420,6 +1618,79 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                         }
                         _ => {}
                     }
+
+                    if trimmed == ",doc" || trimmed == ",type" || trimmed == ",time" {
+                        println!("Usage: {trimmed} <expr>");
+                        continue;
+                    }
+
+                    if trimmed.starts_with(",doc ") {
+                        let name = trimmed[5..].trim();
+                        let spur = sema_core::intern(name);
+                        match env.get(spur) {
+                            Some(val) => {
+                                match val.view() {
+                                    ValueView::NativeFn(_f) => {
+                                        println!("  {} {} {}", colors::cyan(name), colors::dim(":"), "native-fn");
+                                    }
+                                    ValueView::Lambda(l) => {
+                                        let params: Vec<String> = l.params.iter().map(|s| sema_core::resolve(*s)).collect();
+                                        let rest = l.rest_param.map(|s| format!(" . {}", sema_core::resolve(s))).unwrap_or_default();
+                                        println!("  {} {} lambda ({}{})", colors::cyan(name), colors::dim(":"), params.join(" "), rest);
+                                    }
+                                    _ => {
+                                        println!("  {} {} {} = {}", colors::cyan(name), colors::dim(":"), val.type_name(), val);
+                                    }
+                                }
+                            }
+                            None => {
+                                if SPECIAL_FORM_NAMES.contains(&name) {
+                                    println!("  {} {} special form", colors::cyan(name), colors::dim(":"));
+                                } else {
+                                    eprintln!("  {} {name}", colors::red_bold("not found:"));
+                                }
+                            }
+                        }
+                        continue;
+                    }
+
+                    if trimmed.starts_with(",type ") {
+                        let expr = &trimmed[6..];
+                        LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.to_string()));
+                        LAST_FILE.with(|f| *f.borrow_mut() = None);
+                        match eval_with_mode(&interpreter, expr, use_vm) {
+                            Ok(val) => {
+                                let type_name = match val.view() {
+                                    ValueView::Record(r) => format!(":{}", sema_core::resolve(r.type_tag)),
+                                    _ => format!(":{}", val.type_name()),
+                                };
+                                println!("{}", colors::dim(&type_name));
+                            }
+                            Err(e) => print_error(&e),
+                        }
+                        continue;
+                    }
+                    if trimmed.starts_with(",time ") {
+                        let expr = &trimmed[6..];
+                        LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.to_string()));
+                        LAST_FILE.with(|f| *f.borrow_mut() = None);
+                        let start = std::time::Instant::now();
+                        match eval_with_mode(&interpreter, expr, use_vm) {
+                            Ok(val) => {
+                                let elapsed = start.elapsed();
+                                if !val.is_nil() {
+                                    println!("{}", pretty_print(&val, 80));
+                                }
+                                eprintln!("{} {elapsed:.3?}", colors::dim("elapsed:"));
+                            }
+                            Err(e) => {
+                                let elapsed = start.elapsed();
+                                print_error(&e);
+                                eprintln!("{} {elapsed:.3?}", colors::dim("elapsed:"));
+                            }
+                        }
+                        continue;
+                    }
                 }
 
                 if in_multiline {
@@ -1445,6 +1716,8 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
 
                 let _ = rl.add_history_entry(&input);
 
+                LAST_SOURCE.with(|s| *s.borrow_mut() = Some(input.clone()));
+                LAST_FILE.with(|f| *f.borrow_mut() = None);
                 match eval_with_mode(&interpreter, &input, use_vm) {
                     Ok(val) => {
                         if let Some(v1) = env.get(intern("*1")) {
@@ -1521,6 +1794,9 @@ fn print_help() {
     println!("  ,help / ,h    Show this help");
     println!("  ,env          Show defined variables");
     println!("  ,builtins     List all builtin functions");
+    println!("  ,type EXPR    Show the type of a value");
+    println!("  ,time EXPR    Evaluate and show elapsed time");
+    println!("  ,doc NAME     Show info about a binding");
     println!();
     println!("LLM Quick Start:");
     println!("  Set ANTHROPIC_API_KEY or OPENAI_API_KEY env var, then:");

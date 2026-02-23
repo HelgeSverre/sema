@@ -366,16 +366,16 @@ mod tests {
 
             // --- Set up fake packages ---
 
-            // Basic package with mod.sema
+            // Basic package with package.sema
             let mylib = sema_home.join("packages/github.com/test/mylib");
             fs::create_dir_all(&mylib).unwrap();
-            fs::write(mylib.join("mod.sema"), "(define pkg-val 42)").unwrap();
+            fs::write(mylib.join("package.sema"), "(define pkg-val 42)").unwrap();
 
             // Package with transitive local imports
             let translib = sema_home.join("packages/github.com/test/translib");
             fs::create_dir_all(&translib).unwrap();
             fs::write(
-                translib.join("mod.sema"),
+                translib.join("package.sema"),
                 r#"(import "helpers.sema") (define main-val 1)"#,
             )
             .unwrap();
@@ -390,7 +390,7 @@ mod tests {
             // Utils package for mixed import test
             let utils = sema_home.join("packages/github.com/test/utils");
             fs::create_dir_all(&utils).unwrap();
-            fs::write(utils.join("mod.sema"), "(define util-fn 1)").unwrap();
+            fs::write(utils.join("package.sema"), "(define util-fn 1)").unwrap();
 
             // Ensure packages dir exists for not-installed test
             fs::create_dir_all(sema_home.join("packages")).unwrap();

@@ -10,18 +10,31 @@ pub fn packages_dir() -> PathBuf {
 
 /// Determines if an import spec is a package path vs a file path.
 ///
-/// Package paths contain `/` but don't start with `./` or `../`,
-/// don't end with `.sema`, and aren't absolute paths.
-/// Also rejects URLs with schemes (`://`), backslashes, and colons.
+/// Package paths either:
+/// - Contain `/` with a hostname-like first segment (e.g., `github.com/user/repo`)
+/// - Are short names that exist in `~/.sema/packages/` (e.g., `http-helpers`)
+///
+/// Rejects relative paths (`./`, `../`), `.sema` extensions, absolute paths,
+/// URLs with schemes (`://`), backslashes, and colons.
 pub fn is_package_import(spec: &str) -> bool {
-    spec.contains('/')
-        && !spec.starts_with("./")
-        && !spec.starts_with("../")
-        && !spec.ends_with(".sema")
-        && !spec.starts_with('/')
-        && !spec.contains("://")
-        && !spec.contains('\\')
-        && !spec.contains(':')
+    if spec.starts_with("./")
+        || spec.starts_with("../")
+        || spec.ends_with(".sema")
+        || spec.starts_with('/')
+        || spec.contains("://")
+        || spec.contains('\\')
+        || spec.contains(':')
+    {
+        return false;
+    }
+
+    // Classic git-style: contains / (e.g., github.com/user/repo)
+    if spec.contains('/') {
+        return true;
+    }
+
+    // Registry-style short name: check if it exists in the packages directory
+    packages_dir().join(spec).is_dir()
 }
 
 /// Validate that a package spec contains no path traversal or dangerous segments.
@@ -140,7 +153,7 @@ impl PackageSpec {
 /// Resolution order:
 /// 1. `~/.sema/packages/<spec>.sema` (sub-module import)
 /// 2. `~/.sema/packages/<spec>/sema.toml` → custom entrypoint
-/// 3. `~/.sema/packages/<spec>/mod.sema` (default entrypoint)
+/// 3. `~/.sema/packages/<spec>/package.sema` (default entrypoint)
 pub fn resolve_package_import(spec: &str) -> Result<PathBuf, SemaError> {
     resolve_package_import_in(spec, &packages_dir())
 }
@@ -177,8 +190,8 @@ pub fn resolve_package_import_in(spec: &str, base: &Path) -> Result<PathBuf, Sem
         }
     }
 
-    // 3. Default entrypoint: mod.sema
-    let mod_file = pkg_dir.join("mod.sema");
+    // 3. Default entrypoint: package.sema
+    let mod_file = pkg_dir.join("package.sema");
     if mod_file.is_file() {
         verify_path_within(base, &mod_file)?;
         return Ok(mod_file);
@@ -335,14 +348,14 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_mod_sema() {
+    fn test_resolve_package_sema() {
         let base = temp_packages_dir();
         let pkg_dir = base.join("github.com/user/repo");
         fs::create_dir_all(&pkg_dir).unwrap();
-        fs::write(pkg_dir.join("mod.sema"), "(define x 1)").unwrap();
+        fs::write(pkg_dir.join("package.sema"), "(define x 1)").unwrap();
 
         let result = resolve_package_import_in("github.com/user/repo", &base).unwrap();
-        assert_eq!(result, pkg_dir.join("mod.sema"));
+        assert_eq!(result, pkg_dir.join("package.sema"));
     }
 
     #[test]
@@ -424,14 +437,14 @@ mod tests {
 
         let pkg_dir = parent.join("repo");
         fs::create_dir_all(&pkg_dir).unwrap();
-        fs::write(pkg_dir.join("mod.sema"), "mod").unwrap();
+        fs::write(pkg_dir.join("package.sema"), "pkg").unwrap();
 
         let result = resolve_package_import_in("github.com/user/repo", &base).unwrap();
         assert_eq!(result, parent.join("repo.sema"));
     }
 
     #[test]
-    fn test_resolve_entrypoint_fallback_to_mod_sema() {
+    fn test_resolve_entrypoint_fallback_to_package_sema() {
         let base = temp_packages_dir();
         let pkg_dir = base.join("github.com/user/repo");
         fs::create_dir_all(&pkg_dir).unwrap();
@@ -441,14 +454,14 @@ mod tests {
             "entrypoint = \"nonexistent.sema\"\n",
         )
         .unwrap();
-        fs::write(pkg_dir.join("mod.sema"), "(define x 1)").unwrap();
+        fs::write(pkg_dir.join("package.sema"), "(define x 1)").unwrap();
 
         let result = resolve_package_import_in("github.com/user/repo", &base).unwrap();
-        assert_eq!(result, pkg_dir.join("mod.sema"));
+        assert_eq!(result, pkg_dir.join("package.sema"));
     }
 
     #[test]
-    fn test_resolve_sema_toml_without_entrypoint_uses_mod() {
+    fn test_resolve_sema_toml_without_entrypoint_uses_package_sema() {
         let base = temp_packages_dir();
         let pkg_dir = base.join("github.com/user/repo");
         fs::create_dir_all(&pkg_dir).unwrap();
@@ -458,17 +471,17 @@ mod tests {
             "[package]\nname = \"repo\"\nversion = \"1.0\"\n",
         )
         .unwrap();
-        fs::write(pkg_dir.join("mod.sema"), "(define x 1)").unwrap();
+        fs::write(pkg_dir.join("package.sema"), "(define x 1)").unwrap();
 
         let result = resolve_package_import_in("github.com/user/repo", &base).unwrap();
-        assert_eq!(result, pkg_dir.join("mod.sema"));
+        assert_eq!(result, pkg_dir.join("package.sema"));
     }
 
     // --- verify_path_within tests (symlink escape) ---
 
     #[cfg(unix)]
     #[test]
-    fn test_resolve_mod_sema_symlink_escape_rejected() {
+    fn test_resolve_package_sema_symlink_escape_rejected() {
         let base = temp_packages_dir();
         // Create a target file outside the packages directory
         let outside = base.parent().unwrap().join(format!(
@@ -476,7 +489,7 @@ mod tests {
             TEST_COUNTER.fetch_add(1, Ordering::SeqCst)
         ));
         fs::create_dir_all(&outside).unwrap();
-        fs::write(outside.join("mod.sema"), "pwned").unwrap();
+        fs::write(outside.join("package.sema"), "pwned").unwrap();
 
         // Create a symlink inside packages that points outside
         let pkg_dir = base.join("github.com/user/evil");

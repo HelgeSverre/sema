@@ -31,6 +31,8 @@ clap_complete.workspace = true
 serde_json.workspace = true
 libsui = "0.13"
 toml.workspace = true
+reqwest.workspace = true
+sha2.workspace = true
 
 [dev-dependencies]
 paste = "1"

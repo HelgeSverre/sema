@@ -1,7 +1,11 @@
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use sema_core::resolve::packages_dir;
+
+const DEFAULT_REGISTRY: &str = "https://pkg.sema-lang.com";
+const PKG_META_FILE: &str = ".sema-pkg.json";
 
 fn run_git(dir: Option<&Path>, args: &[&str]) -> Result<String, String> {
     let mut cmd = Command::new("git");
@@ -66,7 +70,10 @@ fn collect_packages(dir: &Path, packages: &mut Vec<PathBuf>) {
         if !path.is_dir() {
             continue;
         }
-        if path.join("sema.toml").exists() || path.join("mod.sema").exists() {
+        if path.join("sema.toml").exists()
+            || path.join("package.sema").exists()
+            || path.join(PKG_META_FILE).exists()
+        {
             packages.push(path);
         } else {
             collect_packages(&path, packages);
@@ -74,7 +81,15 @@ fn collect_packages(dir: &Path, packages: &mut Vec<PathBuf>) {
     }
 }
 
-pub fn cmd_add(spec: &str) -> Result<(), String> {
+pub fn cmd_add(spec: &str, registry: Option<&str>) -> Result<(), String> {
+    if is_git_spec(spec) {
+        cmd_add_git(spec)
+    } else {
+        cmd_add_registry(spec, registry)
+    }
+}
+
+fn cmd_add_git(spec: &str) -> Result<(), String> {
     let spec = sema_core::resolve::PackageSpec::parse(spec).map_err(|e| e.to_string())?;
     let pkg_dir = packages_dir();
     let dest = spec.dest_dir(&pkg_dir);
@@ -108,6 +123,42 @@ pub fn cmd_add(spec: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn cmd_add_registry(spec: &str, registry: Option<&str>) -> Result<(), String> {
+    let (name, version) = if let Some((n, v)) = spec.rsplit_once('@') {
+        (n.to_string(), Some(v.to_string()))
+    } else {
+        (spec.to_string(), None)
+    };
+
+    let registry_url = effective_registry(registry);
+
+    // Resolve version: use explicit version or find latest
+    let version = match version {
+        Some(v) => v,
+        None => {
+            let info = registry_package_info(&name, &registry_url)?;
+            latest_version(&info)
+                .ok_or_else(|| format!("No published versions found for '{name}'"))?
+        }
+    };
+
+    println!("Installing {name}@{version} from registry...");
+    registry_install(&name, &version, &registry_url)?;
+    println!("✓ Installed {name}@{version}");
+
+    // Add to sema.toml [deps] if present
+    let toml_path = Path::new("sema.toml");
+    if toml_path.exists() {
+        match add_dep_to_toml(toml_path, &name, &version) {
+            Ok(true) => println!("✓ Added {name} = \"{version}\" to sema.toml"),
+            Ok(false) => {}
+            Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
+        }
+    }
+
+    Ok(())
+}
+
 pub fn cmd_install() -> Result<(), String> {
     let toml_path = Path::new("sema.toml");
     if !toml_path.exists() {
@@ -128,17 +179,18 @@ pub fn cmd_install() -> Result<(), String> {
     };
 
     for (name, value) in deps {
-        let git_ref = match value.as_str() {
+        let version = match value.as_str() {
             Some(s) => s,
             None => {
                 return Err(format!(
-                    "dep '{name}': expected a git ref string (e.g., \"v1.0.0\" or \"main\")"
+                    "dep '{name}': expected a version/ref string (e.g., \"1.0.0\" or \"main\")"
                 ));
             }
         };
-        let spec = format!("{name}@{git_ref}");
+        let spec = format!("{name}@{version}");
         println!("Installing {name}...");
-        cmd_add(&spec)?;
+        // Keys with / are git deps; otherwise registry deps
+        cmd_add(&spec, None)?;
     }
 
     Ok(())
@@ -151,12 +203,7 @@ pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
         let dir = find_package_dir(&pkg_dir, name).ok_or_else(|| {
             format!("Package '{name}' not found. Run `sema pkg list` to see installed packages.")
         })?;
-        run_git(Some(&dir), &["pull"])?;
-        let current = current_git_ref(&dir);
-        println!(
-            "✓ Updated {} → {current}",
-            dir.strip_prefix(&pkg_dir).unwrap_or(&dir).display()
-        );
+        update_single_package(&pkg_dir, &dir)?;
     } else {
         let packages = find_all_packages(&pkg_dir);
         if packages.is_empty() {
@@ -165,16 +212,52 @@ pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
         }
         for dir in &packages {
             let rel = dir.strip_prefix(&pkg_dir).unwrap_or(dir);
-            match run_git(Some(dir), &["pull"]) {
-                Ok(_) => {
-                    let current = current_git_ref(dir);
-                    println!("✓ Updated {} → {current}", rel.display());
-                }
-                Err(e) => {
-                    eprintln!("✗ Failed to update {}: {e}", rel.display());
-                }
+            if let Err(e) = update_single_package(&pkg_dir, dir) {
+                eprintln!("✗ Failed to update {}: {e}", rel.display());
             }
         }
+    }
+
+    Ok(())
+}
+
+fn update_single_package(pkg_dir: &Path, dir: &Path) -> Result<(), String> {
+    let rel = dir.strip_prefix(pkg_dir).unwrap_or(dir);
+
+    if let Some(meta) = read_pkg_meta(dir) {
+        // Registry package — check for newer version
+        let name = meta
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&rel.display().to_string())
+            .to_string();
+        let current_ver = meta
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let registry = meta
+            .get("registry")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_REGISTRY);
+
+        let info = registry_package_info(&name, registry)?;
+        let latest = latest_version(&info)
+            .ok_or_else(|| format!("No versions found for '{name}'"))?;
+
+        if latest == current_ver {
+            println!("  {} already at latest ({current_ver})", rel.display());
+        } else {
+            println!("  Updating {} {current_ver} → {latest}...", rel.display());
+            registry_install(&name, &latest, registry)?;
+            println!("✓ Updated {} → {latest}", rel.display());
+        }
+    } else if dir.join(".git").is_dir() {
+        // Git package
+        run_git(Some(dir), &["pull"])?;
+        let current = current_git_ref(dir);
+        println!("✓ Updated {} → {current}", rel.display());
+    } else {
+        println!("  {} — unknown source, skipping", rel.display());
     }
 
     Ok(())
@@ -385,8 +468,20 @@ pub fn cmd_list() -> Result<(), String> {
 
     for dir in &packages {
         let rel = dir.strip_prefix(&pkg_dir).unwrap_or(dir);
-        let current = current_git_ref(dir);
-        println!("  {} ({})", rel.display(), current);
+        if let Some(meta) = read_pkg_meta(dir) {
+            let version = meta
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or("?");
+            let source = meta
+                .get("registry")
+                .and_then(|v| v.as_str())
+                .unwrap_or("registry");
+            println!("  {} ({version}) [{}]", rel.display(), source);
+        } else {
+            let current = current_git_ref(dir);
+            println!("  {} ({current}) [git]", rel.display());
+        }
     }
 
     Ok(())
@@ -418,6 +513,593 @@ version = "0.1.0"
     Ok(())
 }
 
+pub fn cmd_login(token: Option<&str>, registry: &str) -> Result<(), String> {
+    let token = match token {
+        Some(t) => t.to_string(),
+        None => {
+            eprint!("API token: ");
+            let mut input = String::new();
+            std::io::stdin()
+                .read_line(&mut input)
+                .map_err(|e| format!("Failed to read input: {e}"))?;
+            let input = input.trim().to_string();
+            if input.is_empty() {
+                return Err("Token cannot be empty".into());
+            }
+            input
+        }
+    };
+
+    if !token.starts_with("sema_pat_") {
+        return Err("Invalid token format. Tokens start with 'sema_pat_'".into());
+    }
+
+    let creds_path = credentials_path();
+    if let Some(parent) = creds_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {e}"))?;
+    }
+
+    let content = format!("[registry]\ntoken = \"{token}\"\nurl = \"{registry}\"\n");
+    std::fs::write(&creds_path, &content)
+        .map_err(|e| format!("Failed to write credentials: {e}"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(&creds_path, perms);
+    }
+
+    println!("✓ Login saved to {}", creds_path.display());
+    println!("  Registry: {registry}");
+    Ok(())
+}
+
+pub fn cmd_logout() -> Result<(), String> {
+    let creds_path = credentials_path();
+    if creds_path.exists() {
+        std::fs::remove_file(&creds_path)
+            .map_err(|e| format!("Failed to remove credentials: {e}"))?;
+        println!("✓ Logged out (removed {})", creds_path.display());
+    } else {
+        println!("Not logged in.");
+    }
+    Ok(())
+}
+
+fn credentials_path() -> PathBuf {
+    sema_core::home::sema_home().join("credentials.toml")
+}
+
+/// Read the stored API token from credentials file, if any.
+pub fn read_token() -> Option<String> {
+    let path = credentials_path();
+    let content = std::fs::read_to_string(path).ok()?;
+    let doc: toml::Value = toml::from_str(&content).ok()?;
+    doc.get("registry")?
+        .get("token")?
+        .as_str()
+        .map(|s| s.to_string())
+}
+
+pub fn cmd_config(key: Option<&str>, value: Option<&str>) -> Result<(), String> {
+    match (key, value) {
+        // Show all config
+        (None, _) => {
+            let url = read_registry_url();
+            let has_token = read_token().is_some();
+            println!("registry.url = {url}");
+            println!(
+                "registry.token = {}",
+                if has_token { "(set)" } else { "(not set)" }
+            );
+            println!("\nCredentials file: {}", credentials_path().display());
+            Ok(())
+        }
+        // Get a specific key
+        (Some(key), None) => match key {
+            "registry.url" | "registry" => {
+                println!("{}", read_registry_url());
+                Ok(())
+            }
+            _ => Err(format!("Unknown config key: {key}\nAvailable: registry.url")),
+        },
+        // Set a key
+        (Some(key), Some(value)) => match key {
+            "registry.url" | "registry" => {
+                set_registry_url(value)?;
+                println!("✓ Default registry set to {value}");
+                Ok(())
+            }
+            _ => Err(format!("Unknown config key: {key}\nAvailable: registry.url")),
+        },
+    }
+}
+
+/// Update the registry URL in credentials.toml, preserving the token if present.
+fn set_registry_url(url: &str) -> Result<(), String> {
+    let creds_path = credentials_path();
+    let token = read_token().unwrap_or_default();
+
+    if let Some(parent) = creds_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Failed to create config directory: {e}"))?;
+    }
+
+    let content = if token.is_empty() {
+        format!("[registry]\nurl = \"{url}\"\n")
+    } else {
+        format!("[registry]\ntoken = \"{token}\"\nurl = \"{url}\"\n")
+    };
+
+    std::fs::write(&creds_path, &content)
+        .map_err(|e| format!("Failed to write credentials: {e}"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o600);
+        let _ = std::fs::set_permissions(&creds_path, perms);
+    }
+
+    Ok(())
+}
+
+/// Read the stored registry URL from credentials file, or return default.
+fn read_registry_url() -> String {
+    let path = credentials_path();
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return DEFAULT_REGISTRY.to_string(),
+    };
+    let doc: toml::Value = match toml::from_str(&content) {
+        Ok(d) => d,
+        Err(_) => return DEFAULT_REGISTRY.to_string(),
+    };
+    doc.get("registry")
+        .and_then(|r| r.get("url"))
+        .and_then(|u| u.as_str())
+        .unwrap_or(DEFAULT_REGISTRY)
+        .to_string()
+}
+
+/// Resolve the effective registry URL: explicit flag > credentials > default.
+fn effective_registry(flag: Option<&str>) -> String {
+    match flag {
+        Some(url) => url.to_string(),
+        None => read_registry_url(),
+    }
+}
+
+/// Determine if a package spec looks like a git URL (has a hostname).
+///
+/// Heuristic: if the first path segment contains a dot, it's a hostname.
+/// e.g., "github.com/user/repo" → true, "http-helpers" → false.
+fn is_git_spec(spec: &str) -> bool {
+    // Strip @ref suffix for the check
+    let path = spec.split('@').next().unwrap_or(spec);
+    path.split('/')
+        .next()
+        .map(|first| first.contains('.'))
+        .unwrap_or(false)
+}
+
+/// Write registry package metadata to a `.sema-pkg.json` file.
+fn write_pkg_meta(
+    dir: &Path,
+    name: &str,
+    version: &str,
+    registry: &str,
+    checksum: &str,
+) -> Result<(), String> {
+    let meta = serde_json::json!({
+        "source": "registry",
+        "name": name,
+        "version": version,
+        "registry": registry,
+        "checksum": checksum,
+    });
+    let path = dir.join(PKG_META_FILE);
+    std::fs::write(&path, serde_json::to_string_pretty(&meta).unwrap())
+        .map_err(|e| format!("Failed to write package metadata: {e}"))
+}
+
+/// Read registry package metadata from `.sema-pkg.json`, if present.
+fn read_pkg_meta(dir: &Path) -> Option<serde_json::Value> {
+    let path = dir.join(PKG_META_FILE);
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Create a tarball of the given directory, excluding .git and target.
+fn create_tarball(dir: &str) -> Result<Vec<u8>, String> {
+    let output = Command::new("tar")
+        .args(["czf", "-", "--exclude", ".git", "--exclude", "target", "."])
+        .current_dir(dir)
+        .output()
+        .map_err(|e| format!("Failed to run tar: {e}"))?;
+
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        Err(format!("tar failed: {stderr}"))
+    }
+}
+
+/// Extract a tarball into a destination directory.
+fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), String> {
+    std::fs::create_dir_all(dest)
+        .map_err(|e| format!("Failed to create directory: {e}"))?;
+
+    let mut child = Command::new("tar")
+        .args(["xzf", "-", "-C"])
+        .arg(dest)
+        .stdin(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to run tar: {e}"))?;
+
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(data)
+        .map_err(|e| format!("Failed to write tarball data: {e}"))?;
+
+    let status = child.wait().map_err(|e| format!("tar failed: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err("tar extraction failed".to_string())
+    }
+}
+
+/// Install a package from the registry.
+fn registry_install(
+    name: &str,
+    version: &str,
+    registry_url: &str,
+) -> Result<(), String> {
+    let token = read_token();
+    let client = reqwest::blocking::Client::new();
+    let base = registry_url.trim_end_matches('/');
+
+    // Download tarball
+    let url = format!("{base}/api/v1/packages/{name}/{version}/download");
+    let mut req = client.get(&url);
+    if let Some(ref t) = token {
+        req = req.header("Authorization", format!("Bearer {t}"));
+    }
+
+    let resp = req.send().map_err(|e| format!("Download failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        let error = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("Download failed ({status}): {error}"));
+    }
+
+    let tarball = resp
+        .bytes()
+        .map_err(|e| format!("Failed to read response: {e}"))?;
+
+    // Compute checksum
+    use sha2::Digest;
+    let checksum = format!("{:x}", sha2::Sha256::digest(&tarball));
+
+    // Extract to packages dir
+    let pkg_dir = packages_dir();
+    let dest = pkg_dir.join(name);
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest)
+            .map_err(|e| format!("Failed to remove old package: {e}"))?;
+    }
+    extract_tarball(&tarball, &dest)?;
+
+    // Write metadata
+    write_pkg_meta(&dest, name, version, registry_url, &checksum)?;
+
+    Ok(())
+}
+
+/// Fetch package info from the registry.
+fn registry_package_info(
+    name: &str,
+    registry_url: &str,
+) -> Result<serde_json::Value, String> {
+    let client = reqwest::blocking::Client::new();
+    let base = registry_url.trim_end_matches('/');
+    let url = format!("{base}/api/v1/packages/{name}");
+
+    let mut req = client.get(&url);
+    if let Some(t) = read_token() {
+        req = req.header("Authorization", format!("Bearer {t}"));
+    }
+
+    let resp = req.send().map_err(|e| format!("Request failed: {e}"))?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        let error = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        return Err(format!("Failed to fetch package ({status}): {error}"));
+    }
+
+    resp.json()
+        .map_err(|e| format!("Failed to parse response: {e}"))
+}
+
+/// Get the latest non-yanked version from a package info response.
+fn latest_version(info: &serde_json::Value) -> Option<String> {
+    info.get("versions")?
+        .as_array()?
+        .iter()
+        .filter(|v| !v.get("yanked").and_then(|y| y.as_bool()).unwrap_or(false))
+        .filter_map(|v| v.get("version").and_then(|s| s.as_str()))
+        .next()
+        .map(|s| s.to_string())
+}
+
+pub fn cmd_publish(registry: Option<&str>) -> Result<(), String> {
+    let toml_path = Path::new("sema.toml");
+    if !toml_path.exists() {
+        return Err("No sema.toml found. Run `sema pkg init` first.".into());
+    }
+
+    let content = std::fs::read_to_string(toml_path)
+        .map_err(|e| format!("Failed to read sema.toml: {e}"))?;
+    let doc: toml::Value =
+        toml::from_str(&content).map_err(|e| format!("Failed to parse sema.toml: {e}"))?;
+
+    let pkg = doc
+        .get("package")
+        .ok_or("sema.toml missing [package] section")?;
+    let name = pkg
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or("sema.toml [package] missing 'name'")?;
+    let version = pkg
+        .get("version")
+        .and_then(|v| v.as_str())
+        .ok_or("sema.toml [package] missing 'version'")?;
+
+    // Basic semver format check
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() != 3 || parts.iter().any(|p| p.parse::<u64>().is_err()) {
+        return Err(format!(
+            "Invalid semver version in sema.toml: {version} (expected X.Y.Z)"
+        ));
+    }
+
+    let token =
+        read_token().ok_or("Not logged in. Run `sema pkg login --token <token>` first.")?;
+    let registry_url = effective_registry(registry);
+    let base = registry_url.trim_end_matches('/');
+
+    // Create tarball
+    println!("Packaging...");
+    let tarball = create_tarball(".")?;
+    println!("  {} bytes compressed", tarball.len());
+
+    // Build metadata
+    let metadata = serde_json::json!({
+        "description": pkg.get("description").and_then(|v| v.as_str()).unwrap_or(""),
+        "repository_url": pkg.get("repository").and_then(|v| v.as_str()),
+        "sema_version_req": pkg.get("sema_version_req").and_then(|v| v.as_str()),
+    });
+
+    // Upload
+    let url = format!("{base}/api/v1/packages/{name}/{version}");
+    let form = reqwest::blocking::multipart::Form::new()
+        .part(
+            "tarball",
+            reqwest::blocking::multipart::Part::bytes(tarball)
+                .file_name("package.tar.gz")
+                .mime_str("application/gzip")
+                .unwrap(),
+        )
+        .part(
+            "metadata",
+            reqwest::blocking::multipart::Part::text(metadata.to_string()),
+        );
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .put(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .multipart(form)
+        .send()
+        .map_err(|e| format!("Upload failed: {e}"))?;
+
+    if resp.status().is_success() {
+        let body: serde_json::Value = resp
+            .json()
+            .map_err(|e| format!("Failed to parse response: {e}"))?;
+        let checksum = body
+            .get("checksum")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let size = body.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
+        println!("✓ Published {name}@{version} ({size} bytes, sha256:{checksum})");
+        Ok(())
+    } else {
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        let error = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        Err(format!("Publish failed ({status}): {error}"))
+    }
+}
+
+pub fn cmd_search(query: &str, registry: Option<&str>) -> Result<(), String> {
+    let registry_url = effective_registry(registry);
+    let base = registry_url.trim_end_matches('/');
+    let url = format!("{base}/api/v1/search?q={}", urlencoded(query));
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get(&url)
+        .send()
+        .map_err(|e| format!("Search failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(format!("Search failed ({status})"));
+    }
+
+    let body: serde_json::Value = resp
+        .json()
+        .map_err(|e| format!("Failed to parse response: {e}"))?;
+
+    let packages = body
+        .get("packages")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if packages.is_empty() {
+        println!("No packages found for '{query}'.");
+        return Ok(());
+    }
+
+    let total = body.get("total").and_then(|v| v.as_i64()).unwrap_or(0);
+    println!("Found {total} package{}:\n", if total == 1 { "" } else { "s" });
+
+    for pkg in &packages {
+        let name = pkg.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        let desc = pkg
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if desc.is_empty() {
+            println!("  {name}");
+        } else {
+            println!("  {name} — {desc}");
+        }
+    }
+
+    Ok(())
+}
+
+pub fn cmd_yank(spec: &str, registry: Option<&str>) -> Result<(), String> {
+    let (name, version) = spec
+        .rsplit_once('@')
+        .ok_or("Expected format: <package>@<version> (e.g., my-package@0.1.0)")?;
+
+    let token =
+        read_token().ok_or("Not logged in. Run `sema pkg login --token <token>` first.")?;
+    let registry_url = effective_registry(registry);
+    let base = registry_url.trim_end_matches('/');
+
+    let url = format!("{base}/api/v1/packages/{name}/{version}/yank");
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .map_err(|e| format!("Yank failed: {e}"))?;
+
+    if resp.status().is_success() {
+        println!("✓ Yanked {name}@{version}");
+        Ok(())
+    } else {
+        let status = resp.status();
+        let body: serde_json::Value = resp.json().unwrap_or_default();
+        let error = body
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        Err(format!("Yank failed ({status}): {error}"))
+    }
+}
+
+pub fn cmd_info(name: &str, registry: Option<&str>) -> Result<(), String> {
+    let registry_url = effective_registry(registry);
+    let info = registry_package_info(name, &registry_url)?;
+
+    let pkg = info.get("package").unwrap_or(&info);
+    let pkg_name = pkg.get("name").and_then(|v| v.as_str()).unwrap_or(name);
+    let desc = pkg
+        .get("description")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let repo = pkg
+        .get("repository_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+
+    println!("{pkg_name}");
+    if !desc.is_empty() {
+        println!("  {desc}");
+    }
+    if !repo.is_empty() {
+        println!("  repo: {repo}");
+    }
+
+    let owners = info
+        .get("owners")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if !owners.is_empty() {
+        let names: Vec<&str> = owners
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        println!("  owners: {}", names.join(", "));
+    }
+
+    let versions = info
+        .get("versions")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    if versions.is_empty() {
+        println!("\n  No versions published.");
+    } else {
+        println!("\n  Versions:");
+        for v in &versions {
+            let ver = v.get("version").and_then(|s| s.as_str()).unwrap_or("?");
+            let yanked = v.get("yanked").and_then(|b| b.as_bool()).unwrap_or(false);
+            let size = v.get("size_bytes").and_then(|n| n.as_i64()).unwrap_or(0);
+            let published = v
+                .get("published_at")
+                .and_then(|s| s.as_str())
+                .unwrap_or("");
+            let yank_mark = if yanked { " (yanked)" } else { "" };
+            println!("    {ver} — {size} bytes, {published}{yank_mark}");
+        }
+    }
+
+    Ok(())
+}
+
+/// Minimal URL encoding for query parameters.
+fn urlencoded(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            ' ' => result.push_str("%20"),
+            '&' => result.push_str("%26"),
+            '=' => result.push_str("%3D"),
+            '#' => result.push_str("%23"),
+            '+' => result.push_str("%2B"),
+            '%' => result.push_str("%25"),
+            _ => result.push(c),
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,13 +1117,13 @@ mod tests {
     }
 
     #[test]
-    fn test_find_all_packages_finds_mod_sema() {
+    fn test_find_all_packages_finds_package_sema() {
         let tmp = std::env::temp_dir().join(format!("sema-pkg-find2-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
 
         let pkg = tmp.join("github.com/user/repo");
         std::fs::create_dir_all(&pkg).unwrap();
-        std::fs::write(pkg.join("mod.sema"), "(define x 1)").unwrap();
+        std::fs::write(pkg.join("package.sema"), "(define x 1)").unwrap();
 
         let packages = find_all_packages(&tmp);
         assert_eq!(packages.len(), 1);
@@ -472,7 +1154,7 @@ mod tests {
 
         let pkg = tmp.join("github.com/user/repo");
         std::fs::create_dir_all(&pkg).unwrap();
-        std::fs::write(pkg.join("mod.sema"), "(define x 1)").unwrap();
+        std::fs::write(pkg.join("package.sema"), "(define x 1)").unwrap();
 
         let found = find_package_dir(&tmp, "github.com/user/repo");
         assert!(found.is_some());
@@ -488,7 +1170,7 @@ mod tests {
 
         let pkg = tmp.join("github.com/user/mylib");
         std::fs::create_dir_all(&pkg).unwrap();
-        std::fs::write(pkg.join("mod.sema"), "(define x 1)").unwrap();
+        std::fs::write(pkg.join("package.sema"), "(define x 1)").unwrap();
 
         let found = find_package_dir(&tmp, "mylib");
         assert!(found.is_some());
@@ -537,7 +1219,7 @@ mod tests {
 
     #[test]
     fn test_cmd_add_rejects_traversal() {
-        let result = cmd_add("github.com/../../etc/passwd");
+        let result = cmd_add("github.com/../../etc/passwd", None);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.contains("path traversal"), "got: {err}");
@@ -545,7 +1227,7 @@ mod tests {
 
     #[test]
     fn test_cmd_add_rejects_scheme() {
-        let result = cmd_add("https://github.com/user/repo");
+        let result = cmd_add("https://github.com/user/repo", None);
         assert!(result.is_err());
     }
 
@@ -848,5 +1530,61 @@ name = "myproject"
         assert!(result.unwrap_err().contains("already exists"));
 
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_is_git_spec() {
+        assert!(is_git_spec("github.com/user/repo"));
+        assert!(is_git_spec("github.com/user/repo@v1.0"));
+        assert!(is_git_spec("gitlab.com/org/lib@main"));
+        assert!(!is_git_spec("http-helpers"));
+        assert!(!is_git_spec("http-helpers@1.0.0"));
+        assert!(!is_git_spec("my-package"));
+    }
+
+    #[test]
+    fn test_write_and_read_pkg_meta() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-meta-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        write_pkg_meta(&tmp, "test-pkg", "1.0.0", "https://registry.example.com", "abc123")
+            .unwrap();
+
+        let meta = read_pkg_meta(&tmp);
+        assert!(meta.is_some());
+        let meta = meta.unwrap();
+        assert_eq!(meta["source"], "registry");
+        assert_eq!(meta["name"], "test-pkg");
+        assert_eq!(meta["version"], "1.0.0");
+        assert_eq!(meta["registry"], "https://registry.example.com");
+        assert_eq!(meta["checksum"], "abc123");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_read_pkg_meta_missing() {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-meta2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        assert!(read_pkg_meta(&tmp).is_none());
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_urlencoded() {
+        assert_eq!(urlencoded("hello world"), "hello%20world");
+        assert_eq!(urlencoded("a&b=c"), "a%26b%3Dc");
+        assert_eq!(urlencoded("simple"), "simple");
+    }
+
+    #[test]
+    fn test_cmd_yank_requires_at_sign() {
+        let result = cmd_yank("my-package", None);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Expected format"));
     }
 }
