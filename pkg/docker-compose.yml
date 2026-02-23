@@ -1,0 +1,14 @@
+services:
+  registry:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      RUST_LOG: info
+      DATABASE_URL: sqlite://data/registry.db?mode=rwc
+      BLOB_DIR: data/blobs
+      BASE_URL: http://localhost:3000

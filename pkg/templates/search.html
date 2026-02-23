@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Search — Sema Pkg{% endblock %}
+{% block header_center %}
+<form action="/search" method="get" class="search-bar" style="max-width:22rem;">
+  <input type="text" name="q" class="search-input" placeholder="Search packages…" value="{{ query }}">
+  <button type="submit" class="search-btn">Search</button>
+</form>
+{% endblock %}
+{% block content %}
+<div class="page-content">
+  <div style="display:flex; align-items:baseline; justify-content:space-between; margin-bottom:1.5rem;">
+    <div>
+      {% if !query.is_empty() %}
+      <span style="font-size:0.85rem; color:var(--text-bright);">Results for </span>
+      <span style="font-size:0.85rem; color:var(--gold);">"{{ query }}"</span>
+      {% else %}
+      <span style="font-size:0.85rem; color:var(--text-bright);">All packages</span>
+      {% endif %}
+      <span style="font-size:0.7rem; color:var(--text-dim); margin-left:0.5rem;">{{ total }} packages</span>
+    </div>
+  </div>
+
+  {% if packages.is_empty() %}
+  <div class="empty-state">No packages found</div>
+  {% else %}
+  <div class="pkg-list">
+    {% for pkg in packages %}
+    <a href="/packages/{{ pkg.name }}" class="pkg-list-item">
+      <div class="pkg-list-left">
+        <span class="pkg-list-name">{{ pkg.name }}</span><span class="pkg-list-version">{{ pkg.latest_version }}</span>
+        <div class="pkg-list-desc">{{ pkg.description }}</div>
+      </div>
+      <div class="pkg-list-right">{{ pkg.published_at }}</div>
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if total > per_page %}
+  <div style="display:flex; justify-content:center; gap:0.5rem; margin-top:2rem;">
+    {% if page > 1 %}
+    <a href="/search?q={{ query }}&page={{ page - 1 }}" class="btn btn-ghost">← Prev</a>
+    {% endif %}
+    <span class="btn btn-ghost" style="color:var(--gold); border-color:var(--gold-dim);">{{ page }}</span>
+    {% if (page * per_page) < total %}
+    <a href="/search?q={{ query }}&page={{ page + 1 }}" class="btn btn-ghost">Next →</a>
+    {% endif %}
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

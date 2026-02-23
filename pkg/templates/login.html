@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}Sign In — Sema Pkg{% endblock %}
+{% block head %}
+<style>
+  .auth-container {
+    max-width: 22rem;
+    margin: 0 auto;
+    padding: 4rem 0;
+  }
+
+  .auth-header {
+    text-align: center;
+    margin-bottom: 2rem;
+  }
+
+  .auth-header h1 {
+    font-family: var(--serif);
+    font-size: 1.8rem;
+    font-weight: 300;
+    color: var(--text-bright);
+    margin-bottom: 0.3rem;
+  }
+
+  .auth-header p {
+    font-size: 0.78rem;
+    color: var(--text-dim);
+  }
+
+  .auth-card {
+    background: var(--bg-raised);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.5rem;
+  }
+
+  .auth-tabs {
+    display: flex;
+    margin: -1.5rem -1.5rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .auth-tab {
+    flex: 1;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    padding: 0.75rem;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s;
+    background: none;
+    border-top: none;
+    border-left: none;
+    border-right: none;
+  }
+  .auth-tab:first-child { border-radius: 6px 0 0 0; }
+  .auth-tab:last-child { border-radius: 0 6px 0 0; }
+  .auth-tab:hover { color: var(--text); }
+  .auth-tab.active {
+    color: var(--gold);
+    border-bottom-color: var(--gold);
+  }
+
+  .auth-panel { display: none; }
+  .auth-panel.active { display: block; }
+
+  .auth-form .form-group { margin-bottom: 1rem; }
+  .auth-form .form-input { max-width: none; }
+
+  .auth-form .btn-primary {
+    width: 100%;
+    padding: 0.6rem;
+    margin-top: 0.25rem;
+  }
+
+  .auth-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.25rem 0;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+  }
+
+  .auth-divider::before,
+  .auth-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  .btn-github {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    padding: 0.6rem;
+    background: transparent;
+    color: var(--text-bright);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .btn-github:hover {
+    border-color: var(--text-dim);
+    background: var(--gold-glow);
+  }
+
+  .btn-github svg {
+    width: 16px;
+    height: 16px;
+    fill: var(--text-bright);
+  }
+
+  .auth-footer {
+    text-align: center;
+    margin-top: 1.25rem;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+  }
+
+  .auth-footer a {
+    color: var(--gold);
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-content">
+  <div class="auth-container" x-data="{ tab: 'signin', error: '', loading: false }">
+    <div class="auth-header">
+      <h1>Sema Pkg</h1>
+      <p>Publish and install Sema packages</p>
+    </div>
+
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab" :class="tab === 'signin' ? 'active' : ''" @click="tab = 'signin'">Sign In</button>
+        <button class="auth-tab" :class="tab === 'signup' ? 'active' : ''" @click="tab = 'signup'">Create Account</button>
+      </div>
+
+      <div x-show="error" style="padding:0.5rem 0.75rem; margin-bottom:1rem; font-size:0.72rem; color:var(--error); border:1px solid rgba(200,85,85,0.3); border-radius:4px;" x-text="error"></div>
+
+      <div x-show="tab === 'signin'">
+        <form class="auth-form" @submit.prevent="
+          loading = true; error = '';
+          const res = await fetch('/api/v1/auth/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: $refs.loginUser.value, password: $refs.loginPass.value})
+          });
+          const data = await res.json();
+          loading = false;
+          if (res.ok) { window.location = '/account'; } else { error = data.error; }
+        ">
+          <div class="form-group">
+            <label class="form-label">Username or Email</label>
+            <input type="text" class="form-input" placeholder="helge" x-ref="loginUser" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-input" placeholder="••••••••" x-ref="loginPass" required>
+          </div>
+          <button type="submit" class="btn btn-primary" :disabled="loading" x-text="loading ? 'Signing in…' : 'Sign In'"></button>
+        </form>
+
+        {% if github_enabled %}
+        <div class="auth-divider">or</div>
+        <a href="/auth/github" class="btn-github">
+          <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Continue with GitHub
+        </a>
+        {% endif %}
+      </div>
+
+      <div x-show="tab === 'signup'" style="display:none;">
+        <form class="auth-form" @submit.prevent="
+          loading = true; error = '';
+          const res = await fetch('/api/v1/auth/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({username: $refs.regUser.value, email: $refs.regEmail.value, password: $refs.regPass.value})
+          });
+          const data = await res.json();
+          loading = false;
+          if (res.ok) { window.location = '/account'; } else { error = data.error; }
+        ">
+          <div class="form-group">
+            <label class="form-label">Username</label>
+            <input type="text" class="form-input" placeholder="helge" x-ref="regUser" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input type="email" class="form-input" placeholder="you@example.com" x-ref="regEmail" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Password</label>
+            <input type="password" class="form-input" placeholder="••••••••" x-ref="regPass" required>
+          </div>
+          <button type="submit" class="btn btn-primary" :disabled="loading" x-text="loading ? 'Creating…' : 'Create Account'"></button>
+        </form>
+
+        {% if github_enabled %}
+        <div class="auth-divider">or</div>
+        <a href="/auth/github" class="btn-github">
+          <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          Sign up with GitHub
+        </a>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="auth-footer">
+      By signing in you agree to the <a href="#">terms of service</a>.
+    </div>
+  </div>
+</div>
+{% endblock %}

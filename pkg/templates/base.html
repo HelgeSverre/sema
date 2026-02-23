@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Sema Pkg{% endblock %}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:wght@300;400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+{% block head %}{% endblock %}
+</head>
+<body>
+
+<header class="site-header">
+  <a href="/" class="logo">Sema<span class="logo-suffix">pkg</span></a>
+  {% block header_center %}{% endblock %}
+  <nav class="header-nav">
+    <a href="/search" class="header-link">Browse</a>
+    <a href="https://sema-lang.com/docs/" class="header-link">Docs</a>
+    {% if username.is_some() %}
+    <a href="/account" class="header-link">Account</a>
+    {% else %}
+    <a href="/login" class="header-link">Sign In</a>
+    {% endif %}
+  </nav>
+</header>
+
+{% block content %}{% endblock %}
+
+<footer class="site-footer">
+  <a href="https://sema-lang.com">sema-lang.com</a> · <a href="https://sema.run">playground</a> · <a href="https://github.com/HelgeSverre/sema">github</a>
+</footer>
+
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3/dist/cdn.min.js"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

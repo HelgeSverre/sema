@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Account — Sema Pkg{% endblock %}
+{% block head %}
+<style>
+  .account-grid {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    gap: 2.5rem;
+    align-items: start;
+  }
+
+  .account-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .account-nav a {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    padding: 0.4rem 0.6rem;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+  }
+  .account-nav a:hover { color: var(--text); background: var(--gold-glow); opacity: 1; }
+  .account-nav a.active { color: var(--gold); background: var(--gold-glow); }
+
+  .account-section {
+    margin-bottom: 2.5rem;
+  }
+
+  .account-section h2 {
+    font-size: 0.95rem;
+    color: var(--text-bright);
+    margin-bottom: 1rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .token-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    gap: 1rem;
+  }
+
+  .token-name {
+    font-size: 0.78rem;
+    color: var(--text-bright);
+  }
+
+  .token-meta {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+  }
+
+  .token-preview {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    font-family: var(--mono);
+  }
+
+  @media (max-width: 640px) {
+    .account-grid {
+      grid-template-columns: 1fr;
+    }
+    .account-nav {
+      flex-direction: row;
+      gap: 0.25rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-content">
+  <h1 style="font-family:var(--serif); font-size:1.6rem; font-weight:300; color:var(--text-bright); margin-bottom:1.5rem;">Account</h1>
+  <div class="account-grid">
+    <nav class="account-nav">
+      <a href="#profile" class="active">Profile</a>
+      <a href="#packages">My Packages</a>
+      <a href="#tokens">API Tokens</a>
+    </nav>
+
+    <div>
+      <div class="account-section" id="profile">
+        <h2>Profile</h2>
+        <div class="form-group">
+          <label class="form-label">Username</label>
+          <input type="text" class="form-input" value="{{ username.as_deref().unwrap_or_default() }}" readonly style="opacity:0.6; cursor:not-allowed;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input type="text" class="form-input" value="{{ user_email }}">
+        </div>
+        {% if let Some(hp) = user_homepage %}
+        <div class="form-group">
+          <label class="form-label">Homepage</label>
+          <input type="url" class="form-input" value="{{ hp }}" placeholder="https://…">
+        </div>
+        {% else %}
+        <div class="form-group">
+          <label class="form-label">Homepage</label>
+          <input type="url" class="form-input" value="" placeholder="https://…">
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="account-section" id="packages">
+        <h2>My Packages</h2>
+        {% if packages.is_empty() %}
+        <div class="empty-state">You haven't published any packages yet.</div>
+        {% else %}
+        <div class="pkg-list">
+          {% for pkg in packages %}
+          <a href="/packages/{{ pkg.name }}" class="pkg-list-item">
+            <div class="pkg-list-left">
+              <span class="pkg-list-name">{{ pkg.name }}</span><span class="pkg-list-version">{{ pkg.latest_version }}</span>
+              <div class="pkg-list-desc">{{ pkg.description }}</div>
+            </div>
+          </a>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+
+      <div class="account-section" id="tokens" x-data="{ tokens: [{% for t in tokens %}{ id: {{ t.id }}, name: '{{ t.name }}', created_at: '{{ t.created_at }}', last_used_at: {% if let Some(lu) = t.last_used_at %}'{{ lu }}'{% else %}null{% endif %} },{% endfor %}], newName: '', newToken: '', creating: false }">
+        <h2>API Tokens</h2>
+        <p style="font-size:0.78rem; color:var(--text-dim); margin-bottom:1rem;">
+          Tokens are used by <code style="font-family:var(--mono); color:var(--gold); font-size:0.82em;">sema pkg publish</code> to authenticate.
+        </p>
+
+        <div x-show="newToken" style="padding:0.75rem; margin-bottom:1rem; background:var(--bg-code); border:1px solid var(--gold-dim); border-radius:4px;">
+          <div style="font-size:0.65rem; color:var(--gold); margin-bottom:0.3rem;">Token created — copy it now, it won't be shown again:</div>
+          <code style="font-size:0.78rem; color:var(--text-bright); word-break:break-all;" x-text="newToken"></code>
+          <div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border);">
+            <div style="font-size:0.65rem; color:var(--text-dim); margin-bottom:0.3rem;">Login from the CLI:</div>
+            <div class="install-snippet" style="display:inline-flex; font-size:0.72rem;">
+              <span class="prompt">$</span> <span x-text="'sema pkg login --token ' + newToken"></span>
+            </div>
+          </div>
+        </div>
+
+        <template x-for="t in tokens" :key="t.id">
+          <div class="token-row" style="border-top:1px solid var(--border);">
+            <div>
+              <div class="token-name" x-text="t.name"></div>
+              <div class="token-meta">
+                <span>Created </span><span x-text="t.created_at"></span>
+                <template x-if="t.last_used_at"><span> · Last used <span x-text="t.last_used_at"></span></span></template>
+              </div>
+            </div>
+            <button class="btn btn-danger" style="font-size:0.65rem; padding:0.3rem 0.6rem;" @click="
+              if (!confirm('Revoke token ' + t.name + '?')) return;
+              await fetch('/api/v1/tokens/' + t.id, {method:'DELETE'});
+              tokens = tokens.filter(x => x.id !== t.id);
+            ">Revoke</button>
+          </div>
+        </template>
+
+        <div style="margin-top:1rem;">
+          <div class="form-group" style="margin-bottom:0.5rem;">
+            <label class="form-label">New Token Name</label>
+            <div style="display:flex; gap:0.5rem; align-items:center;">
+              <input type="text" class="form-input" placeholder="e.g. github-actions" style="max-width:16rem;" x-model="newName">
+              <button class="btn btn-primary" style="font-size:0.7rem; padding:0.45rem 0.8rem;" :disabled="creating || !newName.trim()" @click="
+                creating = true;
+                const res = await fetch('/api/v1/tokens', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: newName})});
+                const data = await res.json();
+                creating = false;
+                if (res.ok) { newToken = data.token; tokens.push({id: data.id, name: data.name, created_at: 'just now', last_used_at: null}); newName = ''; }
+              " x-text="creating ? 'Creating…' : 'Generate'"></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

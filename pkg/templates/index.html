@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Sema Pkg — Package Registry{% endblock %}
+{% block content %}
+<div class="page-content">
+  <section style="text-align:center; padding: 4rem 0 3.5rem;">
+    <h1 style="font-family:var(--serif); font-size:2.4rem; font-weight:300; color:var(--text-bright); margin-bottom:0.4rem;">
+      Sema Packages
+    </h1>
+    <p style="color:var(--text-dim); font-size:0.82rem; margin-bottom:2rem; font-style:italic;">
+      Discover and share Sema libraries
+    </p>
+    <form action="/search" method="get" class="search-bar" style="max-width:28rem; margin:0 auto;">
+      <input type="text" name="q" class="search-input" placeholder="Search packages…" autofocus>
+      <button type="submit" class="search-btn">Search</button>
+    </form>
+    <div style="margin-top:1rem; font-size:0.65rem; color:var(--text-dim);">
+      {{ total_packages }} packages published
+    </div>
+  </section>
+
+  {% if !recent.is_empty() %}
+  <section style="margin-bottom:2.5rem;">
+    <div class="section-label">Recently Updated</div>
+    <div class="pkg-list">
+      {% for pkg in recent %}
+      <a href="/packages/{{ pkg.name }}" class="pkg-list-item">
+        <div class="pkg-list-left">
+          <span class="pkg-list-name">{{ pkg.name }}</span><span class="pkg-list-version">{{ pkg.latest_version }}</span>
+          <div class="pkg-list-desc">{{ pkg.description }}</div>
+        </div>
+        <div class="pkg-list-right">{{ pkg.published_at }}</div>
+      </a>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+
+  <section style="text-align:center; padding:2rem 0;">
+    <div class="install-snippet" style="display:inline-flex;">
+      <span class="prompt">$</span> sema pkg install &lt;package-name&gt;
+    </div>
+  </section>
+</div>
+{% endblock %}
