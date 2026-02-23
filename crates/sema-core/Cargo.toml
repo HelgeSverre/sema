@@ -10,7 +10,6 @@ readme = "README.md"
 
 [dependencies]
 thiserror.workspace = true
-serde.workspace = true
 serde_json.workspace = true
 lasso.workspace = true
 hashbrown.workspace = true

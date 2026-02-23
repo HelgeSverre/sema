@@ -263,6 +263,47 @@ dual_eval_tests! {
         (let ((t (toml/decode "[package]\nname = \"x\"\n\n[deps]\nfoo = \"bar\"")))
           (list (:name (:package t)) (:foo (:deps t))))
     "# => Value::list(vec![Value::string("x"), Value::string("bar")]),
+
+    toml_decode_integer: r#"
+        (let ((t (toml/decode "port = 8080")))
+          (:port t))
+    "# => Value::int(8080),
+
+    toml_decode_float: r#"
+        (let ((t (toml/decode "pi = 3.14")))
+          (:pi t))
+    "# => Value::float(3.14),
+
+    toml_decode_bool: r#"
+        (let ((t (toml/decode "debug = true")))
+          (:debug t))
+    "# => Value::bool(true),
+
+    toml_decode_empty_table: r#"
+        (let ((t (toml/decode "")))
+          (map? t))
+    "# => Value::bool(true),
+
+    toml_encode_basic: r#"
+        (string/contains? (toml/encode {:name "test"}) "name = \"test\"")
+    "# => Value::bool(true),
+
+    toml_roundtrip_simple: r#"
+        (let* ((original {:name "sema" :version "1.0"})
+               (encoded (toml/encode original))
+               (decoded (toml/decode encoded)))
+          (list (:name decoded) (:version decoded)))
+    "# => Value::list(vec![Value::string("sema"), Value::string("1.0")]),
+}
+
+dual_eval_error_tests! {
+    toml_decode_invalid_input: r#"(toml/decode "[invalid")"#,
+
+    toml_encode_non_map: r#"(toml/encode "not a map")"#,
+
+    toml_decode_wrong_type: r#"(toml/decode 42)"#,
+
+    toml_encode_nil_value: r#"(toml/encode {:key nil})"#,
 }
 
 dual_eval_error_tests! {

@@ -27,10 +27,10 @@ mod server;
 mod string;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;
-mod toml_ops;
 #[cfg(not(target_arch = "wasm32"))]
 mod terminal;
 mod text;
+mod toml_ops;
 
 use sema_core::{Caps, Env, Sandbox, Value};
 

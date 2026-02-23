@@ -8266,6 +8266,126 @@ fn test_kv_persistence() {
     let _ = std::fs::remove_file(&tmp);
 }
 
+#[test]
+fn test_kv_set_and_get_map() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-map.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "m" "{path}")"#))
+        .unwrap();
+    interp
+        .eval_str(r#"(kv/set "m" "user" {:name "Alice" :age 30})"#)
+        .unwrap();
+    let result = interp.eval_str(r#"(kv/get "m" "user")"#).unwrap();
+    let map = result.as_map_rc().expect("expected map back from kv/get");
+    assert_eq!(
+        map.get(&Value::keyword("name")).unwrap().as_str().unwrap(),
+        "Alice"
+    );
+    assert_eq!(
+        map.get(&Value::keyword("age")).unwrap().as_int().unwrap(),
+        30
+    );
+    interp.eval_str(r#"(kv/close "m")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_set_and_get_list() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-list.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "l" "{path}")"#))
+        .unwrap();
+    interp
+        .eval_str(r#"(kv/set "l" "nums" (list 1 2 3))"#)
+        .unwrap();
+    let result = interp.eval_str(r#"(kv/get "l" "nums")"#).unwrap();
+    let items = result.as_list().expect("expected list back from kv/get");
+    assert_eq!(items.len(), 3);
+    assert_eq!(items[0].as_int().unwrap(), 1);
+    interp.eval_str(r#"(kv/close "l")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_set_nested_map_with_nan() {
+    let interp = Interpreter::new();
+    let tmp = std::env::temp_dir().join("sema-kv-test-nan.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    interp
+        .eval_str(&format!(r#"(kv/open "n" "{path}")"#))
+        .unwrap();
+    // NaN inside a map — lossy conversion should preserve the map and null-out the NaN
+    interp
+        .eval_str(r#"(kv/set "n" "data" {:ok 42 :bad math/nan})"#)
+        .unwrap();
+    let result = interp.eval_str(r#"(kv/get "n" "data")"#).unwrap();
+    let map = result
+        .as_map_rc()
+        .expect("expected map back from kv/get, not a string");
+    assert_eq!(
+        map.get(&Value::keyword("ok")).unwrap().as_int().unwrap(),
+        42
+    );
+    assert!(
+        map.get(&Value::keyword("bad")).unwrap().is_nil(),
+        "NaN should round-trip through KV as nil"
+    );
+    interp.eval_str(r#"(kv/close "n")"#).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_kv_persistence_with_nested_data() {
+    let tmp = std::env::temp_dir().join("sema-kv-test-nested-persist.json");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    {
+        let interp = Interpreter::new();
+        interp
+            .eval_str(&format!(r#"(kv/open "np" "{path}")"#))
+            .unwrap();
+        interp
+            .eval_str(
+                r#"(kv/set "np" "config" {:host "localhost" :port 8080 :tags (list "a" "b")})"#,
+            )
+            .unwrap();
+        interp.eval_str(r#"(kv/close "np")"#).unwrap();
+    }
+    {
+        let interp = Interpreter::new();
+        interp
+            .eval_str(&format!(r#"(kv/open "np" "{path}")"#))
+            .unwrap();
+        let result = interp.eval_str(r#"(kv/get "np" "config")"#).unwrap();
+        let map = result
+            .as_map_rc()
+            .expect("expected persisted map from kv/get");
+        assert_eq!(
+            map.get(&Value::keyword("host")).unwrap().as_str().unwrap(),
+            "localhost"
+        );
+        assert_eq!(
+            map.get(&Value::keyword("port")).unwrap().as_int().unwrap(),
+            8080
+        );
+        let tags = map
+            .get(&Value::keyword("tags"))
+            .unwrap()
+            .as_list()
+            .expect("tags should be a list");
+        assert_eq!(tags.len(), 2);
+        interp.eval_str(r#"(kv/close "np")"#).unwrap();
+    }
+    let _ = std::fs::remove_file(&tmp);
+}
+
 // --- Document metadata tests ---
 
 #[test]
@@ -12662,33 +12782,113 @@ fn test_vfs_import_selective() {
     .unwrap();
 }
 
+// All package import tests share a single SEMA_HOME env var and must run
+// sequentially in a single thread to avoid races with other tests.
 #[test]
-fn test_package_import() {
-    let tmp = std::env::temp_dir().join(format!(
-        "sema-pkg-test-{}",
-        std::process::id()
-    ));
-    let _ = std::fs::remove_dir_all(&tmp);
+fn test_package_imports() {
+    std::thread::spawn(|| {
+        let tmp = std::env::temp_dir().join(format!("sema-pkg-all-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
 
-    // Create a fake package at <tmp>/packages/github.com/test/mylib/mod.sema
-    let pkg_dir = tmp.join("packages/github.com/test/mylib");
-    std::fs::create_dir_all(&pkg_dir).unwrap();
-    std::fs::write(
-        pkg_dir.join("mod.sema"),
-        "(module mylib (export greet) (define (greet name) (string-append \"hello \" name)))",
-    )
-    .unwrap();
-
-    // Set SEMA_HOME so resolve picks up our temp dir
-    std::env::set_var("SEMA_HOME", &tmp);
-
-    let interp = Interpreter::new();
-    let result = interp
-        .eval_str(r#"(begin (import "github.com/test/mylib") (greet "world"))"#)
+        // Set up all fake packages in one SEMA_HOME
+        let mylib = tmp.join("packages/github.com/test/mylib");
+        std::fs::create_dir_all(&mylib).unwrap();
+        std::fs::write(
+            mylib.join("mod.sema"),
+            "(module mylib (export greet) (define (greet name) (string-append \"hello \" name)))",
+        )
         .unwrap();
-    assert_eq!(result, Value::string("hello world"));
 
-    // Cleanup
-    std::env::remove_var("SEMA_HOME");
-    let _ = std::fs::remove_dir_all(&tmp);
+        let mathlib = tmp.join("packages/github.com/test/mathlib");
+        std::fs::create_dir_all(&mathlib).unwrap();
+        std::fs::write(
+            mathlib.join("mod.sema"),
+            "(module mathlib (export square cube) (define (square x) (* x x)) (define (cube x) (* x x x)) (define (internal) 999))",
+        )
+        .unwrap();
+
+        let custom = tmp.join("packages/github.com/test/custom");
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::write(custom.join("sema.toml"), "entrypoint = \"lib.sema\"\n").unwrap();
+        std::fs::write(
+            custom.join("lib.sema"),
+            "(module custom (export answer) (define (answer) 42))",
+        )
+        .unwrap();
+
+        let cached = tmp.join("packages/github.com/test/cached");
+        std::fs::create_dir_all(&cached).unwrap();
+        std::fs::write(
+            cached.join("mod.sema"),
+            "(module cached (export val) (define val 99))",
+        )
+        .unwrap();
+
+        std::env::set_var("SEMA_HOME", &tmp);
+
+        // --- Basic package import ---
+        {
+            let interp = Interpreter::new();
+            let result = interp
+                .eval_str(r#"(begin (import "github.com/test/mylib") (greet "world"))"#)
+                .unwrap();
+            assert_eq!(result, Value::string("hello world"), "basic package import");
+        }
+
+        // --- Selective import ---
+        {
+            let interp = Interpreter::new();
+            let result = interp
+                .eval_str(r#"(begin (import "github.com/test/mathlib" square) (square 5))"#)
+                .unwrap();
+            assert_eq!(result, Value::int(25), "selective package import");
+        }
+
+        // --- Custom entrypoint via sema.toml ---
+        {
+            let interp = Interpreter::new();
+            let result = interp
+                .eval_str(r#"(begin (import "github.com/test/custom") (answer))"#)
+                .unwrap();
+            assert_eq!(result, Value::int(42), "custom entrypoint import");
+        }
+
+        // --- Package not found error ---
+        {
+            let interp = Interpreter::new();
+            let err = interp
+                .eval_str(r#"(import "github.com/nonexistent/pkg")"#)
+                .unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("package not found"), "not found error: got {msg}");
+        }
+
+        // --- Path traversal rejected ---
+        {
+            let interp = Interpreter::new();
+            let err = interp
+                .eval_str(r#"(import "github.com/../../etc/passwd")"#)
+                .unwrap_err();
+            let msg = err.to_string();
+            assert!(msg.contains("path traversal"), "traversal rejected: got {msg}");
+        }
+
+        // --- Module caching (import twice) ---
+        {
+            let interp = Interpreter::new();
+            let result = interp
+                .eval_str(r#"(begin
+                    (import "github.com/test/cached")
+                    (import "github.com/test/cached")
+                    val)"#)
+                .unwrap();
+            assert_eq!(result, Value::int(99), "cached import");
+        }
+
+        // Cleanup
+        std::env::remove_var("SEMA_HOME");
+        let _ = std::fs::remove_dir_all(&tmp);
+    })
+    .join()
+    .unwrap();
 }

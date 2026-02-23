@@ -2,6 +2,7 @@
 pub mod context;
 pub mod error;
 pub mod home;
+pub mod json;
 pub mod resolve;
 pub mod sandbox;
 pub mod value;
@@ -13,6 +14,7 @@ pub use context::{
 };
 pub use error::{CallFrame, SemaError, Span, SpanMap, StackTrace};
 pub use home::sema_home;
+pub use json::{json_to_value, key_to_string, value_to_json, value_to_json_lossy};
 pub use lasso::Spur;
 pub use sandbox::{Caps, Sandbox};
 pub use value::{

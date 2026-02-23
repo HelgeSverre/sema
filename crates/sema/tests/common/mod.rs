@@ -1,4 +1,4 @@
-use sema_core::{SemaError, Value};
+use sema_core::Value;
 use sema_eval::Interpreter;
 
 /// Evaluate via tree-walker
@@ -15,36 +15,6 @@ pub fn eval_vm(input: &str) -> Value {
     interp
         .eval_str_compiled(input)
         .unwrap_or_else(|e| panic!("VM failed for `{input}`: {e}"))
-}
-
-/// Assert both evaluators produce the same result and return it
-pub fn eval_both(input: &str) -> Value {
-    let tw = eval_tw(input);
-    let vm = eval_vm(input);
-    assert_eq!(tw, vm, "tree-walker vs VM mismatch for: {input}");
-    tw
-}
-
-/// Assert both evaluators produce an error
-pub fn eval_both_err(input: &str) {
-    let interp_tw = Interpreter::new();
-    let interp_vm = Interpreter::new();
-    assert!(
-        interp_tw.eval_str(input).is_err(),
-        "tree-walker should error for: {input}"
-    );
-    assert!(
-        interp_vm.eval_str_compiled(input).is_err(),
-        "VM should error for: {input}"
-    );
-}
-
-/// Evaluate via tree-walker, expecting error
-pub fn eval_tw_err(input: &str) -> SemaError {
-    let interp = Interpreter::new();
-    interp
-        .eval_str(input)
-        .expect_err(&format!("expected error for: {input}"))
 }
 
 /// Generate tests for both tree-walker and VM backends.

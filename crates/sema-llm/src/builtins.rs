@@ -444,7 +444,7 @@ fn chat_request_to_value(request: &ChatRequest) -> Value {
                 tool_map.insert(Value::keyword("description"), Value::string(&t.description));
                 tool_map.insert(
                     Value::keyword("parameters"),
-                    json_to_sema_value(&t.parameters),
+                    sema_core::json_to_value(&t.parameters),
                 );
                 Value::map(tool_map)
             })
@@ -541,10 +541,7 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
                                 .map(|s| s.to_string())?;
                             let arguments = tc_map
                                 .get(&Value::keyword("arguments"))
-                                .map(|v| match sema_value_to_json(v) {
-                                    Ok(j) => j,
-                                    Err(_) => serde_json::Value::Object(serde_json::Map::new()),
-                                })
+                                .map(sema_core::value_to_json_lossy)
                                 .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
                             Some(ToolCall {
                                 id,
@@ -1460,7 +1457,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     "failed to parse LLM JSON response: {e}\nResponse was: {content}"
                 ))
             })?;
-            let result = json_to_sema_value(&json);
+            let result = sema_core::json_to_value(&json);
 
             if validate {
                 match validate_extraction(&result, schema) {
@@ -1569,7 +1566,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     "failed to parse LLM JSON response: {e}\nResponse was: {content}"
                 ))
             })?;
-            Ok(json_to_sema_value(&json))
+            Ok(sema_core::json_to_value(&json))
         },
     );
 
@@ -1770,9 +1767,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         }
         let mut messages = Vec::new();
         for (i, arg) in args.iter().enumerate() {
-            let p = arg.as_prompt_rc().ok_or_else(|| {
-                SemaError::type_error("prompt", args[i].type_name())
-            })?;
+            let p = arg
+                .as_prompt_rc()
+                .ok_or_else(|| SemaError::type_error("prompt", args[i].type_name()))?;
             messages.extend(p.messages.iter().cloned());
         }
         Ok(Value::prompt(Prompt { messages }))
@@ -1785,9 +1782,9 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         }
         let mut messages = Vec::new();
         for (i, arg) in args.iter().enumerate() {
-            let p = arg.as_prompt_rc().ok_or_else(|| {
-                SemaError::type_error("prompt", args[i].type_name())
-            })?;
+            let p = arg
+                .as_prompt_rc()
+                .ok_or_else(|| SemaError::type_error("prompt", args[i].type_name()))?;
             messages.extend(p.messages.iter().cloned());
         }
         Ok(Value::prompt(Prompt { messages }))
@@ -2701,11 +2698,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
     // (conversation/set-system conv "new system message") — set/replace the system message
     register_fn(env, "conversation/set-system", |args| {
         if args.len() != 2 {
-            return Err(SemaError::arity(
-                "conversation/set-system",
-                "2",
-                args.len(),
-            ));
+            return Err(SemaError::arity("conversation/set-system", "2", args.len()));
         }
         let conv = args[0]
             .as_conversation_rc()
@@ -3617,7 +3610,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 "failed to parse comparison JSON: {e}\nResponse: {content}"
             ))
         })?;
-        Ok(json_to_sema_value(&json))
+        Ok(sema_core::json_to_value(&json))
     });
 }
 
@@ -4205,7 +4198,7 @@ fn run_tool_loop(
         // Execute each tool call and add results
         for tc in &response.tool_calls {
             // Build args map for callback
-            let args_value = json_to_sema_value(&tc.arguments);
+            let args_value = sema_core::json_to_value(&tc.arguments);
 
             // Fire "start" event
             if let Some(callback) = on_tool_call {
@@ -4281,7 +4274,7 @@ fn execute_tool_call(
     }
     if result.as_map_rc().is_some() || result.as_list().is_some() {
         // JSON-encode complex results
-        let json = crate::builtins::sema_value_to_json(&result).unwrap_or(serde_json::Value::Null);
+        let json = sema_core::value_to_json_lossy(&result);
         Ok(serde_json::to_string(&json).unwrap_or_else(|_| result.to_string()))
     } else {
         Ok(result.to_string())
@@ -4301,7 +4294,7 @@ fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Va
                 .map(|name| {
                     json_obj
                         .get(&resolve(*name))
-                        .map(json_to_sema_value)
+                        .map(sema_core::json_to_value)
                         .unwrap_or(Value::nil())
                 })
                 .collect();
@@ -4317,13 +4310,13 @@ fn json_args_to_sema(params: &Value, arguments: &serde_json::Value, handler: &Va
                         .unwrap_or_else(|| k.to_string());
                     json_obj
                         .get(&key_str)
-                        .map(json_to_sema_value)
+                        .map(sema_core::json_to_value)
                         .unwrap_or(Value::nil())
                 })
                 .collect();
         }
     }
-    vec![json_to_sema_value(arguments)]
+    vec![sema_core::json_to_value(arguments)]
 }
 
 /// Call a Sema value as a function (lambda or native).
@@ -4407,77 +4400,6 @@ fn simple_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, Sema
             call_value_fn(ctx, &func_val, &args)
         }
         _ => Ok(expr.clone()),
-    }
-}
-
-pub fn sema_value_to_json(val: &Value) -> Result<serde_json::Value, SemaError> {
-    match val.view() {
-        ValueView::Nil => Ok(serde_json::Value::Null),
-        ValueView::Bool(b) => Ok(serde_json::Value::Bool(b)),
-        ValueView::Int(n) => Ok(serde_json::Value::Number(n.into())),
-        ValueView::Float(f) => serde_json::Number::from_f64(f)
-            .map(serde_json::Value::Number)
-            .ok_or_else(|| SemaError::eval("cannot encode NaN/Infinity as JSON")),
-        ValueView::String(s) => Ok(serde_json::Value::String(s.to_string())),
-        ValueView::Keyword(s) => Ok(serde_json::Value::String(resolve(s))),
-        ValueView::Symbol(s) => Ok(serde_json::Value::String(resolve(s))),
-        ValueView::List(items) | ValueView::Vector(items) => {
-            let arr: Result<Vec<_>, _> = items.iter().map(sema_value_to_json).collect();
-            Ok(serde_json::Value::Array(arr?))
-        }
-        ValueView::Map(map) => {
-            let mut obj = serde_json::Map::new();
-            for (k, v) in map.iter() {
-                let key = k
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .or_else(|| k.as_keyword())
-                    .unwrap_or_else(|| k.to_string());
-                obj.insert(key, sema_value_to_json(v)?);
-            }
-            Ok(serde_json::Value::Object(obj))
-        }
-        ValueView::HashMap(map) => {
-            let mut obj = serde_json::Map::new();
-            for (k, v) in map.iter() {
-                let key = k
-                    .as_str()
-                    .map(|s| s.to_string())
-                    .or_else(|| k.as_keyword())
-                    .unwrap_or_else(|| k.to_string());
-                obj.insert(key, sema_value_to_json(v)?);
-            }
-            Ok(serde_json::Value::Object(obj))
-        }
-        _ => Err(SemaError::eval(format!(
-            "cannot encode {} as JSON",
-            val.type_name()
-        ))),
-    }
-}
-
-pub fn json_to_sema_value(json: &serde_json::Value) -> Value {
-    match json {
-        serde_json::Value::Null => Value::nil(),
-        serde_json::Value::Bool(b) => Value::bool(*b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Value::int(i)
-            } else if let Some(f) = n.as_f64() {
-                Value::float(f)
-            } else {
-                Value::nil()
-            }
-        }
-        serde_json::Value::String(s) => Value::string(s),
-        serde_json::Value::Array(arr) => Value::list(arr.iter().map(json_to_sema_value).collect()),
-        serde_json::Value::Object(obj) => {
-            let mut map = BTreeMap::new();
-            for (k, v) in obj {
-                map.insert(Value::keyword(k), json_to_sema_value(v));
-            }
-            Value::map(map)
-        }
     }
 }
 

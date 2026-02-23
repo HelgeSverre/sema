@@ -10,8 +10,9 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let table: toml::Table =
-            s.parse().map_err(|e| SemaError::eval(format!("toml/decode: {e}")))?;
+        let table: toml::Table = s
+            .parse()
+            .map_err(|e| SemaError::eval(format!("toml/decode: {e}")))?;
         Ok(toml_table_to_value(&table))
     });
 
@@ -24,7 +25,9 @@ pub fn register(env: &sema_core::Env) {
                     .map_err(|e| SemaError::eval(format!("toml/encode: {e}")))?;
                 Ok(Value::string(&s))
             }
-            _ => Err(SemaError::eval("toml/encode: top-level value must be a map")),
+            _ => Err(SemaError::eval(
+                "toml/encode: top-level value must be a map",
+            )),
         }
     });
 }
@@ -65,26 +68,14 @@ fn value_to_toml(val: &Value) -> Result<toml::Value, SemaError> {
         ValueView::Map(map) => {
             let mut t = toml::map::Map::new();
             for (k, v) in map.iter() {
-                let key = match k.view() {
-                    ValueView::String(s) => s.to_string(),
-                    ValueView::Keyword(s) => sema_core::resolve(s),
-                    ValueView::Symbol(s) => sema_core::resolve(s),
-                    _ => k.to_string(),
-                };
-                t.insert(key, value_to_toml(v)?);
+                t.insert(sema_core::key_to_string(k), value_to_toml(v)?);
             }
             Ok(toml::Value::Table(t))
         }
         ValueView::HashMap(map) => {
             let mut t = toml::map::Map::new();
             for (k, v) in map.iter() {
-                let key = match k.view() {
-                    ValueView::String(s) => s.to_string(),
-                    ValueView::Keyword(s) => sema_core::resolve(s),
-                    ValueView::Symbol(s) => sema_core::resolve(s),
-                    _ => k.to_string(),
-                };
-                t.insert(key, value_to_toml(v)?);
+                t.insert(sema_core::key_to_string(k), value_to_toml(v)?);
             }
             Ok(toml::Value::Table(t))
         }

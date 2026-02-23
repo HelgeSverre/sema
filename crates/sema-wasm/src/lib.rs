@@ -215,55 +215,6 @@ fn clear_http_cache() {
     HTTP_CACHE.with(|c| c.borrow_mut().clear());
 }
 
-/// Convert a sema Value to a serde_json::Value for body serialization.
-fn value_to_json_for_body(val: &Value) -> Result<serde_json::Value, SemaError> {
-    match val.view() {
-        ValueView::Nil => Ok(serde_json::Value::Null),
-        ValueView::Bool(b) => Ok(serde_json::Value::Bool(b)),
-        ValueView::Int(n) => Ok(serde_json::Value::Number(n.into())),
-        ValueView::Float(f) => serde_json::Number::from_f64(f)
-            .map(serde_json::Value::Number)
-            .ok_or_else(|| SemaError::eval("http: cannot encode NaN/Infinity as JSON")),
-        ValueView::String(s) => Ok(serde_json::Value::String(s.to_string())),
-        ValueView::Keyword(s) => Ok(serde_json::Value::String(sema_core::resolve(s))),
-        ValueView::Symbol(s) => Ok(serde_json::Value::String(sema_core::resolve(s))),
-        ValueView::List(items) | ValueView::Vector(items) => {
-            let arr: Result<Vec<_>, _> = items.iter().map(value_to_json_for_body).collect();
-            Ok(serde_json::Value::Array(arr?))
-        }
-        ValueView::Map(map) => {
-            let mut obj = serde_json::Map::new();
-            for (k, v) in map.iter() {
-                let key = match k.view() {
-                    ValueView::String(s) => s.to_string(),
-                    ValueView::Keyword(s) => sema_core::resolve(s),
-                    ValueView::Symbol(s) => sema_core::resolve(s),
-                    _ => k.to_string(),
-                };
-                obj.insert(key, value_to_json_for_body(v)?);
-            }
-            Ok(serde_json::Value::Object(obj))
-        }
-        ValueView::HashMap(map) => {
-            let mut obj = serde_json::Map::new();
-            for (k, v) in map.iter() {
-                let key = match k.view() {
-                    ValueView::String(s) => s.to_string(),
-                    ValueView::Keyword(s) => sema_core::resolve(s),
-                    ValueView::Symbol(s) => sema_core::resolve(s),
-                    _ => k.to_string(),
-                };
-                obj.insert(key, value_to_json_for_body(v)?);
-            }
-            Ok(serde_json::Value::Object(obj))
-        }
-        _ => Err(SemaError::eval(format!(
-            "http: cannot serialize {} to JSON",
-            val.type_name()
-        ))),
-    }
-}
-
 /// Perform an HTTP request via the replay-with-cache strategy.
 /// On cache hit, returns the cached response. On cache miss, returns a marker error.
 fn wasm_http_request(
@@ -310,7 +261,7 @@ fn wasm_http_request(
             if let Some(s) = val.as_str() {
                 Some(s.to_string())
             } else if val.as_map_rc().is_some() {
-                let json = value_to_json_for_body(val)?;
+                let json = sema_core::value_to_json_lossy(val);
                 let json_str = serde_json::to_string(&json)
                     .map_err(|e| SemaError::eval(format!("http: json encode: {e}")))?;
                 if !has_content_type {
@@ -944,7 +895,7 @@ fn register_wasm_io(env: &Env) {
                     Some(json_str) => {
                         // Parse the JSON into a Sema map
                         match serde_json::from_str::<serde_json::Value>(&json_str) {
-                            Ok(json) => Ok(json_to_value(&json)),
+                            Ok(json) => Ok(sema_core::json_to_value(&json)),
                             Err(_) => Ok(Value::nil()),
                         }
                     }
@@ -2068,7 +2019,7 @@ impl WasmInterpreter {
             } else if let Some(s) = result.as_string() {
                 // Try parsing as JSON first for structured returns
                 match serde_json::from_str::<serde_json::Value>(&s) {
-                    Ok(json) if !json.is_string() => Ok(json_to_value(&json)),
+                    Ok(json) if !json.is_string() => Ok(sema_core::json_to_value(&json)),
                     _ => Ok(Value::string(&s)),
                 }
             } else {
@@ -2077,7 +2028,7 @@ impl WasmInterpreter {
                     Ok(json_str) => {
                         let s: String = json_str.into();
                         match serde_json::from_str::<serde_json::Value>(&s) {
-                            Ok(json) => Ok(json_to_value(&json)),
+                            Ok(json) => Ok(sema_core::json_to_value(&json)),
                             Err(_) => Ok(Value::string(&s)),
                         }
                     }
@@ -2322,39 +2273,12 @@ fn sema_value_to_jsvalue(val: &Value) -> JsValue {
         ValueView::Keyword(s) => JsValue::from_str(&format!(":{}", sema_core::resolve(s))),
         ValueView::Symbol(s) => JsValue::from_str(&sema_core::resolve(s)),
         _ => {
-            // For complex types (lists, maps, vectors), go through JSON
-            match value_to_json_for_body(val) {
-                Ok(json) => {
-                    let s = serde_json::to_string(&json).unwrap_or_default();
-                    js_sys::JSON::parse(&s).unwrap_or(JsValue::NULL)
-                }
-                Err(_) => JsValue::from_str(&format!("{val}")),
-            }
-        }
-    }
-}
-
-fn json_to_value(json: &serde_json::Value) -> Value {
-    match json {
-        serde_json::Value::Null => Value::nil(),
-        serde_json::Value::Bool(b) => Value::bool(*b),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Value::int(i)
-            } else if let Some(f) = n.as_f64() {
-                Value::float(f)
-            } else {
-                Value::nil()
-            }
-        }
-        serde_json::Value::String(s) => Value::string(s),
-        serde_json::Value::Array(arr) => Value::list(arr.iter().map(json_to_value).collect()),
-        serde_json::Value::Object(obj) => {
-            let mut map = BTreeMap::new();
-            for (k, v) in obj {
-                map.insert(Value::keyword(k), json_to_value(v));
-            }
-            Value::map(map)
+            // For complex types (lists, maps, vectors), go through JSON.
+            // Use lossy conversion so NaN/Infinity become null locally
+            // instead of stringifying the entire structure.
+            let json = sema_core::value_to_json_lossy(val);
+            let s = serde_json::to_string(&json).unwrap_or_default();
+            js_sys::JSON::parse(&s).unwrap_or(JsValue::NULL)
         }
     }
 }

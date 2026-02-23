@@ -60,7 +60,7 @@ fn http_request(
                     if let Some(s) = body_val.as_str() {
                         builder = builder.body(s.to_string());
                     } else if body_val.as_map_rc().is_some() {
-                        let json = crate::json::value_to_json(body_val)?;
+                        let json = sema_core::value_to_json_lossy(body_val);
                         let json_str = serde_json::to_string(&json)
                             .map_err(|e| SemaError::eval(format!("http: json encode: {e}")))?;
                         builder = builder

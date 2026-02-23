@@ -54,7 +54,7 @@ enum ServerRequest {
 
 /// Build a JSON response map: {:status N :headers {"content-type" "application/json"} :body json-string}
 fn json_response(status: i64, val: &Value) -> Result<Value, SemaError> {
-    let json = crate::json::value_to_json(val)?;
+    let json = sema_core::value_to_json_lossy(val);
     let body = serde_json::to_string(&json)
         .map_err(|e| SemaError::eval(format!("http response: json encode: {e}")))?;
 
