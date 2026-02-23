@@ -2238,6 +2238,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sema-fmt"
+version = "1.11.0"
+dependencies = [
+ "sema-core",
+ "sema-reader",
+]
+
+[[package]]
 name = "sema-lang"
 version = "1.11.0"
 dependencies = [
