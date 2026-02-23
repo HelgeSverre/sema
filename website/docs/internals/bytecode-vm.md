@@ -24,7 +24,7 @@ Source text
 
 ### Phase 1: Lowering (Value → CoreExpr)
 
-The lowering pass converts the `Value` AST into `CoreExpr`, a desugared intermediate representation. All ~35 special forms are lowered to ~30 CoreExpr variants. Several forms desugar into simpler ones:
+The lowering pass converts the `Value` AST into `CoreExpr`, a desugared intermediate representation. All ~40 special forms are lowered to ~55 CoreExpr variants. Several forms desugar into simpler ones:
 
 | Source Form | Lowers To                                 |
 | ----------- | ----------------------------------------- |
@@ -223,7 +223,7 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 
 | File           | Purpose                                                           |
 | -------------- | ----------------------------------------------------------------- |
-| `opcodes.rs`   | `Op` enum — 51 bytecode opcodes                                   |
+| `opcodes.rs`   | `Op` enum — 66 bytecode opcodes                                   |
 | `chunk.rs`     | `Chunk` (bytecode + constants + spans), `Function`, `UpvalueDesc` |
 | `emit.rs`      | `Emitter` — bytecode builder with jump backpatching               |
 | `disasm.rs`    | Human-readable bytecode disassembler                              |
@@ -232,6 +232,8 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 | `resolve.rs`   | Variable resolution (local/upvalue/global analysis)               |
 | `compiler.rs`  | Bytecode compiler (ResolvedExpr → Chunk)                          |
 | `vm.rs`        | VM dispatch loop, call frames, closures, exception handling       |
+| `optimize.rs`  | Constant folding and dead code elimination on CoreExpr IR         |
+| `serialize.rs` | Bytecode serialization/deserialization for `.semac` file format   |
 
 ## Current Limitations
 
@@ -250,9 +252,8 @@ The `--vm` flag enables the bytecode compilation path. The tree-walker remains t
 # Run a file with the bytecode VM
 sema --vm examples/hello.sema
 
-# REPL: toggle VM mode with ,vm
-sema
-> ,vm
+# Run in REPL with VM mode
+sema --vm
 ```
 
 Both paths share the global `Env` and `EvalContext`.

@@ -151,7 +151,7 @@ Note: the head is checked for special forms _before_ it's evaluated. This is ess
 
 ## Special Form Dispatch
 
-Special form dispatch is the hottest path in the evaluator. Every list expression checks whether its head symbol is one of ~39 special forms. Sema optimizes this with pre-interned `Spur` constants:
+Special form dispatch is the hottest path in the evaluator. Every list expression checks whether its head symbol is one of 40 special forms. Sema optimizes this with pre-interned `Spur` constants:
 
 ```rust
 // crates/sema-eval/src/special_forms.rs
@@ -161,7 +161,7 @@ struct SpecialFormSpurs {
     cond: Spur,
     define: Spur,
     lambda: Spur,
-    // ... 34 more
+    // ... 36 more
 }
 ```
 
@@ -504,7 +504,7 @@ If you need to add a new special form to Sema:
 1. **Add a `Spur` field** to `SpecialFormSpurs` in `crates/sema-eval/src/special_forms.rs` and initialize it in `init()` with `intern("your-form-name")`
 2. **Add a match arm** in `try_eval_special()` — return `Some(eval_your_form(args, env))`
 3. **Implement `eval_your_form`** — it receives `args: &[Value]` (unevaluated), `env: &Env`, and `ctx: &EvalContext`, and must return `Result<Trampoline, SemaError>`. If the form has a natural tail position (like `if`'s branches), return `Trampoline::Eval` for TCO; otherwise return `Trampoline::Value`
-4. **Add an integration test** in `crates/sema/tests/integration_test.rs`
+4. **Add a dual-eval test** in `crates/sema/tests/dual_eval_test.rs` using the `dual_eval_tests!` macro (generates both tree-walker and VM test variants)
 5. **Document the form** in `website/docs/language/special-forms.md`
 
 ## Further Reading

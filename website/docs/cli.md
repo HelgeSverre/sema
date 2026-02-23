@@ -387,7 +387,7 @@ elapsed: 58.424ms
 
 The REPL supports tab completion for:
 
-- All 460+ built-in function names (e.g., `string/tr` → `string/trim`)
+- All 570+ built-in function names (e.g., `string/tr` → `string/trim`)
 - Special forms (`def` → `define`, `defun`, `defmacro`, ...)
 - User-defined bindings
 - REPL commands (`,` → `,quit`, `,help`, `,env`, `,builtins`, `,type`, `,time`, `,doc`)

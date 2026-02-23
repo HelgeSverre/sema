@@ -2,7 +2,7 @@
 
 Sema is a Lisp with first-class LLM primitives, implemented in Rust. The primary execution path is a tree-walking interpreter — the evaluator walks the AST directly via a trampoline loop for tail-call optimization. A [bytecode VM](./bytecode-vm.md) is available as an opt-in execution path (via `--vm`) for faster execution of compute-heavy workloads. The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
 
-The entire implementation is ~15k lines of Rust spread across 8 crates, each with a clear responsibility and strict dependency ordering.
+The entire implementation is ~70k lines of Rust spread across 9 crates, each with a clear responsibility and strict dependency ordering.
 
 ## Crate Map
 
@@ -14,7 +14,7 @@ The entire implementation is ~15k lines of Rust spread across 8 crates, each wit
                            │              │
               ┌────────────▼───┐    ┌─────▼──────────┐
               │  sema-stdlib   │    │    sema-llm     │
-              │  460+ native   │    │  LLM providers  │
+              │  570+ native   │    │  LLM providers  │
               │  functions     │    │  + embeddings   │
               └────────┬───────┘    └──────┬──────────┘
                        │                   │
@@ -60,10 +60,11 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-core**   | Shared types                    | `Value` (NaN-boxed 8-byte), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types                       |
 | **sema-reader** | Parsing                         | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap`                                                           |
 | **sema-vm**     | Bytecode VM (opt-in via `--vm`) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch                                     |
-| **sema-eval**   | Evaluation                      | Trampoline-based evaluator, 39 special forms, module system, call stack + span table                                                      |
-| **sema-stdlib** | Standard library                | 460+ native functions across 24 modules                                                                                                   |
+| **sema-eval**   | Evaluation                      | Trampoline-based evaluator, 40 special forms, module system, call stack + span table                                                      |
+| **sema-stdlib** | Standard library                | 570+ native functions across 25 modules                                                                                                   |
 | **sema-llm**    | LLM integration                 | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
 | **sema-fmt**    | Formatter                       | Code formatter for `.sema` files (`sema fmt`)                                                                                             |
+| **sema-wasm**  | WASM bindings             | Browser playground bindings, JS interop via `wasm-bindgen`                                                                                |
 | **sema**        | Binary                          | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API                                                                              |
 
 ## The Value Type
@@ -209,21 +210,24 @@ Variable lookup walks the parent chain until it finds a binding or reaches the r
 
 ## Error Handling
 
-`SemaError` is a `thiserror`-derived enum with 8 variants plus a `WithTrace` wrapper:
+`SemaError` is a `thiserror`-derived enum with 12 variants including `WithTrace` and `WithContext` wrappers:
 
 ```rust
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum SemaError {
     Reader { message: String, span: Span },
     Eval(String),
-    Type { expected: String, got: String },
+    Type { expected: String, got: String, got_value: Option<String> },
     Arity { name: String, expected: String, got: usize },
     Unbound(String),
     Llm(String),
     Io(String),
+    PermissionDenied { function: String, capability: String },
+    PathDenied { function: String, path: String },
     UserException(Value),
 
     WithTrace { inner: Box<SemaError>, trace: StackTrace },
+    WithContext { inner: Box<SemaError>, ... },
 }
 ```
 
@@ -237,7 +241,7 @@ SemaError::type_error("int", val.type_name())
 SemaError::arity("map", "2", args.len())
 ```
 
-This keeps error construction concise across 460+ native functions and 39 special forms.
+This keeps error construction concise across 570+ native functions and 40 special forms.
 
 ### Lazy Stack Traces
 

@@ -25,6 +25,30 @@ Mutate an existing binding.
 (set! x 99)
 ```
 
+## Quoting
+
+### `quote`
+
+Return the argument without evaluating it. The reader shorthand `'x` desugars to `(quote x)`.
+
+```sema
+(quote (+ 1 2))                        ; => (+ 1 2) as a list
+'(+ 1 2)                               ; same thing
+'foo                                   ; => foo (the symbol, not its value)
+```
+
+### `quasiquote`
+
+Template with selective evaluation. Use `` ` `` as shorthand. Inside a quasiquote, `,expr` (unquote) evaluates `expr` and splices the result, while `,@expr` (unquote-splicing) evaluates `expr` and splices each element.
+
+```sema
+(define x 42)
+`(a b ,x)                              ; => (a b 42)
+`(a ,@(list 1 2 3) b)                  ; => (a 1 2 3 b)
+```
+
+Quasiquote is essential for writing macros — see [Macros](./macros-modules.md#macros).
+
 ## Functions
 
 ### `lambda`
@@ -467,6 +491,55 @@ Define a record type with constructor, predicate, and field accessors.
 (record? p)                           ; => #t
 (type p)                              ; => :point
 (equal? (make-point 1 2) (make-point 1 2))  ; => #t
+```
+
+## Multimethods
+
+Clojure-style polymorphic dispatch based on a user-defined dispatch function.
+
+### `defmulti`
+
+Define a multimethod with a name and a dispatch function. The dispatch function is called with the arguments to determine which method to invoke.
+
+```sema
+(defmulti area (fn (shape) (get shape :type)))
+```
+
+### `defmethod`
+
+Add a method implementation for a specific dispatch value. Use `:default` as the dispatch value for a fallback handler.
+
+```sema
+(defmethod area :circle
+  (fn (shape) (* 3.14159 (expt (get shape :radius) 2))))
+
+(defmethod area :rect
+  (fn (shape) (* (get shape :width) (get shape :height))))
+
+(defmethod area :default
+  (fn (shape) (throw "unknown shape")))
+
+(area {:type :circle :radius 5})       ; => 78.53975
+(area {:type :rect :width 3 :height 4}) ; => 12
+```
+
+## Loading Files
+
+### `load`
+
+Load and execute a Sema source file in the current environment. Unlike `import`, `load` does not use the module system — all top-level definitions become available in the current scope.
+
+```sema
+(load "helpers.sema")                  ; execute file, bindings available here
+```
+
+### `eval`
+
+Evaluate a data structure as code. See [Metaprogramming](./macros-modules.md#eval).
+
+```sema
+(eval '(+ 1 2))                        ; => 3
+(eval (read "(* 3 4)"))                ; => 12
 ```
 
 ## Error Handling
