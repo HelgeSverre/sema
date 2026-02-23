@@ -814,6 +814,76 @@ Tasks 5-7 are sequential (publish before read before ownership).
 Task 8 (web UI) can be parallelized with Tasks 5-7 using stub data initially.
 Task 9 (GitHub OAuth) is independent and optional.
 
+---
+
+## V2 Features (post-MVP)
+
+### V2-1: GitHub-linked packages (Packagist-style)
+
+Allow users to register a package by pasting a GitHub repository URL instead of publishing via CLI. The registry pulls package metadata and tarballs from GitHub automatically.
+
+**How it works:**
+
+1. User pastes a GitHub repo URL in the web UI (e.g. `github.com/helgesverre/sema-http`)
+2. Registry validates the repo exists and contains a `sema-pkg.toml` manifest at the root:
+   ```toml
+   [package]
+   name = "sema/http"
+   description = "HTTP client and server primitives"
+   license = "MIT"
+   sema-version = ">= 0.12.0"
+
+   [dependencies]
+   "sema/json" = "^1.0.0"
+   "sema/url" = "^0.3.0"
+   ```
+3. Registry reads the manifest, creates the package, and imports existing tags/releases as versions
+4. A GitHub webhook is registered on the repo — when new tags are pushed, the registry auto-publishes:
+   - Fetches the tag's tarball via GitHub API (`/repos/{owner}/{repo}/tarball/{tag}`)
+   - Extracts and validates `sema-pkg.toml` from the archive
+   - Stores blob and creates the version record
+
+**Schema changes:**
+
+- Add `source` column to `packages`: `'upload'` (CLI) or `'github'` (linked)
+- Add `github_repo` column to `packages`: `owner/repo` string
+- Add `webhook_secret` column to `packages`: per-package secret for verifying webhook payloads
+- New table `github_sync_log`: id, package_id, tag, status, error, synced_at
+
+**New endpoints:**
+
+- `POST /api/v1/packages/link` — session required, accepts `{repository_url}`, validates repo, registers webhook, imports existing tags
+- `POST /api/v1/webhooks/github` — receives push events, verifies signature, triggers version sync
+- `POST /api/v1/packages/{name}/sync` — session required (owner), manually re-sync from GitHub
+
+**Web UI additions:**
+
+- "Add Package" page with a repo URL input field and a "Link Repository" button
+- Package detail shows source badge: "CLI" or "GitHub" with link to repo
+- Sync status/log visible to owners on the package page
+
+**Considerations:**
+
+- Requires a GitHub App or OAuth app with repo read permissions
+- Rate limiting on GitHub API (use conditional requests with ETags)
+- Handle private repos: user must grant access, registry stores an installation token
+- Dual-source packages: a package linked to GitHub cannot also be published via CLI (pick one source)
+- Tag-to-version mapping: strip leading `v` from tags, validate as semver, skip non-semver tags
+
+### V2-2: Postgres backend
+
+Add `sqlx::PgPool` as an alternative database backend. Use a runtime enum or trait object to switch between SQLite and Postgres based on `DATABASE_URL` scheme. Adapt migrations for Postgres syntax where needed (e.g. `SERIAL` vs `AUTOINCREMENT`).
+
+### V2-3: S3 blob storage
+
+Add an S3-compatible blob backend behind the existing `blob` module trait. Configure via `BLOB_BACKEND=s3` + `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`. For downloads, generate pre-signed URLs and redirect instead of streaming through Axum.
+
+### V2-4: Download counts
+
+Track per-version download counts. Increment on each `/download` hit (debounced per IP to avoid inflating). Surface on package detail page and search results. Add `GET /api/v1/packages/{name}/downloads` for stats.
+
+---
+
 ## Notes
 
 - **No sema-lang dependency** — this project stands alone in `pkg/`
