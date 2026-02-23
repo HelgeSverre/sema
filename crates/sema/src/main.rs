@@ -382,7 +382,11 @@ enum PkgCommands {
         registry: Option<String>,
     },
     /// Install all dependencies from sema.toml
-    Install,
+    Install {
+        /// Fail if sema.lock is missing or out of sync (for CI)
+        #[arg(long)]
+        locked: bool,
+    },
     /// Update a package (or all packages)
     Update {
         /// Package name to update (updates all if omitted)
@@ -510,7 +514,7 @@ fn main() {
             Commands::Pkg { command } => {
                 let result = match command {
                     PkgCommands::Add { spec, registry } => pkg::cmd_add(&spec, registry.as_deref()),
-                    PkgCommands::Install => pkg::cmd_install(),
+                    PkgCommands::Install { locked } => pkg::cmd_install(locked),
                     PkgCommands::Update { name } => pkg::cmd_update(name.as_deref()),
                     PkgCommands::Remove { name } => pkg::cmd_remove(&name),
                     PkgCommands::List => pkg::cmd_list(),

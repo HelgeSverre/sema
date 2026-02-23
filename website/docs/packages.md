@@ -93,7 +93,7 @@ You can override the registry with `--registry`:
 sema pkg add http-helpers --registry https://my-registry.com
 ```
 
-If a `sema.toml` exists in the current directory, the package is automatically added to the `[deps]` section.
+If a `sema.toml` exists in the current directory, the package is automatically added to the `[deps]` section. If no `sema.toml` exists, one is created automatically with the package added to `[deps]`.
 
 ### `sema pkg install`
 
@@ -101,9 +101,18 @@ Fetch all dependencies listed in `sema.toml`.
 
 ```bash
 sema pkg install
+sema pkg install --locked    # fail if sema.lock is missing or out of sync (for CI)
 ```
 
 Reads the `[deps]` section and fetches each dependency — routing to the registry or git based on the key format (see [sema.toml](#sema-toml) above). Requires a `sema.toml` in the current directory.
+
+When a `sema.lock` file exists, locked entries are installed at their exact pinned versions with integrity verification (commit SHA for git, SHA256 checksum for registry). Dependencies not yet in the lock file are resolved fresh and appended. Orphaned lock entries (in lock but not in `sema.toml`) are pruned automatically.
+
+The `--locked` flag enforces strict reproducibility for CI:
+- Fails if `sema.lock` is missing
+- Fails if any dep in `sema.toml` is not in the lock (or vice versa)
+- Fails if the version/ref in `sema.toml` doesn't match the lock entry
+- Never resolves fresh — only installs from lock
 
 ### `sema pkg update`
 
@@ -117,11 +126,13 @@ sema pkg update repo                  # update by short name
 ```
 
 - **Registry packages** check for a newer version and re-download if available
-- **Git packages** run `git pull` to fetch the latest changes
+- **Git packages** fetch from origin and pull the latest changes
+
+Both `sema.toml` and `sema.lock` are updated to reflect the new versions.
 
 ### `sema pkg remove`
 
-Remove an installed package from the global cache and your project's `sema.toml`.
+Remove an installed package from the global cache, `sema.toml`, and `sema.lock`.
 
 ```bash
 sema pkg remove http-helpers          # registry package
@@ -238,6 +249,61 @@ registry.token = (set)
 
 Credentials file: /Users/you/.sema/credentials.toml
 ```
+
+## Lock File (`sema.lock`)
+
+The `sema.lock` file records the exact resolved version of every dependency for reproducible builds. It is auto-generated and should be committed to version control.
+
+### Format
+
+```toml
+# sema.lock — auto-generated, do not edit manually
+lock_version = 1
+
+[packages."github.com/user/repo"]
+source = "git"
+ref = "main"
+commit = "a1b2c3d4e5f6789012345678901234567890abcd"
+
+[packages."http-helpers"]
+source = "registry"
+version = "1.2.0"
+registry = "https://pkg.sema-lang.com"
+checksum = "abc123def456789..."
+```
+
+- **Git packages** record the `ref` (branch/tag) and exact `commit` SHA
+- **Registry packages** record the `version`, `registry` URL, and SHA256 `checksum` of the downloaded tarball
+
+### How It Works
+
+| Command | Lock behavior |
+|---------|--------------|
+| `sema pkg add` | Installs and writes/updates lock entry |
+| `sema pkg install` | Installs from lock when available; resolves and appends for unlocked deps; prunes orphaned entries |
+| `sema pkg install --locked` | Installs from lock only; fails on any mismatch (for CI) |
+| `sema pkg update` | Re-resolves to latest and rewrites lock + manifest |
+| `sema pkg remove` | Removes package, manifest entry, and lock entry |
+
+### Integrity Verification
+
+When installing from a lock file:
+- **Git packages** are checked out at the pinned commit using `git checkout --detach`. The resulting HEAD is verified against the lock.
+- **Registry packages** are downloaded and their SHA256 checksum is compared against the lock. A mismatch produces a clear error.
+
+### CI Usage
+
+Use `--locked` in CI pipelines to guarantee reproducible builds:
+
+```bash
+sema pkg install --locked
+```
+
+This will fail with an actionable error if:
+- `sema.lock` doesn't exist
+- A dependency was added to `sema.toml` but not locked
+- A dependency version/ref changed in `sema.toml` without re-locking
+- An orphaned entry exists in the lock
 
 ## Importing Packages
 
@@ -396,7 +462,10 @@ sema pkg add http-helpers@2.0.0
 sema pkg add github.com/user/json-schema@v1.1.0
 
 # Install everything (if cloning the project fresh)
-sema pkg install
+sema pkg install           # generates/updates sema.lock
+
+# In CI, use --locked for reproducibility
+sema pkg install --locked
 
 # List what's installed
 sema pkg list
@@ -477,6 +546,18 @@ The package path contains `..`, `.`, or empty segments. Package paths must be cl
 ### "Not logged in"
 
 Publishing and yanking require authentication. Run `sema pkg login --token <token>` with a token from your registry account page.
+
+### "sema.lock not found" (with `--locked`)
+
+`sema pkg install --locked` requires a `sema.lock` file. Run `sema pkg install` (without `--locked`) first to generate it, then commit the lock file to version control.
+
+### "version mismatch" (with `--locked`)
+
+You changed a version/ref in `sema.toml` without re-locking. Run `sema pkg install` to update `sema.lock`, then commit both files.
+
+### "Lock integrity error"
+
+The downloaded package doesn't match the checksum or commit recorded in `sema.lock`. This can happen if a registry re-published a version with different contents or a git tag was force-pushed. Run `sema pkg update <name>` to re-resolve and update the lock.
 
 ### "git clone/fetch failed"
 

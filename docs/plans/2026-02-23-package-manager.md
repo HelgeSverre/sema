@@ -900,8 +900,83 @@ git commit -m "docs: add toml stdlib reference and package manager guide"
 
 These are the priority follow-ups after the initial implementation ships:
 
-- **`sema.lock`** — lockfile with resolved commit SHAs for reproducible builds. `sema pkg install` writes/reads it, `sema pkg get` updates it. Format: simple TOML with `[packages]` table mapping name → `{ url, ref, commit }`.
-- **Pre/post-install hooks** — `[hooks]` section in `sema.toml` supporting `pre-install` and `post-install` scripts. Scripts can be `.sema` files (run via the interpreter using shebang `#!/usr/bin/env sema`) or shell scripts. Executed after `sema pkg get` and `sema pkg install`.
+### `sema.lock` — Lock File for Reproducible Builds
+
+**Purpose:** Record exact resolved versions (commit SHAs for git packages, checksums for registry packages) so that `sema pkg install` produces identical `~/.sema/packages/` contents across machines and time. Committed to version control.
+
+**Format:** TOML file in the project root alongside `sema.toml`. Uses quoted keys with real package identifiers (no sanitization) to avoid collisions.
+
+```toml
+# sema.lock — auto-generated, do not edit manually
+lock_version = 1
+
+[packages."github.com/user/repo"]
+source = "git"
+ref = "main"
+commit = "a1b2c3d4e5f6789012345678901234567890abcd"
+
+[packages."http-helpers"]
+source = "registry"
+version = "1.2.0"
+registry = "https://pkg.sema-lang.com"
+checksum = "abc123def456789..."
+```
+
+**Design decisions:**
+- **Quoted TOML keys** — `[packages."github.com/user/repo"]` uses the real package identifier. Sanitizing `/` and `.` to `_` would cause collisions (e.g., `github.com/a_b/c` vs `github.com/a/b_c`).
+- **No redundant fields** — Git `url` is always derivable via `clone_url()` (`https://{path}.git`). Registry `name` is the key itself. Only store what's needed for pinning.
+- **`lock_version = 1`** — Top-level field for future format evolution.
+- **Checksums are raw hex** — Consistent with `registry_install()` which uses `format!("{:x}", sha2::Sha256::digest(...))` and `.sema-pkg.json`. Implicitly SHA256.
+
+**Behavior by command:**
+
+| Command | Lock file behavior |
+|---------|-------------------|
+| `sema pkg add <spec>` | Installs package, **writes/updates** lock entry with resolved commit/checksum |
+| `sema pkg install` | If `sema.lock` exists, install from locked versions. If a dep is in `sema.toml` but not in lock, resolve and **append** to lock with a warning. Warn on orphaned lock entries but don't prune automatically. |
+| `sema pkg install --locked` | Install from lock only. **Fail** if lock is missing, or if any dep in `sema.toml` is not in lock (or vice versa). Never resolves fresh. For CI. |
+| `sema pkg update [name]` | Re-resolves to latest (per sema.toml ref/version), **rewrites** lock entries |
+| `sema pkg remove <name>` | Removes package, **prunes** lock entry |
+
+**Integrity verification (when installing from an existing lock):**
+- **Git packages:** After `git checkout <commit>`, run `git rev-parse HEAD` and compare against `commit` in lock. Error on mismatch.
+- **Registry packages:** After download, compute SHA256 of tarball and compare against `checksum` in lock. Error on mismatch.
+- Verification only applies when a lock entry exists. First-time `add` writes the lock, doesn't verify against it.
+
+**Stale lock detection (on `sema pkg install` without `--locked`):**
+- Dep in `sema.toml` but not in `sema.lock` → warn `"{name} not in sema.lock, resolving..."`, resolve, append to lock.
+- Dep in `sema.lock` but not in `sema.toml` → warn `"{name} in sema.lock but not in sema.toml"`. Do not auto-prune (avoids churn when switching branches).
+- With `--locked` → both cases are hard errors instead of warnings.
+
+**Git fetch robustness (for locked installs):**
+- Use `git fetch origin` (not just `--tags`) to ensure branch heads and commits are available locally.
+- Use `git checkout --detach <commit>` for pinned-commit installs.
+- On `--locked`, fail if working tree is dirty rather than silently resetting.
+
+**Required refactor:** `cmd_install()` currently calls `cmd_add()` which edits `sema.toml`. Lock-aware install must not modify the manifest. Extract internal functions:
+- `install_git(path, ref_or_commit) → (ref, commit)` — pure install, returns resolved data.
+- `install_registry(name, version, registry) → (version, checksum)` — pure install, returns resolved data.
+- `cmd_add` = `install_*` + update `sema.toml` + update `sema.lock`.
+- `cmd_install` = read lock (if present) + `install_*` + maybe update lock. Never touches `sema.toml`.
+
+**Implementation scope:**
+
+| Work Item | Effort |
+|-----------|--------|
+| Refactor `cmd_install`/`cmd_add` to separate install from manifest mutation | ~45 min |
+| Lock file struct + read/write with `toml_edit` | ~30 min |
+| Wire lock into `cmd_add` (write after install) | ~30 min |
+| Wire lock into `cmd_install` (read lock, verify, stale detection) | ~45 min |
+| Wire lock into `cmd_update` and `cmd_remove` (rewrite/prune entries) | ~30 min |
+| `--locked` flag on install | ~20 min |
+| Improve git fetch for locked installs (`fetch origin`, detached checkout, dirty check) | ~30 min |
+| Tests (unit: read/write/round-trip; integration: install-from-lock, --locked failure) | ~1 hour |
+
+**Total estimated effort: 4–6 hours**
+
+### Pre/post-install hooks
+
+`[hooks]` section in `sema.toml` supporting `pre-install` and `post-install` scripts. Scripts can be `.sema` files (run via the interpreter using shebang `#!/usr/bin/env sema`) or shell scripts. Executed after `sema pkg add` and `sema pkg install`.
 
 ## Future Work (YAGNI for now)
 

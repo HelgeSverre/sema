@@ -105,12 +105,14 @@ pub fn cmd_add(spec: &str, registry: Option<&str>) -> Result<(), String> {
     }
 }
 
-fn cmd_add_git(spec: &str) -> Result<(), String> {
-    let spec = sema_core::resolve::PackageSpec::parse(spec).map_err(|e| e.to_string())?;
+/// Install a git package and return (ref, commit_sha).
+/// Does NOT modify sema.toml or sema.lock.
+fn install_git(spec: &sema_core::resolve::PackageSpec) -> Result<(String, String), String> {
     let pkg_dir = packages_dir();
     let dest = spec.dest_dir(&pkg_dir);
 
     if dest.exists() {
+        run_git(Some(&dest), &["fetch", "origin"])?;
         run_git(Some(&dest), &["fetch", "--tags"])?;
         run_git(Some(&dest), &["checkout", &spec.git_ref])?;
         let current = current_git_ref(&dest);
@@ -126,12 +128,60 @@ fn cmd_add_git(spec: &str) -> Result<(), String> {
         println!("✓ Installed {} → {current}", spec.path);
     }
 
+    let commit = run_git(Some(&dest), &["rev-parse", "HEAD"])?;
+    let git_ref = spec.git_ref.clone();
+    Ok((git_ref, commit))
+}
+
+/// Install a git package at a specific commit (for locked installs).
+fn install_git_locked(
+    spec: &sema_core::resolve::PackageSpec,
+    expected_commit: &str,
+) -> Result<(), String> {
+    let pkg_dir = packages_dir();
+    let dest = spec.dest_dir(&pkg_dir);
+
+    if dest.exists() {
+        run_git(Some(&dest), &["fetch", "origin"])?;
+        run_git(Some(&dest), &["fetch", "--tags"])?;
+    } else {
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create directory: {e}"))?;
+        }
+        run_git(None, &["clone", &spec.clone_url(), &dest.to_string_lossy()])?;
+    }
+
+    run_git(Some(&dest), &["checkout", "--detach", expected_commit])?;
+    let actual = run_git(Some(&dest), &["rev-parse", "HEAD"])?;
+    if actual != expected_commit {
+        return Err(format!(
+            "Lock integrity error for {}: expected commit {expected_commit}, got {actual}",
+            spec.path
+        ));
+    }
+    println!("✓ Installed {} → {expected_commit} (locked)", spec.path);
+    Ok(())
+}
+
+fn cmd_add_git(spec: &str) -> Result<(), String> {
+    let spec = sema_core::resolve::PackageSpec::parse(spec).map_err(|e| e.to_string())?;
+    let (git_ref, commit) = install_git(&spec)?;
+
     ensure_sema_toml()?;
     let toml_path = Path::new("sema.toml");
-    match add_dep_to_toml(toml_path, spec.path.as_str(), &spec.git_ref) {
-        Ok(true) => println!("✓ Added {} = \"{}\" to sema.toml", spec.path, spec.git_ref),
+    match add_dep_to_toml(toml_path, spec.path.as_str(), &git_ref) {
+        Ok(true) => println!("✓ Added {} = \"{}\" to sema.toml", spec.path, git_ref),
         Ok(false) => {}
         Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
+    }
+
+    match update_lock_entry(
+        spec.path.as_str(),
+        LockEntry::Git { git_ref, commit },
+    ) {
+        Ok(()) => println!("✓ Updated sema.lock"),
+        Err(e) => eprintln!("Warning: could not update sema.lock: {e}"),
     }
 
     Ok(())
@@ -157,7 +207,7 @@ fn cmd_add_registry(spec: &str, registry: Option<&str>) -> Result<(), String> {
     };
 
     println!("Installing {name}@{version} from registry...");
-    registry_install(&name, &version, &registry_url)?;
+    let checksum = registry_install(&name, &version, &registry_url)?;
     println!("✓ Installed {name}@{version}");
 
     ensure_sema_toml()?;
@@ -168,10 +218,22 @@ fn cmd_add_registry(spec: &str, registry: Option<&str>) -> Result<(), String> {
         Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
     }
 
+    match update_lock_entry(
+        &name,
+        LockEntry::Registry {
+            version,
+            registry: registry_url,
+            checksum,
+        },
+    ) {
+        Ok(()) => println!("✓ Updated sema.lock"),
+        Err(e) => eprintln!("Warning: could not update sema.lock: {e}"),
+    }
+
     Ok(())
 }
 
-pub fn cmd_install() -> Result<(), String> {
+pub fn cmd_install(locked: bool) -> Result<(), String> {
     let toml_path = Path::new("sema.toml");
     if !toml_path.exists() {
         return Err("No sema.toml found in current directory. Run `sema pkg init` first.".into());
@@ -190,6 +252,89 @@ pub fn cmd_install() -> Result<(), String> {
         }
     };
 
+    let lock = read_lock_file()?;
+
+    if locked {
+        let lock = lock.as_ref().ok_or(
+            "sema.lock not found. Cannot use --locked without a lock file.\n\
+             Run `sema pkg install` first to generate sema.lock.",
+        )?;
+
+        // Check for deps in sema.toml but not in lock
+        for (name, value) in deps {
+            let toml_version = value.as_str().unwrap_or("");
+            match lock.entries.get(name) {
+                None => {
+                    return Err(format!(
+                        "Dep '{name}' is in sema.toml but not in sema.lock. \
+                         Run `sema pkg install` (without --locked) to update the lock file."
+                    ));
+                }
+                Some(entry) => {
+                    // Verify sema.toml version/ref matches lock
+                    let lock_ver = match entry {
+                        LockEntry::Git { git_ref, .. } => git_ref.as_str(),
+                        LockEntry::Registry { version, .. } => version.as_str(),
+                    };
+                    if !toml_version.is_empty() && lock_ver != toml_version {
+                        return Err(format!(
+                            "Dep '{name}' version mismatch: sema.toml has \"{toml_version}\" \
+                             but sema.lock has \"{lock_ver}\". \
+                             Run `sema pkg install` (without --locked) to update the lock file."
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Check for orphaned lock entries
+        for name in lock.entries.keys() {
+            if !deps.contains_key(name) {
+                return Err(format!(
+                    "'{name}' is in sema.lock but not in sema.toml. \
+                     Run `sema pkg install` (without --locked) to update the lock file."
+                ));
+            }
+        }
+
+        // Install from lock
+        for (name, entry) in &lock.entries {
+            println!("Installing {name} (locked)...");
+            match entry {
+                LockEntry::Git { git_ref, commit } => {
+                    let spec_str = format!("{name}@{git_ref}");
+                    let spec = sema_core::resolve::PackageSpec::parse(&spec_str)
+                        .map_err(|e| e.to_string())?;
+                    install_git_locked(&spec, commit)?;
+                }
+                LockEntry::Registry {
+                    version,
+                    registry,
+                    checksum,
+                } => {
+                    registry_install_locked(name, version, registry, checksum)?;
+                }
+            }
+        }
+
+        return Ok(());
+    }
+
+    // Normal install: use lock when available, resolve otherwise
+    let mut new_lock = lock.unwrap_or_else(LockFile::new);
+
+    // Prune orphaned lock entries (not in sema.toml)
+    let orphaned: Vec<String> = new_lock
+        .entries
+        .keys()
+        .filter(|name| !deps.contains_key(name.as_str()))
+        .cloned()
+        .collect();
+    for name in &orphaned {
+        eprintln!("Warning: '{name}' is in sema.lock but not in sema.toml, removing");
+        new_lock.entries.remove(name);
+    }
+
     for (name, value) in deps {
         let version = match value.as_str() {
             Some(s) => s,
@@ -199,11 +344,68 @@ pub fn cmd_install() -> Result<(), String> {
                 ));
             }
         };
-        let spec = format!("{name}@{version}");
-        println!("Installing {name}...");
-        // Keys with / are git deps; otherwise registry deps
-        cmd_add(&spec, None)?;
+
+        // Check if lock entry exists AND matches the sema.toml version/ref
+        let lock_matches = new_lock.entries.get(name).is_some_and(|entry| match entry {
+            LockEntry::Git { git_ref, .. } => git_ref == version,
+            LockEntry::Registry { version: v, .. } => v == version,
+        });
+
+        if lock_matches {
+            // Locked entry matches — install from lock
+            let entry = &new_lock.entries[name];
+            println!("Installing {name} (locked)...");
+            match entry {
+                LockEntry::Git { git_ref, commit } => {
+                    let spec_str = format!("{name}@{git_ref}");
+                    let spec = sema_core::resolve::PackageSpec::parse(&spec_str)
+                        .map_err(|e| e.to_string())?;
+                    install_git_locked(&spec, commit)?;
+                }
+                LockEntry::Registry {
+                    version,
+                    registry,
+                    checksum,
+                } => {
+                    registry_install_locked(name, version, registry, checksum)?;
+                }
+            }
+        } else {
+            // No lock entry or version changed — resolve fresh
+            if new_lock.entries.contains_key(name) {
+                eprintln!(
+                    "Warning: '{name}' version changed in sema.toml, re-resolving..."
+                );
+            } else {
+                eprintln!("Warning: '{name}' not in sema.lock, resolving...");
+            }
+            println!("Installing {name}...");
+
+            if is_git_spec(name) {
+                let spec_str = format!("{name}@{version}");
+                let spec = sema_core::resolve::PackageSpec::parse(&spec_str)
+                    .map_err(|e| e.to_string())?;
+                let (git_ref, commit) = install_git(&spec)?;
+                new_lock
+                    .entries
+                    .insert(name.clone(), LockEntry::Git { git_ref, commit });
+            } else {
+                let registry_url = effective_registry(None);
+                let checksum = registry_install(name, version, &registry_url)?;
+                new_lock.entries.insert(
+                    name.clone(),
+                    LockEntry::Registry {
+                        version: version.to_string(),
+                        registry: registry_url,
+                        checksum,
+                    },
+                );
+            }
+        }
     }
+
+    write_lock_file(&new_lock)?;
+    println!("✓ Updated sema.lock");
 
     Ok(())
 }
@@ -235,13 +437,14 @@ pub fn cmd_update(name: Option<&str>) -> Result<(), String> {
 
 fn update_single_package(pkg_dir: &Path, dir: &Path) -> Result<(), String> {
     let rel = dir.strip_prefix(pkg_dir).unwrap_or(dir);
+    let rel_str = rel.display().to_string();
 
     if let Some(meta) = read_pkg_meta(dir) {
         // Registry package — check for newer version
         let name = meta
             .get("name")
             .and_then(|v| v.as_str())
-            .unwrap_or(&rel.display().to_string())
+            .unwrap_or(&rel_str)
             .to_string();
         let current_ver = meta
             .get("version")
@@ -260,14 +463,49 @@ fn update_single_package(pkg_dir: &Path, dir: &Path) -> Result<(), String> {
             println!("  {} already at latest ({current_ver})", rel.display());
         } else {
             println!("  Updating {} {current_ver} → {latest}...", rel.display());
-            registry_install(&name, &latest, registry)?;
+            let checksum = registry_install(&name, &latest, registry)?;
             println!("✓ Updated {} → {latest}", rel.display());
+
+            // Update sema.toml so install doesn't revert
+            let toml_path = Path::new("sema.toml");
+            if toml_path.exists() {
+                let _ = add_dep_to_toml(toml_path, &name, &latest);
+            }
+
+            let _ = update_lock_entry(
+                &name,
+                LockEntry::Registry {
+                    version: latest,
+                    registry: registry.to_string(),
+                    checksum,
+                },
+            );
         }
     } else if dir.join(".git").is_dir() {
-        // Git package
+        // Git package — fetch and update to latest on the tracking ref
+        run_git(Some(dir), &["fetch", "origin"])?;
+
+        // Read the tracking ref from sema.toml (needed if HEAD is detached after --locked install)
+        let tracking_ref = read_dep_ref_from_toml(&rel_str);
+        if let Some(ref git_ref) = tracking_ref {
+            // Checkout the branch/tag first so pull works
+            let _ = run_git(Some(dir), &["checkout", git_ref]);
+        }
+
         run_git(Some(dir), &["pull"])?;
-        let current = current_git_ref(dir);
-        println!("✓ Updated {} → {current}", rel.display());
+        let current_ref = tracking_ref
+            .unwrap_or_else(|| current_git_ref(dir));
+        let commit = run_git(Some(dir), &["rev-parse", "HEAD"])
+            .unwrap_or_else(|_| "unknown".to_string());
+        println!("✓ Updated {} → {current_ref}", rel.display());
+
+        let _ = update_lock_entry(
+            &rel_str,
+            LockEntry::Git {
+                git_ref: current_ref,
+                commit,
+            },
+        );
     } else {
         println!("  {} — unknown source, skipping", rel.display());
     }
@@ -314,7 +552,24 @@ pub fn cmd_remove(name: &str) -> Result<(), String> {
         }
     }
 
+    // Remove from sema.lock if present
+    match remove_lock_entry(&rel_path) {
+        Ok(true) => println!("✓ Removed {rel_path} from sema.lock"),
+        Ok(false) => {}
+        Err(e) => eprintln!("Warning: could not update sema.lock: {e}"),
+    }
+
     Ok(())
+}
+
+/// Read a dep's version/ref from sema.toml, if present.
+fn read_dep_ref_from_toml(name: &str) -> Option<String> {
+    let content = std::fs::read_to_string("sema.toml").ok()?;
+    let doc: toml::Value = toml::from_str(&content).ok()?;
+    doc.get("deps")?
+        .get(name)?
+        .as_str()
+        .map(|s| s.to_string())
 }
 
 /// Add or update a dep entry in a sema.toml file.
@@ -741,13 +996,34 @@ fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Install a package from the registry.
-fn registry_install(name: &str, version: &str, registry_url: &str) -> Result<(), String> {
+/// Download and install a package from the registry. Returns the checksum.
+fn registry_install(name: &str, version: &str, registry_url: &str) -> Result<String, String> {
+    let (tarball, checksum) = registry_download(name, version, registry_url)?;
+
+    // Extract to packages dir
+    let pkg_dir = packages_dir();
+    let dest = pkg_dir.join(name);
+    if dest.exists() {
+        std::fs::remove_dir_all(&dest).map_err(|e| format!("Failed to remove old package: {e}"))?;
+    }
+    extract_tarball(&tarball, &dest)?;
+
+    // Write metadata
+    write_pkg_meta(&dest, name, version, registry_url, &checksum)?;
+
+    Ok(checksum)
+}
+
+/// Download a registry package and return (tarball_bytes, checksum).
+fn registry_download(
+    name: &str,
+    version: &str,
+    registry_url: &str,
+) -> Result<(Vec<u8>, String), String> {
     let token = read_token();
     let client = reqwest::blocking::Client::new();
     let base = registry_url.trim_end_matches('/');
 
-    // Download tarball
     let url = format!("{base}/api/v1/packages/{name}/{version}/download");
     let mut req = client.get(&url);
     if let Some(ref t) = token {
@@ -767,23 +1043,39 @@ fn registry_install(name: &str, version: &str, registry_url: &str) -> Result<(),
 
     let tarball = resp
         .bytes()
-        .map_err(|e| format!("Failed to read response: {e}"))?;
+        .map_err(|e| format!("Failed to read response: {e}"))?
+        .to_vec();
 
-    // Compute checksum
     use sha2::Digest;
     let checksum = format!("{:x}", sha2::Sha256::digest(&tarball));
 
-    // Extract to packages dir
+    Ok((tarball, checksum))
+}
+
+/// Install a registry package with checksum verification (for locked installs).
+fn registry_install_locked(
+    name: &str,
+    version: &str,
+    registry_url: &str,
+    expected_checksum: &str,
+) -> Result<(), String> {
+    let (tarball, checksum) = registry_download(name, version, registry_url)?;
+
+    if checksum != expected_checksum {
+        return Err(format!(
+            "Lock integrity error for {name}@{version}: expected checksum {expected_checksum}, got {checksum}"
+        ));
+    }
+
     let pkg_dir = packages_dir();
     let dest = pkg_dir.join(name);
     if dest.exists() {
         std::fs::remove_dir_all(&dest).map_err(|e| format!("Failed to remove old package: {e}"))?;
     }
     extract_tarball(&tarball, &dest)?;
-
-    // Write metadata
     write_pkg_meta(&dest, name, version, registry_url, &checksum)?;
 
+    println!("✓ Installed {name}@{version} (locked)");
     Ok(())
 }
 
@@ -1073,9 +1365,186 @@ fn urlencoded(s: &str) -> String {
     result
 }
 
+// ── Lock file (sema.lock) ──────────────────────────────────────────────
+
+const LOCK_FILE: &str = "sema.lock";
+
+#[derive(Debug, Clone)]
+enum LockEntry {
+    Git {
+        git_ref: String,
+        commit: String,
+    },
+    Registry {
+        version: String,
+        registry: String,
+        checksum: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct LockFile {
+    entries: std::collections::BTreeMap<String, LockEntry>,
+}
+
+impl LockFile {
+    fn new() -> Self {
+        Self {
+            entries: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+/// Read and parse `sema.lock`. Returns `Ok(None)` if the file doesn't exist,
+/// `Err` for parse/format errors (so callers get actionable messages).
+fn read_lock_file() -> Result<Option<LockFile>, String> {
+    let path = Path::new(LOCK_FILE);
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("Failed to read sema.lock: {e}")),
+    };
+
+    let doc: toml::Value =
+        toml::from_str(&content).map_err(|e| format!("Failed to parse sema.lock: {e}"))?;
+
+    let version = doc
+        .get("lock_version")
+        .and_then(|v| v.as_integer())
+        .ok_or("sema.lock missing 'lock_version' field")?;
+    if version != 1 {
+        return Err(format!(
+            "Unsupported sema.lock version {version} (expected 1). \
+             Regenerate with `sema pkg install`."
+        ));
+    }
+
+    let empty_table = toml::map::Map::new();
+    let packages = doc
+        .get("packages")
+        .and_then(|v| v.as_table())
+        .unwrap_or(&empty_table);
+
+    let mut entries = std::collections::BTreeMap::new();
+
+    for (name, value) in packages {
+        let table = value.as_table().ok_or_else(|| {
+            format!("sema.lock: package '{name}' is not a table")
+        })?;
+        let source = table
+            .get("source")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| format!("sema.lock: package '{name}' missing 'source' field"))?;
+
+        let entry = match source {
+            "git" => {
+                let git_ref = table
+                    .get("ref")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| format!("sema.lock: git package '{name}' missing 'ref' field"))?;
+                let commit = table
+                    .get("commit")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        format!("sema.lock: git package '{name}' missing 'commit' field")
+                    })?;
+                LockEntry::Git {
+                    git_ref: git_ref.to_string(),
+                    commit: commit.to_string(),
+                }
+            }
+            "registry" => {
+                let version = table.get("version").and_then(|v| v.as_str()).ok_or_else(|| {
+                    format!("sema.lock: registry package '{name}' missing 'version' field")
+                })?;
+                let registry = table.get("registry").and_then(|v| v.as_str()).ok_or_else(|| {
+                    format!("sema.lock: registry package '{name}' missing 'registry' field")
+                })?;
+                let checksum = table.get("checksum").and_then(|v| v.as_str()).ok_or_else(|| {
+                    format!("sema.lock: registry package '{name}' missing 'checksum' field")
+                })?;
+                LockEntry::Registry {
+                    version: version.to_string(),
+                    registry: registry.to_string(),
+                    checksum: checksum.to_string(),
+                }
+            }
+            other => {
+                return Err(format!(
+                    "sema.lock: package '{name}' has unknown source '{other}'"
+                ));
+            }
+        };
+
+        entries.insert(name.clone(), entry);
+    }
+
+    Ok(Some(LockFile { entries }))
+}
+
+fn write_lock_file(lock: &LockFile) -> Result<(), String> {
+    let mut doc = toml_edit::DocumentMut::new();
+    doc.decor_mut()
+        .set_prefix("# sema.lock — auto-generated, do not edit manually\n");
+    doc["lock_version"] = toml_edit::value(1i64);
+
+    let mut packages = toml_edit::Table::new();
+    packages.set_implicit(true);
+
+    for (name, entry) in &lock.entries {
+        let mut table = toml_edit::Table::new();
+        match entry {
+            LockEntry::Git { git_ref, commit } => {
+                table["source"] = toml_edit::value("git");
+                table["ref"] = toml_edit::value(git_ref.as_str());
+                table["commit"] = toml_edit::value(commit.as_str());
+            }
+            LockEntry::Registry {
+                version,
+                registry,
+                checksum,
+            } => {
+                table["source"] = toml_edit::value("registry");
+                table["version"] = toml_edit::value(version.as_str());
+                table["registry"] = toml_edit::value(registry.as_str());
+                table["checksum"] = toml_edit::value(checksum.as_str());
+            }
+        }
+        packages[name] = toml_edit::Item::Table(table);
+    }
+
+    doc["packages"] = toml_edit::Item::Table(packages);
+
+    std::fs::write(LOCK_FILE, doc.to_string())
+        .map_err(|e| format!("Failed to write sema.lock: {e}"))
+}
+
+fn update_lock_entry(name: &str, entry: LockEntry) -> Result<(), String> {
+    let mut lock = read_lock_file()?.unwrap_or_else(LockFile::new);
+    lock.entries.insert(name.to_string(), entry);
+    write_lock_file(&lock)
+}
+
+fn remove_lock_entry(name: &str) -> Result<bool, String> {
+    let mut lock = match read_lock_file()? {
+        Some(l) => l,
+        None => return Ok(false),
+    };
+    let removed = lock.entries.remove(name).is_some();
+    if removed {
+        if lock.entries.is_empty() {
+            let _ = std::fs::remove_file(LOCK_FILE);
+        } else {
+            write_lock_file(&lock)?;
+        }
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::fs;
     use std::io::Write;
 
@@ -1324,6 +1793,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_cmd_init_creates_sema_toml() {
         let tmp = std::env::temp_dir().join(format!("sema-pkg-init-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1625,6 +2095,7 @@ name = "myproject"
     }
 
     #[test]
+    #[serial]
     fn test_cmd_init_rejects_existing() {
         let tmp = std::env::temp_dir().join(format!("sema-pkg-init2-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
@@ -1883,6 +2354,666 @@ name = "myproject"
         extract_tarball(&tarball, &dest).unwrap();
         let content = fs::read_to_string(dest.join("src/lib/deep.sema")).unwrap();
         assert_eq!(content, "(define deep 1)");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── Lock file tests ───────────────────────────────────────────────
+
+    /// Helper to chdir into a temp directory and restore on drop.
+    struct TestDir {
+        prev: PathBuf,
+    }
+
+    impl TestDir {
+        fn new(dir: &Path) -> Self {
+            let prev = std::env::current_dir().unwrap();
+            std::env::set_current_dir(dir).unwrap();
+            Self { prev }
+        }
+    }
+
+    impl Drop for TestDir {
+        fn drop(&mut self) {
+            let _ = std::env::set_current_dir(&self.prev);
+        }
+    }
+
+    // ── Round-trip tests ──────────────────────────────────────────────
+
+    #[test]
+    #[serial]
+    fn lock_file_round_trip_git() {
+        let dir = tmpdir("lock-git");
+        let _guard = TestDir::new(&dir);
+
+        let mut lock = LockFile::new();
+        lock.entries.insert(
+            "github.com/user/repo".to_string(),
+            LockEntry::Git {
+                git_ref: "main".to_string(),
+                commit: "abc123def456".to_string(),
+            },
+        );
+
+        write_lock_file(&lock).unwrap();
+
+        let content = fs::read_to_string(dir.join(LOCK_FILE)).unwrap();
+        assert!(content.contains("lock_version = 1"));
+        assert!(content.contains("[packages.\"github.com/user/repo\"]"));
+        assert!(content.contains("source = \"git\""));
+        assert!(content.contains("commit = \"abc123def456\""));
+
+        let loaded = read_lock_file().unwrap().unwrap();
+        assert_eq!(loaded.entries.len(), 1);
+        match &loaded.entries["github.com/user/repo"] {
+            LockEntry::Git { git_ref, commit } => {
+                assert_eq!(git_ref, "main");
+                assert_eq!(commit, "abc123def456");
+            }
+            _ => panic!("Expected git entry"),
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_round_trip_registry() {
+        let dir = tmpdir("lock-registry");
+        let _guard = TestDir::new(&dir);
+
+        let mut lock = LockFile::new();
+        lock.entries.insert(
+            "http-helpers".to_string(),
+            LockEntry::Registry {
+                version: "1.2.0".to_string(),
+                registry: "https://pkg.sema-lang.com".to_string(),
+                checksum: "deadbeef".to_string(),
+            },
+        );
+
+        write_lock_file(&lock).unwrap();
+
+        let loaded = read_lock_file().unwrap().unwrap();
+        assert_eq!(loaded.entries.len(), 1);
+        match &loaded.entries["http-helpers"] {
+            LockEntry::Registry {
+                version,
+                registry,
+                checksum,
+            } => {
+                assert_eq!(version, "1.2.0");
+                assert_eq!(registry, "https://pkg.sema-lang.com");
+                assert_eq!(checksum, "deadbeef");
+            }
+            _ => panic!("Expected registry entry"),
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_mixed_entries() {
+        let dir = tmpdir("lock-mixed");
+        let _guard = TestDir::new(&dir);
+
+        let mut lock = LockFile::new();
+        lock.entries.insert(
+            "github.com/user/repo".to_string(),
+            LockEntry::Git {
+                git_ref: "v1.0".to_string(),
+                commit: "aaa111".to_string(),
+            },
+        );
+        lock.entries.insert(
+            "my-pkg".to_string(),
+            LockEntry::Registry {
+                version: "0.1.0".to_string(),
+                registry: "https://pkg.sema-lang.com".to_string(),
+                checksum: "bbb222".to_string(),
+            },
+        );
+
+        write_lock_file(&lock).unwrap();
+
+        let loaded = read_lock_file().unwrap().unwrap();
+        assert_eq!(loaded.entries.len(), 2);
+        assert!(matches!(
+            &loaded.entries["github.com/user/repo"],
+            LockEntry::Git { .. }
+        ));
+        assert!(matches!(
+            &loaded.entries["my-pkg"],
+            LockEntry::Registry { .. }
+        ));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── Update / remove entry tests ───────────────────────────────────
+
+    #[test]
+    #[serial]
+    fn lock_file_update_entry() {
+        let dir = tmpdir("lock-update");
+        let _guard = TestDir::new(&dir);
+
+        update_lock_entry(
+            "my-pkg",
+            LockEntry::Registry {
+                version: "1.0.0".to_string(),
+                registry: "https://pkg.sema-lang.com".to_string(),
+                checksum: "aaa".to_string(),
+            },
+        )
+        .unwrap();
+
+        let lock = read_lock_file().unwrap().unwrap();
+        assert_eq!(lock.entries.len(), 1);
+
+        // Update same entry
+        update_lock_entry(
+            "my-pkg",
+            LockEntry::Registry {
+                version: "2.0.0".to_string(),
+                registry: "https://pkg.sema-lang.com".to_string(),
+                checksum: "bbb".to_string(),
+            },
+        )
+        .unwrap();
+
+        let lock = read_lock_file().unwrap().unwrap();
+        assert_eq!(lock.entries.len(), 1);
+        match &lock.entries["my-pkg"] {
+            LockEntry::Registry { version, .. } => assert_eq!(version, "2.0.0"),
+            _ => panic!("Expected registry entry"),
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_remove_entry() {
+        let dir = tmpdir("lock-remove");
+        let _guard = TestDir::new(&dir);
+
+        update_lock_entry(
+            "pkg-a",
+            LockEntry::Registry {
+                version: "1.0.0".to_string(),
+                registry: "https://pkg.sema-lang.com".to_string(),
+                checksum: "aaa".to_string(),
+            },
+        )
+        .unwrap();
+        update_lock_entry(
+            "pkg-b",
+            LockEntry::Registry {
+                version: "2.0.0".to_string(),
+                registry: "https://pkg.sema-lang.com".to_string(),
+                checksum: "bbb".to_string(),
+            },
+        )
+        .unwrap();
+
+        let removed = remove_lock_entry("pkg-a").unwrap();
+        assert!(removed);
+
+        let lock = read_lock_file().unwrap().unwrap();
+        assert_eq!(lock.entries.len(), 1);
+        assert!(!lock.entries.contains_key("pkg-a"));
+        assert!(lock.entries.contains_key("pkg-b"));
+
+        // Remove last entry — file should be deleted
+        let removed = remove_lock_entry("pkg-b").unwrap();
+        assert!(removed);
+        assert!(!Path::new(LOCK_FILE).exists());
+
+        // Remove from nonexistent lock
+        let removed = remove_lock_entry("no-such-pkg").unwrap();
+        assert!(!removed);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── Missing / malformed lock file tests ───────────────────────────
+
+    #[test]
+    #[serial]
+    fn lock_file_missing_returns_none() {
+        let dir = tmpdir("lock-missing");
+        let _guard = TestDir::new(&dir);
+
+        let result = read_lock_file().unwrap();
+        assert!(result.is_none());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_invalid_toml_returns_error() {
+        let dir = tmpdir("lock-invalid-toml");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(LOCK_FILE, "this is not valid toml {{{}").unwrap();
+        let err = read_lock_file().unwrap_err();
+        assert!(err.contains("Failed to parse"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_missing_lock_version() {
+        let dir = tmpdir("lock-no-version");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(LOCK_FILE, "[packages]\n").unwrap();
+        let err = read_lock_file().unwrap_err();
+        assert!(err.contains("lock_version"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_unsupported_version() {
+        let dir = tmpdir("lock-bad-version");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(LOCK_FILE, "lock_version = 99\n[packages]\n").unwrap();
+        let err = read_lock_file().unwrap_err();
+        assert!(err.contains("Unsupported"), "got: {err}");
+        assert!(err.contains("99"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_missing_packages_table_is_empty() {
+        let dir = tmpdir("lock-no-packages");
+        let _guard = TestDir::new(&dir);
+
+        // lock_version present but no [packages] → treated as empty lock
+        fs::write(LOCK_FILE, "lock_version = 1\n").unwrap();
+        let lock = read_lock_file().unwrap().unwrap();
+        assert!(lock.entries.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_malformed_entry_missing_field() {
+        let dir = tmpdir("lock-bad-entry");
+        let _guard = TestDir::new(&dir);
+
+        // Registry entry missing 'checksum'
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n\
+             [packages.good]\n\
+             source = \"registry\"\n\
+             version = \"1.0.0\"\n\
+             registry = \"http://example\"\n\
+             checksum = \"abc\"\n\n\
+             [packages.bad]\n\
+             source = \"registry\"\n\
+             version = \"1.0.0\"\n\
+             registry = \"http://example\"\n",
+        )
+        .unwrap();
+
+        let err = read_lock_file().unwrap_err();
+        assert!(err.contains("bad"), "error should mention package name, got: {err}");
+        assert!(err.contains("checksum"), "error should mention missing field, got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_malformed_entry_missing_source() {
+        let dir = tmpdir("lock-no-source");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n\
+             [packages.broken]\n\
+             version = \"1.0.0\"\n",
+        )
+        .unwrap();
+
+        let err = read_lock_file().unwrap_err();
+        assert!(err.contains("broken"), "got: {err}");
+        assert!(err.contains("source"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_unknown_source_type() {
+        let dir = tmpdir("lock-unknown-source");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n\
+             [packages.weird]\n\
+             source = \"ftp\"\n",
+        )
+        .unwrap();
+
+        let err = read_lock_file().unwrap_err();
+        assert!(err.contains("ftp"), "got: {err}");
+        assert!(err.contains("weird"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_git_entry_missing_commit() {
+        let dir = tmpdir("lock-git-no-commit");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n\
+             [packages.\"github.com/user/repo\"]\n\
+             source = \"git\"\n\
+             ref = \"main\"\n",
+        )
+        .unwrap();
+
+        let err = read_lock_file().unwrap_err();
+        assert!(err.contains("commit"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── cmd_install --locked logic tests ──────────────────────────────
+    // These test the validation logic without requiring network access.
+
+    #[test]
+    #[serial]
+    fn cmd_install_locked_fails_without_lock_file() {
+        let dir = tmpdir("install-no-lock");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(
+            "sema.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[deps]\nfoo = \"1.0.0\"\n",
+        )
+        .unwrap();
+
+        let err = cmd_install(true).unwrap_err();
+        assert!(err.contains("sema.lock not found"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn cmd_install_locked_fails_dep_not_in_lock() {
+        let dir = tmpdir("install-dep-missing");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(
+            "sema.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+             [deps]\nfoo = \"1.0.0\"\nbar = \"2.0.0\"\n",
+        )
+        .unwrap();
+
+        // Lock only has foo, not bar
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n\
+             [packages.foo]\n\
+             source = \"registry\"\n\
+             version = \"1.0.0\"\n\
+             registry = \"http://localhost\"\n\
+             checksum = \"aaa\"\n",
+        )
+        .unwrap();
+
+        let err = cmd_install(true).unwrap_err();
+        assert!(err.contains("bar"), "got: {err}");
+        assert!(err.contains("not in sema.lock"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn cmd_install_locked_fails_orphan_in_lock() {
+        let dir = tmpdir("install-orphan");
+        let _guard = TestDir::new(&dir);
+
+        // sema.toml has only foo
+        fs::write(
+            "sema.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[deps]\nfoo = \"1.0.0\"\n",
+        )
+        .unwrap();
+
+        // Lock has foo AND orphaned-pkg
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n\
+             [packages.foo]\n\
+             source = \"registry\"\n\
+             version = \"1.0.0\"\n\
+             registry = \"http://localhost\"\n\
+             checksum = \"aaa\"\n\n\
+             [packages.orphaned-pkg]\n\
+             source = \"registry\"\n\
+             version = \"3.0.0\"\n\
+             registry = \"http://localhost\"\n\
+             checksum = \"bbb\"\n",
+        )
+        .unwrap();
+
+        let err = cmd_install(true).unwrap_err();
+        assert!(err.contains("orphaned-pkg"), "got: {err}");
+        assert!(err.contains("not in sema.toml"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn cmd_install_locked_fails_version_mismatch_registry() {
+        let dir = tmpdir("install-version-mismatch");
+        let _guard = TestDir::new(&dir);
+
+        // sema.toml wants 2.0.0
+        fs::write(
+            "sema.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[deps]\nfoo = \"2.0.0\"\n",
+        )
+        .unwrap();
+
+        // Lock has 1.0.0
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n\
+             [packages.foo]\n\
+             source = \"registry\"\n\
+             version = \"1.0.0\"\n\
+             registry = \"http://localhost\"\n\
+             checksum = \"aaa\"\n",
+        )
+        .unwrap();
+
+        let err = cmd_install(true).unwrap_err();
+        assert!(err.contains("foo"), "got: {err}");
+        assert!(err.contains("mismatch"), "got: {err}");
+        assert!(err.contains("2.0.0"), "got: {err}");
+        assert!(err.contains("1.0.0"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn cmd_install_locked_fails_ref_mismatch_git() {
+        let dir = tmpdir("install-ref-mismatch");
+        let _guard = TestDir::new(&dir);
+
+        // sema.toml wants v2.0
+        fs::write(
+            "sema.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+             [deps]\n\"github.com/user/repo\" = \"v2.0\"\n",
+        )
+        .unwrap();
+
+        // Lock has v1.0
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n\
+             [packages.\"github.com/user/repo\"]\n\
+             source = \"git\"\n\
+             ref = \"v1.0\"\n\
+             commit = \"abc123\"\n",
+        )
+        .unwrap();
+
+        let err = cmd_install(true).unwrap_err();
+        assert!(err.contains("github.com/user/repo"), "got: {err}");
+        assert!(err.contains("mismatch"), "got: {err}");
+        assert!(err.contains("v2.0"), "got: {err}");
+        assert!(err.contains("v1.0"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn cmd_install_locked_fails_malformed_lock() {
+        let dir = tmpdir("install-malformed-lock");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(
+            "sema.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[deps]\nfoo = \"1.0.0\"\n",
+        )
+        .unwrap();
+
+        // Invalid TOML in lock
+        fs::write(LOCK_FILE, "this is garbage {{{").unwrap();
+
+        let err = cmd_install(true).unwrap_err();
+        assert!(err.contains("parse"), "got: {err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn cmd_install_no_deps_is_ok() {
+        let dir = tmpdir("install-no-deps");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(
+            "sema.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[deps]\n",
+        )
+        .unwrap();
+
+        // Should succeed even without lock file
+        cmd_install(false).unwrap();
+        // Lock file should be written (empty packages)
+        let lock = read_lock_file().unwrap().unwrap();
+        assert!(lock.entries.is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn cmd_install_locked_ok_with_matching_empty() {
+        let dir = tmpdir("install-locked-empty");
+        let _guard = TestDir::new(&dir);
+
+        fs::write(
+            "sema.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[deps]\n",
+        )
+        .unwrap();
+
+        fs::write(
+            LOCK_FILE,
+            "lock_version = 1\n\n[packages]\n",
+        )
+        .unwrap();
+
+        // Empty deps + empty lock = success
+        cmd_install(true).unwrap();
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ── TOML key edge cases ───────────────────────────────────────────
+
+    #[test]
+    #[serial]
+    fn lock_file_preserves_dotted_slash_keys() {
+        let dir = tmpdir("lock-dotted-keys");
+        let _guard = TestDir::new(&dir);
+
+        let mut lock = LockFile::new();
+        // Keys with dots and slashes must survive round-trip
+        lock.entries.insert(
+            "github.com/org/repo.name".to_string(),
+            LockEntry::Git {
+                git_ref: "main".to_string(),
+                commit: "deadbeef12345678".to_string(),
+            },
+        );
+        lock.entries.insert(
+            "gitlab.com/deep/nested/path".to_string(),
+            LockEntry::Git {
+                git_ref: "v1.0.0-beta.1".to_string(),
+                commit: "cafebabe".to_string(),
+            },
+        );
+
+        write_lock_file(&lock).unwrap();
+
+        let loaded = read_lock_file().unwrap().unwrap();
+        assert_eq!(loaded.entries.len(), 2);
+        assert!(loaded.entries.contains_key("github.com/org/repo.name"));
+        assert!(loaded.entries.contains_key("gitlab.com/deep/nested/path"));
+
+        match &loaded.entries["gitlab.com/deep/nested/path"] {
+            LockEntry::Git { git_ref, .. } => assert_eq!(git_ref, "v1.0.0-beta.1"),
+            _ => panic!("Expected git entry"),
+        }
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[serial]
+    fn lock_file_empty_packages_round_trips() {
+        let dir = tmpdir("lock-empty");
+        let _guard = TestDir::new(&dir);
+
+        let lock = LockFile::new();
+        write_lock_file(&lock).unwrap();
+
+        let loaded = read_lock_file().unwrap().unwrap();
+        assert!(loaded.entries.is_empty());
+
         let _ = fs::remove_dir_all(&dir);
     }
 }
