@@ -239,6 +239,32 @@ dual_eval_error_tests! {
     string_intern_no_args: "(string/intern)",
 }
 
+// ============================================================
+// TOML — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    toml_decode_basic: r#"
+        (let ((t (toml/decode "[package]\nname = \"test\"\nversion = \"1.0\"")))
+          (:name (:package t)))
+    "# => Value::string("test"),
+
+    toml_decode_deps: r#"
+        (let ((t (toml/decode "[deps]\nhttp = \"github.com/user/http\"")))
+          (:http (:deps t)))
+    "# => Value::string("github.com/user/http"),
+
+    toml_decode_array: r#"
+        (let ((t (toml/decode "tags = [\"a\", \"b\"]")))
+          (length (:tags t)))
+    "# => Value::int(2),
+
+    toml_decode_nested: r#"
+        (let ((t (toml/decode "[package]\nname = \"x\"\n\n[deps]\nfoo = \"bar\"")))
+          (list (:name (:package t)) (:foo (:deps t))))
+    "# => Value::list(vec![Value::string("x"), Value::string("bar")]),
+}
+
 dual_eval_error_tests! {
     // No matching method and no default
     multi_no_method: r#"

@@ -27,6 +27,7 @@ mod server;
 mod string;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;
+mod toml_ops;
 #[cfg(not(target_arch = "wasm32"))]
 mod terminal;
 mod text;
@@ -47,6 +48,7 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     #[cfg(not(target_arch = "wasm32"))]
     system::register(env, sandbox);
     json::register(env);
+    toml_ops::register(env);
     meta::register(env);
     regex_ops::register(env);
     #[cfg(not(target_arch = "wasm32"))]
