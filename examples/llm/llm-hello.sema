@@ -17,8 +17,12 @@
 (println "\n--- 2. Chat ---")
 (println
   (llm/chat
-    [(message :system "You are a helpful assistant. Be very concise.")
-     (message :user "What is Lisp? One sentence.")]
+    [(message
+       :system
+       "You are a helpful assistant. Be very concise.")
+     (message
+       :user
+       "What is Lisp? One sentence.")]
     {:max-tokens 100}))
 
 ;; --- 3. Prompts as Data ---
@@ -26,7 +30,8 @@
 (define review-prompt
   (prompt
     (system "You are a code reviewer. Be very concise. One sentence max.")
-    (user "Review: (define (factorial n) (if (<= n 1) 1 (* n (factorial (- n 1)))))")))
+    (user
+      "Review: (define (factorial n) (if (<= n 1) 1 (* n (factorial (- n 1)))))")))
 (println (llm/send review-prompt {:max-tokens 100}))
 
 ;; --- 4. Structured Extraction ---
@@ -35,14 +40,15 @@
   (llm/extract
     {:vendor {:type :string}
      :amount {:type :number}
-     :date   {:type :string}}
+     :date {:type :string}}
     "I bought coffee for $4.50 at Blue Bottle on Jan 15, 2025"))
 (println data)
 
 ;; --- 5. Classification ---
 (println "\n--- 5. Classification ---")
-(println (llm/classify [:positive :negative :neutral]
-                        "This product is amazing and I love it!"))
+(println
+  (llm/classify [:positive :negative :neutral]
+    "This product is amazing and I love it!"))
 
 ;; --- 6. Persistent Conversation ---
 (println "\n--- 6. Conversation ---")
@@ -59,14 +65,13 @@
   {:country {:type :string :description "Country name"}}
   (lambda (country)
     (cond
-      ((= country "Norway") "Oslo")
-      ((= country "France") "Paris")
-      ((= country "Japan") "Tokyo")
-      (else (format "Unknown capital for ~a" country)))))
+      ((= country "Norway")  "Oslo")
+      ((= country "France")  "Paris")
+      ((= country "Japan")   "Tokyo")
+      (else                  (format "Unknown capital for ~a" country)))))
 
 (println
-  (llm/chat
-    [(message :user "What is the capital of Norway?")]
+  (llm/chat [(message :user "What is the capital of Norway?")]
     {:tools [lookup-capital]
      :max-tokens 100}))
 
@@ -91,7 +96,7 @@
   (llm/pmap
     (lambda (word)
       (llm/complete (format "Translate to Spanish (one word only): ~a" word)
-                    {:max-tokens 10}))
+        {:max-tokens 10}))
     (list "sun" "moon" "star")))
 (println translations)
 

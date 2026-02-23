@@ -13,18 +13,20 @@
 
 ;; --- 1. Response Caching ---
 (println "\n=== 1. Response Caching ===")
-(llm/with-cache (lambda ()
-  (define r1 (llm/complete "Say just: cached-test" {:max-tokens 20}))
-  (println (format "First call:  ~a" r1))
-  (define r2 (llm/complete "Say just: cached-test" {:max-tokens 20}))
-  (println (format "Second call: ~a (should be same — from cache)" r2))))
+(llm/with-cache
+  (lambda ()
+    (define r1 (llm/complete "Say just: cached-test" {:max-tokens 20}))
+    (println (format "First call:  ~a" r1))
+    (define r2 (llm/complete "Say just: cached-test" {:max-tokens 20}))
+    (println (format "Second call: ~a (should be same — from cache)" r2))))
 (println (format "Cache stats: ~a" (llm/cache-stats)))
 
 ;; --- 2. Cache with TTL ---
 (println "\n=== 2. Cache with TTL ===")
-(llm/with-cache {:ttl 60} (lambda ()
-  (define r (llm/complete "Say just: ttl-test" {:max-tokens 20}))
-  (println (format "Cached (60s TTL): ~a" r))))
+(llm/with-cache {:ttl 60}
+  (lambda ()
+    (define r (llm/complete "Say just: ttl-test" {:max-tokens 20}))
+    (println (format "Cached (60s TTL): ~a" r))))
 (println (format "Cache stats: ~a" (llm/cache-stats)))
 (llm/cache-clear)
 (println (format "After clear: ~a" (llm/cache-stats)))
@@ -38,7 +40,7 @@
 
 ;; --- 4. Simple Budget ---
 (println "\n=== 4. Simple Budget ===")
-(llm/set-budget 1.00)
+(llm/set-budget 1.0)
 (define r (llm/complete "Say just: budget-ok" {:max-tokens 20}))
 (println (format "Result: ~a" r))
 (println (format "Budget remaining: ~a" (llm/budget-remaining)))
@@ -47,20 +49,22 @@
 
 ;; --- 5. Scoped Budget (llm/with-budget) ---
 (println "\n=== 5. Scoped Budget ===")
-(llm/with-budget {:max-cost-usd 0.50} (lambda ()
-  (define r (llm/complete "Say just: scoped-budget" {:max-tokens 20}))
-  (println (format "Result: ~a" r))
-  (println (format "Budget in scope: ~a" (llm/budget-remaining)))))
+(llm/with-budget {:max-cost-usd 0.5}
+  (lambda ()
+    (define r (llm/complete "Say just: scoped-budget" {:max-tokens 20}))
+    (println (format "Result: ~a" r))
+    (println (format "Budget in scope: ~a" (llm/budget-remaining)))))
 ;; Budget is automatically cleared after the block
 (println (format "Budget after scope: ~a" (llm/budget-remaining)))
 
 ;; --- 6. Rate Limiting ---
 (println "\n=== 6. Rate Limiting ===")
-(llm/with-rate-limit 2.0 (lambda ()
-  (define r1 (llm/complete "Say just: rate-1" {:max-tokens 20}))
-  (println (format "Call 1: ~a" r1))
-  (define r2 (llm/complete "Say just: rate-2" {:max-tokens 20}))
-  (println (format "Call 2: ~a" r2))))
+(llm/with-rate-limit 2.0
+  (lambda ()
+    (define r1 (llm/complete "Say just: rate-1" {:max-tokens 20}))
+    (println (format "Call 1: ~a" r1))
+    (define r2 (llm/complete "Say just: rate-2" {:max-tokens 20}))
+    (println (format "Call 2: ~a" r2))))
 
 ;; --- 7. Retry with Backoff ---
 (println "\n=== 7. Retry ===")

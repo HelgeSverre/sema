@@ -13,15 +13,17 @@
 (if (file/exists? test-dir)
   (begin
     ;; Remove files inside if any
-    (for-each (lambda (f) (file/delete (path/join test-dir f)))
-              (filter (lambda (f) (file/is-file? (path/join test-dir f)))
-                      (file/list test-dir)))
+    (for-each
+      (lambda (f) (file/delete (path/join test-dir f)))
+      (filter (lambda (f) (file/is-file? (path/join test-dir f)))
+        (file/list test-dir)))
     ;; Remove subdirs
-    (for-each (lambda (f)
-                (if (file/is-directory? (path/join test-dir f))
-                  (shell "rm" "-rf" (path/join test-dir f))
-                  #f))
-              (file/list test-dir)))
+    (for-each
+      (lambda (f)
+        (if (file/is-directory? (path/join test-dir f))
+          (shell "rm" "-rf" (path/join test-dir f))
+          #f))
+      (file/list test-dir)))
   #f)
 
 ;; --- file/mkdir ---
@@ -44,7 +46,9 @@
 ;; --- file/exists? ---
 (println "-- file/exists? --")
 (assert-eq (file/exists? test-file) #t "file/exists? on existing file")
-(assert-eq (file/exists? (path/join test-dir "nope.txt")) #f "file/exists? on missing file")
+(assert-eq (file/exists? (path/join test-dir "nope.txt"))
+  #f
+  "file/exists? on missing file")
 
 ;; --- file/is-file? ---
 (println "-- file/is-file? --")
@@ -57,13 +61,17 @@
 ;; --- file/append ---
 (println "-- file/append --")
 (file/append test-file " More text.")
-(assert-eq (file/read test-file) "Hello, Sema! More text." "file/append content")
+(assert-eq (file/read test-file)
+  "Hello, Sema! More text."
+  "file/append content")
 
 ;; --- file/copy ---
 (println "-- file/copy --")
 (define copy-file (path/join test-dir "hello-copy.txt"))
 (file/copy test-file copy-file)
-(assert-eq (file/read copy-file) "Hello, Sema! More text." "file/copy content matches")
+(assert-eq (file/read copy-file)
+  "Hello, Sema! More text."
+  "file/copy content matches")
 
 ;; --- file/rename ---
 (println "-- file/rename --")
@@ -80,8 +88,12 @@
 ;; --- file/list ---
 (println "-- file/list --")
 (define listing (file/list test-dir))
-(assert-eq (not (equal? (member "hello.txt" listing) #f)) #t "file/list includes hello.txt")
-(assert-eq (not (equal? (member "subdir" listing) #f)) #t "file/list includes subdir")
+(assert-eq (not (equal? (member "hello.txt" listing) #f))
+  #t
+  "file/list includes hello.txt")
+(assert-eq (not (equal? (member "subdir" listing) #f))
+  #t
+  "file/list includes subdir")
 
 ;; --- file/info ---
 (println "-- file/info --")
@@ -107,8 +119,11 @@
 ;; --- file/for-each-line ---
 (println "-- file/for-each-line --")
 (define collected '())
-(file/for-each-line lines-file (lambda (line) (set! collected (cons line collected))))
-(assert-eq (reverse collected) (list "alpha" "beta" "gamma") "file/for-each-line collects all lines")
+(file/for-each-line lines-file
+  (lambda (line) (set! collected (cons line collected))))
+(assert-eq (reverse collected)
+  (list "alpha" "beta" "gamma")
+  "file/for-each-line collects all lines")
 
 ;; --- file/fold-lines ---
 (println "-- file/fold-lines --")
@@ -117,7 +132,9 @@
 
 ;; --- path/join ---
 (println "-- path/join --")
-(assert-eq (path/join "/tmp" "foo" "bar.txt") "/tmp/foo/bar.txt" "path/join three parts")
+(assert-eq (path/join "/tmp" "foo" "bar.txt")
+  "/tmp/foo/bar.txt"
+  "path/join three parts")
 
 ;; --- path/dirname ---
 (println "-- path/dirname --")
@@ -147,7 +164,9 @@
 
 ;; --- format ---
 (println "-- format --")
-(assert-eq (format "Hello ~a, you are ~a" "world" 42) "Hello world, you are 42" "format with ~a")
+(assert-eq (format "Hello ~a, you are ~a" "world" 42)
+  "Hello world, you are 42"
+  "format with ~a")
 
 ;; --- read & read-many ---
 (println "-- read & read-many --")

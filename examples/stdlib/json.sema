@@ -19,8 +19,8 @@
 (assert-eq (json/encode [1 2 3]) "[1,2,3]" "json/encode vector")
 
 ;; Map with keyword keys
-(define m {:name "Alice" :age 30})
-(define encoded (json/encode m))
+(define m        {:name "Alice" :age 30})
+(define encoded  (json/encode m))
 (println "  ✓ json/encode map = " encoded)
 
 ;; --- json/encode-pretty ---
@@ -50,11 +50,13 @@
 
 ;; Roundtrip
 (println "-- roundtrip --")
-(define data {:items [1 2 3] :label "test" :active #t})
-(define roundtripped (json/decode (json/encode data)))
+(define data          {:items [1 2 3] :label "test" :active #t})
+(define roundtripped  (json/decode (json/encode data)))
 (assert-eq (get roundtripped :label) "test" "roundtrip preserves string")
 (assert-eq (get roundtripped :active) #t "roundtrip preserves boolean")
-(assert-eq (length (get roundtripped :items)) 3 "roundtrip preserves array length")
+(assert-eq (length (get roundtripped :items))
+  3
+  "roundtrip preserves array length")
 
 (println "")
 (println "=== All JSON tests passed! ===")

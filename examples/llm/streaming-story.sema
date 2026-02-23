@@ -1,8 +1,8 @@
 ;; streaming-story.sema — Real-time LLM streaming demo
 ;; Watch a short story appear token-by-token with a typewriter effect.
 ;; Requires ANTHROPIC_API_KEY or OPENAI_API_KEY environment variable.
-;; 
-;; To override the model being used, do this: 
+;;
+;; To override the model being used, do this:
 ;; sema --vm streaming-story.sema --chat-model=claude-haiku-4-5
 
 (define provider (llm/auto-configure))

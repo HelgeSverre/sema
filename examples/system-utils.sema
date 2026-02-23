@@ -11,16 +11,17 @@
 (println (format "CLI args:  ~a" (length args)))
 
 ;; Selected environment variables
-(define env-vars (sys/env-all))
-(define interesting-keys (list :HOME :USER :SHELL :TERM :LANG))
+(define env-vars          (sys/env-all))
+(define interesting-keys  (list :HOME :USER :SHELL :TERM :LANG))
 (println "\nEnvironment:")
 (for-each
   (fn (key)
     (let ((val (get env-vars key)))
       (when (not (nil? val))
-        (println (format "  ~a = ~a"
-          (string/pad-right (keyword->string key) 8)
-          val)))))
+        (println
+          (format "  ~a = ~a"
+            (string/pad-right (keyword->string key) 8)
+            val)))))
   interesting-keys)
 
 ;; === File Operations ===
@@ -32,7 +33,8 @@
 (file/mkdir work-dir)
 
 ;; Create a config file
-(define config {:version "1.0" :debug #f :max-connections 100 :features '("auth" "logging")})
+(define config
+  {:version "1.0" :debug #f :max-connections 100 :features '("auth" "logging")})
 (define config-path (path/join work-dir "config.json"))
 (file/write config-path (json/encode-pretty config))
 (println (format "Wrote config to: ~a" config-path))
@@ -46,10 +48,11 @@
 (for-each
   (fn (i)
     (let ((filename (format "data-~a.txt" (string/pad-left (str i) 3 "0")))
-          (content (format "Record ~a: value=~a hash=~a"
-                    i
-                    (math/random-int 100 999)
-                    (substring (hash/sha256 (str i)) 0 8))))
+          (content
+            (format "Record ~a: value=~a hash=~a"
+              i
+              (math/random-int 100 999)
+              (substring (hash/sha256 (str i)) 0 8))))
       (file/write (path/join work-dir filename) content)))
   (range 1 6))
 
@@ -58,19 +61,21 @@
 (println (format "\nFiles in ~a:" work-dir))
 (for-each
   (fn (name)
-    (let* ((full-path (path/join work-dir name))
-           (info (file/info full-path))
-           (ext (path/extension name)))
-      (println (format "  ~a  ~a bytes  ext=~a"
-        (string/pad-right name 20)
-        (string/pad-left (str (get info :size)) 6)
-        (if (nil? ext) "-" ext)))))
+    (let* ((full-path  (path/join work-dir name))
+           (info       (file/info full-path))
+           (ext        (path/extension name)))
+      (println
+        (format "  ~a  ~a bytes  ext=~a"
+          (string/pad-right name 20)
+          (string/pad-left (str (get info :size)) 6)
+          (if (nil? ext) "-" ext)))))
   (sort files))
 
 ;; === Log File Analysis ===
 (println "\n=== Log File Analysis ===")
 
-(define log-content "2024-01-15 10:30:00 INFO  Server started on port 8080
+(define log-content
+  "2024-01-15 10:30:00 INFO  Server started on port 8080
 2024-01-15 10:30:05 INFO  Connected to database
 2024-01-15 10:31:12 WARN  Slow query detected (1.5s)
 2024-01-15 10:32:00 ERROR Connection timeout to cache
@@ -83,16 +88,21 @@
 (file/write log-path log-content)
 
 ;; Extract log levels using regex
-(define log-lines (filter (fn (l) (> (string-length l) 0)) (string/split log-content "\n")))
-(define log-levels (map (fn (line) (regex/find-all "INFO|WARN|ERROR" line)) log-lines))
+(define log-lines
+  (filter (fn (l) (> (string-length l) 0)) (string/split log-content "\n")))
+(define log-levels
+  (map (fn (line) (regex/find-all "INFO|WARN|ERROR" line)) log-lines))
 (define flat-levels (flatten log-levels))
 
 (println (format "Total log lines: ~a" (length log-lines)))
 
 ;; Count by level
-(define info-count (length (filter (fn (l) (string/contains? l "INFO")) log-lines)))
-(define warn-count (length (filter (fn (l) (string/contains? l "WARN")) log-lines)))
-(define error-count (length (filter (fn (l) (string/contains? l "ERROR")) log-lines)))
+(define info-count
+  (length (filter (fn (l) (string/contains? l "INFO")) log-lines)))
+(define warn-count
+  (length (filter (fn (l) (string/contains? l "WARN")) log-lines)))
+(define error-count
+  (length (filter (fn (l) (string/contains? l "ERROR")) log-lines)))
 
 (println "Log entries by level:")
 (println (format "  INFO:  ~a entries" info-count))
@@ -100,9 +110,13 @@
 (println (format "  ERROR: ~a entries" error-count))
 
 ;; Extract issues (WARN + ERROR lines)
-(define issues (filter (fn (l) (or (string/contains? l "WARN") (string/contains? l "ERROR"))) log-lines))
+(define issues
+  (filter (fn (l) (or (string/contains? l "WARN") (string/contains? l "ERROR")))
+    log-lines))
 (println (format "\nIssues found (~a):" (length issues)))
-(for-each (fn (line) (println (format "  ~a" (string/trim line)))) issues)
+(for-each
+  (fn (line) (println (format "  ~a" (string/trim line))))
+  issues)
 
 ;; === Checksum a file ===
 (define (file-checksum path)
@@ -113,9 +127,10 @@
   (fn (name)
     (let ((path (path/join work-dir name)))
       (when (file/is-file? path)
-        (println (format "  ~a → ~a"
-          (string/pad-right name 20)
-          (substring (file-checksum path) 0 16))))))
+        (println
+          (format "  ~a → ~a"
+            (string/pad-right name 20)
+            (substring (file-checksum path) 0 16))))))
   (sort files))
 
 ;; === Cleanup ===

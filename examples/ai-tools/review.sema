@@ -14,10 +14,10 @@
 (define (script-args)
   (let loop ((args (sys/args)) (found #f))
     (cond
-      ((null? args) '())
-      (found (cons (car args) (loop (cdr args) #t)))
-      ((= (car args) "--") (loop (cdr args) #t))
-      (else (loop (cdr args) #f)))))
+      ((null? args)         '())
+      (found                (cons (car args) (loop (cdr args) #t)))
+      ((= (car args) "--")  (loop (cdr args) #t))
+      (else                 (loop (cdr args) #f)))))
 
 (define args (script-args))
 
@@ -28,30 +28,33 @@
 (define code
   (cond
     ;; Review a specific file
-    ((not (null? file-args))
-     (define path (car file-args))
-     (unless (file/exists? path)
-       (println-error (format "File not found: ~a" path))
-       (exit 1))
-     (println-error (format "Reviewing ~a..." path))
-     (string-append "File: " path "\n\n" (file/read path)))
+    ((not (null? file-args)) (define path (car file-args))
+      (unless (file/exists? path)
+        (println-error (format "File not found: ~a" path))
+        (exit 1))
+      (println-error (format "Reviewing ~a..." path))
+      (string-append "File: " path "\n\n" (file/read path)))
 
     ;; Review staged or unstaged changes
-    (else
-     (define diff-args (if staged? '("--staged") '()))
-     (define result (apply shell (cons "git" (cons "diff" diff-args))))
-     (define diff (:stdout result))
-     (when (= (string/trim diff) "")
-       (println-error (if staged?
-                        "No staged changes to review."
-                        "No unstaged changes to review. Try --staged."))
-       (exit 1))
-     (println-error (if staged? "Reviewing staged changes..." "Reviewing unstaged changes..."))
-     diff)))
+    (else (define diff-args (if staged? '("--staged") '()))
+      (define result (apply shell (cons "git" (cons "diff" diff-args))))
+      (define diff (:stdout result))
+      (when (= (string/trim diff) "")
+        (println-error
+          (if staged?
+            "No staged changes to review."
+            "No unstaged changes to review. Try --staged."))
+        (exit 1))
+      (println-error
+        (if staged?
+          "Reviewing staged changes..."
+          "Reviewing unstaged changes..."))
+      diff)))
 
 (llm/stream
   (prompt
-    (system "You are an expert code reviewer. Review the code or diff provided.
+    (system
+      "You are an expert code reviewer. Review the code or diff provided.
 
 For each issue found, format as:
 

@@ -19,12 +19,14 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
 (define chunks (text/chunk article {:size 200 :overlap 0}))
 (println (format "Chunks (200 chars, no overlap): ~a chunks" (length chunks)))
 (for-each
-  (lambda (c) (println (format "  [~a chars] ~a" (string-length c) (text/truncate c 60))))
+  (lambda (c)
+    (println (format "  [~a chars] ~a" (string-length c) (text/truncate c 60))))
   chunks)
 
 ;; Chunk with overlap
 (define chunks-ov (text/chunk article {:size 200 :overlap 50}))
-(println (format "\nChunks (200 chars, 50 overlap): ~a chunks" (length chunks-ov)))
+(println
+  (format "\nChunks (200 chars, 50 overlap): ~a chunks" (length chunks-ov)))
 
 ;; Default chunking (1000 chars, 200 overlap)
 (define chunks-default (text/chunk article))
@@ -32,8 +34,8 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
 
 ;; --- 2. Chunk by Separator ---
 (println "\n=== 2. Chunk by Separator ===")
-(define csv-like "alice,bob,charlie,diana")
-(define parts (text/chunk-by-separator csv-like ","))
+(define csv-like  "alice,bob,charlie,diana")
+(define parts     (text/chunk-by-separator csv-like ","))
 (println (format "Split by comma: ~a" parts))
 
 (define paragraphs (text/chunk-by-separator article "\n\n"))
@@ -41,8 +43,8 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
 
 ;; --- 3. Sentence Splitting ---
 (println "\n=== 3. Sentence Splitting ===")
-(define text "Hello world. How are you? I'm fine! This is great.")
-(define sentences (text/split-sentences text))
+(define text       "Hello world. How are you? I'm fine! This is great.")
+(define sentences  (text/split-sentences text))
 (println (format "Sentences: ~a" sentences))
 (println (format "Count: ~a" (length sentences)))
 
@@ -51,8 +53,10 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
 
 ;; Clean whitespace
 (define messy "  Hello    world   from    Sema  ")
-(println (format "Clean whitespace: '~a' => '~a'"
-  messy (text/clean-whitespace messy)))
+(println
+  (format "Clean whitespace: '~a' => '~a'"
+    messy
+    (text/clean-whitespace messy)))
 
 ;; Strip HTML
 (define html "<h1>Title</h1><p>Hello &amp; welcome to <b>Sema</b>!</p>")
@@ -82,7 +86,8 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
 (println (format "Rendered: ~a" rendered))
 
 ;; Missing variable stays as-is
-(define partial (prompt/render "Hi {{name}}, your score is {{score}}" {:name "Bob"}))
+(define partial
+  (prompt/render "Hi {{name}}, your score is {{score}}" {:name "Bob"}))
 (println (format "Partial: ~a" partial))
 
 ;; Numbers in templates
@@ -92,25 +97,27 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
 ;; --- 6. Document Abstraction ---
 (println "\n=== 6. Document Abstraction ===")
 
-(define doc (document/create
-  "Sema is a Lisp with LLM primitives."
-  {:source "readme.md" :page 1 :language "english"}))
+(define doc
+  (document/create "Sema is a Lisp with LLM primitives."
+    {:source "readme.md" :page 1 :language "english"}))
 (println (format "Document: ~a" doc))
 (println (format "Text: ~a" (document/text doc)))
 (println (format "Metadata: ~a" (document/metadata doc)))
 
 ;; Document chunking preserves metadata
-(define long-doc (document/create article {:source "article.md" :author "Helge"}))
+(define long-doc
+  (document/create article {:source "article.md" :author "Helge"}))
 (define doc-chunks (document/chunk long-doc {:size 200 :overlap 0}))
 (println (format "\nDocument chunks: ~a" (length doc-chunks)))
 (for-each
   (lambda (c)
     (define meta (document/metadata c))
-    (println (format "  chunk ~a/~a [~a chars] source=~a"
-      (+ 1 (get meta :chunk-index))
-      (get meta :total-chunks)
-      (string-length (document/text c))
-      (get meta :source))))
+    (println
+      (format "  chunk ~a/~a [~a chars] source=~a"
+        (+ 1 (get meta :chunk-index))
+        (get meta :total-chunks)
+        (string-length (document/text c))
+        (get meta :source))))
   doc-chunks)
 
 (println "\nText tools tests complete!")

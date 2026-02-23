@@ -6,26 +6,93 @@
 
 ;; 1. Extract structured data from a real PNG image
 (println "=== Test 1: llm/extract-from-image (PNG logo) ===")
-(define logo-result (llm/extract-from-image
-  {:text :string :background_color :string}
-  "assets/logo.png"))
+(define logo-result
+  (llm/extract-from-image {:text :string :background_color :string}
+    "assets/logo.png"))
 (println "Result:" logo-result)
 
 ;; 2. Multi-modal chat: send an image via message/with-image
 (println "\n=== Test 2: message/with-image + llm/chat ===")
 (define img (file/read-bytes "assets/logo.png"))
-(define msg (message/with-image :user "What text do you see in this image? Reply with just the text." img))
+(define msg
+  (message/with-image :user
+    "What text do you see in this image? Reply with just the text."
+    img))
 (define chat-result (llm/chat (list msg)))
 (println "Chat response:" chat-result)
 
 ;; 3. Extract from bytevector (inline image data, 1x1 red PNG pixel)
 (println "\n=== Test 3: llm/extract-from-image with bytevector ===")
-(define tiny-png (bytevector
-  137 80 78 71 13 10 26 10 0 0 0 13 73 72 68 82
-  0 0 0 1 0 0 0 1 8 2 0 0 0 144 119 83 222
-  0 0 0 12 73 68 65 84 120 156 99 248 207 192 0 0
-  3 1 1 0 201 254 146 239 0 0 0 0 73 69 78 68
-  174 66 96 130))
+(define tiny-png
+  (bytevector 137
+    80
+    78
+    71
+    13
+    10
+    26
+    10
+    0
+    0
+    0
+    13
+    73
+    72
+    68
+    82
+    0
+    0
+    0
+    1
+    0
+    0
+    0
+    1
+    8
+    2
+    0
+    0
+    0
+    144
+    119
+    83
+    222
+    0
+    0
+    0
+    12
+    73
+    68
+    65
+    84
+    120
+    156
+    99
+    248
+    207
+    192
+    0
+    0
+    3
+    1
+    1
+    0
+    201
+    254
+    146
+    239
+    0
+    0
+    0
+    0
+    73
+    69
+    78
+    68
+    174
+    66
+    96
+    130))
 (define pixel-result (llm/extract-from-image {:description :string} tiny-png))
 (println "Result:" pixel-result)
 

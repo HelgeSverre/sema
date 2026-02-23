@@ -9,16 +9,18 @@
 ;; --- Word frequency analysis ---
 (define words
   (->> (regex/find-all "[A-Za-z]+" sample-text)
-       (map string/lower)))
+    (map string/lower)))
 
 (println f"Total words: ${(length words)}")
 (println f"Unique words: ${(length (list/unique words))}")
 
 ;; Build frequency map
 (define freq
-  (foldl (fn (acc word)
-    (map/update acc (string->keyword word)
-      #(if (nil? %) 1 (+ % 1))))
+  (foldl
+    (fn (acc word)
+      (map/update acc
+        (string->keyword word)
+        #(if (nil? %) 1 (+ % 1))))
     {}
     words))
 
@@ -30,15 +32,15 @@
 (println "\nTop 10 most frequent words:")
 (for-each
   (fn ([word count])
-    (let ((label (string/pad-right (keyword->string word) 12))
-          (bar (string/repeat "#" count)))
+    (let ((label  (string/pad-right (keyword->string word) 12))
+          (bar    (string/repeat "#" count)))
       (println f"  ${label}${bar}")))
   (take 10 sorted-freq))
 
 ;; --- Sentence extraction ---
 (define sentences
   (->> (regex/split "[.!?]+" sample-text)
-       (filter #(> (string-length (string/trim %)) 0))))
+    (filter #(> (string-length (string/trim %)) 0))))
 
 (println f"\n${(length sentences)} sentences found:")
 (for-each
@@ -60,29 +62,31 @@
 (define title-case
   (string/join
     (->> (string/split title " ")
-         (map (fn (word)
-           (if (> (string-length word) 0)
-             (string-append
-               (string/upper (substring word 0 1))
-               (substring word 1))
-             word))))
+      (map
+        (fn (word)
+          (if (> (string-length word) 0)
+            (string-append (string/upper (substring word 0 1))
+              (substring word 1))
+            word))))
     " "))
 (println f"\nTitle case: ${title-case}")
 
 ;; --- Caesar cipher ---
 (define (caesar-encrypt text shift)
   (list->string
-    (map (fn (ch)
-      (if (char-alphabetic? ch)
-        (let ((base (if (char-upper-case? ch) 65 97))
-              (code (char->integer ch)))
-          (integer->char (+ base (math/remainder (- (+ code shift) base) 26))))
-        ch))
+    (map
+      (fn (ch)
+        (if (char-alphabetic? ch)
+          (let ((base (if (char-upper-case? ch) 65 97))
+                (code (char->integer ch)))
+            (integer->char (+ base (math/remainder (- (+ code shift) base) 26))))
+          ch))
       (string/chars text))))
 
-(define original "Hello World")
-(define encrypted (caesar-encrypt original 3))
-(define decrypted (caesar-encrypt encrypted 23)) ;; 26 - 3 = 23
+(define original   "Hello World")
+(define encrypted  (caesar-encrypt original 3))
+(define decrypted  (caesar-encrypt encrypted 23))
+;; 26 - 3 = 23
 (println "\nCaesar cipher (shift 3):")
 (println f"  Original:  ${original}")
 (println f"  Encrypted: ${encrypted}")

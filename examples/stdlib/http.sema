@@ -14,8 +14,9 @@
 
 ;; --- GET with headers ---
 (println "--- GET with custom headers ---")
-(define resp2 (http/get "https://httpbin.org/headers"
-                {:headers {:X-Custom "sema-lisp" :Accept "application/json"}}))
+(define resp2
+  (http/get "https://httpbin.org/headers"
+    {:headers {:X-Custom "sema-lisp" :Accept "application/json"}}))
 (define headers-body (json/decode (:body resp2)))
 (define recv-headers (:headers headers-body))
 (println (format "X-Custom: ~a" (:X-Custom recv-headers)))
@@ -23,7 +24,8 @@
 
 ;; --- POST with JSON body ---
 (println "--- POST JSON ---")
-(define post-resp (http/post "https://httpbin.org/post" {:name "Sema" :version 1}))
+(define post-resp
+  (http/post "https://httpbin.org/post" {:name "Sema" :version 1}))
 (define post-body (json/decode (:body post-resp)))
 (println (format "Echoed data: ~a" (:data post-body)))
 (println (format "Content-Type: ~a" (:Content-Type (:headers post-body))))
@@ -51,9 +53,9 @@
 
 ;; --- Query parameters ---
 (println "--- Query params ---")
-(define qresp (http/get "https://httpbin.org/get?lang=sema&type=lisp"))
-(define qbody (json/decode (:body qresp)))
-(define args (:args qbody))
+(define qresp  (http/get "https://httpbin.org/get?lang=sema&type=lisp"))
+(define qbody  (json/decode (:body qresp)))
+(define args   (:args qbody))
 (println (format "lang=~a type=~a" (:lang args) (:type args)))
 (println)
 

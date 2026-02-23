@@ -8,8 +8,9 @@
 ;; ============ Helpers ============
 (define (bench name thunk iterations)
   (let ((t0 (time-ms)))
-    (do ((i 0 (+ i 1)))
-        ((= i iterations))
+    (do
+      ((i 0 (+ i 1)))
+      ((= i iterations))
       (thunk))
     (let ((elapsed (- (time-ms) t0)))
       (println (format "  ~a: ~a ms (~a iterations)" name elapsed iterations)))))
@@ -24,9 +25,9 @@
 (bench "split + parse fields"
   (fn ()
     (let ((fields (string/split csv-line ";")))
-      (let ((city (car fields))
-            (v1 (string->number (cadr fields)))
-            (v2 (string->number (caddr fields))))
+      (let ((city  (car fields))
+            (v1    (string->number (cadr fields)))
+            (v2    (string->number (caddr fields))))
         (+ v1 v2))))
   50000)
 
@@ -46,8 +47,9 @@
 (bench "concat loop (100 appends)"
   (fn ()
     (let loop ((i 0) (s ""))
-      (if (= i 100) s
-          (loop (+ i 1) (string-append s "x")))))
+      (if (= i 100)
+        s
+        (loop (+ i 1) (string-append s "x")))))
   5000)
 
 ;; --- Part 3: format ---
@@ -68,26 +70,29 @@
 
 ;; Larger join
 (define many-words (map number->string (range 100)))
-(bench "string/join (100 number strings)" (fn () (string/join many-words ",")) 50000)
+(bench "string/join (100 number strings)"
+  (fn () (string/join many-words ","))
+  50000)
 
 ;; --- Part 5: Full pipeline (split → process → format → join) ---
 (println "")
 (println "Part 5: Full pipeline")
 
-(define sample-lines (list
-  "Oslo;10.5;20.3;15.1"
-  "Bergen;8.2;18.7;12.4"
-  "Trondheim;5.1;15.9;9.8"
-  "Stavanger;11.0;22.1;16.3"
-  "Tromsø;-2.5;8.4;3.1"))
+(define sample-lines
+  (list "Oslo;10.5;20.3;15.1"
+    "Bergen;8.2;18.7;12.4"
+    "Trondheim;5.1;15.9;9.8"
+    "Stavanger;11.0;22.1;16.3"
+    "Tromsø;-2.5;8.4;3.1"))
 
 (bench "full pipeline (5 lines)"
   (fn ()
-    (map (fn (line)
-           (let ((fields (string/split line ";")))
-             (let ((city (car fields))
-                   (temps (map string->number (cdr fields))))
-               (let ((avg (/ (foldl + 0 temps) (length temps))))
-                 (format "~a: avg=~a" city avg)))))
-         sample-lines))
+    (map
+      (fn (line)
+        (let ((fields (string/split line ";")))
+          (let ((city   (car fields))
+                (temps  (map string->number (cdr fields))))
+            (let ((avg (/ (foldl + 0 temps) (length temps))))
+              (format "~a: avg=~a" city avg)))))
+      sample-lines))
   50000)

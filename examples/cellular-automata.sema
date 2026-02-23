@@ -3,39 +3,40 @@
 
 (println "=== 1D Cellular Automata ===\n")
 
-(define WIDTH 61)
-(define ROWS 30)
+(define WIDTH  61)
+(define ROWS   30)
 
 ;; --- Rule binary representation ---
 (define (rule-to-bits rule)
   (map (fn (i) (if (= 0 (bit/and rule (bit/shift-left 1 i))) 0 1))
-       (range 8)))
+    (range 8)))
 
 (define (format-rule-binary rule)
-  (string/join
-    (reverse (map str (rule-to-bits rule)))
+  (string/join (reverse (map str (rule-to-bits rule)))
     ""))
 
 ;; --- Apply rule to a neighborhood of 3 cells ---
 (define (apply-rule rule-bits left center right)
-  (let ((index (+ (bit/shift-left left 2)
-                   (bit/shift-left center 1)
-                   right)))
+  (let ((index
+          (+ (bit/shift-left left 2)
+            (bit/shift-left center 1)
+            right)))
     (nth rule-bits index)))
 
 ;; --- Create initial row: single cell in the center ---
 (define (make-initial-row width)
   (map (fn (i) (if (= i (/ (- width 1) 2)) 1 0))
-       (range width)))
+    (range width)))
 
 ;; --- Compute next row from current row ---
 (define (next-row rule-bits row)
   (let ((len (length row)))
-    (map (fn (i)
-      (let ((left   (if (= i 0) 0 (nth row (- i 1))))
-            (center (nth row i))
-            (right  (if (= i (- len 1)) 0 (nth row (+ i 1)))))
-        (apply-rule rule-bits left center right)))
+    (map
+      (fn (i)
+        (let ((left    (if (= i 0) 0 (nth row (- i 1))))
+              (center  (nth row i))
+              (right   (if (= i (- len 1)) 0 (nth row (+ i 1)))))
+          (apply-rule rule-bits left center right)))
       (range len))))
 
 ;; --- Render a row as ASCII art ---
@@ -45,14 +46,20 @@
 ;; --- Run and display an automaton ---
 (define (run-automaton rule-number num-rows width)
   (let ((bits (rule-to-bits rule-number)))
-    (println (format "Rule ~a  (binary: ~a)" rule-number (format-rule-binary rule-number)))
+    (println
+      (format "Rule ~a  (binary: ~a)"
+        rule-number
+        (format-rule-binary rule-number)))
     (println (format "Neighborhood → result:"))
-    (for-each (fn (i)
-      (let ((pattern (format "~a~a~a"
-              (if (>= i 4) "█" " ")
-              (if (>= (mod i 4) 2) "█" " ")
-              (if (odd? i) "█" " "))))
-        (display (format "  ~a→~a " pattern (if (= 1 (nth bits i)) "█" " ")))))
+    (for-each
+      (fn (i)
+        (let ((pattern
+                (format "~a~a~a"
+                  (if (>= i 4) "█" " ")
+                  (if (>= (mod i 4) 2) "█" " ")
+                  (if (odd? i) "█" " "))))
+          (display
+            (format "  ~a→~a " pattern (if (= 1 (nth bits i)) "█" " ")))))
       (reverse (range 8)))
     (println "")
     (let ((border (string/repeat "─" width)))
@@ -81,10 +88,11 @@
   (fn (rule)
     (let ((bits (rule-to-bits rule))
           (ones (foldl + 0 (rule-to-bits rule))))
-      (println (format "  Rule ~a: binary ~a  (~a/8 cells alive)"
-        (string/pad-left (str rule) 3)
-        (format-rule-binary rule)
-        ones))))
+      (println
+        (format "  Rule ~a: binary ~a  (~a/8 cells alive)"
+          (string/pad-left (str rule) 3)
+          (format-rule-binary rule)
+          ones))))
   (list 30 90 110 184 250))
 
 (println "\nDone!")

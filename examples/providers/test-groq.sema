@@ -1,11 +1,13 @@
 ;; Test Groq provider (OpenAI-compatible)
 (llm/configure :groq {:api-key (env "GROQ_API_KEY")})
 
-(define result (llm/complete "Say 'hello from Groq' and nothing else." {:max-tokens 20}))
+(define result
+  (llm/complete "Say 'hello from Groq' and nothing else." {:max-tokens 20}))
 (println "Groq complete:" result)
 
 (print "Groq stream: ")
-(llm/stream "Count from 1 to 5, one number per word, nothing else." {:max-tokens 30})
+(llm/stream "Count from 1 to 5, one number per word, nothing else."
+  {:max-tokens 30})
 (newline)
 
 (println "Groq: OK")

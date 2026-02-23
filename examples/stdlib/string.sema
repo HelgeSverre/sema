@@ -35,12 +35,20 @@
 (assert-eq (string/contains? "hello world" "xyz") #f "string/contains? false")
 
 ;; string/starts-with?
-(assert-eq (string/starts-with? "hello world" "hello") #t "string/starts-with? true")
-(assert-eq (string/starts-with? "hello world" "world") #f "string/starts-with? false")
+(assert-eq (string/starts-with? "hello world" "hello")
+  #t
+  "string/starts-with? true")
+(assert-eq (string/starts-with? "hello world" "world")
+  #f
+  "string/starts-with? false")
 
 ;; string/ends-with?
-(assert-eq (string/ends-with? "hello world" "world") #t "string/ends-with? true")
-(assert-eq (string/ends-with? "hello world" "hello") #f "string/ends-with? false")
+(assert-eq (string/ends-with? "hello world" "world")
+  #t
+  "string/ends-with? true")
+(assert-eq (string/ends-with? "hello world" "hello")
+  #f
+  "string/ends-with? false")
 
 ;; string/upper
 (assert-eq (string/upper "hello") "HELLO" "string/upper")
@@ -49,7 +57,9 @@
 (assert-eq (string/lower "HELLO") "hello" "string/lower")
 
 ;; string/replace
-(assert-eq (string/replace "hello world" "world" "sema") "hello sema" "string/replace")
+(assert-eq (string/replace "hello world" "world" "sema")
+  "hello sema"
+  "string/replace")
 
 ;; string/join
 (assert-eq (string/join (list "a" "b" "c") ", ") "a, b, c" "string/join")
@@ -89,7 +99,9 @@
 
 ;; string/last-index-of
 (assert-eq (string/last-index-of "abcabc" "abc") 3 "string/last-index-of")
-(assert-eq (string/last-index-of "hello" "xyz") nil "string/last-index-of not found")
+(assert-eq (string/last-index-of "hello" "xyz")
+  nil
+  "string/last-index-of not found")
 
 ;; string/chars
 (assert-eq (string/chars "hi") (list #\h #\i) "string/chars")

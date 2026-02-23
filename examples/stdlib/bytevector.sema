@@ -15,8 +15,12 @@
 (assert-eq (bytevector-u8-ref bv0 0) 0 "make-bytevector default fill is 0")
 
 (define bv-filled (make-bytevector 3 42))
-(assert-eq (bytevector-u8-ref bv-filled 0) 42 "make-bytevector fill value 42 at 0")
-(assert-eq (bytevector-u8-ref bv-filled 2) 42 "make-bytevector fill value 42 at 2")
+(assert-eq (bytevector-u8-ref bv-filled 0)
+  42
+  "make-bytevector fill value 42 at 0")
+(assert-eq (bytevector-u8-ref bv-filled 2)
+  42
+  "make-bytevector fill value 42 at 2")
 
 ;; --- bytevector ---
 (println "-- bytevector --")
@@ -32,7 +36,9 @@
 ;; --- bytevector-length ---
 (println "-- bytevector-length --")
 (assert-eq (bytevector-length (bytevector 1 2 3)) 3 "bytevector-length of 3")
-(assert-eq (bytevector-length (make-bytevector 10)) 10 "bytevector-length of 10")
+(assert-eq (bytevector-length (make-bytevector 10))
+  10
+  "bytevector-length of 10")
 
 ;; --- bytevector-u8-ref ---
 (println "-- bytevector-u8-ref --")
@@ -43,11 +49,17 @@
 
 ;; --- bytevector-u8-set! ---
 (println "-- bytevector-u8-set! --")
-(define bv3 (bytevector 1 2 3))
-(define bv3-modified (bytevector-u8-set! bv3 1 99))
-(assert-eq (bytevector-u8-ref bv3-modified 1) 99 "bytevector-u8-set! modifies byte")
-(assert-eq (bytevector-u8-ref bv3-modified 0) 1 "bytevector-u8-set! preserves other bytes")
-(assert-eq (bytevector-u8-ref bv3-modified 2) 3 "bytevector-u8-set! preserves other bytes (2)")
+(define bv3           (bytevector 1 2 3))
+(define bv3-modified  (bytevector-u8-set! bv3 1 99))
+(assert-eq (bytevector-u8-ref bv3-modified 1)
+  99
+  "bytevector-u8-set! modifies byte")
+(assert-eq (bytevector-u8-ref bv3-modified 0)
+  1
+  "bytevector-u8-set! preserves other bytes")
+(assert-eq (bytevector-u8-ref bv3-modified 2)
+  3
+  "bytevector-u8-set! preserves other bytes (2)")
 
 ;; --- bytevector-copy ---
 (println "-- bytevector-copy --")
@@ -60,21 +72,29 @@
 
 ;; Partial copy with start
 (define bv4-from2 (bytevector-copy bv4 2))
-(assert-eq (bytevector-length bv4-from2) 3 "bytevector-copy from index 2 length")
-(assert-eq (bytevector-u8-ref bv4-from2 0) 30 "bytevector-copy from index 2 first byte")
+(assert-eq (bytevector-length bv4-from2)
+  3
+  "bytevector-copy from index 2 length")
+(assert-eq (bytevector-u8-ref bv4-from2 0)
+  30
+  "bytevector-copy from index 2 first byte")
 
 ;; Partial copy with start and end
 (define bv4-slice (bytevector-copy bv4 1 3))
 (assert-eq (bytevector-length bv4-slice) 2 "bytevector-copy slice length")
-(assert-eq (bytevector-u8-ref bv4-slice 0) 20 "bytevector-copy slice first byte")
-(assert-eq (bytevector-u8-ref bv4-slice 1) 30 "bytevector-copy slice second byte")
+(assert-eq (bytevector-u8-ref bv4-slice 0)
+  20
+  "bytevector-copy slice first byte")
+(assert-eq (bytevector-u8-ref bv4-slice 1)
+  30
+  "bytevector-copy slice second byte")
 
 ;; --- bytevector-append ---
 (println "-- bytevector-append --")
-(define bva (bytevector 1 2))
-(define bvb (bytevector 3 4))
-(define bvc (bytevector 5))
-(define appended (bytevector-append bva bvb bvc))
+(define bva       (bytevector 1 2))
+(define bvb       (bytevector 3 4))
+(define bvc       (bytevector 5))
+(define appended  (bytevector-append bva bvb bvc))
 (assert-eq (bytevector-length appended) 5 "bytevector-append total length")
 (assert-eq (bytevector-u8-ref appended 0) 1 "bytevector-append byte 0")
 (assert-eq (bytevector-u8-ref appended 2) 3 "bytevector-append byte 2")
@@ -94,8 +114,8 @@
 ;; Roundtrip
 (define bv-rt (bytevector 100 200 255 0))
 (assert-eq (bytevector->list (list->bytevector (bytevector->list bv-rt)))
-           (bytevector->list bv-rt)
-           "list<->bytevector roundtrip")
+  (bytevector->list bv-rt)
+  "list<->bytevector roundtrip")
 
 ;; --- utf8->string ---
 (println "-- utf8->string --")
@@ -112,7 +132,9 @@
 
 ;; Roundtrip string <-> bytevector
 (define original "Hello, World!")
-(assert-eq (utf8->string (string->utf8 original)) original "string<->utf8 roundtrip")
+(assert-eq (utf8->string (string->utf8 original))
+  original
+  "string<->utf8 roundtrip")
 
 ;; --- Literal syntax #u8(...) ---
 (println "-- #u8() literal syntax --")

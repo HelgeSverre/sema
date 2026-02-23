@@ -12,9 +12,9 @@
 (define result1
   (let loop ((i 0) (acc 0))
     (if (= i 500000)
-        acc
-        (let ((f (fn (x) (+ x i))))
-          (loop (+ i 1) (+ acc (f i)))))))
+      acc
+      (let ((f (fn (x) (+ x i))))
+        (loop (+ i 1) (+ acc (f i)))))))
 (define elapsed1 (- (time-ms) t0))
 
 (println (format "Result: ~a" result1))
@@ -27,22 +27,22 @@
 (define (build-closures n)
   (let loop ((i 0) (acc '()))
     (if (= i n)
-        acc
-        (loop (+ i 1) (cons (fn () i) acc)))))
+      acc
+      (loop (+ i 1) (cons (fn () i) acc)))))
 
 (define (call-all closures)
   (let loop ((cs closures) (acc 0))
     (if (null? cs)
-        acc
-        (loop (cdr cs) (+ acc ((car cs)))))))
+      acc
+      (loop (cdr cs) (+ acc ((car cs)))))))
 
 (define t1 (time-ms))
 (define result2
   (let loop ((iter 0) (v 0))
     (if (= iter 10)
-        v
-        (let ((closures (build-closures 5000)))
-          (loop (+ iter 1) (call-all closures))))))
+      v
+      (let ((closures (build-closures 5000)))
+        (loop (+ iter 1) (call-all closures))))))
 (define elapsed2 (- (time-ms) t1))
 
 (println (format "Result: ~a" result2))
@@ -55,16 +55,16 @@
 (define (compose f g)
   (fn (x) (f (g x))))
 
-(define inc (fn (x) (+ x 1)))
-(define dbl (fn (x) (* x 2)))
-(define inc-then-dbl (compose dbl inc))
+(define inc           (fn (x) (+ x 1)))
+(define dbl           (fn (x) (* x 2)))
+(define inc-then-dbl  (compose dbl inc))
 
 (define t2 (time-ms))
 (define result3
   (let loop ((i 0) (acc 0))
     (if (= i 500000)
-        acc
-        (loop (+ i 1) (+ acc (inc-then-dbl i))))))
+      acc
+      (loop (+ i 1) (+ acc (inc-then-dbl i))))))
 (define elapsed3 (- (time-ms) t2))
 
 (println (format "Result: ~a" result3))

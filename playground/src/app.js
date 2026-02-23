@@ -1,4 +1,4 @@
-import init, { SemaInterpreter } from '../pkg/sema_wasm.js';
+import init, { SemaInterpreter, formatCode } from '../pkg/sema_wasm.js';
 import { examples } from './examples.js';
 import { highlightSema } from './highlight.js';
 import { TextareaUndo } from './undo.js';
@@ -413,6 +413,7 @@ async function main() {
   document.getElementById('status').textContent = 'Ready';
   document.getElementById('status').className = 'status-text status-ready';
   document.getElementById('run-btn').disabled = false;
+  document.getElementById('fmt-btn').disabled = false;
   document.getElementById('output').innerHTML = '<div class="output-welcome">Ready. Write some Sema code and press Run.</div>';
 
   document.getElementById('loading').classList.add('hidden');
@@ -488,6 +489,24 @@ async function run() {
 
 // Run button
 document.getElementById('run-btn').addEventListener('click', run);
+
+// Format button
+document.getElementById('fmt-btn').addEventListener('click', () => {
+  const code = editorEl.value;
+  if (!code.trim()) return;
+  const result = formatCode(code, 80, 2, false);
+  if (result.error) {
+    outputEl.innerHTML = '';
+    const div = document.createElement('div');
+    div.className = 'output-error';
+    div.textContent = `Format error: ${result.error}`;
+    outputEl.appendChild(div);
+  } else if (result.formatted !== null) {
+    editorUndo.transact(() => { editorEl.value = result.formatted; });
+    scheduleHighlight();
+    debounceSaveEditor();
+  }
+});
 
 // Clear button
 document.getElementById('clear-btn').addEventListener('click', () => {

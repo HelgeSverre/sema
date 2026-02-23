@@ -3,25 +3,36 @@
 ;; For vision tests, use a vision-capable model like gemma3:4b
 (llm/configure :ollama {:default-model "gemma3:4b"})
 
-(define result (llm/complete "Say 'hello from Ollama' and nothing else. Do not include any thinking." {:max-tokens 20}))
+(define result
+  (llm/complete
+    "Say 'hello from Ollama' and nothing else. Do not include any thinking."
+    {:max-tokens 20}))
 (println "Ollama complete:" result)
 
 (print "Ollama stream: ")
-(llm/stream "Count from 1 to 5, one number per word, nothing else. Do not include any thinking." {:max-tokens 30})
+(llm/stream
+  "Count from 1 to 5, one number per word, nothing else. Do not include any thinking."
+  {:max-tokens 30})
 (newline)
 
 ;; Vision: extract from image
 (println "Ollama vision extract:")
-(define r (llm/extract-from-image {:text :string :background_color :string} "assets/logo.png"))
+(define r
+  (llm/extract-from-image {:text :string :background_color :string}
+    "assets/logo.png"))
 (println "  " r)
 
 ;; Vision: chat with image
 (define img (file/read-bytes "assets/logo.png"))
-(define msg (message/with-image :user "What text do you see in this image? Reply with just the text." img))
+(define msg
+  (message/with-image :user
+    "What text do you see in this image? Reply with just the text."
+    img))
 (println "Ollama vision chat:" (llm/chat (list msg)))
 
 ;; Batch
-(define answers (llm/batch (list "Say just: alpha" "Say just: beta" "Say just: gamma")))
+(define answers
+  (llm/batch (list "Say just: alpha" "Say just: beta" "Say just: gamma")))
 (println "Ollama batch:" answers)
 
 (println "Ollama: OK")

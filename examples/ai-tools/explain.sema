@@ -14,10 +14,10 @@
 (define (script-args)
   (let loop ((args (sys/args)) (found #f))
     (cond
-      ((null? args) '())
-      (found (cons (car args) (loop (cdr args) #t)))
-      ((= (car args) "--") (loop (cdr args) #t))
-      (else (loop (cdr args) #f)))))
+      ((null? args)         '())
+      (found                (cons (car args) (loop (cdr args) #t)))
+      ((= (car args) "--")  (loop (cdr args) #t))
+      (else                 (loop (cdr args) #f)))))
 
 (define args (script-args))
 
@@ -28,20 +28,17 @@
 ;; Get the code to explain
 (define code
   (cond
-    ((not (null? file-args))
-     (define path (car file-args))
-     (unless (file/exists? path)
-       (println-error (format "File not found: ~a" path))
-       (exit 1))
-     (println-error (format "Explaining ~a..." path))
-     (file/read path))
-    ((not (sys/interactive?))
-     (println-error "Explaining piped input...")
-     (read-stdin))
-    (else
-     (println-error "Usage: sema explain.sema -- <file>")
-     (println-error "       cat file | sema explain.sema")
-     (exit 1))))
+    ((not (null? file-args)) (define path (car file-args))
+      (unless (file/exists? path)
+        (println-error (format "File not found: ~a" path))
+        (exit 1))
+      (println-error (format "Explaining ~a..." path))
+      (file/read path))
+    ((not (sys/interactive?)) (println-error "Explaining piped input...")
+      (read-stdin))
+    (else (println-error "Usage: sema explain.sema -- <file>")
+      (println-error "       cat file | sema explain.sema")
+      (exit 1))))
 
 (define system-msg
   (if brief?

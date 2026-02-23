@@ -4,8 +4,9 @@
 ;; ============ Helpers ============
 (define (bench name thunk iterations)
   (let ((t0 (time-ms)))
-    (do ((i 0 (+ i 1)))
-        ((= i iterations))
+    (do
+      ((i 0 (+ i 1)))
+      ((= i iterations))
       (thunk))
     (let ((elapsed (- (time-ms) t0)))
       (println (format "  ~a: ~a ms (~a iterations)" name elapsed iterations)))))
@@ -13,7 +14,8 @@
 ;; ============ 1. Car/cdr compositions ============
 (println "=== Car/cdr compositions ===")
 
-(define deep-list '((((1 2) (3 4)) ((5 6) (7 8))) (((9 10) (11 12)) ((13 14) (15 16)))))
+(define deep-list
+  '((((1 2) (3 4)) ((5 6) (7 8))) (((9 10) (11 12)) ((13 14) (15 16)))))
 
 (bench "caar" (fn () (caar deep-list)) 100000)
 (bench "cadr" (fn () (cadr deep-list)) 100000)
@@ -24,7 +26,8 @@
 ;; ============ 2. Association lists ============
 (println "\n=== Association lists ===")
 
-(define test-alist '((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7) (h 8) (i 9) (j 10)))
+(define test-alist
+  '((a 1) (b 2) (c 3) (d 4) (e 5) (f 6) (g 7) (h 8) (i 9) (j 10)))
 
 (bench "assoc (alist, hit first)" (fn () (assoc 'a test-alist)) 100000)
 (bench "assoc (alist, hit last)" (fn () (assoc 'j test-alist)) 100000)
@@ -37,16 +40,17 @@
 
 (bench "do loop (sum 1..1000)"
   (fn ()
-    (do ((i 0 (+ i 1))
-         (sum 0 (+ sum i)))
-        ((= i 1000) sum)))
+    (do
+      ((i 0 (+ i 1)) (sum 0 (+ sum i)))
+      ((= i 1000) sum)))
   10000)
 
 (bench "named let (sum 1..1000)"
   (fn ()
     (let loop ((i 0) (sum 0))
-      (if (= i 1000) sum
-          (loop (+ i 1) (+ sum i)))))
+      (if (= i 1000)
+        sum
+        (loop (+ i 1) (+ sum i)))))
   10000)
 
 ;; ============ 4. Character operations ============
@@ -88,8 +92,8 @@
 ;; ============ 7. Map operations (hot path in 1BRC) ============
 (println "\n=== Map operations ===")
 
-(define small-map {:a 1 :b 2 :c 3 :d 4 :e 5})
-(define small-hashmap (hashmap/new :a 1 :b 2 :c 3 :d 4 :e 5))
+(define small-map      {:a 1 :b 2 :c 3 :d 4 :e 5})
+(define small-hashmap  (hashmap/new :a 1 :b 2 :c 3 :d 4 :e 5))
 
 (bench "get (BTreeMap)" (fn () (get small-map :c)) 100000)
 (bench "get (HashMap)" (fn () (get small-hashmap :c)) 100000)

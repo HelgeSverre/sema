@@ -15,17 +15,18 @@
       (if (null? y)
         1
         0)
-      (+ (if (ok? (car x) 1 z)
-           (try-it (append (cdr x) y) '() (cons (car x) z))
-           0)
-         (try-it (cdr x) (cons (car x) y) z))))
+      (+
+        (if (ok? (car x) 1 z)
+          (try-it (append (cdr x) y) '() (cons (car x) z))
+          0)
+        (try-it (cdr x) (cons (car x) y) z))))
 
   (define (ok? row dist placed)
     (if (null? placed)
       #t
       (and (not (= (car placed) (+ row dist)))
-           (not (= (car placed) (- row dist)))
-           (ok? row (+ dist 1) (cdr placed)))))
+        (not (= (car placed) (- row dist)))
+        (ok? row (+ dist 1) (cdr placed)))))
 
   (try-it (one-to n) '() '()))
 
@@ -43,8 +44,8 @@
 (define result
   (let loop ((n 500) (v 0))
     (if (= n 0)
-        v
-        (loop (- n 1) (nqueens 8)))))
+      v
+      (loop (- n 1) (nqueens 8)))))
 (define elapsed (- (time-ms) t0))
 
 (println (format "8-queens result: ~a solutions" result))

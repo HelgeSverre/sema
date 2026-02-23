@@ -2,23 +2,21 @@
 ;; Demonstrates: match on map patterns, {:keys} destructuring, guards
 
 (define (area shape)
-  (match shape
-    ({:type :circle :radius r}
-      (* pi r r))
-    ({:type :rect :w w :h h}
-      (* w h))
-    ({:type :triangle :base b :height h}
-      (/ (* b h) 2))
-    ({:type :square :side s}
-      (* s s))
+  (match
+    shape
+    ({:type :circle :radius r} (* pi r r))
+    ({:type :rect :w w :h h} (* w h))
+    ({:type :triangle :base b :height h} (/ (* b h) 2))
+    ({:type :square :side s} (* s s))
     (_ (error f"Unknown shape: ${shape}"))))
 
 (define (perimeter shape)
-  (match shape
-    ({:type :circle :radius r}   (* 2 pi r))
-    ({:type :rect :w w :h h}     (* 2 (+ w h)))
-    ({:type :triangle :a a :b b :c c}  (+ a b c))
-    ({:type :square :side s}     (* 4 s))
+  (match
+    shape
+    ({:type :circle :radius r} (* 2 pi r))
+    ({:type :rect :w w :h h} (* 2 (+ w h)))
+    ({:type :triangle :a a :b b :c c} (+ a b c))
+    ({:type :square :side s} (* 4 s))
     (_ nil)))
 
 (define (describe shape)
@@ -28,38 +26,39 @@
       (println f"  ${type}: area=${a}, perimeter=${(if p (round p) "N/A")}"))))
 
 (define shapes
-  (list {:type :circle   :radius 5}
-        {:type :rect     :w 4 :h 7}
-        {:type :triangle :base 6 :height 3 :a 5 :b 6 :c 7}
-        {:type :square   :side 3}))
+  (list {:type :circle :radius 5}
+    {:type :rect :w 4 :h 7}
+    {:type :triangle :base 6 :height 3 :a 5 :b 6 :c 7}
+    {:type :square :side 3}))
 
 (println "=== Shape Geometry ===\n")
-(for-each describe shapes)
+(for-each
+  describe
+  shapes)
 
 ;; Scale a shape
 (define (scale shape factor)
-  (match shape
-    ({:type :circle :radius r}
-      {:type :circle :radius (* r factor)})
-    ({:type :rect :w w :h h}
-      {:type :rect :w (* w factor) :h (* h factor)})
-    ({:type :square :side s}
-      {:type :square :side (* s factor)})
+  (match
+    shape
+    ({:type :circle :radius r} {:type :circle :radius (* r factor)})
+    ({:type :rect :w w :h h} {:type :rect :w (* w factor) :h (* h factor)})
+    ({:type :square :side s} {:type :square :side (* s factor)})
     (other other)))
 
 (println "\nScaled ×2:")
 (->> shapes
-     (filter #(not (= (get % :type) :triangle)))
-     (map #(scale % 2))
-     (for-each describe))
+  (filter #(not (= (get % :type) :triangle)))
+  (map #(scale % 2))
+  (for-each describe))
 
 ;; Classify by area
 (define (classify shape)
   (let ((a (area shape)))
-    (match a
+    (match
+      a
       (a when (> a 50) "large")
       (a when (> a 20) "medium")
-      (_               "small"))))
+      (_ "small"))))
 
 (println "\nClassification:")
 (for-each

@@ -7,9 +7,9 @@
 
 (define traffic-fsm
   (hash-map
-    "red"    (hash-map "next" "green"  "duration" 5)
-    "green"  (hash-map "next" "yellow" "duration" 4)
-    "yellow" (hash-map "next" "red"    "duration" 1)))
+    "red" (hash-map "next" "green" "duration" 5)
+    "green" (hash-map "next" "yellow" "duration" 4)
+    "yellow" (hash-map "next" "red" "duration" 1)))
 
 (define traffic-labels
   (hash-map "red" "🔴 RED" "green" "🟢 GREEN" "yellow" "🟡 YELLOW"))
@@ -19,8 +19,8 @@
 
 (defun run-traffic (state steps)
   (when (> steps 0)
-    (let ((label (get traffic-labels state))
-          (duration (get-in traffic-fsm [state "duration"])))
+    (let ((label     (get traffic-labels state))
+          (duration  (get-in traffic-fsm [state "duration"])))
       (println f"  ${label}  (duration: ${duration}s)")
       (run-traffic (traffic-step state) (- steps 1)))))
 
@@ -32,13 +32,19 @@
 
 (define vending-fsm
   (hash-map
-    "idle"       (hash-map "coin"     "selecting"
-                           "on-enter" "Waiting for coins...")
-    "selecting"  (hash-map "select"   "dispensing"
-                           "cancel"   "idle"
-                           "on-enter" "Choose your item!")
-    "dispensing" (hash-map "done"     "idle"
-                           "on-enter" "Dispensing your item...")))
+    "idle"
+      (hash-map
+        "coin" "selecting"
+        "on-enter" "Waiting for coins...")
+    "selecting"
+      (hash-map
+        "select" "dispensing"
+        "cancel" "idle"
+        "on-enter" "Choose your item!")
+    "dispensing"
+      (hash-map
+        "done" "idle"
+        "on-enter" "Dispensing your item...")))
 
 (defun vending-transition (state event)
   (if-let (next (get-in vending-fsm [state event]))
@@ -73,16 +79,18 @@
 
 (define door-fsm
   (hash-map
-    "locked"   (hash-map "unlock" "closed")
-    "closed"   (hash-map "open"   "open"
-                         "lock"   "locked")
-    "open"     (hash-map "close"  "closed")))
+    "locked" (hash-map "unlock" "closed")
+    "closed"
+      (hash-map
+        "open" "open"
+        "lock" "locked")
+    "open" (hash-map "close" "closed")))
 
 (defun fsm-run (fsm state events)
   (if (null? events)
     state
-    (let* ((event (car events))
-           (next (get-in fsm [state event])))
+    (let* ((event  (car events))
+           (next   (get-in fsm [state event])))
       (if-let (next next)
         (begin
           (println f"  ${state} --[${event}]--> ${next}")

@@ -20,7 +20,9 @@
 (define known-ts 1736943000.0)
 (assert-eq (time/format known-ts "%Y-%m-%d") "2025-01-15" "time/format date")
 (assert-eq (time/format known-ts "%H:%M:%S") "12:10:00" "time/format time")
-(assert-eq (time/format known-ts "%Y-%m-%d %H:%M:%S") "2025-01-15 12:10:00" "time/format full datetime")
+(assert-eq (time/format known-ts "%Y-%m-%d %H:%M:%S")
+  "2025-01-15 12:10:00"
+  "time/format full datetime")
 
 ;; Format current time
 (define now-str (time/format now "%Y-%m-%d"))
@@ -32,9 +34,9 @@
 (assert-eq parsed 1736943000.0 "time/parse known datetime")
 
 ;; Roundtrip
-(define roundtrip-ts 1700000000.0)
-(define formatted (time/format roundtrip-ts "%Y-%m-%d %H:%M:%S"))
-(define parsed-back (time/parse formatted "%Y-%m-%d %H:%M:%S"))
+(define roundtrip-ts  1700000000.0)
+(define formatted     (time/format roundtrip-ts "%Y-%m-%d %H:%M:%S"))
+(define parsed-back   (time/parse formatted "%Y-%m-%d %H:%M:%S"))
 (assert-eq parsed-back roundtrip-ts "time/parse roundtrip")
 
 ;; --- time/date-parts ---
@@ -60,12 +62,14 @@
 
 ;; Subtract time (negative seconds)
 (define minus-1h (time/add known-ts -3600.0))
-(assert-eq (time/format minus-1h "%H:%M:%S") "11:10:00" "time/add negative (subtract 1 hour)")
+(assert-eq (time/format minus-1h "%H:%M:%S")
+  "11:10:00"
+  "time/add negative (subtract 1 hour)")
 
 ;; --- time/diff ---
 (println "-- time/diff --")
 (define t1 1736943000.0)
-(define t2 1736946600.0)  ;; 1 hour later
+(define t2 1736946600.0) ;; 1 hour later
 (assert-eq (time/diff t2 t1) 3600.0 "time/diff 1 hour = 3600s")
 (assert-eq (time/diff t1 t2) -3600.0 "time/diff negative direction")
 (assert-eq (time/diff t1 t1) 0.0 "time/diff same time = 0")

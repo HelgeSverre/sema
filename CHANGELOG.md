@@ -5,6 +5,10 @@
 ### Added
 
 - **Auto-gensym (`foo#`)** — Clojure-style automatic gensym in quasiquote templates. Symbols ending with `#` inside backtick forms are replaced with unique generated symbols, preventing variable capture in macros. Same `foo#` within one quasiquote maps to the same gensym; each quasiquote evaluation gets fresh symbols. Works in both tree-walker and bytecode VM. Built-in `some->` macro updated to use `v#` instead of hardcoded `__v`. Manual `(gensym)` and auto-gensym share a single counter to prevent collisions.
+- **Code formatter (`sema fmt`)** — built-in formatter with Lisp-aware indentation for body forms, binding forms, clause forms, threading macros, and conditionals. Supports `--check`, `--diff`, `--width`, `--indent`, and `--align` flags. Preserves all comments, shebang lines, and multi-line strings. Idempotent output.
+- **Project configuration (`sema.toml`)** — project-level config file with `[fmt]` section for `width`, `indent`, and `align` settings. Discovery walks up from CWD. CLI flags override config values.
+- **Decorative alignment** — opt-in column alignment (`--align`) for consecutive defines, cond/case/match clauses, and let bindings.
+- **Playground formatter** — "Fmt" button in the playground toolbar, powered by the formatter compiled to WASM.
 
 - **Package manager (`sema pkg`)** — full CLI subcommand for managing Git-based packages: `sema pkg add` (install + auto-add to `sema.toml`), `sema pkg remove` (uninstall + auto-remove from `sema.toml`), `sema pkg install` (restore all deps from manifest), `sema pkg update`, `sema pkg list`, `sema pkg init`. Packages resolve from `~/.sema/packages/` with `package.sema` entrypoint convention.
 - **Package imports** — `(import "pkg-name")` now resolves packages from the local package store. Supported in both tree-walker and `sema build` import tracer. VFS-first resolution for bundled executables.
@@ -69,6 +73,7 @@
 
 ### Documentation
 
+- **Formatter docs** — dedicated `formatter.md` page covering usage, configuration, formatting rules, and decorative alignment. CLI reference updated with `sema fmt` section.
 - **Package manager guide** — new documentation page covering `sema pkg` commands, `sema.toml` manifest format, and package authoring.
 - **TOML stdlib reference** — new documentation page for `toml/decode` and `toml/encode`.
 - **Prompt & conversation docs** — restructured `prompts.md` and `conversations.md` with workflow examples and accurate API descriptions.
@@ -84,7 +89,7 @@
 ### Internal
 
 - **Dual-eval test infrastructure** — `dual_eval_tests!` and `dual_eval_error_tests!` macros for testing both tree-walker and VM in a single test definition.
-- **Playground improvements** — draggable splitters, VFS explorer integration, file upload, example reorganization.
+- **Playground improvements** — draggable splitters, VFS explorer integration, file upload, example reorganization, CSS tooltips on all controls, VFS backend toggle moved to Files panel.
 - **CI improvements** — example and bytecode smoke tests, VM examples smoke test.
 
 ## 1.10.0

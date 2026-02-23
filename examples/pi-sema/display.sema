@@ -10,7 +10,10 @@
 
 (define (show-welcome cwd model)
   (println-error "")
-  (println-error (format "  ~a ~a" (term/style "pi-sema" :bold) (term/dim (string-append "· " model))))
+  (println-error
+    (format "  ~a ~a"
+      (term/style "pi-sema" :bold)
+      (term/dim (string-append "· " model))))
   (println-error (term/dim (format "  ~a" cwd)))
   (println-error (term/dim "  Type /help for commands, /quit to exit."))
   (println-error ""))
@@ -21,44 +24,39 @@
   (let ((mode (if (null? args) :normal (car args))))
     (cond
       ((equal? mode :plan)
-       (print-error (term/style "pi-sema [plan] ❯ " :bold :yellow)))
+        (print-error (term/style "pi-sema [plan] ❯ " :bold :yellow)))
       ((equal? mode :execute)
-       (print-error (term/style "pi-sema [exec] ❯ " :bold :green)))
-      (else
-       (print-error (term/style "pi-sema ❯ " :bold :magenta))))))
+        (print-error (term/style "pi-sema [exec] ❯ " :bold :green)))
+      (else (print-error (term/style "pi-sema ❯ " :bold :magenta))))))
 
 ;; ── Tool Call Rendering ─────────────────────────────────────────
 
-(define active-spinner #f)
-(define active-tool-name "")
-(define active-tool-args {})
+(define active-spinner    #f)
+(define active-tool-name  "")
+(define active-tool-args  {})
 
 (define (tool-primary-arg tool args)
   "Extract the most useful arg for compact display."
   (cond
-    ((equal? tool "read-file")
-     (get args :path ""))
-    ((equal? tool "write-file")
-     (get args :path ""))
-    ((equal? tool "edit-file")
-     (get args :path ""))
+    ((equal? tool "read-file") (get args :path ""))
+    ((equal? tool "write-file") (get args :path ""))
+    ((equal? tool "edit-file") (get args :path ""))
     ((equal? tool "grep")
-     (let ((pattern (get args :pattern ""))
-           (path (get args :path "")))
-       (if (= path "")
-         pattern
-         (format "~a → ~a" pattern path))))
+      (let ((pattern  (get args :pattern ""))
+            (path     (get args :path "")))
+        (if (= path "")
+          pattern
+          (format "~a → ~a" pattern path))))
     ((equal? tool "find-files")
-     (let ((pattern (get args :pattern ""))
-           (path (get args :path "")))
-       (if (= path "")
-         pattern
-         (format "~a in ~a" pattern path))))
+      (let ((pattern  (get args :pattern ""))
+            (path     (get args :path "")))
+        (if (= path "")
+          pattern
+          (format "~a in ~a" pattern path))))
     ((equal? tool "list-dir")
-     (let ((path (get args :path "")))
-       (if (= path "") "." path)))
-    ((equal? tool "bash")
-     (truncate-str (get args :command "") 50))
+      (let ((path (get args :path "")))
+        (if (= path "") "." path)))
+    ((equal? tool "bash") (truncate-str (get args :command "") 50))
     (else "")))
 
 (define (format-duration ms)
@@ -72,59 +70,60 @@
   (cond
     ;; edit-file: show the diff snippet
     ((equal? tool "edit-file")
-     (let ((old (get args :old_string ""))
-           (new (get args :new_string "")))
-       (if (and (not (= old "")) (not (= new "")))
-         (let* ((old-first (car (string/split old "\n")))
-                (new-first (car (string/split new "\n"))))
-           (format "    ~a\n    ~a"
-             (term/dim (string-append "-" (truncate-str old-first 70)))
-             (term/dim (string-append "+" (truncate-str new-first 70)))))
-         "")))
+      (let ((old (get args :old_string ""))
+            (new (get args :new_string "")))
+        (if (and (not (= old "")) (not (= new "")))
+          (let* ((old-first (car (string/split old "\n")))
+                 (new-first (car (string/split new "\n"))))
+            (format "    ~a\n    ~a"
+              (term/dim (string-append "-" (truncate-str old-first 70)))
+              (term/dim (string-append "+" (truncate-str new-first 70)))))
+          "")))
     ;; bash: show last meaningful line of output
     ((equal? tool "bash")
-     (if (and (not (= result "")) (not (= result "Command completed successfully (no output).")))
-       (let* ((lines (filter
-                       (fn (l) (> (string-length (string/trim l)) 0))
-                       (string/split result "\n")))
-              (last-line (if (null? lines) "" (last lines))))
-         (if (= last-line "")
-           ""
-           (format "    ~a" (term/dim (truncate-str last-line 70)))))
-       ""))
+      (if (and (not (= result ""))
+          (not (= result "Command completed successfully (no output).")))
+        (let* ((lines
+                 (filter (fn (l) (> (string-length (string/trim l)) 0))
+                   (string/split result "\n")))
+               (last-line (if (null? lines) "" (last lines))))
+          (if (= last-line "")
+            ""
+            (format "    ~a" (term/dim (truncate-str last-line 70)))))
+        ""))
     (else "")))
 
 (define (on-tool-call event)
-  (let ((evt (:event event))
-        (tool (:tool event))
-        (args (:args event)))
+  (let ((evt   (:event event))
+        (tool  (:tool event))
+        (args  (:args event)))
     (cond
-      ((= evt "start")
-       (set! active-tool-name tool)
-       (set! active-tool-args (if (map? args) args {}))
-       (let ((primary (tool-primary-arg tool active-tool-args)))
-         (set! active-spinner
-           (term/spinner-start
-             (term/dim (format "~a ~a" tool primary))))))
+      ((= evt "start") (set! active-tool-name tool)
+        (set! active-tool-args (if (map? args) args {}))
+        (let ((primary (tool-primary-arg tool active-tool-args)))
+          (set! active-spinner
+            (term/spinner-start (term/dim (format "~a ~a" tool primary))))))
 
       ((= evt "end")
-       (when active-spinner
-         (term/spinner-stop active-spinner {})
-         (set! active-spinner #f))
-       (let* ((ms (:duration-ms event))
-              (result (get event :result ""))
-              (primary (tool-primary-arg active-tool-name active-tool-args))
-              (duration (format-duration ms))
-              (ctx (tool-context-lines active-tool-name active-tool-args result)))
-         ;; Main tool line
-         (println-error (format "  ~a ~a ~a ~a"
-           (term/green "✔")
-           (term/style active-tool-name :bold)
-           (term/dim primary)
-           (term/style duration :gray)))
-         ;; Context lines (if any)
-         (when (not (= ctx ""))
-           (println-error ctx)))))))
+        (when active-spinner
+          (term/spinner-stop active-spinner {})
+          (set! active-spinner #f))
+        (let* ((ms (:duration-ms event))
+               (result (get event :result ""))
+               (primary (tool-primary-arg active-tool-name active-tool-args))
+               (duration (format-duration ms))
+               (ctx
+                 (tool-context-lines active-tool-name active-tool-args result)))
+          ;; Main tool line
+          (println-error
+            (format "  ~a ~a ~a ~a"
+              (term/green "✔")
+              (term/style active-tool-name :bold)
+              (term/dim primary)
+              (term/style duration :gray)))
+          ;; Context lines (if any)
+          (when (not (= ctx ""))
+            (println-error ctx)))))))
 
 ;; ── Response Output ─────────────────────────────────────────────
 
@@ -146,15 +145,21 @@
 ;; ── Divider ─────────────────────────────────────────────────────
 
 (define (show-divider)
-  (println-error (term/dim "  ────────────────────────────────────────")))
+  (println-error
+    (term/dim
+      "  ────────────────────────────────────────")))
 
 ;; ── Usage Stats ─────────────────────────────────────────────────
 
 (define (show-usage usage)
   (println-error "")
   (println-error (term/style "  Token Usage" :bold))
-  (println-error (term/dim (format "  Prompt tokens:     ~a" (:prompt-tokens usage))))
-  (println-error (term/dim (format "  Completion tokens: ~a" (:completion-tokens usage))))
-  (println-error (term/dim (format "  Total tokens:      ~a" (:total-tokens usage))))
-  (println-error (term/dim (format "  Cost:              $~a" (:cost-usd usage))))
+  (println-error
+    (term/dim (format "  Prompt tokens:     ~a" (:prompt-tokens usage))))
+  (println-error
+    (term/dim (format "  Completion tokens: ~a" (:completion-tokens usage))))
+  (println-error
+    (term/dim (format "  Total tokens:      ~a" (:total-tokens usage))))
+  (println-error
+    (term/dim (format "  Cost:              $~a" (:cost-usd usage))))
   (println-error ""))

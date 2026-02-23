@@ -12,13 +12,18 @@
   (exit 1))
 
 ;; ---- Environment context ----
-(define cwd (sys/cwd))
-(define platform (sys/platform))
+(define cwd       (sys/cwd))
+(define platform  (sys/platform))
 
 ;; ---- Banned commands for safety ----
 (define banned-commands
-  '("rm -rf /" "rm -rf ~" "mkfs" "dd if=" "> /dev/sd"
-    ":(){" "fork" "format c:"))
+  '("rm -rf /" "rm -rf ~"
+    "mkfs"
+    "dd if="
+    "> /dev/sd"
+    ":(){"
+    "fork"
+    "format c:"))
 
 (define (command-safe? cmd)
   (not (any (lambda (pat) (string/contains? cmd pat)) banned-commands)))
@@ -38,11 +43,13 @@
     (if (file/exists? path)
       (let* ((content (file/read path))
              (lines (string/split content "\n"))
-             (numbered (map (lambda (pair)
-                              (format "~a\t~a"
-                                (+ 1 (car pair))
-                                (cdr pair)))
-                            (zip (range 0 (length lines)) lines))))
+             (numbered
+               (map
+                 (lambda (pair)
+                   (format "~a\t~a"
+                     (+ 1 (car pair))
+                     (cdr pair)))
+                 (zip (range 0 (length lines)) lines))))
         (string/join numbered "\n"))
       (format "Error: File not found: ~a" path))))
 
@@ -68,24 +75,31 @@ For creating new files, use write-file instead."
           (let ((new-content (string/replace content old_string new_string)))
             (file/write path new-content)
             (format "Edited ~a: replaced ~a chars with ~a chars"
-              path (string-length old_string) (string-length new_string)))
-          (format "Error: old_string not found in ~a. Read the file first to get exact content." path)))
+              path
+              (string-length old_string)
+              (string-length new_string)))
+          (format
+            "Error: old_string not found in ~a. Read the file first to get exact content."
+            path)))
       (format "Error: File not found: ~a" path))))
 
 (deftool search
   "Search for a pattern in files using grep. Returns matching lines with file paths and line numbers."
   {:pattern {:type :string :description "Search pattern (text to find)"}
-   :path {:type :string :description "Directory or file to search in (default: current directory)"}}
+   :path {:type :string
+    :description "Directory or file to search in (default: current directory)"}}
   (lambda (pattern path)
     (define search-path (if (= path "") "." path))
-    (define result (shell "grep" "-rn" "--include=*" "-m" "50" pattern search-path))
+    (define result
+      (shell "grep" "-rn" "--include=*" "-m" "50" pattern search-path))
     (if (= (string/trim (:stdout result)) "")
       "No matches found."
       (:stdout result))))
 
 (deftool list-files
   "List files and directories at the given path."
-  {:path {:type :string :description "Directory path to list (default: current directory)"}}
+  {:path {:type :string
+    :description "Directory path to list (default: current directory)"}}
   (lambda (path)
     (define target (if (= path "") "." path))
     (if (file/exists? target)
@@ -97,15 +111,20 @@ For creating new files, use write-file instead."
   "Run a shell command and return its output. Use for: running tests, building projects,
 git operations, installing packages, and other development tasks.
 Do NOT use for: destructive operations like rm -rf, formatting disks, etc."
-  {:command {:type :string :description "The shell command to run (e.g., 'cargo test', 'npm install')"}}
+  {:command {:type :string
+    :description "The shell command to run (e.g., 'cargo test', 'npm install')"}}
   (lambda (command)
     (unless (command-safe? command)
       (error (format "Blocked unsafe command: ~a" command)))
     (define result (shell "sh" "-c" command))
     (define output
       (string-append
-        (if (= (:stdout result) "") "" (string-append "stdout:\n" (:stdout result)))
-        (if (= (:stderr result) "") "" (string-append "\nstderr:\n" (:stderr result)))))
+        (if (= (:stdout result) "")
+          ""
+          (string-append "stdout:\n" (:stdout result)))
+        (if (= (:stderr result) "")
+          ""
+          (string-append "\nstderr:\n" (:stderr result)))))
     (if (= (:exit-code result) 0)
       (if (= (string/trim output) "")
         "Command completed successfully (no output)."
@@ -115,7 +134,8 @@ Do NOT use for: destructive operations like rm -rf, formatting disks, etc."
 ;; ---- Agent definition ----
 
 (defagent coder
-  {:system (format "You are a coding assistant with access to the local filesystem.
+  {:system (format
+     "You are a coding assistant with access to the local filesystem.
 
 Environment:
 - Working directory: ~a
@@ -129,7 +149,9 @@ Rules:
 5. If a task is unclear, ask for clarification instead of guessing
 6. When running commands, explain what you're doing and why
 
-Workflow: search → read → edit → verify" cwd platform)
+Workflow: search → read → edit → verify"
+     cwd
+     platform)
    :tools [read-file write-file edit-file search list-files run-command]
    :max-turns 50})
 
@@ -138,32 +160,36 @@ Workflow: search → read → edit → verify" cwd platform)
 (define active-spinner #f)
 
 (define (on-tool-call event)
-  (let ((evt (:event event))
-        (tool (:tool event))
-        (args (:args event)))
+  (let ((evt   (:event event))
+        (tool  (:tool event))
+        (args  (:args event)))
     (cond
       ((= evt "start")
-       ;; Show tool header
-       (println-error (term/style (format "  ── ~a ──" tool) :bold :cyan))
-       ;; Show key args (truncated)
-       (when (map? args)
-         (for-each
-           (lambda (key)
-             (let ((val (get args key)))
-               (println-error (format "     ~a: ~a"
-                 (term/dim (keyword->string key))
-                 (term/dim (truncate-str (format "~a" val) 60))))))
-           (keys args)))
-       ;; Start spinner
-       (set! active-spinner (term/spinner-start (term/dim (format "  ~a..." tool)))))
+        ;; Show tool header
+        (println-error
+          (term/style (format "  ── ~a ──" tool) :bold :cyan))
+        ;; Show key args (truncated)
+        (when (map? args)
+          (for-each
+            (lambda (key)
+              (let ((val (get args key)))
+                (println-error
+                  (format "     ~a: ~a"
+                    (term/dim (keyword->string key))
+                    (term/dim (truncate-str (format "~a" val) 60))))))
+            (keys args)))
+        ;; Start spinner
+        (set! active-spinner
+          (term/spinner-start (term/dim (format "  ~a..." tool)))))
 
       ((= evt "end")
-       ;; Stop spinner with success
-       (when active-spinner
-         (term/spinner-stop active-spinner
-           {:symbol (term/green "✔") :text (term/dim (format "~a (~ams)" tool (:duration-ms event)))})
-         (set! active-spinner #f))
-       (println-error "")))))
+        ;; Stop spinner with success
+        (when active-spinner
+          (term/spinner-stop active-spinner
+            {:symbol (term/green "✔")
+             :text (term/dim (format "~a (~ams)" tool (:duration-ms event)))})
+          (set! active-spinner #f))
+        (println-error "")))))
 
 ;; ---- Interactive REPL ----
 
@@ -180,12 +206,15 @@ Workflow: search → read → edit → verify" cwd platform)
 (let loop ()
   (print-error prompt-str)
   (define input (read-line))
-  (when (and (not (= input "quit"))
-             (not (= input "exit"))
-             (not (= input "")))
+  (when
+    (and (not (= input "quit"))
+      (not (= input "exit"))
+      (not (= input "")))
     (println-error "")
-    (define result (agent/run coder input
-                     {:on-tool-call on-tool-call :messages history}))
+    (define result
+      (agent/run coder
+        input
+        {:on-tool-call on-tool-call :messages history}))
     (set! history (:messages result))
     (println "")
     (println (:response result))

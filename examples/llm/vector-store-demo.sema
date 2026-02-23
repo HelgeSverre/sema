@@ -12,12 +12,13 @@
 ;; 1. Create a store and add documents
 (vector-store/create "knowledge")
 
-(define docs '(
-  ("lisp"    "Lisp is a family of programming languages with a long history")
-  ("rust"    "Rust is a systems programming language focused on safety")
-  ("cooking" "Italian cooking relies on fresh ingredients and simple techniques")
-  ("ml"      "Machine learning uses statistical methods to find patterns in data")
-  ("gardening" "Container gardening works well for small urban spaces")))
+(define docs
+  '(("lisp" "Lisp is a family of programming languages with a long history")
+    ("rust" "Rust is a systems programming language focused on safety")
+    ("cooking"
+      "Italian cooking relies on fresh ingredients and simple techniques")
+    ("ml" "Machine learning uses statistical methods to find patterns in data")
+    ("gardening" "Container gardening works well for small urban spaces")))
 
 (for-each
   (lambda (doc)
@@ -48,7 +49,8 @@
 (println (format "Saved store to ~a" path))
 
 (vector-store/open "reloaded" path)
-(println (format "Reloaded store with ~a documents" (vector-store/count "reloaded")))
+(println
+  (format "Reloaded store with ~a documents" (vector-store/count "reloaded")))
 
 ;; Verify search still works after reload
 (define hits (vector-store/search "reloaded" (llm/embed "programming") 1))

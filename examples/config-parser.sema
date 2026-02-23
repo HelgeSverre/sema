@@ -2,24 +2,27 @@
 ;; Demonstrates: match on literals, guards, threading, let destructuring
 
 (define (parse-value raw)
-  (match raw
-    ("true"  #t)
+  (match
+    raw
+    ("true" #t)
     ("false" #f)
-    ("nil"   nil)
+    ("nil" nil)
     (s when (string/number? s) (int s))
     (s s)))
 
 (define (parse-config text)
   (->> (string/split text "\n")
-       (filter #(not (string/empty? (string/trim %))))
-       (filter #(not (string/starts-with? (string/trim %) "#")))
-       (map (fn (line)
-              (let (([key val] (string/split (string/trim line) "=")))
-                (list (string->keyword (string/trim key))
-                      (parse-value (string/trim val))))))
-       (foldl (fn (acc [key val]) (assoc acc key val)) {})))
+    (filter #(not (string/empty? (string/trim %))))
+    (filter #(not (string/starts-with? (string/trim %) "#")))
+    (map
+      (fn (line)
+        (let (([key val] (string/split (string/trim line) "=")))
+          (list (string->keyword (string/trim key))
+            (parse-value (string/trim val))))))
+    (foldl (fn (acc [key val]) (assoc acc key val)) {})))
 
-(define config-text "
+(define config-text
+  "
 # Application config
 app_name = my-app
 version = 3
@@ -48,19 +51,22 @@ timeout = 30
 
 ;; Validate with match
 (define (validate key value)
-  (match (list key value)
-    ([:db_port p] when (or (< p 1) (> p 65535))
+  (match
+    (list key value)
+    ([:db_port p] when
+      (or (< p 1) (> p 65535))
       (println f"  ✗ ${key}: port ${p} out of range"))
-    ([:db_pool_size n] when (> n 100)
+    ([:db_pool_size n] when
+      (> n 100)
       (println f"  ✗ ${key}: pool size ${n} too large"))
-    ([:max_retries n] when (> n 10)
+    ([:max_retries n] when
+      (> n 10)
       (println f"  ⚠ ${key}: ${n} retries may be excessive"))
-    ([:timeout n] when (> n 60)
+    ([:timeout n] when
+      (> n 60)
       (println f"  ⚠ ${key}: ${n}s timeout is high"))
-    ([:debug #t]
-      (println f"  ⚠ ${key}: debug mode is ON"))
-    ([k v]
-      (println f"  ✓ ${k} = ${v}"))))
+    ([:debug #t] (println f"  ⚠ ${key}: debug mode is ON"))
+    ([k v] (println f"  ✓ ${k} = ${v}"))))
 
 (println "\nValidation:")
 (for-each

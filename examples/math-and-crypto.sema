@@ -27,9 +27,10 @@
   (fn (x)
     (let ((s (sin x)) (c (cos x)))
       (let ((sum (+ (* s s) (* c c))))
-        (println (format "  x=~a → ~a ✓"
-          (string/pad-right (str (round (* x 100))) 4)
-          sum)))))
+        (println
+          (format "  x=~a → ~a ✓"
+            (string/pad-right (str (round (* x 100))) 4)
+            sum)))))
   test-angles)
 
 ;; --- Exponential/logarithm roundtrip ---
@@ -42,8 +43,7 @@
 
 ;; --- Bitwise operations: IP address parsing ---
 (define (ip-to-int a b c d)
-  (bit/or
-    (bit/or (bit/shift-left a 24) (bit/shift-left b 16))
+  (bit/or (bit/or (bit/shift-left a 24) (bit/shift-left b 16))
     (bit/or (bit/shift-left c 8) d)))
 
 (define (int-to-ip n)
@@ -79,11 +79,12 @@
   (fn (msg)
     (let ((encoded (base64/encode msg)))
       (let ((decoded (base64/decode encoded)))
-        (println (format "  ~a → ~a → ~a ~a"
-          (string/pad-right msg 20)
-          (string/pad-right encoded 28)
-          decoded
-          (if (= msg decoded) "✓" "✗"))))))
+        (println
+          (format "  ~a → ~a → ~a ~a"
+            (string/pad-right msg 20)
+            (string/pad-right encoded 28)
+            decoded
+            (if (= msg decoded) "✓" "✗"))))))
   messages)
 
 ;; --- SHA-256 hashing ---
@@ -91,9 +92,10 @@
 (define hash-inputs (list "" "hello" "Hello" "hello world" "Sema"))
 (for-each
   (fn (input)
-    (println (format "  sha256(~a) = ~a"
-      (string/pad-right (format "\"~a\"" input) 15)
-      (substring (hash/sha256 input) 0 16))))
+    (println
+      (format "  sha256(~a) = ~a"
+        (string/pad-right (format "\"~a\"" input) 15)
+        (substring (hash/sha256 input) 0 16))))
   hash-inputs)
 
 ;; Hash chain: H(H(H("seed")))
@@ -104,13 +106,17 @@
       (loop (hash/sha256 h) (+ i 1)))))
 
 (define chain-result (hash-chain "seed" 3))
-(println (format "\n  3x hash chain of \"seed\": ~a..." (substring chain-result 0 16)))
+(println
+  (format "\n  3x hash chain of \"seed\": ~a..." (substring chain-result 0 16)))
 
 ;; --- Timing ---
-(define start (time-ms))
-(define _result (sieve-primes 10000))
-(define elapsed (- (time-ms) start))
-(println (format "\nPrimes under 10000: ~a primes found in ~ams" (length _result) elapsed))
+(define start    (time-ms))
+(define _result  (sieve-primes 10000))
+(define elapsed  (- (time-ms) start))
+(println
+  (format "\nPrimes under 10000: ~a primes found in ~ams"
+    (length _result)
+    elapsed))
 
 ;; --- Random sampling ---
 (println "\n5 random numbers [1, 100]:")
@@ -123,9 +129,10 @@
 (println "\nClamping values to [0, 100]:")
 (for-each
   (fn (v)
-    (println (format "  clamp(~a) = ~a"
-      (string/pad-left (str v) 4)
-      (math/clamp v 0 100))))
+    (println
+      (format "  clamp(~a) = ~a"
+        (string/pad-left (str v) 4)
+        (math/clamp v 0 100))))
   (list -50 0 42 99 100 150))
 
 (println "\nDone!")

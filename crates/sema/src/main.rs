@@ -10,6 +10,55 @@ use rustyline::Editor;
 
 use sema_core::{intern, pretty_print, Env, SemaError, Value, ValueView};
 use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
+use serde::Deserialize;
+
+#[derive(Debug, Default, Deserialize)]
+struct SemaConfig {
+    #[serde(default)]
+    fmt: FmtConfig,
+}
+
+#[derive(Debug, Deserialize)]
+struct FmtConfig {
+    #[serde(default = "default_width")]
+    width: usize,
+    #[serde(default = "default_indent")]
+    indent: usize,
+    #[serde(default)]
+    align: bool,
+}
+
+impl Default for FmtConfig {
+    fn default() -> Self {
+        Self {
+            width: 80,
+            indent: 2,
+            align: false,
+        }
+    }
+}
+
+fn default_width() -> usize {
+    80
+}
+fn default_indent() -> usize {
+    2
+}
+
+/// Walk up from cwd to find sema.toml
+fn find_config() -> Option<SemaConfig> {
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let candidate = dir.join("sema.toml");
+        if candidate.is_file() {
+            let text = std::fs::read_to_string(&candidate).ok()?;
+            return toml::from_str(&text).ok();
+        }
+        if !dir.pop() {
+            return None;
+        }
+    }
+}
 
 mod archive;
 mod import_tracer;
@@ -294,6 +343,31 @@ enum Commands {
         #[arg(long)]
         runtime: Option<String>,
     },
+    /// Format Sema source files
+    Fmt {
+        /// Files or glob patterns to format (default: **/*.sema in current directory)
+        files: Vec<String>,
+
+        /// Check formatting without writing changes (exit 1 if unformatted)
+        #[arg(long)]
+        check: bool,
+
+        /// Print diff of formatting changes
+        #[arg(long)]
+        diff: bool,
+
+        /// Max line width
+        #[arg(long)]
+        width: Option<usize>,
+
+        /// Indentation width for body forms
+        #[arg(long)]
+        indent: Option<usize>,
+
+        /// Align consecutive similar forms (defines, cond clauses, let bindings)
+        #[arg(long)]
+        align: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -471,6 +545,27 @@ fn main() {
                 runtime,
             } => {
                 run_build(&file, output.as_deref(), &includes, runtime.as_deref());
+            }
+            Commands::Fmt {
+                files,
+                check,
+                diff,
+                width,
+                indent,
+                align,
+            } => {
+                let config = find_config().unwrap_or_default();
+                let effective_width = width.unwrap_or(config.fmt.width);
+                let effective_indent = indent.unwrap_or(config.fmt.indent);
+                let effective_align = if align { true } else { config.fmt.align };
+                run_fmt(
+                    &files,
+                    check,
+                    diff,
+                    effective_width,
+                    effective_indent,
+                    effective_align,
+                );
             }
         }
         return;
@@ -1274,6 +1369,162 @@ fn run_bytecode_bytes(
 
     let mut vm = sema_vm::VM::new(interpreter.global_env.clone(), functions);
     vm.execute(closure, &interpreter.ctx)
+}
+
+fn run_fmt(
+    patterns: &[String],
+    check: bool,
+    show_diff: bool,
+    width: usize,
+    indent: usize,
+    align: bool,
+) {
+    // Determine which files to format
+    let files = if patterns.is_empty() {
+        // Default: all .sema files in current directory recursively
+        match glob::glob("**/*.sema") {
+            Ok(paths) => paths
+                .filter_map(|p| p.ok())
+                .map(|p| p.to_string_lossy().to_string())
+                .collect::<Vec<_>>(),
+            Err(e) => {
+                eprintln!("Error: invalid glob pattern: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        // Expand each pattern
+        let mut all_files = Vec::new();
+        for pattern in patterns {
+            // If it contains glob characters, expand it
+            if pattern.contains('*') || pattern.contains('?') || pattern.contains('[') {
+                match glob::glob(pattern) {
+                    Ok(paths) => {
+                        for path in paths.filter_map(|p| p.ok()) {
+                            all_files.push(path.to_string_lossy().to_string());
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error: invalid glob pattern '{pattern}': {e}");
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                // Treat as literal file path
+                all_files.push(pattern.clone());
+            }
+        }
+        all_files
+    };
+
+    if files.is_empty() {
+        println!("No .sema files found");
+        return;
+    }
+
+    let mut checked = 0;
+    let mut changed = 0;
+    let mut errors = 0;
+
+    for file in &files {
+        let source = match std::fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Error reading {file}: {e}");
+                errors += 1;
+                continue;
+            }
+        };
+
+        let formatted = match sema_fmt::format_source_opts(&source, width, indent, align) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Error formatting {file}: {e}");
+                errors += 1;
+                continue;
+            }
+        };
+
+        checked += 1;
+
+        if source != formatted {
+            changed += 1;
+
+            if check {
+                println!("Would reformat: {file}");
+            } else if show_diff {
+                // Simple line-by-line diff
+                print_simple_diff(file, &source, &formatted);
+            } else {
+                // Write formatted output back
+                if let Err(e) = std::fs::write(file, &formatted) {
+                    eprintln!("Error writing {file}: {e}");
+                    errors += 1;
+                    continue;
+                }
+                println!("Formatted: {file}");
+            }
+        }
+    }
+
+    // Print summary
+    if check {
+        if changed > 0 {
+            println!("\n{changed} file(s) would be reformatted, {checked} file(s) checked");
+            std::process::exit(1);
+        } else {
+            println!("{checked} file(s) already formatted");
+        }
+    } else if show_diff {
+        println!("\n{changed} file(s) would change, {checked} file(s) checked");
+    } else if changed > 0 {
+        println!(
+            "\n{changed} file(s) formatted, {} file(s) unchanged",
+            checked - changed
+        );
+    } else {
+        println!("{checked} file(s) already formatted");
+    }
+
+    if errors > 0 {
+        eprintln!("{errors} error(s)");
+        std::process::exit(1);
+    }
+}
+
+fn print_simple_diff(filename: &str, old: &str, new: &str) {
+    println!("--- {filename}");
+    println!("+++ {filename}");
+    let old_lines: Vec<&str> = old.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+
+    // Simple context diff: show lines that differ
+    let max_lines = old_lines.len().max(new_lines.len());
+    let mut in_diff = false;
+    let mut diff_start = 0;
+
+    for i in 0..max_lines {
+        let old_line = old_lines.get(i).copied().unwrap_or("");
+        let new_line = new_lines.get(i).copied().unwrap_or("");
+
+        if old_line != new_line {
+            if !in_diff {
+                diff_start = i;
+                in_diff = true;
+                println!("@@ -{} +{} @@", i + 1, i + 1);
+            }
+            if i < old_lines.len() {
+                println!("-{old_line}");
+            }
+            if i < new_lines.len() {
+                println!("+{new_line}");
+            }
+        } else if in_diff && i - diff_start < 3 {
+            println!(" {old_line}");
+        } else {
+            in_diff = false;
+        }
+    }
 }
 
 fn run_ast(file: Option<String>, eval: Option<String>, json: bool) {

@@ -6,16 +6,18 @@
 
 ;; 1. Simple batch with string prompts
 (println "=== Test 1: llm/batch (string prompts) ===")
-(define answers (llm/batch (list "Say just: alpha" "Say just: beta" "Say just: gamma")))
+(define answers
+  (llm/batch (list "Say just: alpha" "Say just: beta" "Say just: gamma")))
 (println "Results:" answers)
 
 ;; 2. Batch with options
 (println "\n=== Test 2: llm/batch with options ===")
-(define answers2 (llm/batch
-  (list "What is 1+1? Reply with just the number."
-        "What is 2+2? Reply with just the number."
-        "What is 3+3? Reply with just the number.")
-  {:max-tokens 10}))
+(define answers2
+  (llm/batch
+    (list "What is 1+1? Reply with just the number."
+      "What is 2+2? Reply with just the number."
+      "What is 3+3? Reply with just the number.")
+    {:max-tokens 10}))
 (println "Results:" answers2)
 
 ;; 3. Session usage after batch

@@ -80,7 +80,9 @@
 (assert-eq (contains? selected :b) #f "map/select-keys excludes b")
 
 ;; map/map-keys
-(define upper-keys (map/map-keys (fn (k) (string->keyword (string/upper (keyword->string k)))) (hash-map :a 1 :b 2)))
+(define upper-keys
+  (map/map-keys (fn (k) (string->keyword (string/upper (keyword->string k))))
+    (hash-map :a 1 :b 2)))
 (assert-eq (get upper-keys :A) 1 "map/map-keys A")
 (assert-eq (get upper-keys :B) 2 "map/map-keys B")
 

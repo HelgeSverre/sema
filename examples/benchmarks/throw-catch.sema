@@ -13,11 +13,12 @@
 (define result1
   (let loop ((i 0) (acc 0))
     (if (= i 100000)
-        acc
-        (let ((v (try
-                   (throw i)
-                   (catch e (get e :value)))))
-          (loop (+ i 1) (+ acc v))))))
+      acc
+      (let ((v
+              (try
+                (throw i)
+                (catch e (get e :value)))))
+        (loop (+ i 1) (+ acc v))))))
 (define elapsed1 (- (time-ms) t0))
 
 (println (format "Result: ~a" result1))
@@ -31,13 +32,14 @@
 (define result2
   (let loop ((i 0) (acc 0))
     (if (= i 1000000)
-        acc
-        (let ((v (try
-                   (if (= 0 (mod i 1000))
-                       (throw i)
-                       i)
-                   (catch e (get e :value)))))
-          (loop (+ i 1) (+ acc v))))))
+      acc
+      (let ((v
+              (try
+                (if (= 0 (mod i 1000))
+                  (throw i)
+                  i)
+                (catch e (get e :value)))))
+        (loop (+ i 1) (+ acc v))))))
 (define elapsed2 (- (time-ms) t1))
 
 (println (format "Result: ~a" result2))
@@ -45,17 +47,19 @@
 
 ;; --- Part 3: Try with no throw (pure overhead of try block) ---
 (println "")
-(println "Part 3: Try with no throw — measuring try block overhead (500,000 iterations)")
+(println
+  "Part 3: Try with no throw — measuring try block overhead (500,000 iterations)")
 
 (define t2 (time-ms))
 (define result3
   (let loop ((i 0) (acc 0))
     (if (= i 500000)
-        acc
-        (let ((v (try
-                   (+ i 1)
-                   (catch e 0))))
-          (loop (+ i 1) (+ acc v))))))
+      acc
+      (let ((v
+              (try
+                (+ i 1)
+                (catch e 0))))
+        (loop (+ i 1) (+ acc v))))))
 (define elapsed3 (- (time-ms) t2))
 
 (println (format "Result: ~a" result3))
@@ -67,18 +71,19 @@
 
 (define (deep-throw depth)
   (if (= depth 0)
-      (throw "bottom")
-      (+ 1 (deep-throw (- depth 1)))))
+    (throw "bottom")
+    (+ 1 (deep-throw (- depth 1)))))
 
 (define t3 (time-ms))
 (define result4
   (let loop ((i 0) (acc 0))
     (if (= i 10000)
-        acc
-        (let ((v (try
-                   (deep-throw 50)
-                   (catch e 1))))
-          (loop (+ i 1) (+ acc v))))))
+      acc
+      (let ((v
+              (try
+                (deep-throw 50)
+                (catch e 1))))
+        (loop (+ i 1) (+ acc v))))))
 (define elapsed4 (- (time-ms) t3))
 
 (println (format "Result: ~a" result4))

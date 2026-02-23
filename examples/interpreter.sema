@@ -4,64 +4,66 @@
 (println "=== Mini-Lisp Interpreter ===\n")
 
 ;; AST constructors
-(define (make-num n)        (hash-map :type :number :value n))
-(define (make-bool b)       (hash-map :type :bool :value b))
-(define (make-var name)     (hash-map :type :var :name name))
+(define (make-num n) (hash-map :type :number :value n))
+(define (make-bool b) (hash-map :type :bool :value b))
+(define (make-var name) (hash-map :type :var :name name))
 (define (make-binop op l r) (hash-map :type :binop :op op :left l :right r))
-(define (make-if c t f)     (hash-map :type :if :cond c :then t :else f))
+(define (make-if c t f) (hash-map :type :if :cond c :then t :else f))
 (define (make-let name val body)
   (hash-map :type :let :name name :val val :body body))
-(define (make-lam param body)
-  (hash-map :type :lambda :param param :body body))
-(define (make-call fn arg)
-  (hash-map :type :call :fn fn :arg arg))
+(define (make-lam param body)  (hash-map :type :lambda :param param :body body))
+(define (make-call fn arg)     (hash-map :type :call :fn fn :arg arg))
 
 ;; Evaluator — dispatches on :type
 (define (eval-ast node env)
   (let ((tag (get node :type)))
     (cond
       ((eq? tag :number) (get node :value))
-      ((eq? tag :bool)   (get node :value))
+      ((eq? tag :bool) (get node :value))
 
       ((eq? tag :var)
-       (let ((name (get node :name)))
-         (if (contains? env name)
-           (get env name)
-           (throw (format "Unbound variable: ~a" name)))))
+        (let ((name (get node :name)))
+          (if (contains? env name)
+            (get env name)
+            (throw (format "Unbound variable: ~a" name)))))
 
       ((eq? tag :binop)
-       (let ((op (get node :op))
-             (lv (eval-ast (get node :left) env))
-             (rv (eval-ast (get node :right) env)))
-         (cond
-           ((eq? op :+) (+ lv rv))
-           ((eq? op :-) (- lv rv))
-           ((eq? op :*) (* lv rv))
-           ((eq? op :/) (/ lv rv))
-           ((eq? op :>) (> lv rv))
-           ((eq? op :<) (< lv rv))
-           ((eq? op :=) (= lv rv))
-           (else (throw (format "Unknown operator: ~a" op))))))
+        (let ((op (get node :op))
+              (lv (eval-ast (get node :left) env))
+              (rv (eval-ast (get node :right) env)))
+          (cond
+            ((eq? op :+)  (+ lv rv))
+            ((eq? op :-)  (- lv rv))
+            ((eq? op :*)  (* lv rv))
+            ((eq? op :/)  (/ lv rv))
+            ((eq? op :>)  (> lv rv))
+            ((eq? op :<)  (< lv rv))
+            ((eq? op :=)  (= lv rv))
+            (else         (throw (format "Unknown operator: ~a" op))))))
 
       ((eq? tag :if)
-       (if (eval-ast (get node :cond) env)
-         (eval-ast (get node :then) env)
-         (eval-ast (get node :else) env)))
+        (if (eval-ast (get node :cond) env)
+          (eval-ast (get node :then) env)
+          (eval-ast (get node :else) env)))
 
       ((eq? tag :let)
-       (let ((val (eval-ast (get node :val) env)))
-         (eval-ast (get node :body) (assoc env (get node :name) val))))
+        (let ((val (eval-ast (get node :val) env)))
+          (eval-ast (get node :body) (assoc env (get node :name) val))))
 
       ((eq? tag :lambda)
-       (hash-map :type :closure :param (get node :param) :body (get node :body) :env env))
+        (hash-map
+          :type :closure
+          :param (get node :param)
+          :body (get node :body)
+          :env env))
 
       ((eq? tag :call)
-       (let ((closure (eval-ast (get node :fn) env))
-             (arg-val (eval-ast (get node :arg) env)))
-         (if (eq? (get closure :type) :closure)
-           (eval-ast (get closure :body)
-                     (assoc (get closure :env) (get closure :param) arg-val))
-           (throw "Tried to call a non-function"))))
+        (let ((closure (eval-ast (get node :fn) env))
+              (arg-val (eval-ast (get node :arg) env)))
+          (if (eq? (get closure :type) :closure)
+            (eval-ast (get closure :body)
+              (assoc (get closure :env) (get closure :param) arg-val))
+            (throw "Tried to call a non-function"))))
 
       (else (throw (format "Unknown AST node type: ~a" tag))))))
 
@@ -79,8 +81,9 @@
 
 ;; (+ (* 3 4) (- 10 5))
 (run-example "(+ (* 3 4) (- 10 5))"
-  (make-binop :+ (make-binop :* (make-num 3) (make-num 4))
-                 (make-binop :- (make-num 10) (make-num 5))))
+  (make-binop :+
+    (make-binop :* (make-num 3) (make-num 4))
+    (make-binop :- (make-num 10) (make-num 5))))
 
 ;; (/ 100 (+ 3 2))
 (run-example "(/ 100 (+ 3 2))"
@@ -90,8 +93,10 @@
 
 ;; (let x 10 (let y 20 (+ x y)))
 (run-example "(let x 10 (let y 20 (+ x y)))"
-  (make-let :x (make-num 10)
-    (make-let :y (make-num 20)
+  (make-let :x
+    (make-num 10)
+    (make-let :y
+      (make-num 20)
       (make-binop :+ (make-var :x) (make-var :y)))))
 
 (println "--- Conditionals ---\n")
@@ -99,33 +104,39 @@
 ;; (if (> 5 3) 42 0)
 (run-example "(if (> 5 3) 42 0)"
   (make-if (make-binop :> (make-num 5) (make-num 3))
-           (make-num 42) (make-num 0)))
+    (make-num 42)
+    (make-num 0)))
 
 ;; (let x 7 (if (= x 7) 100 200))
 (run-example "(let x 7 (if (= x 7) 100 200))"
-  (make-let :x (make-num 7)
+  (make-let :x
+    (make-num 7)
     (make-if (make-binop := (make-var :x) (make-num 7))
-             (make-num 100) (make-num 200))))
+      (make-num 100)
+      (make-num 200))))
 
 (println "--- Lambda / Function Calls ---\n")
 
 ;; ((lambda (n) (+ n 1)) 41)
 (run-example "((lambda (n) (+ n 1)) 41)"
   (make-call (make-lam :n (make-binop :+ (make-var :n) (make-num 1)))
-             (make-num 41)))
+    (make-num 41)))
 
 ;; (let double (lambda (x) (* x 2)) (double 21))
 (run-example "(let double (lambda (x) (* x 2)) (double 21))"
-  (make-let :double (make-lam :x (make-binop :* (make-var :x) (make-num 2)))
+  (make-let :double
+    (make-lam :x (make-binop :* (make-var :x) (make-num 2)))
     (make-call (make-var :double) (make-num 21))))
 
 ;; Higher-order: (let apply-twice (fn f (fn x (f (f x)))) ...)
 (run-example "(let apply-twice ... (apply-twice add3 10)) => 16"
   (make-let :apply-twice
-    (make-lam :f (make-lam :x (make-call (make-var :f) (make-call (make-var :f) (make-var :x)))))
+    (make-lam :f
+      (make-lam :x
+        (make-call (make-var :f) (make-call (make-var :f) (make-var :x)))))
     (make-call
       (make-call (make-var :apply-twice)
-                 (make-lam :n (make-binop :+ (make-var :n) (make-num 3))))
+        (make-lam :n (make-binop :+ (make-var :n) (make-num 3))))
       (make-num 10))))
 
 (println "All examples passed!")

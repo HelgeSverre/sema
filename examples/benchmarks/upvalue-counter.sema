@@ -39,8 +39,8 @@
 (define result2
   (let loop ((i 0) (acc 0))
     (if (= i 2000000)
-        acc
-        (loop (+ i 1) (+ acc (add42 i))))))
+      acc
+      (loop (+ i 1) (+ acc (add42 i))))))
 (define elapsed2 (- (time-ms) t1))
 
 (println (format "Result: ~a" result2))
@@ -62,8 +62,8 @@
 (define result3
   (let loop ((i 0) (acc 0))
     (if (= i 2000000)
-        acc
-        (loop (+ i 1) (+ acc (nested-fn i))))))
+      acc
+      (loop (+ i 1) (+ acc (nested-fn i))))))
 (define elapsed3 (- (time-ms) t2))
 
 (println (format "Result: ~a" result3))

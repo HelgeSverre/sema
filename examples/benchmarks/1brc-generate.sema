@@ -4,83 +4,86 @@
 
 ;; --- Weather stations: name, mean temp (tenths), variance (tenths) ---
 (define stations
-  (list
-    {:name "Abha"              :mean-tenths 182  :var-tenths 63}
-    {:name "Accra"             :mean-tenths 264  :var-tenths 23}
-    {:name "Addis Ababa"       :mean-tenths 160  :var-tenths 57}
-    {:name "Adelaide"          :mean-tenths 173  :var-tenths 62}
-    {:name "Algiers"           :mean-tenths 181  :var-tenths 64}
-    {:name "Amsterdam"         :mean-tenths 103  :var-tenths 68}
-    {:name "Ankara"            :mean-tenths 120  :var-tenths 74}
-    {:name "Baghdad"           :mean-tenths 228  :var-tenths 79}
-    {:name "Bangkok"           :mean-tenths 285  :var-tenths 17}
-    {:name "Barcelona"         :mean-tenths 162  :var-tenths 58}
-    {:name "Beijing"           :mean-tenths 128  :var-tenths 93}
-    {:name "Berlin"            :mean-tenths 101  :var-tenths 72}
-    {:name "Bogota"            :mean-tenths 135  :var-tenths 18}
-    {:name "Brasilia"          :mean-tenths 216  :var-tenths 42}
-    {:name "Brussels"          :mean-tenths 104  :var-tenths 67}
-    {:name "Bucharest"         :mean-tenths 107  :var-tenths 82}
-    {:name "Budapest"          :mean-tenths 113  :var-tenths 77}
-    {:name "Buenos Aires"      :mean-tenths 174  :var-tenths 64}
-    {:name "Cairo"             :mean-tenths 218  :var-tenths 57}
-    {:name "Cape Town"         :mean-tenths 165  :var-tenths 48}
-    {:name "Chicago"           :mean-tenths 98   :var-tenths 94}
-    {:name "Copenhagen"        :mean-tenths 87   :var-tenths 66}
-    {:name "Dallas"            :mean-tenths 190  :var-tenths 78}
-    {:name "Delhi"             :mean-tenths 251  :var-tenths 74}
-    {:name "Dublin"            :mean-tenths 98   :var-tenths 51}
-    {:name "Helsinki"          :mean-tenths 58   :var-tenths 83}
-    {:name "Hong Kong"         :mean-tenths 236  :var-tenths 42}
-    {:name "Istanbul"          :mean-tenths 140  :var-tenths 65}
-    {:name "Jakarta"           :mean-tenths 272  :var-tenths 15}
-    {:name "Kuala Lumpur"      :mean-tenths 278  :var-tenths 14}
-    {:name "Lima"              :mean-tenths 193  :var-tenths 31}
-    {:name "London"            :mean-tenths 115  :var-tenths 60}
-    {:name "Moscow"            :mean-tenths 57   :var-tenths 97}
-    {:name "Mumbai"            :mean-tenths 275  :var-tenths 29}
-    {:name "Nairobi"           :mean-tenths 175  :var-tenths 38}
-    {:name "Oslo"              :mean-tenths 63   :var-tenths 78}
-    {:name "Paris"             :mean-tenths 120  :var-tenths 65}
-    {:name "Stockholm"         :mean-tenths 73   :var-tenths 75}
-    {:name "Sydney"            :mean-tenths 178  :var-tenths 55}
-    {:name "Tokyo"             :mean-tenths 157  :var-tenths 66}))
+  (list {:name "Abha" :mean-tenths 182 :var-tenths 63}
+    {:name "Accra" :mean-tenths 264 :var-tenths 23}
+    {:name "Addis Ababa" :mean-tenths 160 :var-tenths 57}
+    {:name "Adelaide" :mean-tenths 173 :var-tenths 62}
+    {:name "Algiers" :mean-tenths 181 :var-tenths 64}
+    {:name "Amsterdam" :mean-tenths 103 :var-tenths 68}
+    {:name "Ankara" :mean-tenths 120 :var-tenths 74}
+    {:name "Baghdad" :mean-tenths 228 :var-tenths 79}
+    {:name "Bangkok" :mean-tenths 285 :var-tenths 17}
+    {:name "Barcelona" :mean-tenths 162 :var-tenths 58}
+    {:name "Beijing" :mean-tenths 128 :var-tenths 93}
+    {:name "Berlin" :mean-tenths 101 :var-tenths 72}
+    {:name "Bogota" :mean-tenths 135 :var-tenths 18}
+    {:name "Brasilia" :mean-tenths 216 :var-tenths 42}
+    {:name "Brussels" :mean-tenths 104 :var-tenths 67}
+    {:name "Bucharest" :mean-tenths 107 :var-tenths 82}
+    {:name "Budapest" :mean-tenths 113 :var-tenths 77}
+    {:name "Buenos Aires" :mean-tenths 174 :var-tenths 64}
+    {:name "Cairo" :mean-tenths 218 :var-tenths 57}
+    {:name "Cape Town" :mean-tenths 165 :var-tenths 48}
+    {:name "Chicago" :mean-tenths 98 :var-tenths 94}
+    {:name "Copenhagen" :mean-tenths 87 :var-tenths 66}
+    {:name "Dallas" :mean-tenths 190 :var-tenths 78}
+    {:name "Delhi" :mean-tenths 251 :var-tenths 74}
+    {:name "Dublin" :mean-tenths 98 :var-tenths 51}
+    {:name "Helsinki" :mean-tenths 58 :var-tenths 83}
+    {:name "Hong Kong" :mean-tenths 236 :var-tenths 42}
+    {:name "Istanbul" :mean-tenths 140 :var-tenths 65}
+    {:name "Jakarta" :mean-tenths 272 :var-tenths 15}
+    {:name "Kuala Lumpur" :mean-tenths 278 :var-tenths 14}
+    {:name "Lima" :mean-tenths 193 :var-tenths 31}
+    {:name "London" :mean-tenths 115 :var-tenths 60}
+    {:name "Moscow" :mean-tenths 57 :var-tenths 97}
+    {:name "Mumbai" :mean-tenths 275 :var-tenths 29}
+    {:name "Nairobi" :mean-tenths 175 :var-tenths 38}
+    {:name "Oslo" :mean-tenths 63 :var-tenths 78}
+    {:name "Paris" :mean-tenths 120 :var-tenths 65}
+    {:name "Stockholm" :mean-tenths 73 :var-tenths 75}
+    {:name "Sydney" :mean-tenths 178 :var-tenths 55}
+    {:name "Tokyo" :mean-tenths 157 :var-tenths 66}))
 
 (define num-stations (length stations))
 
 ;; Generate a random temperature in tenths for a station
 (define (generate-temp-tenths station)
-  (let ((mean (get station :mean-tenths))
-        (var  (get station :var-tenths)))
+  (let ((mean  (get station :mean-tenths))
+        (var   (get station :var-tenths)))
     (math/random-int (- mean var) (+ mean var))))
 
 ;; Format tenths integer as decimal string: 182 -> "18.2", -35 -> "-3.5"
 (define (format-temp tenths)
-  (let ((sign (if (< tenths 0) "-" ""))
-        (a    (abs tenths)))
-    (let ((whole (math/quotient a 10))
-          (frac  (math/remainder a 10)))
+  (let ((sign  (if (< tenths 0) "-" ""))
+        (a     (abs tenths)))
+    (let ((whole  (math/quotient a 10))
+          (frac   (math/remainder a 10)))
       (string-append sign (str whole) "." (str frac)))))
 
 ;; --- Parse CLI arguments (after "--") ---
 (define (script-args)
   (let loop ((args (sys/args)))
     (cond
-      ((null? args) '())
-      ((= (first args) "--") (rest args))
-      (else (loop (rest args))))))
+      ((null? args)           '())
+      ((= (first args) "--")  (rest args))
+      (else                   (loop (rest args))))))
 
 (define args (script-args))
 (define num-rows
   (if (>= (length args) 1)
-      (string->number (first args))
-      10000))
+    (string->number (first args))
+    10000))
 (define output-file
   (if (>= (length args) 2)
-      (nth args 1)
-      "benchmarks/data/measurements.txt"))
+    (nth args 1)
+    "benchmarks/data/measurements.txt"))
 
-(println (format "Generating ~a rows to ~a (~a stations)" num-rows output-file num-stations))
+(println
+  (format "Generating ~a rows to ~a (~a stations)"
+    num-rows
+    output-file
+    num-stations))
 (define t-start (time-ms))
 
 ;; Clear output file
@@ -95,19 +98,25 @@
     (let ((end (min (+ i batch-size) num-rows)))
       (let build ((j i) (lines '()))
         (if (>= j end)
-            ;; Write this batch
-            (begin
-              (file/append output-file (string-append (string/join (reverse lines) "\n") "\n"))
-              ;; Progress reporting every 100k rows
-              (when (and (> end 0)
-                         (not (= (math/quotient i 100000)
-                                 (math/quotient end 100000))))
-                (println (format "  ~a rows..." end)))
-              (loop end))
-            ;; Generate one line
-            (let ((station (nth stations (math/random-int 0 (- num-stations 1)))))
-              (let ((line (string-append (get station :name) ";" (format-temp (generate-temp-tenths station)))))
-                (build (+ j 1) (cons line lines)))))))))
+          ;; Write this batch
+          (begin
+            (file/append output-file
+              (string-append (string/join (reverse lines) "\n") "\n"))
+            ;; Progress reporting every 100k rows
+            (when
+              (and (> end 0)
+                (not
+                  (= (math/quotient i 100000)
+                    (math/quotient end 100000))))
+              (println (format "  ~a rows..." end)))
+            (loop end))
+          ;; Generate one line
+          (let ((station (nth stations (math/random-int 0 (- num-stations 1)))))
+            (let ((line
+                    (string-append (get station :name)
+                      ";"
+                      (format-temp (generate-temp-tenths station)))))
+              (build (+ j 1) (cons line lines)))))))))
 
 (define t-end (time-ms))
 (println (format "Done. ~a rows in ~a ms" num-rows (- t-end t-start)))

@@ -8,8 +8,9 @@
 ;; ============ Helpers ============
 (define (bench name thunk iterations)
   (let ((t0 (time-ms)))
-    (do ((i 0 (+ i 1)))
-        ((= i iterations))
+    (do
+      ((i 0 (+ i 1)))
+      ((= i iterations))
       (thunk))
     (let ((elapsed (- (time-ms) t0)))
       (println (format "  ~a: ~a ms (~a iterations)" name elapsed iterations)))))
@@ -19,16 +20,18 @@
 ;; Build a BTreeMap with n keys (:k0, :k1, ... :kN-1)
 (define (build-btreemap n)
   (let loop ((i 0) (m {}))
-    (if (= i n) m
-        (loop (+ i 1)
-              (assoc m (string->symbol (string-append "k" (number->string i))) i)))))
+    (if (= i n)
+      m
+      (loop (+ i 1)
+        (assoc m (string->symbol (string-append "k" (number->string i))) i)))))
 
 ;; Build a HashMap with n keys
 (define (build-hashmap n)
   (let loop ((i 0) (m (hashmap/new)))
-    (if (= i n) m
-        (loop (+ i 1)
-              (assoc m (string->symbol (string-append "k" (number->string i))) i)))))
+    (if (= i n)
+      m
+      (loop (+ i 1)
+        (assoc m (string->symbol (string-append "k" (number->string i))) i)))))
 
 ;; --- Part 1: Map construction ---
 (println "Part 1: Map construction")
@@ -44,10 +47,10 @@
 (println "")
 (println "Part 2: Lookups")
 
-(define bt10 (build-btreemap 10))
-(define hm10 (build-hashmap 10))
-(define bt100 (build-btreemap 100))
-(define hm100 (build-hashmap 100))
+(define bt10   (build-btreemap 10))
+(define hm10   (build-hashmap 10))
+(define bt100  (build-btreemap 100))
+(define hm100  (build-hashmap 100))
 
 (bench "BTreeMap get hit (10 keys)" (fn () (get bt10 'k5)) 200000)
 (bench "HashMap get hit (10 keys)" (fn () (get hm10 'k5)) 200000)

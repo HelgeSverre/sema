@@ -2,12 +2,14 @@
 (llm/configure :openai {:api-key (env "OPENAI_API_KEY")})
 
 ;; Basic completion
-(define result (llm/complete "Say 'hello from OpenAI' and nothing else." {:max-tokens 20}))
+(define result
+  (llm/complete "Say 'hello from OpenAI' and nothing else." {:max-tokens 20}))
 (println "OpenAI complete:" result)
 
 ;; Streaming test
 (print "OpenAI stream: ")
-(llm/stream "Count from 1 to 5, one number per word, nothing else." {:max-tokens 30})
+(llm/stream "Count from 1 to 5, one number per word, nothing else."
+  {:max-tokens 30})
 (newline)
 
 ;; Vision: extract from image
@@ -17,11 +19,15 @@
 
 ;; Vision: chat with image
 (define img (file/read-bytes "assets/logo.png"))
-(define msg (message/with-image :user "What text is in this image? Reply with just the text." img))
+(define msg
+  (message/with-image :user
+    "What text is in this image? Reply with just the text."
+    img))
 (println "OpenAI vision chat:" (llm/chat (list msg)))
 
 ;; Batch
-(define answers (llm/batch (list "Say just: alpha" "Say just: beta" "Say just: gamma")))
+(define answers
+  (llm/batch (list "Say just: alpha" "Say just: beta" "Say just: gamma")))
 (println "OpenAI batch:" answers)
 
 (println "OpenAI: OK")

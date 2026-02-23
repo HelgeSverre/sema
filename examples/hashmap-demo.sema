@@ -22,14 +22,15 @@
 
 (println "\n=== Word Frequency Counting ===\n")
 
-(define sentence "the cat sat on the mat the cat ate the rat on the mat")
-(define words (string/split sentence " "))
+(define sentence  "the cat sat on the mat the cat ate the rat on the mat")
+(define words     (string/split sentence " "))
 
 ;; Count with ordered map (foldl)
 (define freq
-  (foldl (fn (acc w)
-    (let ((sym (string->keyword w)))
-      (assoc acc sym (+ 1 (get acc sym 0)))))
+  (foldl
+    (fn (acc w)
+      (let ((sym (string->keyword w)))
+        (assoc acc sym (+ 1 (get acc sym 0)))))
     (hash-map)
     words))
 
@@ -39,9 +40,10 @@
   (sort (map/entries freq) (fn (a b) (- (nth b 1) (nth a 1)))))
 (for-each
   (fn (entry)
-    (println (format "  ~a → ~a times"
-      (string/pad-right (str (first entry)) 8)
-      (nth entry 1))))
+    (println
+      (format "  ~a → ~a times"
+        (string/pad-right (str (first entry)) 8)
+        (nth entry 1))))
   sorted-words)
 
 (println "\n=== Map Transformations ===\n")
@@ -67,9 +69,9 @@
 (println (format "From entries: ~a" from-entries))
 
 ;; Merge maps
-(define defaults (hash-map :color "blue" :size "medium" :count 1))
-(define overrides (hash-map :color "red" :count 5))
-(define merged (merge defaults overrides))
+(define defaults   (hash-map :color "blue" :size "medium" :count 1))
+(define overrides  (hash-map :color "red" :count 5))
+(define merged     (merge defaults overrides))
 (println (format "\nDefaults: ~a" defaults))
 (println (format "Overrides: ~a" overrides))
 (println (format "Merged: ~a" merged))
@@ -79,8 +81,8 @@
 ;; CREATE
 (define phonebook (hash-map))
 (define (pb-add pb name phone email)
-  (assoc pb (string->keyword name)
-    (hash-map :phone phone :email email :name name)))
+  (assoc pb
+    (string->keyword name) (hash-map :phone phone :email email :name name)))
 
 (define pb (pb-add phonebook "alice" "555-0101" "alice@example.com"))
 (define pb (pb-add pb "bob" "555-0202" "bob@example.com"))
@@ -94,11 +96,13 @@
   (get pb (string->keyword name)))
 
 (define alice (pb-lookup pb "alice"))
-(println (format "Lookup alice: ~a — ~a" (get alice :phone) (get alice :email)))
+(println
+  (format "Lookup alice: ~a — ~a" (get alice :phone) (get alice :email)))
 
 ;; UPDATE
-(define pb (assoc pb :bob
-  (assoc (get pb :bob) :phone "555-9999")))
+(define pb
+  (assoc pb
+    :bob (assoc (get pb :bob) :phone "555-9999")))
 (println (format "Updated bob's phone: ~a" (get (pb-lookup pb "bob") :phone)))
 
 ;; DELETE
@@ -110,16 +114,18 @@
 (for-each
   (fn (entry)
     (let ((info (nth entry 1)))
-      (println (format "  ~a  phone: ~a  email: ~a"
-        (string/pad-right (get info :name) 8)
-        (string/pad-right (get info :phone) 10)
-        (get info :email)))))
+      (println
+        (format "  ~a  phone: ~a  email: ~a"
+          (string/pad-right (get info :name) 8)
+          (string/pad-right (get info :phone) 10)
+          (get info :email)))))
   (map/entries pb))
 
 ;; SEARCH by partial name
 (define (pb-search pb query)
-  (filter (fn (entry)
-    (string/contains? (str (first entry)) query))
+  (filter
+    (fn (entry)
+      (string/contains? (str (first entry)) query))
     (map/entries pb)))
 
 (define results (pb-search pb "o"))

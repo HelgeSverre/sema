@@ -23,8 +23,8 @@
 
 ;; --- csv/parse-maps ---
 (println "-- csv/parse-maps --")
-(define csv-with-headers "name,age,role\nAlice,30,Engineer\nBob,25,Designer\n")
-(define maps (csv/parse-maps csv-with-headers))
+(define csv-with-headers  "name,age,role\nAlice,30,Engineer\nBob,25,Designer\n")
+(define maps              (csv/parse-maps csv-with-headers))
 (assert-eq (length maps) 2 "csv/parse-maps returns 2 rows")
 (assert-eq (get (car maps) :name) "Alice" "csv/parse-maps :name field")
 (assert-eq (get (car maps) :age) "30" "csv/parse-maps :age field")
@@ -37,12 +37,14 @@
 (println "  ✓ csv/encode output: " (json/encode encoded))
 
 ;; Roundtrip: parse then encode
-(define data (list (list "Alice" "30") (list "Bob" "25")))
-(define csv-str (csv/encode data))
-(define parsed-back (csv/parse csv-str))
+(define data         (list (list "Alice" "30") (list "Bob" "25")))
+(define csv-str      (csv/encode data))
+(define parsed-back  (csv/parse csv-str))
 (assert-eq (length parsed-back) 2 "csv roundtrip row count")
 (assert-eq (car (car parsed-back)) "Alice" "csv roundtrip first field")
-(assert-eq (cadr (cadr parsed-back)) "25" "csv roundtrip second row second field")
+(assert-eq (cadr (cadr parsed-back))
+  "25"
+  "csv roundtrip second row second field")
 
 (println "")
 (println "=== All CSV tests passed! ===")

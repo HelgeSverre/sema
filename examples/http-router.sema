@@ -3,16 +3,18 @@
 
 (define users
   (list {:id 1 :name "Alice" :role :admin}
-        {:id 2 :name "Bob"   :role :user}
-        {:id 3 :name "Carol" :role :user}))
+    {:id 2 :name "Bob" :role :user}
+    {:id 3 :name "Carol" :role :user}))
 
 (define (find-user id)
   (list/find #(= (get % :id) id) users))
 
 (define (handle-request req)
-  (match req
+  (match
+    req
     ;; GET /users/:id — specific user (must come before catch-all GET)
-    ({:method :GET :path "/users" :id id} when (find-user id)
+    ({:method :GET :path "/users" :id id} when
+      (find-user id)
       {:status 200 :body (find-user id)})
 
     ;; GET /users/:id — not found
@@ -20,20 +22,19 @@
       {:status 404 :body f"User ${id} not found"})
 
     ;; GET /users — list all
-    ({:method :GET :path "/users"}
-      {:status 200 :body users})
+    ({:method :GET :path "/users"} {:status 200 :body users})
 
     ;; POST /users — create (destructure body)
     ({:method :POST :path "/users" :body {:keys [name]}}
       {:status 201 :body f"Created user: ${name}"})
 
     ;; DELETE — admin only (nested map destructuring + guard)
-    ({:method :DELETE :path "/users" :id id :user {:keys [role]}} when (= role :admin)
+    ({:method :DELETE :path "/users" :id id :user {:keys [role]}} when
+      (= role :admin)
       {:status 200 :body f"Deleted user ${id}"})
 
     ;; DELETE — unauthorized
-    ({:method :DELETE}
-      {:status 403 :body "Forbidden: admin only"})
+    ({:method :DELETE} {:status 403 :body "Forbidden: admin only"})
 
     ;; Catch-all
     (_ {:status 404 :body "Not found"})))
@@ -47,12 +48,14 @@
 (println "=== HTTP Router ===\n")
 
 (define requests
-  (list {:method :GET    :path "/users"}
-        {:method :GET    :path "/users" :id 1}
-        {:method :GET    :path "/users" :id 99}
-        {:method :POST   :path "/users" :body {:name "Dave"}}
-        {:method :DELETE :path "/users" :id 2 :user {:role :admin}}
-        {:method :DELETE :path "/users" :id 2 :user {:role :user}}
-        {:method :GET    :path "/about"}))
+  (list {:method :GET :path "/users"}
+    {:method :GET :path "/users" :id 1}
+    {:method :GET :path "/users" :id 99}
+    {:method :POST :path "/users" :body {:name "Dave"}}
+    {:method :DELETE :path "/users" :id 2 :user {:role :admin}}
+    {:method :DELETE :path "/users" :id 2 :user {:role :user}}
+    {:method :GET :path "/about"}))
 
-(for-each show requests)
+(for-each
+  show
+  requests)
