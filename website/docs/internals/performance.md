@@ -19,7 +19,29 @@ All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset
 
 > **Note:** The mini-eval and its associated optimizations (env reuse, inlined builtins, custom number parser, SIMD split fast path) were removed to unblock the bytecode VM, which is now implemented and available via `--vm`. The bytecode VM provides a ~1.7× speedup over the tree-walker (~1,700ms vs ~2,900ms on 1M rows), recovering much of the mini-eval's performance through compilation. The tree-walker remains the default; the current architecture uses `sema_core::call_callback` to route stdlib → real evaluator. Fast-path optimizations (self-evaluating short-circuit, inline NativeFn dispatch, thread-local EvalContext, deferred cloning) partially recovered performance.
 
-> **VM compute benchmarks** (Feb 2026, post-stdlib intrinsics): TAK 1,234ms, upvalue-counter 440ms, deriv 879ms. The deriv benchmark — dominated by `car`/`cdr`/`cons`/`pair?` — improved 22% from stdlib intrinsic opcodes. The 1BRC numbers above are I/O-bound and less affected by VM compute optimizations.
+> **VM compute benchmarks** (Feb 2026, post-stdlib intrinsics): TAK 1,248ms, upvalue-counter 450ms, deriv 887ms. The deriv benchmark — dominated by `car`/`cdr`/`cons`/`pair?` — improved 22% from stdlib intrinsic opcodes. The 1BRC numbers above are I/O-bound and less affected by VM compute optimizations.
+
+## Micro-Benchmark Suite (Feb 2026)
+
+All benchmarks run on Apple Silicon (M-series), 10 runs + 3 warmup, via `scripts/bench.sh`.
+
+| Benchmark          | Tree-walker    | Bytecode VM    | VM speedup |
+| ------------------ | -------------- | -------------- | ---------- |
+| tak                | 21,222 ms      | 1,248 ms       | 17.0×      |
+| nqueens            | 20,735 ms      | 3.7 ms ¹       | ~5,600×    |
+| deriv              | 3,473 ms       | 887 ms         | 3.9×       |
+| upvalue-counter    | 5,762 ms       | 450 ms         | 12.8×      |
+| closure-storm      | 2,373 ms       | 1,041 ms       | 2.3×       |
+| higher-order-fold  | 2,292 ms       | 1,081 ms       | 2.1×       |
+| hashmap-bench      | 8,612 ms       | 3,645 ms       | 2.4×       |
+| bench-features     | 12,427 ms      | 1,144 ms       | 10.9×      |
+| string-pipeline    | 1,551 ms       | 613 ms         | 2.5×       |
+| mandelbrot         | 2,223 ms       | 212 ms         | 10.5×      |
+| throw-catch        | 2,195 ms       | 197 ms         | 11.2×      |
+
+¹ nqueens VM completes below hyperfine's calibration threshold; result is approximate.
+
+The VM achieves **2–17× speedups** across the board, with the largest gains on recursion-heavy benchmarks (tak, nqueens, bench-features, upvalue-counter) where call overhead dominates. Closure-heavy and string benchmarks show more modest ~2–3× gains.
 
 ## 1. Copy-on-Write Map Mutation
 
