@@ -75,6 +75,7 @@ The agent has 7 tools available for the LLM to call:
 | `/session resume <id>` | Resume a previous session |
 | `/usage` | Show token usage stats |
 | `/status` | Show current model, session, message count |
+| `/consensus <question>` | Ask multiple LLMs and synthesize a unified answer |
 | `/quit` / `/exit` | Exit pi-sema |
 
 ## Plan Mode

@@ -320,6 +320,47 @@ fn get_opt_u32(opts: &BTreeMap<Value, Value>, key: &str) -> Option<u32> {
         .map(|n| n as u32)
 }
 
+/// Substitute `{{key}}` placeholders in a template string using a vars map.
+/// Keys are looked up as keywords in the map. Unfilled slots are left as-is.
+fn fill_template(template: &str, vars: &BTreeMap<Value, Value>) -> String {
+    let mut result = String::with_capacity(template.len());
+    let mut chars = template.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '{' && chars.peek() == Some(&'{') {
+            chars.next();
+            let mut var_name = String::new();
+            let mut found_close = false;
+            while let Some(c) = chars.next() {
+                if c == '}' && chars.peek() == Some(&'}') {
+                    chars.next();
+                    found_close = true;
+                    break;
+                }
+                var_name.push(c);
+            }
+            if found_close {
+                if let Some(val) = vars.get(&Value::keyword(&var_name)) {
+                    if let Some(s) = val.as_str() {
+                        result.push_str(s);
+                    } else {
+                        result.push_str(&val.to_string());
+                    }
+                } else {
+                    result.push_str("{{");
+                    result.push_str(&var_name);
+                    result.push_str("}}");
+                }
+            } else {
+                result.push_str("{{");
+                result.push_str(&var_name);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
 /// A provider defined in Sema code via lambdas.
 /// Only stores String fields (Send+Sync); callbacks live in the
 /// LISP_PROVIDERS thread-local, accessed only from the same thread.
@@ -1722,19 +1763,33 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
     // Prompt functions
 
-    // (prompt/append p1 p2)
+    // (prompt/append p1 p2 ...) — variadic, concatenates all prompts
     register_fn(env, "prompt/append", |args| {
-        if args.len() != 2 {
-            return Err(SemaError::arity("prompt/append", "2", args.len()));
+        if args.is_empty() {
+            return Err(SemaError::arity("prompt/append", "1+", args.len()));
         }
-        let p1 = args[0]
-            .as_prompt_rc()
-            .ok_or_else(|| SemaError::type_error("prompt", args[0].type_name()))?;
-        let p2 = args[1]
-            .as_prompt_rc()
-            .ok_or_else(|| SemaError::type_error("prompt", args[1].type_name()))?;
-        let mut messages = p1.messages.clone();
-        messages.extend(p2.messages.iter().cloned());
+        let mut messages = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            let p = arg.as_prompt_rc().ok_or_else(|| {
+                SemaError::type_error("prompt", args[i].type_name())
+            })?;
+            messages.extend(p.messages.iter().cloned());
+        }
+        Ok(Value::prompt(Prompt { messages }))
+    });
+
+    // (prompt/concat p1 p2 ...) — alias for variadic prompt/append
+    register_fn(env, "prompt/concat", |args| {
+        if args.is_empty() {
+            return Err(SemaError::arity("prompt/concat", "1+", args.len()));
+        }
+        let mut messages = Vec::new();
+        for (i, arg) in args.iter().enumerate() {
+            let p = arg.as_prompt_rc().ok_or_else(|| {
+                SemaError::type_error("prompt", args[i].type_name())
+            })?;
+            messages.extend(p.messages.iter().cloned());
+        }
         Ok(Value::prompt(Prompt { messages }))
     });
 
@@ -2625,6 +2680,280 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .as_conversation_rc()
             .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
         Ok(Value::string(&c.model))
+    });
+
+    // (conversation/system conv) — get the system message content, or nil
+    register_fn(env, "conversation/system", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("conversation/system", "1", args.len()));
+        }
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        Ok(conv
+            .messages
+            .iter()
+            .find(|m| m.role == Role::System)
+            .map(|m| Value::string(&m.content))
+            .unwrap_or_else(Value::nil))
+    });
+
+    // (conversation/set-system conv "new system message") — set/replace the system message
+    register_fn(env, "conversation/set-system", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity(
+                "conversation/set-system",
+                "2",
+                args.len(),
+            ));
+        }
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        let new_system = args[1]
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| args[1].to_string());
+        let mut messages: Vec<Message> = conv
+            .messages
+            .iter()
+            .filter(|m| m.role != Role::System)
+            .cloned()
+            .collect();
+        messages.insert(
+            0,
+            Message {
+                role: Role::System,
+                content: new_system,
+                images: Vec::new(),
+            },
+        );
+        Ok(Value::conversation(Conversation {
+            messages,
+            model: conv.model.clone(),
+            metadata: conv.metadata.clone(),
+        }))
+    });
+
+    // (conversation/filter conv pred) — keep only messages where (pred msg) is truthy
+    register_fn_ctx(env, "conversation/filter", |ctx, args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("conversation/filter", "2", args.len()));
+        }
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        let pred = &args[1];
+        let mut filtered = Vec::new();
+        for msg in &conv.messages {
+            let msg_val = Value::message(msg.clone());
+            let result = sema_core::call_callback(ctx, pred, &[msg_val])?;
+            if result.is_truthy() {
+                filtered.push(msg.clone());
+            }
+        }
+        Ok(Value::conversation(Conversation {
+            messages: filtered,
+            model: conv.model.clone(),
+            metadata: conv.metadata.clone(),
+        }))
+    });
+
+    // (conversation/map conv f) — transform each message with (f msg), returns list of results
+    register_fn_ctx(env, "conversation/map", |ctx, args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("conversation/map", "2", args.len()));
+        }
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        let func = &args[1];
+        let mut results = Vec::new();
+        for msg in &conv.messages {
+            let msg_val = Value::message(msg.clone());
+            let result = sema_core::call_callback(ctx, func, &[msg_val])?;
+            results.push(result);
+        }
+        Ok(Value::list(results))
+    });
+
+    // (conversation/say-as conv system-prompt "message" opts?) — say with a different system prompt for one turn
+    register_fn(env, "conversation/say-as", |args| {
+        if args.len() < 3 || args.len() > 4 {
+            return Err(SemaError::arity("conversation/say-as", "3-4", args.len()));
+        }
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+
+        // Second arg: either a prompt value (use its system messages) or a string
+        let system_override = if let Some(p) = args[1].as_prompt_rc() {
+            p.messages
+                .iter()
+                .filter(|m| m.role == Role::System)
+                .map(|m| m.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else if let Some(s) = args[1].as_str() {
+            s.to_string()
+        } else {
+            return Err(SemaError::type_error(
+                "prompt or string",
+                args[1].type_name(),
+            ));
+        };
+
+        let user_msg = args[2]
+            .as_str()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| args[2].to_string());
+
+        // Parse optional opts
+        let mut temperature = None;
+        let mut max_tokens = None;
+        if let Some(opts_val) = args.get(3) {
+            if let Some(opts) = opts_val.as_map_rc() {
+                temperature = get_opt_f64(&opts, "temperature");
+                max_tokens = get_opt_u32(&opts, "max-tokens");
+            }
+        }
+
+        // Build messages for API call — use the system override instead of any existing system msg
+        let mut chat_messages: Vec<ChatMessage> = conv
+            .messages
+            .iter()
+            .filter(|m| m.role != Role::System)
+            .map(|m| ChatMessage::new(m.role.to_string(), m.content.clone()))
+            .collect();
+        chat_messages.push(ChatMessage::new("user", user_msg.clone()));
+
+        let mut request = ChatRequest::new(conv.model.clone(), chat_messages);
+        request.temperature = temperature;
+        request.max_tokens = max_tokens.or(Some(4096));
+        request.system = Some(system_override);
+
+        let response = do_complete(request)?;
+        track_usage(&response.usage)?;
+
+        // Build new conversation preserving the original system message (not the override)
+        let mut new_messages = conv.messages.clone();
+        new_messages.push(Message {
+            role: Role::User,
+            content: user_msg,
+            images: Vec::new(),
+        });
+        new_messages.push(Message {
+            role: Role::Assistant,
+            content: response.content,
+            images: Vec::new(),
+        });
+
+        Ok(Value::conversation(Conversation {
+            messages: new_messages,
+            model: conv.model.clone(),
+            metadata: conv.metadata.clone(),
+        }))
+    });
+
+    // (conversation/token-count conv) — count total tokens in conversation messages
+    register_fn(env, "conversation/token-count", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity(
+                "conversation/token-count",
+                "1",
+                args.len(),
+            ));
+        }
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        // Approximate: ~4 chars per token (common heuristic)
+        let total_chars: usize = conv.messages.iter().map(|m| m.content.len()).sum();
+        let estimated_tokens = (total_chars as f64 / 4.0).ceil() as i64;
+        Ok(Value::int(estimated_tokens))
+    });
+
+    // (conversation/cost conv) — estimate cost based on token count and model
+    register_fn(env, "conversation/cost", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("conversation/cost", "1", args.len()));
+        }
+        let conv = args[0]
+            .as_conversation_rc()
+            .ok_or_else(|| SemaError::type_error("conversation", args[0].type_name()))?;
+        // Approximate token counts
+        let total_chars: usize = conv.messages.iter().map(|m| m.content.len()).sum();
+        let estimated_tokens = (total_chars as f64 / 4.0).ceil() as u32;
+        // Split: all messages are input tokens (the full context for next call)
+        let usage = Usage {
+            prompt_tokens: estimated_tokens,
+            completion_tokens: 0,
+            model: conv.model.clone(),
+        };
+        match pricing::calculate_cost(&usage) {
+            Some(cost) => Ok(Value::float(cost)),
+            None => Ok(Value::nil()),
+        }
+    });
+
+    // (prompt/fill prompt vars-map) — substitute {{key}} in all message contents
+    register_fn(env, "prompt/fill", |args| {
+        if args.len() != 2 {
+            return Err(SemaError::arity("prompt/fill", "2", args.len()));
+        }
+        let p = args[0]
+            .as_prompt_rc()
+            .ok_or_else(|| SemaError::type_error("prompt", args[0].type_name()))?;
+        let vars = args[1]
+            .as_map_rc()
+            .ok_or_else(|| SemaError::type_error("map", args[1].type_name()))?;
+        let messages: Vec<Message> = p
+            .messages
+            .iter()
+            .map(|m| {
+                let filled = fill_template(&m.content, &vars);
+                Message {
+                    role: m.role.clone(),
+                    content: filled,
+                    images: m.images.clone(),
+                }
+            })
+            .collect();
+        Ok(Value::prompt(Prompt { messages }))
+    });
+
+    // (prompt/slots prompt) — return list of unfilled {{slot}} names
+    register_fn(env, "prompt/slots", |args| {
+        if args.len() != 1 {
+            return Err(SemaError::arity("prompt/slots", "1", args.len()));
+        }
+        let p = args[0]
+            .as_prompt_rc()
+            .ok_or_else(|| SemaError::type_error("prompt", args[0].type_name()))?;
+        let mut slots = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for m in &p.messages {
+            let mut chars = m.content.chars().peekable();
+            while let Some(ch) = chars.next() {
+                if ch == '{' && chars.peek() == Some(&'{') {
+                    chars.next();
+                    let mut name = String::new();
+                    let mut found_close = false;
+                    while let Some(c) = chars.next() {
+                        if c == '}' && chars.peek() == Some(&'}') {
+                            chars.next();
+                            found_close = true;
+                            break;
+                        }
+                        name.push(c);
+                    }
+                    if found_close && !name.is_empty() && seen.insert(name.clone()) {
+                        slots.push(Value::keyword(&name));
+                    }
+                }
+            }
+        }
+        Ok(Value::list(slots))
     });
 
     // (llm/set-default :provider-name) — switch the active provider

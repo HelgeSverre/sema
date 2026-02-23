@@ -46,6 +46,7 @@
       ((equal? name "plan")    (cmd-plan args state))
       ((equal? name "approve") (cmd-approve state))
       ((equal? name "next")    (cmd-next state))
+      ((equal? name "consensus") (cmd-consensus args state))
       ((equal? name "quit")    'quit)
       ((equal? name "exit")    'quit)
       (else
@@ -91,6 +92,10 @@
     (term/cyan (format "~a" "/usage           "))))
   (println-error (format "    ~a  Show current status"
     (term/cyan (format "~a" "/status          "))))
+  (println-error "")
+  (println-error (term/style "  Multi-Model:" :bold))
+  (println-error (format "    ~a  Ask multiple LLMs and synthesize"
+    (term/cyan (format "~a" "/consensus <question>"))))
   (println-error (format "    ~a  Exit pi-sema"
     (term/cyan (format "~a" "/quit            "))))
   (println-error "")
@@ -305,42 +310,196 @@
            (show-error (format "Execution error: ~a" (get e :message (str e))))
            state))))))
 
-;; ============================================================
-;; Section 12: /next
-;; ============================================================
+           ;; ============================================================
+           ;; Section 12: /next
+           ;; ============================================================
 
-(define (cmd-next state)
-  (let ((mode (get state :mode :normal))
-        (plan (get state :plan "")))
-    (cond
-      ((not (equal? mode :execute))
-       (show-error "Not in execution mode. Use /plan <goal> then /approve first.")
-       state)
-      ((= plan "")
-       (show-error "No active plan. Use /plan <goal> to create one.")
-       state)
-      (else
-       (show-info "Continuing execution...")
-       (println-error "")
-       (try
-         (let* ((result (run-execute-turn state))
-                (response (get result :response ""))
-                (messages (get result :messages '())))
-           (show-response response)
-           ;; Save to session
-           (try
-             (begin
-               (session/save-message (get state :session) "user" "[plan execution: next batch]")
-               (session/save-message (get state :session) "assistant" response))
-             (catch e #f))
-           ;; Auto-compact if needed
-           (let ((compacted (auto-compact
-                              (get state :session)
-                              messages
-                              (get state :model)
-                              80000)))
-             (show-info "Batch complete. Type /next to continue, /plan clear when done.")
-             (assoc (assoc state :messages compacted) :plan plan)))
-         (catch e
-           (show-error (format "Execution error: ~a" (get e :message (str e))))
-           state))))))
+           (define (cmd-next state)
+             (let ((mode (get state :mode :normal))
+                   (plan (get state :plan "")))
+               (cond
+                 ((not (equal? mode :execute))
+                  (show-error "Not in execution mode. Use /plan <goal> then /approve first.")
+                  state)
+                 ((= plan "")
+                  (show-error "No active plan. Use /plan <goal> to create one.")
+                  state)
+                 (else
+                  (show-info "Continuing execution...")
+                  (println-error "")
+                  (try
+                    (let* ((result (run-execute-turn state))
+                           (response (get result :response ""))
+                           (messages (get result :messages '())))
+                      (show-response response)
+                      ;; Save to session
+                      (try
+                        (begin
+                          (session/save-message (get state :session) "user" "[plan execution: next batch]")
+                          (session/save-message (get state :session) "assistant" response))
+                        (catch e #f))
+                      ;; Auto-compact if needed
+                      (let ((compacted (auto-compact
+                                         (get state :session)
+                                         messages
+                                         (get state :model)
+                                         80000)))
+                        (show-info "Batch complete. Type /next to continue, /plan clear when done.")
+                        (assoc (assoc state :messages compacted) :plan plan)))
+                    (catch e
+                      (show-error (format "Execution error: ~a" (get e :message (str e))))
+                      state))))))
+
+           ;; ============================================================
+           ;; Section 13: /consensus <question>
+           ;; ============================================================
+
+           ;; Provider configs — model names for each provider
+           (define consensus-providers
+             (list
+               {:provider :anthropic :model "claude-sonnet-4-20250514"     :label "Claude Sonnet"}
+               {:provider :openai    :model "gpt-4.1"                     :label "GPT-4.1"}
+               {:provider :gemini    :model "gemini-2.5-flash"             :label "Gemini 2.5 Flash"}
+               {:provider :groq      :model "llama-3.3-70b-versatile"     :label "Llama 3.3 70B (Groq)"}
+               {:provider :xai       :model "grok-3-mini-fast"            :label "Grok 3 Mini"}
+               {:provider :mistral   :model "mistral-small-latest"        :label "Mistral Small"}))
+
+           (define (consensus-ask-provider cfg question conversation-context)
+             "Ask a single provider. Returns {:label ... :response ... :error bool}."
+             (let ((label (:label cfg))
+                   (provider-kw (:provider cfg))
+                   (model (:model cfg)))
+               (println-error (term/dim (format "    ⟳ ~a (~a)..." label model)))
+               (let ((start (time-ms)))
+                 (try
+                   (begin
+                     (llm/set-default provider-kw)
+                     (let* ((system-msg
+                              (string-append
+                                "You are an expert software engineer. Give a clear, thorough answer. "
+                                "Be specific and practical. Include code examples when relevant."
+                                (if (= conversation-context "")
+                                  ""
+                                  (string-append
+                                    "\n\nHere is the conversation context so far:\n\n"
+                                    conversation-context))))
+                            (response (llm/complete question
+                              {:model model :max-tokens 1500 :system system-msg}))
+                            (elapsed (- (time-ms) start)))
+                       (println-error (format "    ~a ~a ~a"
+                         (term/green "✔")
+                         (term/style label :bold)
+                         (term/dim (format "(~as)" (/ elapsed 1000)))))
+                       {:label label :response response :error #f}))
+                   (catch e
+                     (println-error (format "    ~a ~a ~a"
+                       (term/red "✘")
+                       label
+                       (term/dim (format "~a" (get e :message (str e))))))
+                     {:label label :response "" :error #t})))))
+
+           (define (consensus-synthesize question responses default-provider)
+             "Synthesize multiple model responses into a unified answer."
+             (llm/set-default default-provider)
+             (let ((synthesis-prompt
+                     (string-append
+                       "You received responses from multiple AI models to the same question.\n\n"
+                       "## Question\n\n" question "\n\n"
+                       "## Responses\n\n"
+                       (string/join
+                         (map (fn (r) (format "### ~a\n\n~a\n" (:label r) (:response r)))
+                           responses)
+                         "\n")
+                       "\n## Your Task\n\n"
+                       "Synthesize the best answer by combining the strongest insights from each response. "
+                       "Where the models agree, state the consensus confidently. "
+                       "Where they disagree, explain the trade-offs. "
+                       "If one model has a clearly better insight, highlight it. "
+                       "Be practical and specific. Include code examples if any model provided good ones.\n\n"
+                       "Do NOT list the models or attribute points to specific models — "
+                       "just present the unified best answer as if it were your own.")))
+               (llm/complete synthesis-prompt {:max-tokens 3000 :temperature 0.3})))
+
+           (define (cmd-consensus args state)
+             (when (= args "")
+               (show-error "Usage: /consensus <question>")
+               (return state))
+
+             (let ((available (llm/list-providers)))
+               ;; Filter to configured providers
+               (let ((active (filter
+                               (fn (cfg) (any (fn (p) (= p (:provider cfg))) available))
+                               consensus-providers)))
+                 (when (< (length active) 2)
+                   (show-error (format "Need at least 2 providers, found ~a. Set more API keys."
+                     (length active)))
+                   (return state))
+
+                 (println-error "")
+                 (println-error (format "  ~a" (term/style "Consensus Query" :bold)))
+                 (println-error (term/dim (format "  \"~a\"" (truncate-str args 80))))
+                 (println-error (term/dim (format "  Asking ~a providers..." (length active))))
+                 (println-error "")
+
+                 ;; Build conversation context from recent messages
+                 (let* ((messages (get state :messages '()))
+                        (recent (if (> (length messages) 6)
+                                  (list-tail messages (- (length messages) 6))
+                                  messages))
+                        (context-str (if (null? recent)
+                                       ""
+                                       (string/join
+                                         (map (fn (m)
+                                           (format "[~a] ~a"
+                                             (get m :role "?")
+                                             (truncate-str (get m :content "") 200)))
+                                           recent)
+                                         "\n")))
+                        ;; Remember current default to restore after
+                        (original-provider (car available))
+                        ;; Ask all providers
+                        (results (map (fn (cfg) (consensus-ask-provider cfg args context-str)) active))
+                        (successful (filter (fn (r) (not (:error r))) results)))
+
+                   (when (< (length successful) 2)
+                     (println-error "")
+                     (show-error "Too many providers failed. Need at least 2 successful responses.")
+                     (llm/set-default original-provider)
+                     (return state))
+
+                   ;; Synthesize
+                   (println-error "")
+                   (println-error (term/dim (format "    ⟳ Synthesizing ~a responses..." (length successful))))
+
+                   (try
+                     (let ((synthesis (consensus-synthesize args successful original-provider)))
+                       (println-error (format "    ~a ~a"
+                         (term/green "✔")
+                         (term/style "Synthesis complete" :bold)))
+
+                       ;; Restore default provider
+                       (llm/set-default original-provider)
+
+                       ;; Display the result
+                       (show-response synthesis)
+
+                       (println-error (term/dim (format "  Models consulted: ~a"
+                         (string/join (map (fn (r) (:label r)) successful) ", "))))
+                       (println-error "")
+
+                       ;; Add to conversation history so the agent has context
+                       (let ((new-messages (append
+                               (get state :messages '())
+                               (list {:role "user" :content (format "[consensus] ~a" args)}
+                                     {:role "assistant" :content synthesis}))))
+                         ;; Save to session
+                         (try
+                           (begin
+                             (session/save-message (get state :session) "user" (format "[consensus] ~a" args))
+                             (session/save-message (get state :session) "assistant" synthesis))
+                           (catch e #f))
+                         (assoc state :messages new-messages)))
+                     (catch e
+                       (llm/set-default original-provider)
+                       (show-error (format "Synthesis failed: ~a" (get e :message (str e))))
+                       state))))))
