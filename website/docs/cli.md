@@ -119,7 +119,7 @@ sema disasm --json script.semac   # structured JSON output
 
 ### `sema pkg`
 
-Package manager for installing, publishing, and managing Sema packages. See the full [Packages](./packages.md) documentation for details.
+Package manager for installing, publishing, and managing Sema packages. Git-based packages work out of the box. Registry commands (`search`, `info`, `publish`, `yank`, `login`) require a running registry instance — see [Self-Hosted Registry](./packages.md#self-hosted-registry). See the full [Packages](./packages.md) documentation for details.
 
 ```
 sema pkg <COMMAND>

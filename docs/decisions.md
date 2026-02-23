@@ -189,12 +189,14 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 
 ## Package System
 
-- Currently no package manager. `import` resolves local files only (relative to the importing file).
-- No central registry is planned — the ecosystem is not large enough to justify the infrastructure.
-- **Future: GitHub-based imports**
-  - `github:username/repo` style imports that auto-download to `~/.sema/packages/`
-  - Could also support URL imports: `(import "https://raw.githubusercontent.com/...")` for single-file dependencies
-  - Lock file (`sema.lock`) for reproducible builds, recording exact commit SHAs
+- `sema pkg` CLI for managing dependencies — `init`, `add`, `install`, `update`, `remove`, `list`.
+- Two package sources: **git repos** (fully working) and a **package registry** (CLI implemented, central registry not yet deployed).
+- Git packages install via `sema pkg add github.com/user/repo@ref` to `~/.sema/packages/`.
+- Registry commands (`search`, `info`, `publish`, `yank`, `login`) require a running registry instance — either self-hosted or the central registry once it launches.
+- Self-hostable registry server lives in `pkg/` — single Rust binary with SQLite, REST API, and web UI.
+- Package manifest: `sema.toml` with `[package]` metadata and `[deps]` section (short names for registry, URL paths for git).
+- Default entrypoint: `package.sema`. Custom entrypoint via `entrypoint` field in `sema.toml`.
+- **Future:** lock file (`sema.lock`) for reproducible builds, recording exact commit SHAs and registry checksums.
 
 ## LSP Server
 

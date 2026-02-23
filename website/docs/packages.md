@@ -4,6 +4,10 @@ outline: [2, 3]
 
 # Package Manager
 
+::: warning Registry Status
+The central package registry (`pkg.sema-lang.com`) is not yet live. **Git-based packages work today** — you can install any package directly from a git repository. Registry commands (`search`, `info`, `publish`, `yank`, `login`) require a registry instance; see [Self-Hosted Registry](#self-hosted-registry) to run your own.
+:::
+
 Sema supports two package sources: a **package registry** (for published packages with semver versions) and **direct git repos** (for development branches, private code, or unregistered packages). Both can be mixed freely in the same project.
 
 ## Package Format
@@ -422,7 +426,9 @@ sema main.sema
 
 ## Self-Hosted Registry
 
-Sema's package registry is self-hostable. To use a self-hosted instance:
+Sema's package registry is designed to be self-hostable. The registry server ships in the [`pkg/`](https://github.com/helgesverre/sema/tree/main/pkg) directory of the Sema repository — it's a single Rust binary backed by SQLite that serves both a web UI and a REST API. See its [README](https://github.com/helgesverre/sema/tree/main/pkg#readme) for build and deployment instructions.
+
+To point the CLI at your own registry instance:
 
 ```bash
 # Set as default registry
