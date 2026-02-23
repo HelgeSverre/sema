@@ -11,6 +11,7 @@ use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
 
 mod archive;
 mod import_tracer;
+mod pkg;
 
 const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins"];
 
@@ -212,6 +213,11 @@ enum Commands {
         #[arg(long)]
         json: bool,
     },
+    /// Package manager
+    Pkg {
+        #[command(subcommand)]
+        command: PkgCommands,
+    },
     /// Build a standalone executable from a sema source file
     Build {
         /// Source file to compile and bundle
@@ -229,6 +235,31 @@ enum Commands {
         #[arg(long)]
         runtime: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum PkgCommands {
+    /// Install a package from a git URL
+    Get {
+        /// Package URL, optionally with @ref (e.g., github.com/user/repo@v1.0)
+        url: String,
+    },
+    /// Install all dependencies from sema.toml
+    Install,
+    /// Update a package (or all packages)
+    Update {
+        /// Package name to update (updates all if omitted)
+        name: Option<String>,
+    },
+    /// Remove an installed package
+    Remove {
+        /// Package URL or name
+        name: String,
+    },
+    /// List installed packages
+    List,
+    /// Initialize a new sema.toml in the current directory
+    Init,
 }
 
 fn main() {
@@ -276,6 +307,20 @@ fn main() {
             }
             Commands::Disasm { file, json } => {
                 run_disasm(&file, json);
+            }
+            Commands::Pkg { command } => {
+                let result = match command {
+                    PkgCommands::Get { url } => pkg::cmd_get(&url),
+                    PkgCommands::Install => pkg::cmd_install(),
+                    PkgCommands::Update { name } => pkg::cmd_update(name.as_deref()),
+                    PkgCommands::Remove { name } => pkg::cmd_remove(&name),
+                    PkgCommands::List => pkg::cmd_list(),
+                    PkgCommands::Init => pkg::cmd_init(),
+                };
+                if let Err(e) = result {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
             }
             Commands::Build {
                 file,

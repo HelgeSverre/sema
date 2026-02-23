@@ -57,6 +57,7 @@ lopdf = "0.38"
 axum = { version = "0.8", features = ["ws"] }
 tokio-stream = "0.1"
 mime_guess = "2"
+toml = "0.8"
 
 [profile.release]
 opt-level = 3
