@@ -20,24 +20,24 @@
             (rest (cdr remaining)))
         (cond
           ((or (equal? arg "--help") (equal? arg "-h"))
-           (set! result (assoc result :help #t))
-           (loop rest))
+            (set! result (assoc result :help #t))
+            (loop rest))
           ((or (equal? arg "--model") (equal? arg "-m"))
-           (if (null? rest)
-             (begin
-               (println-error "Error: --model requires a value")
-               (exit 1))
-             (begin
-               (set! result (assoc result :model (car rest)))
-               (loop (cdr rest)))))
+            (if (null? rest)
+              (begin
+                (println-error "Error: --model requires a value")
+                (exit 1))
+              (begin
+                (set! result (assoc result :model (car rest)))
+                (loop (cdr rest)))))
           ((or (equal? arg "--print") (equal? arg "-p"))
-           (if (null? rest)
-             (begin
-               (println-error "Error: --print requires a value")
-               (exit 1))
-             (begin
-               (set! result (assoc result :prompt (car rest)))
-               (loop (cdr rest)))))
+            (if (null? rest)
+              (begin
+                (println-error "Error: --print requires a value")
+                (exit 1))
+              (begin
+                (set! result (assoc result :prompt (car rest)))
+                (loop (cdr rest)))))
           (else (loop rest)))))))
 
 (define (show-usage)
@@ -45,7 +45,8 @@
   (println "")
   (println "Options:")
   (println "  -m, --model <name>   Override default model")
-  (println "  -p, --print <prompt> One-shot mode: run prompt, print result, exit")
+  (println
+    "  -p, --print <prompt> One-shot mode: run prompt, print result, exit")
   (println "  -h, --help           Show this help message")
   (println "")
   (println "Environment variables:")
@@ -67,7 +68,8 @@
 
     (define provider (llm/auto-configure))
     (when (nil? provider)
-      (println-error "Error: No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
+      (println-error
+        "Error: No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
       (exit 1))
 
     (define cwd (sys/cwd))
@@ -102,63 +104,70 @@
       (cond
         ;; EOF (nil or repeated empty on closed stdin)
         ((or (nil? input)
-             (and (= input "") (> eof-count 0)))
-         (println-error "")
-         (show-info "Goodbye!")
-         (exit 0))
+           (and (= input "") (> eof-count 0))) (println-error "")
+          (show-info "Goodbye!")
+          (exit 0))
 
         ;; Empty line — track for EOF detection, skip
-        ((= (string/trim input) "")
-         (set! eof-count (+ eof-count 1))
-         #f)
+        ((= (string/trim input) "") (set! eof-count (+ eof-count 1))
+          #f)
 
         ;; Slash commands
-        ((slash-command? (string/trim input))
-         (set! eof-count 0)
-         (let* ((trimmed (string/trim input))
-                (cmd (parse-command trimmed))
-                (new-state (dispatch-command cmd current-state)))
-           (if (equal? new-state 'quit)
-             (begin (show-info "Goodbye!") (exit 0))
-             (set! current-state new-state))))
+        ((slash-command? (string/trim input)) (set! eof-count 0)
+          (let* ((trimmed (string/trim input))
+                 (cmd (parse-command trimmed))
+                 (new-state (dispatch-command cmd current-state)))
+            (if (equal? new-state 'quit)
+              (begin
+                (show-info "Goodbye!")
+                (exit 0))
+              (set! current-state new-state))))
 
         ;; Agent turn
-        (else
-         (set! eof-count 0)
-         (let ((trimmed (string/trim input))
-               (mode (get current-state :mode :normal)))
+        (else (set! eof-count 0)
+          (let ((trimmed (string/trim input))
+                (mode (get current-state :mode :normal)))
 
-           ;; In execute mode, nudge user to use /next
-           (if (equal? mode :execute)
-             (show-info "In execution mode. Use /next to continue, or /plan clear to exit.")
+            ;; In execute mode, nudge user to use /next
+            (if (equal? mode :execute)
+              (show-info
+                "In execution mode. Use /next to continue, or /plan clear to exit.")
 
-             ;; Normal or plan mode — run agent turn
-             (begin
-               (define result
-                 (try
-                   (run-turn (:agent current-state) trimmed (:messages current-state))
-                   (catch e
-                     (show-error (format "Agent error: ~a" (get e :message (str e))))
-                     #f)))
+              ;; Normal or plan mode — run agent turn
+              (begin
+                (define result
+                  (try
+                    (run-turn (:agent current-state)
+                      trimmed
+                      (:messages current-state))
+                    (catch e
+                      (show-error
+                        (format "Agent error: ~a" (get e :message (str e))))
+                      #f)))
 
-               (when result
-                 (show-response (:response result))
-                 (set! current-state (assoc current-state :messages (:messages result)))
+                (when result
+                  (show-response (:response result))
+                  (set! current-state
+                    (assoc current-state :messages (:messages result)))
 
-                 ;; Save to session
-                 (try
-                   (begin
-                     (session/save-message (:session current-state) "user" trimmed)
-                     (session/save-message (:session current-state) "assistant" (:response result)))
-                   (catch e #f))
+                  ;; Save to session
+                  (try
+                    (begin
+                      (session/save-message (:session current-state)
+                        "user"
+                        trimmed)
+                      (session/save-message (:session current-state)
+                        "assistant"
+                        (:response result)))
+                    (catch e #f))
 
-                 ;; Auto-compact if needed
-                 (define compacted (auto-compact
-                                     (:session current-state)
-                                     (:messages current-state)
-                                     (:model current-state)
-                                     80000))
-                 (set! current-state (assoc current-state :messages compacted)))))))))
+                  ;; Auto-compact if needed
+                  (define compacted
+                    (auto-compact (:session current-state)
+                      (:messages current-state)
+                      (:model current-state)
+                      80000))
+                  (set! current-state (assoc current-state :messages compacted)))))))))
 
     (let loop ()
       (show-prompt (get current-state :mode :normal))

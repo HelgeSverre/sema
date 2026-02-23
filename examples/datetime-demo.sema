@@ -18,26 +18,26 @@
 (println (format "  Weekday: ~a" (get parts :weekday)))
 
 ;; --- Parse and format ---
-(define dates-to-parse (list
-  "2024-01-15 10:30:00"
-  "2024-06-21 14:00:00"
-  "2024-12-25 00:00:00"))
+(define dates-to-parse
+  (list "2024-01-15 10:30:00"
+    "2024-06-21 14:00:00"
+    "2024-12-25 00:00:00"))
 
 (println "\nDate parsing and reformatting:")
 (for-each
   (fn (date-str)
     (let ((ts (time/parse date-str "%Y-%m-%d %H:%M:%S")))
       (let ((parts (time/date-parts ts)))
-        (println (format "  ~a → ~a (~a)"
-          date-str
-          (time/format ts "%B %d, %Y")
-          (get parts :weekday))))))
+        (println
+          (format "  ~a → ~a (~a)"
+            date-str
+            (time/format ts "%B %d, %Y")
+            (get parts :weekday))))))
   dates-to-parse)
 
 ;; --- Epoch milestones ---
 (define milestones
-  (list
-    (list "Unix epoch" 0.0)
+  (list (list "Unix epoch" 0.0)
     (list "Y2K" 946684800.0)
     (list "Unix 1 billion" 1000000000.0)
     (list "2024-01-01" 1704067200.0)))
@@ -45,9 +45,10 @@
 (println "\nEpoch milestones:")
 (for-each
   (fn (m)
-    (println (format "  ~a: ~a"
-      (string/pad-right (first m) 16)
-      (time/format (nth m 1) "%Y-%m-%d %H:%M:%S"))))
+    (println
+      (format "  ~a: ~a"
+        (string/pad-right (first m) 16)
+        (time/format (nth m 1) "%Y-%m-%d %H:%M:%S"))))
   milestones)
 
 ;; --- Simple stopwatch ---
@@ -55,9 +56,10 @@
   (let ((start (time-ms)))
     (thunk)
     (let ((elapsed (- (time-ms) start)))
-      (println (format "  ~a took ~ams"
-        (string/pad-right thunk-name 30)
-        elapsed)))))
+      (println
+        (format "  ~a took ~ams"
+          (string/pad-right thunk-name 30)
+          elapsed)))))
 
 (println "\nTiming operations:")
 (measure-time "Sum 1 to 100000"

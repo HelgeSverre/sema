@@ -16,8 +16,9 @@
 (define t0 (time-ms))
 (define result-fold
   (let loop ((n 500) (v 0))
-    (if (= n 0) v
-        (loop (- n 1) (foldl (fn (acc x) (+ acc x)) 0 big-list)))))
+    (if (= n 0)
+      v
+      (loop (- n 1) (foldl (fn (acc x) (+ acc x)) 0 big-list)))))
 (define elapsed0 (- (time-ms) t0))
 
 (println (format "Result: ~a" result-fold))
@@ -30,8 +31,9 @@
 (define t1 (time-ms))
 (define result-map
   (let loop ((n 200) (v '()))
-    (if (= n 0) v
-        (loop (- n 1) (map (fn (x) (* x 2)) big-list)))))
+    (if (= n 0)
+      v
+      (loop (- n 1) (map (fn (x) (* x 2)) big-list)))))
 (define elapsed1 (- (time-ms) t1))
 
 ;; Print first 5 and last element for verification
@@ -46,8 +48,9 @@
 (define t2 (time-ms))
 (define result-filter
   (let loop ((n 200) (v '()))
-    (if (= n 0) v
-        (loop (- n 1) (filter (fn (x) (= 0 (mod x 2))) big-list)))))
+    (if (= n 0)
+      v
+      (loop (- n 1) (filter (fn (x) (= 0 (mod x 2))) big-list)))))
 (define elapsed2 (- (time-ms) t2))
 
 (println (format "Filtered count: ~a" (length result-filter)))
@@ -61,11 +64,13 @@
 (define t3 (time-ms))
 (define result-pipeline
   (let loop ((n 100) (v 0))
-    (if (= n 0) v
-        (loop (- n 1)
-              (foldl (fn (acc x) (+ acc x)) 0
-                     (filter (fn (x) (> x 5000))
-                             (map (fn (x) (* x 2)) big-list)))))))
+    (if (= n 0)
+      v
+      (loop (- n 1)
+        (foldl (fn (acc x) (+ acc x))
+          0
+          (filter (fn (x) (> x 5000))
+            (map (fn (x) (* x 2)) big-list)))))))
 (define elapsed3 (- (time-ms) t3))
 
 (println (format "Result: ~a" result-pipeline))

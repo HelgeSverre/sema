@@ -42,7 +42,9 @@
 (define parsed-back (csv/parse csv-str))
 (assert-eq (length parsed-back) 2 "csv roundtrip row count")
 (assert-eq (car (car parsed-back)) "Alice" "csv roundtrip first field")
-(assert-eq (cadr (cadr parsed-back)) "25" "csv roundtrip second row second field")
+(assert-eq (cadr (cadr parsed-back))
+  "25"
+  "csv roundtrip second row second field")
 
 (println "")
 (println "=== All CSV tests passed! ===")

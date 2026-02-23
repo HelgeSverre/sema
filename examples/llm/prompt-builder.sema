@@ -20,23 +20,23 @@
   (prompt
     (system "You specialize in functional programming.")))
 
-(println "base-prompt:"    (length (prompt/messages base-prompt))   "messages")
-(println "safety-prompt:"  (length (prompt/messages safety-prompt)) "messages")
-(println "domain-prompt:"  (length (prompt/messages domain-prompt)) "messages")
+(println "base-prompt:" (length (prompt/messages base-prompt)) "messages")
+(println "safety-prompt:" (length (prompt/messages safety-prompt)) "messages")
+(println "domain-prompt:" (length (prompt/messages domain-prompt)) "messages")
 
 ;; --- 2. Compose with prompt/concat (variadic) ---
 (println "\n=== 2. Compose with prompt/concat ===")
 
-(define full-prompt
-  (prompt/concat base-prompt safety-prompt domain-prompt))
+(define full-prompt (prompt/concat base-prompt safety-prompt domain-prompt))
 
 (println "Full prompt has" (length (prompt/messages full-prompt)) "messages")
 
 ;; --- 3. Inspect messages ---
 (println "\n=== 3. Inspect Messages ===")
 
-(for-each (fn (msg)
-  (println f"  [${(message/role msg)}] ${(message/content msg)}"))
+(for-each
+  (fn (msg)
+    (println f"  [${(message/role msg)}] ${(message/content msg)}"))
   (prompt/messages full-prompt))
 
 ;; --- 4. Prompt templates with slots ---
@@ -58,29 +58,31 @@
 
 ;; Complete fill
 (define ready-prompt
-  (prompt/fill rust-reviewer {:focus "error handling" :code "(fn main() { unwrap() })"}))
+  (prompt/fill rust-reviewer
+    {:focus "error handling" :code "(fn main() { unwrap() })"}))
 
 (println "After full fill, remaining slots:" (prompt/slots ready-prompt))
 
 (println "\nFinal prompt:")
-(for-each (fn (msg)
-  (println f"  [${(message/role msg)}] ${(message/content msg)}"))
+(for-each
+  (fn (msg)
+    (println f"  [${(message/role msg)}] ${(message/content msg)}"))
   (prompt/messages ready-prompt))
 
 ;; --- 5. Append additional messages ---
 (println "\n=== 5. prompt/append ===")
 
 (define with-examples
-  (prompt/append
-    ready-prompt
+  (prompt/append ready-prompt
     (prompt (user "Here's an example of good error handling:"))
     (prompt (assistant "Use Result<T, E> instead of unwrap()."))
     (prompt (user "Now review the code above."))))
 
 (println "With examples:" (length (prompt/messages with-examples)) "messages")
 
-(for-each (fn (msg)
-  (println f"  [${(message/role msg)}] ${(message/content msg)}"))
+(for-each
+  (fn (msg)
+    (println f"  [${(message/role msg)}] ${(message/content msg)}"))
   (prompt/messages with-examples))
 
 ;; --- 6. Modify system message ---
@@ -95,13 +97,17 @@
     (user "What is Lisp?")
     (assistant "A family of programming languages.")))
 
-(println "Before set-system:" (length (prompt/messages mixed-prompt)) "messages")
+(println "Before set-system:"
+  (length (prompt/messages mixed-prompt))
+  "messages")
 
-(define tweaked (prompt/set-system mixed-prompt "You are a pirate assistant. Arrr!"))
+(define tweaked
+  (prompt/set-system mixed-prompt "You are a pirate assistant. Arrr!"))
 (println "After set-system:" (length (prompt/messages tweaked)) "messages")
 
-(for-each (fn (msg)
-  (println f"  [${(message/role msg)}] ${(message/content msg)}"))
+(for-each
+  (fn (msg)
+    (println f"  [${(message/role msg)}] ${(message/content msg)}"))
   (prompt/messages tweaked))
 
 (println "\nDone!")

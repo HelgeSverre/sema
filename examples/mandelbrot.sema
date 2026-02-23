@@ -5,13 +5,12 @@
 (define num-chars (string-length chars))
 ;; Escape-time iteration: returns iteration count (max-iter = in set)
 (define (mandelbrot-iter cx cy max-iter)
-  (do ((i 0 (+ i 1))
-       (zr 0.0 (+ (- (* zr zr) (* zi zi)) cx))
-       (zi 0.0 (+ (* 2.0 old-zr zi) cy))
-       (old-zr 0.0 zr))
+  (do
+    ((i 0 (+ i 1)) (zr 0.0 (+ (- (* zr zr) (* zi zi)) cx))
+      (zi 0.0 (+ (* 2.0 old-zr zi) cy))
+      (old-zr 0.0 zr))
     ((or (>= i max-iter)
-         (> (+ (* zr zr) (* zi zi)) 4.0))
-     i)))
+       (> (+ (* zr zr) (* zi zi)) 4.0)) i)))
 
 ;; Map iteration count to a character
 (define (iter->char iter max-iter)
@@ -23,15 +22,24 @@
 ;; Render a region of the Mandelbrot set
 (define (render-mandelbrot x-min x-max y-min y-max width height label max-iter)
   (println (format "\n~a" label))
-  (println (format "Region: [~a, ~a] x [~a, ~a]  (~ax~a)  max-iter: ~a"
-                   x-min x-max y-min y-max width height max-iter))
+  (println
+    (format "Region: [~a, ~a] x [~a, ~a]  (~ax~a)  max-iter: ~a"
+      x-min
+      x-max
+      y-min
+      y-max
+      width
+      height
+      max-iter))
   (let ((t0 (time-ms))
         (dx (/ (- x-max x-min) width))
         (dy (/ (- y-max y-min) height)))
-    (do ((row 0 (+ row 1)))
+    (do
+      ((row 0 (+ row 1)))
       ((= row height))
       (let ((cy (+ y-min (* row dy))))
-        (do ((col 0 (+ col 1)))
+        (do
+          ((col 0 (+ col 1)))
           ((= col width))
           (let* ((cx (+ x-min (* col dx)))
                  (iter (mandelbrot-iter cx cy max-iter)))
@@ -41,9 +49,23 @@
       (println (format "Rendered in ~a ms" elapsed)))))
 
 ;; Full set view
-(render-mandelbrot -2.5 1.0 -1.1 1.1 78 30 "=== Mandelbrot Set (full view) ===" 80)
+(render-mandelbrot -2.5
+  1.0
+  -1.1
+  1.1
+  78
+  30
+  "=== Mandelbrot Set (full view) ==="
+  80)
 
 ;; Zoomed view: Detail around the cusp between cardioid and period-2 bulb
-(render-mandelbrot -1.5 -0.5 -0.5 0.5 78 35 "=== Zoomed: Cardioid & Period-2 Bulb ===" 150)
+(render-mandelbrot -1.5
+  -0.5
+  -0.5
+  0.5
+  78
+  35
+  "=== Zoomed: Cardioid & Period-2 Bulb ==="
+  150)
 
 (println "\nDone!")

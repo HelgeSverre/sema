@@ -14,9 +14,12 @@
 (define v4 (embedding/list->embedding '(0.5 0.5 0.5)))
 
 ;; Cosine similarity
-(println (format "cos(v1, v1) = ~a (identical)" (vector/cosine-similarity v1 v1)))
-(println (format "cos(v1, v2) = ~a (orthogonal)" (vector/cosine-similarity v1 v2)))
-(println (format "cos(v1, v3) = ~a (45 degrees)" (vector/cosine-similarity v1 v3)))
+(println
+  (format "cos(v1, v1) = ~a (identical)" (vector/cosine-similarity v1 v1)))
+(println
+  (format "cos(v1, v2) = ~a (orthogonal)" (vector/cosine-similarity v1 v2)))
+(println
+  (format "cos(v1, v3) = ~a (45 degrees)" (vector/cosine-similarity v1 v3)))
 
 ;; Dot product
 (println (format "\ndot(v1, v3) = ~a" (vector/dot-product v1 v3)))
@@ -28,8 +31,12 @@
 
 ;; Normalize
 (define v3n (vector/normalize v3))
-(println (format "\nnormalize(v3): cos with self = ~a" (vector/cosine-similarity v3n v3n)))
-(println (format "cos(v3, v3n) = ~a (same direction)" (vector/cosine-similarity v3 v3n)))
+(println
+  (format "\nnormalize(v3): cos with self = ~a"
+    (vector/cosine-similarity v3n v3n)))
+(println
+  (format "cos(v3, v3n) = ~a (same direction)"
+    (vector/cosine-similarity v3 v3n)))
 
 ;; --- 2. Vector Store CRUD ---
 (println "\n=== 2. Vector Store CRUD ===")
@@ -38,23 +45,28 @@
 (println (format "Created store, count: ~a" (vector-store/count "docs")))
 
 ;; Add documents with metadata
-(vector-store/add "docs" "rust-intro"
+(vector-store/add "docs"
+  "rust-intro"
   (embedding/list->embedding '(0.9 0.1 0.0))
   {:title "Intro to Rust" :category "programming"})
 
-(vector-store/add "docs" "lisp-guide"
+(vector-store/add "docs"
+  "lisp-guide"
   (embedding/list->embedding '(0.8 0.3 0.1))
   {:title "Lisp Guide" :category "programming"})
 
-(vector-store/add "docs" "cooking-101"
+(vector-store/add "docs"
+  "cooking-101"
   (embedding/list->embedding '(0.1 0.9 0.2))
   {:title "Cooking 101" :category "cooking"})
 
-(vector-store/add "docs" "baking-bread"
+(vector-store/add "docs"
+  "baking-bread"
   (embedding/list->embedding '(0.1 0.8 0.3))
   {:title "Baking Bread" :category "cooking"})
 
-(vector-store/add "docs" "ml-basics"
+(vector-store/add "docs"
+  "ml-basics"
   (embedding/list->embedding '(0.7 0.2 0.5))
   {:title "ML Basics" :category "AI"})
 
@@ -69,10 +81,11 @@
 (println "Top 3 results for 'programming' query:")
 (for-each
   (lambda (r)
-    (println (format "  ~a (score: ~a) — ~a"
-      (get r :id)
-      (get r :score)
-      (get (get r :metadata) :title))))
+    (println
+      (format "  ~a (score: ~a) — ~a"
+        (get r :id)
+        (get r :score)
+        (get (get r :metadata) :title))))
   results)
 
 ;; Search for cooking-related docs

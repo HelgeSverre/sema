@@ -3,9 +3,7 @@
 (println "=== Record Types: Points, Shapes & Linked Lists ===\n")
 
 ;; --- Point ---
-(define-record-type Point
-  (make-point x y)
-  point?
+(define-record-type Point (make-point x y) point?
   (x point-x)
   (y point-y))
 
@@ -27,15 +25,11 @@
 ;; --- Shapes ---
 (println "\n=== Shapes: Circle & Rect ===\n")
 
-(define-record-type Circle
-  (make-circle center radius)
-  circle?
+(define-record-type Circle (make-circle center radius) circle?
   (center circle-center)
   (radius circle-radius))
 
-(define-record-type Rect
-  (make-rect origin width height)
-  rect?
+(define-record-type Rect (make-rect origin width height) rect?
   (origin rect-origin)
   (width rect-width)
   (height rect-height))
@@ -43,41 +37,48 @@
 (defun area (shape)
   (cond
     ((circle? shape) (* pi (expt (circle-radius shape) 2)))
-    ((rect? shape)   (* (rect-width shape) (rect-height shape)))
-    (else            (throw "Unknown shape"))))
+    ((rect? shape) (* (rect-width shape) (rect-height shape)))
+    (else (throw "Unknown shape"))))
 
 (defun perimeter (shape)
   (cond
     ((circle? shape) (* 2 pi (circle-radius shape)))
-    ((rect? shape)   (* 2 (+ (rect-width shape) (rect-height shape))))
-    (else            (throw "Unknown shape"))))
+    ((rect? shape) (* 2 (+ (rect-width shape) (rect-height shape))))
+    (else (throw "Unknown shape"))))
 
 (defun describe-shape (shape)
   (cond
     ((circle? shape)
-     (let ((c (circle-center shape)))
-       (format "Circle at (~a,~a) r=~a" (point-x c) (point-y c) (circle-radius shape))))
+      (let ((c (circle-center shape)))
+        (format "Circle at (~a,~a) r=~a"
+          (point-x c)
+          (point-y c)
+          (circle-radius shape))))
     ((rect? shape)
-     (let ((o (rect-origin shape)))
-       (format "Rect at (~a,~a) ~ax~a" (point-x o) (point-y o) (rect-width shape) (rect-height shape))))
+      (let ((o (rect-origin shape)))
+        (format "Rect at (~a,~a) ~ax~a"
+          (point-x o)
+          (point-y o)
+          (rect-width shape)
+          (rect-height shape))))
     (else "Unknown")))
 
 (define c1 (make-circle (make-point 0 0) 5))
 (define r1 (make-rect (make-point 1 2) 10 6))
 
-(for-each (fn (s)
-  (println (format "~a  area=~a  perimeter=~a"
-                   (describe-shape s)
-                   (round (* (area s) 100) )
-                   (round (* (perimeter s) 100)))))
+(for-each
+  (fn (s)
+    (println
+      (format "~a  area=~a  perimeter=~a"
+        (describe-shape s)
+        (round (* (area s) 100))
+        (round (* (perimeter s) 100)))))
   (list c1 r1))
 
 ;; --- Linked List using records ---
 (println "\n=== Linked List via Records ===\n")
 
-(define-record-type Cell
-  (make-cell head tail)
-  cell?
+(define-record-type Cell (make-cell head tail) cell?
   (head cell-head)
   (tail cell-tail))
 

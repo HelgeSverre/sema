@@ -26,34 +26,33 @@
 (cond
   ;; Mode 1: Question from args
   ((not (null? args))
-   (llm/stream
-     (prompt
-       (system system-prompt)
-       (user (string/join args " ")))
-     {:max-tokens 4096})
-   (newline))
+    (llm/stream
+      (prompt
+        (system system-prompt)
+        (user (string/join args " ")))
+      {:max-tokens 4096})
+    (newline))
 
   ;; Mode 2: Piped input
-  ((not (sys/interactive?))
-   (define input (read-stdin))
-   (llm/stream
-     (prompt
-       (system system-prompt)
-       (user input))
-     {:max-tokens 4096})
-   (newline))
+  ((not (sys/interactive?)) (define input (read-stdin))
+    (llm/stream
+      (prompt
+        (system system-prompt)
+        (user input))
+      {:max-tokens 4096})
+    (newline))
 
   ;; Mode 3: Interactive REPL with conversation memory
-  (else
-    (println-error "AI Chat (type 'quit' to exit)")
+  (else (println-error "AI Chat (type 'quit' to exit)")
     (println-error "")
     (define conv (conversation/new {}))
     (let loop ()
       (print-error "> ")
       (define input (read-line))
-      (when (and (not (= input "quit"))
-                 (not (= input "exit"))
-                 (not (= input "")))
+      (when
+        (and (not (= input "quit"))
+          (not (= input "exit"))
+          (not (= input "")))
         (set! conv (conversation/say conv input {:system system-prompt}))
         (println (conversation/last-reply conv))
         (println "")

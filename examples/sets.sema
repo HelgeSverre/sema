@@ -52,15 +52,19 @@
 
 ;; Intersection of two sets
 (define (set/intersection s1 s2)
-  (foldl (fn (s e)
-           (if (set/member? s2 e) (assoc s e #t) s))
-         {} (keys s1)))
+  (foldl
+    (fn (s e)
+      (if (set/member? s2 e) (assoc s e #t) s))
+    {}
+    (keys s1)))
 
 ;; Difference: elements in s1 but not in s2
 (define (set/difference s1 s2)
-  (foldl (fn (s e)
-           (if (set/member? s2 e) s (assoc s e #t)))
-         {} (keys s1)))
+  (foldl
+    (fn (s e)
+      (if (set/member? s2 e) s (assoc s e #t)))
+    {}
+    (keys s1)))
 
 ;; Symmetric difference: elements in either but not both
 (define (set/symmetric-difference s1 s2)
@@ -69,7 +73,8 @@
 ;; Subset test
 (define (set/subset? s1 s2)
   (foldl (fn (acc e) (and acc (set/member? s2 e)))
-         #t (keys s1)))
+    #t
+    (keys s1)))
 
 ;; Proper subset
 (define (set/proper-subset? s1 s2)
@@ -86,7 +91,8 @@
 ;; Filter set elements
 (define (set/filter pred s)
   (foldl (fn (acc e) (if (pred e) (assoc acc e #t) acc))
-         {} (keys s)))
+    {}
+    (keys s)))
 
 ;; Fold over set elements
 (define (set/fold f init s)
@@ -95,11 +101,12 @@
 ;; Power set (all subsets)
 (define (set/power-set s)
   (let ((elems (set->list s)))
-    (foldl (fn (subsets elem)
-             (append subsets
-                     (map (fn (sub) (set/add sub elem)) subsets)))
-           (list empty-set)
-           elems)))
+    (foldl
+      (fn (subsets elem)
+        (append subsets
+          (map (fn (sub) (set/add sub elem)) subsets)))
+      (list empty-set)
+      elems)))
 
 ;; Pretty-print a set
 (define (set/display s)
@@ -129,7 +136,8 @@
 (println (format "  s1 ∪ s2  = ~a" (set/display (set/union s1 s2))))
 (println (format "  s1 ∩ s2  = ~a" (set/display (set/intersection s1 s2))))
 (println (format "  s1 \\ s2  = ~a" (set/display (set/difference s1 s2))))
-(println (format "  s1 △ s2  = ~a" (set/display (set/symmetric-difference s1 s2))))
+(println
+  (format "  s1 △ s2  = ~a" (set/display (set/symmetric-difference s1 s2))))
 
 ;; Subset relations
 (println (format "\nSubset relations:"))
@@ -142,7 +150,8 @@
 ;; Higher-order operations
 (println (format "\nHigher-order:"))
 (println (format "  evens in s1: ~a" (set/display (set/filter even? s1))))
-(println (format "  doubled s1:  ~a" (set/display (set/map (fn (x) (* x 2)) s1))))
+(println
+  (format "  doubled s1:  ~a" (set/display (set/map (fn (x) (* x 2)) s1))))
 (println (format "  sum of s1:   ~a" (set/fold + 0 s1)))
 
 ;; Power set
@@ -156,9 +165,9 @@
 (println "\n--- Practical: tag intersection ---")
 (define item-tags
   (list (list "post-1" (set :rust :lisp :programming))
-        (list "post-2" (set :lisp :ai :programming))
-        (list "post-3" (set :rust :systems :programming))
-        (list "post-4" (set :ai :ml :python))))
+    (list "post-2" (set :lisp :ai :programming))
+    (list "post-3" (set :rust :systems :programming))
+    (list "post-4" (set :ai :ml :python))))
 
 (for-each
   (fn (pair)
@@ -167,14 +176,14 @@
 
 (define common-all
   (foldl (fn (acc pair) (set/intersection acc (cadr pair)))
-         (cadr (car item-tags))
-         (cdr item-tags)))
+    (cadr (car item-tags))
+    (cdr item-tags)))
 (println (format "\n  Tags in ALL posts: ~a" (set/display common-all)))
 
 (define union-all
   (foldl (fn (acc pair) (set/union acc (cadr pair)))
-         empty-set
-         item-tags))
+    empty-set
+    item-tags))
 (println (format "  Tags in ANY post: ~a" (set/display union-all)))
 
 ;; Jaccard similarity
@@ -191,9 +200,11 @@
         (when (< i j)
           (let ((a (nth item-tags i))
                 (b (nth item-tags j)))
-            (println (format "    ~a vs ~a: ~a"
-              (car a) (car b)
-              (round (* 100 (jaccard (cadr a) (cadr b)))))))))
+            (println
+              (format "    ~a vs ~a: ~a"
+                (car a)
+                (car b)
+                (round (* 100 (jaccard (cadr a) (cadr b)))))))))
       (range (length item-tags))))
   (range (length item-tags)))
 

@@ -27,7 +27,7 @@
              (key (str w1 " " w2))
              (existing (get table key '())))
         (loop (+ i 1)
-              (assoc table key (cons w3 existing)))))))
+          (assoc table key (cons w3 existing)))))))
 
 (define table (build-trigram-table tokens))
 (define all-keys (keys table))

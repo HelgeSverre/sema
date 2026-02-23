@@ -7,11 +7,13 @@
 ;; 1. Build a conversation manually (no LLM needed)
 (define conv
   (-> (conversation/new {:model "claude-sonnet-4-20250514"})
-      (conversation/add-message :system "You are a helpful coding assistant.")
-      (conversation/add-message :user "What is a closure?")
-      (conversation/add-message :assistant "A closure is a function that captures variables from its enclosing scope.")
-      (conversation/add-message :user "Show me an example in Sema.")
-      (conversation/add-message :assistant "(define (make-counter)\n  (let ((n 0))\n    (fn () (set! n (+ n 1)) n)))")))
+    (conversation/add-message :system "You are a helpful coding assistant.")
+    (conversation/add-message :user "What is a closure?")
+    (conversation/add-message :assistant
+      "A closure is a function that captures variables from its enclosing scope.")
+    (conversation/add-message :user "Show me an example in Sema.")
+    (conversation/add-message :assistant
+      "(define (make-counter)\n  (let ((n 0))\n    (fn () (set! n (+ n 1)) n)))")))
 
 ;; 2. Inspect the conversation
 (println "Messages:" (length (conversation/messages conv)))
@@ -24,38 +26,52 @@
 
 ;; 4. Map over messages — extract all contents
 (println "\n--- All messages ---")
-(for-each println (conversation/map conv message/content))
+(for-each
+  println
+  (conversation/map conv message/content))
 
 ;; 5. Filter — keep only user messages
-(define user-msgs
-  (conversation/filter conv (fn (m) (= (message/role m) :user))))
+(define user-msgs (conversation/filter conv (fn (m) (= (message/role m) :user))))
 (println "\n--- User messages only ---")
-(for-each (fn (m) (println (message/content m)))
+(for-each
+  (fn (m) (println (message/content m)))
   (conversation/messages user-msgs))
 
 ;; 6. Filter — remove system messages
 (define no-system
   (conversation/filter conv (fn (m) (not (= (message/role m) :system)))))
-(println "\nWithout system:" (length (conversation/messages no-system)) "messages")
+(println "\nWithout system:"
+  (length (conversation/messages no-system))
+  "messages")
 
 ;; 7. Map to extract a summary
 (define summary
   (conversation/map conv
-    (fn (m) (string-append "[" (keyword->string (message/role m)) "] "
-      (if (> (string-length (message/content m)) 50)
-        (string-append (substring (message/content m) 0 50) "...")
-        (message/content m))))))
+    (fn (m)
+      (string-append "["
+        (keyword->string (message/role m))
+        "] "
+        (if (> (string-length (message/content m)) 50)
+          (string-append (substring (message/content m) 0 50) "...")
+          (message/content m))))))
 (println "\n--- Summary ---")
-(for-each println summary)
+(for-each
+  println
+  summary)
 
 ;; 8. Set/change system message
 (define reframed
-  (conversation/set-system conv "You are a Haskell expert. Explain everything in terms of monads."))
+  (conversation/set-system conv
+    "You are a Haskell expert. Explain everything in terms of monads."))
 (println "\nNew system:" (conversation/system reframed))
 
 ;; 9. Fork and diverge
-(define branch-a (conversation/add-message conv :user "What about Python closures?"))
-(define branch-b (conversation/add-message conv :user "How do closures relate to objects?"))
-(println "\nBranch A last msg:" (message/content (last (conversation/messages branch-a))))
-(println "Branch B last msg:" (message/content (last (conversation/messages branch-b))))
+(define branch-a
+  (conversation/add-message conv :user "What about Python closures?"))
+(define branch-b
+  (conversation/add-message conv :user "How do closures relate to objects?"))
+(println "\nBranch A last msg:"
+  (message/content (last (conversation/messages branch-a))))
+(println "Branch B last msg:"
+  (message/content (last (conversation/messages branch-b))))
 (println "Original unchanged:" (length (conversation/messages conv)) "messages")

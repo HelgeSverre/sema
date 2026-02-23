@@ -6,10 +6,11 @@
 (define samples (list "hello" "héllo" "日本語" "🎉🎊" "Ω≈ç"))
 (for-each
   (fn (s)
-    (println (format "  ~a  chars=~a  bytes=~a"
-      (string/pad-right (string-append "\"" s "\"") 12)
-      (string-length s)
-      (string/byte-length s))))
+    (println
+      (format "  ~a  chars=~a  bytes=~a"
+        (string/pad-right (string-append "\"" s "\"") 12)
+        (string-length s)
+        (string/byte-length s))))
   samples)
 
 ;; --- Codepoints roundtrip ---
@@ -21,8 +22,7 @@
 (println (format "  Roundtrip:  ~a" (string/from-codepoints cps)))
 
 ;; Build a string from known codepoints
-(define hello-greek
-  (string/from-codepoints (list 915 949 953 945)))  ;; Γεια
+(define hello-greek (string/from-codepoints (list 915 949 953 945))) ;; Γεια
 (println (format "  Greek hello: ~a" hello-greek))
 
 ;; --- Unicode normalization ---
@@ -31,15 +31,17 @@
 ;; NFC: combine e + combining acute → é
 (define decomposed (string-append "e" "\u0301"))
 (define composed (string/normalize decomposed :nfc))
-(println (format "  Decomposed: ~a  (length=~a)" decomposed (string-length decomposed)))
-(println (format "  NFC:        ~a  (length=~a)" composed (string-length composed)))
+(println
+  (format "  Decomposed: ~a  (length=~a)" decomposed (string-length decomposed)))
+(println
+  (format "  NFC:        ~a  (length=~a)" composed (string-length composed)))
 
 ;; NFD: decompose é → e + combining acute
 (define nfd (string/normalize "é" :nfd))
 (println (format "  NFD of é:   length=~a (decomposed)" (string-length nfd)))
 
 ;; NFKC: compatibility decomposition + composition
-(define ligature "\uFB01")  ;; ﬁ ligature
+(define ligature "\uFB01") ;; ﬁ ligature
 (define compat (string/normalize ligature :nfkc))
 (println (format "  NFKC of ﬁ:  ~a (ligature → letters)" compat))
 
@@ -48,21 +50,25 @@
 (define words (list "HELLO" "World" "Straße" "ΩΜΕΓΑ"))
 (for-each
   (fn (w)
-    (println (format "  ~a → ~a"
-      (string/pad-right w 10)
-      (string/foldcase w))))
+    (println
+      (format "  ~a → ~a"
+        (string/pad-right w 10)
+        (string/foldcase w))))
   words)
 
 (println "\n=== Case-Insensitive Comparison ===")
-(define pairs (list
-  (list "Hello" "hello")
-  (list "CAFÉ" "café")
-  (list "hello" "world")))
+(define pairs
+  (list (list "Hello" "hello")
+    (list "CAFÉ" "café")
+    (list "hello" "world")))
 (for-each
   (fn (pair)
     (let ((a (first pair)) (b (nth pair 1)))
-      (println (format "  (string-ci=? ~s ~s) => ~a"
-        a b (string-ci=? a b)))))
+      (println
+        (format "  (string-ci=? ~s ~s) => ~a"
+          a
+          b
+          (string-ci=? a b)))))
   pairs)
 
 (println "\nDone!")

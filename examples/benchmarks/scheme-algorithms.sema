@@ -7,13 +7,15 @@
 (println "=== 1. Fibonacci ===")
 
 (define (fib-naive n)
-  (if (< n 2) n
-      (+ (fib-naive (- n 1)) (fib-naive (- n 2)))))
+  (if (< n 2)
+    n
+    (+ (fib-naive (- n 1)) (fib-naive (- n 2)))))
 
 (define (fib-tail n)
   (let loop ((i n) (a 0) (b 1))
-    (if (= i 0) a
-        (loop (- i 1) b (+ a b)))))
+    (if (= i 0)
+      a
+      (loop (- i 1) b (+ a b)))))
 
 (println (format "  fib-naive(10) = ~a" (fib-naive 10)))
 (println (format "  fib-tail(10)  = ~a" (fib-tail 10)))
@@ -25,8 +27,9 @@
   (println (format "  fib-naive(30) time: ~ams" (- (time-ms) t0))))
 
 (let ((t0 (time-ms)))
-  (do ((i 0 (+ i 1)))
-      ((= i 10000))
+  (do
+    ((i 0 (+ i 1)))
+    ((= i 10000))
     (fib-tail 50))
   (println (format "  fib-tail(50) x10000 time: ~ams" (- (time-ms) t0))))
 
@@ -43,24 +46,22 @@
   (cond
     ((null? xs) ys)
     ((null? ys) xs)
-    ((<= (car xs) (car ys))
-     (cons (car xs) (merge (cdr xs) ys)))
-    (else
-     (cons (car ys) (merge xs (cdr ys))))))
+    ((<= (car xs) (car ys)) (cons (car xs) (merge (cdr xs) ys)))
+    (else (cons (car ys) (merge xs (cdr ys))))))
 
 (define (split-at lst n)
   (let loop ((i 0) (rest lst) (acc '()))
     (if (or (= i n) (null? rest))
-        (list (reverse acc) rest)
-        (loop (+ i 1) (cdr rest) (cons (car rest) acc)))))
+      (list (reverse acc) rest)
+      (loop (+ i 1) (cdr rest) (cons (car rest) acc)))))
 
 (define (mergesort lst)
   (if (or (null? lst) (null? (cdr lst)))
-      lst
-      (let* ((halves (split-at lst (math/quotient (length lst) 2)))
-             (left   (car halves))
-             (right  (cadr halves)))
-        (merge (mergesort left) (mergesort right)))))
+    lst
+    (let* ((halves (split-at lst (math/quotient (length lst) 2)))
+           (left (car halves))
+           (right (cadr halves)))
+      (merge (mergesort left) (mergesort right)))))
 
 (define unsorted '(38 27 43 3 9 82 10 1 57 24))
 (define sorted-result (mergesort unsorted))
@@ -69,7 +70,8 @@
 
 ;; Verify against builtin sort
 (define builtin-sorted (sort unsorted <))
-(println (format "  Matches builtin sort? ~a" (equal? sorted-result builtin-sorted)))
+(println
+  (format "  Matches builtin sort? ~a" (equal? sorted-result builtin-sorted)))
 
 ;; Benchmark
 (define big-list (reverse (range 500)))
@@ -94,9 +96,13 @@
 (hanoi 4 "A" "C" "B")
 (define moves (reverse hanoi-moves))
 (println (format "  ~a moves for 4 disks:" (length moves)))
-(for-each println (take 5 moves))
+(for-each
+  println
+  (take 5 moves))
 (println "  ...")
-(for-each println (drop (- (length moves) 3) moves))
+(for-each
+  println
+  (drop (- (length moves) 3) moves))
 
 ;; Verify: 2^n - 1 moves
 ;; 2^4 - 1 = 15
@@ -135,12 +141,12 @@
 
 (define (sieve candidates)
   (if (null? candidates)
-      '()
-      (let ((p (car candidates)))
-        (cons p
-          (sieve
-            (filter (fn (x) (not (= 0 (math/remainder x p))))
-                    (cdr candidates)))))))
+    '()
+    (let ((p (car candidates)))
+      (cons p
+        (sieve
+          (filter (fn (x) (not (= 0 (math/remainder x p))))
+            (cdr candidates)))))))
 
 (define primes-50 (sieve (range 2 50)))
 (println (format "  Primes under 50: ~a" primes-50))
@@ -149,8 +155,10 @@
 ;; Benchmark larger sieve
 (let ((t0 (time-ms)))
   (define primes-1k (sieve (range 2 1000)))
-  (println (format "  Primes under 1000: ~a found in ~ams"
-    (length primes-1k) (- (time-ms) t0))))
+  (println
+    (format "  Primes under 1000: ~a found in ~ams"
+      (length primes-1k)
+      (- (time-ms) t0))))
 
 ;; ============================================================
 ;; 6. Church Numerals
@@ -164,12 +172,12 @@
 (define (church-mul a b) (fn (f) (a (b f))))
 (define (church->int n) ((n (fn (x) (+ x 1))) 0))
 
-(define one   (church-succ church-zero))
-(define two   (church-succ one))
+(define one (church-succ church-zero))
+(define two (church-succ one))
 (define three (church-succ two))
-(define five  (church-add two three))
-(define six   (church-mul two three))
-(define ten   (church-add five five))
+(define five (church-add two three))
+(define six (church-mul two three))
+(define ten (church-add five five))
 
 (println (format "  zero  = ~a" (church->int church-zero)))
 (println (format "  one   = ~a" (church->int one)))
@@ -180,13 +188,16 @@
 (println (format "  5 + 5 = ~a" (church->int ten)))
 
 ;; Church booleans
-(define church-true  (fn (a b) a))
+(define church-true (fn (a b) a))
 (define church-false (fn (a b) b))
 (define (church-if c t f) (c t f))
 (define (church-zero? n) ((n (fn (_) church-false)) church-true))
 
-(println (format "  zero? zero  = ~a" (church-if (church-zero? church-zero) "true" "false")))
-(println (format "  zero? three = ~a" (church-if (church-zero? three) "true" "false")))
+(println
+  (format "  zero? zero  = ~a"
+    (church-if (church-zero? church-zero) "true" "false")))
+(println
+  (format "  zero? three = ~a" (church-if (church-zero? three) "true" "false")))
 
 ;; ============================================================
 ;; 7. Binary Tree Operations
@@ -204,42 +215,46 @@
 ;; Insert into BST
 (define (bst-insert tree val)
   (if (null? tree)
-      (make-leaf val)
-      (let ((v (tree-value tree)))
-        (cond
-          ((< val v) (make-node v (bst-insert (tree-left tree) val) (tree-right tree)))
-          ((> val v) (make-node v (tree-left tree) (bst-insert (tree-right tree) val)))
-          (else tree)))))
+    (make-leaf val)
+    (let ((v (tree-value tree)))
+      (cond
+        ((< val v)
+          (make-node v (bst-insert (tree-left tree) val) (tree-right tree)))
+        ((> val v)
+          (make-node v (tree-left tree) (bst-insert (tree-right tree) val)))
+        (else tree)))))
 
 ;; In-order traversal
 (define (tree-inorder tree)
   (if (null? tree)
-      '()
-      (append (tree-inorder (tree-left tree))
-              (list (tree-value tree))
-              (tree-inorder (tree-right tree)))))
+    '()
+    (append (tree-inorder (tree-left tree))
+      (list (tree-value tree))
+      (tree-inorder (tree-right tree)))))
 
 ;; Tree map
 (define (tree-map f tree)
   (if (null? tree)
-      '()
-      (make-node (f (tree-value tree))
-                 (tree-map f (tree-left tree))
-                 (tree-map f (tree-right tree)))))
+    '()
+    (make-node (f (tree-value tree))
+      (tree-map f (tree-left tree))
+      (tree-map f (tree-right tree)))))
 
 ;; Tree fold (in-order)
 (define (tree-fold f init tree)
   (if (null? tree)
-      init
-      (let ((left-result (tree-fold f init (tree-left tree))))
-        (let ((mid-result (f left-result (tree-value tree))))
-          (tree-fold f mid-result (tree-right tree))))))
+    init
+    (let ((left-result (tree-fold f init (tree-left tree))))
+      (let ((mid-result (f left-result (tree-value tree))))
+        (tree-fold f mid-result (tree-right tree))))))
 
 ;; Tree depth
 (define (tree-depth tree)
-  (if (null? tree) 0
-      (+ 1 (max (tree-depth (tree-left tree))
-                 (tree-depth (tree-right tree))))))
+  (if (null? tree)
+    0
+    (+ 1
+      (max (tree-depth (tree-left tree))
+        (tree-depth (tree-right tree))))))
 
 ;; Build BST from list
 (define values '(5 3 7 1 4 6 8 2 9))
@@ -268,8 +283,8 @@
 ;; CPS factorial: k is the continuation
 (define (fact-cps n k)
   (if (= n 0)
-      (k 1)
-      (fact-cps (- n 1) (fn (result) (k (* n result))))))
+    (k 1)
+    (fact-cps (- n 1) (fn (result) (k (* n result))))))
 
 (println (format "  fact-direct(10) = ~a" (fact-direct 10)))
 (println (format "  fact-cps(10)    = ~a" (fact-cps 10 (fn (x) x))))
@@ -278,14 +293,15 @@
 ;; CPS fibonacci
 (define (fib-cps n k)
   (if (< n 2)
-      (k n)
-      (fib-cps (- n 1)
-        (fn (r1)
-          (fib-cps (- n 2)
-            (fn (r2) (k (+ r1 r2))))))))
+    (k n)
+    (fib-cps (- n 1)
+      (fn (r1)
+        (fib-cps (- n 2)
+          (fn (r2) (k (+ r1 r2))))))))
 
 (println (format "  fib-cps(10)     = ~a" (fib-cps 10 (fn (x) x))))
-(println (format "  Match naive?    ~a" (= (fib-naive 10) (fib-cps 10 (fn (x) x)))))
+(println
+  (format "  Match naive?    ~a" (= (fib-naive 10) (fib-cps 10 (fn (x) x)))))
 
 ;; CPS with early exit: product that short-circuits on zero
 (define (product-cps lst k)
@@ -294,8 +310,11 @@
     ((= (car lst) 0) 0)
     (else (product-cps (cdr lst) (fn (rest) (k (* (car lst) rest)))))))
 
-(println (format "  product(1 2 3 4 5) = ~a" (product-cps '(1 2 3 4 5) (fn (x) x))))
-(println (format "  product(1 2 0 4 5) = ~a (short-circuit)" (product-cps '(1 2 0 4 5) (fn (x) x))))
+(println
+  (format "  product(1 2 3 4 5) = ~a" (product-cps '(1 2 3 4 5) (fn (x) x))))
+(println
+  (format "  product(1 2 0 4 5) = ~a (short-circuit)"
+    (product-cps '(1 2 0 4 5) (fn (x) x))))
 
 ;; ============================================================
 ;; 9. Association List Operations
@@ -360,9 +379,9 @@
 ;; Take n elements from a stream
 (define (stream-take n s)
   (if (or (= n 0) (stream-null? s))
-      '()
-      (cons (stream-car s)
-            (stream-take (- n 1) (stream-cdr s)))))
+    '()
+    (cons (stream-car s)
+      (stream-take (- n 1) (stream-cdr s)))))
 
 ;; Infinite stream of integers from n
 (define (integers-from n)
@@ -371,17 +390,17 @@
 ;; Stream map
 (define (stream-map f s)
   (if (stream-null? s)
-      stream-nil
-      (stream-cons (f (stream-car s))
-                   (fn () (stream-map f (stream-cdr s))))))
+    stream-nil
+    (stream-cons (f (stream-car s))
+      (fn () (stream-map f (stream-cdr s))))))
 
 ;; Stream filter
 (define (stream-filter pred s)
   (cond
     ((stream-null? s) stream-nil)
     ((pred (stream-car s))
-     (stream-cons (stream-car s)
-                  (fn () (stream-filter pred (stream-cdr s)))))
+      (stream-cons (stream-car s)
+        (fn () (stream-filter pred (stream-cdr s)))))
     (else (stream-filter pred (stream-cdr s)))))
 
 ;; Natural numbers
@@ -407,9 +426,10 @@
 (define (stream-sieve s)
   (let ((p (stream-car s)))
     (stream-cons p
-      (fn () (stream-sieve
-               (stream-filter (fn (x) (not (= 0 (math/remainder x p))))
-                              (stream-cdr s)))))))
+      (fn ()
+        (stream-sieve
+          (stream-filter (fn (x) (not (= 0 (math/remainder x p))))
+            (stream-cdr s)))))))
 
 (define prime-stream (stream-sieve (integers-from 2)))
 (println (format "  First 20 primes:   ~a" (stream-take 20 prime-stream)))

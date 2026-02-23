@@ -16,12 +16,16 @@
   (let ((sections '()))
 
     ;; Persona
-    (set! sections (append sections (list
-      "You are pi-sema, an expert coding agent operating in the terminal. You help users with software engineering tasks by reading, writing, and editing code, running commands, and searching codebases.")))
+    (set! sections
+      (append sections
+        (list
+          "You are pi-sema, an expert coding agent operating in the terminal. You help users with software engineering tasks by reading, writing, and editing code, running commands, and searching codebases.")))
 
     ;; Tool rules
-    (set! sections (append sections (list
-      "## Tool Usage Rules
+    (set! sections
+      (append sections
+        (list
+          "## Tool Usage Rules
 
 1. ALWAYS read a file before editing it — never assume or hallucinate file contents.
 2. Use grep and find-files to discover relevant code before making changes.
@@ -35,25 +39,34 @@
 10. Be concise in explanations. Show code, not prose about code.")))
 
     ;; Workflow
-    (set! sections (append sections (list
-      "## Recommended Workflow
+    (set! sections
+      (append sections
+        (list
+          "## Recommended Workflow
 
 For code changes: search → read → edit → verify
 For new features: understand → plan → implement → test
 For debugging: reproduce → investigate → fix → verify")))
 
     ;; Environment
-    (set! sections (append sections (list
-      (format "## Environment
+    (set! sections
+      (append sections
+        (list
+          (format
+            "## Environment
 
 Working directory: ~a
 Platform: ~a
-Date: ~a" cwd platform (timestamp)))))
+Date: ~a"
+            cwd
+            platform
+            (timestamp)))))
 
     ;; Project context (if any)
     (when (not (= context-content ""))
-      (set! sections (append sections (list
-        (string-append "## Project Context\n\n" context-content)))))
+      (set! sections
+        (append sections
+          (list (string-append "## Project Context\n\n" context-content)))))
 
     ;; Skills (if any)
     (when (not (= skills-xml ""))
@@ -69,12 +82,16 @@ Date: ~a" cwd platform (timestamp)))))
   (let ((sections '()))
 
     ;; Persona — planning mode
-    (set! sections (append sections (list
-      "You are pi-sema in PLANNING MODE. You are investigating a codebase and creating an implementation plan. You MUST NOT make any changes — only read, search, and analyze.")))
+    (set! sections
+      (append sections
+        (list
+          "You are pi-sema in PLANNING MODE. You are investigating a codebase and creating an implementation plan. You MUST NOT make any changes — only read, search, and analyze.")))
 
     ;; Planning rules
-    (set! sections (append sections (list
-      "## Planning Rules
+    (set! sections
+      (append sections
+        (list
+          "## Planning Rules
 
 1. Investigate the codebase thoroughly before writing the plan.
 2. Use read-file, grep, find-files, and list-dir to understand the code.
@@ -88,23 +105,32 @@ Date: ~a" cwd platform (timestamp)))))
 6. If anything is unclear, ask the user before finalizing the plan.")))
 
     ;; Environment
-    (set! sections (append sections (list
-      (format "## Environment
+    (set! sections
+      (append sections
+        (list
+          (format
+            "## Environment
 
 Working directory: ~a
 Platform: ~a
-Date: ~a" cwd platform (timestamp)))))
+Date: ~a"
+            cwd
+            platform
+            (timestamp)))))
 
     ;; Goal
-    (set! sections (append sections (list
-      (format "## Goal
+    (set! sections
+      (append sections
+        (list
+          (format "## Goal
 
 ~a" goal))))
 
     ;; Project context
     (when (not (= context-content ""))
-      (set! sections (append sections (list
-        (string-append "## Project Context\n\n" context-content)))))
+      (set! sections
+        (append sections
+          (list (string-append "## Project Context\n\n" context-content)))))
 
     ;; Skills
     (when (not (= skills-xml ""))
@@ -117,7 +143,8 @@ Date: ~a" cwd platform (timestamp)))))
 ;; ============================================================
 
 (define (build-execution-preamble plan)
-  (format "## Active Plan
+  (format
+    "## Active Plan
 
 You are executing the following plan. Do the next 2-3 steps, then STOP and report what you completed. Do not continue beyond 3 steps — the user will type /next to continue.
 
@@ -129,7 +156,8 @@ If you encounter a blocker (missing dependency, test failure, unclear instructio
 
 ---
 
-Execute the next unfinished steps now." plan))
+Execute the next unfinished steps now."
+    plan))
 
 ;; ============================================================
 ;; Section 2: Agent Creation
@@ -170,10 +198,10 @@ Execute the next unfinished steps now." plan))
 
 (define (run-plan-turn state input)
   "Run a turn in planning mode with a fresh planning agent."
-  (let* ((planning-agent (create-planning-agent
-                           (get state :cwd)
-                           (get state :model)
-                           input))
+  (let* ((planning-agent
+           (create-planning-agent (get state :cwd)
+             (get state :model)
+             input))
          (result (agent/run planning-agent input {:on-tool-call on-tool-call})))
     {:response result :plan result}))
 
@@ -182,10 +210,12 @@ Execute the next unfinished steps now." plan))
   (let* ((plan (get state :plan ""))
          (preamble (build-execution-preamble plan))
          (messages (get state :messages '()))
-         (exec-messages (if (null? messages)
-                          (list {:role "user" :content preamble})
-                          (cons {:role "user" :content preamble}
-                                (cdr messages))))
+         (exec-messages
+           (if (null? messages)
+             (list {:role "user" :content preamble})
+             (cons {:role "user" :content preamble}
+               (cdr messages))))
          (agent (get state :agent)))
-    (agent/run agent "Continue executing the plan. Do the next 2-3 steps."
+    (agent/run agent
+      "Continue executing the plan. Do the next 2-3 steps."
       {:on-tool-call on-tool-call :messages exec-messages})))

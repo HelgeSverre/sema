@@ -74,14 +74,18 @@
 (println (format "Primes under 50: ~a" primes))
 
 (println "\nFizzBuzz 1-20:")
-(println (format "  ~a"
-  (string/join (map fizzbuzz (range 1 21)) " ")))
+(println
+  (format "  ~a"
+    (string/join (map fizzbuzz (range 1 21)) " ")))
 
 (println "\n=== String Utilities ===")
 (println (format "slugify: ~a" (slugify "Hello World! This is Sema Lisp.")))
-(println (format "truncate: ~a" (truncate "The quick brown fox jumps over the lazy dog" 25)))
+(println
+  (format "truncate: ~a"
+    (truncate "The quick brown fox jumps over the lazy dog" 25)))
 
-(define long-text "The quick brown fox jumps over the lazy dog and continues running through the forest")
+(define long-text
+  "The quick brown fox jumps over the lazy dog and continues running through the forest")
 (println (format "\nWord wrap (width=30):"))
 (for-each
   (fn (line) (println (format "  |~a|" (string/pad-right line 30))))
@@ -97,8 +101,7 @@
     (catch e {:status :error :name name :error (:message e)})))
 
 (define results
-  (list
-    (safe-op "divide-ok" (fn () (/ 10 3)))
+  (list (safe-op "divide-ok" (fn () (/ 10 3)))
     (safe-op "divide-zero" (fn () (/ 10 0)))
     (safe-op "parse-ok" (fn () (int "42")))
     (safe-op "parse-fail" (fn () (int "abc")))
@@ -119,18 +122,32 @@
   `(define ,name (hash-map ,@pairs)))
 
 (defconfig db-config
-  :host "localhost"
-  :port 5432
-  :name "sema_db"
-  :pool-size 10)
+  :host
+  "localhost"
+  :port
+  5432
+  :name
+  "sema_db"
+  :pool-size
+  10)
 
 (defconfig app-config
-  :debug #t
-  :version "2.0.0"
-  :log-level "info")
+  :debug
+  #t
+  :version
+  "2.0.0"
+  :log-level
+  "info")
 
-(println (format "DB: ~a:~a/~a" (get db-config :host) (get db-config :port) (get db-config :name)))
-(println (format "App version: ~a (debug=~a)" (get app-config :version) (get app-config :debug)))
+(println
+  (format "DB: ~a:~a/~a"
+    (get db-config :host)
+    (get db-config :port)
+    (get db-config :name)))
+(println
+  (format "App version: ~a (debug=~a)"
+    (get app-config :version)
+    (get app-config :debug)))
 
 ;; === Selective Import ===
 (file/write "/tmp/sema-mod-selective.sema"

@@ -12,7 +12,9 @@
 (println "-- env --")
 (define home (env "HOME"))
 (println "  ✓ env HOME = " home)
-(assert-eq (env "SEMA_NONEXISTENT_VAR_XYZ") nil "env returns nil for missing var")
+(assert-eq (env "SEMA_NONEXISTENT_VAR_XYZ")
+  nil
+  "env returns nil for missing var")
 
 ;; --- sys/set-env ---
 (println "-- sys/set-env --")

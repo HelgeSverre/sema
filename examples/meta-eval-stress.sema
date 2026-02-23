@@ -16,22 +16,23 @@
 (define (test name expected program)
   (set! tests-total (+ tests-total 1))
   (let ((result
-         (try
-           (let ((val (run-program program)))
-             {:ok val})
-           (catch e {:error (:message e)}))))
+          (try
+            (let ((val (run-program program)))
+              {:ok val})
+            (catch e {:error (:message e)}))))
     (cond
       ((and (get result :ok)
-            (equal? (get result :ok) expected))
-       (set! tests-passed (+ tests-passed 1))
-       (println (format "  PASS  ~a = ~a" name expected)))
-      ((get result :error)
-       (set! tests-failed (+ tests-failed 1))
-       (println (format "  FAIL  ~a — error: ~a" name (get result :error))))
-      (else
-       (set! tests-failed (+ tests-failed 1))
-       (println (format "  FAIL  ~a — expected ~a, got ~a"
-         name expected (get result :ok)))))))
+         (equal? (get result :ok) expected))
+        (set! tests-passed (+ tests-passed 1))
+        (println (format "  PASS  ~a = ~a" name expected)))
+      ((get result :error) (set! tests-failed (+ tests-failed 1))
+        (println (format "  FAIL  ~a — error: ~a" name (get result :error))))
+      (else (set! tests-failed (+ tests-failed 1))
+        (println
+          (format "  FAIL  ~a — expected ~a, got ~a"
+            name
+            expected
+            (get result :ok)))))))
 
 (println)
 (println "=== Meta-Eval Stress Tests ===")
@@ -41,7 +42,8 @@
 ;; 1. TAK benchmark (from benchmarks/tak.sema)
 ;; ============================================================
 (println "--- TAK Benchmark ---")
-(test "tak(12,8,4)" 5
+(test "tak(12,8,4)"
+  5
   "(define (tak x y z)
      (if (not (< y x))
        z
@@ -50,7 +52,9 @@
             (tak (- z 1) x y))))
    (tak 12 8 4)")
 
-(test "tak(10,5,2)" 5  ;; Sema uses integer division, result is 5
+(test "tak(10,5,2)"
+  5
+  ;; Sema uses integer division, result is 5
   "(define (tak x y z)
      (if (not (< y x))
        z
@@ -64,7 +68,8 @@
 ;; ============================================================
 (println)
 (println "--- N-Queens (adapted) ---")
-(test "nqueens(1)" 1
+(test "nqueens(1)"
+  1
   "(define (one-to-helper i l)
      (if (= i 0) l (one-to-helper (- i 1) (cons i l))))
 
@@ -88,7 +93,8 @@
 
    (nqueens 1)")
 
-(test "nqueens(4)" 2
+(test "nqueens(4)"
+  2
   "(define (one-to-helper i l)
      (if (= i 0) l (one-to-helper (- i 1) (cons i l))))
 
@@ -112,7 +118,8 @@
 
    (nqueens 4)")
 
-(test "nqueens(5)" 10
+(test "nqueens(5)"
+  10
   "(define (one-to-helper i l)
      (if (= i 0) l (one-to-helper (- i 1) (cons i l))))
 
@@ -141,7 +148,8 @@
 ;; ============================================================
 (println)
 (println "--- Ackermann Function ---")
-(test "ackermann(0,0)" 1
+(test "ackermann(0,0)"
+  1
   "(define (ackermann m n)
      (cond
        ((= m 0) (+ n 1))
@@ -149,7 +157,8 @@
        (else (ackermann (- m 1) (ackermann m (- n 1))))))
    (ackermann 0 0)")
 
-(test "ackermann(3,4)" 125
+(test "ackermann(3,4)"
+  125
   "(define (ackermann m n)
      (cond
        ((= m 0) (+ n 1))
@@ -162,13 +171,15 @@
 ;; ============================================================
 (println)
 (println "--- Church Numerals ---")
-(test "church: 0" 0
+(test "church: 0"
+  0
   "(define church-zero (fn (f) (fn (x) x)))
    (define (church-succ n) (fn (f) (fn (x) (f ((n f) x)))))
    (define (church->int n) ((n (fn (x) (+ x 1))) 0))
    (church->int church-zero)")
 
-(test "church: 2+3=5" 5
+(test "church: 2+3=5"
+  5
   "(define church-zero (fn (f) (fn (x) x)))
    (define (church-succ n) (fn (f) (fn (x) (f ((n f) x)))))
    (define (church-add a b) (fn (f) (fn (x) ((a f) ((b f) x)))))
@@ -178,7 +189,8 @@
    (define three (church-succ two))
    (church->int (church-add two three))")
 
-(test "church: 2*3=6" 6
+(test "church: 2*3=6"
+  6
   "(define church-zero (fn (f) (fn (x) x)))
    (define (church-succ n) (fn (f) (fn (x) (f ((n f) x)))))
    (define (church-mul a b) (fn (f) (a (b f))))
@@ -188,7 +200,8 @@
    (define three (church-succ two))
    (church->int (church-mul two three))")
 
-(test "church: zero? zero" "true"
+(test "church: zero? zero"
+  "true"
   "(define church-zero (fn (f) (fn (x) x)))
    (define (church-succ n) (fn (f) (fn (x) (f ((n f) x)))))
    (define church-true  (fn (a b) a))
@@ -198,7 +211,8 @@
    (define three (church-succ (church-succ (church-succ church-zero))))
    (church-if (church-zero? church-zero) \"true\" \"false\")")
 
-(test "church: zero? three" "false"
+(test "church: zero? three"
+  "false"
   "(define church-zero (fn (f) (fn (x) x)))
    (define (church-succ n) (fn (f) (fn (x) (f ((n f) x)))))
    (define church-true  (fn (a b) a))
@@ -213,14 +227,16 @@
 ;; ============================================================
 (println)
 (println "--- CPS Transformations ---")
-(test "cps factorial(10)" 3628800
+(test "cps factorial(10)"
+  3628800
   "(define (fact-cps n k)
      (if (= n 0)
        (k 1)
        (fact-cps (- n 1) (fn (result) (k (* n result))))))
    (fact-cps 10 (fn (x) x))")
 
-(test "cps fibonacci(10)" 55
+(test "cps fibonacci(10)"
+  55
   "(define (fib-cps n k)
      (if (< n 2)
        (k n)
@@ -230,7 +246,8 @@
              (fn (r2) (k (+ r1 r2))))))))
    (fib-cps 10 (fn (x) x))")
 
-(test "cps product with short-circuit" 0
+(test "cps product with short-circuit"
+  0
   "(define (product-cps lst k)
      (cond
        ((null? lst) (k 1))
@@ -238,7 +255,8 @@
        (else (product-cps (cdr lst) (fn (rest) (k (* (car lst) rest)))))))
    (product-cps '(1 2 0 4 5) (fn (x) x))")
 
-(test "cps product normal" 120
+(test "cps product normal"
+  120
   "(define (product-cps lst k)
      (cond
        ((null? lst) (k 1))
@@ -251,7 +269,8 @@
 ;; ============================================================
 (println)
 (println "--- Binary Search Tree (adapted) ---")
-(test "bst insert + inorder" '(1 2 3 4 5)
+(test "bst insert + inorder"
+  '(1 2 3 4 5)
   "(define (make-leaf v) (list v '() '()))
    (define (make-node v left right) (list v left right))
    (define (tree-value t) (car t))
@@ -284,7 +303,8 @@
 (println "--- Mergesort (adapted) ---")
 ;; Mergesort — interpreter has no TCO so each meta-eval call deepens
 ;; Sema's own call stack. 4 elements works; larger lists hit depth limit.
-(test "mergesort(4)" '(1 2 3 4)
+(test "mergesort(4)"
+  '(1 2 3 4)
   "(define (merge xs ys)
      (cond
        ((null? xs) ys)
@@ -316,7 +336,8 @@
 ;; ============================================================
 (println)
 (println "--- Y-Combinator ---")
-(test "Y factorial(5)" 120
+(test "Y factorial(5)"
+  120
   "(define (Y f)
      ((fn (x) (f (fn (v) ((x x) v))))
       (fn (x) (f (fn (v) ((x x) v))))))
@@ -328,7 +349,8 @@
 
    (factorial 5)")
 
-(test "Y fibonacci(10)" 55
+(test "Y fibonacci(10)"
+  55
   "(define (Y f)
      ((fn (x) (f (fn (v) ((x x) v))))
       (fn (x) (f (fn (v) ((x x) v))))))
@@ -345,12 +367,14 @@
 ;; ============================================================
 (println)
 (println "--- Mutual Recursion ---")
-(test "even?(10)" #t
+(test "even?(10)"
+  #t
   "(define (my-even? n) (if (= n 0) #t (my-odd? (- n 1))))
    (define (my-odd? n)  (if (= n 0) #f (my-even? (- n 1))))
    (my-even? 10)")
 
-(test "odd?(7)" #t
+(test "odd?(7)"
+  #t
   "(define (my-even? n) (if (= n 0) #t (my-odd? (- n 1))))
    (define (my-odd? n)  (if (= n 0) #f (my-even? (- n 1))))
    (my-odd? 7)")
@@ -360,12 +384,14 @@
 ;; ============================================================
 (println)
 (println "--- Deep Closure Nesting ---")
-(test "triple-adder(1)(2)(3)" 6
+(test "triple-adder(1)(2)(3)"
+  6
   "(define (triple-adder a)
      (fn (b) (fn (c) (+ a (+ b c)))))
    (((triple-adder 1) 2) 3)")
 
-(test "compose functions" 20
+(test "compose functions"
+  20
   "(define (compose f g) (fn (x) (f (g x))))
    (define (double x) (* x 2))
    (define (add3 x) (+ x 3))
@@ -378,7 +404,8 @@
 ;; ============================================================
 (println)
 (println "--- List Algorithms ---")
-(test "flatten nested lists" '(1 2 3 4 5 6)
+(test "flatten nested lists"
+  '(1 2 3 4 5 6)
   "(define (my-append a b)
      (if (null? a) b
        (cons (car a) (my-append (cdr a) b))))
@@ -392,14 +419,16 @@
 
    (flatten '((1 2) (3 (4 5)) 6))")
 
-(test "zip two lists" '((1 4) (2 5) (3 6))
+(test "zip two lists"
+  '((1 4) (2 5) (3 6))
   "(define (my-zip a b)
      (if (or (null? a) (null? b)) '()
        (cons (list (car a) (car b))
              (my-zip (cdr a) (cdr b)))))
    (my-zip '(1 2 3) '(4 5 6))")
 
-(test "range via accumulator" '(0 1 2 3 4)
+(test "range via accumulator"
+  '(0 1 2 3 4)
   "(define (range-helper i n acc)
      (if (= i n) acc
        (range-helper (+ i 1) n (append acc (list i)))))
@@ -410,33 +439,39 @@
 ;; ============================================================
 (println)
 (println "--- Named Let ---")
-(test "named let sum" 55
+(test "named let sum"
+  55
   "(let loop ((i 10) (acc 0))
      (if (= i 0) acc (loop (- i 1) (+ acc i))))")
 
-(test "named let fibonacci" 55
+(test "named let fibonacci"
+  55
   "(let fib ((n 10) (a 0) (b 1))
      (if (= n 0) a (fib (- n 1) b (+ a b))))")
 
-(test "named let one-to-n" '(1 2 3 4 5)
+(test "named let one-to-n"
+  '(1 2 3 4 5)
   "(let loop ((i 5) (acc '()))
      (if (= i 0) acc (loop (- i 1) (cons i acc))))")
 
 (println)
 (println "--- Set! ---")
-(test "set! simple" 42
+(test "set! simple"
+  42
   "(define x 0)
    (set! x 42)
    x")
 
-(test "set! counter" 3
+(test "set! counter"
+  3
   "(define counter 0)
    (set! counter (+ counter 1))
    (set! counter (+ counter 1))
    (set! counter (+ counter 1))
    counter")
 
-(test "set! in closure" 3
+(test "set! in closure"
+  3
   "(define (make-counter)
      (define n 0)
      (lambda () (set! n (+ n 1)) n))
@@ -445,14 +480,17 @@
 
 (println)
 (println "--- Variadic Lambda ---")
-(test "variadic all rest" '(1 2 3)
+(test "variadic all rest"
+  '(1 2 3)
   "((fn (. args) args) 1 2 3)")
 
-(test "variadic with fixed" '(1 (2 3 4))
+(test "variadic with fixed"
+  '(1 (2 3 4))
   "(define (f x . rest) (list x rest))
    (f 1 2 3 4)")
 
-(test "variadic apply-like" 10
+(test "variadic apply-like"
+  10
   "(define (sum . nums)
      (if (null? nums) 0
        (+ (car nums)
@@ -470,4 +508,8 @@
 ;; Summary
 ;; ============================================================
 (println)
-(println (format "=== Results: ~a/~a passed, ~a failed ===" tests-passed tests-total tests-failed))
+(println
+  (format "=== Results: ~a/~a passed, ~a failed ==="
+    tests-passed
+    tests-total
+    tests-failed))

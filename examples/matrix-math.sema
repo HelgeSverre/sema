@@ -10,26 +10,29 @@
 
 (define (matrix-transpose m)
   (map (fn (c) (map (fn (row) (nth row c)) m))
-       (range (matrix-cols m))))
+    (range (matrix-cols m))))
 
 (define (matrix-add a b)
   (map (fn (pair) (map + (first pair) (nth pair 1)))
-       (zip a b)))
+    (zip a b)))
 
 (define (matrix-scalar-multiply s m)
   (map (fn (row) (map (fn (x) (* s x)) row)) m))
 
 (define (matrix-multiply a b)
   (let ((bt (matrix-transpose b)))
-    (map (fn (row-a)
-      (map (fn (col-b)
-        (foldl + 0 (map * row-a col-b)))
-        bt))
+    (map
+      (fn (row-a)
+        (map
+          (fn (col-b)
+            (foldl + 0 (map * row-a col-b)))
+          bt))
       a)))
 
 (define (matrix-identity n)
-  (map (fn (i)
-    (map (fn (j) (if (= i j) 1 0)) (range n)))
+  (map
+    (fn (i)
+      (map (fn (j) (if (= i j) 1 0)) (range n)))
     (range n)))
 
 ;; Determinant for 2x2 and 3x3
@@ -38,12 +41,13 @@
     (cond
       ((= n 1) (nth (first m) 0))
       ((= n 2)
-       (- (* (nth (first m) 0) (nth (nth m 1) 1))
+        (- (* (nth (first m) 0) (nth (nth m 1) 1))
           (* (nth (first m) 1) (nth (nth m 1) 0))))
       ((= n 3)
-       (let ((a (first m)) (b (nth m 1)) (c (nth m 2)))
-         (- (+ (* (nth a 0) (- (* (nth b 1) (nth c 2)) (* (nth b 2) (nth c 1))))
-               (* (nth a 2) (- (* (nth b 0) (nth c 1)) (* (nth b 1) (nth c 0)))))
+        (let ((a (first m)) (b (nth m 1)) (c (nth m 2)))
+          (-
+            (+ (* (nth a 0) (- (* (nth b 1) (nth c 2)) (* (nth b 2) (nth c 1))))
+              (* (nth a 2) (- (* (nth b 0) (nth c 1)) (* (nth b 1) (nth c 0)))))
             (* (nth a 1) (- (* (nth b 0) (nth c 2)) (* (nth b 2) (nth c 0)))))))
       (else (throw "Determinant only supported for 1x1, 2x2, and 3x3")))))
 
@@ -54,10 +58,10 @@
   (println (format "  ~a =" name))
   (for-each
     (fn (row)
-      (println (format "    │ ~a │"
-        (string/join
-          (map (fn (x) (string/pad-left (str x) col-width)) row)
-          " "))))
+      (println
+        (format "    │ ~a │"
+          (string/join (map (fn (x) (string/pad-left (str x) col-width)) row)
+            " "))))
     m)
   (println ""))
 
@@ -98,7 +102,9 @@
 (define I3 (matrix-identity 3))
 (matrix-print "I₃" I3)
 (matrix-print "A × I₃" (matrix-multiply A I3))
-(println (format "  A × I = A? ~a\n" (if (equal? (matrix-multiply A I3) A) "YES ✓" "NO ✗")))
+(println
+  (format "  A × I = A? ~a\n"
+    (if (equal? (matrix-multiply A I3) A) "YES ✓" "NO ✗")))
 
 ;; --- Determinants ---
 (println "=== Determinants ===\n")
@@ -120,6 +126,8 @@
 (println (format "  det(A) = ~a" det-A))
 (println (format "  det(2A) = ~a" det-2A))
 (println (format "  2³ × det(A) = ~a" (* 8 det-A)))
-(println (format "  det(2A) = 2³×det(A)? ~a" (if (= det-2A (* 8 det-A)) "YES ✓" "NO ✗")))
+(println
+  (format "  det(2A) = 2³×det(A)? ~a"
+    (if (= det-2A (* 8 det-A)) "YES ✓" "NO ✗")))
 
 (println "\nDone!")

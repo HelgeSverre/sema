@@ -7,7 +7,8 @@
   "Get current weather for a city"
   {:city {:type :string :description "City name"}}
   (lambda (city)
-    (format "{\"city\": \"~a\", \"temperature\": 22, \"condition\": \"sunny\"}" city)))
+    (format "{\"city\": \"~a\", \"temperature\": 22, \"condition\": \"sunny\"}"
+      city)))
 
 (deftool get-time
   "Get the current time"
@@ -23,7 +24,8 @@
 
 ;; Run the agent
 (println "=== Agent Test ===")
-(define answer (agent/run weather-bot "What's the weather like in Oslo right now?"))
+(define answer
+  (agent/run weather-bot "What's the weather like in Oslo right now?"))
 (println answer)
 
 (println "\n=== Usage ===")

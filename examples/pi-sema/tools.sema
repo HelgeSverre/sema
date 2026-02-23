@@ -28,7 +28,8 @@
               (let* ((lines (string/split numbered "\n"))
                      (truncated (string/join (take lines 2000) "\n")))
                 (string-append truncated
-                  (format "\n\n[truncated — showing first 2000 of ~a lines]" total)))
+                  (format "\n\n[truncated — showing first 2000 of ~a lines]"
+                    total)))
               numbered))
           (format "Error: File not found: ~a" path)))
       (catch e
@@ -69,9 +70,11 @@
          (old-lines (string/split old-str "\n"))
          (new-lines (string/split new-str "\n"))
          ;; Find the line number where old-str starts
-         (before (substring old-content 0
-                   (let ((idx (string/index-of old-content old-str)))
-                     (if idx idx 0))))
+         (before
+           (substring old-content
+             0
+             (let ((idx (string/index-of old-content old-str)))
+               (if idx idx 0))))
          (start-line (count-lines before))
          (result '()))
     ;; Show a few context lines before
@@ -110,14 +113,24 @@
                  (occurrences (count-occurrences content old_string)))
             (cond
               ((= occurrences 0)
-               (format "Error: old_string not found in ~a. Read the file first to get exact content." path))
+                (format
+                  "Error: old_string not found in ~a. Read the file first to get exact content."
+                  path))
               ((> occurrences 1)
-               (format "Error: old_string matches ~a times in ~a. Make it more specific to match exactly once." occurrences path))
+                (format
+                  "Error: old_string matches ~a times in ~a. Make it more specific to match exactly once."
+                  occurrences
+                  path))
               (else
-               (let* ((new-content (string/replace content old_string new_string))
-                      (diff (make-diff-preview content new-content old_string new_string)))
-                 (file/write resolved new-content)
-                 (format "Edited ~a:\n~a" path diff)))))))
+                (let* ((new-content
+                         (string/replace content old_string new_string))
+                       (diff
+                         (make-diff-preview content
+                           new-content
+                           old_string
+                           new_string)))
+                  (file/write resolved new-content)
+                  (format "Edited ~a:\n~a" path diff)))))))
       (catch e
         (format "Error editing file ~a: ~a" path e)))))
 
@@ -132,7 +145,10 @@
     (if (banned-command? command)
       (format "Error: Command blocked for safety: ~a" command)
       (try
-        (let* ((result (shell "sh" "-c" (string-append "cd " workspace-root " && " command)))
+        (let* ((result
+                 (shell "sh"
+                   "-c"
+                   (string-append "cd " workspace-root " && " command)))
                (stdout (:stdout result))
                (stderr (:stderr result))
                (exit-code (:exit-code result))
@@ -143,19 +159,22 @@
             (set! output-parts (append output-parts (list stdout))))
           ;; Add stderr if present
           (when (not (= (string/trim stderr) ""))
-            (set! output-parts (append output-parts (list (format "stderr:\n~a" stderr)))))
+            (set! output-parts
+              (append output-parts (list (format "stderr:\n~a" stderr)))))
           ;; Add exit code if non-zero
           (when (not (= exit-code 0))
-            (set! output-parts (append output-parts (list (format "Exit code: ~a" exit-code)))))
+            (set! output-parts
+              (append output-parts (list (format "Exit code: ~a" exit-code)))))
           ;; Combine and truncate
-          (let* ((combined (if (null? output-parts)
-                             "Command completed successfully (no output)."
-                             (string/join output-parts "\n")))
+          (let* ((combined
+                   (if (null? output-parts)
+                     "Command completed successfully (no output)."
+                     (string/join output-parts "\n")))
                  (lines (string/split combined "\n")))
             (if (> (length lines) 500)
-              (string-append
-                (string/join (take lines 500) "\n")
-                (format "\n\n[truncated — showing first 500 of ~a lines]" (length lines)))
+              (string-append (string/join (take lines 500) "\n")
+                (format "\n\n[truncated — showing first 500 of ~a lines]"
+                  (length lines)))
               combined)))
         (catch e
           (format "Error running command: ~a" e))))))
@@ -167,21 +186,32 @@
 (deftool grep
   "Search for a pattern in files. Returns matching lines with file paths and line numbers. Respects .gitignore."
   {:pattern {:type :string :description "Search pattern (text or regex)"}
-   :path {:type :string :description "Directory or file to search in (default: current directory)"}}
+   :path {:type :string
+    :description "Directory or file to search in (default: current directory)"}}
   (lambda (pattern path)
     (try
       (let* ((search-path (if (= path "") "." path))
              (resolved (resolve-path workspace-root search-path))
              ;; Try ripgrep first, fall back to grep
-             (rg-result (shell "sh" "-c"
-                          (format "cd ~a && rg -n --max-count=10 '~a' '~a' 2>/dev/null | head -100"
-                            workspace-root pattern resolved)))
-             (result (if (and (= (:exit-code rg-result) 0)
-                              (not (= (string/trim (:stdout rg-result)) "")))
-                       rg-result
-                       (shell "sh" "-c"
-                         (format "cd ~a && grep -rn --include='*' -m 10 '~a' '~a' 2>/dev/null | head -100"
-                           workspace-root pattern resolved))))
+             (rg-result
+               (shell "sh"
+                 "-c"
+                 (format
+                   "cd ~a && rg -n --max-count=10 '~a' '~a' 2>/dev/null | head -100"
+                   workspace-root
+                   pattern
+                   resolved)))
+             (result
+               (if (and (= (:exit-code rg-result) 0)
+                   (not (= (string/trim (:stdout rg-result)) "")))
+                 rg-result
+                 (shell "sh"
+                   "-c"
+                   (format
+                     "cd ~a && grep -rn --include='*' -m 10 '~a' '~a' 2>/dev/null | head -100"
+                     workspace-root
+                     pattern
+                     resolved))))
              (output (string/trim (:stdout result))))
         (if (= output "")
           "No matches found."
@@ -195,15 +225,21 @@
 
 (deftool find-files
   "Find files by name pattern (glob). Useful for discovering project structure."
-  {:pattern {:type :string :description "Glob pattern to match file names (e.g. '*.rs', 'Cargo.toml')"}
-   :path {:type :string :description "Directory to search in (default: current directory)"}}
+  {:pattern {:type :string
+    :description "Glob pattern to match file names (e.g. '*.rs', 'Cargo.toml')"}
+   :path {:type :string
+    :description "Directory to search in (default: current directory)"}}
   (lambda (pattern path)
     (try
       (let* ((search-path (if (= path "") "." path))
              (resolved (resolve-path workspace-root search-path))
-             (result (shell "sh" "-c"
-                       (format "find '~a' -name '~a' -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/target/*' | head -200"
-                         resolved pattern)))
+             (result
+               (shell "sh"
+                 "-c"
+                 (format
+                   "find '~a' -name '~a' -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/target/*' | head -200"
+                   resolved
+                   pattern)))
              (output (string/trim (:stdout result))))
         (if (= output "")
           "No files found."
@@ -217,7 +253,8 @@
 
 (deftool list-dir
   "List directory contents with file types and sizes."
-  {:path {:type :string :description "Directory path to list (default: current directory)"}}
+  {:path {:type :string
+    :description "Directory path to list (default: current directory)"}}
   (lambda (path)
     (try
       (let* ((target (if (= path "") "." path))

@@ -6,24 +6,25 @@
 
 ;; 1. Simple extraction
 (println "=== Test 1: llm/extract (basic) ===")
-(define person (llm/extract
-  {:name :string :age :number :city :string}
-  "John Smith is a 34-year-old engineer living in Oslo, Norway."))
+(define person
+  (llm/extract {:name :string :age :number :city :string}
+    "John Smith is a 34-year-old engineer living in Oslo, Norway."))
 (println "Result:" person)
 
 ;; 2. Extract with nested schema
 (println "\n=== Test 2: llm/extract (complex) ===")
-(define event (llm/extract
-  {:event_name :string :date :string :location :string :price :string}
-  "Join us for TechConf 2025 on March 15th at the Oslo Convention Center. Tickets are $299."))
+(define event
+  (llm/extract
+    {:event_name :string :date :string :location :string :price :string}
+    "Join us for TechConf 2025 on March 15th at the Oslo Convention Center. Tickets are $299."))
 (println "Result:" event)
 
 ;; 3. Classification
 (println "\n=== Test 3: llm/classify ===")
-(define sentiments (list
-  "I absolutely love this product!"
-  "This is the worst experience ever."
-  "The package arrived on time."))
+(define sentiments
+  (list "I absolutely love this product!"
+    "This is the worst experience ever."
+    "The package arrived on time."))
 (for-each
   (lambda (text)
     (define label (llm/classify '(:positive :negative :neutral) text))

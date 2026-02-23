@@ -11,8 +11,7 @@
 ;; ============================================================
 
 ;; Names to look for at each directory level
-(define context-file-names
-  (list "AGENTS.md" ".pi-sema/agents.md" "CLAUDE.md"))
+(define context-file-names (list "AGENTS.md" ".pi-sema/agents.md" "CLAUDE.md"))
 
 ;; Try to read a file, returning its content or #f on error
 (define (safe-read-file path)
@@ -56,11 +55,13 @@
     (if (null? files)
       ""
       (string/join
-        (map (lambda (f)
-               (string-append
-                 "## Context from " (get f :path) "\n"
-                 (get f :content)))
-             files)
+        (map
+          (lambda (f)
+            (string-append "## Context from "
+              (get f :path)
+              "\n"
+              (get f :content)))
+          files)
         "\n\n"))))
 
 ;; ============================================================
@@ -75,10 +76,8 @@
         ""
         (let ((line (string/trim (car remaining))))
           (cond
-            ((= line "")
-             (loop (cdr remaining) past-heading))
-            ((string/starts-with? line "#")
-             (loop (cdr remaining) #t))
+            ((= line "") (loop (cdr remaining) past-heading))
+            ((string/starts-with? line "#") (loop (cdr remaining) #t))
             (past-heading line)
             (else line)))))))
 
@@ -92,16 +91,20 @@
           (lambda (acc filename)
             (if (string/ends-with? filename ".md")
               (let* ((skill-path (path/join skills-dir filename))
-                     (name (substring filename 0
-                             (- (string-length filename) 3)))
+                     (name
+                       (substring filename
+                         0
+                         (- (string-length filename) 3)))
                      (content (safe-read-file skill-path))
-                     (description (if content
-                                    (extract-skill-description content)
-                                    "")))
-                (cons {:name name
-                       :description description
-                       :path skill-path}
-                      acc))
+                     (description
+                       (if content
+                         (extract-skill-description content)
+                         "")))
+                (cons
+                  {:name name
+                   :description description
+                   :path skill-path}
+                  acc))
               acc))
           '()
           entries))
@@ -117,13 +120,14 @@
   (if (null? skills)
     ""
     (let ((skill-entries
-            (map (lambda (s)
-                   (format "  <skill>\n    <name>~a</name>\n    <description>~a</description>\n    <location>~a</location>\n  </skill>"
-                     (get s :name)
-                     (get s :description)
-                     (get s :path)))
-                 skills)))
-      (string-append
-        "<available_skills>\n"
+            (map
+              (lambda (s)
+                (format
+                  "  <skill>\n    <name>~a</name>\n    <description>~a</description>\n    <location>~a</location>\n  </skill>"
+                  (get s :name)
+                  (get s :description)
+                  (get s :path)))
+              skills)))
+      (string-append "<available_skills>\n"
         (string/join skill-entries "\n")
         "\n</available_skills>"))))

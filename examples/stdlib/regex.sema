@@ -13,7 +13,9 @@
 (assert-eq (regex/match? "\\d+" "abc123def") #t "regex/match? finds digits")
 (assert-eq (regex/match? "^\\d+$" "abc123") #f "regex/match? anchored no match")
 (assert-eq (regex/match? "^\\d+$" "12345") #t "regex/match? anchored match")
-(assert-eq (regex/match? "hello" "say hello world") #t "regex/match? literal pattern")
+(assert-eq (regex/match? "hello" "say hello world")
+  #t
+  "regex/match? literal pattern")
 
 ;; --- regex/match ---
 (println "-- regex/match --")

@@ -54,7 +54,9 @@
 (define roundtripped (json/decode (json/encode data)))
 (assert-eq (get roundtripped :label) "test" "roundtrip preserves string")
 (assert-eq (get roundtripped :active) #t "roundtrip preserves boolean")
-(assert-eq (length (get roundtripped :items)) 3 "roundtrip preserves array length")
+(assert-eq (length (get roundtripped :items))
+  3
+  "roundtrip preserves array length")
 
 (println "")
 (println "=== All JSON tests passed! ===")

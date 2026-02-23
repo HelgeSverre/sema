@@ -28,20 +28,17 @@
 ;; Get the text to summarize
 (define text
   (cond
-    ((not (null? file-args))
-     (define path (car file-args))
-     (unless (file/exists? path)
-       (println-error (format "File not found: ~a" path))
-       (exit 1))
-     (println-error (format "Summarizing ~a..." path))
-     (file/read path))
-    ((not (sys/interactive?))
-     (println-error "Summarizing input...")
-     (read-stdin))
-    (else
-     (println-error "Usage: sema summarize.sema -- <file>")
-     (println-error "       cat document.txt | sema summarize.sema")
-     (exit 1))))
+    ((not (null? file-args)) (define path (car file-args))
+      (unless (file/exists? path)
+        (println-error (format "File not found: ~a" path))
+        (exit 1))
+      (println-error (format "Summarizing ~a..." path))
+      (file/read path))
+    ((not (sys/interactive?)) (println-error "Summarizing input...")
+      (read-stdin))
+    (else (println-error "Usage: sema summarize.sema -- <file>")
+      (println-error "       cat document.txt | sema summarize.sema")
+      (exit 1))))
 
 (define system-msg
   (if bullets?

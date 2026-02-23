@@ -8,27 +8,24 @@
 
 (define (deriv a)
   (cond
-    ((not (pair? a))
-     (cond ((= a 'x) 1) (else 0)))
-    ((= (car a) '+)
-     (cons '+ (map deriv (cdr a))))
-    ((= (car a) '-)
-     (cons '- (map deriv (cdr a))))
+    ((not (pair? a)) (cond ((= a 'x) 1) (else 0)))
+    ((= (car a) '+) (cons '+ (map deriv (cdr a))))
+    ((= (car a) '-) (cons '- (map deriv (cdr a))))
     ((= (car a) '*)
-     (list '*
-           a
-           (cons '+ (map deriv-aux (cdr a)))))
+      (list '*
+        a
+        (cons '+ (map deriv-aux (cdr a)))))
     ((= (car a) '/)
-     (list '-
-           (list '/
-                 (deriv (cadr a))
-                 (caddr a))
-           (list '/
-                 (cadr a)
-                 (list '*
-                       (caddr a)
-                       (caddr a)
-                       (deriv (caddr a))))))
+      (list '-
+        (list '/
+          (deriv (cadr a))
+          (caddr a))
+        (list '/
+          (cadr a)
+          (list '*
+            (caddr a)
+            (caddr a)
+            (deriv (caddr a))))))
     (else 'error)))
 
 (define test-expr '(+ (* 3 x x) (* a x x) (* b x) 5))
@@ -39,8 +36,9 @@
 (println "")
 
 (define t0 (time-ms))
-(do ((i 0 (+ i 1)))
-    ((= i 50000))
+(do
+  ((i 0 (+ i 1)))
+  ((= i 50000))
   (deriv test-expr)
   (deriv test-expr)
   (deriv test-expr)

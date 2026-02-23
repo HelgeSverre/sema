@@ -27,8 +27,7 @@
 (define (gen/string-of max-len)
   (fn ()
     (let ((len (math/random-int 0 max-len)))
-      (string/join
-        (map (fn (_) ((gen/char))) (range len))
+      (string/join (map (fn (_) ((gen/char))) (range len))
         ""))))
 
 (define (gen/list-of elem-gen max-len)
@@ -50,34 +49,41 @@
 
 ;; Shrink an integer toward zero
 (define (shrink-int n)
-  (if (= n 0) '()
+  (if (= n 0)
+    '()
     (let ((half (if (> n 0) (floor (/ n 2)) (ceil (/ n 2)))))
       (list 0 half))))
 
 ;; Shrink a list by removing elements
 (define (shrink-list lst)
-  (if (null? lst) '()
+  (if (null? lst)
+    '()
     (cons '()
-      (map (fn (i)
-             (append (take i lst) (drop (+ i 1) lst)))
-           (range (length lst))))))
+      (map
+        (fn (i)
+          (append (take i lst) (drop (+ i 1) lst)))
+        (range (length lst))))))
 
 ;; Shrink a string by removing characters
 (define (shrink-string s)
-  (if (= (string-length s) 0) '()
+  (if (= (string-length s) 0)
+    '()
     (cons ""
-      (map (fn (i)
-             (string-append (substring s 0 i)
-                            (substring s (+ i 1) (string-length s))))
-           (range (string-length s))))))
+      (map
+        (fn (i)
+          (string-append (substring s 0 i)
+            (substring s (+ i 1) (string-length s))))
+        (range (string-length s))))))
 
 ;; Try shrinking a failing value to find a minimal counterexample
 (define (find-minimal prop val shrinker)
   (let loop ((current val) (fuel 50))
-    (if (= fuel 0) current
+    (if (= fuel 0)
+      current
       (let ((candidates (shrinker current)))
         (let check ((cs candidates))
-          (if (null? cs) current
+          (if (null? cs)
+            current
             (if (not (prop (car cs)))
               ;; Found a smaller failing case — keep shrinking
               (loop (car cs) (- fuel 1))
@@ -119,8 +125,10 @@
   (if (= (get result :status) :pass)
     (println (format "  PASS  ~a (~a tests)" name (get result :tests)))
     (begin
-      (println (format "  FAIL  ~a (after ~a tests)" name (get result :after-tests)))
-      (println (format "        counterexample: ~a" (get result :counterexample)))
+      (println
+        (format "  FAIL  ~a (after ~a tests)" name (get result :after-tests)))
+      (println
+        (format "        counterexample: ~a" (get result :counterexample)))
       (when (not (= (get result :counterexample) (get result :shrunk)))
         (println (format "        shrunk to:      ~a" (get result :shrunk)))))))
 
@@ -135,15 +143,15 @@
 
 ;; Addition is commutative
 (report "add-commutative"
-  (check-property-2
-    (fn (a b) (= (+ a b) (+ b a)))
-    (gen/int -1000 1000) (gen/int -1000 1000)
-    nil nil))
+  (check-property-2 (fn (a b) (= (+ a b) (+ b a)))
+    (gen/int -1000 1000)
+    (gen/int -1000 1000)
+    nil
+    nil))
 
 ;; Reversing a list twice gives the original
 (report "reverse-involution"
-  (check-property
-    (fn (lst) (equal? lst (reverse (reverse lst))))
+  (check-property (fn (lst) (equal? lst (reverse (reverse lst))))
     (gen/list-of (gen/int 0 100) 20)
     shrink-list))
 
@@ -153,20 +161,23 @@
     (fn (a b) (= (+ (length a) (length b)) (length (append a b))))
     (gen/list-of (gen/int 0 50) 15)
     (gen/list-of (gen/int 0 50) 15)
-    nil nil))
+    nil
+    nil))
 
 ;; string-length after string-append
 (report "string-append-length"
   (check-property-2
-    (fn (a b) (= (+ (string-length a) (string-length b))
-                 (string-length (string-append a b))))
-    (gen/string-of 20) (gen/string-of 20)
-    nil nil))
+    (fn (a b)
+      (= (+ (string-length a) (string-length b))
+        (string-length (string-append a b))))
+    (gen/string-of 20)
+    (gen/string-of 20)
+    nil
+    nil))
 
 ;; Sort is idempotent
 (report "sort-idempotent"
-  (check-property
-    (fn (lst) (equal? (sort lst) (sort (sort lst))))
+  (check-property (fn (lst) (equal? (sort lst) (sort (sort lst))))
     (gen/list-of (gen/int -100 100) 20)
     shrink-list))
 
@@ -179,15 +190,13 @@
 
 ;; filter result is subset (length <= original)
 (report "filter-subset"
-  (check-property
-    (fn (lst) (<= (length (filter even? lst)) (length lst)))
+  (check-property (fn (lst) (<= (length (filter even? lst)) (length lst)))
     (gen/list-of (gen/int 0 100) 20)
     shrink-list))
 
 ;; abs is always non-negative
 (report "abs-non-negative"
-  (check-property
-    (fn (n) (>= (abs n) 0))
+  (check-property (fn (n) (>= (abs n) 0))
     (gen/int -10000 10000)
     shrink-int))
 
@@ -197,22 +206,19 @@
 
 ;; "All numbers are less than 50" — will find counterexample ≥ 50
 (report "all-less-than-50"
-  (check-property
-    (fn (n) (< n 50))
+  (check-property (fn (n) (< n 50))
     (gen/int 0 100)
     shrink-int))
 
 ;; "All lists have length < 5" — will find a list of length ≥ 5
 (report "all-lists-short"
-  (check-property
-    (fn (lst) (< (length lst) 5))
+  (check-property (fn (lst) (< (length lst) 5))
     (gen/list-of (gen/int 0 10) 10)
     shrink-list))
 
 ;; "Sorting never changes a list" — fails for any unsorted list
 (report "sort-is-identity"
-  (check-property
-    (fn (lst) (equal? lst (sort lst)))
+  (check-property (fn (lst) (equal? lst (sort lst)))
     (gen/list-of (gen/int 0 100) 10)
     shrink-list))
 
@@ -237,7 +243,7 @@
               (p2 (nth points 1))
               (p3 (nth points 2)))
           (<= (distance p1 p3)
-              (+ (distance p1 p2) (distance p2 p3)))))
+            (+ (distance p1 p2) (distance p2 p3)))))
       (fn () (list ((gen/point)) ((gen/point)) ((gen/point))))
       nil)))
 

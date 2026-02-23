@@ -7,31 +7,33 @@
 (define (mandelbrot-iter cr ci max-iter)
   (let loop ((zr 0.0) (zi 0.0) (i 0))
     (if (= i max-iter)
-        max-iter
-        (let ((zr2 (* zr zr))
-              (zi2 (* zi zi)))
-          (if (> (+ zr2 zi2) 4.0)
-              i
-              (loop (+ (- zr2 zi2) cr)
-                    (+ (* 2.0 zr zi) ci)
-                    (+ i 1)))))))
+      max-iter
+      (let ((zr2 (* zr zr))
+            (zi2 (* zi zi)))
+        (if (> (+ zr2 zi2) 4.0)
+          i
+          (loop (+ (- zr2 zi2) cr)
+            (+ (* 2.0 zr zi) ci)
+            (+ i 1)))))))
 
 ;; Compute the full grid, summing iteration counts as a checksum
 (define (mandelbrot-grid width height max-iter)
-  (let ((x-min -2.0) (x-max 1.0)
-        (y-min -1.0) (y-max 1.0))
+  (let ((x-min -2.0)
+        (x-max 1.0)
+        (y-min -1.0)
+        (y-max 1.0))
     (let ((dx (/ (- x-max x-min) width))
           (dy (/ (- y-max y-min) height)))
       (let row-loop ((py 0) (total 0))
         (if (= py height)
-            total
-            (let col-loop ((px 0) (row-sum 0))
-              (if (= px width)
-                  (row-loop (+ py 1) (+ total row-sum))
-                  (let ((cr (+ x-min (* px dx)))
-                        (ci (+ y-min (* py dy))))
-                    (col-loop (+ px 1)
-                              (+ row-sum (mandelbrot-iter cr ci max-iter)))))))))))
+          total
+          (let col-loop ((px 0) (row-sum 0))
+            (if (= px width)
+              (row-loop (+ py 1) (+ total row-sum))
+              (let ((cr (+ x-min (* px dx)))
+                    (ci (+ y-min (* py dy))))
+                (col-loop (+ px 1)
+                  (+ row-sum (mandelbrot-iter cr ci max-iter)))))))))))
 
 (println "=== Mandelbrot Benchmark ===")
 (println "80x40 grid, max 100 iterations per point, 10 repetitions")
@@ -43,8 +45,9 @@
 (define t0 (time-ms))
 (define result
   (let loop ((n 10) (v 0))
-    (if (= n 0) v
-        (loop (- n 1) (mandelbrot-grid 80 40 100)))))
+    (if (= n 0)
+      v
+      (loop (- n 1) (mandelbrot-grid 80 40 100)))))
 (define elapsed (- (time-ms) t0))
 
 (println (format "Result: ~a" result))

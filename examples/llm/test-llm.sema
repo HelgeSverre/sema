@@ -13,16 +13,21 @@
 (println "\n=== Test 2: llm/chat ===")
 (define reply
   (llm/chat
-    [(message :system "Reply with exactly the word YES")
-     (message :user "Do you understand?")]
+    [(message
+       :system
+       "Reply with exactly the word YES")
+     (message
+       :user
+       "Do you understand?")]
     {:max-tokens 10}))
 (println reply)
 
 ;; 3. Prompt as data
 (println "\n=== Test 3: Prompt as data ===")
-(define p (prompt
-  (system "You are a helpful math tutor. Reply with ONLY the number.")
-  (user "What is 7 * 8?")))
+(define p
+  (prompt
+    (system "You are a helpful math tutor. Reply with ONLY the number.")
+    (user "What is 7 * 8?")))
 (define answer (llm/send p {:max-tokens 10}))
 (println answer)
 
@@ -38,7 +43,8 @@
 
 ;; 5. Classification
 (println "\n=== Test 5: llm/classify ===")
-(define sentiment (llm/classify [:positive :negative :neutral] "I absolutely love this!"))
+(define sentiment
+  (llm/classify [:positive :negative :neutral] "I absolutely love this!"))
 (println sentiment)
 
 ;; 6. Conversation
@@ -71,8 +77,12 @@
 
 (define tool-result
   (llm/chat
-    [(message :system "You are a helpful assistant. Use the calculator tool to answer math questions. After getting the result, tell the user.")
-     (message :user "What is 137 * 42?")]
+    [(message
+       :system
+       "You are a helpful assistant. Use the calculator tool to answer math questions. After getting the result, tell the user.")
+     (message
+       :user
+       "What is 137 * 42?")]
     {:tools [calculator]
      :max-tokens 200}))
 (println tool-result)

@@ -20,8 +20,7 @@
 ;; ============================================================
 
 (define phonebook
-  '(("Alice"   "555-1234")
-    ("Bob"     "555-5678")
+  '(("Alice" "555-1234") ("Bob" "555-5678")
     ("Charlie" "555-9012")))
 
 (println "\n=== Association Lists ===")
@@ -46,28 +45,31 @@
 
 ;; Sum 1..10
 (define sum
-  (do ((i 1 (+ i 1))
-       (acc 0 (+ acc i)))
+  (do
+    ((i 1 (+ i 1)) (acc 0 (+ acc i)))
     ((> i 10) acc)))
 (println (format "Sum 1..10:   ~a" sum))
 
 ;; Factorial
 (define fact
-  (do ((n 10 (- n 1))
-       (acc 1 (* acc n)))
+  (do
+    ((n 10 (- n 1)) (acc 1 (* acc n)))
     ((= n 0) acc)))
 (println (format "10!:         ~a" fact))
 
 ;; FizzBuzz 1..15
 (println "FizzBuzz 1..15:")
-(do ((i 1 (+ i 1)))
+(do
+  ((i 1 (+ i 1)))
   ((> i 15))
-  (println (format "  ~a: ~a" i
-    (cond
-      ((= 0 (math/remainder i 15)) "FizzBuzz")
-      ((= 0 (math/remainder i 3))  "Fizz")
-      ((= 0 (math/remainder i 5))  "Buzz")
-      (else                         i)))))
+  (println
+    (format "  ~a: ~a"
+      i
+      (cond
+        ((= 0 (math/remainder i 15)) "FizzBuzz")
+        ((= 0 (math/remainder i 3)) "Fizz")
+        ((= 0 (math/remainder i 5)) "Buzz")
+        (else i)))))
 
 ;; ============================================================
 ;; 4. Characters

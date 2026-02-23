@@ -12,9 +12,9 @@
   (define (digit k) (substring hex-digits k (+ k 1)))
   (define (go x acc)
     (if (< x 16)
-        (string-append (digit x) acc)
-        (go (math/quotient x 16)
-            (string-append (digit (mod x 16)) acc))))
+      (string-append (digit x) acc)
+      (go (math/quotient x 16)
+        (string-append (digit (mod x 16)) acc))))
   (if (= n 0) "0" (go n "")))
 
 (define (u+ cp)
@@ -32,10 +32,11 @@
     (for-each
       (fn (cp)
         (let ((ch (cp->str cp)))
-          (println (format "    ~a  (~a bytes)  ~a"
-            (string/pad-right (u+ cp) 10)
-            (string/byte-length ch)
-            ch))))
+          (println
+            (format "    ~a  (~a bytes)  ~a"
+              (string/pad-right (u+ cp) 10)
+              (string/byte-length ch)
+              ch))))
       cps)))
 
 ;; --- 1) Single vs multi-codepoint emoji ---
@@ -43,8 +44,10 @@
 (println "\n📏 SECTION 1: Size isn't what you think")
 
 (inspect "Grinning face (single codepoint)" "😀")
-(inspect "Heart with VS16 (2 codepoints, 1 glyph)" (string/from-codepoints (list 10084 65039)))
-(inspect "Family ZWJ sequence" (string/from-codepoints (list 128104 8205 128105 8205 128103)))
+(inspect "Heart with VS16 (2 codepoints, 1 glyph)"
+  (string/from-codepoints (list 10084 65039)))
+(inspect "Family ZWJ sequence"
+  (string/from-codepoints (list 128104 8205 128105 8205 128103)))
 
 ;; --- 2) Skin tone modifiers ---
 
@@ -60,8 +63,12 @@
   (fn (pair)
     (let ((tone (first pair)) (name (nth pair 1)))
       (let ((toned (string/from-codepoints (list wave tone))))
-        (println (format "  ~a = ~a + ~a  (~a)"
-          toned (u+ wave) (u+ tone) name)))))
+        (println
+          (format "  ~a = ~a + ~a  (~a)"
+            toned
+            (u+ wave)
+            (u+ tone)
+            name)))))
   (zip skin-tones tone-names))
 
 ;; --- 3) Flags from country codes ---
@@ -76,16 +83,16 @@
         (b (char->integer (string-ref iso 1))))
     (string/from-codepoints
       (list (+ RI-A (- a 65))
-            (+ RI-A (- b 65))))))
+        (+ RI-A (- b 65))))))
 
-(define countries (list
-  (list "NO" "Norway")
-  (list "US" "United States")
-  (list "JP" "Japan")
-  (list "BR" "Brazil")
-  (list "GB" "United Kingdom")
-  (list "IN" "India")
-  (list "ZA" "South Africa")))
+(define countries
+  (list (list "NO" "Norway")
+    (list "US" "United States")
+    (list "JP" "Japan")
+    (list "BR" "Brazil")
+    (list "GB" "United Kingdom")
+    (list "IN" "India")
+    (list "ZA" "South Africa")))
 
 (println "")
 (for-each
@@ -103,55 +110,64 @@
 
 (define (zwj-join . emojis)
   (define cps
-    (foldl (fn (acc emoji)
-      (if (null? acc)
-        (string/codepoints emoji)
-        (append acc (list ZWJ) (string/codepoints emoji))))
+    (foldl
+      (fn (acc emoji)
+        (if (null? acc)
+          (string/codepoints emoji)
+          (append acc (list ZWJ) (string/codepoints emoji))))
       (list)
       emojis))
   (string/from-codepoints cps))
 
 ;; People codepoints
-(define man (cp->str 128104))      ;; 👨
-(define woman (cp->str 128105))    ;; 👩
-(define boy (cp->str 128102))      ;; 👦
-(define girl (cp->str 128103))     ;; 👧
-(define baby (cp->str 128118))     ;; 👶
-(define heart (cp->str 10084))     ;; ❤
+(define man (cp->str 128104)) ;; 👨
+(define woman (cp->str 128105)) ;; 👩
+(define boy (cp->str 128102)) ;; 👦
+(define girl (cp->str 128103)) ;; 👧
+(define baby (cp->str 128118)) ;; 👶
+(define heart (cp->str 10084)) ;; ❤
 (define kiss-mark (cp->str 128139)) ;; 💋
 
 ;; Build families by combining people
 (println "\n  👪 Families (person + ZWJ + person + ...)")
-(define families (list
-  (list (zwj-join man woman boy)           "👨 + 👩 + 👦")
-  (list (zwj-join man woman girl boy)      "👨 + 👩 + 👧 + 👦")
-  (list (zwj-join man woman girl girl)     "👨 + 👩 + 👧 + 👧")
-  (list (zwj-join woman woman boy)         "👩 + 👩 + 👦")
-  (list (zwj-join man man girl)            "👨 + 👨 + 👧")
-  (list (zwj-join man boy boy)             "👨 + 👦 + 👦")
-  (list (zwj-join woman girl)              "👩 + 👧")))
+(define families
+  (list (list (zwj-join man woman boy) "👨 + 👩 + 👦")
+    (list (zwj-join man woman girl boy) "👨 + 👩 + 👧 + 👦")
+    (list (zwj-join man woman girl girl) "👨 + 👩 + 👧 + 👧")
+    (list (zwj-join woman woman boy) "👩 + 👩 + 👦")
+    (list (zwj-join man man girl) "👨 + 👨 + 👧")
+    (list (zwj-join man boy boy) "👨 + 👦 + 👦")
+    (list (zwj-join woman girl) "👩 + 👧")))
 
 (for-each
   (fn (entry)
     (let ((emoji (first entry)) (recipe (nth entry 1)))
-      (println (format "    ~a  =  ~a  (~a codepoints, ~a bytes)"
-        emoji recipe (string-length emoji) (string/byte-length emoji)))))
+      (println
+        (format "    ~a  =  ~a  (~a codepoints, ~a bytes)"
+          emoji
+          recipe
+          (string-length emoji)
+          (string/byte-length emoji)))))
   families)
 
 ;; Couples: person + ZWJ + heart + VS16 + ZWJ + kiss + ZWJ + person
 (define VS16 (cp->str 65039))
-(println "\n  💑 Couples (person + ZWJ + ❤ + VS16 + ZWJ + 💋 + ZWJ + person)")
+(println
+  "\n  💑 Couples (person + ZWJ + ❤ + VS16 + ZWJ + 💋 + ZWJ + person)")
 (define (make-couple a b)
   (string/from-codepoints
     (append (string/codepoints a)
-            (list ZWJ) (string/codepoints heart) (list 65039 ZWJ)
-            (string/codepoints kiss-mark) (list ZWJ)
-            (string/codepoints b))))
+      (list ZWJ)
+      (string/codepoints heart)
+      (list 65039 ZWJ)
+      (string/codepoints kiss-mark)
+      (list ZWJ)
+      (string/codepoints b))))
 
-(define couples (list
-  (list (make-couple man woman)  "👨 + ❤️ + 💋 + 👩")
-  (list (make-couple woman woman) "👩 + ❤️ + 💋 + 👩")
-  (list (make-couple man man)    "👨 + ❤️ + 💋 + 👨")))
+(define couples
+  (list (list (make-couple man woman) "👨 + ❤️ + 💋 + 👩")
+    (list (make-couple woman woman) "👩 + ❤️ + 💋 + 👩")
+    (list (make-couple man man) "👨 + ❤️ + 💋 + 👨")))
 
 (for-each
   (fn (entry)
@@ -160,22 +176,26 @@
 
 ;; Professions: person + ZWJ + object
 (println "\n  👩‍🍳 Professions (person + ZWJ + object)")
-(define objects (list
-  (list (cp->str 128187) "💻" "technologist")
-  (list (cp->str 127859) "🍳" "cook")
-  (list (cp->str 128300) "🔬" "scientist")
-  (list (cp->str 127912) "🎨" "artist")
-  (list (cp->str 128640) "🚀" "astronaut")
-  (list (cp->str 9876)   "⚗" "alchemist")
-  (list (cp->str 127793) "🌱" "farmer")
-  (list (cp->str 128295) "🔧" "mechanic")))
+(define objects
+  (list (list (cp->str 128187) "💻" "technologist")
+    (list (cp->str 127859) "🍳" "cook")
+    (list (cp->str 128300) "🔬" "scientist")
+    (list (cp->str 127912) "🎨" "artist")
+    (list (cp->str 128640) "🚀" "astronaut")
+    (list (cp->str 9876) "⚗" "alchemist")
+    (list (cp->str 127793) "🌱" "farmer")
+    (list (cp->str 128295) "🔧" "mechanic")))
 
 (for-each
   (fn (obj)
     (let ((tool (first obj)) (icon (nth obj 1)) (title (nth obj 2)))
       (let ((m (zwj-join man tool)) (w (zwj-join woman tool)))
-        (println (format "    ~a ~a  =  👨/👩 + ~a  (~a)"
-          m w icon title)))))
+        (println
+          (format "    ~a ~a  =  👨/👩 + ~a  (~a)"
+            m
+            w
+            icon
+            title)))))
   objects)
 
 ;; Skin tones on composed emoji!
@@ -185,9 +205,12 @@
 (println "    Woman astronaut in all tones:")
 (define tone-row
   (string/join
-    (map (fn (t)
-      (string/from-codepoints
-        (append (string/codepoints woman) (list t ZWJ) (string/codepoints astronaut))))
+    (map
+      (fn (t)
+        (string/from-codepoints
+          (append (string/codepoints woman)
+            (list t ZWJ)
+            (string/codepoints astronaut))))
       tones)
     " "))
 (println (format "    ~a" tone-row))
@@ -197,12 +220,14 @@
 (println "\n\n🔄 SECTION 5: Reversing Breaks Emoji Sequences")
 
 (define family (string/from-codepoints (list 128104 8205 128105 8205 128103)))
-(println (format "  Family:   ~a  (codepoints: ~a)" family (string-length family)))
+(println
+  (format "  Family:   ~a  (codepoints: ~a)" family (string-length family)))
 (define family-rev (string/reverse family))
 (println (format "  Reversed: ~a  (ZWJ bonds broken!)" family-rev))
 
 (define waving (string/from-codepoints (list wave 127997)))
-(println (format "\n  Wave:     ~a  (codepoints: ~a)" waving (string-length waving)))
+(println
+  (format "\n  Wave:     ~a  (codepoints: ~a)" waving (string-length waving)))
 (define wave-rev (string/reverse waving))
 (println (format "  Reversed: ~a  (skin tone detached!)" wave-rev))
 
@@ -211,27 +236,33 @@
 (println "\n\n📊 SECTION 6: Byte Size Heatmap")
 (println "Same 'one glyph' can be wildly different byte counts:\n")
 
-(define specimens (list
-  (list "A" "Latin A")
-  (list "é" "Accented e")
-  (list "☕" "Coffee")
-  (list "😀" "Grinning face")
-  (list (string/from-codepoints (list 10084 65039)) "Heart+VS16")
-  (list (string/from-codepoints (list wave 127997)) "Wave+skin")
-  (list (flag-from-iso "NO") "Flag NO")
-  (list (string/from-codepoints (list 128104 8205 128105 8205 128103)) "Family")))
+(define specimens
+  (list (list "A" "Latin A")
+    (list "é" "Accented e")
+    (list "☕" "Coffee")
+    (list "😀" "Grinning face")
+    (list (string/from-codepoints (list 10084 65039)) "Heart+VS16")
+    (list (string/from-codepoints (list wave 127997)) "Wave+skin")
+    (list (flag-from-iso "NO") "Flag NO")
+    (list (string/from-codepoints (list 128104 8205 128105 8205 128103))
+      "Family")))
 
 (for-each
   (fn (entry)
     (let ((glyph (first entry)) (name (nth entry 1)))
       (let* ((bytes (string/byte-length glyph))
              (bar-len (min bytes 20)))
-        (println (format "  ~a  ~a  ~a"
-          (string/pad-right glyph 4)
-          (string/pad-right (string-append (string/repeat "█" bar-len)
-                                           (string/repeat "░" (- 20 bar-len))) 20)
-          (format "~a bytes (~a codepoints) — ~a"
-            bytes (string-length glyph) name))))))
+        (println
+          (format "  ~a  ~a  ~a"
+            (string/pad-right glyph 4)
+            (string/pad-right
+              (string-append (string/repeat "█" bar-len)
+                (string/repeat "░" (- 20 bar-len)))
+              20)
+            (format "~a bytes (~a codepoints) — ~a"
+              bytes
+              (string-length glyph)
+              name))))))
   specimens)
 
 ;; --- 7) Emoji cipher ---
@@ -260,6 +291,8 @@
 (println (format "  Original:  ~a" message))
 (println (format "  Shift +~a: ~a" shift encoded))
 (println (format "  Decoded:   ~a" decoded))
-(println (format "  Match?     ~a" (if (string-ci=? message decoded) "✅ Yes!" "❌ No")))
+(println
+  (format "  Match?     ~a"
+    (if (string-ci=? message decoded) "✅ Yes!" "❌ No")))
 
 (println "\n🎉 Done!")

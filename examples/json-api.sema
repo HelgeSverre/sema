@@ -6,12 +6,15 @@
 (println "--- Encoding to JSON ---\n")
 
 (define user
-  (hash-map "name" "Alice"
-            "age" 30
-            "email" "alice@example.com"
-            "tags" (list "admin" "verified")
-            "address" (hash-map "city" "Oslo"
-                                "country" "Norway")))
+  (hash-map
+    "name" "Alice"
+    "age" 30
+    "email" "alice@example.com"
+    "tags" (list "admin" "verified")
+    "address"
+      (hash-map
+        "city" "Oslo"
+        "country" "Norway")))
 
 (println "Sema value:")
 (println f"  ${user}\n")
@@ -21,20 +24,22 @@
 ;; --- Decoding JSON strings ---
 (println "\n--- Decoding JSON ---\n")
 
-(define json-str "{\"id\":42,\"title\":\"Hello World\",\"published\":true,\"scores\":[95,87,92]}")
+(define json-str
+  "{\"id\":42,\"title\":\"Hello World\",\"published\":true,\"scores\":[95,87,92]}")
 (println f"Input: ${json-str}")
 
 (define parsed (json/decode json-str))
 (println f"Title: ${(get parsed :title)}")
 (println f"Published? ${(get parsed :published)}")
 (println f"Scores: ${(get parsed :scores)}")
-(println f"Avg score: ${(/ (list/sum (get parsed :scores))
+(println
+  f"Avg score: ${(/ (list/sum (get parsed :scores))
                             (length (get parsed :scores)))}")
 
 ;; --- Roundtrip ---
 (println "\n--- Roundtrip Encode/Decode ---\n")
 
-(define original (hash-map "x" 1 "y" (list 2 3) "z" (hash-map "nested" true)))
+(define original (hash-map "x" 1 "y" (list 2 3) "z" (hash-map "nested" #t)))
 (define json-roundtrip (json/encode original))
 (define roundtripped (json/decode json-roundtrip))
 (println f"Original:     ${original}")
@@ -62,14 +67,16 @@
 (println f"Categories: ${(keys by-category)}")
 
 (define price-summary
-  (map (fn (cat)
-    (let* ((items (get by-category cat))
-           (prices (map #(get % :price) items)))
-      (hash-map "category" cat
-                "count" (length items)
-                "total" (list/sum prices)
-                "avg" (/ (list/sum prices) (length prices)))))
-  (keys by-category)))
+  (map
+    (fn (cat)
+      (let* ((items (get by-category cat))
+             (prices (map #(get % :price) items)))
+        (hash-map
+          "category" cat
+          "count" (length items)
+          "total" (list/sum prices)
+          "avg" (/ (list/sum prices) (length prices)))))
+    (keys by-category)))
 
 (println "\nPrice summary:")
 (println (json/encode-pretty price-summary))
@@ -78,21 +85,23 @@
 (println "\n--- API Response Builder ---\n")
 
 (defun api-ok (data)
-  (hash-map "status" 200 "ok" true "data" data))
+  (hash-map "status" 200 "ok" #t "data" data))
 
 (defun api-error (code message)
-  (hash-map "status" code "ok" false "error" message))
+  (hash-map "status" code "ok" #f "error" message))
 
 (defun api-paginated (items page per-page)
   (let* ((total (length items))
          (start (* (- page 1) per-page))
          (page-items (take per-page (drop start items)))
          (total-pages (ceil (/ total per-page))))
-    (api-ok (hash-map "items" page-items
-                      "page" page
-                      "per_page" per-page
-                      "total" total
-                      "total_pages" total-pages))))
+    (api-ok
+      (hash-map
+        "items" page-items
+        "page" page
+        "per_page" per-page
+        "total" total
+        "total_pages" total-pages))))
 
 (println "Success response:")
 (println (json/encode-pretty (api-ok (hash-map "user" "Alice" "role" "admin"))))

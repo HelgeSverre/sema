@@ -31,28 +31,28 @@
 
     ;; Lists
     ((list? val)
-     (if (null? val)
-       "()"
-       (let ((flat-repr (flat val)))
-         (if (<= (+ indent (string-length flat-repr)) pp-width)
-           ;; Fits on one line
-           flat-repr
-           ;; Multi-line
-           (pp-list val indent)))))
+      (if (null? val)
+        "()"
+        (let ((flat-repr (flat val)))
+          (if (<= (+ indent (string-length flat-repr)) pp-width)
+            ;; Fits on one line
+            flat-repr
+            ;; Multi-line
+            (pp-list val indent)))))
 
     ;; Vectors
     ((vector? val)
-     (let ((flat-repr (flat val)))
-       (if (<= (+ indent (string-length flat-repr)) pp-width)
-         flat-repr
-         (pp-vector val indent))))
+      (let ((flat-repr (flat val)))
+        (if (<= (+ indent (string-length flat-repr)) pp-width)
+          flat-repr
+          (pp-vector val indent))))
 
     ;; Maps
     ((map? val)
-     (let ((flat-repr (flat val)))
-       (if (<= (+ indent (string-length flat-repr)) pp-width)
-         flat-repr
-         (pp-map val indent))))
+      (let ((flat-repr (flat val)))
+        (if (<= (+ indent (string-length flat-repr)) pp-width)
+          flat-repr
+          (pp-map val indent))))
 
     ;; Fallback
     (else (flat val))))
@@ -60,20 +60,28 @@
 ;; Pretty-print a list in multi-line format
 (define (pp-list lst indent)
   (let* ((head (car lst))
-         (is-special (and (symbol? head)
-                          (let ((s (str head)))
-                            (or (= s "define") (= s "defmacro")
-                                (= s "fn") (= s "lambda")
-                                (= s "let") (= s "let*")
-                                (= s "if") (= s "cond")
-                                (= s "when") (= s "unless")
-                                (= s "begin") (= s "do")))))
+         (is-special
+           (and (symbol? head)
+             (let ((s (str head)))
+               (or (= s "define")
+                 (= s "defmacro")
+                 (= s "fn")
+                 (= s "lambda")
+                 (= s "let")
+                 (= s "let*")
+                 (= s "if")
+                 (= s "cond")
+                 (= s "when")
+                 (= s "unless")
+                 (= s "begin")
+                 (= s "do")))))
          (child-indent (+ indent pp-indent))
-         (items (if is-special
-                  ;; Special forms: keep first 1-2 args on the same line
-                  (pp-special lst indent)
-                  ;; Regular calls: try to keep args flowing
-                  (pp-call lst indent))))
+         (items
+           (if is-special
+             ;; Special forms: keep first 1-2 args on the same line
+             (pp-special lst indent)
+             ;; Regular calls: try to keep args flowing
+             (pp-call lst indent))))
     items))
 
 ;; Format a special form (define, let, if, etc.)
@@ -87,12 +95,16 @@
       ;; Put head + first arg on line 1, rest indented
       (let* ((first-arg (car rest-items))
              (more (cdr rest-items))
-             (line1 (str "(" head " " (pp first-arg (+ indent (string-length (str head)) 2)))))
+             (line1
+               (str "("
+                 head
+                 " "
+                 (pp first-arg (+ indent (string-length (str head)) 2)))))
         (if (null? more)
           (str line1 ")")
-          (string-append line1 "\n"
-            (string/join
-              (map (fn (item) (str pad (pp item child-indent))) more)
+          (string-append line1
+            "\n"
+            (string/join (map (fn (item) (str pad (pp item child-indent))) more)
               "\n")
             ")"))))))
 
@@ -119,10 +131,13 @@
   (let* ((child-indent (+ indent 1))
          (pad (string/repeat " " child-indent))
          (entries (map/entries m))
-         (lines (map (fn (entry)
-                       (str (pp (car entry) child-indent) " "
-                            (pp (cadr entry) (+ child-indent (flat-length (car entry)) 1))))
-                     entries)))
+         (lines
+           (map
+             (fn (entry)
+               (str (pp (car entry) child-indent)
+                 " "
+                 (pp (cadr entry) (+ child-indent (flat-length (car entry)) 1))))
+             entries)))
     (string-append "{"
       (string/join lines (str "\n" pad))
       "}")))
@@ -148,40 +163,46 @@
 
 ;; Nested list (multi-line)
 (println "\n--- Nested expression ---")
-(pretty-print '(define (fibonacci n)
-                 (let loop ((i n) (a 0) (b 1))
-                   (if (= i 0) a (loop (- i 1) b (+ a b))))))
+(pretty-print
+  '(define (fibonacci n)
+    (let loop ((i n) (a 0) (b 1))
+      (if (= i 0) a (loop (- i 1) b (+ a b))))))
 
 ;; Deep nesting
 (println "\n--- Deep nesting ---")
-(pretty-print '(define (process-data items)
-                 (let ((filtered (filter valid? items))
-                       (transformed (map transform filtered))
-                       (sorted (sort transformed)))
-                   (if (null? sorted)
-                     (error "no valid items")
-                     (take 10 sorted)))))
+(pretty-print
+  '(define (process-data items)
+    (let ((filtered (filter valid? items))
+          (transformed (map transform filtered))
+          (sorted (sort transformed)))
+      (if (null? sorted)
+        (error "no valid items")
+        (take 10 sorted)))))
 
 ;; Map
 (println "\n--- Map ---")
-(pretty-print {:name "Alice" :age 30 :hobbies (list "reading" "hiking" "coding")
-               :address {:street "123 Main St" :city "Wonderland" :zip "00000"}})
+(pretty-print
+  {:name "Alice"
+   :age 30
+   :hobbies (list "reading" "hiking" "coding")
+   :address {:street "123 Main St" :city "Wonderland" :zip "00000"}})
 
 ;; Vector of records
 (println "\n--- Complex data ---")
-(pretty-print (list
-  {:id 1 :name "Task A" :status :done :tags (list :urgent :backend)}
-  {:id 2 :name "Task B" :status :pending :tags (list :frontend)}
-  {:id 3 :name "Task C" :status :in-progress :tags (list :backend :database)}))
+(pretty-print
+  (list {:id 1 :name "Task A" :status :done :tags (list :urgent :backend)}
+    {:id 2 :name "Task B" :status :pending :tags (list :frontend)}
+    {:id 3 :name "Task C" :status :in-progress :tags (list :backend :database)}))
 
 ;; Code-like structure
 (println "\n--- Lambda with body ---")
-(pretty-print '(fn (request)
-                 (let ((method (get request :method))
-                       (path (get request :path)))
-                   (cond
-                     ((= method "GET") (handle-get path))
-                     ((= method "POST") (handle-post path (get request :body)))
-                     (else (error "unsupported method"))))))
+(pretty-print
+  '(fn (request)
+    (let ((method (get request :method))
+          (path (get request :path)))
+      (cond
+        ((= method "GET") (handle-get path))
+        ((= method "POST") (handle-post path (get request :body)))
+        (else (error "unsupported method"))))))
 
 (println "\nDone!")

@@ -19,11 +19,12 @@
   (let* ((id (uuid))
          (dir (sessions-dir))
          (path (string-append dir id ".ndjson"))
-         (header {:type "session"
-                  :id id
-                  :cwd cwd
-                  :model model
-                  :timestamp (timestamp)}))
+         (header
+           {:type "session"
+            :id id
+            :cwd cwd
+            :model model
+            :timestamp (timestamp)}))
     (ensure-dir dir)
     (file/write path (string-append (json/encode header) "\n"))
     {:id id
@@ -38,9 +39,10 @@
 
 (define (session/append session entry-map)
   (let* ((path (get session :path))
-         (existing (try
-                     (file/read path)
-                     (catch e "")))
+         (existing
+           (try
+             (file/read path)
+             (catch e "")))
          (line (string-append (json/encode entry-map) "\n")))
     (file/write path (string-append existing line))))
 
@@ -61,35 +63,36 @@
 
 (define (session/load path)
   (let* ((raw (file/read path))
-         (lines (filter
-                  (fn (s) (> (string-length (string/trim s)) 0))
-                  (string/split raw "\n")))
+         (lines
+           (filter (fn (s) (> (string-length (string/trim s)) 0))
+             (string/split raw "\n")))
          (entries (map json/decode lines)))
     ;; Extract session header
-    (let* ((header (car (filter (fn (e) (equal? (get e :type) "session")) entries)))
+    (let* ((header
+             (car (filter (fn (e) (equal? (get e :type) "session")) entries)))
            ;; Find last compaction index (if any)
            (compaction-idx
              (let loop ((i 0) (found -1) (rest entries))
                (if (null? rest)
                  found
                  (loop (+ i 1)
-                       (if (equal? (get (car rest) :type) "compaction") i found)
-                       (cdr rest)))))
+                   (if (equal? (get (car rest) :type) "compaction") i found)
+                   (cdr rest)))))
            ;; Build messages: if compaction exists, start from its summary
            (messages
              (if (= compaction-idx -1)
                ;; No compaction — collect all message entries
                (map (fn (e) {:role (get e :role) :content (get e :content)})
-                    (filter (fn (e) (equal? (get e :type) "message")) entries))
+                 (filter (fn (e) (equal? (get e :type) "message")) entries))
                ;; Compaction found — summary + messages after it
                (let* ((compaction-entry (nth entries compaction-idx))
                       (summary (get compaction-entry :summary))
-                      (after (filter
-                               (fn (e) (equal? (get e :type) "message"))
-                               (drop entries (+ compaction-idx 1)))))
+                      (after
+                        (filter (fn (e) (equal? (get e :type) "message"))
+                          (drop entries (+ compaction-idx 1)))))
                  (cons {:role "user" :content summary}
-                       (map (fn (e) {:role (get e :role) :content (get e :content)})
-                            after)))))
+                   (map (fn (e) {:role (get e :role) :content (get e :content)})
+                     after)))))
            ;; Find latest plan entry (if any)
            (plan
              (let loop ((rest (reverse entries)) (found ""))
@@ -104,9 +107,9 @@
                (if (null? rest)
                  m
                  (loop (cdr rest)
-                       (if (equal? (get (car rest) :type) "model-change")
-                         (get (car rest) :model)
-                         m))))))
+                   (if (equal? (get (car rest) :type) "model-change")
+                     (get (car rest) :model)
+                     m))))))
       {:id (get header :id)
        :path path
        :messages messages
@@ -122,38 +125,43 @@
   (let ((dir (sessions-dir)))
     (if (not (file/exists? dir))
       '()
-      (let* ((files (filter
-                      (fn (f) (string/ends-with? f ".ndjson"))
-                      (file/list dir))))
+      (let* ((files
+               (filter (fn (f) (string/ends-with? f ".ndjson"))
+                 (file/list dir))))
         (map
           (fn (f)
             (try
               (let* ((path (string-append dir f))
                      (raw (file/read path))
-                     (lines (filter
-                              (fn (s) (> (string-length (string/trim s)) 0))
-                              (string/split raw "\n")))
+                     (lines
+                       (filter (fn (s) (> (string-length (string/trim s)) 0))
+                         (string/split raw "\n")))
                      (header (json/decode (car lines)))
                      ;; Find first user message for preview
-                     (msg-lines (filter
-                                  (fn (s)
-                                    (let ((parsed (json/decode s)))
-                                      (and (equal? (get parsed :type) "message")
-                                           (equal? (get parsed :role) "user"))))
-                                  lines))
-                     (preview (if (null? msg-lines)
-                                ""
-                                (truncate-str
-                                  (get (json/decode (car msg-lines)) :content)
-                                  80))))
+                     (msg-lines
+                       (filter
+                         (fn (s)
+                           (let ((parsed (json/decode s)))
+                             (and (equal? (get parsed :type) "message")
+                               (equal? (get parsed :role) "user"))))
+                         lines))
+                     (preview
+                       (if (null? msg-lines)
+                         ""
+                         (truncate-str
+                           (get (json/decode (car msg-lines)) :content)
+                           80))))
                 {:id (get header :id)
                  :path path
                  :timestamp (get header :timestamp)
                  :cwd (get header :cwd)
                  :preview preview})
               (catch e
-                {:id f :path (string-append dir f)
-                 :timestamp 0 :cwd "" :preview "(error reading session)"})))
+                {:id f
+                 :path (string-append dir f)
+                 :timestamp 0
+                 :cwd ""
+                 :preview "(error reading session)"})))
           files)))))
 
 ;; ============================================================

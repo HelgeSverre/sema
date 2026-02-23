@@ -78,9 +78,10 @@
   "Split text on newlines and prepend 1-indexed line numbers."
   (define lines (string/split text "\n"))
   (define numbered
-    (map (lambda (pair)
-           (format "~a\t~a" (+ 1 (car pair)) (cdr pair)))
-         (zip (range 0 (length lines)) lines)))
+    (map
+      (lambda (pair)
+        (format "~a\t~a" (+ 1 (car pair)) (cdr pair)))
+      (zip (range 0 (length lines)) lines)))
   (string/join numbered "\n"))
 
 (define (count-lines text)

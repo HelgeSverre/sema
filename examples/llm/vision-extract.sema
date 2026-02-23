@@ -11,8 +11,8 @@
 (println "=== Extract from image ===")
 (define result
   (llm/extract-from-image
-    {:text        {:type :string :description "Any visible text"}
-     :colors      {:type :string :description "Dominant colors"}
+    {:text {:type :string :description "Any visible text"}
+     :colors {:type :string :description "Dominant colors"}
      :description {:type :string :description "Brief description"}}
     "assets/logo.png"))
 
@@ -24,8 +24,10 @@
 ;; 2. Vision in a conversation (multi-modal chat)
 (println "\n=== Multi-modal chat ===")
 (define img (file/read-bytes "assets/logo.png"))
-(define msg (message/with-image :user
-  "Describe this image in one sentence." img))
+(define msg
+  (message/with-image :user
+    "Describe this image in one sentence."
+    img))
 (define reply (llm/chat (list msg) {:max-tokens 100}))
 (println (format "Reply: ~a" reply))
 

@@ -3,7 +3,8 @@
 
 ;; Create a temporary data file
 (define tmp-file "/tmp/sema-streaming-demo.txt")
-(file/write tmp-file "Tokyo;35.6
+(file/write tmp-file
+  "Tokyo;35.6
 London;51.5
 Paris;48.9
 New York;40.7
@@ -42,10 +43,10 @@ Berlin;52.5")
     (fn (acc line)
       (let ((parts (string/split line ";")))
         (let ((name (first parts))
-              (lat  (float (string->number (nth parts 1)))))
+              (lat (float (string->number (nth parts 1)))))
           (if (> lat 0)
-              (append acc (list name))
-              acc))))
+            (append acc (list name))
+            acc))))
     '()))
 (println (format "Northern hemisphere: ~a" northern-cities))
 

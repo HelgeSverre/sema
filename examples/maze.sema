@@ -38,12 +38,15 @@
   (filter
     (fn (entry)
       (let ((nx (car entry)) (ny (cadr entry)))
-        (and (>= nx 0) (< nx width)
-             (>= ny 0) (< ny height)
-             (not (get grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #f)))))
-    (map (fn (dir)
-           (list (+ cx (car dir)) (+ cy (cadr dir)) (car dir) (cadr dir)))
-         (shuffle directions))))
+        (and (>= nx 0)
+          (< nx width)
+          (>= ny 0)
+          (< ny height)
+          (not (get grid (pos (+ (* nx 2) 1) (+ (* ny 2) 1)) #f)))))
+    (map
+      (fn (dir)
+        (list (+ cx (car dir)) (+ cy (cadr dir)) (car dir) (cadr dir)))
+      (shuffle directions))))
 
 ;; Iterative depth-first maze carving
 ;; Stack is a list of (cx cy) cells to backtrack to.
@@ -80,8 +83,11 @@
 
 ;; Check if position (x,y) is a wall
 (define (wall? grid x y)
-  (and (>= x 0) (< x grid-w) (>= y 0) (< y grid-h)
-       (not (get grid (pos x y) #f))))
+  (and (>= x 0)
+    (< x grid-w)
+    (>= y 0)
+    (< y grid-h)
+    (not (get grid (pos x y) #f))))
 
 ;; Double-wide box chars to correct for ~2:1 char aspect ratio
 (define (box-char grid x y)
@@ -91,11 +97,21 @@
          (r (wall? grid (+ x 1) y))
          (bits (+ (if u 1 0) (if d 2 0) (if l 4 0) (if r 8 0))))
     (cond
-      ((= bits 15) "┼─")  ((= bits 14) "┬─")  ((= bits 13) "┴─")
-      ((= bits 11) "├─")  ((= bits  7) "┤ ")  ((= bits  6) "┐ ")
-      ((= bits 10) "┌─")  ((= bits  5) "┘ ")  ((= bits  9) "└─")
-      ((= bits 12) "──")  ((= bits  3) "│ ")  ((= bits  1) "│ ")
-      ((= bits  2) "│ ")  ((= bits  4) "─ ")  ((= bits  8) "──")
+      ((= bits 15) "┼─")
+      ((= bits 14) "┬─")
+      ((= bits 13) "┴─")
+      ((= bits 11) "├─")
+      ((= bits 7) "┤ ")
+      ((= bits 6) "┐ ")
+      ((= bits 10) "┌─")
+      ((= bits 5) "┘ ")
+      ((= bits 9) "└─")
+      ((= bits 12) "──")
+      ((= bits 3) "│ ")
+      ((= bits 1) "│ ")
+      ((= bits 2) "│ ")
+      ((= bits 4) "─ ")
+      ((= bits 8) "──")
       (else "· "))))
 
 (define (render grid)
@@ -103,9 +119,10 @@
     (fn (y)
       (println
         (string/join
-          (map (fn (x)
-                 (if (get grid (pos x y) #f) "  " (box-char grid x y)))
-               (range grid-w))
+          (map
+            (fn (x)
+              (if (get grid (pos x y) #f) "  " (box-char grid x y)))
+            (range grid-w))
           "")))
     (range grid-h)))
 

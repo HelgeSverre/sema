@@ -27,10 +27,11 @@
   (foldl (fn (acc f) (fn (x) (f (acc x)))) (fn (x) x) fns))
 
 (define process
-  (pipe
-    #(* % 2)            ;; double
-    #(+ % 10)           ;; add 10
-    #(* % %)))           ;; square
+  (pipe #(* % 2)
+    ;; double
+    #(+ % 10)
+    ;; add 10
+    #(* % %))) ;; square
 
 (println f"pipe(double, +10, square)(5) = ${(process 5)}")
 ;; 5 → 10 → 20 → 400
@@ -83,8 +84,10 @@
 ;; Example: safe nested map access
 (define config {:db {:host "localhost" :port 5432} :cache nil})
 
-(println f"\nConfig db host: ${(maybe-or (maybe-map #(get % :host) (get config :db)) "unknown")}")
-(println f"Config cache host: ${(maybe-or (maybe-map #(get % :host) (get config :cache)) "not configured")}")
+(println
+  f"\nConfig db host: ${(maybe-or (maybe-map #(get % :host) (get config :db)) "unknown")}")
+(println
+  f"Config cache host: ${(maybe-or (maybe-map #(get % :host) (get config :cache)) "not configured")}")
 
 ;; === 5. Error Handling Patterns ===
 
@@ -140,20 +143,23 @@
     (make-tree val nil nil)
     (cond
       ((< val (tree-val tree))
-       (make-tree (tree-val tree) (tree-insert (tree-left tree) val) (tree-right tree)))
+        (make-tree (tree-val tree)
+          (tree-insert (tree-left tree) val)
+          (tree-right tree)))
       ((> val (tree-val tree))
-       (make-tree (tree-val tree) (tree-left tree) (tree-insert (tree-right tree) val)))
+        (make-tree (tree-val tree)
+          (tree-left tree)
+          (tree-insert (tree-right tree) val)))
       (else tree))))
 
 (define (tree-inorder tree)
   (if (nil? tree)
     '()
     (append (tree-inorder (tree-left tree))
-            (list (tree-val tree))
-            (tree-inorder (tree-right tree)))))
+      (list (tree-val tree))
+      (tree-inorder (tree-right tree)))))
 
-(define bst
-  (foldl tree-insert nil (list 5 3 7 1 4 6 8 2)))
+(define bst (foldl tree-insert nil (list 5 3 7 1 4 6 8 2)))
 
 (println f"\nBST inorder traversal: ${(tree-inorder bst)}")
 
@@ -161,14 +167,16 @@
 
 (defmacro assert (expr msg)
   `(when (not ,expr)
-     (error f"Assertion failed: ${',expr} — ${,msg}")))
+    (error f"Assertion failed: ${',expr} — ${,msg}")))
 
 (defmacro test-case (name . body)
   `(begin
-     (display f"  ${,name}... ")
-     (try
-       (begin ,@body (println "OK"))
-       (catch e (println f"FAIL: ${(:message e)}")))))
+    (display f"  ${,name}... ")
+    (try
+      (begin
+        ,@body
+        (println "OK"))
+      (catch e (println f"FAIL: ${(:message e)}")))))
 
 (println "\nRunning test suite:")
 (test-case "addition"
@@ -176,9 +184,11 @@
 (test-case "string ops"
   (assert (= (string-length "hello") 5) "length should be 5"))
 (test-case "list ops"
-  (assert (= (length (list/unique '(1 1 2 2 3))) 3) "unique should have 3 elements"))
+  (assert (= (length (list/unique '(1 1 2 2 3))) 3)
+    "unique should have 3 elements"))
 (test-case "map ops"
-  (assert (= (get (map/update {:n 0} :n #(+ % 1)) :n) 1) "update should increment"))
+  (assert (= (get (map/update {:n 0} :n #(+ % 1)) :n) 1)
+    "update should increment"))
 
 ;; === 9. Accumulator Pattern with Named Let ===
 

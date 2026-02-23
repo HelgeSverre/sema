@@ -11,9 +11,12 @@
 ;; ============================================================
 
 (define (estimate-tokens messages)
-  (let ((total-chars (foldl (fn (acc msg)
-                              (+ acc (string-length (get msg :content ""))))
-                            0 messages)))
+  (let ((total-chars
+          (foldl
+            (fn (acc msg)
+              (+ acc (string-length (get msg :content ""))))
+            0
+            messages)))
     (/ total-chars 4)))
 
 ;; ============================================================
@@ -34,19 +37,23 @@
            (old-count (- (length messages) recent-count))
            (old-messages (take old-count messages))
            (recent-messages (drop old-count messages))
-           (formatted (string/join
-                        (map (fn (msg)
-                               (format "~a: ~a"
-                                       (get msg :role "unknown")
-                                       (get msg :content "")))
-                             old-messages)
-                        "\n\n"))
-           (summary (llm/chat
-                      (list {:role "user" :content formatted})
-                      {:system "Summarize the following conversation concisely. Focus on:\n- What files were read, edited, or created\n- What commands were run and their results\n- Key decisions and context the user provided\n- Current state of the task\nKeep it factual and brief. This summary will replace the old messages in the conversation context."
-                       :model model})))
-      (cons {:role "user" :content (string-append "[Conversation summary]: " summary)}
-            recent-messages))))
+           (formatted
+             (string/join
+               (map
+                 (fn (msg)
+                   (format "~a: ~a"
+                     (get msg :role "unknown")
+                     (get msg :content "")))
+                 old-messages)
+               "\n\n"))
+           (summary
+             (llm/chat (list {:role "user" :content formatted})
+               {:system "Summarize the following conversation concisely. Focus on:\n- What files were read, edited, or created\n- What commands were run and their results\n- Key decisions and context the user provided\n- Current state of the task\nKeep it factual and brief. This summary will replace the old messages in the conversation context."
+                :model model})))
+      (cons
+        {:role "user"
+         :content (string-append "[Conversation summary]: " summary)}
+        recent-messages))))
 
 ;; ============================================================
 ;; Section 4: Auto-Compact

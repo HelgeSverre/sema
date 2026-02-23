@@ -9,16 +9,18 @@
 ;; --- Word frequency analysis ---
 (define words
   (->> (regex/find-all "[A-Za-z]+" sample-text)
-       (map string/lower)))
+    (map string/lower)))
 
 (println f"Total words: ${(length words)}")
 (println f"Unique words: ${(length (list/unique words))}")
 
 ;; Build frequency map
 (define freq
-  (foldl (fn (acc word)
-    (map/update acc (string->keyword word)
-      #(if (nil? %) 1 (+ % 1))))
+  (foldl
+    (fn (acc word)
+      (map/update acc
+        (string->keyword word)
+        #(if (nil? %) 1 (+ % 1))))
     {}
     words))
 
@@ -38,7 +40,7 @@
 ;; --- Sentence extraction ---
 (define sentences
   (->> (regex/split "[.!?]+" sample-text)
-       (filter #(> (string-length (string/trim %)) 0))))
+    (filter #(> (string-length (string/trim %)) 0))))
 
 (println f"\n${(length sentences)} sentences found:")
 (for-each
@@ -60,24 +62,25 @@
 (define title-case
   (string/join
     (->> (string/split title " ")
-         (map (fn (word)
-           (if (> (string-length word) 0)
-             (string-append
-               (string/upper (substring word 0 1))
-               (substring word 1))
-             word))))
+      (map
+        (fn (word)
+          (if (> (string-length word) 0)
+            (string-append (string/upper (substring word 0 1))
+              (substring word 1))
+            word))))
     " "))
 (println f"\nTitle case: ${title-case}")
 
 ;; --- Caesar cipher ---
 (define (caesar-encrypt text shift)
   (list->string
-    (map (fn (ch)
-      (if (char-alphabetic? ch)
-        (let ((base (if (char-upper-case? ch) 65 97))
-              (code (char->integer ch)))
-          (integer->char (+ base (math/remainder (- (+ code shift) base) 26))))
-        ch))
+    (map
+      (fn (ch)
+        (if (char-alphabetic? ch)
+          (let ((base (if (char-upper-case? ch) 65 97))
+                (code (char->integer ch)))
+            (integer->char (+ base (math/remainder (- (+ code shift) base) 26))))
+          ch))
       (string/chars text))))
 
 (define original "Hello World")

@@ -32,7 +32,7 @@
 (define (build-leaves freqs)
   (sort
     (map (fn (entry) (make-leaf (first entry) (nth entry 1)))
-         (map/entries freqs))
+      (map/entries freqs))
     (fn (a b) (- (node-freq a) (node-freq b)))))
 
 ;; Insert node into sorted queue
@@ -59,20 +59,21 @@
 (define (generate-codes node prefix)
   (if (leaf? node)
     (list (list (nth node 1) prefix))
-    (append
-      (generate-codes (nth node 1) (string-append prefix "0"))
+    (append (generate-codes (nth node 1) (string-append prefix "0"))
       (generate-codes (nth node 2) (string-append prefix "1")))))
 
 (define codes (generate-codes tree ""))
 (define code-map
   (foldl (fn (acc entry) (assoc acc (first entry) (nth entry 1)))
-         {} codes))
+    {}
+    codes))
 
 ;; --- Display code table ---
 (println "=== Code Table ===\n")
 
 (define sorted-codes
-  (sort codes (fn (a b) (- (string-length (nth a 1)) (string-length (nth b 1))))))
+  (sort codes
+    (fn (a b) (- (string-length (nth a 1)) (string-length (nth b 1))))))
 
 (for-each
   (fn (entry)
@@ -80,17 +81,17 @@
            (code (nth entry 1))
            (freq (get freqs ch))
            (display-ch (if (= ch " ") "SPC" (format "'~a'" ch))))
-      (println (format "  ~a  ~a  (freq: ~a)"
-        (string/pad-right display-ch 5)
-        (string/pad-right code 12)
-        freq))))
+      (println
+        (format "  ~a  ~a  (freq: ~a)"
+          (string/pad-right display-ch 5)
+          (string/pad-right code 12)
+          freq))))
   sorted-codes)
 
 ;; --- Encode message ---
 (define (encode msg code-map)
   (let ((chars (string/chars msg)))
-    (string/join
-      (map (fn (ch) (get code-map (char->string ch))) chars)
+    (string/join (map (fn (ch) (get code-map (char->string ch))) chars)
       "")))
 
 (define encoded (encode message code-map))
@@ -137,12 +138,15 @@
 (println (format "  Unique characters: ~a" unique-chars))
 (println (format "  Original (8-bit):  ~a bits" original-bits))
 (println (format "  Huffman encoded:   ~a bits" encoded-bits))
-(println (format "  Compression ratio: ~a%"
-  (round (* 100 (/ (float encoded-bits) original-bits)))))
-(println (format "  Space saved:       ~a%"
-  (round (* 100 (- 1.0 (/ (float encoded-bits) original-bits))))))
+(println
+  (format "  Compression ratio: ~a%"
+    (round (* 100 (/ (float encoded-bits) original-bits)))))
+(println
+  (format "  Space saved:       ~a%"
+    (round (* 100 (- 1.0 (/ (float encoded-bits) original-bits))))))
 
 ;; --- Verify roundtrip ---
-(println (format "\n  Roundtrip OK: ~a" (if (= message decoded) "YES ✓" "NO ✗")))
+(println
+  (format "\n  Roundtrip OK: ~a" (if (= message decoded) "YES ✓" "NO ✗")))
 
 (println "\nDone!")

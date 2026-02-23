@@ -8,17 +8,22 @@
 
 ;; Parse optional seed from CLI args (after "--"), otherwise use time-ms
 (define seed
-  (let ((args (let scan ((a (sys/args)))
-                (cond ((null? a) '())
-                      ((= (first a) "--") (rest a))
-                      (else (scan (rest a)))))))
+  (let ((args
+          (let scan ((a (sys/args)))
+            (cond
+              ((null? a) '())
+              ((= (first a) "--") (rest a))
+              (else (scan (rest a)))))))
     (if (null? args)
-        (mod (time-ms) 1000000)
-        (string->number (first args)))))
+      (mod (time-ms) 1000000)
+      (string->number (first args)))))
 
 ;; --- Hash-based pseudo-random: maps integer grid coords to 0.0–1.0 ---
 (define (hash x y)
-  (let* ((h (mod (+ (* (abs x) 374761393) (* (abs y) 668265263) (* seed 1274126177)) 1000000003))
+  (let* ((h
+           (mod
+             (+ (* (abs x) 374761393) (* (abs y) 668265263) (* seed 1274126177))
+             1000000003))
          (h2 (mod (* h h) 1000000007)))
     (/ (mod (abs h2) 1000000) 1000000.0)))
 
@@ -44,8 +49,8 @@
          (n01 (hash ix (+ iy 1)))
          (n11 (hash (+ ix 1) (+ iy 1))))
     (lerp (lerp n00 n10 u)
-          (lerp n01 n11 u)
-          v)))
+      (lerp n01 n11 u)
+      v)))
 
 ;; --- Octave noise: sum multiple frequencies for detail ---
 (define octaves 3)
@@ -58,35 +63,42 @@
     (if (= i octaves)
       (/ total max-amp)
       (loop (+ i 1)
-            (* freq lacunarity)
-            (* amp persistence)
-            (+ total (* amp (value-noise (* x freq noise-scale)
-                                         (* y freq noise-scale))))
-            (+ max-amp amp)))))
+        (* freq lacunarity)
+        (* amp persistence)
+        (+ total
+          (* amp
+            (value-noise (* x freq noise-scale)
+              (* y freq noise-scale))))
+        (+ max-amp amp)))))
 
 ;; --- Terrain character mapping ---
 (define (terrain-char val)
   (cond
-    ((< val 0.30) "~")
+    ((< val 0.3) "~")
     ((< val 0.38) ".")
-    ((< val 0.50) ",")
-    ((< val 0.60) ";")
+    ((< val 0.5) ",")
+    ((< val 0.6) ";")
     ((< val 0.72) ":")
     ((< val 0.85) "%")
-    (#t           "#")))
+    (#t "#")))
 
 ;; --- Render ---
-(println "╔════════════════════════════════════════════════════════════════════════╗")
-(println "║              Perlin-style Value Noise Terrain Generator              ║")
-(println "╚════════════════════════════════════════════════════════════════════════╝")
+(println
+  "╔════════════════════════════════════════════════════════════════════════╗")
+(println
+  "║              Perlin-style Value Noise Terrain Generator              ║")
+(println
+  "╚════════════════════════════════════════════════════════════════════════╝")
 (println "")
 
 (define t0 (time-ms))
 
-(do ((y 0 (+ y 1)))
-    ((= y height))
-  (do ((x 0 (+ x 1)))
-      ((= x width))
+(do
+  ((y 0 (+ y 1)))
+  ((= y height))
+  (do
+    ((x 0 (+ x 1)))
+    ((= x width))
     (let ((val (octave-noise x y)))
       (display (terrain-char val))))
   (newline))
@@ -94,6 +106,13 @@
 (define elapsed (- (time-ms) t0))
 
 (println "")
-(println "Legend:  ~ water  . sand  , grass  ; shrub  : forest  % mountain  # peak")
-(println (format "Grid: ~ax~a | Octaves: ~a | Scale: ~a | Seed: ~a" width height octaves noise-scale seed))
+(println
+  "Legend:  ~ water  . sand  , grass  ; shrub  : forest  % mountain  # peak")
+(println
+  (format "Grid: ~ax~a | Octaves: ~a | Scale: ~a | Seed: ~a"
+    width
+    height
+    octaves
+    noise-scale
+    seed))
 (println (format "Generated in ~a ms" elapsed))
