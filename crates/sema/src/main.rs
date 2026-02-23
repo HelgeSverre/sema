@@ -23,16 +23,32 @@ mod colors {
     }
 
     pub fn red_bold(s: &str) -> String {
-        if enabled() { format!("\x1b[1;31m{s}\x1b[0m") } else { s.to_string() }
+        if enabled() {
+            format!("\x1b[1;31m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
     pub fn yellow(s: &str) -> String {
-        if enabled() { format!("\x1b[33m{s}\x1b[0m") } else { s.to_string() }
+        if enabled() {
+            format!("\x1b[33m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
     pub fn cyan(s: &str) -> String {
-        if enabled() { format!("\x1b[36m{s}\x1b[0m") } else { s.to_string() }
+        if enabled() {
+            format!("\x1b[36m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
     pub fn dim(s: &str) -> String {
-        if enabled() { format!("\x1b[2m{s}\x1b[0m") } else { s.to_string() }
+        if enabled() {
+            format!("\x1b[2m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
     }
 }
 
@@ -41,7 +57,18 @@ thread_local! {
     static LAST_FILE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
 
-const REPL_COMMANDS: &[&str] = &[",quit", ",exit", ",q", ",help", ",h", ",env", ",builtins", ",type", ",time", ",doc"];
+const REPL_COMMANDS: &[&str] = &[
+    ",quit",
+    ",exit",
+    ",q",
+    ",help",
+    ",h",
+    ",env",
+    ",builtins",
+    ",type",
+    ",time",
+    ",doc",
+];
 
 struct SemaCompleter {
     env: Rc<Env>,
@@ -219,7 +246,7 @@ enum Commands {
         /// Shell to generate completions for
         shell: Shell,
     },
-    /// Compile source to bytecode (.semac)
+    /// Compile source to bytecode (.semac) — imports resolve at runtime from the filesystem
     Compile {
         /// Source file to compile
         file: String,
@@ -246,7 +273,7 @@ enum Commands {
         #[command(subcommand)]
         command: PkgCommands,
     },
-    /// Build a standalone executable from a sema source file
+    /// Build a standalone executable with all dependencies bundled
     Build {
         /// Source file to compile and bundle
         file: String,
@@ -395,13 +422,9 @@ fn main() {
             }
             Commands::Pkg { command } => {
                 let result = match command {
-                    PkgCommands::Add { spec, registry } => {
-                        pkg::cmd_add(&spec, registry.as_deref())
-                    }
+                    PkgCommands::Add { spec, registry } => pkg::cmd_add(&spec, registry.as_deref()),
                     PkgCommands::Install => pkg::cmd_install(),
-                    PkgCommands::Update { name } => {
-                        pkg::cmd_update(name.as_deref())
-                    }
+                    PkgCommands::Update { name } => pkg::cmd_update(name.as_deref()),
                     PkgCommands::Remove { name } => pkg::cmd_remove(&name),
                     PkgCommands::List => pkg::cmd_list(),
                     PkgCommands::Init => pkg::cmd_init(),
@@ -412,9 +435,7 @@ fn main() {
                     PkgCommands::Config { key, value } => {
                         pkg::cmd_config(key.as_deref(), value.as_deref())
                     }
-                    PkgCommands::Publish { registry } => {
-                        pkg::cmd_publish(registry.as_deref())
-                    }
+                    PkgCommands::Publish { registry } => pkg::cmd_publish(registry.as_deref()),
                     PkgCommands::Search { query, registry } => {
                         pkg::cmd_search(&query, registry.as_deref())
                     }
@@ -1558,7 +1579,12 @@ fn print_error(e: &SemaError) {
             if loc.is_empty() {
                 eprintln!("  {} {}", colors::dim("at"), frame.name);
             } else {
-                eprintln!("  {} {} {}", colors::dim("at"), frame.name, colors::dim(&loc));
+                eprintln!(
+                    "  {} {} {}",
+                    colors::dim("at"),
+                    frame.name,
+                    colors::dim(&loc)
+                );
             }
         }
     }
@@ -1626,28 +1652,50 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                         continue;
                     }
 
-                    if trimmed.starts_with(",doc ") {
-                        let name = trimmed[5..].trim();
+                    if let Some(stripped) = trimmed.strip_prefix(",doc ") {
+                        let name = stripped.trim();
                         let spur = sema_core::intern(name);
                         match env.get(spur) {
-                            Some(val) => {
-                                match val.view() {
-                                    ValueView::NativeFn(_f) => {
-                                        println!("  {} {} {}", colors::cyan(name), colors::dim(":"), "native-fn");
-                                    }
-                                    ValueView::Lambda(l) => {
-                                        let params: Vec<String> = l.params.iter().map(|s| sema_core::resolve(*s)).collect();
-                                        let rest = l.rest_param.map(|s| format!(" . {}", sema_core::resolve(s))).unwrap_or_default();
-                                        println!("  {} {} lambda ({}{})", colors::cyan(name), colors::dim(":"), params.join(" "), rest);
-                                    }
-                                    _ => {
-                                        println!("  {} {} {} = {}", colors::cyan(name), colors::dim(":"), val.type_name(), val);
-                                    }
+                            Some(val) => match val.view() {
+                                ValueView::NativeFn(_f) => {
+                                    println!(
+                                        "  {} {} native-fn",
+                                        colors::cyan(name),
+                                        colors::dim(":"),
+                                    );
                                 }
-                            }
+                                ValueView::Lambda(l) => {
+                                    let params: Vec<String> =
+                                        l.params.iter().map(|s| sema_core::resolve(*s)).collect();
+                                    let rest = l
+                                        .rest_param
+                                        .map(|s| format!(" . {}", sema_core::resolve(s)))
+                                        .unwrap_or_default();
+                                    println!(
+                                        "  {} {} lambda ({}{})",
+                                        colors::cyan(name),
+                                        colors::dim(":"),
+                                        params.join(" "),
+                                        rest
+                                    );
+                                }
+                                _ => {
+                                    println!(
+                                        "  {} {} {} = {}",
+                                        colors::cyan(name),
+                                        colors::dim(":"),
+                                        val.type_name(),
+                                        val
+                                    );
+                                }
+                            },
                             None => {
                                 if SPECIAL_FORM_NAMES.contains(&name) {
-                                    println!("  {} {} special form", colors::cyan(name), colors::dim(":"));
+                                    println!(
+                                        "  {} {} special form",
+                                        colors::cyan(name),
+                                        colors::dim(":")
+                                    );
                                 } else {
                                     eprintln!("  {} {name}", colors::red_bold("not found:"));
                                 }
@@ -1656,14 +1704,15 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                         continue;
                     }
 
-                    if trimmed.starts_with(",type ") {
-                        let expr = &trimmed[6..];
+                    if let Some(expr) = trimmed.strip_prefix(",type ") {
                         LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.to_string()));
                         LAST_FILE.with(|f| *f.borrow_mut() = None);
                         match eval_with_mode(&interpreter, expr, use_vm) {
                             Ok(val) => {
                                 let type_name = match val.view() {
-                                    ValueView::Record(r) => format!(":{}", sema_core::resolve(r.type_tag)),
+                                    ValueView::Record(r) => {
+                                        format!(":{}", sema_core::resolve(r.type_tag))
+                                    }
                                     _ => format!(":{}", val.type_name()),
                                 };
                                 println!("{}", colors::dim(&type_name));
@@ -1672,8 +1721,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                         }
                         continue;
                     }
-                    if trimmed.starts_with(",time ") {
-                        let expr = &trimmed[6..];
+                    if let Some(expr) = trimmed.strip_prefix(",time ") {
                         LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.to_string()));
                         LAST_FILE.with(|f| *f.borrow_mut() = None);
                         let start = std::time::Instant::now();

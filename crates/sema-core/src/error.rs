@@ -204,9 +204,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
         curr[0] = i + 1;
         for (j, cb) in b.chars().enumerate() {
             let cost = if ca == cb { 0 } else { 1 };
-            curr[j + 1] = (prev[j] + cost)
-                .min(prev[j + 1] + 1)
-                .min(curr[j] + 1);
+            curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -251,9 +249,7 @@ pub fn veteran_hint(name: &str) -> Option<&'static str> {
         "block" | "return-from" => {
             Some("Sema uses 'begin' for sequencing; use 'throw'/'try' for non-local exits")
         }
-        "multiple-value-bind" => {
-            Some("Sema uses destructuring 'let' for multiple return values")
-        }
+        "multiple-value-bind" => Some("Sema uses destructuring 'let' for multiple return values"),
         "typep" | "type-of" => Some("Sema uses 'type' to get the type of a value"),
 
         // Clojure
@@ -273,9 +269,9 @@ pub fn veteran_hint(name: &str) -> Option<&'static str> {
         "define-syntax" | "syntax-rules" | "syntax-case" => {
             Some("Sema uses 'defmacro' for macro definitions")
         }
-        "call-with-current-continuation" | "call/cc" => {
-            Some("Sema doesn't support first-class continuations; use 'try'/'throw' for control flow")
-        }
+        "call-with-current-continuation" | "call/cc" => Some(
+            "Sema doesn't support first-class continuations; use 'try'/'throw' for control flow",
+        ),
         "string-join" => Some("Sema uses 'string/join' (slash-namespaced)"),
         "string-split" => Some("Sema uses 'string/split' (slash-namespaced)"),
         "string-trim" => Some("Sema uses 'string/trim' (slash-namespaced)"),
@@ -610,7 +606,10 @@ mod tests {
     #[test]
     fn test_suggest_similar() {
         assert_eq!(
-            suggest_similar("strng/join", &["string/join", "string/split", "map", "println"]),
+            suggest_similar(
+                "strng/join",
+                &["string/join", "string/split", "map", "println"]
+            ),
             Some("string/join".to_string())
         );
         assert_eq!(
@@ -679,9 +678,6 @@ mod tests {
     #[test]
     fn type_error_without_value_display() {
         let e = SemaError::type_error("string", "integer");
-        assert_eq!(
-            e.to_string(),
-            "Type error: expected string, got integer"
-        );
+        assert_eq!(e.to_string(), "Type error: expected string, got integer");
     }
 }

@@ -63,7 +63,9 @@ fn test_stack_overflow_hint() {
         .stack_size(16 * 1024 * 1024)
         .spawn(|| {
             let interp = Interpreter::new();
-            interp.eval_str("(define (f x) (+ 1 (f x))) (f 0)").unwrap_err()
+            interp
+                .eval_str("(define (f x) (+ 1 (f x))) (f 0)")
+                .unwrap_err()
         })
         .unwrap()
         .join()
@@ -1453,14 +1455,23 @@ fn test_arity_error_shows_call_form() {
     assert!(err.note().is_some(), "arity error should have a note");
     let note = err.note().unwrap();
     assert!(note.contains("in:"), "note should contain 'in:': {note}");
-    assert!(note.contains("f"), "note should contain function name: {note}");
+    assert!(
+        note.contains("f"),
+        "note should contain function name: {note}"
+    );
 
     // Native fn arity error should also include the call form
     let err = eval_err("(car 1 2)");
-    assert!(err.note().is_some(), "native arity error should have a note");
+    assert!(
+        err.note().is_some(),
+        "native arity error should have a note"
+    );
     let note = err.note().unwrap();
     assert!(note.contains("in:"), "note should contain 'in:': {note}");
-    assert!(note.contains("car"), "note should contain function name: {note}");
+    assert!(
+        note.contains("car"),
+        "note should contain function name: {note}"
+    );
 }
 
 #[test]
@@ -12203,63 +12214,218 @@ fn test_sema_build_passes_args() {
 
 // ===========================================================================
 // VFS interception tests — exercise file/read, file/exists?, import, load
-// with a pre-initialized VFS (no subprocess needed)
+// with a pre-initialized VFS (no subprocess needed).
+//
+// VFS is process-global (RwLock), so all VFS-mutating in-process tests are
+// consolidated into a single test function to avoid races from cargo's
+// parallel test runner. Each sub-section creates a fresh Interpreter.
 // ===========================================================================
 
 #[test]
-fn test_vfs_file_read() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("hello.txt".to_string(), b"hello from VFS".to_vec());
-        sema_core::vfs::init_vfs(files);
+fn test_vfs_in_process() {
+    // Initialize VFS once with ALL files needed by every sub-test
+    let mut files = std::collections::HashMap::new();
 
+    // interception: file/read, file/read-bytes, file/exists?, file/read-lines
+    files.insert("hello.txt".to_string(), b"hello from VFS".to_vec());
+    files.insert("bad.bin".to_string(), vec![0xFF, 0xFE]);
+    files.insert("data.bin".to_string(), vec![1u8, 2, 3]);
+    files.insert("exists.txt".to_string(), b"data".to_vec());
+    files.insert("lines.txt".to_string(), b"alpha\nbeta\ngamma".to_vec());
+    files.insert(
+        "lib/math.sema".to_string(),
+        b"(module math (export square) (define (square x) (* x x)))".to_vec(),
+    );
+    files.insert(
+        "counter.sema".to_string(),
+        b"(module counter (export n) (define n 42))".to_vec(),
+    );
+    files.insert(
+        "load-defs.sema".to_string(),
+        b"(define loaded-val 123)".to_vec(),
+    );
+    files.insert("bad.sema".to_string(), vec![0xFF, 0xFE]);
+
+    // path resolution
+    files.insert("lib/a.sema".to_string(), b"(define a-val 1)".to_vec());
+    files.insert(
+        "main.sema".to_string(),
+        b"(load \"lib/a.sema\") a-val".to_vec(),
+    );
+    files.insert("base.sema".to_string(), b"(define base 100)".to_vec());
+    files.insert(
+        "mid.sema".to_string(),
+        b"(load \"base.sema\") (define mid (+ base 1))".to_vec(),
+    );
+    files.insert(
+        "lib/utils.sema".to_string(),
+        b"(module utils (export double) (define (double x) (* x 2)))".to_vec(),
+    );
+    files.insert(
+        "fmt-helpers.sema".to_string(),
+        b"(define (fmt x) (format \"v=~a\" x))".to_vec(),
+    );
+    files.insert(
+        "lib/package.sema".to_string(),
+        b"(module mymod (export val) (define val 99))".to_vec(),
+    );
+    files.insert("data/config.json".to_string(), b"{}".to_vec());
+    files.insert("assets/greeting.txt".to_string(), b"howdy".to_vec());
+    files.insert("exists.sema".to_string(), b"(define x 1)".to_vec());
+    files.insert("config.txt".to_string(), b"agent-config".to_vec());
+    files.insert(
+        "multi.sema".to_string(),
+        b"(module multi (export a b c) (define a 1) (define b 2) (define c 3))".to_vec(),
+    );
+
+    // package imports
+    files.insert(
+        "github.com/test/vfslib".to_string(),
+        b"(module vfslib (export vfs-val) (define vfs-val 777))".to_vec(),
+    );
+    files.insert(
+        "local-lib.sema".to_string(),
+        b"(module local (export local-val) (define local-val 1))".to_vec(),
+    );
+    files.insert(
+        "github.com/test/remote".to_string(),
+        b"(module remote (export remote-val) (define remote-val 200))".to_vec(),
+    );
+    files.insert(
+        "github.com/test/translib".to_string(),
+        b"(import \"helpers.sema\") (define main-val (+ helper-val 1))".to_vec(),
+    );
+    files.insert(
+        "github.com/test/translib/helpers.sema".to_string(),
+        b"(define helper-val 42)".to_vec(),
+    );
+    files.insert(
+        "json-utils".to_string(),
+        b"(import \"helpers.sema\") (module json-utils (export json-val) (define json-val (+ helper-val 1)))".to_vec(),
+    );
+    files.insert(
+        "json-utils/helpers.sema".to_string(),
+        b"(define helper-val 99)".to_vec(),
+    );
+    files.insert(
+        "github.com/a/lib".to_string(),
+        b"(import \"helpers.sema\") (module alib (export a-val) (define a-val helper-val))"
+            .to_vec(),
+    );
+    files.insert(
+        "github.com/a/lib/helpers.sema".to_string(),
+        b"(define helper-val 100)".to_vec(),
+    );
+    files.insert(
+        "github.com/b/util".to_string(),
+        b"(module butil (export b-val) (define b-val 5))".to_vec(),
+    );
+    files.insert(
+        "json-tools".to_string(),
+        b"(import \"github.com/x/parser\") (module json-tools (export tool-val) (define tool-val (+ parser-val 1)))".to_vec(),
+    );
+    files.insert(
+        "github.com/x/parser".to_string(),
+        b"(module xparser (export parser-val) (define parser-val 50))".to_vec(),
+    );
+    files.insert(
+        "github.com/c/shared".to_string(),
+        b"(module cshared (export shared-val) (define shared-val 5))".to_vec(),
+    );
+    files.insert(
+        "github.com/b/lib".to_string(),
+        b"(import \"helpers.sema\") (module blib (export b-val) (define b-val helper-val))"
+            .to_vec(),
+    );
+    files.insert(
+        "github.com/b/lib/helpers.sema".to_string(),
+        b"(define helper-val 200)".to_vec(),
+    );
+    files.insert(
+        "github.com/x/deeplib".to_string(),
+        b"(import \"src/utils.sema\") (module deeplib (export deep-val) (define deep-val (+ util-val 1)))".to_vec(),
+    );
+    files.insert(
+        "github.com/x/deeplib/src/utils.sema".to_string(),
+        b"(define util-val 77)".to_vec(),
+    );
+    files.insert(
+        "github.com/l1/pkg".to_string(),
+        b"(import \"github.com/l2/pkg\") (module l1 (export l1-val) (define l1-val (+ l2-val 100)))".to_vec(),
+    );
+    files.insert(
+        "github.com/l2/pkg".to_string(),
+        b"(import \"github.com/l3/pkg\") (module l2 (export l2-val) (define l2-val (+ l3-val 10)))"
+            .to_vec(),
+    );
+    files.insert(
+        "github.com/l3/pkg".to_string(),
+        b"(module l3 (export l3-val) (define l3-val 1))".to_vec(),
+    );
+    files.insert(
+        "github.com/x/loadpkg".to_string(),
+        b"(load \"defs.sema\") (module loadpkg (export result) (define result (+ loaded-val 1)))"
+            .to_vec(),
+    );
+    files.insert(
+        "github.com/x/loadpkg/defs.sema".to_string(),
+        b"(define loaded-val 10)".to_vec(),
+    );
+    files.insert(
+        "github.com/x/nestload".to_string(),
+        b"(load \"init.sema\") (module nestload (export result) (define result (+ nested-val 1)))"
+            .to_vec(),
+    );
+    files.insert(
+        "github.com/x/nestload/init.sema".to_string(),
+        b"(import \"constants.sema\") (define nested-val (+ const-val 10))".to_vec(),
+    );
+    files.insert(
+        "github.com/x/nestload/constants.sema".to_string(),
+        b"(define const-val 5)".to_vec(),
+    );
+    files.insert(
+        "github.com/x/lib".to_string(),
+        b"(import \"src/utils.sema\") (module xlib (export deep-result git-val) (define deep-result (+ util-val 1)) (define git-val 3))".to_vec(),
+    );
+    files.insert(
+        "github.com/x/lib/src/utils.sema".to_string(),
+        b"(import \"common.sema\") (define util-val (+ common-val 10))".to_vec(),
+    );
+    files.insert(
+        "github.com/x/lib/src/common.sema".to_string(),
+        b"(define common-val 5)".to_vec(),
+    );
+
+    sema_core::vfs::init_vfs(files);
+
+    // ===== Interception tests =====
+
+    // --- file/read ---
+    {
         let interp = Interpreter::new();
         let result = interp.eval_str(r#"(file/read "hello.txt")"#).unwrap();
         assert_eq!(result, Value::string("hello from VFS"));
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_file_read_invalid_utf8() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("bad.bin".to_string(), vec![0xFF, 0xFE]);
-        sema_core::vfs::init_vfs(files);
-
+    // --- file/read invalid UTF-8 ---
+    {
         let interp = Interpreter::new();
         let result = interp.eval_str(r#"(file/read "bad.bin")"#);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("UTF-8"));
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_file_read_bytes() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("data.bin".to_string(), vec![1u8, 2, 3]);
-        sema_core::vfs::init_vfs(files);
-
+    // --- file/read-bytes ---
+    {
         let interp = Interpreter::new();
         let result = interp.eval_str(r#"(file/read-bytes "data.bin")"#).unwrap();
         let bv = result.as_bytevector().unwrap();
         assert_eq!(bv, &[1u8, 2, 3]);
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_file_exists() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("exists.txt".to_string(), b"data".to_vec());
-        sema_core::vfs::init_vfs(files);
-
+    // --- file/exists? ---
+    {
         let interp = Interpreter::new();
         assert_eq!(
             interp.eval_str(r#"(file/exists? "exists.txt")"#).unwrap(),
@@ -12269,18 +12435,10 @@ fn test_vfs_file_exists() {
             interp.eval_str(r#"(file/exists? "ghost.txt")"#).unwrap(),
             Value::bool(false)
         );
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_file_read_lines() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("lines.txt".to_string(), b"alpha\nbeta\ngamma".to_vec());
-        sema_core::vfs::init_vfs(files);
-
+    // --- file/read-lines ---
+    {
         let interp = Interpreter::new();
         let result = interp.eval_str(r#"(file/read-lines "lines.txt")"#).unwrap();
         let items = result.as_list().unwrap();
@@ -12288,97 +12446,289 @@ fn test_vfs_file_read_lines() {
         assert_eq!(items[0], Value::string("alpha"));
         assert_eq!(items[1], Value::string("beta"));
         assert_eq!(items[2], Value::string("gamma"));
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_import() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert(
-            "lib/math.sema".to_string(),
-            b"(module math (export square) (define (square x) (* x x)))".to_vec(),
-        );
-        sema_core::vfs::init_vfs(files);
-
+    // --- import ---
+    {
         let interp = Interpreter::new();
         let result = interp
             .eval_str(r#"(begin (import "lib/math.sema") (square 7))"#)
             .unwrap();
         assert_eq!(result, Value::int(49));
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_import_cached() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert(
-            "counter.sema".to_string(),
-            b"(module counter (export n) (define n 42))".to_vec(),
-        );
-        sema_core::vfs::init_vfs(files);
-
+    // --- import cached ---
+    {
         let interp = Interpreter::new();
-        // Both imports and usage in a single eval so environment is shared
         let result = interp
             .eval_str(r#"(begin (import "counter.sema") (import "counter.sema") n)"#)
             .unwrap();
         assert_eq!(result, Value::int(42));
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_load() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("defs.sema".to_string(), b"(define loaded-val 123)".to_vec());
-        sema_core::vfs::init_vfs(files);
-
+    // --- load ---
+    {
         let interp = Interpreter::new();
         let result = interp
-            .eval_str(r#"(begin (load "defs.sema") loaded-val)"#)
+            .eval_str(r#"(begin (load "load-defs.sema") loaded-val)"#)
             .unwrap();
         assert_eq!(result, Value::int(123));
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_import_invalid_utf8() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("bad.sema".to_string(), vec![0xFF, 0xFE]);
-        sema_core::vfs::init_vfs(files);
-
+    // --- import invalid UTF-8 ---
+    {
         let interp = Interpreter::new();
         let result = interp.eval_str(r#"(import "bad.sema")"#);
         assert!(result.is_err());
-    })
-    .join()
-    .unwrap();
-}
+    }
 
-#[test]
-fn test_vfs_load_invalid_utf8() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("bad.sema".to_string(), vec![0xFF, 0xFE]);
-        sema_core::vfs::init_vfs(files);
-
+    // --- load invalid UTF-8 ---
+    {
         let interp = Interpreter::new();
         let result = interp.eval_str(r#"(load "bad.sema")"#);
         assert!(result.is_err());
-    })
-    .join()
-    .unwrap();
+    }
+
+    // ===== Path resolution tests =====
+
+    // --- load from subdirectory ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (load "lib/a.sema") a-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(1));
+    }
+
+    // --- chained loads ---
+    {
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(begin (load "mid.sema") mid)"#).unwrap();
+        assert_eq!(result, Value::int(101));
+    }
+
+    // --- import from subdirectory ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "lib/utils.sema") (double 21))"#)
+            .unwrap();
+        assert_eq!(result, Value::int(42));
+    }
+
+    // --- load then import ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (load "fmt-helpers.sema") (import "lib/package.sema") (fmt val))"#)
+            .unwrap();
+        assert_eq!(result, Value::string("v=99"));
+    }
+
+    // --- file/exists? subdirectory ---
+    {
+        let interp = Interpreter::new();
+        assert_eq!(
+            interp
+                .eval_str(r#"(file/exists? "data/config.json")"#)
+                .unwrap(),
+            Value::bool(true)
+        );
+        assert_eq!(
+            interp
+                .eval_str(r#"(file/exists? "data/missing.json")"#)
+                .unwrap(),
+            Value::bool(false)
+        );
+    }
+
+    // --- file/read subdirectory ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(file/read "assets/greeting.txt")"#)
+            .unwrap();
+        assert_eq!(result, Value::string("howdy"));
+    }
+
+    // --- load missing file errors ---
+    {
+        let interp = Interpreter::new();
+        let result = interp.eval_str(r#"(load "nonexistent.sema")"#);
+        assert!(result.is_err(), "loading missing VFS file should error");
+    }
+
+    // --- VFS accessible after LLM call ---
+    {
+        let interp = Interpreter::new();
+        let before = interp.eval_str(r#"(file/read "config.txt")"#).unwrap();
+        assert_eq!(before, Value::string("agent-config"));
+
+        let llm_result = interp.eval_str(
+            r#"(let ((provider (llm/auto-configure)))
+                 (if (nil? provider)
+                   "no-provider"
+                   (llm/ask provider "reply with exactly: OK")))"#,
+        );
+        let _ = llm_result;
+
+        let after = interp.eval_str(r#"(file/read "config.txt")"#).unwrap();
+        assert_eq!(after, Value::string("agent-config"));
+        assert!(sema_core::vfs::is_vfs_active());
+    }
+
+    // --- import selective ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "multi.sema" a c) (+ a c))"#)
+            .unwrap();
+        assert_eq!(result, Value::int(4));
+    }
+
+    // ===== Package import tests =====
+
+    // --- package imports via VFS ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "github.com/test/vfslib") vfs-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(777), "VFS package import should work");
+    }
+
+    // --- mixed local and package ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(
+                r#"(begin
+                    (import "local-lib.sema")
+                    (import "github.com/test/remote")
+                    (+ local-val remote-val))"#,
+            )
+            .unwrap();
+        assert_eq!(result, Value::int(201), "mixed VFS imports should work");
+    }
+
+    // --- transitive package imports ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(
+                r#"(begin
+                    (import "github.com/test/translib" main-val)
+                    main-val)"#,
+            )
+            .unwrap();
+        assert_eq!(
+            result,
+            Value::int(43),
+            "transitive package imports should resolve via VFS"
+        );
+    }
+
+    // --- registry short-name package with transitive deps ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "json-utils" json-val) json-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(100));
+    }
+
+    // --- registry imports git package ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "json-tools" tool-val) tool-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(51));
+    }
+
+    // --- package subdirectory imports ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "github.com/x/deeplib" deep-val) deep-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(78));
+    }
+
+    // --- deep package chain ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "github.com/l1/pkg" l1-val) l1-val)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(111));
+    }
+
+    // --- load within package ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "github.com/x/loadpkg" result) result)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(11));
+    }
+
+    // --- load with nested import within package ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(r#"(begin (import "github.com/x/nestload" result) result)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(16));
+    }
+
+    // --- mixed local, registry, and git ---
+    {
+        let interp = Interpreter::new();
+        let result = interp
+            .eval_str(
+                r#"(begin
+                    (import "local-lib.sema")
+                    (import "json-utils")
+                    (import "github.com/x/lib")
+                    (+ local-val json-val git-val))"#,
+            )
+            .unwrap();
+        assert_eq!(result, Value::int(104));
+    }
+
+    // --- deep subdir chain within package ---
+    {
+        let interp = Interpreter::new();
+        let result =
+            interp.eval_str(r#"(begin (import "github.com/x/lib" deep-result) deep-result)"#);
+        assert!(
+            result.is_ok(),
+            "deep subdir chain should work: {:?}",
+            result.err()
+        );
+        assert_eq!(result.unwrap(), Value::int(16));
+    }
+
+    // --- package cache collision ---
+    {
+        let interp = Interpreter::new();
+        let result = interp.eval_str(
+            r#"(begin
+                (import "github.com/a/lib" a-val)
+                (import "github.com/b/lib" b-val)
+                (list a-val b-val))"#,
+        );
+        assert!(result.is_ok(), "should not error: {:?}", result.err());
+        let r = result.unwrap();
+        let items = r.as_list().unwrap();
+        assert_eq!(items[0], Value::int(100), "a-val should be 100");
+        assert_eq!(
+            items[1],
+            Value::int(200),
+            "b-val should be 200, not 100 from cache"
+        );
+    }
 }
 
 #[test]
@@ -12612,208 +12962,6 @@ fn test_sema_build_mixed_load_and_import() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ===========================================================================
-// VFS — path resolution edge cases (in-process, no subprocess)
-// ===========================================================================
-
-#[test]
-fn test_vfs_load_from_subdirectory() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("lib/a.sema".to_string(), b"(define a-val 1)".to_vec());
-        // main loads a file in a subdirectory
-        files.insert(
-            "main.sema".to_string(),
-            b"(load \"lib/a.sema\") a-val".to_vec(),
-        );
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp
-            .eval_str(r#"(begin (load "lib/a.sema") a-val)"#)
-            .unwrap();
-        assert_eq!(result, Value::int(1));
-    })
-    .join()
-    .unwrap();
-}
-
-#[test]
-fn test_vfs_chained_loads() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("base.sema".to_string(), b"(define base 100)".to_vec());
-        files.insert(
-            "mid.sema".to_string(),
-            b"(load \"base.sema\") (define mid (+ base 1))".to_vec(),
-        );
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp.eval_str(r#"(begin (load "mid.sema") mid)"#).unwrap();
-        assert_eq!(result, Value::int(101));
-    })
-    .join()
-    .unwrap();
-}
-
-#[test]
-fn test_vfs_import_from_subdirectory() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert(
-            "lib/utils.sema".to_string(),
-            b"(module utils (export double) (define (double x) (* x 2)))".to_vec(),
-        );
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp
-            .eval_str(r#"(begin (import "lib/utils.sema") (double 21))"#)
-            .unwrap();
-        assert_eq!(result, Value::int(42));
-    })
-    .join()
-    .unwrap();
-}
-
-#[test]
-fn test_vfs_load_then_import() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert(
-            "helpers.sema".to_string(),
-            b"(define (fmt x) (format \"v=~a\" x))".to_vec(),
-        );
-        files.insert(
-            "lib/package.sema".to_string(),
-            b"(module mymod (export val) (define val 99))".to_vec(),
-        );
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp
-            .eval_str(r#"(begin (load "helpers.sema") (import "lib/package.sema") (fmt val))"#)
-            .unwrap();
-        assert_eq!(result, Value::string("v=99"));
-    })
-    .join()
-    .unwrap();
-}
-
-#[test]
-fn test_vfs_file_exists_subdirectory() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("data/config.json".to_string(), b"{}".to_vec());
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        assert_eq!(
-            interp
-                .eval_str(r#"(file/exists? "data/config.json")"#)
-                .unwrap(),
-            Value::bool(true)
-        );
-        assert_eq!(
-            interp
-                .eval_str(r#"(file/exists? "data/missing.json")"#)
-                .unwrap(),
-            Value::bool(false)
-        );
-    })
-    .join()
-    .unwrap();
-}
-
-#[test]
-fn test_vfs_file_read_subdirectory() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("assets/greeting.txt".to_string(), b"howdy".to_vec());
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp
-            .eval_str(r#"(file/read "assets/greeting.txt")"#)
-            .unwrap();
-        assert_eq!(result, Value::string("howdy"));
-    })
-    .join()
-    .unwrap();
-}
-
-#[test]
-fn test_vfs_load_missing_file_errors() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("exists.sema".to_string(), b"(define x 1)".to_vec());
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp.eval_str(r#"(load "nonexistent.sema")"#);
-        assert!(result.is_err(), "loading missing VFS file should error");
-    })
-    .join()
-    .unwrap();
-}
-
-#[test]
-fn test_vfs_accessible_after_llm_call() {
-    // Simulates the pi-sema pattern: VFS file read after an LLM call.
-    // The LLM provider uses tokio::runtime::block_on internally, which runs
-    // on the calling thread — VFS (thread-local) must remain accessible after.
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert("config.txt".to_string(), b"agent-config".to_vec());
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-
-        // Read VFS before LLM call
-        let before = interp.eval_str(r#"(file/read "config.txt")"#).unwrap();
-        assert_eq!(before, Value::string("agent-config"));
-
-        // Make an actual LLM call (auto-configure will find the env key)
-        let llm_result = interp.eval_str(
-            r#"(let ((provider (llm/auto-configure)))
-                 (if (nil? provider)
-                   "no-provider"
-                   (llm/ask provider "reply with exactly: OK")))"#,
-        );
-        // Don't assert on LLM result — may not have API key in CI
-        let _ = llm_result;
-
-        // VFS must still be accessible after the LLM round-trip
-        let after = interp.eval_str(r#"(file/read "config.txt")"#).unwrap();
-        assert_eq!(after, Value::string("agent-config"));
-
-        assert!(sema_core::vfs::is_vfs_active());
-    })
-    .join()
-    .unwrap();
-}
-
-#[test]
-fn test_vfs_import_selective() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert(
-            "multi.sema".to_string(),
-            b"(module multi (export a b c) (define a 1) (define b 2) (define c 3))".to_vec(),
-        );
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp
-            .eval_str(r#"(begin (import "multi.sema" a c) (+ a c))"#)
-            .unwrap();
-        assert_eq!(result, Value::int(4));
-    })
-    .join()
-    .unwrap();
-}
-
 // All package import tests share a single SEMA_HOME env var and must run
 // sequentially in a single thread to avoid races with other tests.
 #[test]
@@ -12920,61 +13068,6 @@ fn test_package_imports() {
         // Cleanup
         std::env::remove_var("SEMA_HOME");
         let _ = std::fs::remove_dir_all(&tmp);
-    })
-    .join()
-    .unwrap();
-}
-
-/// Verify that package imports work through the VFS, simulating what happens
-/// when a bundled executable runs with packages embedded in its archive.
-#[test]
-fn test_package_imports_via_vfs() {
-    std::thread::spawn(|| {
-        // Initialize VFS with package content keyed by package path
-        let mut files = std::collections::HashMap::new();
-        files.insert(
-            "github.com/test/vfslib".to_string(),
-            b"(module vfslib (export vfs-val) (define vfs-val 777))".to_vec(),
-        );
-
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp
-            .eval_str(r#"(begin (import "github.com/test/vfslib") vfs-val)"#)
-            .unwrap();
-        assert_eq!(result, Value::int(777), "VFS package import should work");
-    })
-    .join()
-    .unwrap();
-}
-
-/// Verify that mixed local (VFS) and package imports work in a bundled context.
-#[test]
-fn test_vfs_mixed_local_and_package() {
-    std::thread::spawn(|| {
-        let mut files = std::collections::HashMap::new();
-        files.insert(
-            "local-lib.sema".to_string(),
-            b"(module local-lib (export local-val) (define local-val 100))".to_vec(),
-        );
-        files.insert(
-            "github.com/test/remote".to_string(),
-            b"(module remote (export remote-val) (define remote-val 200))".to_vec(),
-        );
-
-        sema_core::vfs::init_vfs(files);
-
-        let interp = Interpreter::new();
-        let result = interp
-            .eval_str(
-                r#"(begin
-                    (import "local-lib.sema")
-                    (import "github.com/test/remote")
-                    (+ local-val remote-val))"#,
-            )
-            .unwrap();
-        assert_eq!(result, Value::int(300), "mixed VFS imports should work");
     })
     .join()
     .unwrap();

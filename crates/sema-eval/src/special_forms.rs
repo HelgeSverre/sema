@@ -1342,9 +1342,46 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             .current_file_dir()
             .map(|d| d.to_string_lossy().to_string());
 
-        // Use the import path as VFS key for cache lookups
-        let vfs_key = std::path::PathBuf::from(path_str);
-        if let Some(cached) = ctx.get_cached_module(&vfs_key) {
+        // Compute the resolved VFS path — this is the actual VFS key that
+        // matched, and becomes the canonical identity for caching and
+        // current_file_dir() resolution.
+        //
+        // Two cases:
+        //   1. Direct hit: vfs_read("github.com/u/repo") or vfs_read("lib.sema")
+        //      → resolved = path_str itself
+        //   2. Base-dir hit: vfs_read("github.com/u/repo/helpers.sema")
+        //      after joining base_dir + "helpers.sema"
+        //      → resolved = base_dir/path_str
+        let resolved_vfs_path = if sema_core::vfs::vfs_exists(path_str) == Some(true) {
+            std::path::PathBuf::from(path_str)
+        } else if let Some(ref base) = base_dir {
+            std::path::Path::new(base.as_str()).join(path_str)
+        } else {
+            std::path::PathBuf::from(path_str)
+        };
+
+        // For package entries, the VFS key has no filename component
+        // (e.g., "github.com/u/repo" or "json-utils"). We append a synthetic
+        // filename so current_file_dir() returns the package directory.
+        // This is only needed for direct-hit package entries, not for
+        // files resolved via base_dir (those already have a filename).
+        let is_direct_hit = sema_core::vfs::vfs_exists(path_str) == Some(true);
+        let is_package = is_direct_hit
+            && (sema_core::resolve::is_package_import(path_str)
+                || (!path_str.ends_with(".sema")
+                    && !path_str.starts_with("./")
+                    && !path_str.starts_with("../")
+                    && !path_str.starts_with('/')));
+        let file_path = if is_package {
+            resolved_vfs_path.join("__entry__")
+        } else {
+            resolved_vfs_path.clone()
+        };
+
+        // Use the resolved path as cache key — this prevents collisions
+        // when two packages have identically-named internal files
+        // (e.g., both have "helpers.sema" → distinct resolved paths).
+        if let Some(cached) = ctx.get_cached_module(&resolved_vfs_path) {
             copy_exports_to_env(&cached, &selective, env)?;
             return Ok(Trampoline::Value(Value::nil()));
         }
@@ -1356,7 +1393,7 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                 SemaError::Io(format!("import {path_str}: invalid UTF-8 in VFS: {e}"))
             })?;
 
-            ctx.begin_module_load(&vfs_key)?;
+            ctx.begin_module_load(&resolved_vfs_path)?;
 
             let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> =
                 (|| {
@@ -1364,7 +1401,7 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                     ctx.merge_span_table(spans);
 
                     let module_env = eval::create_module_env(env);
-                    ctx.push_file_path(vfs_key.clone());
+                    ctx.push_file_path(file_path);
                     ctx.clear_module_exports();
 
                     let eval_result = (|| {
@@ -1381,10 +1418,10 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                     Ok(collect_module_exports(&module_env, declared.as_deref()))
                 })();
 
-            ctx.end_module_load(&vfs_key);
+            ctx.end_module_load(&resolved_vfs_path);
             let exports = load_result?;
 
-            ctx.cache_module(vfs_key, exports.clone());
+            ctx.cache_module(resolved_vfs_path, exports.clone());
             copy_exports_to_env(&exports, &selective, env)?;
 
             return Ok(Trampoline::Value(Value::nil()));
@@ -1540,10 +1577,29 @@ fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
             })?;
             let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
             ctx.merge_span_table(spans);
-            for expr in &exprs {
-                eval::eval_value(ctx, expr, env)?;
-            }
-            return Ok(Trampoline::Value(Value::nil()));
+
+            // Push resolved VFS path so nested load/import resolves correctly.
+            // Determine which VFS key matched: direct or base-dir-relative.
+            let vfs_path = if sema_core::vfs::vfs_exists(path_str) == Some(true) {
+                std::path::PathBuf::from(path_str)
+            } else if let Some(base) = &base_dir {
+                std::path::Path::new(base.as_str()).join(path_str)
+            } else {
+                std::path::PathBuf::from(path_str)
+            };
+            ctx.push_file_path(vfs_path);
+
+            let mut result = Value::nil();
+            let eval_result = (|| {
+                for expr in &exprs {
+                    result = eval::eval_value(ctx, expr, env)?;
+                }
+                Ok(result.clone())
+            })();
+
+            ctx.pop_file_path();
+            eval_result?;
+            return Ok(Trampoline::Value(result));
         }
     }
 

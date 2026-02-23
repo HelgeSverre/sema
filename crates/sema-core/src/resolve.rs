@@ -588,7 +588,10 @@ mod tests {
         let toml_content = "[tool]\nentrypoint = \"tool.sema\"\n";
         fs::write(dir.join("sema.toml"), toml_content).unwrap();
         let result = parse_entrypoint(&dir.join("sema.toml"));
-        assert_eq!(result, None, "should not pick up entrypoint from [tool] table");
+        assert_eq!(
+            result, None,
+            "should not pick up entrypoint from [tool] table"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

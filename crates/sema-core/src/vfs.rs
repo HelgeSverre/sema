@@ -1,37 +1,30 @@
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::OnceLock;
 
-thread_local! {
-    static EMBEDDED_VFS: RefCell<Option<HashMap<String, Vec<u8>>>> = const { RefCell::new(None) };
-}
+static EMBEDDED_VFS: OnceLock<HashMap<String, Vec<u8>>> = OnceLock::new();
 
 /// Initialize the VFS with embedded files. Called once at startup for bundled binaries.
+/// Panics if called more than once.
 pub fn init_vfs(files: HashMap<String, Vec<u8>>) {
-    EMBEDDED_VFS.with(|vfs| {
-        *vfs.borrow_mut() = Some(files);
-    });
+    EMBEDDED_VFS
+        .set(files)
+        .expect("VFS already initialized — init_vfs must only be called once");
 }
 
 /// Read a file from the VFS. Returns None if VFS is inactive or file not found.
 pub fn vfs_read(path: &str) -> Option<Vec<u8>> {
-    EMBEDDED_VFS.with(|vfs| {
-        let vfs = vfs.borrow();
-        vfs.as_ref()?.get(path).cloned()
-    })
+    EMBEDDED_VFS.get()?.get(path).cloned()
 }
 
 /// Check if a file exists in the VFS. Returns None if VFS is inactive.
 pub fn vfs_exists(path: &str) -> Option<bool> {
-    EMBEDDED_VFS.with(|vfs| {
-        let vfs = vfs.borrow();
-        let map = vfs.as_ref()?;
-        Some(map.contains_key(path))
-    })
+    let map = EMBEDDED_VFS.get()?;
+    Some(map.contains_key(path))
 }
 
 /// Check if the VFS is active (has been initialized).
 pub fn is_vfs_active() -> bool {
-    EMBEDDED_VFS.with(|vfs| vfs.borrow().is_some())
+    EMBEDDED_VFS.get().is_some()
 }
 
 /// Try to resolve a path against the VFS, normalizing it.
@@ -178,122 +171,61 @@ mod tests {
         assert_eq!(normalize_path(p), "lib/utils.sema");
     }
 
-    // -- VFS lifecycle (each test uses a fresh thread for isolation) --
+    // -- VFS lifecycle --
+    // VFS uses OnceLock (write-once). All VFS mutation tests are in a single
+    // test since init_vfs can only be called once per process.
 
     #[test]
-    fn test_vfs_inactive_by_default() {
-        std::thread::spawn(|| {
-            assert!(!is_vfs_active());
-            assert_eq!(vfs_read("anything"), None);
-            assert_eq!(vfs_exists("anything"), None);
-        })
-        .join()
-        .unwrap();
+    fn test_vfs_inactive_before_init() {
+        // Before init, reads return None and VFS is inactive.
+        // Note: if test_vfs_lifecycle runs first (parallel), VFS may already
+        // be active — but a missing key still returns None either way.
+        assert_eq!(vfs_read("__nonexistent_key_for_test__"), None);
     }
 
     #[test]
-    fn test_vfs_not_visible_from_other_threads() {
-        // VFS is thread-local by design — other threads should not see it.
-        // This documents the expected behavior: init on one thread, invisible to others.
-        std::thread::spawn(|| {
-            let mut files = HashMap::new();
-            files.insert("data.txt".to_string(), b"hello".to_vec());
-            init_vfs(files);
+    fn test_vfs_lifecycle() {
+        let mut files = HashMap::new();
+        files.insert("hello.sema".to_string(), b"(+ 1 2)".to_vec());
+        files.insert("lib/foo.sema".to_string(), b"data".to_vec());
+        files.insert("exists.txt".to_string(), vec![]);
 
-            // Visible on this thread
-            assert!(is_vfs_active());
-            assert_eq!(vfs_read("data.txt"), Some(b"hello".to_vec()));
+        init_vfs(files);
 
-            // NOT visible from a child thread
-            let handle = std::thread::spawn(|| {
-                assert!(
-                    !is_vfs_active(),
-                    "VFS should not be visible from child thread"
-                );
-                assert_eq!(vfs_read("data.txt"), None);
-            });
-            handle.join().unwrap();
+        // Active after init
+        assert!(is_vfs_active());
 
-            // Still visible on original thread
-            assert!(is_vfs_active());
-            assert_eq!(vfs_read("data.txt"), Some(b"hello".to_vec()));
-        })
-        .join()
-        .unwrap();
-    }
+        // Read existing key
+        assert_eq!(vfs_read("hello.sema"), Some(b"(+ 1 2)".to_vec()));
 
-    #[test]
-    fn test_init_and_read() {
-        std::thread::spawn(|| {
-            let mut files = HashMap::new();
-            files.insert("hello.sema".to_string(), b"(+ 1 2)".to_vec());
-            init_vfs(files);
+        // Read missing key
+        assert_eq!(vfs_read("missing.sema"), None);
 
-            assert!(is_vfs_active());
+        // Exists
+        assert_eq!(vfs_exists("exists.txt"), Some(true));
+        assert_eq!(vfs_exists("ghost.txt"), Some(false));
+
+        // Resolve direct
+        assert_eq!(
+            vfs_resolve_and_read("lib/foo.sema", None),
+            Some(b"data".to_vec())
+        );
+
+        // Resolve with base_dir
+        assert_eq!(
+            vfs_resolve_and_read("foo.sema", Some("lib")),
+            Some(b"data".to_vec())
+        );
+
+        // Resolve miss
+        assert_eq!(vfs_resolve_and_read("bar.sema", Some("other")), None);
+        assert_eq!(vfs_resolve_and_read("missing.sema", None), None);
+
+        // VFS is visible from child threads (process-global)
+        let handle = std::thread::spawn(|| {
+            assert!(is_vfs_active(), "VFS should be visible from child thread");
             assert_eq!(vfs_read("hello.sema"), Some(b"(+ 1 2)".to_vec()));
-            assert_eq!(vfs_read("missing.sema"), None);
-        })
-        .join()
-        .unwrap();
-    }
-
-    #[test]
-    fn test_vfs_exists_active() {
-        std::thread::spawn(|| {
-            let mut files = HashMap::new();
-            files.insert("exists.txt".to_string(), vec![]);
-            init_vfs(files);
-
-            assert_eq!(vfs_exists("exists.txt"), Some(true));
-            assert_eq!(vfs_exists("ghost.txt"), Some(false));
-        })
-        .join()
-        .unwrap();
-    }
-
-    #[test]
-    fn test_resolve_and_read_direct() {
-        std::thread::spawn(|| {
-            let mut files = HashMap::new();
-            files.insert("lib/foo.sema".to_string(), b"data".to_vec());
-            init_vfs(files);
-
-            assert_eq!(
-                vfs_resolve_and_read("lib/foo.sema", None),
-                Some(b"data".to_vec())
-            );
-        })
-        .join()
-        .unwrap();
-    }
-
-    #[test]
-    fn test_resolve_and_read_with_base_dir() {
-        std::thread::spawn(|| {
-            let mut files = HashMap::new();
-            files.insert("lib/foo.sema".to_string(), b"data".to_vec());
-            init_vfs(files);
-
-            assert_eq!(
-                vfs_resolve_and_read("foo.sema", Some("lib")),
-                Some(b"data".to_vec())
-            );
-        })
-        .join()
-        .unwrap();
-    }
-
-    #[test]
-    fn test_resolve_and_read_miss() {
-        std::thread::spawn(|| {
-            let mut files = HashMap::new();
-            files.insert("lib/foo.sema".to_string(), b"data".to_vec());
-            init_vfs(files);
-
-            assert_eq!(vfs_resolve_and_read("bar.sema", Some("other")), None);
-            assert_eq!(vfs_resolve_and_read("missing.sema", None), None);
-        })
-        .join()
-        .unwrap();
+        });
+        handle.join().unwrap();
     }
 }

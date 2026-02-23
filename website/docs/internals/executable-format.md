@@ -195,6 +195,10 @@ Raw concatenated bytes for all files, in TOC order. Offsets in TOC entries are r
 |----------|----------|
 | `__main__.semac` | Compiled bytecode of the entry file (always present) |
 | `lib/utils.sema` | Auto-traced import (relative to project root) |
+| `github.com/user/repo` | Package entry (git-style, keyed by package name) |
+| `github.com/user/repo/helpers.sema` | Package internal file (relative to packages dir) |
+| `json-utils` | Package entry (registry short-name) |
+| `json-utils/src/core.sema` | Package internal file (registry package) |
 | `data.json` | Asset from `--include data.json` |
 | `prompts/system.txt` | Asset from `--include prompts/` |
 

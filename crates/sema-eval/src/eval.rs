@@ -275,13 +275,9 @@ pub fn eval_value(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
                 err = err.with_hint(hint);
             } else {
                 // Fall back to fuzzy matching
-                let all_names: Vec<String> =
-                    env.all_names().iter().map(|s| resolve(*s)).collect();
-                let candidates: Vec<&str> =
-                    all_names.iter().map(|s| s.as_str()).collect();
-                if let Some(suggestion) =
-                    sema_core::error::suggest_similar(&name, &candidates)
-                {
+                let all_names: Vec<String> = env.all_names().iter().map(|s| resolve(*s)).collect();
+                let candidates: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
+                if let Some(suggestion) = sema_core::error::suggest_similar(&name, &candidates) {
                     err = err.with_hint(format!("Did you mean '{suggestion}'?"));
                 }
             }
@@ -334,7 +330,11 @@ pub fn call_value(ctx: &EvalContext, func: &Value, args: &[Value]) -> EvalResult
             match args[0].view() {
                 ValueView::Map(map) => Ok(map.get(&key).cloned().unwrap_or(Value::nil())),
                 ValueView::HashMap(map) => Ok(map.get(&key).cloned().unwrap_or(Value::nil())),
-                _ => Err(SemaError::type_error_with_value("map", args[0].type_name(), &args[0])),
+                _ => Err(SemaError::type_error_with_value(
+                    "map",
+                    args[0].type_name(),
+                    &args[0],
+                )),
             }
         }
         ValueView::MultiMethod(mm) => call_multimethod(ctx, &mm, args),
@@ -526,13 +526,9 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
             if let Some(hint) = sema_core::error::veteran_hint(&name) {
                 err = err.with_hint(hint);
             } else {
-                let all_names: Vec<String> =
-                    env.all_names().iter().map(|s| resolve(*s)).collect();
-                let candidates: Vec<&str> =
-                    all_names.iter().map(|s| s.as_str()).collect();
-                if let Some(suggestion) =
-                    sema_core::error::suggest_similar(&name, &candidates)
-                {
+                let all_names: Vec<String> = env.all_names().iter().map(|s| resolve(*s)).collect();
+                let candidates: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
+                if let Some(suggestion) = sema_core::error::suggest_similar(&name, &candidates) {
                     err = err.with_hint(format!("Did you mean '{suggestion}'?"));
                 }
             }
@@ -626,7 +622,11 @@ fn eval_step(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Trampoline, S
                         ValueView::HashMap(map) => Ok(Trampoline::Value(
                             map.get(&key).cloned().unwrap_or(Value::nil()),
                         )),
-                        _ => Err(SemaError::type_error_with_value("map", map_val.type_name(), &map_val)),
+                        _ => Err(SemaError::type_error_with_value(
+                            "map",
+                            map_val.type_name(),
+                            &map_val,
+                        )),
                     }
                 }
                 ValueView::MultiMethod(mm) => {
@@ -789,7 +789,10 @@ fn register_vm_delegates(env: &Rc<Env>) {
         })),
     );
 
-    // __vm-load: load and evaluate a file via the tree-walker
+    // __vm-load: delegate to the tree-walker's eval_load via eval_callback,
+    // mirroring how __vm-import delegates to eval_import. This ensures VFS
+    // resolution, file path push/pop, and all other load semantics are
+    // handled by a single code path in special_forms.rs.
     let load_env = env.clone();
     env.set(
         intern("__vm-load"),
@@ -797,39 +800,8 @@ fn register_vm_delegates(env: &Rc<Env>) {
             if args.len() != 1 {
                 return Err(SemaError::arity("load", "1", args.len()));
             }
-            ctx.sandbox.check(sema_core::Caps::FS_READ, "load")?;
-            let path = match args[0].as_str() {
-                Some(s) => s.to_string(),
-                None => return Err(SemaError::type_error("string", args[0].type_name())),
-            };
-            // Check VFS first (for bundled executables)
-            if sema_core::vfs::is_vfs_active() {
-                let base_dir = ctx
-                    .current_file_dir()
-                    .map(|d| d.to_string_lossy().to_string());
-                if let Some(content_bytes) =
-                    sema_core::vfs::vfs_resolve_and_read(&path, base_dir.as_deref())
-                {
-                    let content = String::from_utf8(content_bytes).map_err(|e| {
-                        SemaError::eval(format!("load {path}: invalid UTF-8 in VFS: {e}"))
-                    })?;
-                    let result = eval_string(ctx, &content, &load_env);
-                    return result;
-                }
-            }
-
-            let full_path = if let Some(dir) = ctx.current_file_dir() {
-                dir.join(&path)
-            } else {
-                std::path::PathBuf::from(&path)
-            };
-            let content = std::fs::read_to_string(&full_path).map_err(|e| {
-                SemaError::eval(format!("load: cannot read {}: {}", full_path.display(), e))
-            })?;
-            ctx.push_file_path(full_path);
-            let result = eval_string(ctx, &content, &load_env);
-            ctx.pop_file_path();
-            result
+            let load_expr = Value::list(vec![Value::symbol("load"), args[0].clone()]);
+            sema_core::eval_callback(ctx, &load_expr, &load_env)
         })),
     );
 

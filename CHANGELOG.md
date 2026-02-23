@@ -58,7 +58,8 @@
 - **Constant folding division semantics** — `(/ 3 2)` now correctly folds to `1.5` instead of `1`, matching VM runtime behavior.
 - **VM prompt/message parity** — prompt and message special forms now build values directly instead of delegating, matching tree-walker output.
 - **`value_to_json_lossy` recursion** — fixed to properly traverse nested structures so NaN values inside maps/lists become `null` locally instead of stringifying the entire structure.
-- **VFS package import resolution** — VFS is now checked before filesystem resolution, allowing bundled executables to resolve embedded package imports.
+- **VFS package import resolution** — VFS is now checked before filesystem resolution, allowing bundled executables to resolve embedded package imports. Transitive imports within packages resolve correctly via synthetic `__entry__` path tracking. Package VFS keys use portable relative paths instead of absolute filesystem paths.
+- **VFS thread safety** — VFS backend switched from `RwLock<Option<...>>` to `OnceLock`, eliminating locking overhead on reads, preventing lock poisoning, and enforcing write-once semantics.
 - **Git checkout in package manager** — removed erroneous `--` separator that caused refs to be interpreted as file paths.
 
 ### Documentation
@@ -68,6 +69,7 @@
 - **Prompt & conversation docs** — restructured `prompts.md` and `conversations.md` with workflow examples and accurate API descriptions.
 - **Static file serving docs** — documented `http/file` and `:static` route support in web server reference.
 - **KV store reference** — expanded with implementation details and examples.
+- **`sema compile` vs `sema build` clarification** — added info callout to CLI docs explaining that `sema compile` does not bundle dependencies. Updated executable format docs with VFS path convention examples for git-style and registry packages.
 - **Sema syntax highlighting** — custom Shiki grammar for VitePress and updated TextMate grammar.
 - **Performance roadmap** — tiered optimization plan with measured results and status tracking.
 - **Feature comparison matrix** — Sema vs SBCL, Racket, Guile, Chez, Clojure, Janet, Fennel.

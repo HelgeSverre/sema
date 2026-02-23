@@ -1,4 +1,3 @@
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -241,8 +240,8 @@ fn update_single_package(pkg_dir: &Path, dir: &Path) -> Result<(), String> {
             .unwrap_or(DEFAULT_REGISTRY);
 
         let info = registry_package_info(&name, registry)?;
-        let latest = latest_version(&info)
-            .ok_or_else(|| format!("No versions found for '{name}'"))?;
+        let latest =
+            latest_version(&info).ok_or_else(|| format!("No versions found for '{name}'"))?;
 
         if latest == current_ver {
             println!("  {} already at latest ({current_ver})", rel.display());
@@ -370,10 +369,7 @@ pub fn cmd_list() -> Result<(), String> {
     for dir in &packages {
         let rel = dir.strip_prefix(&pkg_dir).unwrap_or(dir);
         if let Some(meta) = read_pkg_meta(dir) {
-            let version = meta
-                .get("version")
-                .and_then(|v| v.as_str())
-                .unwrap_or("?");
+            let version = meta.get("version").and_then(|v| v.as_str()).unwrap_or("?");
             let source = meta
                 .get("registry")
                 .and_then(|v| v.as_str())
@@ -504,7 +500,9 @@ pub fn cmd_config(key: Option<&str>, value: Option<&str>) -> Result<(), String> 
                 println!("{}", read_registry_url());
                 Ok(())
             }
-            _ => Err(format!("Unknown config key: {key}\nAvailable: registry.url")),
+            _ => Err(format!(
+                "Unknown config key: {key}\nAvailable: registry.url"
+            )),
         },
         // Set a key
         (Some(key), Some(value)) => match key {
@@ -513,7 +511,9 @@ pub fn cmd_config(key: Option<&str>, value: Option<&str>) -> Result<(), String> 
                 println!("✓ Default registry set to {value}");
                 Ok(())
             }
-            _ => Err(format!("Unknown config key: {key}\nAvailable: registry.url")),
+            _ => Err(format!(
+                "Unknown config key: {key}\nAvailable: registry.url"
+            )),
         },
     }
 }
@@ -679,10 +679,7 @@ fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), String> {
             .into_owned();
 
         if path.is_absolute() {
-            return Err(format!(
-                "Tar entry has absolute path: {}",
-                path.display()
-            ));
+            return Err(format!("Tar entry has absolute path: {}", path.display()));
         }
 
         for component in path.components() {
@@ -721,11 +718,7 @@ fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), String> {
 }
 
 /// Install a package from the registry.
-fn registry_install(
-    name: &str,
-    version: &str,
-    registry_url: &str,
-) -> Result<(), String> {
+fn registry_install(name: &str, version: &str, registry_url: &str) -> Result<(), String> {
     let token = read_token();
     let client = reqwest::blocking::Client::new();
     let base = registry_url.trim_end_matches('/');
@@ -760,8 +753,7 @@ fn registry_install(
     let pkg_dir = packages_dir();
     let dest = pkg_dir.join(name);
     if dest.exists() {
-        std::fs::remove_dir_all(&dest)
-            .map_err(|e| format!("Failed to remove old package: {e}"))?;
+        std::fs::remove_dir_all(&dest).map_err(|e| format!("Failed to remove old package: {e}"))?;
     }
     extract_tarball(&tarball, &dest)?;
 
@@ -772,10 +764,7 @@ fn registry_install(
 }
 
 /// Fetch package info from the registry.
-fn registry_package_info(
-    name: &str,
-    registry_url: &str,
-) -> Result<serde_json::Value, String> {
+fn registry_package_info(name: &str, registry_url: &str) -> Result<serde_json::Value, String> {
     let client = reqwest::blocking::Client::new();
     let base = registry_url.trim_end_matches('/');
     let url = format!("{base}/api/v1/packages/{name}");
@@ -812,8 +801,9 @@ fn latest_version(info: &serde_json::Value) -> Option<String> {
 }
 
 fn validate_version(version: &str) -> Result<semver::Version, String> {
-    semver::Version::parse(version)
-        .map_err(|_| format!("Invalid semver version: {version} (expected X.Y.Z[-prerelease][+build])"))
+    semver::Version::parse(version).map_err(|_| {
+        format!("Invalid semver version: {version} (expected X.Y.Z[-prerelease][+build])")
+    })
 }
 
 pub fn cmd_publish(registry: Option<&str>) -> Result<(), String> {
@@ -822,8 +812,8 @@ pub fn cmd_publish(registry: Option<&str>) -> Result<(), String> {
         return Err("No sema.toml found. Run `sema pkg init` first.".into());
     }
 
-    let content = std::fs::read_to_string(toml_path)
-        .map_err(|e| format!("Failed to read sema.toml: {e}"))?;
+    let content =
+        std::fs::read_to_string(toml_path).map_err(|e| format!("Failed to read sema.toml: {e}"))?;
     let doc: toml::Value =
         toml::from_str(&content).map_err(|e| format!("Failed to parse sema.toml: {e}"))?;
 
@@ -841,8 +831,7 @@ pub fn cmd_publish(registry: Option<&str>) -> Result<(), String> {
 
     validate_version(version)?;
 
-    let token =
-        read_token().ok_or("Not logged in. Run `sema pkg login --token <token>` first.")?;
+    let token = read_token().ok_or("Not logged in. Run `sema pkg login --token <token>` first.")?;
     let registry_url = effective_registry(registry);
     let base = registry_url.trim_end_matches('/');
 
@@ -935,7 +924,10 @@ pub fn cmd_search(query: &str, registry: Option<&str>) -> Result<(), String> {
     }
 
     let total = body.get("total").and_then(|v| v.as_i64()).unwrap_or(0);
-    println!("Found {total} package{}:\n", if total == 1 { "" } else { "s" });
+    println!(
+        "Found {total} package{}:\n",
+        if total == 1 { "" } else { "s" }
+    );
 
     for pkg in &packages {
         let name = pkg.get("name").and_then(|v| v.as_str()).unwrap_or("?");
@@ -958,8 +950,7 @@ pub fn cmd_yank(spec: &str, registry: Option<&str>) -> Result<(), String> {
         .rsplit_once('@')
         .ok_or("Expected format: <package>@<version> (e.g., my-package@0.1.0)")?;
 
-    let token =
-        read_token().ok_or("Not logged in. Run `sema pkg login --token <token>` first.")?;
+    let token = read_token().ok_or("Not logged in. Run `sema pkg login --token <token>` first.")?;
     let registry_url = effective_registry(registry);
     let base = registry_url.trim_end_matches('/');
 
@@ -1014,10 +1005,7 @@ pub fn cmd_info(name: &str, registry: Option<&str>) -> Result<(), String> {
         .cloned()
         .unwrap_or_default();
     if !owners.is_empty() {
-        let names: Vec<&str> = owners
-            .iter()
-            .filter_map(|v| v.as_str())
-            .collect();
+        let names: Vec<&str> = owners.iter().filter_map(|v| v.as_str()).collect();
         println!("  owners: {}", names.join(", "));
     }
 
@@ -1035,10 +1023,7 @@ pub fn cmd_info(name: &str, registry: Option<&str>) -> Result<(), String> {
             let ver = v.get("version").and_then(|s| s.as_str()).unwrap_or("?");
             let yanked = v.get("yanked").and_then(|b| b.as_bool()).unwrap_or(false);
             let size = v.get("size_bytes").and_then(|n| n.as_i64()).unwrap_or(0);
-            let published = v
-                .get("published_at")
-                .and_then(|s| s.as_str())
-                .unwrap_or("");
+            let published = v.get("published_at").and_then(|s| s.as_str()).unwrap_or("");
             let yank_mark = if yanked { " (yanked)" } else { "" };
             println!("    {ver} — {size} bytes, {published}{yank_mark}");
         }
@@ -1068,11 +1053,10 @@ fn urlencoded(s: &str) -> String {
 mod tests {
     use super::*;
     use std::fs;
+    use std::io::Write;
 
     fn tmpdir(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!(
-            "sema-pkg-test-{name}-{}", std::process::id()
-        ));
+        let d = std::env::temp_dir().join(format!("sema-pkg-test-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
         fs::create_dir_all(&d).unwrap();
         d
@@ -1091,8 +1075,16 @@ mod tests {
         let doc: toml_edit::DocumentMut = output.parse().unwrap();
 
         let deps = doc["deps"].as_table().expect("deps table must exist");
-        assert_eq!(deps.get("github.com/test/foo").and_then(|v| v.as_str()), Some("v1.0.0"), "existing dep preserved");
-        assert_eq!(deps.get("github.com/test/bar").and_then(|v| v.as_str()), Some("v2.0.0"), "new dep added");
+        assert_eq!(
+            deps.get("github.com/test/foo").and_then(|v| v.as_str()),
+            Some("v1.0.0"),
+            "existing dep preserved"
+        );
+        assert_eq!(
+            deps.get("github.com/test/bar").and_then(|v| v.as_str()),
+            Some("v2.0.0"),
+            "new dep added"
+        );
 
         // Comments survived
         assert!(output.contains("# Project config"), "top comment lost");
@@ -1145,7 +1137,11 @@ mod tests {
     fn remove_dep_removes_entry_preserves_others() {
         let dir = tmpdir("remove");
         let toml_path = dir.join("sema.toml");
-        fs::write(&toml_path, "[deps]\n\"github.com/a/b\" = \"v1.0.0\"\n\"github.com/c/d\" = \"v2.0.0\"\n").unwrap();
+        fs::write(
+            &toml_path,
+            "[deps]\n\"github.com/a/b\" = \"v1.0.0\"\n\"github.com/c/d\" = \"v2.0.0\"\n",
+        )
+        .unwrap();
 
         let removed = remove_dep_from_toml(&toml_path, "github.com/a/b").unwrap();
         assert!(removed);
@@ -1153,8 +1149,15 @@ mod tests {
         let output = fs::read_to_string(&toml_path).unwrap();
         let doc: toml_edit::DocumentMut = output.parse().unwrap();
         let deps = doc["deps"].as_table().unwrap();
-        assert!(deps.get("github.com/a/b").is_none(), "removed dep should be gone");
-        assert_eq!(deps.get("github.com/c/d").and_then(|v| v.as_str()), Some("v2.0.0"), "other dep preserved");
+        assert!(
+            deps.get("github.com/a/b").is_none(),
+            "removed dep should be gone"
+        );
+        assert_eq!(
+            deps.get("github.com/c/d").and_then(|v| v.as_str()),
+            Some("v2.0.0"),
+            "other dep preserved"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -1492,7 +1495,11 @@ version = "0.1.0"
         std::fs::create_dir_all(&tmp).unwrap();
 
         let toml_path = tmp.join("sema.toml");
-        std::fs::write(&toml_path, "[deps]\n\"github.com/user/repo\" = \"v1.0.0\"\n").unwrap();
+        std::fs::write(
+            &toml_path,
+            "[deps]\n\"github.com/user/repo\" = \"v1.0.0\"\n",
+        )
+        .unwrap();
 
         let removed = remove_dep_from_toml(&toml_path, "github.com/user/repo").unwrap();
         assert!(removed);
@@ -1613,8 +1620,14 @@ name = "myproject"
         let _ = std::fs::remove_dir_all(&tmp);
         std::fs::create_dir_all(&tmp).unwrap();
 
-        write_pkg_meta(&tmp, "test-pkg", "1.0.0", "https://registry.example.com", "abc123")
-            .unwrap();
+        write_pkg_meta(
+            &tmp,
+            "test-pkg",
+            "1.0.0",
+            "https://registry.example.com",
+            "abc123",
+        )
+        .unwrap();
 
         let meta = read_pkg_meta(&tmp);
         assert!(meta.is_some());
@@ -1732,7 +1745,10 @@ name = "myproject"
 
         let result = extract_tarball(&malicious, &dest);
         assert!(result.is_err(), "path traversal should be rejected");
-        assert!(!parent_file.exists(), "file must NOT be written outside dest");
+        assert!(
+            !parent_file.exists(),
+            "file must NOT be written outside dest"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

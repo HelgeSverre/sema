@@ -47,6 +47,10 @@ sema ast [OPTIONS] [FILE]
 
 Compile a source file to a `.semac` bytecode file. The compiled file can be executed directly with `sema` (auto-detected via magic number). See [Bytecode File Format](./internals/bytecode-format.md) for details on the format.
 
+::: info Imports resolve at runtime
+`sema compile` only compiles the specified file — it does not bundle dependencies. When you run the `.semac` file, `(import ...)` and `(load ...)` are resolved from the filesystem at runtime. All imported packages must be installed on the target machine. For a fully self-contained artifact, use [`sema build`](#sema-build) instead.
+:::
+
 ```
 sema compile [OPTIONS] <FILE>
 ```
