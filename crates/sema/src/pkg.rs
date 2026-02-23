@@ -6,6 +6,23 @@ use sema_core::resolve::packages_dir;
 const DEFAULT_REGISTRY: &str = "https://pkg.sema-lang.com";
 const PKG_META_FILE: &str = ".sema-pkg.json";
 
+fn ensure_sema_toml() -> Result<(), String> {
+    let toml_path = Path::new("sema.toml");
+    if !toml_path.exists() {
+        let project_name = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "my-project".to_string());
+        let content = format!(
+            "[package]\nname = \"{project_name}\"\nversion = \"0.1.0\"\ndescription = \"\"\nentrypoint = \"package.sema\"\n\n[deps]\n"
+        );
+        std::fs::write(toml_path, content)
+            .map_err(|e| format!("Failed to write sema.toml: {e}"))?;
+        println!("✓ Created sema.toml");
+    }
+    Ok(())
+}
+
 fn run_git(dir: Option<&Path>, args: &[&str]) -> Result<String, String> {
     let mut cmd = Command::new("git");
     cmd.args(args);
@@ -109,14 +126,12 @@ fn cmd_add_git(spec: &str) -> Result<(), String> {
         println!("✓ Installed {} → {current}", spec.path);
     }
 
-    // Add to sema.toml [deps] if present
+    ensure_sema_toml()?;
     let toml_path = Path::new("sema.toml");
-    if toml_path.exists() {
-        match add_dep_to_toml(toml_path, spec.path.as_str(), &spec.git_ref) {
-            Ok(true) => println!("✓ Added {} = \"{}\" to sema.toml", spec.path, spec.git_ref),
-            Ok(false) => {}
-            Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
-        }
+    match add_dep_to_toml(toml_path, spec.path.as_str(), &spec.git_ref) {
+        Ok(true) => println!("✓ Added {} = \"{}\" to sema.toml", spec.path, spec.git_ref),
+        Ok(false) => {}
+        Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
     }
 
     Ok(())
@@ -145,14 +160,12 @@ fn cmd_add_registry(spec: &str, registry: Option<&str>) -> Result<(), String> {
     registry_install(&name, &version, &registry_url)?;
     println!("✓ Installed {name}@{version}");
 
-    // Add to sema.toml [deps] if present
+    ensure_sema_toml()?;
     let toml_path = Path::new("sema.toml");
-    if toml_path.exists() {
-        match add_dep_to_toml(toml_path, &name, &version) {
-            Ok(true) => println!("✓ Added {name} = \"{version}\" to sema.toml"),
-            Ok(false) => {}
-            Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
-        }
+    match add_dep_to_toml(toml_path, &name, &version) {
+        Ok(true) => println!("✓ Added {name} = \"{version}\" to sema.toml"),
+        Ok(false) => {}
+        Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
     }
 
     Ok(())
@@ -399,6 +412,7 @@ pub fn cmd_init() -> Result<(), String> {
         r#"[package]
 name = "{project_name}"
 version = "0.1.0"
+description = ""
 entrypoint = "package.sema"
 
 [deps]
@@ -1330,6 +1344,10 @@ mod tests {
         assert!(
             content.contains("version = \"0.1.0\""),
             "should have version"
+        );
+        assert!(
+            content.contains("description = \"\""),
+            "should have description"
         );
         assert!(
             content.contains("entrypoint = \"package.sema\""),

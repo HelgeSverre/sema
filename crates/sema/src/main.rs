@@ -245,6 +245,10 @@ enum Commands {
     Completions {
         /// Shell to generate completions for
         shell: Shell,
+
+        /// Install completions to the standard location
+        #[arg(long)]
+        install: bool,
     },
     /// Compile source to bytecode (.semac) — imports resolve at runtime from the filesystem
     Compile {
@@ -403,8 +407,17 @@ fn main() {
             Commands::Ast { file, eval, json } => {
                 run_ast(file, eval, json);
             }
-            Commands::Completions { shell } => {
-                clap_complete::generate(shell, &mut Cli::command(), "sema", &mut std::io::stdout());
+            Commands::Completions { shell, install } => {
+                if install {
+                    install_completions(shell);
+                } else {
+                    clap_complete::generate(
+                        shell,
+                        &mut Cli::command(),
+                        "sema",
+                        &mut std::io::stdout(),
+                    );
+                }
             }
             Commands::Compile {
                 file,
@@ -1889,6 +1902,53 @@ fn print_builtins(interpreter: &Interpreter) {
         println!();
     }
     println!("\n{} builtin functions", names.len());
+}
+
+fn install_completions(shell: Shell) {
+    let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
+        Ok(h) => PathBuf::from(h),
+        Err(_) => {
+            eprintln!("Error: could not determine home directory");
+            std::process::exit(1);
+        }
+    };
+
+    let path = match shell {
+        Shell::Zsh => home.join(".zsh/completions/_sema"),
+        Shell::Bash => home.join(".local/share/bash-completion/completions/sema"),
+        Shell::Fish => home.join(".config/fish/completions/sema.fish"),
+        Shell::Elvish => home.join(".config/elvish/lib/sema.elv"),
+        Shell::PowerShell => {
+            eprintln!(
+                "Auto-install is not supported for PowerShell.\n\
+                 Run manually: sema completions powershell >> $PROFILE"
+            );
+            std::process::exit(1);
+        }
+        _ => {
+            eprintln!("Auto-install is not supported for this shell.");
+            std::process::exit(1);
+        }
+    };
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap_or_else(|e| {
+            eprintln!("Error creating directory {}: {e}", parent.display());
+            std::process::exit(1);
+        });
+    }
+
+    let mut buf = Vec::new();
+    clap_complete::generate(shell, &mut Cli::command(), "sema", &mut buf);
+    std::fs::write(&path, &buf).unwrap_or_else(|e| {
+        eprintln!("Error writing {}: {e}", path.display());
+        std::process::exit(1);
+    });
+
+    println!("✓ Installed {shell} completions to {}", path.display());
+    if shell == Shell::Zsh {
+        println!("  Add to ~/.zshrc (before compinit): fpath=(~/.zsh/completions $fpath)");
+    }
 }
 
 fn dirs_path() -> std::path::PathBuf {

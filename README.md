@@ -263,7 +263,8 @@ sema completions fish > ~/.config/fish/completions/sema.fish
 
 | Editor           | Install                                                                                   |
 | ---------------- | ----------------------------------------------------------------------------------------- |
-| **VS Code**      | `cd editors/vscode/sema && npx @vscode/vsce package` then install `.vsix`                 |
+| **VS Code**      | See [install instructions](https://sema-lang.com/docs/editors.html)                       |
+| **Zed**          | Install Dev Extension → select `editors/zed`                                              |
 | **Vim / Neovim** | `Plug 'helgesverre/sema', { 'rtp': 'editors/vim' }`                                       |
 | **Emacs**        | `(require 'sema-mode)` — see [docs](https://sema-lang.com/docs/editors.html)              |
 | **Helix**        | Copy `languages.toml` + query files — see [docs](https://sema-lang.com/docs/editors.html) |

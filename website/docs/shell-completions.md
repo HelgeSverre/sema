@@ -12,6 +12,14 @@ sema completions <SHELL>
 
 Supported shells: `bash`, `zsh`, `fish`, `elvish`, `powershell`.
 
+::: tip Quick Install
+For Zsh, Bash, Fish, and Elvish, you can auto-install completions to the standard location:
+
+```bash
+sema completions zsh --install
+```
+:::
+
 ## Zsh
 
 ### macOS (with oh-my-zsh or custom fpath)

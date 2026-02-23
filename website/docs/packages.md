@@ -326,7 +326,7 @@ sema pkg init
 
 ### 2. Write Your Code
 
-Create `package.sema` to define your package's public API:
+Edit the generated `package.sema` to define your package's API:
 
 ```sema
 ;; package.sema — package entrypoint
