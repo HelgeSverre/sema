@@ -123,6 +123,33 @@ sema completions <SHELL>
 
 Supported shells: `bash`, `zsh`, `fish`, `elvish`, `powershell`.
 
+### `sema fmt`
+
+Format Sema source files. See [Formatter](./formatter.md) for full documentation.
+
+```
+sema fmt [OPTIONS] [FILES...]
+```
+
+| Flag | Description |
+| --- | --- |
+| `--check` | Check formatting without writing (exit 1 if unformatted) |
+| `--diff` | Print diff of changes |
+| `--width <N>` | Max line width (default: `80`) |
+| `--indent <N>` | Indentation width (default: `2`) |
+| `--align` | Align consecutive similar forms |
+
+```bash
+# Format all .sema files recursively
+sema fmt
+
+# Check in CI
+sema fmt --check
+
+# Preview changes
+sema fmt --diff
+```
+
 ## Examples
 
 ```bash
