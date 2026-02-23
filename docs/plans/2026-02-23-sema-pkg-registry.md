@@ -488,11 +488,11 @@ Filesystem blob storage:
 `PUT /api/v1/packages/{name}/{version}` — requires Bearer token with `publish` scope
 
 Accepts multipart upload with:
-- `tarball` field — the package tarball
-- `metadata` field — JSON with `{description, repository_url, sema_version_req, dependencies: [{name, version_req}]}`
+- `tarball` field — the package tarball (must contain `sema.toml` at root with `[package]` and optionally `[deps]`)
+- `metadata` field — JSON with `{description, repository_url}` (overrides or supplements what's in `sema.toml`)
 
 Handler logic:
-1. Validate package name format (slash-namespaced, e.g. `sema/http`)
+1. Validate package name format (e.g. `github.com/user/repo` or short names)
 2. Parse and validate semver version
 3. Check tarball size against max_tarball_bytes
 4. If package doesn't exist, create it and set publishing user as owner
@@ -825,22 +825,22 @@ Allow users to register a package by pasting a GitHub repository URL instead of 
 **How it works:**
 
 1. User pastes a GitHub repo URL in the web UI (e.g. `github.com/helgesverre/sema-http`)
-2. Registry validates the repo exists and contains a `sema-pkg.toml` manifest at the root:
+2. Registry validates the repo exists and contains a `sema.toml` manifest at the root:
    ```toml
    [package]
-   name = "sema/http"
+   name = "sema-http"
+   version = "0.1.0"
    description = "HTTP client and server primitives"
    license = "MIT"
-   sema-version = ">= 0.12.0"
+   entrypoint = "package.sema"
 
-   [dependencies]
-   "sema/json" = "^1.0.0"
-   "sema/url" = "^0.3.0"
+   [deps]
+   "github.com/someuser/sema-json" = "v1.0.0"
    ```
 3. Registry reads the manifest, creates the package, and imports existing tags/releases as versions
 4. A GitHub webhook is registered on the repo — when new tags are pushed, the registry auto-publishes:
    - Fetches the tag's tarball via GitHub API (`/repos/{owner}/{repo}/tarball/{tag}`)
-   - Extracts and validates `sema-pkg.toml` from the archive
+   - Extracts and validates `sema.toml` from the archive
    - Stores blob and creates the version record
 
 **Schema changes:**
@@ -889,6 +889,7 @@ Track per-version download counts. Increment on each `/download` hit (debounced 
 - **No sema-lang dependency** — this project stands alone in `pkg/`
 - **SQLite first** — Postgres support can be added later by adding SQLx postgres feature and adapting migrations
 - **S3 blob backend** — not in MVP, add when needed (trait is easy to add to blob.rs)
-- **Package name format** — slash-namespaced (`sema/http`). The route `{name}` uses `*name` catch-all or URL encoding.
+- **Package name format** — currently `github.com/user/repo` paths. The registry may also support short names. The route `{name}` uses `*name` catch-all or URL encoding.
+- **Manifest file** — `sema.toml` with `[package]` (name, version, entrypoint) and `[deps]` sections. Default entrypoint is `package.sema`.
 - **Askama templates** — compile-time checked, type-safe, zero overhead
 - **Alpine.js** — loaded from CDN, no build step needed
