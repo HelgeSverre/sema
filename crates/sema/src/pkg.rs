@@ -615,45 +615,109 @@ fn read_pkg_meta(dir: &Path) -> Option<serde_json::Value> {
 
 /// Create a tarball of the given directory, excluding .git and target.
 fn create_tarball(dir: &str) -> Result<Vec<u8>, String> {
-    let output = Command::new("tar")
-        .args(["czf", "-", "--exclude", ".git", "--exclude", "target", "."])
-        .current_dir(dir)
-        .output()
-        .map_err(|e| format!("Failed to run tar: {e}"))?;
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
 
-    if output.status.success() {
-        Ok(output.stdout)
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        Err(format!("tar failed: {stderr}"))
+    let dir_path = Path::new(dir);
+    let enc = GzEncoder::new(Vec::new(), Compression::default());
+    let mut ar = tar::Builder::new(enc);
+
+    let mut files = Vec::new();
+    collect_files_for_tar(dir_path, &mut files)?;
+
+    for file in &files {
+        let rel = file.strip_prefix(dir_path).unwrap_or(file);
+        ar.append_path_with_name(file, rel)
+            .map_err(|e| format!("Failed to add {}: {e}", file.display()))?;
     }
+
+    let enc = ar
+        .into_inner()
+        .map_err(|e| format!("Failed to finalize tar: {e}"))?;
+    enc.finish()
+        .map_err(|e| format!("Failed to finalize gzip: {e}"))
+}
+
+fn collect_files_for_tar(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = std::fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory {}: {e}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("directory entry error: {e}"))?;
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name == ".git" || name == "target" {
+                continue;
+            }
+        }
+        if path.is_dir() {
+            collect_files_for_tar(&path, files)?;
+        } else {
+            files.push(path);
+        }
+    }
+    Ok(())
 }
 
 /// Extract a tarball into a destination directory.
+/// Rejects path traversal, absolute paths, and symlinks.
 fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dest)
-        .map_err(|e| format!("Failed to create directory: {e}"))?;
+    use flate2::read::GzDecoder;
 
-    let mut child = Command::new("tar")
-        .args(["xzf", "-", "-C"])
-        .arg(dest)
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to run tar: {e}"))?;
+    std::fs::create_dir_all(dest).map_err(|e| format!("Failed to create directory: {e}"))?;
 
-    child
-        .stdin
-        .take()
-        .unwrap()
-        .write_all(data)
-        .map_err(|e| format!("Failed to write tarball data: {e}"))?;
+    let decoder = GzDecoder::new(data);
+    let mut archive = tar::Archive::new(decoder);
 
-    let status = child.wait().map_err(|e| format!("tar failed: {e}"))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err("tar extraction failed".to_string())
+    for entry in archive
+        .entries()
+        .map_err(|e| format!("Invalid tar archive: {e}"))?
+    {
+        let mut entry = entry.map_err(|e| format!("Invalid tar entry: {e}"))?;
+        let path = entry
+            .path()
+            .map_err(|e| format!("Invalid entry path: {e}"))?
+            .into_owned();
+
+        if path.is_absolute() {
+            return Err(format!(
+                "Tar entry has absolute path: {}",
+                path.display()
+            ));
+        }
+
+        for component in path.components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                return Err(format!(
+                    "Tar entry contains path traversal: {}",
+                    path.display()
+                ));
+            }
+        }
+
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            return Err(format!(
+                "Tar entry is a symlink/hardlink (rejected): {}",
+                path.display()
+            ));
+        }
+
+        let full_path = dest.join(&path);
+        if entry_type.is_dir() {
+            std::fs::create_dir_all(&full_path)
+                .map_err(|e| format!("Failed to create dir {}: {e}", full_path.display()))?;
+        } else if entry_type.is_file() {
+            if let Some(parent) = full_path.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|e| format!("Failed to create parent dir: {e}"))?;
+            }
+            entry
+                .unpack(&full_path)
+                .map_err(|e| format!("Failed to extract {}: {e}", path.display()))?;
+        }
     }
+
+    Ok(())
 }
 
 /// Install a package from the registry.
@@ -1615,5 +1679,156 @@ name = "myproject"
         assert!(validate_version("1.0").is_err());
         assert!(validate_version("").is_err());
         assert!(validate_version("v1.0.0").is_err());
+    }
+
+    /// Helper: build a tar.gz with a raw path written directly into the header,
+    /// bypassing the `tar` crate's own path validation.
+    fn make_malicious_tarball(raw_path: &str, data: &[u8]) -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+
+        // Build a 512-byte tar header manually
+        let mut header_block = [0u8; 512];
+        let path_bytes = raw_path.as_bytes();
+        header_block[..path_bytes.len()].copy_from_slice(path_bytes);
+        // mode (octal ASCII at offset 100, 8 bytes)
+        header_block[100..107].copy_from_slice(b"0000644");
+        // size (octal ASCII at offset 124, 12 bytes)
+        let size_str = format!("{:011o}", data.len());
+        header_block[124..135].copy_from_slice(size_str.as_bytes());
+        // typeflag '0' = regular file at offset 156
+        header_block[156] = b'0';
+        // magic "ustar\0" at offset 257
+        header_block[257..263].copy_from_slice(b"ustar\0");
+        // version "00" at offset 263
+        header_block[263..265].copy_from_slice(b"00");
+        // Compute checksum (sum of all bytes, treating checksum field as spaces)
+        header_block[148..156].copy_from_slice(b"        ");
+        let cksum: u32 = header_block.iter().map(|&b| b as u32).sum();
+        let cksum_str = format!("{:06o}\0 ", cksum);
+        header_block[148..156].copy_from_slice(cksum_str.as_bytes());
+
+        gz.write_all(&header_block).unwrap();
+        gz.write_all(data).unwrap();
+        // Pad to 512-byte boundary
+        let padding = 512 - (data.len() % 512);
+        if padding < 512 {
+            gz.write_all(&vec![0u8; padding]).unwrap();
+        }
+        // Two zero blocks = end of archive
+        gz.write_all(&[0u8; 1024]).unwrap();
+        gz.finish().unwrap()
+    }
+
+    #[test]
+    fn extract_tarball_rejects_path_traversal() {
+        let malicious = make_malicious_tarball("../pwned.txt", b"pwned!");
+
+        let dir = tmpdir("traversal");
+        let dest = dir.join("extracted");
+        let parent_file = dir.join("pwned.txt");
+
+        let result = extract_tarball(&malicious, &dest);
+        assert!(result.is_err(), "path traversal should be rejected");
+        assert!(!parent_file.exists(), "file must NOT be written outside dest");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extract_tarball_rejects_absolute_paths() {
+        let malicious = make_malicious_tarball("/tmp/pwned.txt", b"pwned!");
+
+        let dir = tmpdir("abs-path");
+        let dest = dir.join("extracted");
+
+        let result = extract_tarball(&malicious, &dest);
+        assert!(result.is_err(), "absolute paths should be rejected");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extract_tarball_extracts_valid_archive() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut ar = tar::Builder::new(&mut gz);
+            let data = b"(define x 42)";
+            let mut header = tar::Header::new_gnu();
+            header.set_path("package.sema").unwrap();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            ar.append(&header, &data[..]).unwrap();
+            ar.finish().unwrap();
+        }
+        let tarball = gz.finish().unwrap();
+
+        let dir = tmpdir("valid-tar");
+        let dest = dir.join("extracted");
+
+        extract_tarball(&tarball, &dest).unwrap();
+        let content = fs::read_to_string(dest.join("package.sema")).unwrap();
+        assert_eq!(content, "(define x 42)");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extract_tarball_rejects_symlinks() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut ar = tar::Builder::new(&mut gz);
+            let mut header = tar::Header::new_gnu();
+            header.set_entry_type(tar::EntryType::Symlink);
+            header.set_path("evil-link").unwrap();
+            header.set_link_name("/etc/passwd").unwrap();
+            header.set_size(0);
+            header.set_cksum();
+            ar.append(&header, &[][..]).unwrap();
+            ar.finish().unwrap();
+        }
+        let malicious = gz.finish().unwrap();
+
+        let dir = tmpdir("symlink");
+        let dest = dir.join("extracted");
+
+        let result = extract_tarball(&malicious, &dest);
+        assert!(result.is_err(), "symlinks should be rejected");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn extract_tarball_handles_nested_directories() {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut ar = tar::Builder::new(&mut gz);
+
+            let data = b"(define deep 1)";
+            let mut header = tar::Header::new_gnu();
+            header.set_path("src/lib/deep.sema").unwrap();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            ar.append(&header, &data[..]).unwrap();
+            ar.finish().unwrap();
+        }
+        let tarball = gz.finish().unwrap();
+
+        let dir = tmpdir("nested-dirs");
+        let dest = dir.join("extracted");
+
+        extract_tarball(&tarball, &dest).unwrap();
+        let content = fs::read_to_string(dest.join("src/lib/deep.sema")).unwrap();
+        assert_eq!(content, "(define deep 1)");
+        let _ = fs::remove_dir_all(&dir);
     }
 }
