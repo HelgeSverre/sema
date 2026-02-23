@@ -252,7 +252,7 @@ pub fn veteran_hint(name: &str) -> Option<&'static str> {
         "multiple-value-bind" => Some("Sema uses destructuring 'let' for multiple return values"),
         "typep" | "type-of" => Some("Sema uses 'type' to get the type of a value"),
 
-        // Clojure ("def" and "defn" are silent aliases — no hints needed)
+        // Clojure
         "atom" => Some("Sema is single-threaded; use 'define' for mutable state with 'set!'"),
         "swap!" => Some("Sema is single-threaded; use 'set!' for mutation"),
         "deref" => Some("Sema uses 'force' to evaluate delayed/promised values"),

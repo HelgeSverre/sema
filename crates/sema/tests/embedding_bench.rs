@@ -1,6 +1,4 @@
-// TEMPORARY BENCHMARK — This file is for investigating whether embeddings should use
-// a dedicated f64 vector type instead of Value::List(Vec<Value::Float>).
-// May be removed after the investigation concludes.
+// Benchmark: embeddings as dedicated f64 vectors vs Value::List(Vec<Value::Float>).
 
 use std::rc::Rc;
 use std::time::Instant;
