@@ -45,6 +45,7 @@
 
 ### Changed
 
+- **Replaced hand-rolled CRC32 with `crc32fast`** — switched archive checksum computation to the SIMD-accelerated `crc32fast` crate, removing two duplicate implementations.
 - **Package entrypoint renamed** — default package entrypoint changed from `mod.sema` to `package.sema` across resolution logic, CLI discovery, and documentation.
 - **Consolidated JSON module** — unified 4 duplicated JSON `Value`↔`serde_json` conversions into canonical `sema-core::json` module (`value_to_json`, `value_to_json_lossy`, `json_to_value`, `key_to_string`). All crates now use the shared implementation.
 

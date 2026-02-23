@@ -644,7 +644,7 @@ fn run_compile(file: &str, output: Option<&str>) {
     };
 
     // Compute source hash (CRC-32)
-    let source_hash = crc32_simple(source.as_bytes());
+    let source_hash = crc32fast::hash(source.as_bytes());
 
     // Use Interpreter for macro expansion before compilation
     let sandbox = sema_core::Sandbox::allow_all();
@@ -758,7 +758,7 @@ fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Opt
     eprintln!("[1/5] Compiling {file}...");
 
     // Compute source hash and compile to bytecode
-    let source_hash = crc32_simple(source.as_bytes());
+    let source_hash = crc32fast::hash(source.as_bytes());
     let sandbox = sema_core::Sandbox::allow_all();
     let interpreter = Interpreter::new_with_sandbox(&sandbox);
 
@@ -1261,21 +1261,6 @@ fn run_bytecode_bytes(
 
     let mut vm = sema_vm::VM::new(interpreter.global_env.clone(), functions);
     vm.execute(closure, &interpreter.ctx)
-}
-
-fn crc32_simple(data: &[u8]) -> u32 {
-    let mut crc: u32 = 0xFFFF_FFFF;
-    for &byte in data {
-        crc ^= byte as u32;
-        for _ in 0..8 {
-            if crc & 1 != 0 {
-                crc = (crc >> 1) ^ 0xEDB8_8320;
-            } else {
-                crc >>= 1;
-            }
-        }
-    }
-    !crc
 }
 
 fn run_ast(file: Option<String>, eval: Option<String>, json: bool) {

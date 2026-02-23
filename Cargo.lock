@@ -2275,6 +2275,7 @@ version = "1.11.0"
 dependencies = [
  "clap",
  "clap_complete",
+ "crc32fast",
  "flate2",
  "libsui",
  "paste",

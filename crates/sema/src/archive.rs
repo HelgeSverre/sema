@@ -46,26 +46,6 @@ pub const TRAILER_SIZE: usize = 16;
 pub const FORMAT_VERSION: u16 = 1;
 
 // ---------------------------------------------------------------------------
-// CRC32-IEEE
-// ---------------------------------------------------------------------------
-
-/// Compute CRC32-IEEE checksum (same polynomial as gzip/zlib).
-pub fn crc32(data: &[u8]) -> u32 {
-    let mut crc: u32 = 0xFFFF_FFFF;
-    for &byte in data {
-        crc ^= byte as u32;
-        for _ in 0..8 {
-            if crc & 1 != 0 {
-                crc = (crc >> 1) ^ 0xEDB8_8320;
-            } else {
-                crc >>= 1;
-            }
-        }
-    }
-    !crc
-}
-
-// ---------------------------------------------------------------------------
 // Archive struct
 // ---------------------------------------------------------------------------
 
@@ -230,7 +210,7 @@ fn deserialize_archive(data: &[u8]) -> io::Result<Archive> {
     let checksum_start = pos;
 
     // Validate CRC32
-    let computed_checksum = crc32(&data[checksum_start..]);
+    let computed_checksum = crc32fast::hash(&data[checksum_start..]);
     if stored_checksum != computed_checksum {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
@@ -399,7 +379,7 @@ pub fn serialize_archive(
     }
 
     // -- Backfill CRC32 --
-    let checksum = crc32(&buf[8..]); // everything after the checksum field
+    let checksum = crc32fast::hash(&buf[8..]); // everything after the checksum field
     buf[4..8].copy_from_slice(&checksum.to_le_bytes());
 
     buf
@@ -499,11 +479,11 @@ mod tests {
     fn test_crc32_known_value() {
         // CRC32 of empty data should be 0x00000000
         // Actually, CRC32 of empty is 0x00000000 for our implementation
-        let empty = crc32(b"");
+        let empty = crc32fast::hash(b"");
         assert_eq!(empty, 0x0000_0000);
 
         // CRC32 of "123456789" is 0xCBF43926 (well-known test vector)
-        let check = crc32(b"123456789");
+        let check = crc32fast::hash(b"123456789");
         assert_eq!(check, 0xCBF4_3926);
     }
 
@@ -557,7 +537,7 @@ mod tests {
         // No actual TOC entries
 
         // Backfill CRC32
-        let checksum = crc32(&buf[8..]);
+        let checksum = crc32fast::hash(&buf[8..]);
         buf[4..8].copy_from_slice(&checksum.to_le_bytes());
         buf
     }
