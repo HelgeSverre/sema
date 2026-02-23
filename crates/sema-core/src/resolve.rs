@@ -214,37 +214,28 @@ fn verify_path_within(base: &Path, resolved: &Path) -> Result<(), SemaError> {
     Ok(())
 }
 
-/// Parse `entrypoint = "..."` from a sema.toml file using simple line parsing.
+/// Parse `entrypoint = "..."` from a sema.toml file.
 ///
-/// Looks for `entrypoint = "value"` lines. Handles both double and single quotes,
-/// and strips inline comments.
+/// Checks `[package].entrypoint` first, then falls back to a top-level `entrypoint` key.
+/// Ignores `entrypoint` keys in any other table (e.g. `[tool]`).
 fn parse_entrypoint(path: &Path) -> Option<String> {
     let contents = std::fs::read_to_string(path).ok()?;
-    for line in contents.lines() {
-        let trimmed = line.trim();
-        // Skip comments
-        if trimmed.starts_with('#') {
-            continue;
-        }
-        if let Some(rest) = trimmed.strip_prefix("entrypoint") {
-            let rest = rest.trim_start();
-            if let Some(rest) = rest.strip_prefix('=') {
-                let rest = rest.trim();
-                // Try double quotes
-                if let Some(inner) = rest.strip_prefix('"') {
-                    if let Some(end) = inner.find('"') {
-                        return Some(inner[..end].to_string());
-                    }
-                }
-                // Try single quotes
-                if let Some(inner) = rest.strip_prefix('\'') {
-                    if let Some(end) = inner.find('\'') {
-                        return Some(inner[..end].to_string());
-                    }
-                }
-            }
-        }
+    let doc: toml::Value = toml::from_str(&contents).ok()?;
+
+    // Check [package].entrypoint first
+    if let Some(ep) = doc
+        .get("package")
+        .and_then(|p| p.get("entrypoint"))
+        .and_then(|v| v.as_str())
+    {
+        return Some(ep.to_string());
     }
+
+    // Fall back to top-level entrypoint
+    if let Some(ep) = doc.get("entrypoint").and_then(|v| v.as_str()) {
+        return Some(ep.to_string());
+    }
+
     None
 }
 
@@ -589,5 +580,35 @@ mod tests {
     #[test]
     fn test_package_spec_rejects_traversal_in_path() {
         assert!(PackageSpec::parse("github.com/../../etc/passwd@main").is_err());
+    }
+
+    #[test]
+    fn parse_entrypoint_ignores_non_package_table() {
+        let dir = temp_packages_dir();
+        let toml_content = "[tool]\nentrypoint = \"tool.sema\"\n";
+        fs::write(dir.join("sema.toml"), toml_content).unwrap();
+        let result = parse_entrypoint(&dir.join("sema.toml"));
+        assert_eq!(result, None, "should not pick up entrypoint from [tool] table");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_entrypoint_reads_from_package_table() {
+        let dir = temp_packages_dir();
+        let toml_content = "[package]\nentrypoint = \"lib.sema\"\n";
+        fs::write(dir.join("sema.toml"), toml_content).unwrap();
+        let result = parse_entrypoint(&dir.join("sema.toml"));
+        assert_eq!(result, Some("lib.sema".to_string()));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn parse_entrypoint_reads_top_level() {
+        let dir = temp_packages_dir();
+        let toml_content = "entrypoint = \"main.sema\"\n[deps]\nfoo = \"1.0\"\n";
+        fs::write(dir.join("sema.toml"), toml_content).unwrap();
+        let result = parse_entrypoint(&dir.join("sema.toml"));
+        assert_eq!(result, Some("main.sema".to_string()));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
