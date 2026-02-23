@@ -35,7 +35,6 @@
 - **REPL history search** — Ctrl-R reverse search through REPL history.
 - **Prelude macros** — `when-let`, `if-let` for conditional binding.
 - **Debug helpers** — `type` (value type as keyword), `spy` (labeled debug print to stderr), `time` (measure thunk execution time).
-- **7 first-party packages** — scaffolded `sema-test`, `sema-html`, `sema-validate`, `sema-fmt`, `sema-url`, `sema-dot-env`, and `sema-cli` to dogfood the package manager.
 - **`sema completions --install`** — auto-installs shell completions to the standard location for Zsh, Bash, Fish, and Elvish. One command instead of manual mkdir + redirect.
 - **`sema pkg init` scaffolds `package.sema`** — creates both `sema.toml` (with `entrypoint` and `description` fields) and a starter `package.sema` file.
 - **`sema pkg add` auto-creates `sema.toml`** — no longer requires `sema pkg init` first; the manifest is created on-demand when adding the first dependency.
