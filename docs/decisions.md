@@ -77,7 +77,7 @@ A few ubiquitous primitives are kept without a namespace prefix for Scheme famil
 - The `--sandbox` CLI flag restricts dangerous native functions at runtime via a capability bitset (`Caps` type in `sema-core`).
 - Eight capability groups: `fs-read`, `fs-write`, `shell`, `network`, `env-read`, `env-write`, `process`, `llm`.
 - Sandboxed functions remain registered (discoverable, tab-completable) but return a `PermissionDenied` error when invoked.
-- Implementation: `register_fn_gated()` wraps closures with a `Sandbox::check()` guard at registration time. When the sandbox is unrestricted (default), zero overhead — functions are registered directly.
+- Implementation: `register_fn_gated()` (in `sema-stdlib` and `sema-llm`) wraps closures with a `Sandbox::check()` guard at registration time. When the sandbox is unrestricted (default), zero overhead — functions are registered directly.
 - The WASM playground (`sema.run`) uses compile-time feature flags (`#[cfg(not(target_arch = "wasm32"))]`) to shim out dangerous APIs entirely — this is complementary to the runtime sandbox.
 - Embedders can use `InterpreterBuilder::with_sandbox(Sandbox::deny(...))` for fine-grained control.
 - Presets: `--sandbox=strict` (deny shell, fs-write, network, env-write, process, llm) and `--sandbox=all` (deny everything).
@@ -98,7 +98,7 @@ A few ubiquitous primitives are kept without a namespace prefix for Scheme famil
 
 ## Bytecode VM Design Decisions
 
-Three architectural decisions made before Phase 1 of the bytecode VM:
+Key architectural decisions for the bytecode VM:
 
 ### 1. `eval` Semantics: Reify (read-only)
 
@@ -142,13 +142,11 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 
 **TCO:** True tail-call optimization is implemented via `tail_call_vm_closure`: the current frame's stack space is reused for the tail call, enabling 100K+ depth tail recursion without stack growth.
 
-### 5. Named-Let: Desugar to Letrec (implemented)
+### 5. Named-Let: Dedicated Compiler Path (implemented)
 
-**Decision:** Named-let is desugared in `lower.rs`: `(let loop ((n init)) body)` → `(letrec ((loop (lambda (n) body))) (loop init))`. This replaces the special `compile_named_let` path in the VM compiler.
+**Decision:** Named-let (`(let loop ((n init)) body)`) is compiled via a dedicated `compile_named_let` in the VM compiler. The `NamedLet` CoreExpr variant flows through lowering, resolution, and into the compiler where it is handled directly — binding the loop name to a synthetic lambda, then calling it with initial values.
 
-**Rationale:** The special `compile_named_let` path duplicated `compile_lambda` logic but missed critical parts (func_id patching, upvalue support), causing bugs 1 and 3 from the original vm-status.md. Desugaring reuses the correct and tested `compile_letrec` + `compile_lambda` paths.
-
-**Note:** The `NamedLet` CoreExpr variant still exists, but the lowering pass converts named-let forms before they reach the resolver/compiler, so `compile_named_let` is no longer used for the actual implementation.
+**History:** An earlier plan to desugar named-let into letrec in `lower.rs` was considered but not implemented. The dedicated compiler path was kept because it correctly handles func_id patching and upvalue support.
 
 ## NaN-Boxing Value Representation
 
@@ -200,7 +198,7 @@ Three architectural decisions made before Phase 1 of the bytecode VM:
 
 ## LSP Server
 
-- Editor support currently consists of syntax highlighting only, with grammars for VS Code, Vim, Emacs, and Helix (see `editors/` directory).
+- Editor support currently consists of syntax highlighting only, with grammars for VS Code, Zed, Vim, Emacs, and Helix (see `editors/` directory). A standalone `tree-sitter-sema` grammar is also published.
 - **Future: `sema-lsp` crate** using the `tower-lsp` crate
 - Features to implement, in priority order:
   1. **Diagnostics** — surface parse errors from `sema-reader` in real-time
