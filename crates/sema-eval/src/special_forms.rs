@@ -858,15 +858,38 @@ fn eval_defmethod(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampo
     Ok(Trampoline::Value(Value::nil()))
 }
 
+fn is_auto_gensym(sym: &str) -> bool {
+    sym.len() > 1 && sym.ends_with('#') && !sym.ends_with("##")
+}
+
 fn eval_quasiquote(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("quasiquote", "1", args.len()));
     }
-    let result = expand_quasiquote(&args[0], env, ctx)?;
+    let mut gensym_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let result = expand_quasiquote(&args[0], env, ctx, &mut gensym_map)?;
     Ok(Trampoline::Value(result))
 }
 
-fn expand_quasiquote(val: &Value, env: &Env, ctx: &EvalContext) -> Result<Value, SemaError> {
+fn expand_quasiquote(
+    val: &Value,
+    env: &Env,
+    ctx: &EvalContext,
+    gensym_map: &mut std::collections::HashMap<String, String>,
+) -> Result<Value, SemaError> {
+    // Auto-gensym: replace foo# with a consistent gensym within this quasiquote
+    if let Some(sym) = val.as_symbol() {
+        if is_auto_gensym(&sym) {
+            let prefix = &sym[..sym.len() - 1];
+            let resolved = gensym_map
+                .entry(sym.to_string())
+                .or_insert_with(|| sema_core::next_gensym(prefix))
+                .clone();
+            return Ok(Value::symbol(&resolved));
+        }
+    }
+
     if let Some(items) = val.as_list() {
         if items.is_empty() {
             return Ok(val.clone());
@@ -905,13 +928,13 @@ fn expand_quasiquote(val: &Value, env: &Env, ctx: &EvalContext) -> Result<Value,
                     }
                 }
             }
-            result.push(expand_quasiquote(item, env, ctx)?);
+            result.push(expand_quasiquote(item, env, ctx, gensym_map)?);
         }
         Ok(Value::list(result))
     } else if let Some(items) = val.as_vector() {
         let mut result = Vec::new();
         for item in items.iter() {
-            result.push(expand_quasiquote(item, env, ctx)?);
+            result.push(expand_quasiquote(item, env, ctx, gensym_map)?);
         }
         Ok(Value::vector(result))
     } else {

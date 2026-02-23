@@ -41,10 +41,10 @@ pub const PRELUDE: &str = r#"
     (let ((form (car forms))
           (rest (cdr forms)))
       (if (list? form)
-        `(let ((__v ,val))
-           (if (nil? __v) nil (some-> (,(car form) __v ,@(cdr form)) ,@rest)))
-        `(let ((__v ,val))
-           (if (nil? __v) nil (some-> (,form __v) ,@rest)))))))
+        `(let ((v# ,val))
+           (if (nil? v#) nil (some-> (,(car form) v# ,@(cdr form)) ,@rest)))
+        `(let ((v# ,val))
+           (if (nil? v#) nil (some-> (,form v#) ,@rest)))))))
 
 ;; when-let: bind a value, execute body only if non-nil
 ;; (when-let (x (get m :key)) (println x))

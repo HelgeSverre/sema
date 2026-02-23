@@ -54,6 +54,20 @@ pub fn interner_stats() -> (usize, usize) {
     })
 }
 
+/// Generate a unique gensym name with the given prefix.
+/// Returns a string like `prefix__auto42`. The counter is thread-local and monotonically increasing.
+pub fn next_gensym(prefix: &str) -> String {
+    thread_local! {
+        static AUTO_GENSYM_COUNTER: Cell<u64> = const { Cell::new(0) };
+    }
+    let n = AUTO_GENSYM_COUNTER.with(|c| {
+        let v = c.get();
+        c.set(v + 1);
+        v
+    });
+    format!("{prefix}__auto{n}")
+}
+
 /// Compare two Spurs by their resolved string content (lexicographic).
 pub fn compare_spurs(a: Spur, b: Spur) -> std::cmp::Ordering {
     if a == b {

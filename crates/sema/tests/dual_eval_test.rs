@@ -345,3 +345,88 @@ dual_eval_tests! {
     alias_defn: "(defn add (a b) (+ a b)) (add 3 4)" => Value::int(7),
     alias_progn: "(progn (define x 10) (define y 20) (+ x y))" => Value::int(30),
 }
+
+// ============================================================
+// Auto-gensym in quasiquote — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    auto_gensym_basic: r#"
+        (symbol? `x#)
+    "# => Value::bool(true),
+
+    auto_gensym_consistent: r#"
+        (let ((result `(x# x#)))
+          (= (first result) (nth result 1)))
+    "# => Value::bool(true),
+
+    auto_gensym_different_names: r#"
+        (let ((result `(x# y#)))
+          (= (first result) (nth result 1)))
+    "# => Value::bool(false),
+
+    auto_gensym_with_unquote: r#"
+        (let ((val 42))
+          (let ((result `(x# ,val x#)))
+            (and (= (first result) (nth result 2)) (= (nth result 1) 42))))
+    "# => Value::bool(true),
+
+    auto_gensym_nested_calls: r#"
+        (let ((a `x#) (b `x#))
+          (not (= a b)))
+    "# => Value::bool(true),
+
+    auto_gensym_outside_quasiquote: r#"
+        (symbol? 'x#)
+    "# => Value::bool(true),
+
+    auto_gensym_in_vector: r#"
+        (let ((result `[x# x#]))
+          (= (nth result 0) (nth result 1)))
+    "# => Value::bool(true),
+
+    auto_gensym_double_hash_is_regular: r#"
+        (= `x## 'x##)
+    "# => Value::bool(true),
+}
+
+// ============================================================
+// Prelude hygiene — dual eval
+// ============================================================
+
+dual_eval_tests! {
+    some_arrow_no_capture: r#"
+        (begin
+          (define __v {:name "Alice" :age 30})
+          (some-> __v (:name)))
+    "# => Value::string("Alice"),
+}
+
+// ============================================================
+// Auto-gensym edge cases — dual eval
+// ============================================================
+
+dual_eval_tests! {
+    auto_gensym_with_splicing: r#"
+        (begin
+          (defmacro my-do (. body)
+            `(let ((r# nil)) ,@body r#))
+          (my-do (define x 1) (define y 2)))
+    "# => Value::nil(),
+
+    auto_gensym_multi_quasiquote: r#"
+        (begin
+          (defmacro double-bind (a b)
+            (let ((first `(let ((x# ,a)) x#))
+                  (second `(let ((x# ,b)) x#)))
+              `(+ ,first ,second)))
+          (double-bind 10 20))
+    "# => Value::int(30),
+
+    auto_gensym_no_collision_with_manual: r#"
+        (begin
+          (define s1 (gensym "x"))
+          (defmacro my-m (v) `(let ((x# ,v)) x#))
+          (my-m 42))
+    "# => Value::int(42),
+}

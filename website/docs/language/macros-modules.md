@@ -29,10 +29,47 @@ Inspect the expansion of a macro call without evaluating it.
 
 ### `gensym`
 
-Generate a unique symbol for hygienic-ish macro writing.
+Generate a unique symbol manually. For most macro use cases, prefer [auto-gensym (`foo#`)](#auto-gensym-foo) instead.
 
 ```sema
-(gensym "tmp")   ; => tmp_42 (unique each call)
+(gensym "tmp")   ; => tmp__42 (unique each call)
+```
+
+### Auto-gensym (`foo#`)
+
+Inside a quasiquote template, any symbol ending with `#` is automatically replaced with a unique generated symbol. All occurrences of the same `foo#` within a single quasiquote resolve to the same gensym, ensuring consistency.
+
+This prevents **variable capture** — a common bug where macro-introduced bindings accidentally shadow user variables.
+
+```sema
+;; Without auto-gensym — BUG if user has a variable named "tmp"
+(defmacro bad-inc (x)
+  `(let ((tmp ,x)) (+ tmp 1)))
+
+(let ((tmp 100))
+  (bad-inc tmp))   ; => 2, not 101! "tmp" is captured
+
+;; With auto-gensym — always correct
+(defmacro good-inc (x)
+  `(let ((tmp# ,x)) (+ tmp# 1)))
+
+(let ((tmp 100))
+  (good-inc tmp))  ; => 101 ✓
+```
+
+**Rules:**
+- Same `foo#` in one quasiquote → same generated symbol
+- Each quasiquote evaluation → fresh symbols (no cross-expansion collisions)
+- Outside quasiquote, `foo#` is a regular symbol (no magic)
+- Works in both the tree-walker and bytecode VM
+
+**Best practice:** Always use auto-gensym for bindings introduced by macros:
+
+```sema
+(defmacro swap! (a b)
+  `(let ((tmp# ,a))
+     (set! ,a ,b)
+     (set! ,b tmp#)))
 ```
 
 ### Built-in Macros

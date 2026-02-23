@@ -1,4 +1,5 @@
 use std::cell::Cell;
+use std::collections::HashMap;
 
 use sema_core::{intern, SemaError, Spur, Value, ValueView};
 
@@ -819,14 +820,34 @@ fn lower_defmethod(args: &[Value]) -> Result<CoreExpr, SemaError> {
     })
 }
 
+fn is_auto_gensym(sym: &str) -> bool {
+    sym.len() > 1 && sym.ends_with('#') && !sym.ends_with("##")
+}
+
 fn lower_quasiquote(args: &[Value]) -> Result<CoreExpr, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("quasiquote", "1", args.len()));
     }
-    expand_quasiquote(&args[0])
+    let mut gensym_map: HashMap<String, String> = HashMap::new();
+    expand_quasiquote(&args[0], &mut gensym_map)
 }
 
-fn expand_quasiquote(val: &Value) -> Result<CoreExpr, SemaError> {
+fn expand_quasiquote(
+    val: &Value,
+    gensym_map: &mut HashMap<String, String>,
+) -> Result<CoreExpr, SemaError> {
+    // Auto-gensym: replace foo# with a consistent gensym within this quasiquote
+    if let Some(sym) = val.as_symbol() {
+        if is_auto_gensym(&sym) {
+            let prefix = &sym[..sym.len() - 1];
+            let resolved = gensym_map
+                .entry(sym.to_string())
+                .or_insert_with(|| sema_core::next_gensym(prefix))
+                .clone();
+            return Ok(CoreExpr::Quote(Value::symbol(&resolved)));
+        }
+    }
+
     match val.view() {
         ValueView::List(items) => {
             if items.is_empty() {
@@ -886,7 +907,7 @@ fn expand_quasiquote(val: &Value) -> Result<CoreExpr, SemaError> {
                             }
                         }
                     }
-                    current_list.push(expand_quasiquote(item)?);
+                    current_list.push(expand_quasiquote(item, gensym_map)?);
                 }
                 if !current_list.is_empty() {
                     segments.push(CoreExpr::MakeList(current_list));
@@ -906,7 +927,7 @@ fn expand_quasiquote(val: &Value) -> Result<CoreExpr, SemaError> {
                 // No splicing — just expand each element
                 let exprs = items
                     .iter()
-                    .map(expand_quasiquote)
+                    .map(|item| expand_quasiquote(item, gensym_map))
                     .collect::<Result<_, _>>()?;
                 Ok(CoreExpr::MakeList(exprs))
             }
@@ -914,7 +935,7 @@ fn expand_quasiquote(val: &Value) -> Result<CoreExpr, SemaError> {
         ValueView::Vector(items) => {
             let exprs = items
                 .iter()
-                .map(expand_quasiquote)
+                .map(|item| expand_quasiquote(item, gensym_map))
                 .collect::<Result<_, _>>()?;
             Ok(CoreExpr::MakeVector(exprs))
         }

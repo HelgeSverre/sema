@@ -643,5 +643,5 @@ fn is_symbol_start(ch: char) -> bool {
 }
 
 fn is_symbol_char(ch: char) -> bool {
-    is_symbol_start(ch) || ch.is_ascii_digit() || matches!(ch, '-' | '/' | '.')
+    is_symbol_start(ch) || ch.is_ascii_digit() || matches!(ch, '-' | '/' | '.' | '#')
 }

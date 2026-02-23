@@ -1654,4 +1654,41 @@ mod tests {
         assert!(read("{:a 1}").is_ok());
         assert!(read("[1 [2 3] 4]").is_ok());
     }
+
+    #[test]
+    fn test_auto_gensym_symbol_parsing() {
+        let val = read("v#").unwrap();
+        assert_eq!(val.as_symbol().unwrap(), "v#");
+
+        let val = read("tmp#").unwrap();
+        assert_eq!(val.as_symbol().unwrap(), "tmp#");
+
+        let val = read("`(let ((v# 1)) v#)").unwrap();
+        let items = val.as_list().unwrap();
+        assert_eq!(items[0].as_symbol().unwrap(), "quasiquote");
+    }
+
+    #[test]
+    fn test_hash_reader_dispatch_still_works() {
+        let val = read("#t").unwrap();
+        assert_eq!(val.as_bool(), Some(true));
+
+        let val = read("#f").unwrap();
+        assert_eq!(val.as_bool(), Some(false));
+
+        let val = read("#\\space").unwrap();
+        assert_eq!(val.as_char(), Some(' '));
+
+        let val = read("#(+ % 1)").unwrap();
+        assert!(val.as_list().is_some());
+    }
+
+    #[test]
+    fn test_auto_gensym_edge_cases() {
+        let val = read("x##").unwrap();
+        assert_eq!(val.as_symbol().unwrap(), "x##");
+
+        let val = read(":foo").unwrap();
+        assert!(val.as_keyword().is_some());
+    }
 }
