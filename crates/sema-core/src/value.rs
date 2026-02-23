@@ -2152,4 +2152,31 @@ mod tests {
         assert_eq!(Value::int(42).as_float(), Some(42.0));
         assert_eq!(Value::float(3.14).as_float(), Some(3.14));
     }
+
+    #[test]
+    fn test_next_gensym_unique() {
+        let a = next_gensym("x");
+        let b = next_gensym("x");
+        let c = next_gensym("y");
+        assert_ne!(a, b);
+        assert_ne!(a, c);
+        assert_ne!(b, c);
+        assert!(a.starts_with("x__"));
+        assert!(b.starts_with("x__"));
+        assert!(c.starts_with("y__"));
+    }
+
+    #[test]
+    fn test_next_gensym_counter_does_not_panic_near_max() {
+        // Set counter near u64::MAX and verify no panic on wrapping
+        GENSYM_COUNTER.with(|c| c.set(u64::MAX - 1));
+        let a = next_gensym("z");
+        assert!(a.contains(&(u64::MAX - 1).to_string()));
+        // This would panic with `val + 1` instead of wrapping_add
+        let b = next_gensym("z");
+        assert!(b.contains(&u64::MAX.to_string()));
+        // Wraps to 0
+        let c = next_gensym("z");
+        assert!(c.contains("__0"));
+    }
 }

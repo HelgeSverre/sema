@@ -483,4 +483,65 @@ dual_eval_tests! {
           (define b `x#)
           (not (= a b)))
     "# => Value::bool(true),
+
+    // 20-level deep nesting — no stack issues, all gensyms independent
+    auto_gensym_deep_nesting_20: r#"
+        (begin
+          (defmacro wrap (expr)
+            `(let ((v# ,expr)) (+ v# 0)))
+          (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap (wrap 7)))))))))))))))))))))
+    "# => Value::int(7),
+
+    // Stress: 1000 sequential gensyms are all unique
+    auto_gensym_1000_unique: r#"
+        (begin
+          (define syms (map (fn (_) (symbol->string (gensym "s"))) (range 1000)))
+          (define sorted (sort syms))
+          (define (has-dup? lst)
+            (if (or (null? lst) (null? (cdr lst)))
+              #f
+              (if (= (car lst) (cadr lst))
+                #t
+                (has-dup? (cdr lst)))))
+          (not (has-dup? sorted)))
+    "# => Value::bool(true),
+
+    // Stress: 100 auto-gensym macro invocations — all get unique bindings
+    auto_gensym_100_macro_invocations: r#"
+        (begin
+          (defmacro inc-wrap (expr)
+            `(let ((v# ,expr)) (+ v# 1)))
+          (define (apply-n f n x)
+            (if (= n 0) x (apply-n f (- n 1) (f x))))
+          (apply-n (fn (x) (inc-wrap x)) 100 0))
+    "# => Value::int(100),
+
+    // Recursive macro that generates auto-gensyms at each recursion level
+    auto_gensym_recursive_macro: r#"
+        (begin
+          (defmacro count-down (n)
+            (if (= n 0)
+              0
+              `(let ((v# ,n)) (+ v# (count-down ,(- n 1))))))
+          (count-down 10))
+    "# => Value::int(55),
+
+    // Multiple different auto-gensym names in one quasiquote all independent
+    auto_gensym_many_names: r#"
+        (begin
+          (defmacro multi (a b c d)
+            `(let ((w# ,a) (x# ,b) (y# ,c) (z# ,d))
+               (+ w# x# y# z#)))
+          (multi 1 2 3 4))
+    "# => Value::int(10),
+
+    // Auto-gensym in nested let bindings within one quasiquote
+    auto_gensym_nested_lets: r#"
+        (begin
+          (defmacro nested-bind (a b)
+            `(let ((outer# ,a))
+               (let ((inner# ,b))
+                 (+ outer# inner#))))
+          (nested-bind 10 20))
+    "# => Value::int(30),
 }
