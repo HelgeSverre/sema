@@ -1,0 +1,136 @@
+;; Sema Stdlib: Vector Functions
+;; Tests vector construction, access, conversion, destructuring, and pattern matching
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== Vector Functions ===")
+(println)
+
+;; --- Construction ---
+
+(println "-- Construction --")
+
+(assert-eq (vector 1 2 3) [1 2 3] "vector")
+(assert-eq (vector) [] "vector empty")
+(assert-eq (vector "a" "b") ["a" "b"] "vector strings")
+
+;; --- Predicates ---
+
+(println "-- Predicates --")
+
+(assert-eq (vector? [1 2 3]) #t "vector? on vector")
+(assert-eq (vector? '(1 2 3)) #f "vector? on list")
+(assert-eq (vector? 42) #f "vector? on int")
+
+(assert-eq (length [10 20 30]) 3 "length vector")
+(assert-eq (count [10 20 30]) 3 "count vector")
+(assert-eq (empty? []) #t "empty? on empty vector")
+(assert-eq (empty? [1]) #f "empty? on non-empty vector")
+
+;; --- Indexed Access ---
+
+(println "-- Indexed Access --")
+
+(assert-eq (nth [10 20 30] 0) 10 "nth index 0")
+(assert-eq (nth [10 20 30] 2) 30 "nth index 2")
+
+(assert-eq (first [1 2 3]) 1 "first of vector")
+(assert-eq (first []) nil "first of empty vector")
+
+;; rest preserves type (vector in -> vector out)
+(assert-eq (rest [1 2 3]) [2 3] "rest of vector")
+(assert-eq (rest []) [] "rest of empty vector")
+(assert-eq (rest [1]) [] "rest of single vector")
+
+;; --- Conversion ---
+
+(println "-- Conversion --")
+
+(assert-eq (vector->list [1 2 3]) '(1 2 3) "vector->list")
+(assert-eq (vector->list []) '() "vector->list empty")
+(assert-eq (list->vector '(1 2 3)) [1 2 3] "list->vector")
+(assert-eq (list->vector '()) [] "list->vector empty")
+
+;; --- Return Type Behavior ---
+
+(println "-- Return Type Behavior --")
+
+;; map returns list even with vector input
+(assert-eq (map #(* % 2) [1 2 3]) '(2 4 6) "map on vector returns list")
+
+;; filter returns list even with vector input
+(assert-eq (filter even? [1 2 3 4 5]) '(2 4) "filter on vector returns list")
+
+;; reverse preserves vector type
+(assert-eq (reverse [1 2 3]) [3 2 1] "reverse preserves vector")
+
+;; append always returns list
+(assert-eq (append [1 2] [3 4]) '(1 2 3 4) "append returns list")
+
+;; thread-last with conversion
+(assert-eq (->> [1 2 3]
+                (map #(* % 2))
+                (list->vector))
+           [2 4 6] "thread-last map then list->vector")
+
+;; --- Destructuring ---
+
+(println "-- Destructuring --")
+
+;; exact destructuring
+(assert-eq (let (([x y] [10 20]))
+             (+ x y))
+           30 "exact destructuring vector")
+
+(assert-eq (let (([x y] '(10 20)))
+             (+ x y))
+           30 "exact destructuring list into vector pattern")
+
+;; rest destructuring with &
+(assert-eq (let (([head second & tail] [1 2 3 4 5]))
+             [head second tail])
+           [1 2 '(3 4 5)] "rest destructuring")
+
+;; nested destructuring
+(assert-eq (let (([a [b c] d] [1 [2 3] 4]))
+             (+ a b c d))
+           10 "nested destructuring")
+
+;; --- Pattern Matching ---
+
+(println "-- Pattern Matching --")
+
+(define (describe-point p)
+  (match p
+    ([0 0] "origin")
+    ([x 0] (string-append "on x-axis at " (number->string x)))
+    ([0 y] (string-append "on y-axis at " (number->string y)))
+    ([x y] (string-append "point " (number->string x) ", " (number->string y)))))
+
+(assert-eq (describe-point [0 0]) "origin" "match origin")
+(assert-eq (describe-point [5 0]) "on x-axis at 5" "match x-axis")
+(assert-eq (describe-point [0 3]) "on y-axis at 3" "match y-axis")
+(assert-eq (describe-point [2 7]) "point 2, 7" "match general point")
+(assert-eq (describe-point '(5 0)) "on x-axis at 5" "match list against vector pattern")
+
+;; --- Practical ---
+
+(println "-- Practical --")
+
+;; tuple-style returns
+(define (min-max xs)
+  [(list/min xs) (list/max xs)])
+
+(assert-eq (min-max '(3 1 4 1 5)) [1 5] "min-max tuple return")
+
+;; chunking and re-vectorizing
+(assert-eq (->> (range 10)
+                (list/chunk 3)
+                (map list->vector))
+           '([0 1 2] [3 4 5] [6 7 8] [9]) "chunk and re-vectorize")
+
+(println)
+(println "=== All vector tests passed ===")

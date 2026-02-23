@@ -1,0 +1,101 @@
+;; Verify ALL code samples from terminal.md
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== terminal.md verification ===")
+
+;; Modifiers - all return strings
+(assert-eq (string? (term/bold "important")) #t "bold returns string")
+(assert-eq (string? (term/dim "less important")) #t "dim returns string")
+(assert-eq (string? (term/italic "emphasis")) #t "italic returns string")
+(assert-eq (string? (term/underline "click here")) #t "underline returns string")
+(assert-eq (string? (term/inverse "highlighted")) #t "inverse returns string")
+(assert-eq (string? (term/strikethrough "deprecated")) #t "strikethrough returns string")
+
+;; Colors - all return strings
+(assert-eq (string? (term/black "dark text")) #t "black returns string")
+(assert-eq (string? (term/red "error message")) #t "red returns string")
+(assert-eq (string? (term/green "success")) #t "green returns string")
+(assert-eq (string? (term/yellow "warning")) #t "yellow returns string")
+(assert-eq (string? (term/blue "info")) #t "blue returns string")
+(assert-eq (string? (term/magenta "special")) #t "magenta returns string")
+(assert-eq (string? (term/cyan "highlight")) #t "cyan returns string")
+(assert-eq (string? (term/white "bright text")) #t "white returns string")
+(assert-eq (string? (term/gray "muted text")) #t "gray returns string")
+
+;; term/style
+(assert-eq (string? (term/style "danger" :bold :red)) #t "style bold red")
+(assert-eq (string? (term/style "notice" :italic :yellow :underline)) #t "style italic yellow underline")
+(assert-eq (string? (term/style "subtle" :dim :gray)) #t "style dim gray")
+
+;; term/style with no keywords
+(assert-eq (term/style "plain text") "plain text" "style no keywords returns plain")
+
+;; term/style error on unknown keyword
+(try
+  (term/style "text" :blink)
+  (catch e (println "  ✓  style :blink error caught")))
+
+;; Composing styles: term/style
+(assert-eq (string? (term/style "alert" :bold :red :underline)) #t "composed style")
+
+;; Composing styles: nesting
+(assert-eq (string? (term/bold (term/red (term/underline "alert")))) #t "nested composition")
+
+;; term/rgb
+(assert-eq (string? (term/rgb "orange" 255 165 0)) #t "rgb orange")
+(assert-eq (string? (term/rgb "coral" 255 127 80)) #t "rgb coral")
+(assert-eq (string? (term/rgb "teal" 0 128 128)) #t "rgb teal")
+(assert-eq (string? (term/rgb "hot pink" 255 105 180)) #t "rgb hot pink")
+
+;; term/strip
+(assert-eq (term/strip (term/bold "hello")) "hello" "strip bold")
+(assert-eq (term/strip (term/style "hi" :red :bold)) "hi" "strip style")
+(assert-eq (term/strip (term/rgb "color" 255 0 0)) "color" "strip rgb")
+(assert-eq (term/strip "no codes here") "no codes here" "strip plain")
+
+;; Colored log levels pattern
+(define (log-error msg)   (println (term/style "✗ ERROR" :bold :red) " " msg))
+(define (log-warn msg)    (println (term/style "⚠ WARN " :bold :yellow) " " msg))
+(define (log-info msg)    (println (term/style "ℹ INFO " :bold :blue) " " msg))
+(define (log-success msg) (println (term/style "✔ OK   " :bold :green) " " msg))
+;; Just verify they don't error
+(log-error "Connection refused")
+(log-warn "Retrying in 5s")
+(log-info "Connecting to server")
+(log-success "Connected")
+
+;; CLI status pattern
+(define (print-step label detail)
+  (println (term/style label :bold :cyan) " " (term/dim detail)))
+(print-step "Compile" "src/main.sema")
+(print-step "Link" "3 modules")
+(print-step "Write" "build/output")
+
+;; Conditional styling pattern
+(define (color-status code)
+  (cond
+    ((< code 300) (term/green (number->string code)))
+    ((< code 400) (term/yellow (number->string code)))
+    (else         (term/red (number->string code)))))
+
+(assert-eq (term/strip (color-status 200)) "200" "color-status 200")
+(assert-eq (term/strip (color-status 301)) "301" "color-status 301")
+(assert-eq (term/strip (color-status 404)) "404" "color-status 404")
+
+;; Gradient example (just verify no error)
+(for-each
+  (lambda (i)
+    (print (term/rgb "█" (* i 25) 50 (- 255 (* i 25)))))
+  (range 11))
+(println)
+
+;; File logging pattern
+(define msg (term/green "Build succeeded"))
+(assert-eq (string? msg) #t "styled msg is string")
+(assert-eq (term/strip msg) "Build succeeded" "strip for file logging")
+
+(println "=== terminal.md: ALL PASSED ===")

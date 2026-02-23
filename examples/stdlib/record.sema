@@ -1,0 +1,174 @@
+;; Sema Stdlib: Record Types
+;; Tests define-record-type, predicates, accessors, equality, introspection, and patterns
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== Record Types ===")
+(println)
+
+;; --- Basic Definition & Usage ---
+
+(println "-- Basic Definition --")
+
+(define-record-type point
+  (make-point x y)
+  point?
+  (x point-x)
+  (y point-y))
+
+(define p (make-point 3 4))
+
+(assert-eq (point? p) #t "point? on point")
+(assert-eq (point? 42) #f "point? on int")
+(assert-eq (point-x p) 3 "point-x accessor")
+(assert-eq (point-y p) 4 "point-y accessor")
+
+;; --- Immutability ---
+
+(println "-- Immutability --")
+
+(define (move-point p dx dy)
+  (make-point (+ (point-x p) dx)
+              (+ (point-y p) dy)))
+
+(define moved (move-point (make-point 10 20) 5 -2))
+(assert-eq (point-x moved) 15 "move-point x")
+(assert-eq (point-y moved) 18 "move-point y")
+
+;; --- Equality ---
+
+(println "-- Equality --")
+
+(define a (make-point 1 2))
+(define b (make-point 1 2))
+(define c (make-point 9 9))
+
+(assert-eq (equal? a b) #t "equal? same fields")
+(assert-eq (equal? a c) #f "equal? different fields")
+
+;; --- Introspection ---
+
+(println "-- Introspection --")
+
+(assert-eq (record? (make-point 3 4)) #t "record? on record")
+(assert-eq (record? {:x 3 :y 4}) #f "record? on map")
+(assert-eq (record? 42) #f "record? on int")
+
+(assert-eq (type (make-point 3 4)) :point "type of point")
+(assert-eq (type [1 2 3]) :vector "type of vector")
+(assert-eq (type {:a 1}) :map "type of map")
+
+;; --- Nested Records ---
+
+(println "-- Nested Records --")
+
+(define-record-type address
+  (make-address line1 city country)
+  address?
+  (line1 address-line1)
+  (city address-city)
+  (country address-country))
+
+(define-record-type user
+  (make-user id name addr)
+  user?
+  (id user-id)
+  (name user-name)
+  (addr user-addr))
+
+(define u
+  (make-user 123 "Ada"
+    (make-address "12 St James" "London" "UK")))
+
+(assert-eq (user-name u) "Ada" "nested: user-name")
+(assert-eq (address-city (user-addr u)) "London" "nested: address-city")
+
+;; --- Pattern Matching with Records ---
+
+(println "-- Pattern Matching --")
+
+(define (describe v)
+  (match v
+    (p when (point? p)
+       (string-append "point("
+                      (number->string (point-x p))
+                      ", "
+                      (number->string (point-y p))
+                      ")"))
+    (_ "not a point")))
+
+(assert-eq (describe (make-point 3 4)) "point(3, 4)" "match point with guard")
+(assert-eq (describe {:x 3 :y 4}) "not a point" "match non-point")
+
+;; match on type
+(define-record-type person
+  (make-person name age)
+  person?
+  (name person-name)
+  (age person-age))
+
+(define (record-type-name v)
+  (match (type v)
+    (:point "a point")
+    (:person "a person")
+    (_ "something else")))
+
+(assert-eq (record-type-name (make-point 1 2)) "a point" "match type :point")
+(assert-eq (record-type-name (make-person "Ada" 36)) "a person" "match type :person")
+(assert-eq (record-type-name 42) "something else" "match type other")
+
+;; --- Domain Modeling ---
+
+(println "-- Domain Modeling --")
+
+(define-record-type email
+  (make-email value)
+  email?
+  (value email-value))
+
+(define (parse-email s)
+  (if (regex/match? #".+@.+\..+" s)
+      (make-email s)
+      (error "invalid email")))
+
+(define e (parse-email "ada@example.com"))
+(assert-eq (email? e) #t "parse-email valid")
+(assert-eq (email-value e) "ada@example.com" "email-value")
+
+;; --- Multiple Record Types ---
+
+(println "-- Multiple Record Types --")
+
+(define-record-type color
+  (make-color r g b)
+  color?
+  (r color-r)
+  (g color-g)
+  (b color-b))
+
+(define red (make-color 255 0 0))
+(define ada2 (make-person "Ada" 36))
+
+(assert-eq (color? red) #t "color? on color")
+(assert-eq (person? ada2) #t "person? on person")
+(assert-eq (color? ada2) #f "color? on person")
+(assert-eq (color-r red) 255 "color-r accessor")
+(assert-eq (person-name ada2) "Ada" "person-name accessor")
+(assert-eq (type red) :color "type of color")
+(assert-eq (type ada2) :person "type of person")
+
+;; --- Serialization ---
+
+(println "-- Serialization --")
+
+(define (point->map p)
+  {:x (point-x p) :y (point-y p)})
+
+(define encoded (json/encode (point->map (make-point 1 2))))
+(assert-eq (string? encoded) #t "json/encode point->map returns string")
+
+(println)
+(println "=== All record tests passed ===")

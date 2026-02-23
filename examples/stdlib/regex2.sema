@@ -1,0 +1,124 @@
+;; Sema Stdlib: Regex Functions (comprehensive)
+;; Tests regex/match?, regex/match, regex/find-all, regex/replace, regex/replace-all, regex/split
+
+(define (assert-eq actual expected label)
+  (if (equal? actual expected)
+    (println "  ✓ " label)
+    (error (format "  ✗ ~a: expected ~a, got ~a" label expected actual))))
+
+(println "=== Regex Functions ===")
+(println)
+
+;; --- regex/match? ---
+
+(println "-- regex/match? --")
+
+(assert-eq (regex/match? "\\d+" "abc123") #t "match? with normal string")
+(assert-eq (regex/match? #"\d+" "abc123") #t "match? with regex literal")
+(assert-eq (regex/match? #"\d+" "no digits") #f "match? no match")
+(assert-eq (regex/match? #"^\d+$" "abc123") #f "match? anchored fail")
+(assert-eq (regex/match? #"^\d+$" "123") #t "match? anchored pass")
+
+;; --- regex/match ---
+
+(println "-- regex/match --")
+
+(define m1 (regex/match #"(\d+)-(\w+)" "item-42-foo"))
+(assert-eq (:match m1) "42-foo" "match full match")
+(assert-eq (:groups m1) '("42" "foo") "match capture groups")
+(assert-eq (:start m1) 5 "match start offset")
+(assert-eq (:end m1) 11 "match end offset")
+
+(assert-eq (regex/match #"xyz" "abc") nil "match returns nil on no match")
+
+;; optional capture groups
+(define m2 (regex/match #"(\d+)(?:-(\d+))?" "42"))
+(assert-eq (:match m2) "42" "match optional group full")
+(assert-eq (:groups m2) '("42" nil) "match optional group nil")
+(assert-eq (:start m2) 0 "match optional start")
+(assert-eq (:end m2) 2 "match optional end")
+
+;; --- regex/find-all ---
+
+(println "-- regex/find-all --")
+
+(assert-eq (regex/find-all #"\d+" "a1b2c3") '("1" "2" "3") "find-all digits")
+(assert-eq (regex/find-all #"[A-Z]" "Hello World") '("H" "W") "find-all uppercase")
+
+;; --- regex/replace ---
+
+(println "-- regex/replace --")
+
+(assert-eq (regex/replace #"\d+" "X" "a1b2c3") "aXb2c3" "replace first match")
+
+;; capture group references in replacement
+(assert-eq (regex/replace #"(\d+)-(\w+)" "$2:$1" "item-42-foo")
+           "item-foo:42" "replace with numbered captures")
+
+;; named capture groups
+(assert-eq (regex/replace #"(?P<num>\d+)-(?P<word>\w+)" "$word:$num" "item-42-foo")
+           "item-foo:42" "replace with named captures")
+
+;; --- regex/replace-all ---
+
+(println "-- regex/replace-all --")
+
+(assert-eq (regex/replace-all #"\d" "X" "a1b2") "aXbX" "replace-all digits")
+(assert-eq (regex/replace-all #"\s+" " " "a  b  c") "a b c" "replace-all whitespace")
+
+;; --- regex/split ---
+
+(println "-- regex/split --")
+
+(assert-eq (regex/split #"," "a,b,c") '("a" "b" "c") "split by comma")
+(assert-eq (regex/split #"\s+" "hello  world") '("hello" "world") "split by whitespace")
+(assert-eq (regex/split #"[,;]" "a,b;c,d") '("a" "b" "c" "d") "split by comma or semicolon")
+
+;; --- Regex literal escaping ---
+
+(println "-- Regex Literals --")
+
+(assert-eq (regex/match? #"\"[^\"]+\"" "say \"hello\"") #t "match literal quotes in regex literal")
+
+;; --- Practical Examples ---
+
+(println "-- Practical Examples --")
+
+;; validate an identifier
+(define (identifier? s)
+  (regex/match? #"^[A-Za-z_][A-Za-z0-9_]*$" s))
+
+(assert-eq (identifier? "foo_1") #t "identifier? valid")
+(assert-eq (identifier? "1foo") #f "identifier? invalid")
+
+;; extract first int
+(define (extract-first-int s)
+  (let ((m (regex/match #"\d+" s)))
+    (if (nil? m)
+        nil
+        (:match m))))
+
+(assert-eq (extract-first-int "x=42; y=9") "42" "extract-first-int")
+
+;; normalize whitespace
+(assert-eq (regex/replace-all #"\s+" " " "a   b\n\nc\t\t d")
+           "a b c d" "normalize whitespace")
+
+;; parse key-value pairs
+(define (parse-kv line)
+  (let ((m (regex/match #"^(\w+)\s*=\s*(.+)$" line)))
+    (if (nil? m)
+        nil
+        (let ((groups (:groups m)))
+          {:key (first groups) :value (first (rest groups))}))))
+
+(define kv-result (parse-kv "name = Alice"))
+(assert-eq (:key kv-result) "name" "parse-kv key")
+(assert-eq (:value kv-result) "Alice" "parse-kv value")
+
+;; find all email-like strings
+(assert-eq (regex/find-all #"[\w.+-]+@[\w-]+\.[\w.]+" "Contact ada@example.com or bob@test.org")
+           '("ada@example.com" "bob@test.org") "find-all emails")
+
+(println)
+(println "=== All regex tests passed ===")
