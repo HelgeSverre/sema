@@ -21,7 +21,7 @@
 /* Sema wordmark in navbar */
 .VPNavBarTitle .title {
   font-family: 'Cormorant', 'Georgia', serif !important;
-  font-size: 1.5rem !important;
+  font-size: 1.4rem !important;
   font-weight: 300 !important;
   letter-spacing: 0.06em !important;
   color: var(--vp-c-text-1) !important;

@@ -9,7 +9,7 @@ primary_region = "ams"
   PORT = "8080"
   DATABASE_URL = "sqlite:///data/registry.db?mode=rwc"
   BLOB_DIR = "/data/blobs"
-  BASE_URL = "https://sema-pkg.fly.dev"
+  BASE_URL = "https://pkg.sema-lang.com"
   RUST_LOG = "info"
 
 [http_service]
