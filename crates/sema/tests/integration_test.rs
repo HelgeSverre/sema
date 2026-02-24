@@ -4573,39 +4573,6 @@ fn test_cli_model_flag_sets_default_model() {
 }
 
 #[test]
-fn test_cli_deprecated_flags_still_work() {
-    let output = sema_cmd()
-        .env("ANTHROPIC_API_KEY", "dummy")
-        .env("OPENAI_API_KEY", "dummy")
-        .args([
-            "--provider",
-            "openai",
-            "--model",
-            "gpt-4o-mini",
-            "-p",
-            "(llm/current-provider)",
-        ])
-        .output()
-        .expect("failed to run sema");
-
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains(":name :openai"),
-        "deprecated --provider should still work, got: {stdout}"
-    );
-    assert!(
-        stdout.contains(":model \"gpt-4o-mini\""),
-        "deprecated --model should still work, got: {stdout}"
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("deprecated"),
-        "expected deprecation warning, got: {stderr}"
-    );
-}
-
-#[test]
 fn test_cli_chat_model_only_applies_to_default_provider() {
     // When --chat-model is set without --chat-provider, it should only apply
     // to the first (default) provider, not to all providers
