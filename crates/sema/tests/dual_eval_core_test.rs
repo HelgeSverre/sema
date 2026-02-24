@@ -227,6 +227,9 @@ dual_eval_tests! {
 dual_eval_tests! {
     and_single_false: "(and #f)" => Value::bool(false),
     and_single_true: "(and 42)" => Value::int(42),
+    and_returns_nil: "(and 1 nil 3)" => Value::nil(),
+    and_returns_false: "(and 1 #f 3)" => Value::bool(false),
+    and_nil_first: "(and nil 1)" => Value::nil(),
     or_all_false: "(or #f #f #f)" => Value::bool(false),
     or_with_nil: "(or nil nil 3)" => Value::int(3),
     or_single: "(or 42)" => Value::int(42),

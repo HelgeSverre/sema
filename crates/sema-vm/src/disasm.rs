@@ -234,7 +234,7 @@ fn op_from_u8(byte: u8) -> Option<Op> {
 
 #[cfg(test)]
 mod tests {
-    use sema_core::Value;
+    use sema_core::{intern, Value};
 
     use super::*;
     use crate::emit::Emitter;
@@ -276,5 +276,267 @@ mod tests {
         let chunk = e.into_chunk();
         let output = disassemble(&chunk, None);
         assert!(output.contains("== <script> =="));
+    }
+
+    #[test]
+    fn test_disassemble_locals() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::LoadLocal);
+        e.emit_u16(3);
+        e.emit_op(Op::StoreLocal);
+        e.emit_u16(0);
+        e.emit_op(Op::LoadUpvalue);
+        e.emit_u16(1);
+        e.emit_op(Op::StoreUpvalue);
+        e.emit_u16(2);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("locals"));
+        assert!(output.contains("LOAD_LOCAL"));
+        assert!(output.contains("STORE_LOCAL"));
+        assert!(output.contains("LOAD_UPVALUE"));
+        assert!(output.contains("STORE_UPVALUE"));
+    }
+
+    #[test]
+    fn test_disassemble_globals() {
+        let spur = intern("my-var");
+        let bits: u32 = unsafe { std::mem::transmute(spur) };
+
+        let mut e = Emitter::new();
+        e.emit_op(Op::LoadGlobal);
+        e.emit_u32(bits);
+        e.emit_op(Op::DefineGlobal);
+        e.emit_u32(bits);
+        e.emit_op(Op::StoreGlobal);
+        e.emit_u32(bits);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("globals"));
+        assert!(output.contains("LOAD_GLOBAL"));
+        assert!(output.contains("DEFINE_GLOBAL"));
+        assert!(output.contains("STORE_GLOBAL"));
+        assert!(output.contains("my-var"));
+    }
+
+    #[test]
+    fn test_disassemble_call() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::Call);
+        e.emit_u16(2);
+        e.emit_op(Op::TailCall);
+        e.emit_u16(1);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("call"));
+        assert!(output.contains("CALL"));
+        assert!(output.contains("TAIL_CALL"));
+    }
+
+    #[test]
+    fn test_disassemble_call_native() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::CallNative);
+        e.emit_u16(5); // native_id
+        e.emit_u16(3); // argc
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("native"));
+        assert!(output.contains("CALL_NATIVE"));
+        assert!(output.contains("native=5"));
+        assert!(output.contains("argc=3"));
+    }
+
+    #[test]
+    fn test_disassemble_call_global() {
+        let spur = intern("println");
+        let bits: u32 = unsafe { std::mem::transmute(spur) };
+
+        let mut e = Emitter::new();
+        e.emit_op(Op::CallGlobal);
+        e.emit_u32(bits);
+        e.emit_u16(1); // argc
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("call_global"));
+        assert!(output.contains("CALL_GLOBAL"));
+        assert!(output.contains("println"));
+        assert!(output.contains("argc=1"));
+    }
+
+    #[test]
+    fn test_disassemble_make_closure() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::MakeClosure);
+        e.emit_u16(0); // func_id
+        e.emit_u16(2); // n_upvalues
+                       // upvalue descriptors
+        e.emit_u16(1); // is_local = true
+        e.emit_u16(0); // idx = 0
+        e.emit_u16(0); // is_local = false
+        e.emit_u16(1); // idx = 1
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("closure"));
+        assert!(output.contains("MAKE_CLOSURE"));
+        assert!(output.contains("func=0"));
+        assert!(output.contains("upvalues=2"));
+        assert!(output.contains("| local 0"));
+        assert!(output.contains("| upvalue 1"));
+    }
+
+    #[test]
+    fn test_disassemble_collections() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::MakeList);
+        e.emit_u16(3);
+        e.emit_op(Op::MakeVector);
+        e.emit_u16(2);
+        e.emit_op(Op::MakeMap);
+        e.emit_u16(4);
+        e.emit_op(Op::MakeHashMap);
+        e.emit_u16(6);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("collections"));
+        assert!(output.contains("MAKE_LIST"));
+        assert!(output.contains("MAKE_VECTOR"));
+        assert!(output.contains("MAKE_MAP"));
+        assert!(output.contains("MAKE_HASHMAP"));
+    }
+
+    #[test]
+    fn test_disassemble_zero_operand_ops() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::Nil);
+        e.emit_op(Op::True);
+        e.emit_op(Op::False);
+        e.emit_op(Op::Pop);
+        e.emit_op(Op::Dup);
+        e.emit_op(Op::Not);
+        e.emit_op(Op::Throw);
+        e.emit_op(Op::Car);
+        e.emit_op(Op::Cdr);
+        e.emit_op(Op::Cons);
+        e.emit_op(Op::IsNull);
+        e.emit_op(Op::Length);
+        e.emit_op(Op::Get);
+        e.emit_op(Op::ContainsQ);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("zero_ops"));
+        assert!(output.contains("NIL"));
+        assert!(output.contains("TRUE"));
+        assert!(output.contains("FALSE"));
+        assert!(output.contains("POP"));
+        assert!(output.contains("DUP"));
+        assert!(output.contains("NOT"));
+        assert!(output.contains("THROW"));
+        assert!(output.contains("CAR"));
+        assert!(output.contains("CDR"));
+        assert!(output.contains("CONS"));
+        assert!(output.contains("IS_NULL"));
+        assert!(output.contains("LENGTH"));
+        assert!(output.contains("GET"));
+        assert!(output.contains("CONTAINS_Q"));
+    }
+
+    #[test]
+    fn test_disassemble_unknown_opcode() {
+        let e = Emitter::new();
+        let mut chunk = e.into_chunk();
+        // Manually inject an invalid opcode byte
+        chunk.code.push(0xFF);
+        let output = disassemble(&chunk, Some("unknown"));
+        assert!(output.contains("UNKNOWN(0xff)"));
+    }
+
+    #[test]
+    fn test_disassemble_specialized_locals() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::LoadLocal0);
+        e.emit_op(Op::LoadLocal1);
+        e.emit_op(Op::LoadLocal2);
+        e.emit_op(Op::LoadLocal3);
+        e.emit_op(Op::StoreLocal0);
+        e.emit_op(Op::StoreLocal1);
+        e.emit_op(Op::StoreLocal2);
+        e.emit_op(Op::StoreLocal3);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("spec_locals"));
+        assert!(output.contains("LOAD_LOCAL_0"));
+        assert!(output.contains("LOAD_LOCAL_1"));
+        assert!(output.contains("LOAD_LOCAL_2"));
+        assert!(output.contains("LOAD_LOCAL_3"));
+        assert!(output.contains("STORE_LOCAL_0"));
+        assert!(output.contains("STORE_LOCAL_1"));
+        assert!(output.contains("STORE_LOCAL_2"));
+        assert!(output.contains("STORE_LOCAL_3"));
+    }
+
+    #[test]
+    fn test_disassemble_all_jumps() {
+        let mut e = Emitter::new();
+        let j1 = e.emit_jump(Op::Jump);
+        e.patch_jump(j1);
+        let j2 = e.emit_jump(Op::JumpIfTrue);
+        e.patch_jump(j2);
+        let j3 = e.emit_jump(Op::JumpIfFalse);
+        e.patch_jump(j3);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("jumps"));
+        assert!(output.contains("JUMP "));
+        assert!(output.contains("JUMP_IF_TRUE"));
+        assert!(output.contains("JUMP_IF_FALSE"));
+    }
+
+    #[test]
+    fn test_disassemble_arithmetic() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::Add);
+        e.emit_op(Op::Sub);
+        e.emit_op(Op::Mul);
+        e.emit_op(Op::Div);
+        e.emit_op(Op::Negate);
+        e.emit_op(Op::Eq);
+        e.emit_op(Op::Lt);
+        e.emit_op(Op::Gt);
+        e.emit_op(Op::Le);
+        e.emit_op(Op::Ge);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("arith"));
+        assert!(output.contains("ADD\n") || output.contains("ADD\r"));
+        assert!(output.contains("SUB\n") || output.contains("SUB\r"));
+        assert!(output.contains("MUL\n") || output.contains("MUL\r"));
+        assert!(output.contains("DIV"));
+        assert!(output.contains("NEGATE"));
+        assert!(output.contains("EQ\n") || output.contains("EQ\r"));
+        assert!(output.contains("LT\n") || output.contains("LT\r"));
+        assert!(output.contains("GT\n") || output.contains("GT\r"));
+        assert!(output.contains("LE\n") || output.contains("LE\r"));
+        assert!(output.contains("GE\n") || output.contains("GE\r"));
+    }
+
+    #[test]
+    fn test_disassemble_intrinsic_predicates() {
+        let mut e = Emitter::new();
+        e.emit_op(Op::IsPair);
+        e.emit_op(Op::IsList);
+        e.emit_op(Op::IsNumber);
+        e.emit_op(Op::IsString);
+        e.emit_op(Op::IsSymbol);
+        e.emit_op(Op::Append);
+        e.emit_op(Op::Return);
+        let chunk = e.into_chunk();
+        let output = disassemble(&chunk, Some("predicates"));
+        assert!(output.contains("IS_PAIR"));
+        assert!(output.contains("IS_LIST"));
+        assert!(output.contains("IS_NUMBER"));
+        assert!(output.contains("IS_STRING"));
+        assert!(output.contains("IS_SYMBOL"));
+        assert!(output.contains("APPEND"));
     }
 }

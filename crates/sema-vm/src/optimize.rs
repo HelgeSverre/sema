@@ -267,7 +267,7 @@ fn fold_and(mut exprs: Vec<CoreExpr>) -> CoreExpr {
     while !exprs.is_empty() {
         if let CoreExpr::Const(ref v) = exprs[0] {
             if !v.is_truthy() {
-                return CoreExpr::Const(Value::bool(false));
+                return exprs.remove(0);
             }
             if exprs.len() > 1 {
                 exprs.remove(0);
