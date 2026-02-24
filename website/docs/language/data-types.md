@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Data Types
 
-Sema has 20 built-in data types covering numbers, text, collections, and LLM primitives.
+Sema has a rich set of built-in data types covering numbers, text, collections, and LLM primitives.
 
 ## Type Table
 

@@ -844,11 +844,12 @@ fn read_registry_url() -> String {
         .to_string()
 }
 
-/// Resolve the effective registry URL: explicit flag > credentials > default.
+/// Resolve the effective registry URL: explicit flag > env var > credentials > default.
 fn effective_registry(flag: Option<&str>) -> String {
     match flag {
         Some(url) => url.to_string(),
-        None => read_registry_url(),
+        None => std::env::var("SEMA_REGISTRY_URL")
+            .unwrap_or_else(|_| read_registry_url()),
     }
 }
 

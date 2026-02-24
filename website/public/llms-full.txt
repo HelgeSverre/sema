@@ -108,7 +108,7 @@ sema> (:name person)
 - [Shell Completions](./shell-completions.md) — tab completions for bash, zsh, fish, and more
 - [Editor Support](./editors.md) — plugins for VS Code, Vim/Neovim, Emacs, and Helix
 - [Embedding in Rust](./embedding.md) — use Sema as a scripting engine in your app
-- [Data Types](./language/data-types.md) — the 20 built-in types
+- [Data Types](./language/data-types.md) — all built-in types
 - [Special Forms](./language/special-forms.md) — control flow, bindings, and iteration
 - [Macros & Modules](./language/macros-modules.md) — metaprogramming and code organization
 - [LLM Primitives](./llm/) — completions, chat, tools, agents, embeddings, and more
@@ -271,7 +271,7 @@ Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, 
 
 The REPL supports tab completion for:
 
-- All 350+ built-in function names (e.g., `string/tr` → `string/trim`)
+- All built-in function names (e.g., `string/tr` → `string/trim`)
 - Special forms (`def` → `define`, `defun`, `defmacro`, ...)
 - User-defined bindings
 - REPL commands (`,` → `,quit`, `,help`, `,env`, `,builtins`)
@@ -487,7 +487,7 @@ curl -fsSL "$BASE/ftplugin/sema.vim" -o ~/.config/nvim/ftplugin/sema.vim
 
 ### Features
 
-- Full syntax highlighting (special forms, 350+ builtins, LLM primitives, keywords, character literals, comments)
+- Full syntax highlighting (special forms, builtins, LLM primitives, keywords, character literals, comments)
 - Automatic filetype detection for `.sema` files
 - Lisp-aware indentation with correct `lispwords` for all Sema special forms
 - Comment string configured for `;`
@@ -620,7 +620,7 @@ Extension using the dedicated [tree-sitter-sema](https://github.com/helgesverre/
 
 ### Features
 
-- Syntax highlighting (special forms, 350+ builtins, LLM primitives, keyword literals, booleans, `nil`, strings, comments)
+- Syntax highlighting (special forms, builtins, LLM primitives, keyword literals, booleans, `nil`, strings, comments)
 - Smart auto-pairs for `()`, `[]`, `{}`, `""`
 - Code outline for `define`, `defun`, `defmacro`, `defagent`, `deftool`
 - Bracket matching
@@ -924,7 +924,7 @@ See [CLI Sandbox docs](./cli.md#sandbox) for the full list of capabilities and a
 
 # Data Types
 
-Sema has 20 built-in data types covering numbers, text, collections, and LLM primitives.
+Sema has a rich set of built-in data types covering numbers, text, collections, and LLM primitives.
 
 ## Type Table
 
@@ -3012,7 +3012,7 @@ Map a function over items, sending all resulting prompts in parallel.
 
 # Standard Library
 
-Sema ships with **570+ built-in functions** across **25 modules**, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
+Sema ships with a **comprehensive standard library** of built-in functions across many modules, covering everything from string manipulation and file I/O to HTTP requests, regex, and cryptographic hashing.
 
 ## Naming Conventions
 
@@ -7894,7 +7894,7 @@ The entire implementation is ~15k lines of Rust spread across 7 crates, each wit
                            │              │
               ┌────────────▼───┐    ┌─────▼──────────┐
               │  sema-stdlib   │    │    sema-llm     │
-              │  ~350 native   │    │  LLM providers  │
+              │  native fns    │    │  LLM providers  │
               │  functions     │    │  + embeddings   │
               └────────┬───────┘    └──────┬──────────┘
                        │                   │
@@ -7940,9 +7940,9 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-core**   | Shared types                    | `Value` (NaN-boxed 8-byte), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types                       |
 | **sema-reader** | Parsing                         | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap`                                                           |
 | **sema-vm**     | Bytecode VM (opt-in via `--vm`) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch                                     |
-| **sema-eval**   | Evaluation                      | Trampoline-based evaluator, 39 special forms, module system, call stack + span table                                                      |
-| **sema-stdlib** | Standard library                | ~350 native functions across 19 modules                                                                                                   |
-| **sema-llm**    | LLM integration                 | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
+| **sema-eval**   | Evaluation                      | Trampoline-based evaluator, special forms, module system, call stack + span table                                                         |
+| **sema-stdlib** | Standard library                | Native functions across a comprehensive standard library                                                                                  |
+| **sema-llm**    | LLM integration                 | `LlmProvider` trait, native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, embedding providers, cost tracking     |
 | **sema**        | Binary                          | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API                                                                              |
 
 ## The Value Type
@@ -8106,7 +8106,7 @@ SemaError::type_error("int", val.type_name())
 SemaError::arity("map", "2", args.len())
 ```
 
-This keeps error construction concise across ~350 native functions and 39 special forms.
+This keeps error construction concise across all native functions and special forms.
 
 ### Lazy Stack Traces
 
@@ -8379,7 +8379,7 @@ Source text
 
 ### Phase 1: Lowering (Value → CoreExpr)
 
-The lowering pass converts the `Value` AST into `CoreExpr`, a desugared intermediate representation. All ~35 special forms are lowered to ~30 CoreExpr variants. Several forms desugar into simpler ones:
+The lowering pass converts the `Value` AST into `CoreExpr`, a desugared intermediate representation. Special forms are lowered to CoreExpr variants. Several forms desugar into simpler ones:
 
 | Source Form | Lowers To                                 |
 | ----------- | ----------------------------------------- |
@@ -9189,7 +9189,7 @@ Note: the head is checked for special forms _before_ it's evaluated. This is ess
 
 ## Special Form Dispatch
 
-Special form dispatch is the hottest path in the evaluator. Every list expression checks whether its head symbol is one of ~39 special forms. Sema optimizes this with pre-interned `Spur` constants:
+Special form dispatch is the hottest path in the evaluator. Every list expression checks whether its head symbol is one of the special forms. Sema optimizes this with pre-interned `Spur` constants:
 
 ```rust
 // crates/sema-eval/src/special_forms.rs

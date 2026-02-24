@@ -873,28 +873,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .map(|p| p.trim().to_ascii_lowercase())
             .filter(|p| !p.is_empty());
 
-        // Backward compat: fall back to old env vars if new ones aren't set
-        let forced_chat_model = chat_model.or_else(|| {
-            let val = std::env::var("SEMA_DEFAULT_MODEL")
-                .ok()
-                .filter(|m| !m.is_empty());
-            if val.is_some() {
-                eprintln!("Warning: SEMA_DEFAULT_MODEL is deprecated, use SEMA_CHAT_MODEL instead");
-            }
-            val
-        });
-        let forced_chat_provider = chat_provider.or_else(|| {
-            let val = std::env::var("SEMA_LLM_PROVIDER")
-                .ok()
-                .map(|p| p.trim().to_ascii_lowercase())
-                .filter(|p| !p.is_empty());
-            if val.is_some() {
-                eprintln!(
-                    "Warning: SEMA_LLM_PROVIDER is deprecated, use SEMA_CHAT_PROVIDER instead"
-                );
-            }
-            val
-        });
+        let forced_chat_model = chat_model;
+        let forced_chat_provider = chat_provider;
 
         let result = PROVIDER_REGISTRY.with(|reg| {
             let mut reg = reg.borrow_mut();

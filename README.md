@@ -145,7 +145,7 @@ All providers are auto-configured from environment variables — just set the AP
 
 ## It's Also a Real Lisp
 
-480+ built-in functions, tail-call optimization, macros, modules, error handling — not a toy.
+Hundreds of built-in functions, tail-call optimization, macros, modules, error handling — not a toy.
 
 ```scheme
 ;; Closures, higher-order functions, TCO
@@ -269,7 +269,7 @@ sema completions fish > ~/.config/fish/completions/sema.fish
 | **Emacs**        | `(require 'sema-mode)` — see [docs](https://sema-lang.com/docs/editors.html)              |
 | **Helix**        | Copy `languages.toml` + query files — see [docs](https://sema-lang.com/docs/editors.html) |
 
-All editors provide syntax highlighting for 460+ builtins, special forms, keyword literals, character literals, LLM primitives, and more.
+All editors provide syntax highlighting for builtins, special forms, keyword literals, character literals, LLM primitives, and more.
 
 > 📖 Full installation instructions: **[sema-lang.com/docs/editors](https://sema-lang.com/docs/editors.html)**
 
@@ -305,7 +305,7 @@ The [`examples/`](https://github.com/helgesverre/sema/tree/main/examples) direct
 - **Multi-provider** — swap between Anthropic, OpenAI, Gemini, Ollama, any OpenAI-compatible endpoint, or define your own provider in Sema
 - **Pipeline-ready** — response caching, fallback chains, rate limiting, retry with backoff, text chunking, prompt templates, vector store, and a persistent KV store
 - **Cost-aware** — built-in budget tracking with dynamic pricing from [llm-prices.com](https://www.llm-prices.com)
-- **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and 460+ stdlib functions
+- **Practical Lisp** — closures, TCO, macros, modules, error handling, HTTP, file I/O, regex, JSON, and a comprehensive stdlib
 - **Standalone executables** — `sema build` compiles programs into self-contained binaries with auto-traced imports and bundled assets
 - **Embeddable** — [available on crates.io](https://crates.io/crates/sema-lang), clean Rust crate structure with a builder API
 - **Developer-friendly** — REPL with tab completion, structured error messages with hints, and 50+ example programs
@@ -327,7 +327,7 @@ crates/
   sema-reader/   Lexer and s-expression parser
   sema-vm/       Bytecode compiler and virtual machine
   sema-eval/     Trampoline-based evaluator, special forms, modules
-  sema-stdlib/   460+ built-in functions across 21 modules
+  sema-stdlib/   Built-in functions across many modules
   sema-llm/      LLM provider trait + multi-provider clients
   sema-wasm/     WebAssembly build for sema.run playground
   sema/          CLI binary: REPL + file runner + standalone builder

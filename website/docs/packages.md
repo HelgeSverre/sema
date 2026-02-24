@@ -250,6 +250,16 @@ registry.token = (set)
 Credentials file: /Users/you/.sema/credentials.toml
 ```
 
+### Environment Variable Override
+
+You can set `SEMA_REGISTRY_URL` to override the default registry without modifying the credentials file. This is useful for CI/CD pipelines or when temporarily working with a private registry.
+
+```bash
+SEMA_REGISTRY_URL=https://my-registry.com sema pkg search foo
+```
+
+The resolution order is: `--registry` CLI flag → `SEMA_REGISTRY_URL` env var → `credentials.toml` config → default (`https://pkg.sema-lang.com`).
+
 ## Lock File (`sema.lock`)
 
 The `sema.lock` file records the exact resolved version of every dependency for reproducible builds. It is auto-generated and should be committed to version control.

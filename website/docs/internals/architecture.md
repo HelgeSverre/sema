@@ -14,7 +14,7 @@ The entire implementation is ~70k lines of Rust spread across 9 crates, each wit
                            │              │
               ┌────────────▼───┐    ┌─────▼──────────┐
               │  sema-stdlib   │    │    sema-llm     │
-              │  570+ native   │    │  LLM providers  │
+              │  native fns    │    │  LLM providers  │
               │  functions     │    │  + embeddings   │
               └────────┬───────┘    └──────┬──────────┘
                        │                   │
@@ -60,9 +60,9 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-core**   | Shared types                    | `Value` (NaN-boxed 8-byte), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types                       |
 | **sema-reader** | Parsing                         | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap`                                                           |
 | **sema-vm**     | Bytecode VM (opt-in via `--vm`) | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch                                     |
-| **sema-eval**   | Evaluation                      | Trampoline-based evaluator, 40 special forms, module system, call stack + span table                                                      |
-| **sema-stdlib** | Standard library                | 570+ native functions across 25 modules                                                                                                   |
-| **sema-llm**    | LLM integration                 | `LlmProvider` trait, 4 native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, 3 embedding providers, cost tracking |
+| **sema-eval**   | Evaluation                      | Trampoline-based evaluator, special forms, module system, call stack + span table                                                         |
+| **sema-stdlib** | Standard library                | Native functions across a comprehensive standard library                                                                                  |
+| **sema-llm**    | LLM integration                 | `LlmProvider` trait, native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, embedding providers, cost tracking     |
 | **sema-fmt**    | Formatter                       | Code formatter for `.sema` files (`sema fmt`)                                                                                             |
 | **sema-wasm**  | WASM bindings             | Browser playground bindings, JS interop via `wasm-bindgen`                                                                                |
 | **sema**        | Binary                          | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API                                                                              |
@@ -241,7 +241,7 @@ SemaError::type_error("int", val.type_name())
 SemaError::arity("map", "2", args.len())
 ```
 
-This keeps error construction concise across 570+ native functions and 40 special forms.
+This keeps error construction concise across all native functions and special forms.
 
 ### Lazy Stack Traces
 

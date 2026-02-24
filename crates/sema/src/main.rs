@@ -254,14 +254,6 @@ struct Cli {
     #[arg(long)]
     embedding_provider: Option<String>,
 
-    /// Deprecated: use --chat-model instead
-    #[arg(long, hide = true)]
-    model: Option<String>,
-
-    /// Deprecated: use --chat-provider instead
-    #[arg(long, hide = true)]
-    provider: Option<String>,
-
     /// Restrict file operations to these directories (comma-separated)
     #[arg(long, value_name = "DIRS")]
     allowed_paths: Option<String>,
@@ -578,21 +570,10 @@ fn main() {
     let interpreter = Interpreter::new_with_sandbox(&sandbox);
 
     // Set LLM env vars before auto-configure
-    // New scoped flags take priority; fall back to deprecated --model/--provider
-    let effective_chat_model = cli.chat_model.as_ref().or(cli.model.as_ref());
-    let effective_chat_provider = cli.chat_provider.as_ref().or(cli.provider.as_ref());
-
-    if cli.model.is_some() && cli.chat_model.is_none() {
-        eprintln!("Warning: --model is deprecated, use --chat-model instead");
-    }
-    if cli.provider.is_some() && cli.chat_provider.is_none() {
-        eprintln!("Warning: --provider is deprecated, use --chat-provider instead");
-    }
-
-    if let Some(model) = effective_chat_model {
+    if let Some(model) = cli.chat_model.as_ref() {
         std::env::set_var("SEMA_CHAT_MODEL", model);
     }
-    if let Some(provider) = effective_chat_provider {
+    if let Some(provider) = cli.chat_provider.as_ref() {
         std::env::set_var("SEMA_CHAT_PROVIDER", provider);
     }
     if let Some(model) = &cli.embedding_model {
@@ -605,7 +586,7 @@ fn main() {
     // Auto-configure LLM unless --no-init or --no-llm
     if !cli.no_init && !cli.no_llm {
         if let Err(e) = interpreter.eval_str("(llm/auto-configure)") {
-            if effective_chat_provider.is_some() || effective_chat_model.is_some() {
+            if cli.chat_provider.is_some() || cli.chat_model.is_some() {
                 print_error(&e);
                 std::process::exit(1);
             }

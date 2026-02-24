@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Editor Support
 
-Sema has editor plugins for VS Code, Vim/Neovim, Emacs, Helix, and Zed. All plugins provide syntax highlighting for the full standard library (570+ functions), special forms, keyword literals, character literals, strings, numbers, comments, and LLM primitives.
+Sema has editor plugins for VS Code, Vim/Neovim, Emacs, Helix, and Zed. All plugins provide syntax highlighting for the full standard library, special forms, keyword literals, character literals, strings, numbers, comments, and LLM primitives.
 
 Source code for all editor plugins is in the [`editors/`](https://github.com/HelgeSverre/sema/tree/main/editors) directory.
 
@@ -77,7 +77,7 @@ curl -fsSL "$BASE/ftplugin/sema.vim" -o ~/.config/nvim/ftplugin/sema.vim
 
 ### Features
 
-- Full syntax highlighting (special forms, 570+ builtins, LLM primitives, keywords, character literals, comments)
+- Full syntax highlighting (special forms, builtins, LLM primitives, keywords, character literals, comments)
 - Automatic filetype detection for `.sema` files
 - Lisp-aware indentation with correct `lispwords` for all Sema special forms
 - Comment string configured for `;`
@@ -210,7 +210,7 @@ Extension using the dedicated [tree-sitter-sema](https://github.com/helgesverre/
 
 ### Features
 
-- Syntax highlighting (special forms, 570+ builtins, LLM primitives, keyword literals, booleans, `nil`, strings, comments)
+- Syntax highlighting (special forms, builtins, LLM primitives, keyword literals, booleans, `nil`, strings, comments)
 - Smart auto-pairs for `()`, `[]`, `{}`, `""`
 - Code outline for `define`, `defun`, `defmacro`, `defagent`, `deftool`
 - Bracket matching

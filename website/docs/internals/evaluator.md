@@ -151,7 +151,7 @@ Note: the head is checked for special forms _before_ it's evaluated. This is ess
 
 ## Special Form Dispatch
 
-Special form dispatch is the hottest path in the evaluator. Every list expression checks whether its head symbol is one of 40 special forms. Sema optimizes this with pre-interned `Spur` constants:
+Special form dispatch is the hottest path in the evaluator. Every list expression checks whether its head symbol is one of the special forms. Sema optimizes this with pre-interned `Spur` constants:
 
 ```rust
 // crates/sema-eval/src/special_forms.rs

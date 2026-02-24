@@ -40,9 +40,9 @@ sema-core  ←  sema-reader  ←  sema-vm  ←  sema-eval  ←  sema (binary)
 
 - **sema-core** — NaN-boxed `Value(u64)` struct, `Env` (Rc + RefCell + hashbrown::HashMap), `SemaError`, `EvalContext`, thread-local VFS
 - **sema-reader** — Lexer + parser producing `Value` AST. Handles regex literals (`#"..."`), f-strings (`f"...${expr}..."`), short lambdas (`#(...)`)
-- **sema-vm** — Bytecode compiler (lowering → optimization → resolution → compilation) and stack-based VM with 23 intrinsic opcodes
-- **sema-eval** — Trampoline-based tree-walking evaluator, 40 special forms, module system, destructuring/pattern matching, prelude macros
-- **sema-stdlib** — 460+ native functions across 24 modules registered into `Env`
+- **sema-vm** — Bytecode compiler (lowering → optimization → resolution → compilation) and stack-based VM with intrinsic opcodes
+- **sema-eval** — Trampoline-based tree-walking evaluator, special forms, module system, destructuring/pattern matching, prelude macros
+- **sema-stdlib** — Native functions across many modules registered into `Env`
 - **sema-llm** — LLM provider trait + Anthropic/OpenAI/Gemini/Ollama clients (tokio `block_on` for sync)
 - **sema-wasm** — WASM bindings for browser playground at sema.run
 - **sema** — Binary: CLI (clap) + REPL (rustyline) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + integration tests

@@ -339,14 +339,16 @@ sema --sandbox=no-shell,no-network --allowed-paths=./data script.sema
 | `JINA_API_KEY`       | Jina embeddings API key (auto-detected)               |
 | `VOYAGE_API_KEY`     | Voyage embeddings API key (auto-detected)             |
 | `COHERE_API_KEY`     | Cohere embeddings API key (auto-detected)             |
+| `SEMA_HOME`          | Override Sema home directory (default: `~/.sema`)     |
 | `SEMA_CHAT_MODEL`    | Default chat model name                               |
 | `SEMA_CHAT_PROVIDER` | Preferred chat provider                               |
 | `SEMA_EMBEDDING_MODEL` | Default embedding model name                        |
 | `SEMA_EMBEDDING_PROVIDER` | Preferred embedding provider                    |
+| `SEMA_REGISTRY_URL`  | Override default package registry URL                 |
+| `SEMA_RUNTIME_BASE_URL` | Override base URL for cross-compilation runtime downloads |
+| `NO_COLOR`           | Disable colored output when set                       |
 
-::: tip Deprecated aliases
-`SEMA_DEFAULT_MODEL` and `SEMA_LLM_PROVIDER` still work but are deprecated. Use `SEMA_CHAT_MODEL` and `SEMA_CHAT_PROVIDER` instead.
-:::
+
 
 ## REPL Commands
 
@@ -387,7 +389,7 @@ elapsed: 58.424ms
 
 The REPL supports tab completion for:
 
-- All 570+ built-in function names (e.g., `string/tr` → `string/trim`)
+- All built-in function names (e.g., `string/tr` → `string/trim`)
 - Special forms (`def` → `define`, `defun`, `defmacro`, ...)
 - User-defined bindings
 - REPL commands (`,` → `,quit`, `,help`, `,env`, `,builtins`, `,type`, `,time`, `,doc`)

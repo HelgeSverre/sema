@@ -307,8 +307,8 @@ crates/sema/src/
 - `-l` is repeatable: `sema -l a.sema -l b.sema` loads both before main execution
 - `-i` keeps interpreter state after file/eval, then enters REPL — essential for debugging scripts
 - `--no-init` / `--no-llm` skip `(llm/auto-configure)` — faster startup for scripts that don't need LLM
-- `--model` and `--provider` set env vars (`SEMA_DEFAULT_MODEL`, `SEMA_LLM_PROVIDER`) rather than reconfiguring the provider registry
-  - Rationale: provider may not be configured yet; scripts can check `(env "SEMA_DEFAULT_MODEL")` explicitly
+- `--chat-model` and `--chat-provider` set env vars (`SEMA_CHAT_MODEL`, `SEMA_CHAT_PROVIDER`) rather than reconfiguring the provider registry
+  - Rationale: provider may not be configured yet; scripts can check `(env "SEMA_CHAT_MODEL")` explicitly
   - This avoids coupling CLI args to provider internals
 - `sys/args` returns raw `std::env::args()` — standard behavior, user filters as needed
 - `--version` uses `env!("CARGO_PKG_VERSION")` from Cargo.toml — single source of truth for version string

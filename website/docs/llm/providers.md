@@ -265,4 +265,3 @@ All providers are auto-configured from environment variables. Use `(llm/configur
 | `SEMA_EMBEDDING_MODEL`   | Default embedding model name                          |
 | `SEMA_EMBEDDING_PROVIDER` | Preferred embedding provider                          |
 
-> `SEMA_DEFAULT_MODEL` and `SEMA_LLM_PROVIDER` still work but are deprecated. Use the new names above.
