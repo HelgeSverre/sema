@@ -147,11 +147,13 @@ You can construct these by hand, but the response helpers below are more conveni
 Return 200 with a JSON-encoded body.
 
 ```sema
-(http/ok {:message "success"})
-; => {:status 200 :headers {"content-type" "application/json"} :body "{\"message\":\"success\"}"}
+(pprint (http/ok {:message "success"}))
+; => {:body "{"message":"success"}"
+;     :headers {"content-type" "application/json"}
+;     :status 200}
 
-(http/ok [1 2 3])
-; => {:status 200 :body "[1,2,3]" ...}
+(pprint (http/ok [1 2 3]))
+; => {:body "[1,2,3]" :headers {"content-type" "application/json"} :status 200}
 ```
 
 ### `http/created`
