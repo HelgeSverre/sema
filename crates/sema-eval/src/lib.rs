@@ -2,6 +2,7 @@
 mod destructure;
 pub mod doctest;
 mod eval;
+pub mod evolve;
 mod prelude;
 mod special_forms;
 

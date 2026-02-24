@@ -14519,3 +14519,115 @@ fn test_become_observe_history_full_flow() {
     let result = interp.eval_str_in_global("(become! calc (fn (x) x))");
     assert!(result.is_err());
 }
+
+// ── evolve tests ─────────────────────────────────────────────────
+
+#[test]
+fn test_evolve_missing_name() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(r#"(evolve :spec '((>>> (+ 1 2) 3)) :fitness (fn (f r) 1) :seed-prompt "test")"#);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains(":name"));
+}
+
+#[test]
+fn test_evolve_missing_spec() {
+    let interp = Interpreter::new();
+    let result =
+        interp.eval_str(r#"(evolve :name "test" :fitness (fn (f r) 1) :seed-prompt "test")"#);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains(":spec"));
+}
+
+#[test]
+fn test_evolve_missing_fitness() {
+    let interp = Interpreter::new();
+    let result =
+        interp.eval_str(r#"(evolve :name "test" :spec '((>>> (+ 1 2) 3)) :seed-prompt "test")"#);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains(":fitness"));
+}
+
+#[test]
+fn test_evolve_missing_seed_prompt() {
+    let interp = Interpreter::new();
+    let result =
+        interp.eval_str(r#"(evolve :name "test" :spec '((>>> (+ 1 2) 3)) :fitness (fn (f r) 1))"#);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains(":seed-prompt"));
+}
+
+#[test]
+fn test_evolve_unknown_option() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(evolve :name "t" :spec '((>>> 1 1)) :fitness (fn (f r) 1) :seed-prompt "t" :bogus 1)"#,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("bogus"));
+}
+
+#[test]
+fn test_evolve_spec_from_docstring() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+            (defn my-add "Adds.
+                >>> (my-add 1 2)
+                3" (a b) (+ a b))
+            (evolve :name "my-add"
+                    :spec my-add
+                    :fitness (fn (f r) 1)
+                    :seed-prompt "test"
+                    :generations 0
+                    :population 0))"#,
+    );
+    // With 0 generations and 0 population, config parsed OK but no candidates
+    // It will error on "no candidates" which is fine — config parsed OK
+    let is_config_error = result
+        .as_ref()
+        .err()
+        .map(|e| {
+            let s = e.to_string();
+            s.contains(":name")
+                || s.contains(":spec")
+                || s.contains(":fitness")
+                || s.contains(":seed-prompt")
+        })
+        .unwrap_or(false);
+    assert!(!is_config_error, "Should not be a config parsing error");
+}
+
+#[test]
+fn test_evolve_inline_spec_bad_format() {
+    let interp = Interpreter::new();
+    // Spec cases must be (>>> expr expected)
+    let result = interp.eval_str(
+        r#"(evolve :name "t" :spec '((bad 1 2)) :fitness (fn (f r) 1) :seed-prompt "t")"#,
+    );
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains(">>>"));
+}
+
+#[test]
+fn test_evolve_empty_spec() {
+    let interp = Interpreter::new();
+    let result =
+        interp.eval_str(r#"(evolve :name "t" :spec '() :fitness (fn (f r) 1) :seed-prompt "t")"#);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("empty"));
+}
+
+#[test]
+fn test_evolve_spec_fn_no_doctests() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+            (defn nodoc (x) x)
+            (evolve :name "t" :spec nodoc :fitness (fn (f r) 1) :seed-prompt "t"))"#,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("docstring") || err.contains("doctest"));
+}

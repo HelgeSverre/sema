@@ -76,6 +76,7 @@ struct SpecialFormSpurs {
 
     // Runtime self-modification
     become_: Spur,
+    evolve: Spur,
     freeze: Spur,
     history: Spur,
     observe: Spur,
@@ -149,6 +150,7 @@ impl SpecialFormSpurs {
 
             // Runtime self-modification
             become_: intern("become!"),
+            evolve: intern("evolve"),
             freeze: intern("freeze!"),
             history: intern("history"),
             observe: intern("observe!"),
@@ -235,6 +237,7 @@ pub const SPECIAL_FORM_NAMES: &[&str] = &[
     "source-of",
     // Runtime self-modification
     "become!",
+    "evolve",
     "freeze!",
     "history",
     "observe!",
@@ -355,6 +358,8 @@ pub fn try_eval_special(
     // Runtime self-modification
     } else if head_spur == sf.become_ {
         Some(eval_become(args, env, ctx))
+    } else if head_spur == sf.evolve {
+        Some(eval_evolve(args, env, ctx))
     } else if head_spur == sf.freeze {
         Some(eval_freeze(args, env))
     } else if head_spur == sf.history {
@@ -3073,6 +3078,284 @@ fn eval_freeze(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     env.set_meta(spur, Value::keyword("frozen?"), Value::bool(true));
 
     Ok(Trampoline::Value(Value::nil()))
+}
+
+/// (evolve :name "..." :spec ... :fitness fn :seed-prompt "..." ...)
+/// LLM-driven genetic programming.
+fn eval_evolve(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    let config = crate::evolve::parse_config(args, env, ctx)?;
+
+    let system_prompt = "You are writing Sema (a Lisp dialect). Write a function that satisfies \
+                         the given specification. Return ONLY a (fn (params...) body...) expression. \
+                         No markdown, no explanation, no code fences. Just the Sema expression.";
+
+    let crossover_system = "You are writing Sema (a Lisp dialect). You are given two functions that \
+                            solve the same problem. Create a new function that combines the best ideas \
+                            from both. Return ONLY a (fn ...) expression. No markdown, no explanation.";
+
+    let mutate_system = "You are writing Sema (a Lisp dialect). Modify this function to be \
+                         faster or better while still passing all tests. Return ONLY a (fn ...) \
+                         expression. No markdown, no explanation.";
+
+    // Build spec description for prompts
+    let spec_description = match &config.spec {
+        crate::evolve::Spec::Inline(cases) => {
+            let mut desc = String::new();
+            for case in cases {
+                desc.push_str(&format!(
+                    "  ({}) should return {}\n",
+                    case.input, case.expected
+                ));
+            }
+            desc
+        }
+        crate::evolve::Spec::Docstring(ds) => {
+            let mut desc = String::new();
+            for test in crate::doctest::parse_doctests(ds) {
+                match &test.expected {
+                    crate::doctest::Expected::Value(v) => {
+                        desc.push_str(&format!("  ({}) should return {}\n", test.input, v));
+                    }
+                    crate::doctest::Expected::Error(e) => {
+                        desc.push_str(&format!("  ({}) should error with: {}\n", test.input, e));
+                    }
+                    crate::doctest::Expected::Skip => {
+                        desc.push_str(&format!("  ({}) — setup step\n", test.input));
+                    }
+                }
+            }
+            desc
+        }
+    };
+
+    let fn_name = &config.name_str;
+
+    // Generation 0: seed population via LLM
+    let mut population: Vec<crate::evolve::Candidate> = Vec::new();
+
+    if config.verbose {
+        eprintln!(
+            "evolve: seeding {} candidates for '{fn_name}'...",
+            config.population
+        );
+    }
+
+    for slot in 0..config.population {
+        let prompt = format!(
+            "{}\n\nThe function will be bound as '{fn_name}'. Specification:\n{spec_description}\n\
+             Write a (fn ...) expression that satisfies all the above.",
+            config.seed_prompt
+        );
+        let candidate = generate_candidate(env, ctx, &config, &prompt, system_prompt, slot);
+        population.push(candidate);
+    }
+
+    // Log generation 0
+    if config.verbose {
+        log_generation(0, &population);
+    }
+
+    // Evolution loop
+    for gen in 1..=config.generations {
+        let mut next_gen: Vec<crate::evolve::Candidate> = Vec::new();
+
+        // Sort by fitness descending
+        population.sort_by(|a, b| {
+            b.fitness
+                .partial_cmp(&a.fitness)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // Elite count: top 30%
+        let elite_count = std::cmp::max(1, config.population * 30 / 100);
+        for elite in population.iter().take(elite_count) {
+            next_gen.push(crate::evolve::Candidate {
+                source: elite.source.clone(),
+                fn_value: elite.fn_value.clone(),
+                fitness: elite.fitness,
+                spec_passed: elite.spec_passed,
+                spec_total: elite.spec_total,
+                time_ms: elite.time_ms,
+                error: elite.error.clone(),
+            });
+        }
+
+        // Fill remaining slots with crossover/mutation
+        let viable: Vec<&crate::evolve::Candidate> =
+            population.iter().filter(|c| c.fitness > 0.0).collect();
+
+        for slot in elite_count..config.population {
+            let candidate = if viable.len() >= 2 && slot % 5 != 0 {
+                // Crossover: pick two parents weighted by rank
+                let parent_a = &viable[slot % viable.len()];
+                let parent_b = &viable[(slot * 7 + 3) % viable.len()];
+
+                let prompt = format!(
+                    "Parent A (fitness {:.1}):\n{}\n\nParent B (fitness {:.1}):\n{}\n\n\
+                     Specification:\n{spec_description}\n\
+                     Create a new (fn ...) that combines the best ideas from both parents.",
+                    parent_a.fitness, parent_a.source, parent_b.fitness, parent_b.source,
+                );
+                generate_candidate(env, ctx, &config, &prompt, crossover_system, slot)
+            } else if !viable.is_empty() {
+                // Mutation: modify a single parent
+                let parent = &viable[slot % viable.len()];
+                let prompt = format!(
+                    "Current function (fitness {:.1}):\n{}\n\n\
+                     Specification:\n{spec_description}\n\
+                     Modify this function to be faster or better.",
+                    parent.fitness, parent.source,
+                );
+                generate_candidate(env, ctx, &config, &prompt, mutate_system, slot)
+            } else {
+                // No viable parents — reseed
+                let prompt = format!(
+                    "{}\n\nThe function will be bound as '{fn_name}'. Specification:\n{spec_description}\n\
+                     Write a (fn ...) expression that satisfies all the above.",
+                    config.seed_prompt
+                );
+                generate_candidate(env, ctx, &config, &prompt, system_prompt, slot)
+            };
+            next_gen.push(candidate);
+        }
+
+        population = next_gen;
+
+        if config.verbose {
+            log_generation(gen, &population);
+        }
+    }
+
+    // Return the best candidate
+    population.sort_by(|a, b| {
+        b.fitness
+            .partial_cmp(&a.fitness)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    match population.first() {
+        Some(best) if best.fn_value.is_some() && best.fitness > 0.0 => {
+            let fn_val = best.fn_value.clone().unwrap();
+            if config.verbose {
+                eprintln!(
+                    "evolve: winner for '{}' -- fitness {:.1}, {}/{} spec pass, {:.2}ms",
+                    fn_name, best.fitness, best.spec_passed, best.spec_total, best.time_ms
+                );
+            }
+            Ok(Trampoline::Value(fn_val))
+        }
+        _ => Err(SemaError::eval(format!(
+            "evolve: no viable candidate found for '{fn_name}' after {} generations",
+            config.generations
+        ))),
+    }
+}
+
+/// Generate a single candidate: call LLM, parse, eval in sandbox, run spec, compute fitness.
+/// Retries up to config.max_attempts on failure.
+fn generate_candidate(
+    env: &Env,
+    ctx: &EvalContext,
+    config: &crate::evolve::EvolveConfig,
+    prompt: &str,
+    system: &str,
+    _slot: usize,
+) -> crate::evolve::Candidate {
+    let mut last_error: Option<String> = None;
+    for _attempt in 0..config.max_attempts {
+        // Call LLM
+        let response = match call_llm_complete(env, ctx, prompt, system) {
+            Ok(v) => v,
+            Err(e) => {
+                return crate::evolve::Candidate {
+                    source: String::new(),
+                    fn_value: None,
+                    fitness: 0.0,
+                    spec_passed: 0,
+                    spec_total: 0,
+                    time_ms: 0.0,
+                    error: Some(format!("LLM error: {e}")),
+                };
+            }
+        };
+        let response_str = match response.as_str() {
+            Some(s) => s.to_string(),
+            None => {
+                last_error = Some("LLM returned non-string response".to_string());
+                continue;
+            }
+        };
+        let code = crate::evolve::strip_code_fences(&response_str).to_string();
+
+        // Parse
+        let expr = match sema_reader::read(&code) {
+            Ok(e) => e,
+            Err(e) => {
+                last_error = Some(format!("parse error: {e}"));
+                continue;
+            }
+        };
+
+        // Eval in sandbox
+        let sandbox_env = Env::with_parent(Rc::new(env.clone()));
+        let fn_value = match eval::eval_value(ctx, &expr, &sandbox_env) {
+            Ok(v) => v,
+            Err(e) => {
+                last_error = Some(format!("eval error: {e}"));
+                continue;
+            }
+        };
+
+        // Bind the function by name so spec cases can call it
+        sandbox_env.set(config.name, fn_value.clone());
+
+        // Run spec
+        let (passed, total, time_ms) = crate::evolve::run_spec(config, ctx, &sandbox_env);
+
+        // Compute fitness
+        let fitness = crate::evolve::compute_fitness(
+            &config.fitness_fn,
+            &fn_value,
+            passed,
+            total,
+            time_ms,
+            ctx,
+        );
+
+        return crate::evolve::Candidate {
+            source: code,
+            fn_value: Some(fn_value),
+            fitness,
+            spec_passed: passed,
+            spec_total: total,
+            time_ms,
+            error: None,
+        };
+    }
+
+    // Exhausted retries — zero-fitness sentinel
+    let error_msg = match last_error {
+        Some(e) => format!("max attempts exhausted (last: {e})"),
+        None => "max attempts exhausted".to_string(),
+    };
+    crate::evolve::Candidate {
+        source: String::new(),
+        fn_value: None,
+        fitness: 0.0,
+        spec_passed: 0,
+        spec_total: 0,
+        time_ms: 0.0,
+        error: Some(error_msg),
+    }
+}
+
+fn log_generation(gen: usize, population: &[crate::evolve::Candidate]) {
+    let viable = population.iter().filter(|c| c.fitness > 0.0).count();
+    let best = population.iter().map(|c| c.fitness).fold(0.0f64, f64::max);
+    eprintln!(
+        "  Generation {gen}: {} candidates, {viable} viable, best fitness: {best:.1}",
+        population.len()
+    );
 }
 
 /// Parse parameter list, handling rest params (e.g., `(a b . rest)`)
