@@ -102,6 +102,129 @@ dual_eval_tests! {
 }
 
 // ============================================================
+// Pattern Matching Edge Cases — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // Guard references variables bound by nested pattern
+    match_guard_nested_binding: r#"
+        (match {:a [1 2]}
+          ({:a [x y]} when (= (+ x y) 3) :ok)
+          (_ :bad))
+    "# => Value::keyword("ok"),
+
+    // Guard must NOT run when pattern fails (3-elem pattern vs 2-elem value)
+    match_guard_skipped_on_pattern_fail: r#"
+        (begin
+          (define c 0)
+          (define (tick) (set! c (+ c 1)) #t)
+          (match '(1 2)
+            ([a b d] when (tick) :bad)
+            (_ c)))
+    "# => Value::int(0),
+
+    // Guard runs once, returns false, falls through — side effect visible in next clause
+    match_guard_runs_then_falls_through: r#"
+        (begin
+          (define c 0)
+          (match '(1)
+            ([x] when (begin (set! c (+ c 1)) #f) :no)
+            ([x] c)))
+    "# => Value::int(1),
+
+    // Overlapping patterns — guards determine which fires
+    match_overlapping_guards: r#"
+        (match {:x 5}
+          ({:x n} when (> n 10) :big)
+          ({:x n} when (> n 0) :pos)
+          (_ :no))
+    "# => Value::keyword("pos"),
+
+    // Empty vector matches empty list
+    match_empty_vector: r#"(match '() ([] :empty) (_ :no))"# => Value::keyword("empty"),
+
+    // Empty map matches any map
+    match_empty_map: r#"(match {:x 1} ({} :any-map) (_ :no))"# => Value::keyword("any-map"),
+
+    // Quoted symbol in match
+    match_quoted_symbol: r#"(match 'hello ('hello :yes) (_ :no))"# => Value::keyword("yes"),
+
+    // Quoted symbol doesn't match different symbol
+    match_quoted_symbol_mismatch: r#"(match 'world ('hello :yes) (_ :no))"# => Value::keyword("no"),
+
+    // Map with nested rest sequence
+    match_map_nested_rest: r#"
+        (match {:xs '(1 2 3)}
+          ({:xs [a & rest]} rest)
+          (_ nil))
+    "# => common::eval_tw("'(2 3)"),
+
+    // All clauses fail, no wildcard — returns nil
+    match_all_clauses_fail: r#"
+        (match {:x [1]}
+          ({:x [1 2]} :bad)
+          ({:x [a b]} :bad2))
+    "# => Value::nil(),
+
+    // Nested maps
+    match_nested_maps: r#"
+        (match {:a {:b 42}}
+          ({:a {:b v}} v)
+          (_ nil))
+    "# => Value::int(42),
+
+    // Match against boolean false literal
+    match_bool_false_literal: r#"
+        (match #f
+          (#f :false)
+          (#t :true)
+          (_ :other))
+    "# => Value::keyword("false"),
+
+    // Match char literal
+    match_char_literal: r#"
+        (match #\a
+          (#\a :yes)
+          (_ :no))
+    "# => Value::keyword("yes"),
+
+    // :keys binds nil for missing keys and still matches
+    match_keys_missing_binds_nil: r#"
+        (match {:x 1}
+          ({:keys [x y]} (list x y))
+          (_ :no))
+    "# => common::eval_tw("'(1 nil)"),
+
+    // :keys combined with structural key check
+    match_keys_with_structural: r#"
+        (match {:type :ok :val 42}
+          ({:type :ok :keys [val]} val)
+          (_ nil))
+    "# => Value::int(42),
+
+    // Match on float
+    match_float_literal: r#"(match 3.14 (3.14 :pi) (_ :no))"# => Value::keyword("pi"),
+
+    // Match on string (already tested but including for completeness with keyword body)
+    match_string_keyword_body: r#"(match "hello" ("hello" :hi) (_ :no))"# => Value::keyword("hi"),
+
+    // First matching clause wins with guards
+    match_first_clause_wins: r#"
+        (match 5
+          (x when (> x 10) :big)
+          (x when (> x 3) :medium)
+          (x :small))
+    "# => Value::keyword("medium"),
+
+    // Failed pattern's bindings don't leak between clauses
+    match_no_binding_leak: r#"
+        (match '(1)
+          ([a b] (+ a b))
+          ([x] x))
+    "# => Value::int(1),
+}
+
+// ============================================================
 // Regex Literals — dual eval (tree-walker + VM)
 // ============================================================
 
@@ -546,4 +669,66 @@ dual_eval_tests! {
                  (+ outer# inner#))))
           (nested-bind 10 20))
     "# => Value::int(30),
+}
+
+// ============================================================
+// Destructuring Edge Cases — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // Deep nesting: map with nested vector value
+    destructure_map_nested_vec_val: "(let (({:a [x y]} {:a [10 20]})) (+ x y))" => Value::int(30),
+
+    // Triple nesting: vector containing map containing vector
+    destructure_triple_nesting: "(let (([{:a [x]}] (list {:a [42]}))) x)" => Value::int(42),
+
+    // Rest pattern: [& rest] binds entire sequence
+    destructure_rest_binds_all: "(let (([& rest] '(1 2 3))) rest)" => common::eval_tw("'(1 2 3)"),
+
+    // Nested destructure of rest: [a & [b c]]
+    destructure_nested_rest: "(let (([a & [b c]] '(1 2 3))) (list a b c))" => common::eval_tw("'(1 2 3)"),
+
+    // Explicit key-pattern pair in map destructuring
+    destructure_map_explicit_key: "(let (({:x val} {:x 42})) val)" => Value::int(42),
+
+    // Combined :keys + explicit key
+    destructure_map_keys_and_explicit: "(let (({:keys [x] :y yval} {:x 1 :y 2})) (+ x yval))" => Value::int(3),
+
+    // Empty map pattern binds nothing
+    destructure_empty_map: "(let (({} {:x 1})) 42)" => Value::int(42),
+
+    // Missing keys produce nil
+    destructure_map_missing_keys: "(let (({:keys [x y z]} {:x 1})) (list x y z))" => common::eval_tw("'(1 nil nil)"),
+
+    // Map destructuring from hashmap
+    destructure_hashmap: "(let (({:keys [x]} (hashmap/new :x 99))) x)" => Value::int(99),
+
+    // fn params with rest in vector destructuring
+    destructure_fn_rest: "((fn ([a & rest]) rest) '(1 2 3))" => common::eval_tw("'(2 3)"),
+
+    // fn params with map inside vector destructuring
+    destructure_fn_map_in_vec: "((fn ([{:keys [x]}]) x) (list {:x 42}))" => Value::int(42),
+
+    // define with nested destructure
+    destructure_define_nested: "(begin (define [{:keys [a]} b] (list {:a 10} 20)) (+ a b))" => Value::int(30),
+
+    // Match with deeply nested pattern (map containing vector with rest)
+    match_deep_nested_rest: "(match {:items [1 2 3]} ({:items [a & rest]} rest) (_ nil))" => common::eval_tw("'(2 3)"),
+
+    // Match vector exact mismatch falls through to correct clause
+    match_vec_exact_fallthrough: "(match '(1 2) ([a b c] :three) ([a b] :two) (_ :other))" => Value::keyword("two"),
+}
+
+dual_eval_error_tests! {
+    // & without rest pattern name
+    destructure_err_amp_no_rest: "(let (([a &] '(1 2))) a)",
+
+    // Multiple patterns after &
+    destructure_err_amp_multiple: "(let (([a & b c] '(1 2 3))) a)",
+
+    // Non-map value for map destructure
+    destructure_err_non_map_int: "(let (({:keys [x]} 42)) x)",
+
+    // Nested destructure on nil value (key missing → nil, can't destructure nil as vector)
+    destructure_err_nested_nil: "(let (({:a [x y]} {})) x)",
 }

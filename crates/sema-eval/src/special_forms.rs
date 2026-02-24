@@ -50,6 +50,7 @@ struct SpecialFormSpurs {
     try_: Spur,
     unless: Spur,
     when: Spur,
+    while_: Spur,
 
     // Modules
     import: Spur,
@@ -105,6 +106,7 @@ impl SpecialFormSpurs {
             try_: intern("try"),
             unless: intern("unless"),
             when: intern("when"),
+            while_: intern("while"),
 
             // Modules
             import: intern("import"),
@@ -176,6 +178,7 @@ pub const SPECIAL_FORM_NAMES: &[&str] = &[
     "try",
     "unless",
     "when",
+    "while",
     // Modules
     "export",
     "import",
@@ -260,6 +263,8 @@ pub fn try_eval_special(
         Some(eval_unless(args, env, ctx))
     } else if head_spur == sf.when {
         Some(eval_when(args, env, ctx))
+    } else if head_spur == sf.while_ {
+        Some(eval_while(args, env, ctx))
 
     // Modules
     } else if head_spur == sf.import {
@@ -776,6 +781,22 @@ fn eval_unless(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         Ok(Trampoline::Eval(args.last().unwrap().clone(), env.clone()))
     } else {
         Ok(Trampoline::Value(Value::nil()))
+    }
+}
+
+/// (while test body ...)
+fn eval_while(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() < 2 {
+        return Err(SemaError::arity("while", "2+", args.len()));
+    }
+    loop {
+        let cond = eval::eval_value(ctx, &args[0], env)?;
+        if !cond.is_truthy() {
+            return Ok(Trampoline::Value(Value::nil()));
+        }
+        for expr in &args[1..] {
+            eval::eval_value(ctx, expr, env)?;
+        }
     }
 }
 

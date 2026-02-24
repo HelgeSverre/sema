@@ -166,3 +166,84 @@ dual_eval_error_tests! {
     err_division_by_zero: "(/ 1 0)",
     err_unbound_var: "undefined-variable",
 }
+
+// ============================================================
+// Case Edge Cases
+// ============================================================
+
+dual_eval_tests! {
+    case_multiple_datums: "(case 2 ((1 2 3) :found) (else :miss))" => Value::keyword("found"),
+    case_no_match_no_else: "(case 99 ((1 2) :x))" => Value::nil(),
+    case_multiple_body: "(begin (define x 0) (case 1 ((1) (set! x 7) x) (else 0)))" => Value::int(7),
+    case_key_eval_once: "(begin (define n 0) (define (k) (set! n (+ n 1)) n) (case (k) ((1) n) (else 0)))" => Value::int(1),
+}
+
+// ============================================================
+// Try/Catch/Throw Edge Cases
+// ============================================================
+
+dual_eval_tests! {
+    try_throw_map_catch_value: "(try (throw {:a 1}) (catch e (get e :value)))" => common::eval_tw("(hash-map :a 1)"),
+    try_side_effect_before_throw: "(begin (define x 0) (try (set! x 1) (throw \"boom\") (catch e x)))" => Value::int(1),
+    try_nested_rethrow: "(try (try (throw 42) (catch e (throw (+ 1 (get e :value))))) (catch e2 (get e2 :value)))" => Value::int(43),
+    try_catch_multi_body: r#"(try (throw "err") (catch e (define y 10) (+ y 5)))"# => Value::int(15),
+    try_no_error_multi_body: "(try 1 2 3 (catch e 0))" => Value::int(3),
+}
+
+// ============================================================
+// Do Loop Edge Cases
+// ============================================================
+
+dual_eval_tests! {
+    do_immediate_term_with_result: "(do ((i 0 (+ i 1))) ((= i 0) i))" => Value::int(0),
+    do_immediate_term_no_result: "(do ((i 0 (+ i 1))) ((= i 0)))" => Value::nil(),
+    do_parallel_step: "(do ((a 1 b) (b 2 a) (n 0 (+ n 1))) ((= n 1) (list a b)))" => common::eval_tw("'(2 1)"),
+    do_step_side_effects: "(begin (define t 0) (do ((i 0 (begin (set! t (+ t 1)) (+ i 1)))) ((= i 3) t)))" => Value::int(3),
+    do_body_side_effects: "(begin (define acc '()) (do ((i 0 (+ i 1))) ((= i 3) (reverse acc)) (set! acc (cons i acc))))" => common::eval_tw("'(0 1 2)"),
+}
+
+// ============================================================
+// Cond Edge Cases
+// ============================================================
+
+dual_eval_tests! {
+    cond_multi_body: "(cond ((= 1 1) 10 20 30))" => Value::int(30),
+    cond_else_multi_body: "(cond (#f 1) (else 10 20))" => Value::int(20),
+}
+
+// ============================================================
+// When/Unless Multi-Body
+// ============================================================
+
+dual_eval_tests! {
+    when_multi_body: "(when #t 1 2 3)" => Value::int(3),
+    unless_multi_body: "(unless #f 1 2 3)" => Value::int(3),
+}
+
+// ============================================================
+// And/Or Edge Cases
+// ============================================================
+
+dual_eval_tests! {
+    and_single_false: "(and #f)" => Value::bool(false),
+    and_single_true: "(and 42)" => Value::int(42),
+    or_all_false: "(or #f #f #f)" => Value::bool(false),
+    or_with_nil: "(or nil nil 3)" => Value::int(3),
+    or_single: "(or 42)" => Value::int(42),
+}
+
+// ============================================================
+// While
+// ============================================================
+
+dual_eval_tests! {
+    while_basic: "(begin (define i 0) (while (< i 5) (set! i (+ i 1))) i)" => Value::int(5),
+    while_returns_nil: "(begin (define i 0) (while (< i 3) (set! i (+ i 1))))" => Value::nil(),
+    while_no_iterations: "(begin (define i 10) (while (< i 0) (set! i (+ i 1))) i)" => Value::int(10),
+    while_multi_body: "(begin (define a 0) (define b 0) (while (< a 3) (set! a (+ a 1)) (set! b (+ b 10))) b)" => Value::int(30),
+    while_nested: "(begin (define total 0) (define i 0) (while (< i 3) (define j 0) (while (< j 3) (set! total (+ total 1)) (set! j (+ j 1))) (set! i (+ i 1))) total)" => Value::int(9),
+}
+
+dual_eval_error_tests! {
+    while_bad_arity: "(while #t)",
+}

@@ -127,6 +127,8 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             return lower_when(args, tail);
         } else if s == sf("unless") {
             return lower_unless(args, tail);
+        } else if s == sf("while") {
+            return lower_while(args);
         } else if s == sf("defmacro") {
             return lower_defmacro(args);
         } else if s == sf("quasiquote") {
@@ -771,6 +773,25 @@ fn lower_unless(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
         then: Box::new(CoreExpr::Const(Value::nil())),
         else_: Box::new(else_),
     })
+}
+
+fn lower_while(args: &[Value]) -> Result<CoreExpr, SemaError> {
+    if args.len() < 2 {
+        return Err(SemaError::arity("while", "2+", args.len()));
+    }
+    // Desugar (while test body...) into (do () ((not test)) body...)
+    let test = CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(sf("not"))),
+        args: vec![lower_expr(&args[0], false)?],
+        tail: false,
+    };
+    let body = lower_body(&args[1..], false)?;
+    Ok(CoreExpr::Do(DoLoop {
+        vars: vec![],
+        test: Box::new(test),
+        result: vec![CoreExpr::Const(Value::nil())],
+        body,
+    }))
 }
 
 fn lower_defmacro(args: &[Value]) -> Result<CoreExpr, SemaError> {

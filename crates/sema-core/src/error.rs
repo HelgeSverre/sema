@@ -240,8 +240,7 @@ pub fn veteran_hint(name: &str) -> Option<&'static str> {
         "progn" => Some("Sema uses 'begin' to sequence expressions"),
         "funcall" => Some("In Sema, functions are called directly: (f arg ...)"),
         "mapcar" => Some("Sema uses 'map' for mapping over lists"),
-        "loop" => Some("Sema uses 'do' for iteration, or tail recursion"),
-        "while" => Some("Sema uses 'do' for iteration, or tail recursion"),
+        "loop" => Some("Sema uses 'do' or 'while' for iteration, or tail recursion"),
         "princ" | "prin1" => Some("Sema uses 'print' or 'println' for output"),
         "format-string" => Some("Sema uses 'format' with ~a (display) and ~s (write) directives"),
         "defvar" | "defparameter" => Some("Sema uses 'define' for variable definitions"),
@@ -253,6 +252,7 @@ pub fn veteran_hint(name: &str) -> Option<&'static str> {
         "typep" | "type-of" => Some("Sema uses 'type' to get the type of a value"),
 
         // Clojure
+        "defn" => Some("Sema uses 'defun' to define named functions"),
         "atom" => Some("Sema is single-threaded; use 'define' for mutable state with 'set!'"),
         "swap!" => Some("Sema is single-threaded; use 'set!' for mutation"),
         "deref" => Some("Sema uses 'force' to evaluate delayed/promised values"),
@@ -660,6 +660,7 @@ mod tests {
     fn test_veteran_hint_existing_sema_names() {
         // Names that exist in Sema should return None
         assert!(veteran_hint("do").is_none());
+        assert!(veteran_hint("while").is_none());
         assert!(veteran_hint("str").is_none());
         assert!(veteran_hint("count").is_none());
     }
