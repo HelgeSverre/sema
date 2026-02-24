@@ -1,4 +1,5 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use sema_core::{
@@ -63,6 +64,23 @@ struct SpecialFormSpurs {
     message: Spur,
     prompt: Spur,
 
+    // Introspection
+    ask: Spur,
+    ask_code: Spur,
+    doc: Spur,
+    doc_search: Spur,
+    doctest: Spur,
+    heal: Spur,
+    meta: Spur,
+    source_of: Spur,
+
+    // Runtime self-modification
+    become_: Spur,
+    freeze: Spur,
+    history: Spur,
+    observe: Spur,
+    rollback: Spur,
+
     // Silent aliases for other Lisp dialects
     def: Spur,
     defn: Spur,
@@ -118,6 +136,23 @@ impl SpecialFormSpurs {
             deftool: intern("deftool"),
             message: intern("message"),
             prompt: intern("prompt"),
+
+            // Introspection
+            ask: intern("ask"),
+            ask_code: intern("ask/code"),
+            doc: intern("doc"),
+            doc_search: intern("doc/search"),
+            doctest: intern("doctest"),
+            heal: intern("heal!"),
+            meta: intern("meta"),
+            source_of: intern("source-of"),
+
+            // Runtime self-modification
+            become_: intern("become!"),
+            freeze: intern("freeze!"),
+            history: intern("history"),
+            observe: intern("observe!"),
+            rollback: intern("rollback!"),
 
             // Silent aliases
             def: intern("def"),
@@ -189,6 +224,21 @@ pub const SPECIAL_FORM_NAMES: &[&str] = &[
     "deftool",
     "message",
     "prompt",
+    // Introspection
+    "ask",
+    "ask/code",
+    "doc",
+    "doc/search",
+    "doctest",
+    "heal!",
+    "meta",
+    "source-of",
+    // Runtime self-modification
+    "become!",
+    "freeze!",
+    "history",
+    "observe!",
+    "rollback!",
     // Silent aliases for other Lisp dialects (undocumented)
     "def",
     "defn",
@@ -224,7 +274,7 @@ pub fn try_eval_special(
     } else if head_spur == sf.define_record_type {
         Some(eval_define_record_type(args, env))
     } else if head_spur == sf.defmacro {
-        Some(eval_defmacro(args, env))
+        Some(eval_defmacro(args, env, ctx))
     } else if head_spur == sf.defmethod {
         Some(eval_defmethod(args, env, ctx))
     } else if head_spur == sf.defmulti {
@@ -283,6 +333,36 @@ pub fn try_eval_special(
         Some(eval_message(args, env, ctx))
     } else if head_spur == sf.prompt {
         Some(eval_prompt(args, env, ctx))
+
+    // Introspection
+    } else if head_spur == sf.ask {
+        Some(eval_ask(args, env, ctx))
+    } else if head_spur == sf.ask_code {
+        Some(eval_ask_code(args, env, ctx))
+    } else if head_spur == sf.doc {
+        Some(eval_doc(args, env))
+    } else if head_spur == sf.doc_search {
+        Some(eval_doc_search(args, env, ctx))
+    } else if head_spur == sf.doctest {
+        Some(eval_doctest(args, env, ctx))
+    } else if head_spur == sf.heal {
+        Some(eval_heal(args, env, ctx))
+    } else if head_spur == sf.meta {
+        Some(eval_meta(args, env))
+    } else if head_spur == sf.source_of {
+        Some(eval_source_of(args, env))
+
+    // Runtime self-modification
+    } else if head_spur == sf.become_ {
+        Some(eval_become(args, env, ctx))
+    } else if head_spur == sf.freeze {
+        Some(eval_freeze(args, env))
+    } else if head_spur == sf.history {
+        Some(eval_history(args, env))
+    } else if head_spur == sf.observe {
+        Some(eval_observe(args, env, ctx))
+    } else if head_spur == sf.rollback {
+        Some(eval_rollback(args, env, ctx))
     } else {
         None
     }
@@ -369,7 +449,15 @@ fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             })
             .collect::<Result<_, _>>()?;
         let (params, rest_param) = parse_params(&param_names);
-        let body = args[1..].to_vec();
+
+        // Detect optional docstring: (define (f x) "doc" body...)
+        let (docstring, body_start) = if args.len() > 2 && args[1].as_str().is_some() {
+            (args[1].as_str().map(|s| s.to_string()), 2)
+        } else {
+            (None, 1)
+        };
+
+        let body = args[body_start..].to_vec();
         if body.is_empty() {
             return Err(SemaError::eval("define: function body cannot be empty"));
         }
@@ -388,6 +476,30 @@ fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             }
         }
         env.set(name_spur, lambda);
+        if let Some(ref doc) = docstring {
+            env.set_meta(name_spur, Value::keyword("doc"), Value::string(doc));
+        }
+
+        // Store source text
+        let mut source_parts: Vec<Value> = vec![Value::symbol("define"), args[0].clone()];
+        if let Some(ref doc) = docstring {
+            source_parts.push(Value::string(doc));
+        }
+        source_parts.extend_from_slice(&args[body_start..]);
+        let source_form = Value::list(source_parts);
+        env.set_meta(
+            name_spur,
+            Value::keyword("source"),
+            Value::string(&source_form.to_string()),
+        );
+        if let Some(file_path) = ctx.current_file_path() {
+            env.set_meta(
+                name_spur,
+                Value::keyword("file"),
+                Value::string(&file_path.to_string_lossy()),
+            );
+        }
+
         Ok(Trampoline::Value(Value::nil()))
     } else if destructure::is_destructuring_pattern(&args[0]) {
         // (define [a b] expr) or (define {:keys [x y]} expr)
@@ -408,25 +520,66 @@ fn eval_define(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     }
 }
 
-/// (defun name (params...) body...) => (define (name params...) body...)
+/// (defun name (params...) body...) or (defun name "doc" (params...) body...)
 fn eval_defun(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 3 {
         return Err(SemaError::arity("defun", "3+", args.len()));
     }
-    if args[0].as_symbol_spur().is_none() {
-        return Err(SemaError::type_error("symbol", args[0].type_name()));
+    let name_spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+
+    // Detect optional docstring: (defn name "doc" (params) body...)
+    let (docstring, params_idx) = if args[1].as_str().is_some() && args.len() >= 3 {
+        (args[1].as_str().map(|s| s.to_string()), 2)
+    } else {
+        (None, 1)
+    };
+
+    if params_idx >= args.len() {
+        return Err(SemaError::eval(
+            "defun: missing parameter list after docstring",
+        ));
     }
+
     let name = args[0].clone();
-    let params = args[1]
+    let params = args[params_idx]
         .as_list_rc()
-        .ok_or_else(|| SemaError::type_error("list", args[1].type_name()))?;
+        .ok_or_else(|| SemaError::type_error("list", args[params_idx].type_name()))?;
     // Build (name params...) signature list
     let mut sig = vec![name];
     sig.extend(params.iter().cloned());
     // Build transformed args: [(name params...), body...]
     let mut define_args = vec![Value::list(sig)];
-    define_args.extend_from_slice(&args[2..]);
-    eval_define(&define_args, env, ctx)
+    define_args.extend_from_slice(&args[params_idx + 1..]);
+    let result = eval_define(&define_args, env, ctx)?;
+
+    if let Some(ref doc) = docstring {
+        env.set_meta(name_spur, Value::keyword("doc"), Value::string(doc));
+    }
+
+    // Store source text as defn form (overrides define source from eval_define)
+    let mut source_parts = vec![Value::symbol("defn"), args[0].clone()];
+    if let Some(ref doc) = docstring {
+        source_parts.push(Value::string(doc));
+    }
+    source_parts.push(args[params_idx].clone());
+    source_parts.extend_from_slice(&args[params_idx + 1..]);
+    let source_form = Value::list(source_parts);
+    env.set_meta(
+        name_spur,
+        Value::keyword("source"),
+        Value::string(&source_form.to_string()),
+    );
+    if let Some(file_path) = ctx.current_file_path() {
+        env.set_meta(
+            name_spur,
+            Value::keyword("file"),
+            Value::string(&file_path.to_string_lossy()),
+        );
+    }
+
+    Ok(result)
 }
 
 fn eval_set(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
@@ -800,14 +953,22 @@ fn eval_while(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
     }
 }
 
-fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+fn eval_defmacro(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.len() < 3 {
         return Err(SemaError::arity("defmacro", "3+", args.len()));
     }
     let name_spur = args[0]
         .as_symbol_spur()
         .ok_or_else(|| SemaError::eval("defmacro: name must be a symbol"))?;
-    let param_list = args[1]
+
+    // Detect optional docstring: (defmacro name "doc" (params) body...)
+    let (docstring, params_idx) = if args[1].as_str().is_some() && args.len() >= 4 {
+        (args[1].as_str().map(|s| s.to_string()), 2)
+    } else {
+        (None, 1)
+    };
+
+    let param_list = args[params_idx]
         .as_list()
         .ok_or_else(|| SemaError::eval("defmacro: params must be a list"))?;
     let param_names: Vec<Spur> = param_list
@@ -818,7 +979,7 @@ fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         })
         .collect::<Result<_, _>>()?;
     let (params, rest_param) = parse_params(&param_names);
-    let body = args[2..].to_vec();
+    let body = args[params_idx + 1..].to_vec();
 
     let mac = Value::macro_val(Macro {
         params,
@@ -827,6 +988,31 @@ fn eval_defmacro(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
         name: name_spur,
     });
     env.set(name_spur, mac);
+    if let Some(ref doc) = docstring {
+        env.set_meta(name_spur, Value::keyword("doc"), Value::string(doc));
+    }
+
+    // Store source text
+    let mut source_parts = vec![Value::symbol("defmacro"), args[0].clone()];
+    if let Some(ref doc) = docstring {
+        source_parts.push(Value::string(doc));
+    }
+    source_parts.push(args[params_idx].clone());
+    source_parts.extend_from_slice(&args[params_idx + 1..]);
+    let source_form = Value::list(source_parts);
+    env.set_meta(
+        name_spur,
+        Value::keyword("source"),
+        Value::string(&source_form.to_string()),
+    );
+    if let Some(file_path) = ctx.current_file_path() {
+        env.set_meta(
+            name_spur,
+            Value::keyword("file"),
+            Value::string(&file_path.to_string_lossy()),
+        );
+    }
+
     Ok(Trampoline::Value(Value::nil()))
 }
 
@@ -2080,6 +2266,784 @@ fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, Sema
             )),
         );
     }
+
+    Ok(Trampoline::Value(Value::nil()))
+}
+
+// ── Introspection special forms ───────────────────────────────────
+
+/// Gather context string for the `ask` family of special forms.
+fn gather_ask_context(target: &Value, env: &Env) -> String {
+    if let Some(lambda) = target.as_lambda_rc() {
+        let mut ctx = String::new();
+        let name = lambda
+            .name
+            .map(resolve)
+            .unwrap_or_else(|| "<anonymous>".to_string());
+        ctx.push_str(&format!("Function: {name}\n"));
+
+        let params: Vec<String> = lambda.params.iter().map(|s| resolve(*s)).collect();
+        ctx.push_str(&format!("Parameters: ({})\n", params.join(" ")));
+
+        if let Some(name_spur) = lambda.name {
+            if let Some(meta) = env.get_meta(name_spur) {
+                if let Some(doc) = meta.get(&Value::keyword("doc")) {
+                    if let Some(s) = doc.as_str() {
+                        ctx.push_str(&format!("Documentation:\n{s}\n"));
+                    }
+                }
+                if let Some(source) = meta.get(&Value::keyword("source")) {
+                    if let Some(s) = source.as_str() {
+                        ctx.push_str(&format!("Source code:\n{s}\n"));
+                    }
+                }
+            }
+        }
+        ctx
+    } else if let Some(s) = target.as_str() {
+        if s.ends_with(".sema") {
+            match std::fs::read_to_string(s) {
+                Ok(content) => format!("File: {s}\nContents:\n{content}\n"),
+                Err(e) => format!("File: {s}\nError reading: {e}\n"),
+            }
+        } else {
+            format!("Value: {s}\n")
+        }
+    } else {
+        let repr = target.to_string();
+        let truncated = if repr.len() > 4000 {
+            format!("{}... (truncated)", &repr[..4000])
+        } else {
+            repr
+        };
+        format!("Value ({}):\n{truncated}\n", target.type_name())
+    }
+}
+
+/// Call llm/complete through the env binding.
+fn call_llm_complete(
+    env: &Env,
+    ctx: &EvalContext,
+    prompt: &str,
+    system: &str,
+) -> Result<Value, SemaError> {
+    let llm_complete_spur = intern("llm/complete");
+    let llm_fn = env.get(llm_complete_spur).ok_or_else(|| {
+        SemaError::eval(
+            "ask: llm/complete not available. Configure an LLM provider first with (llm/configure ...)",
+        )
+        .with_hint(
+            "Example: (llm/configure :anthropic {:api-key (env/get \"ANTHROPIC_API_KEY\")})",
+        )
+    })?;
+
+    let mut opts = BTreeMap::new();
+    opts.insert(Value::keyword("system"), Value::string(system));
+
+    let args = vec![Value::string(prompt), Value::map(opts)];
+    sema_core::call_callback(ctx, &llm_fn, &args)
+}
+
+/// (ask target question) — ask a question about any value
+fn eval_ask(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("ask", "2", args.len()));
+    }
+    let target = eval::eval_value(ctx, &args[0], env)?;
+    let question = eval::eval_value(ctx, &args[1], env)?;
+    let question_str = question
+        .as_str()
+        .ok_or_else(|| SemaError::type_error("string", question.type_name()))?;
+
+    let context = gather_ask_context(&target, env);
+
+    let system = "You are a Sema language expert. You have been given source code and metadata \
+                  for a Sema value. Answer the user's question about it. If suggesting code \
+                  changes, write valid Sema. Be concise.";
+
+    let prompt = format!("{context}\n\nQuestion: {question_str}");
+
+    let result = call_llm_complete(env, ctx, &prompt, system)?;
+    Ok(Trampoline::Value(result))
+}
+
+/// (ask/code target instruction) — get executable Sema code from LLM
+fn eval_ask_code(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("ask/code", "2", args.len()));
+    }
+    let target = eval::eval_value(ctx, &args[0], env)?;
+    let instruction = eval::eval_value(ctx, &args[1], env)?;
+    let instruction_str = instruction
+        .as_str()
+        .ok_or_else(|| SemaError::type_error("string", instruction.type_name()))?;
+
+    let context = gather_ask_context(&target, env);
+
+    let system = "You are a Sema language expert. Given source code and an instruction, \
+                  respond with ONLY valid Sema code. No markdown, no explanation, no code \
+                  fences. Just the Sema expression.";
+
+    let prompt = format!("{context}\n\nInstruction: {instruction_str}");
+
+    let response = call_llm_complete(env, ctx, &prompt, system)?;
+    let response_str = response
+        .as_str()
+        .ok_or_else(|| SemaError::eval("ask/code: LLM did not return a string"))?;
+
+    let code = response_str
+        .trim()
+        .strip_prefix("```lisp")
+        .or_else(|| response_str.trim().strip_prefix("```"))
+        .unwrap_or(response_str.trim());
+    let code = code.strip_suffix("```").unwrap_or(code).trim();
+
+    match sema_reader::read(code) {
+        Ok(expr) => Ok(Trampoline::Value(expr)),
+        Err(e) => Err(SemaError::eval(format!(
+            "ask/code: failed to parse LLM response as Sema: {e}\nResponse was: {code}"
+        ))),
+    }
+}
+
+/// (heal! sym) or (heal! sym {:max-attempts N}) — use LLM to fix a function so its doctests pass
+fn eval_heal(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.is_empty() || args.len() > 2 {
+        return Err(SemaError::arity("heal!", "1-2", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+    let name = resolve(spur);
+
+    // Get options
+    let opts = if args.len() > 1 {
+        eval::eval_value(ctx, &args[1], env)?
+    } else {
+        Value::nil()
+    };
+    let max_attempts = opts
+        .as_map_rc()
+        .and_then(|m| m.get(&Value::keyword("max-attempts")).cloned())
+        .and_then(|v| v.as_int())
+        .unwrap_or(3) as usize;
+
+    // Get docstring
+    let docstring = env
+        .get_meta(spur)
+        .and_then(|m| m.get(&Value::keyword("doc")).cloned())
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .ok_or_else(|| {
+            SemaError::eval(format!("heal!: '{name}' has no docstring"))
+                .with_hint("Add a docstring with >>> examples to use heal!")
+        })?;
+
+    // Check for actual doctests
+    let doctests = crate::doctest::parse_doctests(&docstring);
+    if doctests.is_empty() {
+        return Err(SemaError::eval(format!("heal!: '{name}' has no doctests"))
+            .with_hint("Add >>> examples to the docstring"));
+    }
+
+    // Get source
+    let source = env
+        .get_meta(spur)
+        .and_then(|m| m.get(&Value::keyword("source")).cloned())
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| format!("<source not available for '{name}'>"));
+
+    // Run doctests first to see what's failing
+    let child_env = Env::with_parent(Rc::new(env.clone()));
+    let initial_results = crate::doctest::run_doctests(&docstring, &mut |input| {
+        eval::eval_string(ctx, input, &child_env)
+    });
+
+    let total = initial_results.len();
+    let passing = initial_results.iter().filter(|r| r.passed).count();
+
+    if passing == total {
+        let mut map = BTreeMap::new();
+        map.insert(Value::keyword("status"), Value::keyword("ok"));
+        map.insert(
+            Value::keyword("message"),
+            Value::string(&format!("All {total} doctests already pass")),
+        );
+        return Ok(Trampoline::Value(Value::map(map)));
+    }
+
+    // Build failure report
+    let mut failure_report = String::new();
+    for r in &initial_results {
+        if r.passed {
+            failure_report.push_str(&format!("  ✓ {} => {}\n", r.input, r.expected));
+        } else {
+            failure_report.push_str(&format!(
+                "  ✗ {} => expected {}, got {}\n",
+                r.input, r.expected, r.actual
+            ));
+        }
+    }
+
+    eprintln!("{name}: {passing}/{total} doctests passing. Healing...");
+
+    // Healing loop
+    let system = "You are writing Sema (a Lisp dialect). Fix this function to pass all its \
+                  doctests. Return ONLY the fixed (defn ...) form. No markdown, no explanation, \
+                  no code fences. Just the Sema expression. Keep the docstring intact.";
+
+    for attempt in 1..=max_attempts {
+        let prompt = format!(
+            "Function source:\n{source}\n\nDoctest results:\n{failure_report}\n\
+             Fix the implementation to pass all doctests. Return only the complete (defn ...) form."
+        );
+
+        let response = call_llm_complete(env, ctx, &prompt, system)?;
+        let response_str = response
+            .as_str()
+            .ok_or_else(|| SemaError::eval("heal!: LLM did not return a string"))?;
+
+        // Strip code fences if present
+        let code = response_str
+            .trim()
+            .strip_prefix("```lisp")
+            .or_else(|| response_str.trim().strip_prefix("```sema"))
+            .or_else(|| response_str.trim().strip_prefix("```"))
+            .unwrap_or(response_str.trim());
+        let code = code.strip_suffix("```").unwrap_or(code).trim();
+
+        eprintln!("  Attempt {attempt}: parsing candidate...");
+
+        // Parse the candidate
+        let candidate_expr = match sema_reader::read(code) {
+            Ok(expr) => expr,
+            Err(e) => {
+                eprintln!("  Attempt {attempt}: parse error: {e}");
+                continue;
+            }
+        };
+
+        // Eval in sandbox
+        let sandbox_env = Env::with_parent(Rc::new(env.clone()));
+        if let Err(e) = eval::eval_value(ctx, &candidate_expr, &sandbox_env) {
+            eprintln!("  Attempt {attempt}: eval error: {e}");
+            continue;
+        }
+
+        // Run doctests against the candidate
+        let candidate_results = crate::doctest::run_doctests(&docstring, &mut |input| {
+            eval::eval_string(ctx, input, &sandbox_env)
+        });
+
+        let candidate_passing = candidate_results.iter().filter(|r| r.passed).count();
+        let candidate_total = candidate_results.len();
+
+        if candidate_passing == candidate_total {
+            eprintln!("  ✓ Healed! {candidate_total}/{candidate_total} doctests pass.");
+            eprintln!("  New implementation:\n  {code}");
+
+            // Apply: eval the candidate in the real env
+            eval::eval_value(ctx, &candidate_expr, env)?;
+
+            let mut map = BTreeMap::new();
+            map.insert(Value::keyword("status"), Value::keyword("healed"));
+            map.insert(Value::keyword("attempts"), Value::int(attempt as i64));
+            map.insert(Value::keyword("source"), Value::string(code));
+            return Ok(Trampoline::Value(Value::map(map)));
+        } else {
+            eprintln!(
+                "  Attempt {attempt}: {candidate_passing}/{candidate_total} passing (not enough)"
+            );
+        }
+    }
+
+    Err(SemaError::eval(format!(
+        "heal!: failed to heal '{name}' after {max_attempts} attempts"
+    )))
+}
+
+/// (meta sym) — return metadata map for a symbol
+fn eval_meta(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("meta", "1", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+
+    let mut result = BTreeMap::new();
+
+    // Add stored metadata (doc, etc.)
+    if let Some(meta) = env.get_meta(spur) {
+        result.extend(meta);
+    }
+
+    // Add name
+    result.insert(Value::keyword("name"), Value::string(&resolve(spur)));
+
+    // Add type and arity info from the value itself
+    if let Some(val) = env.get(spur) {
+        result.insert(Value::keyword("type"), Value::keyword(val.type_name()));
+        if let Some(lambda) = val.as_lambda_rc() {
+            let param_names: Vec<Value> = lambda
+                .params
+                .iter()
+                .map(|s| Value::symbol(&resolve(*s)))
+                .collect();
+            result.insert(Value::keyword("params"), Value::list(param_names));
+            result.insert(
+                Value::keyword("arity"),
+                Value::int(lambda.params.len() as i64),
+            );
+            if lambda.rest_param.is_some() {
+                result.insert(Value::keyword("variadic?"), Value::bool(true));
+            }
+        } else if let Some(mac) = val.as_macro_rc() {
+            let param_names: Vec<Value> = mac
+                .params
+                .iter()
+                .map(|s| Value::symbol(&resolve(*s)))
+                .collect();
+            result.insert(Value::keyword("params"), Value::list(param_names));
+            result.insert(Value::keyword("arity"), Value::int(mac.params.len() as i64));
+            if mac.rest_param.is_some() {
+                result.insert(Value::keyword("variadic?"), Value::bool(true));
+            }
+        }
+    }
+
+    if result.is_empty() {
+        Ok(Trampoline::Value(Value::nil()))
+    } else {
+        Ok(Trampoline::Value(Value::map(result)))
+    }
+}
+
+/// (source-of sym) — return the source text of a definition
+fn eval_source_of(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("source-of", "1", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+    let source = env
+        .get_meta(spur)
+        .and_then(|m| m.get(&Value::keyword("source")).cloned())
+        .unwrap_or_else(Value::nil);
+    Ok(Trampoline::Value(source))
+}
+
+/// (doc sym) — pretty-print documentation for a symbol
+fn eval_doc(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("doc", "1", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+    let name = resolve(spur);
+
+    let mut output = String::new();
+
+    // Function signature
+    if let Some(val) = env.get(spur) {
+        if let Some(lambda) = val.as_lambda_rc() {
+            let params: Vec<String> = lambda.params.iter().map(|s| resolve(*s)).collect();
+            let params_str = params.join(" ");
+            if let Some(rest) = &lambda.rest_param {
+                output.push_str(&format!(
+                    "{name} : (fn {params_str} . {})\n",
+                    resolve(*rest)
+                ));
+            } else {
+                output.push_str(&format!("{name} : (fn {params_str})\n"));
+            }
+        } else if val.as_native_fn_rc().is_some() {
+            output.push_str(&format!("{name} : <native function>\n"));
+        } else if val.as_macro_rc().is_some() {
+            output.push_str(&format!("{name} : <macro>\n"));
+        }
+    }
+
+    // Docstring
+    if let Some(meta) = env.get_meta(spur) {
+        if let Some(doc) = meta.get(&Value::keyword("doc")) {
+            if let Some(s) = doc.as_str() {
+                output.push('\n');
+                output.push_str(s);
+                output.push('\n');
+            }
+        }
+    }
+
+    if output.is_empty() {
+        output = format!("No documentation for '{name}'.\n");
+    }
+
+    eprint!("{output}");
+    Ok(Trampoline::Value(Value::nil()))
+}
+
+/// (doc/search "query") — search all bindings by name or docstring content
+fn eval_doc_search(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("doc/search", "1", args.len()));
+    }
+    let query_val = eval::eval_value(ctx, &args[0], env)?;
+    let query = query_val
+        .as_str()
+        .ok_or_else(|| SemaError::type_error("string", query_val.type_name()))?
+        .to_lowercase();
+
+    let mut results = Vec::new();
+    for spur in env.all_names() {
+        let name = resolve(spur);
+        let name_lower = name.to_lowercase();
+        let mut matches = name_lower.contains(&query);
+
+        if !matches {
+            if let Some(meta) = env.get_meta(spur) {
+                if let Some(doc) = meta.get(&Value::keyword("doc")) {
+                    if let Some(s) = doc.as_str() {
+                        matches = s.to_lowercase().contains(&query);
+                    }
+                }
+            }
+        }
+
+        if matches {
+            let mut entry = BTreeMap::new();
+            entry.insert(Value::keyword("name"), Value::string(&name));
+            if let Some(meta) = env.get_meta(spur) {
+                if let Some(doc) = meta.get(&Value::keyword("doc")) {
+                    entry.insert(Value::keyword("doc"), doc.clone());
+                }
+            }
+            results.push(Value::map(entry));
+        }
+    }
+
+    Ok(Trampoline::Value(Value::list(results)))
+}
+
+/// (doctest sym) — run doctests from a symbol's docstring
+fn eval_doctest(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("doctest", "1", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+    let name = resolve(spur);
+
+    // Get docstring from metadata
+    let docstring = env
+        .get_meta(spur)
+        .and_then(|m| m.get(&Value::keyword("doc")).cloned())
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .ok_or_else(|| SemaError::eval(format!("doctest: no docstring for '{name}'")))?;
+
+    // Create child env for isolated evaluation
+    let child_env = Env::with_parent(Rc::new(env.clone()));
+
+    // Run doctests
+    let results = crate::doctest::run_doctests(&docstring, &mut |input| {
+        eval::eval_string(ctx, input, &child_env)
+    });
+
+    let total = results.len() as i64;
+    let passed = results.iter().filter(|r| r.passed).count() as i64;
+
+    // Print results
+    for r in &results {
+        if r.passed {
+            eprintln!("  ✓ {} => {}", r.input, r.expected);
+        } else {
+            eprintln!(
+                "  ✗ {} => expected {}, got {}",
+                r.input, r.expected, r.actual
+            );
+        }
+    }
+
+    let mut map = BTreeMap::new();
+    map.insert(Value::keyword("passed"), Value::int(passed));
+    map.insert(Value::keyword("total"), Value::int(total));
+    map.insert(Value::keyword("name"), Value::string(&name));
+    Ok(Trampoline::Value(Value::map(map)))
+}
+
+// ── Runtime self-modification special forms ───────────────────────
+
+/// (observe! target sample-size callback)
+/// Wraps target function with a logger. After sample-size calls, invokes callback with call log
+/// and restores the original function.
+fn eval_observe(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 3 {
+        return Err(SemaError::arity("observe!", "3", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+    let sample_size = eval::eval_value(ctx, &args[1], env)?;
+    let sample_n = sample_size
+        .as_int()
+        .ok_or_else(|| SemaError::type_error("integer", sample_size.type_name()))?
+        as usize;
+    let callback = eval::eval_value(ctx, &args[2], env)?;
+
+    let original = env
+        .get(spur)
+        .ok_or_else(|| SemaError::eval(format!("observe!: '{}' is not defined", resolve(spur))))?;
+
+    let call_log: Rc<RefCell<Vec<Value>>> = Rc::new(RefCell::new(Vec::new()));
+    let call_count = Rc::new(Cell::new(0usize));
+    let original_for_call = original.clone();
+    let original_for_restore = original.clone();
+    let callback_clone = callback;
+    let log_clone = call_log.clone();
+    let count_clone = call_count;
+    let env_clone = env.clone();
+    let spur_copy = spur;
+
+    let wrapper_name = format!("{}/observed", resolve(spur));
+    let wrapper = Value::native_fn(sema_core::NativeFn::with_ctx(
+        wrapper_name,
+        move |ctx, call_args| {
+            let start = std::time::Instant::now();
+            let result = sema_core::call_callback(ctx, &original_for_call, call_args)?;
+            let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+            let mut entry = BTreeMap::new();
+            entry.insert(Value::keyword("args"), Value::list(call_args.to_vec()));
+            entry.insert(Value::keyword("result"), result.clone());
+            entry.insert(Value::keyword("time-ms"), Value::float(elapsed_ms));
+            log_clone.borrow_mut().push(Value::map(entry));
+
+            let n = count_clone.get() + 1;
+            count_clone.set(n);
+
+            if n >= sample_n {
+                let log_entries = log_clone.borrow().clone();
+                env_clone.set(spur_copy, original_for_restore.clone());
+                sema_core::call_callback(ctx, &callback_clone, &[Value::list(log_entries)])?;
+            }
+
+            Ok(result)
+        },
+    ));
+
+    env.set(spur, wrapper);
+    Ok(Trampoline::Value(Value::nil()))
+}
+
+/// (become! target new-definition)
+/// Replace a function's definition at runtime. Validates doctests if present.
+/// Saves old version to history metadata.
+fn eval_become(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("become!", "2", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+    let name = resolve(spur);
+
+    // Check if frozen
+    if let Some(meta) = env.get_meta(spur) {
+        if meta.get(&Value::keyword("frozen?")) == Some(&Value::bool(true)) {
+            return Err(SemaError::eval(format!(
+                "become!: '{name}' is frozen and cannot be modified"
+            ))
+            .with_hint("Use (history <name>) to inspect previous versions"));
+        }
+    }
+
+    // Get the current value
+    let current = env
+        .get(spur)
+        .ok_or_else(|| SemaError::eval(format!("become!: '{name}' is not defined")))?;
+
+    // Evaluate the new definition
+    let new_def = eval::eval_value(ctx, &args[1], env)?;
+
+    // If the function has doctests, validate the candidate passes them
+    if let Some(meta) = env.get_meta(spur) {
+        if let Some(doc_val) = meta.get(&Value::keyword("doc")) {
+            if let Some(docstring) = doc_val.as_str() {
+                let doctests = crate::doctest::parse_doctests(docstring);
+                if !doctests.is_empty() {
+                    // Create sandbox env with the new function bound
+                    let sandbox_env = Env::with_parent(Rc::new(env.clone()));
+                    sandbox_env.set(spur, new_def.clone());
+
+                    let results = crate::doctest::run_doctests(docstring, &mut |input| {
+                        eval::eval_string(ctx, input, &sandbox_env)
+                    });
+
+                    let total = results.len();
+                    let passed = results.iter().filter(|r| r.passed).count();
+
+                    if passed < total {
+                        let mut failures = String::new();
+                        for r in &results {
+                            if !r.passed {
+                                failures.push_str(&format!(
+                                    "\n  {} => expected {}, got {}",
+                                    r.input, r.expected, r.actual
+                                ));
+                            }
+                        }
+                        return Err(SemaError::eval(format!(
+                            "become!: candidate for '{name}' fails {}/{total} doctests:{failures}",
+                            total - passed
+                        )));
+                    }
+                }
+            }
+        }
+    }
+
+    // Save current version to history
+    let history_key = Value::keyword("history");
+    let mut history_list: Vec<Value> = env
+        .get_meta(spur)
+        .and_then(|m| m.get(&history_key).cloned())
+        .and_then(|v| v.as_list().map(|l| l.to_vec()))
+        .unwrap_or_default();
+
+    let mut version_entry = BTreeMap::new();
+    version_entry.insert(
+        Value::keyword("version"),
+        Value::int(history_list.len() as i64 + 1),
+    );
+    version_entry.insert(Value::keyword("value"), current);
+    if let Some(meta) = env.get_meta(spur) {
+        if let Some(source) = meta.get(&Value::keyword("source")) {
+            version_entry.insert(Value::keyword("source"), source.clone());
+        }
+    }
+    history_list.push(Value::map(version_entry));
+    env.set_meta(spur, history_key, Value::list(history_list));
+
+    // Install the new definition
+    env.set(spur, new_def);
+
+    Ok(Trampoline::Value(Value::nil()))
+}
+
+/// (history name) — return the history list for a binding
+fn eval_history(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("history", "1", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+    let history_key = Value::keyword("history");
+    let history = env
+        .get_meta(spur)
+        .and_then(|m| m.get(&history_key).cloned())
+        .unwrap_or_else(|| Value::list(vec![]));
+    Ok(Trampoline::Value(history))
+}
+
+/// (rollback! sym version-number) — restore a previous version from history
+fn eval_rollback(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 2 {
+        return Err(SemaError::arity("rollback!", "2", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+    let name = resolve(spur);
+    let version_val = eval::eval_value(ctx, &args[1], env)?;
+    let version = version_val
+        .as_int()
+        .ok_or_else(|| SemaError::type_error("integer", version_val.type_name()))?;
+
+    // Check if frozen
+    if let Some(meta) = env.get_meta(spur) {
+        if meta.get(&Value::keyword("frozen?")) == Some(&Value::bool(true)) {
+            return Err(SemaError::eval(format!(
+                "rollback!: '{name}' is frozen and cannot be modified"
+            )));
+        }
+    }
+
+    let history_list = env
+        .get_meta(spur)
+        .and_then(|m| m.get(&Value::keyword("history")).cloned())
+        .and_then(|v| v.as_list().map(|l| l.to_vec()))
+        .unwrap_or_default();
+
+    // Find the entry with matching version number
+    let entry = history_list
+        .iter()
+        .find(|e| {
+            e.as_map_rc()
+                .and_then(|m| m.get(&Value::keyword("version")).cloned())
+                .and_then(|v| v.as_int())
+                == Some(version)
+        })
+        .ok_or_else(|| {
+            SemaError::eval(format!(
+                "rollback!: version {version} not found in history for '{name}'"
+            ))
+            .with_hint(format!(
+                "Available versions: {}",
+                history_list
+                    .iter()
+                    .filter_map(|e| e
+                        .as_map_rc()
+                        .and_then(|m| m.get(&Value::keyword("version")).cloned())
+                        .and_then(|v| v.as_int()))
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })?;
+
+    let old_value = entry
+        .as_map_rc()
+        .and_then(|m| m.get(&Value::keyword("value")).cloned())
+        .ok_or_else(|| SemaError::eval("rollback!: history entry missing :value"))?;
+
+    // Save current version to history before rolling back
+    let current = env
+        .get(spur)
+        .ok_or_else(|| SemaError::eval(format!("rollback!: '{name}' is not defined")))?;
+
+    let mut updated_history = history_list;
+    let mut rollback_entry = BTreeMap::new();
+    rollback_entry.insert(
+        Value::keyword("version"),
+        Value::int(updated_history.len() as i64 + 1),
+    );
+    rollback_entry.insert(Value::keyword("value"), current);
+    updated_history.push(Value::map(rollback_entry));
+    env.set_meta(
+        spur,
+        Value::keyword("history"),
+        Value::list(updated_history),
+    );
+
+    // Restore the old value
+    env.set(spur, old_value);
+
+    Ok(Trampoline::Value(Value::nil()))
+}
+
+/// (freeze! sym) — permanently prevent further become!/rollback! on a function
+fn eval_freeze(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("freeze!", "1", args.len()));
+    }
+    let spur = args[0]
+        .as_symbol_spur()
+        .ok_or_else(|| SemaError::type_error("symbol", args[0].type_name()))?;
+
+    env.set_meta(spur, Value::keyword("frozen?"), Value::bool(true));
 
     Ok(Trampoline::Value(Value::nil()))
 }

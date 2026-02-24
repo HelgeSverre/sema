@@ -1,0 +1,47 @@
+;; Demo: self-reading capabilities (Living Code Phase 2)
+
+;;@since 1.12.0
+;;@tags introspection, demo
+(defn greet
+  "Greet someone by name.
+   >>> (greet \"World\")
+   \"Hello, World!\""
+  (name)
+  (string-append "Hello, " name "!"))
+
+;;@since 1.12.0
+(defn add
+  "Add two numbers.
+   >>> (add 1 2)
+   3
+   >>> (add 0 0)
+   0"
+  (a b)
+  (+ a b))
+
+(define pi 3.14159)
+
+;; === Source introspection ===
+(println "--- source-of ---")
+(println (source-of greet))
+(println)
+
+;; === Meta introspection ===
+(println "--- meta ---")
+(println (meta greet))
+(println)
+
+;; === Read-source: analyze this file ===
+(println "--- read-source ---")
+(let ((defs (read-source "examples/read-source-demo.sema")))
+  (for-each (fn (d)
+          (let ((type (get d :type))
+                (name (or (get d :name) "(anonymous)"))
+                (doc  (or (get d :doc) "(no doc)"))
+                (dirs (get d :directives)))
+            (println f"  ${type} ${name}")
+            (when (not (nil? dirs))
+              (println f"    directives: ${dirs}"))
+            (when (not (= doc "(no doc)"))
+              (println f"    doc: ${doc}"))))
+        defs))

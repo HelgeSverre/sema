@@ -13723,3 +13723,799 @@ fn test_db_foreign_keys() {
     assert!(result.is_err());
     interp.eval_str(r#"(db/close "fk")"#).unwrap();
 }
+
+// ── Living Code: docstrings, meta, doc, doctest ──────────────────
+
+#[test]
+fn test_defn_docstring() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn greet "Says hello to someone." (name)
+                  (string-append "Hello, " name))
+                (greet "World"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("Hello, World"));
+}
+
+#[test]
+fn test_defn_no_docstring() {
+    assert_eq!(
+        eval("(begin (defn add (a b) (+ a b)) (add 1 2))"),
+        Value::int(3)
+    );
+}
+
+#[test]
+fn test_defn_docstring_meta() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn greet "Says hello." (name) name)
+                (meta greet))"#,
+        )
+        .unwrap();
+    let map = result.as_map_rc().expect("meta should return a map");
+    assert_eq!(
+        map.get(&Value::keyword("doc")),
+        Some(&Value::string("Says hello."))
+    );
+    assert_eq!(
+        map.get(&Value::keyword("name")),
+        Some(&Value::string("greet"))
+    );
+    assert_eq!(map.get(&Value::keyword("arity")), Some(&Value::int(1)));
+}
+
+#[test]
+fn test_define_fn_docstring() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (define (double x) "Doubles a number." (* x 2))
+                (double 5))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(10));
+}
+
+#[test]
+fn test_define_fn_docstring_meta() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (define (double x) "Doubles a number." (* x 2))
+                (meta double))"#,
+        )
+        .unwrap();
+    let map = result.as_map_rc().expect("meta should return a map");
+    assert_eq!(
+        map.get(&Value::keyword("doc")),
+        Some(&Value::string("Doubles a number."))
+    );
+}
+
+#[test]
+fn test_meta_no_doc() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str("(begin (defn bar (x) x) (meta bar))")
+        .unwrap();
+    let map = result.as_map_rc().expect("meta should return a map");
+    assert_eq!(
+        map.get(&Value::keyword("name")),
+        Some(&Value::string("bar"))
+    );
+    assert!(map.get(&Value::keyword("doc")).is_none());
+}
+
+#[test]
+fn test_meta_native_fn() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("(meta +)").unwrap();
+    let map = result.as_map_rc().expect("meta should return a map");
+    assert_eq!(
+        map.get(&Value::keyword("type")),
+        Some(&Value::keyword("native-fn"))
+    );
+}
+
+#[test]
+fn test_defmacro_docstring() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defmacro my-when "Conditional execution." (test . body)
+                  `(if ,test (begin ,@body)))
+                (meta my-when))"#,
+        )
+        .unwrap();
+    let map = result.as_map_rc().expect("meta should return a map");
+    assert_eq!(
+        map.get(&Value::keyword("doc")),
+        Some(&Value::string("Conditional execution."))
+    );
+}
+
+#[test]
+fn test_doctest_passing() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn double
+                  "Doubles a number.
+
+                   >>> (double 5)
+                   10
+
+                   >>> (double 0)
+                   0"
+                  (n) (* n 2))
+                (doctest double))"#,
+        )
+        .unwrap();
+    let map = result.as_map_rc().expect("doctest should return a map");
+    assert_eq!(map.get(&Value::keyword("passed")), Some(&Value::int(2)));
+    assert_eq!(map.get(&Value::keyword("total")), Some(&Value::int(2)));
+}
+
+#[test]
+fn test_doctest_failing() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn broken
+                  "Always returns wrong answer.
+
+                   >>> (broken 5)
+                   99"
+                  (n) n)
+                (doctest broken))"#,
+        )
+        .unwrap();
+    let map = result.as_map_rc().expect("doctest should return a map");
+    assert_eq!(map.get(&Value::keyword("passed")), Some(&Value::int(0)));
+    assert_eq!(map.get(&Value::keyword("total")), Some(&Value::int(1)));
+}
+
+#[test]
+fn test_doctest_error_expected() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn safe-div
+                  "Divides safely.
+
+                   >>> (safe-div 10 2)
+                   5
+
+                   >>> (safe-div 1 0)
+                   !! division"
+                  (a b)
+                  (if (= b 0) (error "division by zero") (/ a b)))
+                (doctest safe-div))"#,
+        )
+        .unwrap();
+    let map = result.as_map_rc().expect("doctest should return a map");
+    assert_eq!(map.get(&Value::keyword("passed")), Some(&Value::int(2)));
+    assert_eq!(map.get(&Value::keyword("total")), Some(&Value::int(2)));
+}
+
+#[test]
+fn test_doctest_setup_step() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn use-x
+                  "Uses a predefined x.
+
+                   >>>! (define x 42)
+                   >>> (use-x x)
+                   42"
+                  (val) val)
+                (doctest use-x))"#,
+        )
+        .unwrap();
+    let map = result.as_map_rc().expect("doctest should return a map");
+    assert_eq!(map.get(&Value::keyword("passed")), Some(&Value::int(2)));
+    assert_eq!(map.get(&Value::keyword("total")), Some(&Value::int(2)));
+}
+
+#[test]
+fn test_doc_search() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn greet "Says hello." (name) name)
+                (defn farewell "Says goodbye." (name) name)
+                (length (doc/search "greet")))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_doc_search_by_docstring() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn greet "Says hello." (name) name)
+                (defn farewell "Says goodbye." (name) name)
+                (length (doc/search "goodbye")))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_source_of_via_meta() {
+    let result = eval_to_string(
+        r#"(begin
+             (defn add "Add two numbers." (a b) (+ a b))
+             (get (meta add) :source))"#,
+    );
+    assert!(result.contains("defn"));
+    assert!(result.contains("add"));
+    assert!(result.contains("Add two numbers."));
+}
+
+#[test]
+fn test_source_of_special_form() {
+    let result = eval_to_string(
+        r#"(begin
+             (defn square (x) (* x x))
+             (source-of square))"#,
+    );
+    assert!(result.contains("defn"));
+    assert!(result.contains("square"));
+    assert!(result.contains("* x x"));
+}
+
+#[test]
+fn test_source_of_define_shorthand() {
+    let result = eval_to_string(
+        r#"(begin
+             (define (cube x) "Cube a number." (* x x x))
+             (source-of cube))"#,
+    );
+    assert!(result.contains("cube"));
+    assert!(result.contains("Cube a number."));
+}
+
+#[test]
+fn test_source_of_nil_for_undefined() {
+    let result = eval_to_string(r#"(source-of nonexistent)"#);
+    assert_eq!(result, "nil");
+}
+
+#[test]
+fn test_source_of_defmacro() {
+    let result = eval_to_string(
+        r#"(begin
+             (defmacro my-when "When macro." (test . body) (list 'if test (cons 'begin body)))
+             (source-of my-when))"#,
+    );
+    assert!(result.contains("defmacro"));
+    assert!(result.contains("my-when"));
+}
+
+#[test]
+fn test_read_source_basic() {
+    let result = eval_to_string(
+        r#"(begin
+             (file/write "/tmp/sema-test-read-source.sema"
+               "(defn greet \"Say hello.\" (name) (string-append \"Hello, \" name))\n(define x 42)")
+             (let ((defs (read-source "/tmp/sema-test-read-source.sema")))
+               (length defs)))"#,
+    );
+    assert_eq!(result, "2");
+}
+
+#[test]
+fn test_read_source_defn_structure() {
+    let result = eval_to_string(
+        r#"(begin
+             (file/write "/tmp/sema-test-rs2.sema"
+               "(defn add \"Add two numbers.\" (a b) (+ a b))")
+             (let ((defs (read-source "/tmp/sema-test-rs2.sema")))
+               (let ((d (first defs)))
+                 (list (get d :type) (get d :name) (get d :doc)))))"#,
+    );
+    assert_eq!(result, "(:defn \"add\" \"Add two numbers.\")");
+}
+
+#[test]
+fn test_read_source_with_directives() {
+    let result = eval_to_string(
+        r#"(begin
+             (file/write "/tmp/sema-test-rs3.sema"
+               ";;@since 1.0.0\n;;@deprecated Use bar\n(defn foo (x) x)")
+             (let ((defs (read-source "/tmp/sema-test-rs3.sema")))
+               (let ((d (first defs)))
+                 (get-in d (list :directives :since)))))"#,
+    );
+    assert_eq!(result, "\"1.0.0\"");
+}
+
+#[test]
+fn test_read_source_non_defn() {
+    let result = eval_to_string(
+        r#"(begin
+             (file/write "/tmp/sema-test-rs4.sema" "(println \"hello\")")
+             (let ((defs (read-source "/tmp/sema-test-rs4.sema")))
+               (get (first defs) :type)))"#,
+    );
+    assert_eq!(result, ":expr");
+}
+
+#[test]
+fn test_read_source_define_shorthand() {
+    let result = eval_to_string(
+        r#"(begin
+             (file/write "/tmp/sema-test-rs5.sema"
+               "(define (square x) \"Square x.\" (* x x))")
+             (let ((defs (read-source "/tmp/sema-test-rs5.sema")))
+               (let ((d (first defs)))
+                 (list (get d :type) (get d :name) (get d :doc)))))"#,
+    );
+    assert_eq!(result, "(:defn \"square\" \"Square x.\")");
+}
+
+#[test]
+fn test_read_source_defmacro() {
+    let result = eval_to_string(
+        r#"(begin
+             (file/write "/tmp/sema-test-rs6.sema"
+               "(defmacro my-when \"When macro.\" (test . body) (list 'if test (cons 'begin body)))")
+             (let ((defs (read-source "/tmp/sema-test-rs6.sema")))
+               (let ((d (first defs)))
+                 (list (get d :type) (get d :name) (get d :doc)))))"#,
+    );
+    assert_eq!(result, "(:defmacro \"my-when\" \"When macro.\")");
+}
+
+#[test]
+fn test_read_source_simple_define() {
+    let result = eval_to_string(
+        r#"(begin
+             (file/write "/tmp/sema-test-rs7.sema" "(define pi 3.14159)")
+             (let ((defs (read-source "/tmp/sema-test-rs7.sema")))
+               (let ((d (first defs)))
+                 (list (get d :type) (get d :name)))))"#,
+    );
+    assert_eq!(result, "(:define \"pi\")");
+}
+
+#[test]
+fn test_ask_no_llm_configured() {
+    let result = eval_to_string(
+        r#"(begin
+             (defn add (a b) (+ a b))
+             (try (ask add "what does this do?")
+                  (catch e (get e :message))))"#,
+    );
+    assert!(result.contains("LLM") || result.contains("llm") || result.contains("provider"));
+}
+
+#[test]
+fn test_ask_code_no_llm_configured() {
+    let result = eval_to_string(
+        r#"(begin
+             (defn add (a b) (+ a b))
+             (try (ask/code add "make this handle strings too")
+                  (catch e (get e :message))))"#,
+    );
+    assert!(result.contains("LLM") || result.contains("llm") || result.contains("provider"));
+}
+
+#[test]
+fn test_ask_arity_error() {
+    let result = eval_to_string(
+        r#"(try (ask "only one arg")
+             (catch e (get e :message)))"#,
+    );
+    assert!(result.contains("arity") || result.contains("2"));
+}
+
+#[test]
+fn test_ask_code_arity_error() {
+    let result = eval_to_string(
+        r#"(try (ask/code "only one arg")
+             (catch e (get e :message)))"#,
+    );
+    assert!(result.contains("arity") || result.contains("2"));
+}
+
+#[test]
+fn test_heal_no_docstring() {
+    let result = eval_to_string(
+        r#"(begin
+             (defn add (a b) (+ a b))
+             (try (heal! add)
+                  (catch e (get e :message))))"#,
+    );
+    assert!(result.contains("no docstring"));
+}
+
+#[test]
+fn test_heal_no_doctests() {
+    let result = eval_to_string(
+        r#"(begin
+             (defn add "Add two numbers." (a b) (+ a b))
+             (try (heal! add)
+                  (catch e (get e :message))))"#,
+    );
+    assert!(result.contains("no doctests"));
+}
+
+#[test]
+fn test_heal_already_passing() {
+    let result = eval_to_string(
+        r#"(begin
+             (defn add
+               "Add two.
+                >>> (add 1 2)
+                3"
+               (a b) (+ a b))
+             (get (heal! add) :status))"#,
+    );
+    assert_eq!(result, ":ok");
+}
+
+#[test]
+fn test_heal_no_llm_configured() {
+    let result = eval_to_string(
+        r#"(begin
+             (defn broken
+               "Always returns wrong.
+                >>> (broken 1)
+                42"
+               (x) 0)
+             (try (heal! broken)
+                  (catch e (get e :message))))"#,
+    );
+    assert!(
+        result.contains("LLM")
+            || result.contains("llm")
+            || result.contains("provider")
+            || result.contains("configured")
+    );
+}
+
+// ── observe! tests ───────────────────────────────────────────────
+
+#[test]
+fn test_observe_basic() {
+    let interp = Interpreter::new();
+    interp
+        .eval_str_in_global(
+            r#"(begin
+                (defn add "Adds two numbers." (a b) (+ a b))
+                (define result nil)
+                (observe! add 3
+                  (fn (log) (set! result (count log)))))"#,
+        )
+        .unwrap();
+    interp.eval_str_in_global("(add 1 2)").unwrap();
+    interp.eval_str_in_global("(add 3 4)").unwrap();
+    interp.eval_str_in_global("(add 5 6)").unwrap();
+    let result = interp.eval_str_in_global("result").unwrap();
+    assert_eq!(result, Value::int(3));
+}
+
+#[test]
+fn test_observe_call_log_structure() {
+    let interp = Interpreter::new();
+    interp
+        .eval_str_in_global(
+            r#"(begin
+                (defn double "Doubles." (x) (* x 2))
+                (define log-data nil)
+                (observe! double 1
+                  (fn (log) (set! log-data (first log)))))"#,
+        )
+        .unwrap();
+    interp.eval_str_in_global("(double 5)").unwrap();
+    let entry = interp.eval_str_in_global("log-data").unwrap();
+    let map = entry.as_map_rc().expect("log entry should be a map");
+    assert_eq!(
+        map.get(&Value::keyword("args")),
+        Some(&Value::list(vec![Value::int(5)]))
+    );
+    assert_eq!(map.get(&Value::keyword("result")), Some(&Value::int(10)));
+    assert!(map.get(&Value::keyword("time-ms")).is_some());
+}
+
+#[test]
+fn test_observe_restores_original() {
+    let interp = Interpreter::new();
+    interp
+        .eval_str_in_global(
+            r#"(begin
+                (defn inc "Increments." (x) (+ x 1))
+                (observe! inc 2 (fn (log) nil)))"#,
+        )
+        .unwrap();
+    interp.eval_str_in_global("(inc 1)").unwrap();
+    interp.eval_str_in_global("(inc 2)").unwrap();
+    let result = interp.eval_str_in_global("(inc 10)").unwrap();
+    assert_eq!(result, Value::int(11));
+}
+
+#[test]
+fn test_observe_function_still_works() {
+    let interp = Interpreter::new();
+    interp
+        .eval_str_in_global(
+            r#"(begin
+                (defn square "Squares." (x) (* x x))
+                (observe! square 2 (fn (log) nil)))"#,
+        )
+        .unwrap();
+    let r = interp.eval_str_in_global("(square 7)").unwrap();
+    assert_eq!(r, Value::int(49));
+}
+
+// ── become! tests ────────────────────────────────────────────────
+
+#[test]
+fn test_become_replaces_function() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn greet (name) (string-append "Hello, " name))
+                (become! greet (fn (name) (string-append "Hi, " name)))
+                (greet "Alice"))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::string("Hi, Alice"));
+}
+
+#[test]
+fn test_become_saves_history() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn inc1 (x) (+ x 1))
+                (become! inc1 (fn (x) (+ x 2)))
+                (count (history inc1)))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_become_doctest_gate() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+            (defn double "Doubles.
+               >>> (double 5)
+               10" (x) (* x 2))
+            (become! double (fn (x) (+ x 1))))"#,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("doctest") || err.contains("pass"),
+        "Error should mention doctests: {err}"
+    );
+}
+
+#[test]
+fn test_become_doctest_passes() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn double "Doubles.
+                   >>> (double 5)
+                   10" (x) (* x 2))
+                (become! double (fn (x) (+ x x)))
+                (double 7))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(14));
+}
+
+#[test]
+fn test_become_no_doctests_allowed() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn helper (x) (+ x 1))
+                (become! helper (fn (x) (+ x 10)))
+                (helper 5))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(15));
+}
+
+// ── history / rollback! tests ────────────────────────────────────
+
+#[test]
+fn test_history_empty() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str("(begin (defn foo (x) x) (history foo))")
+        .unwrap();
+    assert_eq!(result, Value::list(vec![]));
+}
+
+#[test]
+fn test_history_after_become() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn add1 (x) (+ x 1))
+                (become! add1 (fn (x) (+ x 10)))
+                (become! add1 (fn (x) (+ x 100)))
+                (count (history add1)))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(2));
+}
+
+#[test]
+fn test_history_entry_has_version() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn inc (x) (+ x 1))
+                (become! inc (fn (x) (+ x 2)))
+                (get (first (history inc)) :version))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_rollback_restores_version() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str(
+            r#"(begin
+                (defn calc (x) (+ x 1))
+                (become! calc (fn (x) (+ x 10)))
+                (become! calc (fn (x) (+ x 100)))
+                (rollback! calc 1)
+                (calc 0))"#,
+        )
+        .unwrap();
+    assert_eq!(result, Value::int(1));
+}
+
+#[test]
+fn test_rollback_invalid_version() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+            (defn foo (x) x)
+            (rollback! foo 5))"#,
+    );
+    assert!(result.is_err());
+}
+
+// ── freeze! tests ────────────────────────────────────────────────
+
+#[test]
+fn test_freeze_prevents_become() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+            (defn stable (x) x)
+            (freeze! stable)
+            (become! stable (fn (x) (+ x 1))))"#,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("frozen"), "Error should mention frozen: {err}");
+}
+
+#[test]
+fn test_freeze_prevents_rollback() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(
+        r#"(begin
+            (defn calc (x) (+ x 1))
+            (become! calc (fn (x) (+ x 10)))
+            (freeze! calc)
+            (rollback! calc 1))"#,
+    );
+    assert!(result.is_err());
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("frozen"), "Error should mention frozen: {err}");
+}
+
+#[test]
+fn test_freeze_returns_nil() {
+    let interp = Interpreter::new();
+    let result = interp
+        .eval_str("(begin (defn f (x) x) (freeze! f))")
+        .unwrap();
+    assert_eq!(result, Value::nil());
+}
+
+// ── bench tests ──────────────────────────────────────────────────
+
+#[test]
+fn test_bench_basic() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("(bench (fn () (+ 1 2)) 100)").unwrap();
+    let map = result.as_map_rc().expect("bench should return a map");
+    assert_eq!(
+        map.get(&Value::keyword("iterations")),
+        Some(&Value::int(100))
+    );
+    assert!(map.get(&Value::keyword("total-ms")).is_some());
+    assert!(map.get(&Value::keyword("mean-ms")).is_some());
+}
+
+#[test]
+fn test_bench_zero_iterations() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str("(bench (fn () nil) 0)").unwrap();
+    let map = result.as_map_rc().expect("bench should return a map");
+    assert_eq!(map.get(&Value::keyword("iterations")), Some(&Value::int(0)));
+    assert_eq!(
+        map.get(&Value::keyword("mean-ms")),
+        Some(&Value::float(0.0))
+    );
+}
+
+#[test]
+fn test_become_observe_history_full_flow() {
+    let interp = Interpreter::new();
+
+    // Define a function
+    interp
+        .eval_str_in_global(r#"(defn calc (x) (+ x 1))"#)
+        .unwrap();
+
+    // become! to v2
+    interp
+        .eval_str_in_global("(become! calc (fn (x) (+ x 10)))")
+        .unwrap();
+    let r = interp.eval_str_in_global("(calc 0)").unwrap();
+    assert_eq!(r, Value::int(10));
+
+    // become! to v3
+    interp
+        .eval_str_in_global("(become! calc (fn (x) (+ x 100)))")
+        .unwrap();
+    let r = interp.eval_str_in_global("(calc 0)").unwrap();
+    assert_eq!(r, Value::int(100));
+
+    // Check history has 2 entries
+    let h = interp.eval_str_in_global("(count (history calc))").unwrap();
+    assert_eq!(h, Value::int(2));
+
+    // Rollback to version 1 (original)
+    interp.eval_str_in_global("(rollback! calc 1)").unwrap();
+    let r = interp.eval_str_in_global("(calc 0)").unwrap();
+    assert_eq!(r, Value::int(1));
+
+    // Freeze
+    interp.eval_str_in_global("(freeze! calc)").unwrap();
+
+    // become! should fail now
+    let result = interp.eval_str_in_global("(become! calc (fn (x) x))");
+    assert!(result.is_err());
+}

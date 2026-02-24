@@ -1,5 +1,6 @@
 #![allow(clippy::mutable_key_type)]
 mod destructure;
+pub mod doctest;
 mod eval;
 mod prelude;
 mod special_forms;

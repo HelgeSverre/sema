@@ -81,6 +81,32 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::float(elapsed.as_secs_f64() * 1000.0))
     });
 
+    // (bench thunk iterations) — run zero-arg thunk N times, return timing stats
+    register_fn(env, "bench", |args| {
+        check_arity!(args, "bench", 2);
+        let iterations = args[1]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("integer", args[1].type_name()))?
+            as usize;
+
+        let start = std::time::Instant::now();
+        for _ in 0..iterations {
+            crate::list::call_function(&args[0], &[])?;
+        }
+        let total_ms = start.elapsed().as_secs_f64() * 1000.0;
+        let mean_ms = if iterations > 0 {
+            total_ms / iterations as f64
+        } else {
+            0.0
+        };
+
+        let mut map = std::collections::BTreeMap::new();
+        map.insert(Value::keyword("iterations"), Value::int(iterations as i64));
+        map.insert(Value::keyword("total-ms"), Value::float(total_ms));
+        map.insert(Value::keyword("mean-ms"), Value::float(mean_ms));
+        Ok(Value::map(map))
+    });
+
     // (assert condition) or (assert condition message) — throws if condition is falsy
     register_fn(env, "assert", |args| {
         if args.is_empty() || args.len() > 2 {
