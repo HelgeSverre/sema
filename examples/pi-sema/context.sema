@@ -57,7 +57,7 @@
       (string/join
         (map
           (lambda (f)
-            (string-append "## Context from "
+            (string/append "## Context from "
               (get f :path)
               "\n"
               (get f :content)))
@@ -92,9 +92,9 @@
             (if (string/ends-with? filename ".md")
               (let* ((skill-path (path/join skills-dir filename))
                      (name
-                       (substring filename
+                       (string/slice filename
                          0
-                         (- (string-length filename) 3)))
+                         (- (string/length filename) 3)))
                      (content (safe-read-file skill-path))
                      (description
                        (if content
@@ -128,6 +128,6 @@
                   (get s :description)
                   (get s :path)))
               skills)))
-      (string-append "<available_skills>\n"
+      (string/append "<available_skills>\n"
         (string/join skill-entries "\n")
         "\n</available_skills>"))))

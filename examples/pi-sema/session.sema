@@ -9,7 +9,7 @@
 ;; ============================================================
 
 (define (sessions-dir)
-  (string-append (env "HOME") "/.pi-sema/sessions/"))
+  (string/append (env "HOME") "/.pi-sema/sessions/"))
 
 ;; ============================================================
 ;; Section 2: Create New Session
@@ -18,7 +18,7 @@
 (define (session/new cwd model)
   (let* ((id (uuid))
          (dir (sessions-dir))
-         (path (string-append dir id ".ndjson"))
+         (path (string/append dir id ".ndjson"))
          (header
            {:type "session"
             :id id
@@ -26,7 +26,7 @@
             :model model
             :timestamp (timestamp)}))
     (ensure-dir dir)
-    (file/write path (string-append (json/encode header) "\n"))
+    (file/write path (string/append (json/encode header) "\n"))
     {:id id
      :path path
      :messages '()
@@ -43,8 +43,8 @@
            (try
              (file/read path)
              (catch e "")))
-         (line (string-append (json/encode entry-map) "\n")))
-    (file/write path (string-append existing line))))
+         (line (string/append (json/encode entry-map) "\n")))
+    (file/write path (string/append existing line))))
 
 ;; ============================================================
 ;; Section 4: Save Message (Convenience)
@@ -64,7 +64,7 @@
 (define (session/load path)
   (let* ((raw (file/read path))
          (lines
-           (filter (fn (s) (> (string-length (string/trim s)) 0))
+           (filter (fn (s) (> (string/length (string/trim s)) 0))
              (string/split raw "\n")))
          (entries (map json/decode lines)))
     ;; Extract session header
@@ -131,10 +131,10 @@
         (map
           (fn (f)
             (try
-              (let* ((path (string-append dir f))
+              (let* ((path (string/append dir f))
                      (raw (file/read path))
                      (lines
-                       (filter (fn (s) (> (string-length (string/trim s)) 0))
+                       (filter (fn (s) (> (string/length (string/trim s)) 0))
                          (string/split raw "\n")))
                      (header (json/decode (car lines)))
                      ;; Find first user message for preview
@@ -158,7 +158,7 @@
                  :preview preview})
               (catch e
                 {:id f
-                 :path (string-append dir f)
+                 :path (string/append dir f)
                  :timestamp 0
                  :cwd ""
                  :preview "(error reading session)"})))
@@ -169,7 +169,7 @@
 ;; ============================================================
 
 (define (session/resume id)
-  (let ((path (string-append (sessions-dir) id ".ndjson")))
+  (let ((path (string/append (sessions-dir) id ".ndjson")))
     (if (file/exists? path)
       (session/load path)
-      (error (string-append "Session not found: " id)))))
+      (error (string/append "Session not found: " id)))))

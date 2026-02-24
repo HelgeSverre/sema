@@ -23,7 +23,7 @@
     (if (= i n)
       m
       (loop (+ i 1)
-        (assoc m (string->symbol (string-append "k" (number->string i))) i)))))
+        (assoc m (string/to-symbol (string/append "k" (number/to-string i))) i)))))
 
 ;; Build a HashMap with n keys
 (define (build-hashmap n)
@@ -31,7 +31,7 @@
     (if (= i n)
       m
       (loop (+ i 1)
-        (assoc m (string->symbol (string-append "k" (number->string i))) i)))))
+        (assoc m (string/to-symbol (string/append "k" (number/to-string i))) i)))))
 
 ;; --- Part 1: Map construction ---
 (println "Part 1: Map construction")

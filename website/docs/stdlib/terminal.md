@@ -342,7 +342,7 @@ Multiple spinners can run concurrently — each gets a unique ID:
 (define sp (term/spinner-start "Starting..."))
 (for-each
   (lambda (step)
-    (term/spinner-update sp (string-append step "..."))
+    (term/spinner-update sp (string/append step "..."))
     (sleep 1000))
   steps)
 (term/spinner-stop sp {:symbol "✔" :text "Installation complete"})
@@ -353,9 +353,9 @@ Multiple spinners can run concurrently — each gets a unique ID:
 ```sema
 (define (color-status code)
   (cond
-    ((< code 300) (term/green (number->string code)))
-    ((< code 400) (term/yellow (number->string code)))
-    (else         (term/red (number->string code)))))
+    ((< code 300) (term/green (number/to-string code)))
+    ((< code 400) (term/yellow (number/to-string code)))
+    (else         (term/red (number/to-string code)))))
 
 (println "Status: " (color-status 200))  ; green "200"
 (println "Status: " (color-status 301))  ; yellow "301"

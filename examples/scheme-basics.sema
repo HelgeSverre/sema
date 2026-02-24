@@ -83,24 +83,24 @@
 (println (format "Newline:       ~s" #\newline))
 
 ;; Predicates
-(println (format "alphabetic? #\\A: ~a" (char-alphabetic? #\A)))
-(println (format "numeric? #\\5:    ~a" (char-numeric? #\5)))
-(println (format "whitespace? ' ': ~a" (char-whitespace? #\space)))
-(println (format "upper-case? #\\A: ~a" (char-upper-case? #\A)))
-(println (format "lower-case? #\\a: ~a" (char-lower-case? #\a)))
+(println (format "alphabetic? #\\A: ~a" (char/alphabetic? #\A)))
+(println (format "numeric? #\\5:    ~a" (char/numeric? #\5)))
+(println (format "whitespace? ' ': ~a" (char/whitespace? #\space)))
+(println (format "upper-case? #\\A: ~a" (char/upper-case? #\A)))
+(println (format "lower-case? #\\a: ~a" (char/lower-case? #\a)))
 
 ;; Case conversion
-(println (format "upcase #\\a:   ~s" (char-upcase #\a)))
-(println (format "downcase #\\Z: ~s" (char-downcase #\Z)))
+(println (format "upcase #\\a:   ~s" (char/upcase #\a)))
+(println (format "downcase #\\Z: ~s" (char/downcase #\Z)))
 
 ;; String <-> Char conversions
-(define chars (string->list "Hello"))
-(println (format "string->list \"Hello\": ~s" chars))
+(define chars (string/to-list "Hello"))
+(println (format "string/to-list \"Hello\": ~s" chars))
 (println (format "list->string back:    ~a" (list->string chars)))
 
-;; char->integer / integer->char
-(println (format "char->integer #\\A: ~a" (char->integer #\A)))
-(println (format "integer->char 65:  ~s" (integer->char 65)))
+;; char/to-integer / integer/to-char
+(println (format "char/to-integer #\\A: ~a" (char/to-integer #\A)))
+(println (format "integer/to-char 65:  ~s" (integer/to-char 65)))
 
 ;; ============================================================
 ;; 5. Promises (Lazy Evaluation)

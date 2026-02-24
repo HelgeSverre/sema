@@ -27,10 +27,10 @@
 (println (format "10!: ~a" fact))
 
 (println "\n=== Characters ===")
-(println (format "alphabetic? #\\A: ~a" (char-alphabetic? #\A)))
-(println (format "numeric? #\\5: ~a" (char-numeric? #\5)))
-(println (format "upcase #\\a: ~s" (char-upcase #\a)))
-(println (format "string->list: ~s" (string->list "Hello")))
+(println (format "alphabetic? #\\A: ~a" (char/alphabetic? #\A)))
+(println (format "numeric? #\\5: ~a" (char/numeric? #\5)))
+(println (format "upcase #\\a: ~s" (char/upcase #\a)))
+(println (format "string/to-list: ~s" (string/to-list "Hello")))
 
 (println "\n=== Promises (delay/force) ===")
 (define p (delay (begin (println "  Computing...") (* 6 7))))

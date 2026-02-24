@@ -4,8 +4,8 @@
 (define (pick-n n lst)
   (if (<= n 0) '() (cons (pick-random lst) (pick-n (- n 1) lst))))
 (define (capitalize s)
-  (if (> (string-length s) 0)
-    (string-append (string/upper (substring s 0 1)) (substring s 1)) s))
+  (if (> (string/length s) 0)
+    (string/append (string/upper (string/slice s 0 1)) (string/slice s 1)) s))
 
 (define lorem-words
   (list "lorem" "ipsum" "dolor" "sit" "amet" "consectetur" "adipiscing"
@@ -20,7 +20,7 @@
 
 (define (generate-sentence)
   (let ((words (pick-n (math/random-int 5 15) lorem-words)))
-    (string-append (capitalize (string/join words " ")) ".")))
+    (string/append (capitalize (string/join words " ")) ".")))
 
 (define (generate-paragraph)
   (let loop ((i 0) (count (math/random-int 3 6)) (acc '()))

@@ -5,8 +5,8 @@
 
 ;; Apply production rules to a single character
 (define (apply-char rules ch)
-  (let ((replacement (get rules (string->keyword (char->string ch)))))
-    (if (nil? replacement) (char->string ch) replacement)))
+  (let ((replacement (get rules (string/to-keyword (char/to-string ch)))))
+    (if (nil? replacement) (char/to-string ch) replacement)))
 
 ;; Rewrite an entire string using rules
 (define (apply-rules str rules)
@@ -27,13 +27,13 @@
     (for-each
       (fn (i)
         (let ((gen (nth generations i)))
-          (if (<= (string-length gen) 60)
+          (if (<= (string/length gen) 60)
             (println (format "  ~a: ~a" i gen))
             (println
               (format "  ~a: [~a chars] ~a..."
                 i
-                (string-length gen)
-                (substring gen 0 55))))))
+                (string/length gen)
+                (string/slice gen 0 55))))))
       (range (+ n 1)))
     (println "")))
 
@@ -77,10 +77,10 @@
 ;; Wrap into lines of 64 chars for display
 (define (wrap-string s width)
   (let loop ((remaining s) (lines '()))
-    (if (<= (string-length remaining) width)
+    (if (<= (string/length remaining) width)
       (reverse (cons remaining lines))
-      (loop (substring remaining width)
-        (cons (substring remaining 0 width) lines)))))
+      (loop (string/slice remaining width)
+        (cons (string/slice remaining 0 width) lines)))))
 
 (for-each
   println
@@ -94,7 +94,7 @@
     (println (format "~a:" name))
     (for-each
       (fn (i)
-        (let ((len (string-length (nth gens i))))
+        (let ((len (string/length (nth gens i))))
           (println
             (format "  Gen ~a: ~a chars ~a"
               (string/pad-left (str i) 2)

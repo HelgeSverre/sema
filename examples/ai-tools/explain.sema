@@ -7,7 +7,7 @@
 
 (define provider (llm/auto-configure))
 (when (nil? provider)
-  (println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (io/println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
   (exit 1))
 
 ;; Parse script args
@@ -30,14 +30,14 @@
   (cond
     ((not (null? file-args)) (define path (car file-args))
       (unless (file/exists? path)
-        (println-error (format "File not found: ~a" path))
+        (io/println-error (format "File not found: ~a" path))
         (exit 1))
-      (println-error (format "Explaining ~a..." path))
+      (io/println-error (format "Explaining ~a..." path))
       (file/read path))
-    ((not (sys/interactive?)) (println-error "Explaining piped input...")
-      (read-stdin))
-    (else (println-error "Usage: sema explain.sema -- <file>")
-      (println-error "       cat file | sema explain.sema")
+    ((not (sys/interactive?)) (io/println-error "Explaining piped input...")
+      (io/read-stdin))
+    (else (io/println-error "Usage: sema explain.sema -- <file>")
+      (io/println-error "       cat file | sema explain.sema")
       (exit 1))))
 
 (define system-msg
@@ -48,6 +48,6 @@
 (llm/stream
   (prompt
     (system system-msg)
-    (user (string-append "Explain this code:\n\n```\n" code "\n```")))
+    (user (string/append "Explain this code:\n\n```\n" code "\n```")))
   {:max-tokens 4096})
 (newline)

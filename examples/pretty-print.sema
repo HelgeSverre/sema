@@ -13,7 +13,7 @@
 
 ;; Estimate the flat (single-line) width of a value
 (define (flat-length val)
-  (string-length (str val)))
+  (string/length (str val)))
 
 ;; Render a value as a flat string
 (define (flat val) (str val))
@@ -34,7 +34,7 @@
       (if (null? val)
         "()"
         (let ((flat-repr (flat val)))
-          (if (<= (+ indent (string-length flat-repr)) pp-width)
+          (if (<= (+ indent (string/length flat-repr)) pp-width)
             ;; Fits on one line
             flat-repr
             ;; Multi-line
@@ -43,14 +43,14 @@
     ;; Vectors
     ((vector? val)
       (let ((flat-repr (flat val)))
-        (if (<= (+ indent (string-length flat-repr)) pp-width)
+        (if (<= (+ indent (string/length flat-repr)) pp-width)
           flat-repr
           (pp-vector val indent))))
 
     ;; Maps
     ((map? val)
       (let ((flat-repr (flat val)))
-        (if (<= (+ indent (string-length flat-repr)) pp-width)
+        (if (<= (+ indent (string/length flat-repr)) pp-width)
           flat-repr
           (pp-map val indent))))
 
@@ -99,10 +99,10 @@
                (str "("
                  head
                  " "
-                 (pp first-arg (+ indent (string-length (str head)) 2)))))
+                 (pp first-arg (+ indent (string/length (str head)) 2)))))
         (if (null? more)
           (str line1 ")")
-          (string-append line1
+          (string/append line1
             "\n"
             (string/join (map (fn (item) (str pad (pp item child-indent))) more)
               "\n")
@@ -113,7 +113,7 @@
   (let* ((child-indent  (+ indent pp-indent))
          (pad           (string/repeat " " child-indent))
          (items         (map (fn (item) (pp item child-indent)) lst)))
-    (string-append "("
+    (string/append "("
       (string/join items (str "\n" pad))
       ")")))
 
@@ -122,7 +122,7 @@
   (let* ((child-indent (+ indent 1))
          (pad (string/repeat " " child-indent))
          (items (map (fn (item) (pp item child-indent)) (vector->list vec))))
-    (string-append "["
+    (string/append "["
       (string/join items (str "\n" pad))
       "]")))
 
@@ -138,7 +138,7 @@
                  " "
                  (pp (cadr entry) (+ child-indent (flat-length (car entry)) 1))))
              entries)))
-    (string-append "{"
+    (string/append "{"
       (string/join lines (str "\n" pad))
       "}")))
 

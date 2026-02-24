@@ -15,19 +15,19 @@
 ;; Token types: :lparen :rparen :quote :number :string :symbol :bool :nil
 
 (define (tokenize src)
-  (let ((len (string-length src)))
+  (let ((len (string/length src)))
     (let loop ((pos 0) (tokens '()))
       (if (>= pos len)
         (reverse tokens)
-        (let ((ch (string-ref src pos)))
+        (let ((ch (string/ref src pos)))
           (cond
             ;; Skip whitespace
-            ((char-whitespace? ch) (loop (+ pos 1) tokens))
+            ((char/whitespace? ch) (loop (+ pos 1) tokens))
 
             ;; Skip line comments
             ((char=? ch #\;)
               (let skip ((p (+ pos 1)))
-                (if (or (>= p len) (char=? (string-ref src p) #\newline))
+                (if (or (>= p len) (char=? (string/ref src p) #\newline))
                   (loop (+ p 1) tokens)
                   (skip (+ p 1)))))
 
@@ -43,10 +43,10 @@
               (let scan ((p (+ pos 1)) (chars '()))
                 (cond
                   ((>= p len) (error "unterminated string literal"))
-                  ((char=? (string-ref src p) #\\)
+                  ((char=? (string/ref src p) #\\)
                     (if (>= (+ p 1) len)
                       (error "unterminated escape in string")
-                      (let ((esc (string-ref src (+ p 1))))
+                      (let ((esc (string/ref src (+ p 1))))
                         (scan (+ p 2)
                           (cons
                             (cond
@@ -56,58 +56,58 @@
                               ((char=? esc #\")  #\")
                               (else              esc))
                             chars)))))
-                  ((char=? (string-ref src p) #\")
+                  ((char=? (string/ref src p) #\")
                     (loop (+ p 1)
                       (cons
                         {:type :string :value (list->string (reverse chars))}
                         tokens)))
-                  (else (scan (+ p 1) (cons (string-ref src p) chars))))))
+                  (else (scan (+ p 1) (cons (string/ref src p) chars))))))
 
             ;; Numbers (including negative: -N where N starts with digit)
-            ((or (char-numeric? ch)
+            ((or (char/numeric? ch)
                (and (char=? ch #\-)
                  (< (+ pos 1) len)
-                 (char-numeric? (string-ref src (+ pos 1)))))
+                 (char/numeric? (string/ref src (+ pos 1)))))
               (let scan ((p        (if (char=? ch #\-) (+ pos 1) pos))
                          (has-dot  #f))
                 (cond
-                  ((and (< p len) (char-numeric? (string-ref src p)))
+                  ((and (< p len) (char/numeric? (string/ref src p)))
                     (scan (+ p 1) has-dot))
-                  ((and (< p len) (char=? (string-ref src p) #\.) (not has-dot))
+                  ((and (< p len) (char=? (string/ref src p) #\.) (not has-dot))
                     (scan (+ p 1) #t))
                   (else
-                    (let ((numstr (substring src pos p)))
+                    (let ((numstr (string/slice src pos p)))
                       (loop p
                         (cons
                           {:type :number
-                           :value (string->number numstr)}
+                           :value (string/to-number numstr)}
                           tokens)))))))
 
             ;; Booleans: #t #f
             ((char=? ch #\#)
               (if (< (+ pos 1) len)
-                (let ((next (string-ref src (+ pos 1))))
+                (let ((next (string/ref src (+ pos 1))))
                   (cond
                     ((char=? next #\t)
                       (loop (+ pos 2) (cons {:type :bool :value #t} tokens)))
                     ((char=? next #\f)
                       (loop (+ pos 2) (cons {:type :bool :value #f} tokens)))
-                    (else (error (format "unexpected #~a" (char->string next))))))
+                    (else (error (format "unexpected #~a" (char/to-string next))))))
                 (error "unexpected # at end of input")))
 
             ;; Symbols — anything else that's not a delimiter
             (else
               (let scan ((p pos))
                 (if (and (< p len)
-                    (let ((c (string-ref src p)))
+                    (let ((c (string/ref src p)))
                       (not
-                        (or (char-whitespace? c)
+                        (or (char/whitespace? c)
                           (char=? c #\()
                           (char=? c #\))
                           (char=? c #\")
                           (char=? c #\;)))))
                   (scan (+ p 1))
-                  (let ((sym (substring src pos p)))
+                  (let ((sym (string/slice src pos p)))
                     (loop p
                       (cons
                         (cond
@@ -198,7 +198,7 @@
     (cond
       ((equal? msg :lookup)
         (let ((name (car args)))
-          (let ((key (string->keyword name)))
+          (let ((key (string/to-keyword name)))
             (if (contains? bindings key)
               (get bindings key)
               (if (nil? parent)
@@ -208,13 +208,13 @@
       ((equal? msg :define)
         (let ((name   (car args))
               (value  (nth args 1)))
-          (set! bindings (assoc bindings (string->keyword name) value))
+          (set! bindings (assoc bindings (string/to-keyword name) value))
           value))
 
       ((equal? msg :set!)
         (let ((name   (car args))
               (value  (nth args 1)))
-          (let ((key (string->keyword name)))
+          (let ((key (string/to-keyword name)))
             (if (contains? bindings key)
               (begin
                 (set! bindings (assoc bindings key value))
@@ -466,7 +466,7 @@
     ((boolean? ast) ast)
     ((meta-nil? ast) '())
     ((and (map? ast) (equal? (get ast :ast) :symbol))
-      (string->symbol (get ast :name)))
+      (string/to-symbol (get ast :name)))
     ((and (map? ast) (equal? (get ast :ast) :list))
       (map ast->datum (get ast :items)))
     (else ast)))
@@ -578,14 +578,14 @@
 
     ;; String operations
     (env :define
-      "string-append"
-      (make-builtin (fn (args) (apply string-append args))))
+      "string/append"
+      (make-builtin (fn (args) (apply string/append args))))
     (env :define
-      "string-length"
-      (make-builtin (fn (args) (string-length (car args)))))
+      "string/length"
+      (make-builtin (fn (args) (string/length (car args)))))
     (env :define
-      "number->string"
-      (make-builtin (fn (args) (number->string (car args)))))
+      "number/to-string"
+      (make-builtin (fn (args) (number/to-string (car args)))))
 
     env))
 
@@ -707,7 +707,7 @@
         ((= (remainder n 15) 0) \"FizzBuzz\")
         ((= (remainder n 3) 0)  \"Fizz\")
         ((= (remainder n 5) 0)  \"Buzz\")
-        (else (number->string n))))
+        (else (number/to-string n))))
     (fizzbuzz 15)")))
 
 ;; --- Test 10: Let bindings ---

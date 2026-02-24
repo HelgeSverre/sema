@@ -18,7 +18,7 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
 (define chunks (text/chunk article {:size 200 :overlap 0}))
 (println (format "Chunks (200 chars, no overlap): ~a chunks" (length chunks)))
 (for-each
-  (lambda (c) (println (format "  [~a chars] ~a" (string-length c) (text/truncate c 60))))
+  (lambda (c) (println (format "  [~a chars] ~a" (string/length c) (text/truncate c 60))))
   chunks)
 
 ;; Chunk with overlap

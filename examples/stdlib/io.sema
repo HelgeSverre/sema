@@ -168,12 +168,12 @@
   "Hello world, you are 42"
   "format with ~a")
 
-;; --- read & read-many ---
-(println "-- read & read-many --")
+;; --- read & io/read-many ---
+(println "-- read & io/read-many --")
 (define parsed (read "(+ 1 2)"))
 (assert-eq (list? parsed) #t "read returns a list")
-(define many (read-many "(+ 1 2) (* 3 4)"))
-(assert-eq (length many) 2 "read-many returns 2 expressions")
+(define many (io/read-many "(+ 1 2) (* 3 4)"))
+(assert-eq (length many) 2 "io/read-many returns 2 expressions")
 
 ;; --- error (via try/catch) ---
 (println "-- error (via try/catch) --")

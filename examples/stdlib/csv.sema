@@ -67,7 +67,7 @@
 (define username "user")
 (define password "pass")
 (define auth-header
-  (string-append "Basic " (base64/encode (string-append username ":" password))))
+  (string/append "Basic " (base64/encode (string/append username ":" password))))
 (assert-eq (string/starts-with? auth-header "Basic ") #t "basic auth header")
 
 ;; hash/sha256

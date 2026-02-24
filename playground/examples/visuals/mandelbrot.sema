@@ -1,6 +1,6 @@
 ;; ASCII Mandelbrot set renderer
 (define chars " .:-=+*#%@")
-(define num-chars (string-length chars))
+(define num-chars (string/length chars))
 
 (define (mandelbrot-iter cx cy max-iter)
   (do ((i 0 (+ i 1))
@@ -13,9 +13,9 @@
 
 (define (iter->char iter max-iter)
   (if (= iter max-iter)
-    (char->string (string-ref chars (- num-chars 1)))
+    (char/to-string (string/ref chars (- num-chars 1)))
     (let ((idx (floor (* (/ iter max-iter) (- num-chars 1)))))
-      (char->string (string-ref chars idx)))))
+      (char/to-string (string/ref chars idx)))))
 
 (define (render x-min x-max y-min y-max w h max-iter)
   (let ((dx (/ (- x-max x-min) w))

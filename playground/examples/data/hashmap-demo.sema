@@ -3,7 +3,7 @@
 (println "=== Ordered Map vs HashMap ===\n")
 
 ;; Ordered Map — keys sorted
-(define colors (hash-map :red "#FF0000" :green "#00FF00" :blue "#0000FF"))
+(define colors (map/new :red "#FF0000" :green "#00FF00" :blue "#0000FF"))
 (println (format "Ordered map: ~a" colors))
 (println (format "Keys (sorted): ~a" (keys colors)))
 
@@ -16,15 +16,15 @@
 
 (println "\n=== Map Transformations ===\n")
 
-(define inventory (hash-map :widgets 100 :gadgets 50 :gizmos 75 :doohickeys 30))
+(define inventory (map/new :widgets 100 :gadgets 50 :gizmos 75 :doohickeys 30))
 (println (format "Inventory: ~a" inventory))
 (println (format "Doubled: ~a" (map/map-vals (fn (v) (* v 2)) inventory)))
 (println (format "Stock ≥50: ~a" (map/filter (fn (k v) (>= v 50)) inventory)))
 (println (format "Selected: ~a" (map/select-keys inventory (list :widgets :gizmos))))
 
 ;; Merge
-(define defaults (hash-map :color "blue" :size "M" :count 1))
-(define overrides (hash-map :color "red" :count 5))
+(define defaults (map/new :color "blue" :size "M" :count 1))
+(define overrides (map/new :color "red" :count 5))
 (println (format "\nMerged: ~a" (merge defaults overrides)))
 
 (println "\n=== Word Frequency ===\n")
@@ -32,8 +32,8 @@
 (define sentence "the cat sat on the mat the cat ate the rat")
 (define freq
   (foldl (fn (acc w)
-    (assoc acc (string->keyword w) (+ 1 (get acc (string->keyword w) 0))))
-    (hash-map) (string/split sentence " ")))
+    (assoc acc (string/to-keyword w) (+ 1 (get acc (string/to-keyword w) 0))))
+    (map/new) (string/split sentence " ")))
 
 (for-each (fn (e)
   (println (format "  ~a → ~a" (string/pad-right (str (first e)) 6) (nth e 1))))
@@ -41,8 +41,8 @@
 
 (println "\n=== Phone Book CRUD ===\n")
 
-(define (pb-add pb name phone) (assoc pb (string->keyword name) (hash-map :name name :phone phone)))
-(define pb (pb-add (pb-add (pb-add (hash-map) "alice" "555-0101") "bob" "555-0202") "carol" "555-0303"))
+(define (pb-add pb name phone) (assoc pb (string/to-keyword name) (map/new :name name :phone phone)))
+(define pb (pb-add (pb-add (pb-add (map/new) "alice" "555-0101") "bob" "555-0202") "carol" "555-0303"))
 (println (format "~a contacts" (count pb)))
 (define pb (dissoc pb :bob))
 (println (format "After removing bob: ~a contacts" (count pb)))

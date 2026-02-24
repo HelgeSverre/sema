@@ -9,20 +9,20 @@
 (println "=== String Functions ===")
 (println)
 
-;; string-append
-(assert-eq (string-append "hello" " " "world") "hello world" "string-append")
+;; string/append
+(assert-eq (string/append "hello" " " "world") "hello world" "string/append")
 
-;; string-length
-(assert-eq (string-length "hello") 5 "string-length")
-(assert-eq (string-length "") 0 "string-length empty")
+;; string/length
+(assert-eq (string/length "hello") 5 "string/length")
+(assert-eq (string/length "") 0 "string/length empty")
 
-;; string-ref
-(assert-eq (string-ref "hello" 0) #\h "string-ref first")
-(assert-eq (string-ref "hello" 4) #\o "string-ref last")
+;; string/ref
+(assert-eq (string/ref "hello" 0) #\h "string/ref first")
+(assert-eq (string/ref "hello" 4) #\o "string/ref last")
 
-;; substring
-(assert-eq (substring "hello world" 0 5) "hello" "substring with end")
-(assert-eq (substring "hello world" 6) "world" "substring without end")
+;; string/slice
+(assert-eq (string/slice "hello world" 0 5) "hello" "string/slice with end")
+(assert-eq (string/slice "hello world" 6) "world" "string/slice without end")
 
 ;; string/split
 (assert-eq (string/split "a,b,c" ",") (list "a" "b" "c") "string/split")
@@ -69,29 +69,29 @@
 (assert-eq (format "~s" "hello") "\"hello\"" "format ~s")
 (assert-eq (format "line1~%line2") "line1\nline2" "format ~%")
 
-;; string->symbol
-(assert-eq (string->symbol "foo") (quote foo) "string->symbol")
+;; string/to-symbol
+(assert-eq (string/to-symbol "foo") (quote foo) "string/to-symbol")
 
-;; symbol->string
-(assert-eq (symbol->string (quote hello)) "hello" "symbol->string")
+;; symbol/to-string
+(assert-eq (symbol/to-string (quote hello)) "hello" "symbol/to-string")
 
-;; string->keyword
-(assert-eq (string->keyword "name") :name "string->keyword")
+;; string/to-keyword
+(assert-eq (string/to-keyword "name") :name "string/to-keyword")
 
-;; keyword->string
-(assert-eq (keyword->string :name) "name" "keyword->string")
+;; keyword/to-string
+(assert-eq (keyword/to-string :name) "name" "keyword/to-string")
 
 ;; str
 (assert-eq (str "hello" " " 42) "hello 42" "str")
 (assert-eq (str) "" "str empty")
 
-;; number->string
-(assert-eq (number->string 42) "42" "number->string int")
-(assert-eq (number->string 3.14) "3.14" "number->string float")
+;; number/to-string
+(assert-eq (number/to-string 42) "42" "number/to-string int")
+(assert-eq (number/to-string 3.14) "3.14" "number/to-string float")
 
-;; string->number
-(assert-eq (string->number "42") 42 "string->number int")
-(assert-eq (string->number "3.14") 3.14 "string->number float")
+;; string/to-number
+(assert-eq (string/to-number "42") 42 "string/to-number int")
+(assert-eq (string/to-number "3.14") 3.14 "string/to-number float")
 
 ;; string/index-of
 (assert-eq (string/index-of "hello world" "world") 6 "string/index-of found")
@@ -145,46 +145,46 @@
 (println "=== Character Functions ===")
 (println)
 
-;; char->integer
-(assert-eq (char->integer #\A) 65 "char->integer")
+;; char/to-integer
+(assert-eq (char/to-integer #\A) 65 "char/to-integer")
 
-;; integer->char
-(assert-eq (integer->char 65) #\A "integer->char")
+;; integer/to-char
+(assert-eq (integer/to-char 65) #\A "integer/to-char")
 
-;; char-alphabetic?
-(assert-eq (char-alphabetic? #\a) #t "char-alphabetic? true")
-(assert-eq (char-alphabetic? #\1) #f "char-alphabetic? false")
+;; char/alphabetic?
+(assert-eq (char/alphabetic? #\a) #t "char/alphabetic? true")
+(assert-eq (char/alphabetic? #\1) #f "char/alphabetic? false")
 
-;; char-numeric?
-(assert-eq (char-numeric? #\5) #t "char-numeric? true")
-(assert-eq (char-numeric? #\a) #f "char-numeric? false")
+;; char/numeric?
+(assert-eq (char/numeric? #\5) #t "char/numeric? true")
+(assert-eq (char/numeric? #\a) #f "char/numeric? false")
 
-;; char-whitespace?
-(assert-eq (char-whitespace? #\space) #t "char-whitespace? true")
-(assert-eq (char-whitespace? #\a) #f "char-whitespace? false")
+;; char/whitespace?
+(assert-eq (char/whitespace? #\space) #t "char/whitespace? true")
+(assert-eq (char/whitespace? #\a) #f "char/whitespace? false")
 
-;; char-upper-case?
-(assert-eq (char-upper-case? #\A) #t "char-upper-case? true")
-(assert-eq (char-upper-case? #\a) #f "char-upper-case? false")
+;; char/upper-case?
+(assert-eq (char/upper-case? #\A) #t "char/upper-case? true")
+(assert-eq (char/upper-case? #\a) #f "char/upper-case? false")
 
-;; char-lower-case?
-(assert-eq (char-lower-case? #\a) #t "char-lower-case? true")
-(assert-eq (char-lower-case? #\A) #f "char-lower-case? false")
+;; char/lower-case?
+(assert-eq (char/lower-case? #\a) #t "char/lower-case? true")
+(assert-eq (char/lower-case? #\A) #f "char/lower-case? false")
 
-;; char-upcase
-(assert-eq (char-upcase #\a) #\A "char-upcase")
+;; char/upcase
+(assert-eq (char/upcase #\a) #\A "char/upcase")
 
-;; char-downcase
-(assert-eq (char-downcase #\A) #\a "char-downcase")
+;; char/downcase
+(assert-eq (char/downcase #\A) #\a "char/downcase")
 
-;; char->string
-(assert-eq (char->string #\x) "x" "char->string")
+;; char/to-string
+(assert-eq (char/to-string #\x) "x" "char/to-string")
 
-;; string->char
-(assert-eq (string->char "A") #\A "string->char")
+;; string/to-char
+(assert-eq (string/to-char "A") #\A "string/to-char")
 
-;; string->list
-(assert-eq (string->list "hi") (list #\h #\i) "string->list")
+;; string/to-list
+(assert-eq (string/to-list "hi") (list #\h #\i) "string/to-list")
 
 ;; list->string
 (assert-eq (list->string (list #\h #\i)) "hi" "list->string")
@@ -214,7 +214,7 @@
 (assert-eq (char-ci=? #\a #\b) #f "char-ci=? false")
 
 ;; string/map
-(assert-eq (string/map char-upcase "hello") "HELLO" "string/map")
+(assert-eq (string/map char/upcase "hello") "HELLO" "string/map")
 (assert-eq (string/map (fn (c) c) "abc") "abc" "string/map identity")
 
 (println)

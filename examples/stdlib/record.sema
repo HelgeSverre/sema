@@ -93,10 +93,10 @@
 (define (describe v)
   (match v
     (p when (point? p)
-       (string-append "point("
-                      (number->string (point-x p))
+       (string/append "point("
+                      (number/to-string (point-x p))
                       ", "
-                      (number->string (point-y p))
+                      (number/to-string (point-y p))
                       ")"))
     (_ "not a point")))
 

@@ -2,7 +2,7 @@
 ;; Usage: sema examples/mandelbrot.sema
 
 (define chars      " .:-=+*#%@")
-(define num-chars  (string-length chars))
+(define num-chars  (string/length chars))
 ;; Escape-time iteration: returns iteration count (max-iter = in set)
 (define (mandelbrot-iter cx cy max-iter)
   (do
@@ -15,9 +15,9 @@
 ;; Map iteration count to a character
 (define (iter->char iter max-iter)
   (if (= iter max-iter)
-    (char->string (string-ref chars (- num-chars 1)))
+    (char/to-string (string/ref chars (- num-chars 1)))
     (let ((idx (floor (* (/ iter max-iter) (- num-chars 1)))))
-      (char->string (string-ref chars idx)))))
+      (char/to-string (string/ref chars idx)))))
 
 ;; Render a region of the Mandelbrot set
 (define (render-mandelbrot x-min x-max y-min y-max width height label max-iter)

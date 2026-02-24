@@ -56,5 +56,5 @@
 (for-each (fn (input)
   (println (format "  sha256(~a) = ~a..."
     (string/pad-right (format "\"~a\"" input) 15)
-    (substring (hash/sha256 input) 0 16))))
+    (string/slice (hash/sha256 input) 0 16))))
   (list "" "hello" "Hello" "Sema"))

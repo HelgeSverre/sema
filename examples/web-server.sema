@@ -7,7 +7,7 @@
 
 (define (handle-greet req)
   (let ((name (or (:name (:params req)) "world")))
-    (http/ok {:greeting (string-append "Hello, " name "!")})))
+    (http/ok {:greeting (string/append "Hello, " name "!")})))
 
 (define (handle-echo req)
   (http/ok

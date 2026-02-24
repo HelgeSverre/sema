@@ -85,11 +85,11 @@
   (let ((alive   (count-alive grid))
         (border  (string/repeat "─" COLS)))
     (println (format "Generation ~a  |  Live cells: ~a" gen alive))
-    (println (string-append "┌" border "┐"))
+    (println (string/append "┌" border "┐"))
     (for-each
-      (fn (row) (println (string-append "│" (render-row row) "│")))
+      (fn (row) (println (string/append "│" (render-row row) "│")))
       grid)
-    (println (string-append "└" border "┘"))
+    (println (string/append "└" border "┘"))
     (println "")))
 
 ;; --- Seed the grid with classic patterns ---

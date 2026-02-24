@@ -87,7 +87,7 @@
         (range grid-h)))))
 
 (file/write "mazes/grid-data.txt"
-  (string-append
+  (string/append
     (str grid-w) "\n"
     (str grid-h) "\n"
     (string/join passable-cells "\n")))

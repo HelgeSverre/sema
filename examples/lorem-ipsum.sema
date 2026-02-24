@@ -16,8 +16,8 @@
     (cons (pick-random lst) (pick-n (- n 1) lst))))
 
 (define (capitalize s)
-  (if (> (string-length s) 0)
-    (string-append (string/upper (substring s 0 1)) (substring s 1))
+  (if (> (string/length s) 0)
+    (string/append (string/upper (string/slice s 0 1)) (string/slice s 1))
     s))
 
 ;; ============================================================
@@ -115,12 +115,12 @@
 (define (generate-sentence)
   (let* ((word-count  (math/random-int 5 15))
          (words       (pick-n word-count lorem-words)))
-    (string-append (capitalize (string/join words " ")) ".")))
+    (string/append (capitalize (string/join words " ")) ".")))
 
 (define (generate-first-sentence)
   (let* ((extra-count  (math/random-int 3 10))
          (extra        (pick-n extra-count lorem-words)))
-    (string-append "Lorem ipsum dolor sit amet, "
+    (string/append "Lorem ipsum dolor sit amet, "
       (string/join extra " ")
       ".")))
 
@@ -228,7 +228,7 @@
     "Scott"))
 
 (define (generate-name)
-  (string-append (pick-random first-names) " " (pick-random last-names)))
+  (string/append (pick-random first-names) " " (pick-random last-names)))
 
 (println "========================================")
 (println "  2. RANDOM NAME GENERATOR")
@@ -280,12 +280,12 @@
 
 (define (maybe-bold text)
   (if (= (math/random-int 0 4) 0)
-    (string-append "**" text "**")
+    (string/append "**" text "**")
     text))
 
 (define (maybe-italic text)
   (if (= (math/random-int 0 5) 0)
-    (string-append "*" text "*")
+    (string/append "*" text "*")
     text))
 
 (define (styled-sentence)
@@ -296,11 +296,11 @@
              (fn (w)
                (let ((r (math/random-int 0 12)))
                  (cond
-                   ((= r 0)  (string-append "**" w "**"))
-                   ((= r 1)  (string-append "*" w "*"))
+                   ((= r 0)  (string/append "**" w "**"))
+                   ((= r 1)  (string/append "*" w "*"))
                    (else     w))))
              words)))
-    (string-append (capitalize (string/join styled " ")) ".")))
+    (string/append (capitalize (string/join styled " ")) ".")))
 
 (define (styled-paragraph)
   (let ((count (math/random-int 3 5)))
@@ -315,7 +315,7 @@
       (if (>= i count)
         (string/join (reverse acc) "\n")
         (loop (+ i 1)
-          (cons (string-append "- " (maybe-bold (pick-random bullet-items)))
+          (cons (string/append "- " (maybe-bold (pick-random bullet-items)))
             acc))))))
 
 (define (generate-numbered-list)
@@ -329,7 +329,7 @@
 
 (define (generate-code-block)
   (let ((snippet (pick-random code-snippets)))
-    (string-append "```\n" snippet "\n```")))
+    (string/append "```\n" snippet "\n```")))
 
 (define (generate-markdown-doc)
   (let* ((title             (pick-random section-topics))
@@ -340,14 +340,14 @@
          (numbered-section  (mod (+ bullet-section 2) num-sections)))
     (let loop ((i 0)
                (acc
-                 (list (string-append "# " title "\n")
+                 (list (string/append "# " title "\n")
                    (styled-paragraph)
                    "")))
       (if (>= i num-sections)
         (string/join (reverse acc) "\n")
         (let* ((topic (nth topics i))
                (section-parts
-                 (list (string-append "## " topic "\n")
+                 (list (string/append "## " topic "\n")
                    (styled-paragraph)
                    "")))
           (let* ((with-extra

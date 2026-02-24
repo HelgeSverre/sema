@@ -4,7 +4,7 @@
 (println "Upper:" (string/upper text))
 (println "Lower:" (string/lower text))
 (println "Words:" (string/split text " "))
-(println "Length:" (string-length text))
+(println "Length:" (string/length text))
 (println "Reversed:" (string/reverse text))
 (println "Contains 'Sema':" (string/contains? text "Sema"))
 

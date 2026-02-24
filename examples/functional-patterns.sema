@@ -43,10 +43,10 @@
   (define cache {})
   (fn (. args)
     (let ((key (str args)))
-      (if-let (cached (get cache (string->keyword key)))
+      (if-let (cached (get cache (string/to-keyword key)))
         cached
         (let ((result (apply f args)))
-          (set! cache (assoc cache (string->keyword key) result))
+          (set! cache (assoc cache (string/to-keyword key) result))
           result)))))
 
 (define fib-slow
@@ -182,7 +182,7 @@
 (test-case "addition"
   (assert (= (+ 1 2) 3) "1+2 should be 3"))
 (test-case "string ops"
-  (assert (= (string-length "hello") 5) "length should be 5"))
+  (assert (= (string/length "hello") 5) "length should be 5"))
 (test-case "list ops"
   (assert (= (length (list/unique '(1 1 2 2 3))) 3)
     "unique should have 3 elements"))

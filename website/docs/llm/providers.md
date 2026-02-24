@@ -115,7 +115,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
 ```sema
 (llm/define-provider :echo
   {:complete (fn (req)
-    (string-append "Echo: " (:content (last (:messages req)))))
+    (string/append "Echo: " (:content (last (:messages req)))))
    :default-model "echo-v1"})
 
 (llm/complete "hello")  ;; => "Echo: hello"
@@ -128,7 +128,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
   {:complete (fn (req)
     (define resp (json/decode
       (http/post "https://my-api.example.com/chat"
-        {:headers {"Authorization" (string-append "Bearer " (env "MY_API_KEY"))
+        {:headers {"Authorization" (string/append "Bearer " (env "MY_API_KEY"))
                    "Content-Type" "application/json"}
          :body (json/encode {:model (:model req)
                              :prompt (:content (last (:messages req)))})})))
@@ -172,7 +172,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
         ((string/starts-with? model "gpt")
          (begin (llm/set-default :openai)
                 (llm/complete (:content (last (:messages req))) {:model model})))
-        (else (error (string-append "Unknown model: " model))))))
+        (else (error (string/append "Unknown model: " model))))))
    :default-model "claude-sonnet-4-20250514"})
 ```
 

@@ -44,7 +44,7 @@
   (define text (text/clean-whitespace (pdf/extract-text path)))
   (define pages (pdf/page-count path))
   (log-detail
-    (format "Extracted ~a chars from ~a page(s)" (string-length text) pages))
+    (format "Extracted ~a chars from ~a page(s)" (string/length text) pages))
 
   ;; Use LLM structured extraction to classify the document
   (llm/extract
@@ -73,7 +73,7 @@
 
   ;; Build filename
   (define dest-filename
-    (if (> (string-length proposed) 0)
+    (if (> (string/length proposed) 0)
       proposed
       (format "~a - ~a.pdf" (string/replace invoice-date "-" ".") vendor)))
 
@@ -126,7 +126,7 @@
       (cons filename processed))
 
     ;; Receipt but doesn't match target
-    ((not (matches-whitelist? (string-append vendor " " recipient)))
+    ((not (matches-whitelist? (string/append vendor " " recipient)))
       (log-detail (format "RESULT: Receipt, but not for ~a" target-label))
       (glados
         (format

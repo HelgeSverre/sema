@@ -32,20 +32,20 @@ Alias for `display`. Print without a trailing newline.
 (print "also no newline")
 ```
 
-### `print-error`
+### `io/print-error`
 
 Print to stderr without a trailing newline.
 
 ```sema
-(print-error "warning: something happened")
+(io/print-error "warning: something happened")
 ```
 
-### `println-error`
+### `io/println-error`
 
 Print to stderr with a trailing newline.
 
 ```sema
-(println-error "error: file not found")
+(io/println-error "error: file not found")
 ```
 
 ### `newline`
@@ -56,20 +56,20 @@ Print a newline character.
 (newline)
 ```
 
-### `read-line`
+### `io/read-line`
 
 Read a line of input from stdin.
 
 ```sema
-(define name (read-line))
+(define name (io/read-line))
 ```
 
-### `read-stdin`
+### `io/read-stdin`
 
 Read all of stdin as a string (until EOF).
 
 ```sema
-(define input (read-stdin))
+(define input (io/read-stdin))
 ```
 
 ## File Operations

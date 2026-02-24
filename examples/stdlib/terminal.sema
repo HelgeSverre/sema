@@ -78,9 +78,9 @@
 ;; Conditional styling pattern
 (define (color-status code)
   (cond
-    ((< code 300) (term/green (number->string code)))
-    ((< code 400) (term/yellow (number->string code)))
-    (else         (term/red (number->string code)))))
+    ((< code 300) (term/green (number/to-string code)))
+    ((< code 400) (term/yellow (number/to-string code)))
+    (else         (term/red (number/to-string code)))))
 
 (assert-eq (term/strip (color-status 200)) "200" "color-status 200")
 (assert-eq (term/strip (color-status 301)) "301" "color-status 301")

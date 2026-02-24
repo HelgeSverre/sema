@@ -7,7 +7,7 @@
 
 ;; Tower state: 3 stacks stored as a map {:A (...) :B (...) :C (...)}
 (define (make-towers n)
-  (hash-map :A (range 1 (+ n 1)) :B (list) :C (list)))
+  (map/new :A (range 1 (+ n 1)) :B (list) :C (list)))
 
 ;; Move top disk from one peg to another
 (define (move-disk towers from to)
@@ -21,9 +21,9 @@
 ;; Render a single disk as ASCII art
 (define (render-disk disk width)
   (if (= disk 0)
-    (string-append (string/pad-left "|" width) (string/repeat " " (- width 1)))
+    (string/append (string/pad-left "|" width) (string/repeat " " (- width 1)))
     (let* ((arm          (string/repeat "█" disk))
-           (line         (string-append arm "|" arm))
+           (line         (string/append arm "|" arm))
            (pad-left     (string/pad-left line width))
            (total-width  (- (* 2 width) 1)))
       (string/pad-right pad-left total-width))))
@@ -72,8 +72,8 @@
         (format "--- Move ~a: Disk ~a from ~a → ~a ---"
           move-num
           disk
-          (keyword->string from)
-          (keyword->string to)))
+          (keyword/to-string from)
+          (keyword/to-string to)))
       (display-towers towers2)
       (solve (- n 1) aux to from towers2))))
 

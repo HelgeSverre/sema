@@ -99,12 +99,12 @@ Parse a string into a Sema value.
 (read "(+ 1 2)")   ; => (+ 1 2) as a list value
 ```
 
-### `read-many`
+### `io/read-many`
 
 Parse a string containing multiple forms.
 
 ```sema
-(read-many "(+ 1 2) (* 3 4)")   ; => ((+ 1 2) (* 3 4))
+(io/read-many "(+ 1 2) (* 3 4)")   ; => ((+ 1 2) (* 3 4))
 ```
 
 ### `type`
@@ -120,10 +120,10 @@ Return the type of a value as a string.
 ### Type Conversion Functions
 
 ```sema
-(string->symbol "foo")       ; => foo
-(keyword->string :bar)       ; => "bar"
-(string->keyword "name")     ; => :name
-(symbol->string 'foo)        ; => "foo"
+(string/to-symbol "foo")       ; => foo
+(keyword/to-string :bar)       ; => "bar"
+(string/to-keyword "name")     ; => :name
+(symbol/to-string 'foo)        ; => "foo"
 ```
 
 ## Modules

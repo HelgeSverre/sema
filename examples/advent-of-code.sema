@@ -48,8 +48,8 @@
 (define (score-round round)
   (let ((opp (first round))
         (you (nth round 1)))
-    (let ((key    (string->keyword (string-append opp you)))
-          (shape  (get shape-score (string->keyword you))))
+    (let ((key    (string/to-keyword (string/append opp you)))
+          (shape  (get shape-score (string/to-keyword you))))
       (+ shape (get outcome-map key)))))
 
 (define round-scores  (map score-round rounds))
@@ -70,7 +70,7 @@
 (define (pangram? text)
   (let ((lower     (string/lower text))
         (alphabet  "abcdefghijklmnopqrstuvwxyz"))
-    (every (fn (ch) (string/contains? lower (char->string ch)))
+    (every (fn (ch) (string/contains? lower (char/to-string ch)))
       (string/chars alphabet))))
 
 (define test-strings
@@ -84,7 +84,7 @@
   (fn (s)
     (println
       (format "  ~a → ~a"
-        (if (> (string-length s) 40) (string-append (substring s 0 37) "...") s)
+        (if (> (string/length s) 40) (string/append (string/slice s 0 37) "...") s)
         (if (pangram? s) "✓ pangram" "✗ not a pangram"))))
   test-strings)
 
@@ -122,7 +122,7 @@
     "grapes"))
 
 (define (word->number w)
-  (get number-words (string->keyword w)))
+  (get number-words (string/to-keyword w)))
 
 (define found-numbers
   (filter (fn (v) (not (nil? v)))

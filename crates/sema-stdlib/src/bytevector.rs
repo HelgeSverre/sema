@@ -184,4 +184,36 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         Ok(Value::bytevector(s.as_bytes().to_vec()))
     });
+
+    // module/function aliases for legacy Scheme names
+    if let Some(v) = env.get(sema_core::intern("make-bytevector")) {
+        env.set(sema_core::intern("bytevector/new"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("bytevector-length")) {
+        env.set(sema_core::intern("bytevector/length"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("bytevector-u8-ref")) {
+        env.set(sema_core::intern("bytevector/ref"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("bytevector-u8-set!")) {
+        env.set(sema_core::intern("bytevector/set!"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("bytevector-copy")) {
+        env.set(sema_core::intern("bytevector/copy"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("bytevector-append")) {
+        env.set(sema_core::intern("bytevector/append"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("bytevector->list")) {
+        env.set(sema_core::intern("bytevector/to-list"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("list->bytevector")) {
+        env.set(sema_core::intern("list/to-bytevector"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string->utf8")) {
+        env.set(sema_core::intern("string/to-utf8"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("utf8->string")) {
+        env.set(sema_core::intern("utf8/to-string"), v);
+    }
 }

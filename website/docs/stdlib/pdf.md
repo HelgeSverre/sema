@@ -83,7 +83,7 @@ Combine PDF extraction with [LLM structured extraction](../llm/extraction) to bu
 ;; Extract text from a PDF invoice
 (define text (text/clean-whitespace (pdf/extract-text "invoice.pdf")))
 (define pages (pdf/page-count "invoice.pdf"))
-(println (format "Extracted ~a chars from ~a page(s)" (string-length text) pages))
+(println (format "Extracted ~a chars from ~a page(s)" (string/length text) pages))
 
 ;; Use LLM to classify and extract structured data
 (llm/auto-configure)

@@ -22,7 +22,7 @@
   (fn () (= 0 (math/random-int 0 1))))
 
 (define (gen/char)
-  (fn () (char->string (integer->char (math/random-int 32 126)))))
+  (fn () (char/to-string (integer/to-char (math/random-int 32 126)))))
 
 (define (gen/string-of max-len)
   (fn ()
@@ -66,14 +66,14 @@
 
 ;; Shrink a string by removing characters
 (define (shrink-string s)
-  (if (= (string-length s) 0)
+  (if (= (string/length s) 0)
     '()
     (cons ""
       (map
         (fn (i)
-          (string-append (substring s 0 i)
-            (substring s (+ i 1) (string-length s))))
-        (range (string-length s))))))
+          (string/append (string/slice s 0 i)
+            (string/slice s (+ i 1) (string/length s))))
+        (range (string/length s))))))
 
 ;; Try shrinking a failing value to find a minimal counterexample
 (define (find-minimal prop val shrinker)
@@ -164,12 +164,12 @@
     nil
     nil))
 
-;; string-length after string-append
-(report "string-append-length"
+;; string/length after string/append
+(report "string/append-length"
   (check-property-2
     (fn (a b)
-      (= (+ (string-length a) (string-length b))
-        (string-length (string-append a b))))
+      (= (+ (string/length a) (string/length b))
+        (string/length (string/append a b))))
     (gen/string-of 20)
     (gen/string-of 20)
     nil

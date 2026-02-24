@@ -1,5 +1,5 @@
 ;; string-pipeline.sema — String operations benchmark
-;; Tests: string/split, string-append, string->number, format, string/join.
+;; Tests: string/split, string/append, string/to-number, format, string/join.
 ;;
 ;; Usage: sema examples/benchmarks/string-pipeline.sema
 
@@ -26,8 +26,8 @@
   (fn ()
     (let ((fields (string/split csv-line ";")))
       (let ((city  (car fields))
-            (v1    (string->number (cadr fields)))
-            (v2    (string->number (caddr fields))))
+            (v1    (string/to-number (cadr fields)))
+            (v2    (string/to-number (caddr fields))))
         (+ v1 v2))))
   50000)
 
@@ -35,12 +35,12 @@
 (println "")
 (println "Part 2: String concatenation")
 
-(bench "string-append (2 strings)"
-  (fn () (string-append "hello" " world"))
+(bench "string/append (2 strings)"
+  (fn () (string/append "hello" " world"))
   100000)
 
-(bench "string-append (5 strings)"
-  (fn () (string-append "a" "b" "c" "d" "e"))
+(bench "string/append (5 strings)"
+  (fn () (string/append "a" "b" "c" "d" "e"))
   100000)
 
 ;; Build a string by repeated concatenation
@@ -49,7 +49,7 @@
     (let loop ((i 0) (s ""))
       (if (= i 100)
         s
-        (loop (+ i 1) (string-append s "x")))))
+        (loop (+ i 1) (string/append s "x")))))
   5000)
 
 ;; --- Part 3: format ---
@@ -69,7 +69,7 @@
 (bench "string/join (9 words)" (fn () (string/join words " ")) 100000)
 
 ;; Larger join
-(define many-words (map number->string (range 100)))
+(define many-words (map number/to-string (range 100)))
 (bench "string/join (100 number strings)"
   (fn () (string/join many-words ","))
   50000)
@@ -91,7 +91,7 @@
       (fn (line)
         (let ((fields (string/split line ";")))
           (let ((city   (car fields))
-                (temps  (map string->number (cdr fields))))
+                (temps  (map string/to-number (cdr fields))))
             (let ((avg (/ (foldl + 0 temps) (length temps))))
               (format "~a: avg=~a" city avg)))))
       sample-lines))

@@ -109,6 +109,6 @@ These functions return an error when called in the playground:
 | ------------ | -------------------------------------------- |
 | `shell`      | No subprocess execution in browser           |
 | `exit`       | No process to exit                           |
-| `read-line`  | No stdin in browser                          |
-| `read-stdin` | No stdin in browser                          |
+| `io/read-line`  | No stdin in browser                          |
+| `io/read-stdin` | No stdin in browser                          |
 | `sleep`      | Cannot block the browser main thread (no-op) |

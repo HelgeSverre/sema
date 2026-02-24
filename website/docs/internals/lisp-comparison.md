@@ -135,7 +135,7 @@ Emacs Lisp at 6.5x loads the entire file into a buffer with `insert-file-content
 
 ## Results (Simple/Idiomatic)
 
-To measure raw language runtime speed — independent of implementation tricks — we also benchmarked "simple" versions of each implementation. These use the language's built-in number parser (`string->number`, `string-to-number`, `tonumber`, etc.), per-line I/O, and standard data structures. No custom integer parsers, no block reads, no `(safety 0)`, no SIMD.
+To measure raw language runtime speed — independent of implementation tricks — we also benchmarked "simple" versions of each implementation. These use the language's built-in number parser (`string/to-number`, `string-to-number`, `tonumber`, etc.), per-line I/O, and standard data structures. No custom integer parsers, no block reads, no `(safety 0)`, no SIMD.
 
 **10 million rows (1.2 GB), best of 3 runs, single-threaded, Docker (linux/amd64):**
 
@@ -173,7 +173,7 @@ Comparing simple vs optimized times shows where optimization effort pays off and
 | **Chez**     | 2,777     | 4,253  | **1.5x** | Custom char-by-char parser avoids `string->number`               |
 | **Fennel**   | 3,254     | 3,805  | **1.2x** | Already simple — LuaJIT's JIT optimizes it                       |
 | **Guile**    | 14,564    | 16,723 | **1.1x** | Custom int×10 parser, modest improvement                         |
-| **Sema**     | 46,291    | 50,123 | **1.1x** | `string->float` + hashmap vs `string->number` + sorted map       |
+| **Sema**     | 46,291    | 50,123 | **1.1x** | `string/to-float` + hashmap vs `string/to-number` + sorted map       |
 | **Gambit**   | 5,608     | 5,634  | ~same    | Already uses `string->number`                                    |
 | **Clojure**  | 5,576     | 5,634  | ~same    | Only transient→persistent map optimization                       |
 | **Janet**    | 13,426    | 14,178 | ~same    | Already simple                                                   |
@@ -188,7 +188,7 @@ Comparing simple vs optimized times shows where optimization effort pays off and
 - **Number parsing is the dominant optimization** — every dialect that benefits from optimization does so primarily by replacing the language's built-in number parser with a hand-rolled integer×10 parser. This avoids the overhead of handling the full numeric tower, scientific notation, and float precision.
 - **Fennel/LuaJIT is the fastest with zero optimization effort.** The simple and optimized versions are nearly identical — LuaJIT's tracing JIT does all the work. This makes Fennel the clear winner in "performance per line of code."
 - **Gauche's `string-ref` is O(k) on multibyte strings** — a hand-rolled char-by-char parser is actually _slower_ than `string->number` (C implementation) because Gauche stores strings in UTF-8, where `string-ref` must scan forward from the nearest index point.
-- **Sema's optimization gain is very small** (46.3s vs 50.1s = 1.1x), because `file/fold-lines` and COW mutation work in both versions. The difference is just `string->float` + hashmap vs `string->number` + sorted map. The VM provides the same ~2× speedup in both modes.
+- **Sema's optimization gain is very small** (46.3s vs 50.1s = 1.1x), because `file/fold-lines` and COW mutation work in both versions. The difference is just `string/to-float` + hashmap vs `string/to-number` + sorted map. The VM provides the same ~2× speedup in both modes.
 
 ## What This Benchmark Doesn't Show
 

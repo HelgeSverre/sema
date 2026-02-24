@@ -6,12 +6,12 @@
 (println "--- Traffic Light ---\n")
 
 (define traffic-fsm
-  (hash-map "red" (hash-map "next" "green" "dur" 5)
-            "green" (hash-map "next" "yellow" "dur" 4)
-            "yellow" (hash-map "next" "red" "dur" 1)))
+  (map/new "red" (map/new "next" "green" "dur" 5)
+            "green" (map/new "next" "yellow" "dur" 4)
+            "yellow" (map/new "next" "red" "dur" 1)))
 
 (define traffic-labels
-  (hash-map "red" "🔴 RED" "green" "🟢 GREEN" "yellow" "🟡 YELLOW"))
+  (map/new "red" "🔴 RED" "green" "🟢 GREEN" "yellow" "🟡 YELLOW"))
 
 (define (run-traffic state steps)
   (when (> steps 0)
@@ -25,9 +25,9 @@
 (println "\n--- Vending Machine ---\n")
 
 (define vending-fsm
-  (hash-map "idle" (hash-map "coin" "selecting" "msg" "Waiting...")
-            "selecting" (hash-map "select" "dispensing" "cancel" "idle" "msg" "Choose item!")
-            "dispensing" (hash-map "done" "idle" "msg" "Dispensing...")))
+  (map/new "idle" (map/new "coin" "selecting" "msg" "Waiting...")
+            "selecting" (map/new "select" "dispensing" "cancel" "idle" "msg" "Choose item!")
+            "dispensing" (map/new "done" "idle" "msg" "Dispensing...")))
 
 (define (vend-step state event)
   (let ((next (get (get vending-fsm state) event)))
@@ -48,9 +48,9 @@
 (println "\n--- Door ---\n")
 
 (define door-fsm
-  (hash-map "locked" (hash-map "unlock" "closed")
-            "closed" (hash-map "open" "open" "lock" "locked")
-            "open" (hash-map "close" "closed")))
+  (map/new "locked" (map/new "unlock" "closed")
+            "closed" (map/new "open" "open" "lock" "locked")
+            "open" (map/new "close" "closed")))
 
 (define (fsm-run fsm state events)
   (if (null? events) state

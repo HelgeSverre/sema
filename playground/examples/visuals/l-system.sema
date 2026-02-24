@@ -3,8 +3,8 @@
 (println "=== L-System String Rewriting ===\n")
 
 (define (apply-char rules ch)
-  (let ((r (get rules (string->keyword (char->string ch)))))
-    (if (nil? r) (char->string ch) r)))
+  (let ((r (get rules (string/to-keyword (char/to-string ch)))))
+    (if (nil? r) (char/to-string ch) r)))
 
 (define (apply-rules str rules)
   (string/join (map (fn (ch) (apply-char rules ch)) (string/chars str)) ""))
@@ -20,9 +20,9 @@
   (let ((gens (iterate-lsystem axiom rules n)))
     (for-each (fn (i)
       (let ((gen (nth gens i)))
-        (if (<= (string-length gen) 55)
+        (if (<= (string/length gen) 55)
           (println (format "  ~a: ~a" i gen))
-          (println (format "  ~a: [~a chars] ~a..." i (string-length gen) (substring gen 0 50))))))
+          (println (format "  ~a: [~a chars] ~a..." i (string/length gen) (string/slice gen 0 50))))))
       (range (+ n 1))))
   (println ""))
 
@@ -44,7 +44,7 @@
   (let ((gens (iterate-lsystem axiom rules n)))
     (println (format "~a:" name))
     (for-each (fn (i)
-      (let ((len (string-length (nth gens i))))
+      (let ((len (string/length (nth gens i))))
         (println (format "  Gen ~a: ~a chars ~a"
           (string/pad-left (str i) 2)
           (string/pad-left (str len) 6)

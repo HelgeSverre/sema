@@ -85,7 +85,7 @@
          (tx (fn (x) (+ margin (* (- x min-x) scale))))
          (ty (fn (y) (+ margin (* (- y min-y) scale)))))
 
-    (string-append (format "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+    (string/append (format "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
       (format
         "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"~a\" height=\"~a\" "
         svg-width

@@ -6,21 +6,21 @@
 (println "--- Traffic Light ---\n")
 
 (define traffic-fsm
-  (hash-map
-    "red" (hash-map "next" "green" "duration" 5)
-    "green" (hash-map "next" "yellow" "duration" 4)
-    "yellow" (hash-map "next" "red" "duration" 1)))
+  (map/new
+    "red" (map/new "next" "green" "duration" 5)
+    "green" (map/new "next" "yellow" "duration" 4)
+    "yellow" (map/new "next" "red" "duration" 1)))
 
 (define traffic-labels
-  (hash-map "red" "🔴 RED" "green" "🟢 GREEN" "yellow" "🟡 YELLOW"))
+  (map/new "red" "🔴 RED" "green" "🟢 GREEN" "yellow" "🟡 YELLOW"))
 
 (defun traffic-step (state)
-  (get-in traffic-fsm [state "next"]))
+  (map/get-in traffic-fsm [state "next"]))
 
 (defun run-traffic (state steps)
   (when (> steps 0)
     (let ((label     (get traffic-labels state))
-          (duration  (get-in traffic-fsm [state "duration"])))
+          (duration  (map/get-in traffic-fsm [state "duration"])))
       (println f"  ${label}  (duration: ${duration}s)")
       (run-traffic (traffic-step state) (- steps 1)))))
 
@@ -31,24 +31,24 @@
 (println "\n--- Vending Machine ---\n")
 
 (define vending-fsm
-  (hash-map
+  (map/new
     "idle"
-      (hash-map
+      (map/new
         "coin" "selecting"
         "on-enter" "Waiting for coins...")
     "selecting"
-      (hash-map
+      (map/new
         "select" "dispensing"
         "cancel" "idle"
         "on-enter" "Choose your item!")
     "dispensing"
-      (hash-map
+      (map/new
         "done" "idle"
         "on-enter" "Dispensing your item...")))
 
 (defun vending-transition (state event)
-  (if-let (next (get-in vending-fsm [state event]))
-    (let ((enter-msg (get-in vending-fsm [next "on-enter"])))
+  (if-let (next (map/get-in vending-fsm [state event]))
+    (let ((enter-msg (map/get-in vending-fsm [next "on-enter"])))
       (println f"  ${state} --[${event}]--> ${next}: ${enter-msg}")
       next)
     (begin
@@ -62,7 +62,7 @@
       (run-vending next (cdr events)))))
 
 (println "Scenario 1: Buy an item")
-(let ((enter-msg (get-in vending-fsm ["idle" "on-enter"])))
+(let ((enter-msg (map/get-in vending-fsm ["idle" "on-enter"])))
   (println f"  [start] idle: ${enter-msg}"))
 (run-vending "idle" '("coin" "select" "done"))
 
@@ -78,19 +78,19 @@
 (println "\n--- Generic FSM: Door ---\n")
 
 (define door-fsm
-  (hash-map
-    "locked" (hash-map "unlock" "closed")
+  (map/new
+    "locked" (map/new "unlock" "closed")
     "closed"
-      (hash-map
+      (map/new
         "open" "open"
         "lock" "locked")
-    "open" (hash-map "close" "closed")))
+    "open" (map/new "close" "closed")))
 
 (defun fsm-run (fsm state events)
   (if (null? events)
     state
     (let* ((event  (car events))
-           (next   (get-in fsm [state event])))
+           (next   (map/get-in fsm [state event])))
       (if-let (next next)
         (begin
           (println f"  ${state} --[${event}]--> ${next}")

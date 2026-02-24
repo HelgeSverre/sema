@@ -1,10 +1,10 @@
 ;; hashmap-demo.sema — HashMap vs Map comparison and phone book application
-;; Demonstrates: hash-map, hashmap/*, map/*, merge, assoc, dissoc
+;; Demonstrates: map/new, hashmap/*, map/*, merge, assoc, dissoc
 
 (println "=== HashMap vs Map (Ordered vs Unordered) ===\n")
 
 ;; Ordered Map (BTreeMap) — keys are always sorted
-(define colors (hash-map :red "#FF0000" :green "#00FF00" :blue "#0000FF"))
+(define colors (map/new :red "#FF0000" :green "#00FF00" :blue "#0000FF"))
 (println (format "Ordered map: ~a" colors))
 (println (format "Keys (sorted): ~a" (keys colors)))
 (println (format "Get :red → ~a" (get colors :red)))
@@ -29,9 +29,9 @@
 (define freq
   (foldl
     (fn (acc w)
-      (let ((sym (string->keyword w)))
+      (let ((sym (string/to-keyword w)))
         (assoc acc sym (+ 1 (get acc sym 0)))))
-    (hash-map)
+    (map/new)
     words))
 
 (println (format "Word frequencies: ~a" freq))
@@ -48,7 +48,7 @@
 
 (println "\n=== Map Transformations ===\n")
 
-(define inventory (hash-map :widgets 100 :gadgets 50 :gizmos 75 :doohickeys 30))
+(define inventory (map/new :widgets 100 :gadgets 50 :gizmos 75 :doohickeys 30))
 (println (format "Inventory: ~a" inventory))
 
 ;; Double all values
@@ -69,8 +69,8 @@
 (println (format "From entries: ~a" from-entries))
 
 ;; Merge maps
-(define defaults   (hash-map :color "blue" :size "medium" :count 1))
-(define overrides  (hash-map :color "red" :count 5))
+(define defaults   (map/new :color "blue" :size "medium" :count 1))
+(define overrides  (map/new :color "red" :count 5))
 (define merged     (merge defaults overrides))
 (println (format "\nDefaults: ~a" defaults))
 (println (format "Overrides: ~a" overrides))
@@ -79,10 +79,10 @@
 (println "\n=== Phone Book Application ===\n")
 
 ;; CREATE
-(define phonebook (hash-map))
+(define phonebook (map/new))
 (define (pb-add pb name phone email)
   (assoc pb
-    (string->keyword name) (hash-map :phone phone :email email :name name)))
+    (string/to-keyword name) (map/new :phone phone :email email :name name)))
 
 (define pb (pb-add phonebook "alice" "555-0101" "alice@example.com"))
 (define pb (pb-add pb "bob" "555-0202" "bob@example.com"))
@@ -93,7 +93,7 @@
 
 ;; READ
 (define (pb-lookup pb name)
-  (get pb (string->keyword name)))
+  (get pb (string/to-keyword name)))
 
 (define alice (pb-lookup pb "alice"))
 (println

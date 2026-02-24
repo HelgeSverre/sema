@@ -1230,4 +1230,75 @@ pub fn register(env: &sema_core::Env) {
     if let Some(v) = env.get(sema_core::intern("string/lower")) {
         env.set(sema_core::intern("string-downcase"), v);
     }
+
+    // module/function aliases for legacy Scheme names
+    if let Some(v) = env.get(sema_core::intern("string-append")) {
+        env.set(sema_core::intern("string/append"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string-length")) {
+        env.set(sema_core::intern("string/length"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string-ref")) {
+        env.set(sema_core::intern("string/ref"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("substring")) {
+        env.set(sema_core::intern("string/slice"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string->symbol")) {
+        env.set(sema_core::intern("string/to-symbol"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("symbol->string")) {
+        env.set(sema_core::intern("symbol/to-string"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string->keyword")) {
+        env.set(sema_core::intern("string/to-keyword"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("keyword->string")) {
+        env.set(sema_core::intern("keyword/to-string"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("number->string")) {
+        env.set(sema_core::intern("number/to-string"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string->number")) {
+        env.set(sema_core::intern("string/to-number"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string->float")) {
+        env.set(sema_core::intern("string/to-float"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char->integer")) {
+        env.set(sema_core::intern("char/to-integer"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("integer->char")) {
+        env.set(sema_core::intern("integer/to-char"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char->string")) {
+        env.set(sema_core::intern("char/to-string"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string->char")) {
+        env.set(sema_core::intern("string/to-char"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("string->list")) {
+        env.set(sema_core::intern("string/to-list"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char-alphabetic?")) {
+        env.set(sema_core::intern("char/alphabetic?"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char-numeric?")) {
+        env.set(sema_core::intern("char/numeric?"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char-whitespace?")) {
+        env.set(sema_core::intern("char/whitespace?"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char-upper-case?")) {
+        env.set(sema_core::intern("char/upper-case?"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char-lower-case?")) {
+        env.set(sema_core::intern("char/lower-case?"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char-upcase")) {
+        env.set(sema_core::intern("char/upcase"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("char-downcase")) {
+        env.set(sema_core::intern("char/downcase"), v);
+    }
 }

@@ -5,13 +5,13 @@
 
 (define message "she sells sea shells by the sea shore")
 (println (format "Message: \"~a\"" message))
-(println (format "Length:  ~a characters\n" (string-length message)))
+(println (format "Length:  ~a characters\n" (string/length message)))
 
 ;; --- Character frequency analysis ---
 (define (char-frequencies s)
   (foldl
     (fn (acc ch)
-      (map/update acc (char->string ch) (fn (v) (if (nil? v) 1 (+ v 1)))))
+      (map/update acc (char/to-string ch) (fn (v) (if (nil? v) 1 (+ v 1)))))
     {}
     (string/chars s)))
 
@@ -59,8 +59,8 @@
 (define (generate-codes node prefix)
   (if (leaf? node)
     (list (list (nth node 1) prefix))
-    (append (generate-codes (nth node 1) (string-append prefix "0"))
-      (generate-codes (nth node 2) (string-append prefix "1")))))
+    (append (generate-codes (nth node 1) (string/append prefix "0"))
+      (generate-codes (nth node 2) (string/append prefix "1")))))
 
 (define codes (generate-codes tree ""))
 (define code-map
@@ -73,7 +73,7 @@
 
 (define sorted-codes
   (sort codes
-    (fn (a b) (- (string-length (nth a 1)) (string-length (nth b 1))))))
+    (fn (a b) (- (string/length (nth a 1)) (string/length (nth b 1))))))
 
 (for-each
   (fn (entry)
@@ -91,7 +91,7 @@
 ;; --- Encode message ---
 (define (encode msg code-map)
   (let ((chars (string/chars msg)))
-    (string/join (map (fn (ch) (get code-map (char->string ch))) chars)
+    (string/join (map (fn (ch) (get code-map (char/to-string ch))) chars)
       "")))
 
 (define encoded (encode message code-map))
@@ -99,10 +99,10 @@
 (println "\n=== Encoded ===\n")
 ;; Print in chunks of 60 for readability
 (define (print-chunks s n)
-  (if (<= (string-length s) 0)
+  (if (<= (string/length s) 0)
     nil
-    (let ((chunk      (substring s 0 (min n (string-length s))))
-          (remaining  (substring s (min n (string-length s)))))
+    (let ((chunk      (string/slice s 0 (min n (string/length s))))
+          (remaining  (string/slice s (min n (string/length s)))))
       (println (format "  ~a" chunk))
       (print-chunks remaining n))))
 
@@ -113,14 +113,14 @@
   (let loop ((bits (string/chars bits)) (node tree) (result ""))
     (if (null? bits)
       (if (leaf? node)
-        (string-append result (nth node 1))
+        (string/append result (nth node 1))
         result)
       (let ((next-node
-              (if (= (char->string (first bits)) "0")
+              (if (= (char/to-string (first bits)) "0")
                 (nth node 1)
                 (nth node 2))))
         (if (leaf? next-node)
-          (loop (rest bits) tree (string-append result (nth next-node 1)))
+          (loop (rest bits) tree (string/append result (nth next-node 1)))
           (loop (rest bits) next-node result))))))
 
 (define decoded (decode encoded tree))
@@ -131,8 +131,8 @@
 ;; --- Statistics ---
 (println "\n=== Compression Stats ===\n")
 
-(define original-bits  (* (string-length message) 8))
-(define encoded-bits   (string-length encoded))
+(define original-bits  (* (string/length message) 8))
+(define encoded-bits   (string/length encoded))
 (define unique-chars   (length (keys freqs)))
 
 (println (format "  Unique characters: ~a" unique-chars))

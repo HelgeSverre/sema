@@ -11,7 +11,7 @@
 
 (define provider (llm/auto-configure))
 (when (nil? provider)
-  (println-error
+  (io/println-error
     "Error: Set at least 2 API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY)")
   (exit 1))
 
@@ -28,7 +28,7 @@
 (define args (script-args))
 
 (when (null? args)
-  (println-error
+  (io/println-error
     "Usage: sema examples/llm/consensus.sema -- \"your question here\"")
   (exit 1))
 
@@ -58,22 +58,22 @@
     provider-configs))
 
 (when (< (length active-configs) 2)
-  (println-error
+  (io/println-error
     (format "Need at least 2 providers, found ~a: ~a"
       (length active-configs)
       (map (fn (c) (:label c)) active-configs)))
-  (println-error
+  (io/println-error
     "Set more API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, etc.)")
   (exit 1))
 
 ;; ── Ask each provider ──
 
-(println-error "")
-(println-error (term/style "  Consensus Query" :bold))
-(println-error (term/dim (format "  \"~a\"" question)))
-(println-error
+(io/println-error "")
+(io/println-error (term/style "  Consensus Query" :bold))
+(io/println-error (term/dim (format "  \"~a\"" question)))
+(io/println-error
   (term/dim (format "  Asking ~a providers..." (length active-configs))))
-(println-error "")
+(io/println-error "")
 
 (define system-prompt
   "You are a knowledgeable expert. Give a clear, thorough answer. Be specific and practical. If the question is about code, include examples.")
@@ -83,7 +83,7 @@
   (let ((label        (:label cfg))
         (provider-kw  (:provider cfg))
         (model        (:model cfg)))
-    (println-error (term/dim (format "  ⟳ Asking ~a (~a)..." label model)))
+    (io/println-error (term/dim (format "  ⟳ Asking ~a (~a)..." label model)))
     (let ((start (time-ms)))
       (try
         (begin
@@ -92,7 +92,7 @@
                    (llm/complete question
                      {:model model :max-tokens 1500 :system system-prompt}))
                  (elapsed (- (time-ms) start)))
-            (println-error
+            (io/println-error
               (format "  ~a ~a ~a"
                 (term/green "✔")
                 (term/style label :bold)
@@ -100,7 +100,7 @@
             {:label label :response response :error #f}))
         (catch e
           (let ((elapsed (- (time-ms) start)))
-            (println-error
+            (io/println-error
               (format "  ~a ~a ~a"
                 (term/red "✘")
                 label
@@ -113,23 +113,23 @@
 (define successful (filter (fn (r) (not (:error r))) results))
 
 (when (< (length successful) 2)
-  (println-error "")
-  (println-error
+  (io/println-error "")
+  (io/println-error
     (term/red
       "  Too many providers failed. Need at least 2 successful responses."))
   (exit 1))
 
 ;; ── Synthesize ──
 
-(println-error "")
-(println-error
+(io/println-error "")
+(io/println-error
   (term/dim (format "  ⟳ Synthesizing ~a responses..." (length successful))))
 
 ;; Switch back to the first configured provider for synthesis
 (llm/set-default (:provider (car active-configs)))
 
 (define synthesis-prompt
-  (string-append
+  (string/append
     "You received responses from multiple AI models to the same question.\n\n"
     "## Question\n\n"
     question
@@ -154,7 +154,7 @@
   (llm/complete synthesis-prompt
     {:max-tokens 3000 :temperature 0.3}))
 
-(println-error
+(io/println-error
   (format "  ~a ~a" (term/green "✔") (term/style "Synthesis complete" :bold)))
 
 ;; ── Output ──
@@ -164,8 +164,8 @@
 (println "")
 
 ;; Show which models contributed
-(println-error
+(io/println-error
   (term/dim
     (format "  Models consulted: ~a"
       (string/join (map (fn (r) (:label r)) successful) ", "))))
-(println-error "")
+(io/println-error "")

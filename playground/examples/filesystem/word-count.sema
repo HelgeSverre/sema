@@ -14,7 +14,7 @@ the quick fox was too quick for the lazy dog")
 ;; Split into words and count
 (define words
   (map string/lower
-    (filter (lambda (w) (> (string-length w) 0))
+    (filter (lambda (w) (> (string/length w) 0))
       (regex/split "\\s+" text))))
 
 (define counts

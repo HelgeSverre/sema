@@ -16,7 +16,7 @@
               (else                (scan (rest a)))))))
     (if (null? args)
       (mod (time-ms) 1000000)
-      (string->number (first args)))))
+      (string/to-number (first args)))))
 
 ;; --- Hash-based pseudo-random: maps integer grid coords to 0.0–1.0 ---
 (define (hash x y)

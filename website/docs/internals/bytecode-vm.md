@@ -129,7 +129,7 @@ CallFrame { closure: Rc<Closure>, pc: usize, base: usize, open_upvalues: Vec<Opt
 
 - **Two-level dispatch loop**: An outer loop caches frame-local state (code pointer, constants pointer, base offset) into local variables. The inner loop dispatches opcodes without re-fetching frame data. Frame state is only reloaded when control flow changes frames (`Call`, `TailCall`, `Return`, exceptions).
 - **NaN-boxed int fast paths**: `AddInt`/`SubInt`/`MulInt`/`LtInt`/`EqInt` operate directly on raw NaN-boxed bits — sign-extending the payload, performing the arithmetic, and re-boxing, without ever constructing a `Value`.
-- **16-entry direct-mapped global cache**: Global lookups are cached in a `[(spur, env_version, Value); 16]` array indexed by `spur & 0xF`. Cache hits skip the `Env` hash-map lookup entirely; cache lines are invalidated by env version mismatch.
+- **16-entry direct-mapped global cache**: Global lookups are cached in a `[(spur, env_version, Value); 16]` array indexed by `spur & 0xF`. Cache hits skip the `Env` map/new lookup entirely; cache lines are invalidated by env version mismatch.
 - **Raw pointer bytecode reads**: `read_u16!`, `read_i32!`, and `read_u32!` macros read operands via raw pointer arithmetic on the code buffer, avoiding bounds checks in release builds.
 - **Unsafe unchecked stack operations**: `pop_unchecked` skips length checks (the compiler guarantees stack correctness). `debug_assert!` guards catch violations in debug builds.
 - **Cold path factoring**: The `handle_err!` macro factors exception handling out of the hot instruction sequence, keeping the fast path compact for better instruction-cache behavior.

@@ -194,7 +194,7 @@ Test if a string is empty.
 Apply a character function to each character in a string, returning a new string.
 
 ```sema
-(string/map char-upcase "hello")   ; => "HELLO"
+(string/map char/upcase "hello")   ; => "HELLO"
 ```
 
 ### `string/reverse`
@@ -209,7 +209,7 @@ Reverse a string.
 
 ### `string/byte-length`
 
-Return the UTF-8 byte length of a string (as opposed to character count from `string-length`). Useful for understanding the actual memory footprint — emoji and CJK characters use more bytes than ASCII.
+Return the UTF-8 byte length of a string (as opposed to character count from `string/length`). Useful for understanding the actual memory footprint — emoji and CJK characters use more bytes than ASCII.
 
 ```sema
 (string/byte-length "hello")   ; => 5   (ASCII: 1 byte each)
@@ -218,10 +218,10 @@ Return the UTF-8 byte length of a string (as opposed to character count from `st
 (string/byte-length "😀")      ; => 4   (emoji: 4 bytes)
 ```
 
-Compare with `string-length` which counts characters:
+Compare with `string/length` which counts characters:
 
 ```sema
-(string-length "😀")           ; => 1   (one character)
+(string/length "😀")           ; => 1   (one character)
 (string/byte-length "😀")      ; => 4   (four bytes)
 ```
 
@@ -296,7 +296,7 @@ Normalize a string to a Unicode normalization form. Supported forms: `:nfc`, `:n
 (string/normalize "e\u0301" :nfc)    ; => "é"
 
 ;; NFD: decompose composed characters
-(string-length (string/normalize "é" :nfd))  ; => 2 (e + combining accent)
+(string/length (string/normalize "é" :nfd))  ; => 2 (e + combining accent)
 
 ;; NFKC/NFKD: compatibility decomposition (ligatures, etc.)
 (string/normalize "\uFB01" :nfkc)    ; => "fi" (ﬁ ligature → two letters)
@@ -331,43 +331,43 @@ Case-insensitive string equality comparison. Compares two strings after applying
 
 These functions use legacy Scheme/R7RS naming conventions. They work identically to their modern equivalents and are kept for compatibility. Prefer the `string/` namespaced variants in new code.
 
-### `string-append`
+### `string/append`
 
 Concatenate strings together.
 
 ```sema
-(string-append "hello" " " "world")   ; => "hello world"
-(string-append "a" "b" "c")           ; => "abc"
+(string/append "hello" " " "world")   ; => "hello world"
+(string/append "a" "b" "c")           ; => "abc"
 ```
 
-### `string-length`
+### `string/length`
 
 Return the number of characters in a string.
 
 ```sema
-(string-length "hello")   ; => 5
-(string-length "")        ; => 0
-(string-length "héllo")   ; => 5
-(string-length "日本語")   ; => 3
+(string/length "hello")   ; => 5
+(string/length "")        ; => 0
+(string/length "héllo")   ; => 5
+(string/length "日本語")   ; => 3
 ```
 
-### `string-ref`
+### `string/ref`
 
 Return the character at a given index.
 
 ```sema
-(string-ref "hello" 0)    ; => #\h
-(string-ref "hello" 4)    ; => #\o
+(string/ref "hello" 0)    ; => #\h
+(string/ref "hello" 4)    ; => #\o
 ```
 
-### `substring`
+### `string/slice`
 
 Extract a substring by start and end character index.
 
 ```sema
-(substring "hello" 1 3)   ; => "el"
-(substring "hello" 0 5)   ; => "hello"
-(substring "héllo" 1 2)   ; => "é"
+(string/slice "hello" 1 3)   ; => "el"
+(string/slice "hello" 0 5)   ; => "hello"
+(string/slice "héllo" 1 2)   ; => "é"
 ```
 
 ### `str`
@@ -400,90 +400,90 @@ Character literals are written with the `#\` prefix.
 #\tab              ; named character: tab
 ```
 
-### `char->integer`
+### `char/to-integer`
 
 Convert a character to its Unicode code point.
 
 ```sema
-(char->integer #\A)   ; => 65
-(char->integer #\a)   ; => 97
+(char/to-integer #\A)   ; => 65
+(char/to-integer #\a)   ; => 97
 ```
 
-### `integer->char`
+### `integer/to-char`
 
 Convert a Unicode code point to a character.
 
 ```sema
-(integer->char 65)    ; => #\A
-(integer->char 955)   ; => #\λ
+(integer/to-char 65)    ; => #\A
+(integer/to-char 955)   ; => #\λ
 ```
 
-### `char-alphabetic?`
+### `char/alphabetic?`
 
 Test if a character is alphabetic.
 
 ```sema
-(char-alphabetic? #\a)   ; => #t
-(char-alphabetic? #\5)   ; => #f
+(char/alphabetic? #\a)   ; => #t
+(char/alphabetic? #\5)   ; => #f
 ```
 
-### `char-numeric?`
+### `char/numeric?`
 
 Test if a character is numeric.
 
 ```sema
-(char-numeric? #\5)      ; => #t
-(char-numeric? #\a)      ; => #f
+(char/numeric? #\5)      ; => #t
+(char/numeric? #\a)      ; => #f
 ```
 
-### `char-whitespace?`
+### `char/whitespace?`
 
 Test if a character is whitespace.
 
 ```sema
-(char-whitespace? #\space)   ; => #t
-(char-whitespace? #\a)       ; => #f
+(char/whitespace? #\space)   ; => #t
+(char/whitespace? #\a)       ; => #f
 ```
 
-### `char-upper-case?`
+### `char/upper-case?`
 
 Test if a character is uppercase.
 
 ```sema
-(char-upper-case? #\A)   ; => #t
-(char-upper-case? #\a)   ; => #f
+(char/upper-case? #\A)   ; => #t
+(char/upper-case? #\a)   ; => #f
 ```
 
-### `char-upcase`
+### `char/upcase`
 
 Convert a character to uppercase.
 
 ```sema
-(char-upcase #\a)   ; => #\A
+(char/upcase #\a)   ; => #\A
 ```
 
-### `char-downcase`
+### `char/downcase`
 
 Convert a character to lowercase.
 
 ```sema
-(char-downcase #\Z)   ; => #\z
+(char/downcase #\Z)   ; => #\z
 ```
 
-### `char->string`
+### `char/to-string`
 
 Convert a character to a single-character string.
 
 ```sema
-(char->string #\a)   ; => "a"
+(char/to-string #\a)   ; => "a"
 ```
 
-### `string->char`
+### `string/to-char`
 
 Convert a single-character string to a character.
 
 ```sema
-(string->char "a")   ; => #\a
+(string/to-char "a")   ; => #\a
 ```
 
 ## Character Comparison (R7RS)
@@ -540,62 +540,62 @@ Case-insensitive character equality.
 
 ## Type Conversions
 
-### `string->number`
+### `string/to-number`
 
 Parse a string as a number.
 
 ```sema
-(string->number "42")     ; => 42
-(string->number "3.14")  ; => 3.14
+(string/to-number "42")     ; => 42
+(string/to-number "3.14")  ; => 3.14
 ```
 
-### `number->string`
+### `number/to-string`
 
 Convert a number to a string.
 
 ```sema
-(number->string 42)      ; => "42"
-(number->string 3.14)   ; => "3.14"
+(number/to-string 42)      ; => "42"
+(number/to-string 3.14)   ; => "3.14"
 ```
 
-### `string->symbol`
+### `string/to-symbol`
 
 Convert a string to a symbol.
 
 ```sema
-(string->symbol "foo")   ; => foo
+(string/to-symbol "foo")   ; => foo
 ```
 
-### `symbol->string`
+### `symbol/to-string`
 
 Convert a symbol to a string.
 
 ```sema
-(symbol->string 'foo)   ; => "foo"
+(symbol/to-string 'foo)   ; => "foo"
 ```
 
-### `string->keyword`
+### `string/to-keyword`
 
 Convert a string to a keyword.
 
 ```sema
-(string->keyword "name")   ; => :name
+(string/to-keyword "name")   ; => :name
 ```
 
-### `keyword->string`
+### `keyword/to-string`
 
 Convert a keyword to a string.
 
 ```sema
-(keyword->string :name)   ; => "name"
+(keyword/to-string :name)   ; => "name"
 ```
 
-### `string->list`
+### `string/to-list`
 
 Convert a string to a list of characters.
 
 ```sema
-(string->list "abc")   ; => (#\a #\b #\c)
+(string/to-list "abc")   ; => (#\a #\b #\c)
 ```
 
 ### `list->string`

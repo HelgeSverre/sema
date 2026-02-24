@@ -198,9 +198,9 @@ Note: `tail` is a **list**, not a vector.
 (define (describe-point p)
   (match p
     ([0 0] "origin")
-    ([x 0] (string-append "on x-axis at " (number->string x)))
-    ([0 y] (string-append "on y-axis at " (number->string y)))
-    ([x y] (string-append "point " (number->string x) ", " (number->string y)))))
+    ([x 0] (string/append "on x-axis at " (number/to-string x)))
+    ([0 y] (string/append "on y-axis at " (number/to-string y)))
+    ([x y] (string/append "point " (number/to-string x) ", " (number/to-string y)))))
 
 (describe-point [0 0])     ; => "origin"
 (describe-point '(5 0))    ; => "on x-axis at 5"

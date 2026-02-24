@@ -9,9 +9,9 @@
 (println "=== Map Functions ===")
 (println)
 
-;; hash-map
-(define m (hash-map :name "Alice" :age 30))
-(assert-eq (get m :name) "Alice" "hash-map / get")
+;; map/new
+(define m (map/new :name "Alice" :age 30))
+(assert-eq (get m :name) "Alice" "map/new / get")
 
 ;; get with default
 (assert-eq (get m :missing "default") "default" "get with default")
@@ -28,15 +28,15 @@
 (assert-eq (get m3 :name) "Alice" "dissoc preserves other keys")
 
 ;; keys
-(define k (keys (hash-map :a 1 :b 2)))
+(define k (keys (map/new :a 1 :b 2)))
 (assert-eq (length k) 2 "keys count")
 
 ;; vals
-(define v (vals (hash-map :x 10 :y 20)))
+(define v (vals (map/new :x 10 :y 20)))
 (assert-eq (length v) 2 "vals count")
 
 ;; merge
-(define merged (merge (hash-map :a 1 :b 2) (hash-map :b 3 :c 4)))
+(define merged (merge (map/new :a 1 :b 2) (map/new :b 3 :c 4)))
 (assert-eq (get merged :a) 1 "merge keeps first")
 (assert-eq (get merged :b) 3 "merge overwrites")
 (assert-eq (get merged :c) 4 "merge adds new")
@@ -51,38 +51,38 @@
 (assert-eq (count nil) 0 "count nil")
 
 ;; empty?
-(assert-eq (empty? (hash-map)) #t "empty? true")
+(assert-eq (empty? (map/new)) #t "empty? true")
 (assert-eq (empty? m) #f "empty? false")
 (assert-eq (empty? (list)) #t "empty? list")
 (assert-eq (empty? nil) #t "empty? nil")
 
 ;; map/entries
-(define entries (map/entries (hash-map :a 1 :b 2)))
+(define entries (map/entries (map/new :a 1 :b 2)))
 (assert-eq (length entries) 2 "map/entries count")
 (assert-eq (first (first entries)) :a "map/entries first key")
 
 ;; map/map-vals
-(define doubled (map/map-vals (fn (v) (* v 2)) (hash-map :x 1 :y 2 :z 3)))
+(define doubled (map/map-vals (fn (v) (* v 2)) (map/new :x 1 :y 2 :z 3)))
 (assert-eq (get doubled :x) 2 "map/map-vals x")
 (assert-eq (get doubled :y) 4 "map/map-vals y")
 (assert-eq (get doubled :z) 6 "map/map-vals z")
 
 ;; map/filter
-(define filtered (map/filter (fn (k v) (> v 1)) (hash-map :a 1 :b 2 :c 3)))
+(define filtered (map/filter (fn (k v) (> v 1)) (map/new :a 1 :b 2 :c 3)))
 (assert-eq (contains? filtered :a) #f "map/filter removes")
 (assert-eq (get filtered :b) 2 "map/filter keeps b")
 (assert-eq (get filtered :c) 3 "map/filter keeps c")
 
 ;; map/select-keys
-(define selected (map/select-keys (hash-map :a 1 :b 2 :c 3) (list :a :c)))
+(define selected (map/select-keys (map/new :a 1 :b 2 :c 3) (list :a :c)))
 (assert-eq (get selected :a) 1 "map/select-keys a")
 (assert-eq (get selected :c) 3 "map/select-keys c")
 (assert-eq (contains? selected :b) #f "map/select-keys excludes b")
 
 ;; map/map-keys
 (define upper-keys
-  (map/map-keys (fn (k) (string->keyword (string/upper (keyword->string k))))
-    (hash-map :a 1 :b 2)))
+  (map/map-keys (fn (k) (string/to-keyword (string/upper (keyword/to-string k))))
+    (map/new :a 1 :b 2)))
 (assert-eq (get upper-keys :A) 1 "map/map-keys A")
 (assert-eq (get upper-keys :B) 2 "map/map-keys B")
 
@@ -92,11 +92,11 @@
 (assert-eq (get from-e :y) 20 "map/from-entries y")
 
 ;; map/update
-(define updated (map/update (hash-map :count 5) :count (fn (v) (+ v 1))))
+(define updated (map/update (map/new :count 5) :count (fn (v) (+ v 1))))
 (assert-eq (get updated :count) 6 "map/update increment")
 
 ;; map/update on missing key (nil default)
-(define updated2 (map/update (hash-map :a 1) :b (fn (v) 42)))
+(define updated2 (map/update (map/new :a 1) :b (fn (v) 42)))
 (assert-eq (get updated2 :b) 42 "map/update missing key")
 
 (println)

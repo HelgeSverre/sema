@@ -63,12 +63,12 @@
       (reverse (range 8)))
     (println "")
     (let ((border (string/repeat "─" width)))
-      (println (string-append "┌" border "┐"))
+      (println (string/append "┌" border "┐"))
       (let loop ((row (make-initial-row width)) (gen 0))
-        (println (string-append "│" (render-row row) "│"))
+        (println (string/append "│" (render-row row) "│"))
         (if (< gen (- num-rows 1))
           (loop (next-row bits row) (+ gen 1))))
-      (println (string-append "└" border "┘")))))
+      (println (string/append "└" border "┘")))))
 
 ;; --- Rule 90: Sierpinski triangle (XOR pattern) ---
 (println "=== Rule 90 — Sierpinski Triangle ===\n")

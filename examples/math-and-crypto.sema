@@ -95,7 +95,7 @@
     (println
       (format "  sha256(~a) = ~a"
         (string/pad-right (format "\"~a\"" input) 15)
-        (substring (hash/sha256 input) 0 16))))
+        (string/slice (hash/sha256 input) 0 16))))
   hash-inputs)
 
 ;; Hash chain: H(H(H("seed")))
@@ -107,7 +107,7 @@
 
 (define chain-result (hash-chain "seed" 3))
 (println
-  (format "\n  3x hash chain of \"seed\": ~a..." (substring chain-result 0 16)))
+  (format "\n  3x hash chain of \"seed\": ~a..." (string/slice chain-result 0 16)))
 
 ;; --- Timing ---
 (define start    (time-ms))

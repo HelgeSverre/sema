@@ -60,7 +60,7 @@ The full `Token` enum:
 | `BytevectorStart`       | `#u8(`           | `#u8(1 2 3)`            |
 | `Dot`                   | `.`              | `(a . b)`               |
 
-Symbol characters include alphanumeric plus `+ - * / ! ? < > = _ & % ^ ~ .` — a superset of Scheme's identifier syntax that allows operators and predicates like `nil?` or `string->number` as plain symbols.
+Symbol characters include alphanumeric plus `+ - * / ! ? < > = _ & % ^ ~ .` — a superset of Scheme's identifier syntax that allows operators and predicates like `nil?` or `string/to-number` as plain symbols.
 
 Booleans accept both `#t`/`#f` (R7RS) and `true`/`false` (as symbol aliases resolved during tokenization).
 

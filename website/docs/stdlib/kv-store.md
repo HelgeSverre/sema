@@ -132,7 +132,7 @@ Data is safe even without calling `kv/close` (every write already flushes), but 
 
 ;; Use config values
 (def theme (kv/get "config" "theme"))
-(println (string-append "Using theme: " theme))
+(println (string/append "Using theme: " theme))
 ```
 
 On first run this creates `app-config.json` with defaults. On subsequent runs, existing values are preserved.
@@ -147,7 +147,7 @@ On first run this creates `app-config.json` with defaults. On subsequent runs, e
   (kv/set "stats" "run-count" (+ runs 1))
   (kv/set "stats" "last-run" (time/format (time/now) "%Y-%m-%d %H:%M:%S")))
 
-(println (string-append "Run #" (string (kv/get "stats" "run-count"))))
+(println (string/append "Run #" (string (kv/get "stats" "run-count"))))
 (kv/close "stats")
 ```
 

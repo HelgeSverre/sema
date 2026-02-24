@@ -14,12 +14,12 @@
 (assert-eq "\x48;\x65;\x6C;\x6C;\x6F;" "Hello" "hex-encoded Hello")
 
 ;; Null character
-(assert-eq (string-length "\0") 1 "\\0 is a single character")
-(assert-eq (char->integer (string-ref "\0" 0)) 0 "\\0 is codepoint 0")
+(assert-eq (string/length "\0") 1 "\\0 is a single character")
+(assert-eq (char/to-integer (string/ref "\0" 0)) 0 "\\0 is codepoint 0")
 
 ;; ESC character for ANSI terminal codes
 (define ESC "\x1B;")
-(assert-eq (char->integer (string-ref ESC 0)) 27 "ESC is codepoint 27")
+(assert-eq (char/to-integer (string/ref ESC 0)) 27 "ESC is codepoint 27")
 
 ;; Unicode characters via hex
 (assert-eq "\x3BB;" "λ" "\\x3BB; is lambda")
@@ -46,19 +46,19 @@
 
 ;; All escape types work together in one string
 (define mixed "\x48;\u0069\n\t\\\"")
-(assert-eq (string-ref mixed 0) #\H "first char is H from hex")
-(assert-eq (string-ref mixed 1) #\i "second char is i from \\u")
+(assert-eq (string/ref mixed 0) #\H "first char is H from hex")
+(assert-eq (string/ref mixed 1) #\i "second char is i from \\u")
 
 (println)
 (println "=== Real-World: ANSI Terminal Colors ===")
 (println)
 
-(define red    (string-append "\x1B;" "[31m"))
-(define green  (string-append "\x1B;" "[32m"))
-(define reset  (string-append "\x1B;" "[0m"))
+(define red    (string/append "\x1B;" "[31m"))
+(define green  (string/append "\x1B;" "[32m"))
+(define reset  (string/append "\x1B;" "[0m"))
 
-(display (string-append red "Red text" reset " "))
-(display (string-append green "Green text" reset "\n"))
+(display (string/append red "Red text" reset " "))
+(display (string/append green "Green text" reset "\n"))
 
 (println)
 (println "All string escape tests passed!")

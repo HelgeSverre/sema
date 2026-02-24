@@ -14,7 +14,7 @@
   (let ((total-chars
           (foldl
             (fn (acc msg)
-              (+ acc (string-length (get msg :content ""))))
+              (+ acc (string/length (get msg :content ""))))
             0
             messages)))
     (/ total-chars 4)))
@@ -52,7 +52,7 @@
                 :model model})))
       (cons
         {:role "user"
-         :content (string-append "[Conversation summary]: " summary)}
+         :content (string/append "[Conversation summary]: " summary)}
         recent-messages))))
 
 ;; ============================================================

@@ -22,7 +22,7 @@
     (string/repeat "─" 18)))
 
   (for-each (fn (cur)
-    (let* ((rate (get rates (string->keyword cur)))
+    (let* ((rate (get rates (string/to-keyword cur)))
            (inverse (if (and rate (> rate 0))
                       (/ (round (* (/ 1 rate) 10000)) 10000)
                       0))

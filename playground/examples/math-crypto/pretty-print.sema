@@ -3,7 +3,7 @@
 (define pp-indent 2)
 (define pp-width 60)
 
-(define (flat-length val) (string-length (str val)))
+(define (flat-length val) (string/length (str val)))
 (define (flat val) (str val))
 
 (define (pp val indent)
@@ -17,15 +17,15 @@
     ((list? val)
      (if (null? val) "()"
        (let ((flat-repr (flat val)))
-         (if (<= (+ indent (string-length flat-repr)) pp-width)
+         (if (<= (+ indent (string/length flat-repr)) pp-width)
            flat-repr (pp-list val indent)))))
     ((vector? val)
      (let ((flat-repr (flat val)))
-       (if (<= (+ indent (string-length flat-repr)) pp-width)
+       (if (<= (+ indent (string/length flat-repr)) pp-width)
          flat-repr (pp-vector val indent))))
     ((map? val)
      (let ((flat-repr (flat val)))
-       (if (<= (+ indent (string-length flat-repr)) pp-width)
+       (if (<= (+ indent (string/length flat-repr)) pp-width)
          flat-repr (pp-map val indent))))
     (else (flat val))))
 
@@ -44,9 +44,9 @@
          (pad (string/repeat " " child-indent)))
     (if (null? rest-items) (str "(" head ")")
       (let* ((first-arg (car rest-items)) (more (cdr rest-items))
-             (line1 (str "(" head " " (pp first-arg (+ indent (string-length (str head)) 2)))))
+             (line1 (str "(" head " " (pp first-arg (+ indent (string/length (str head)) 2)))))
         (if (null? more) (str line1 ")")
-          (string-append line1 "\n"
+          (string/append line1 "\n"
             (string/join (map (fn (item) (str pad (pp item child-indent))) more) "\n")
             ")"))))))
 
@@ -54,12 +54,12 @@
   (let* ((child-indent (+ indent pp-indent))
          (pad (string/repeat " " child-indent))
          (items (map (fn (item) (pp item child-indent)) lst)))
-    (string-append "(" (string/join items (str "\n" pad)) ")")))
+    (string/append "(" (string/join items (str "\n" pad)) ")")))
 
 (define (pp-vector vec indent)
   (let* ((ci (+ indent 1)) (pad (string/repeat " " ci))
          (items (map (fn (item) (pp item ci)) (vector->list vec))))
-    (string-append "[" (string/join items (str "\n" pad)) "]")))
+    (string/append "[" (string/join items (str "\n" pad)) "]")))
 
 (define (pp-map m indent)
   (let* ((ci (+ indent 1)) (pad (string/repeat " " ci))
@@ -67,7 +67,7 @@
            (str (pp (car entry) ci) " "
                 (pp (cadr entry) (+ ci (flat-length (car entry)) 1))))
            (map/entries m))))
-    (string-append "{" (string/join lines (str "\n" pad)) "}")))
+    (string/append "{" (string/join lines (str "\n" pad)) "}")))
 
 (define (pretty-print val) (println (pp val 0)))
 

@@ -165,7 +165,7 @@
 
 ;; frequencies
 (assert-eq (frequencies (list "a" "b" "a" "c" "b" "a"))
-  (hash-map "a" 3 "b" 2 "c" 1)
+  (map/new "a" 3 "b" 2 "c" 1)
   "frequencies")
 
 ;; list->vector

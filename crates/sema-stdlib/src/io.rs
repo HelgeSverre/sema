@@ -641,6 +641,23 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(&buf))
     });
 
+    // module/function aliases for legacy names
+    if let Some(v) = env.get(sema_core::intern("read-line")) {
+        env.set(sema_core::intern("io/read-line"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("read-many")) {
+        env.set(sema_core::intern("io/read-many"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("read-stdin")) {
+        env.set(sema_core::intern("io/read-stdin"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("print-error")) {
+        env.set(sema_core::intern("io/print-error"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("println-error")) {
+        env.set(sema_core::intern("io/println-error"), v);
+    }
+
     register_log_fn(env, "log/info", "INFO");
     register_log_fn(env, "log/warn", "WARN");
     register_log_fn(env, "log/error", "ERROR");

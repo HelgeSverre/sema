@@ -93,7 +93,7 @@ The `fold-lines` implementation moves (not clones) `acc` into the lambda env on 
 
 > **Status:** The mini-eval was deleted and replaced with a callback architecture. Stdlib now calls the real evaluator via `sema_core::call_callback`.
 
-**What the mini-eval was:** `sema-stdlib` previously contained its own minimal evaluator (`sema_eval_value`) that handled common forms via direct recursive calls, inlining builtins like `+`, `=`, `assoc`, `string/split`, and `string->number` to skip `Env` lookup and `NativeFn` dispatch entirely.
+**What the mini-eval was:** `sema-stdlib` previously contained its own minimal evaluator (`sema_eval_value`) that handled common forms via direct recursive calls, inlining builtins like `+`, `=`, `assoc`, `string/split`, and `string/to-number` to skip `Env` lookup and `NativeFn` dispatch entirely.
 
 **Why it was removed:**
 
@@ -216,7 +216,7 @@ if head_spur == sf.if_ {
 
 ## 7. Custom Number Parser _(removed)_
 
-> **Status:** This was part of the mini-eval's inlined `string->number` and was removed with it. The current `string->number` in `sema-stdlib/src/string.rs` uses Rust's standard `str::parse::<i64>()` with fallback to `str::parse::<f64>()`.
+> **Status:** This was part of the mini-eval's inlined `string/to-number` and was removed with it. The current `string/to-number` in `sema-stdlib/src/string.rs` uses Rust's standard `str::parse::<i64>()` with fallback to `str::parse::<f64>()`.
 
 **What it was:** A hand-rolled decimal parser that handled only `[-]digits[.digits]`, using a precomputed powers-of-10 lookup table for 1–4 fractional digits. It returned `None` for complex cases (scientific notation, infinity, NaN), falling back to the standard parser.
 
@@ -338,7 +338,7 @@ file/fold-lines
         │     ├── NativeFn inline dispatch (direct call, no callback indirection)
         │     ├── apply_lambda → fresh Env per call (no env reuse)
         │     ├── string/split → std str::split (no SIMD fast path)
-        │     ├── string->number → std parse::<i64> / parse::<f64>
+        │     ├── string/to-number → std parse::<i64> / parse::<f64>
         │     └── assoc → COW in-place mutation (Rc refcount == 1)
         ├── thread-local EvalContext (shared, not per-call)
         └── acc moved, not cloned → preserves refcount == 1

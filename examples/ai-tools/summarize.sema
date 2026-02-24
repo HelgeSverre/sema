@@ -7,7 +7,7 @@
 
 (define provider (llm/auto-configure))
 (when (nil? provider)
-  (println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (io/println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
   (exit 1))
 
 ;; Parse script args
@@ -30,14 +30,14 @@
   (cond
     ((not (null? file-args)) (define path (car file-args))
       (unless (file/exists? path)
-        (println-error (format "File not found: ~a" path))
+        (io/println-error (format "File not found: ~a" path))
         (exit 1))
-      (println-error (format "Summarizing ~a..." path))
+      (io/println-error (format "Summarizing ~a..." path))
       (file/read path))
-    ((not (sys/interactive?)) (println-error "Summarizing input...")
-      (read-stdin))
-    (else (println-error "Usage: sema summarize.sema -- <file>")
-      (println-error "       cat document.txt | sema summarize.sema")
+    ((not (sys/interactive?)) (io/println-error "Summarizing input...")
+      (io/read-stdin))
+    (else (io/println-error "Usage: sema summarize.sema -- <file>")
+      (io/println-error "       cat document.txt | sema summarize.sema")
       (exit 1))))
 
 (define system-msg
@@ -48,6 +48,6 @@
 (llm/stream
   (prompt
     (system system-msg)
-    (user (string-append "Summarize the following:\n\n" text)))
+    (user (string/append "Summarize the following:\n\n" text)))
   {:max-tokens 4096})
 (newline)

@@ -62,8 +62,8 @@
     (-> 5 (+ 3) (* 2))))
 
 (println
-  (format "  (-> \"hello\" string-length)    = ~a"
-    (-> "hello" string-length)))
+  (format "  (-> \"hello\" string/length)    = ~a"
+    (-> "hello" string/length)))
 
 (println
   (format "  (-> \"hello world\" (string/split \" \") length) = ~a"
@@ -114,7 +114,7 @@
   (->> (string/split text " ")
     (foldl
       (fn (acc w)
-        (map/update acc (string->keyword w) (fn (v) (if (nil? v) 1 (+ v 1)))))
+        (map/update acc (string/to-keyword w) (fn (v) (if (nil? v) 1 (+ v 1)))))
       {})
     (map/entries)))
 

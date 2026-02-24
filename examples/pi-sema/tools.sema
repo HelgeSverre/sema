@@ -27,7 +27,7 @@
             (if (> total 2000)
               (let* ((lines      (string/split numbered "\n"))
                      (truncated  (string/join (take lines 2000) "\n")))
-                (string-append truncated
+                (string/append truncated
                   (format "\n\n[truncated — showing first 2000 of ~a lines]"
                     total)))
               numbered))
@@ -48,7 +48,7 @@
       (let ((resolved (resolve-path workspace-root path)))
         (ensure-dir (dirname resolved))
         (file/write resolved content)
-        (format "Wrote ~a bytes to ~a" (string-length content) path))
+        (format "Wrote ~a bytes to ~a" (string/length content) path))
       (catch e
         (format "Error writing file ~a: ~a" path e)))))
 
@@ -62,7 +62,7 @@
     (let ((idx (string/index-of haystack needle pos)))
       (if (not idx)
         count
-        (loop (+ idx (string-length needle)) (+ count 1))))))
+        (loop (+ idx (string/length needle)) (+ count 1))))))
 
 (define (make-diff-preview old-content new-content old-str new-str)
   "Generate a simple diff preview showing context around the change."
@@ -71,7 +71,7 @@
          (new-lines (string/split new-str "\n"))
          ;; Find the line number where old-str starts
          (before
-           (substring old-content
+           (string/slice old-content
              0
              (let ((idx (string/index-of old-content old-str)))
                (if idx idx 0))))
@@ -148,7 +148,7 @@
         (let* ((result
                  (shell "sh"
                    "-c"
-                   (string-append "cd " workspace-root " && " command)))
+                   (string/append "cd " workspace-root " && " command)))
                (stdout (:stdout result))
                (stderr (:stderr result))
                (exit-code (:exit-code result))
@@ -172,7 +172,7 @@
                      (string/join output-parts "\n")))
                  (lines (string/split combined "\n")))
             (if (> (length lines) 500)
-              (string-append (string/join (take lines 500) "\n")
+              (string/append (string/join (take lines 500) "\n")
                 (format "\n\n[truncated — showing first 500 of ~a lines]"
                   (length lines)))
               combined)))

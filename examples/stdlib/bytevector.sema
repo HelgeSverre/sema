@@ -8,139 +8,139 @@
 (println "=== Bytevector Operations ===")
 (newline)
 
-;; --- make-bytevector ---
-(println "-- make-bytevector --")
-(define bv0 (make-bytevector 5))
-(assert-eq (bytevector-length bv0) 5 "make-bytevector size 5")
-(assert-eq (bytevector-u8-ref bv0 0) 0 "make-bytevector default fill is 0")
+;; --- bytevector/new ---
+(println "-- bytevector/new --")
+(define bv0 (bytevector/new 5))
+(assert-eq (bytevector/length bv0) 5 "bytevector/new size 5")
+(assert-eq (bytevector/ref bv0 0) 0 "bytevector/new default fill is 0")
 
-(define bv-filled (make-bytevector 3 42))
-(assert-eq (bytevector-u8-ref bv-filled 0)
+(define bv-filled (bytevector/new 3 42))
+(assert-eq (bytevector/ref bv-filled 0)
   42
-  "make-bytevector fill value 42 at 0")
-(assert-eq (bytevector-u8-ref bv-filled 2)
+  "bytevector/new fill value 42 at 0")
+(assert-eq (bytevector/ref bv-filled 2)
   42
-  "make-bytevector fill value 42 at 2")
+  "bytevector/new fill value 42 at 2")
 
 ;; --- bytevector ---
 (println "-- bytevector --")
 (define bv1 (bytevector 10 20 30 40 50))
-(assert-eq (bytevector-length bv1) 5 "bytevector literal length")
-(assert-eq (bytevector-u8-ref bv1 0) 10 "bytevector first byte")
-(assert-eq (bytevector-u8-ref bv1 4) 50 "bytevector last byte")
+(assert-eq (bytevector/length bv1) 5 "bytevector literal length")
+(assert-eq (bytevector/ref bv1 0) 10 "bytevector first byte")
+(assert-eq (bytevector/ref bv1 4) 50 "bytevector last byte")
 
 ;; Empty bytevector
 (define bv-empty (bytevector))
-(assert-eq (bytevector-length bv-empty) 0 "empty bytevector length 0")
+(assert-eq (bytevector/length bv-empty) 0 "empty bytevector length 0")
 
-;; --- bytevector-length ---
-(println "-- bytevector-length --")
-(assert-eq (bytevector-length (bytevector 1 2 3)) 3 "bytevector-length of 3")
-(assert-eq (bytevector-length (make-bytevector 10))
+;; --- bytevector/length ---
+(println "-- bytevector/length --")
+(assert-eq (bytevector/length (bytevector 1 2 3)) 3 "bytevector/length of 3")
+(assert-eq (bytevector/length (bytevector/new 10))
   10
-  "bytevector-length of 10")
+  "bytevector/length of 10")
 
-;; --- bytevector-u8-ref ---
-(println "-- bytevector-u8-ref --")
+;; --- bytevector/ref ---
+(println "-- bytevector/ref --")
 (define bv2 (bytevector 65 66 67))
-(assert-eq (bytevector-u8-ref bv2 0) 65 "bytevector-u8-ref index 0")
-(assert-eq (bytevector-u8-ref bv2 1) 66 "bytevector-u8-ref index 1")
-(assert-eq (bytevector-u8-ref bv2 2) 67 "bytevector-u8-ref index 2")
+(assert-eq (bytevector/ref bv2 0) 65 "bytevector/ref index 0")
+(assert-eq (bytevector/ref bv2 1) 66 "bytevector/ref index 1")
+(assert-eq (bytevector/ref bv2 2) 67 "bytevector/ref index 2")
 
 ;; --- bytevector-u8-set! ---
 (println "-- bytevector-u8-set! --")
 (define bv3           (bytevector 1 2 3))
 (define bv3-modified  (bytevector-u8-set! bv3 1 99))
-(assert-eq (bytevector-u8-ref bv3-modified 1)
+(assert-eq (bytevector/ref bv3-modified 1)
   99
   "bytevector-u8-set! modifies byte")
-(assert-eq (bytevector-u8-ref bv3-modified 0)
+(assert-eq (bytevector/ref bv3-modified 0)
   1
   "bytevector-u8-set! preserves other bytes")
-(assert-eq (bytevector-u8-ref bv3-modified 2)
+(assert-eq (bytevector/ref bv3-modified 2)
   3
   "bytevector-u8-set! preserves other bytes (2)")
 
-;; --- bytevector-copy ---
-(println "-- bytevector-copy --")
+;; --- bytevector/copy ---
+(println "-- bytevector/copy --")
 (define bv4 (bytevector 10 20 30 40 50))
 
 ;; Full copy
-(define bv4-copy (bytevector-copy bv4))
-(assert-eq (bytevector-length bv4-copy) 5 "bytevector-copy full length")
-(assert-eq (bytevector-u8-ref bv4-copy 0) 10 "bytevector-copy full first byte")
+(define bv4-copy (bytevector/copy bv4))
+(assert-eq (bytevector/length bv4-copy) 5 "bytevector/copy full length")
+(assert-eq (bytevector/ref bv4-copy 0) 10 "bytevector/copy full first byte")
 
 ;; Partial copy with start
-(define bv4-from2 (bytevector-copy bv4 2))
-(assert-eq (bytevector-length bv4-from2)
+(define bv4-from2 (bytevector/copy bv4 2))
+(assert-eq (bytevector/length bv4-from2)
   3
-  "bytevector-copy from index 2 length")
-(assert-eq (bytevector-u8-ref bv4-from2 0)
+  "bytevector/copy from index 2 length")
+(assert-eq (bytevector/ref bv4-from2 0)
   30
-  "bytevector-copy from index 2 first byte")
+  "bytevector/copy from index 2 first byte")
 
 ;; Partial copy with start and end
-(define bv4-slice (bytevector-copy bv4 1 3))
-(assert-eq (bytevector-length bv4-slice) 2 "bytevector-copy slice length")
-(assert-eq (bytevector-u8-ref bv4-slice 0)
+(define bv4-slice (bytevector/copy bv4 1 3))
+(assert-eq (bytevector/length bv4-slice) 2 "bytevector/copy slice length")
+(assert-eq (bytevector/ref bv4-slice 0)
   20
-  "bytevector-copy slice first byte")
-(assert-eq (bytevector-u8-ref bv4-slice 1)
+  "bytevector/copy slice first byte")
+(assert-eq (bytevector/ref bv4-slice 1)
   30
-  "bytevector-copy slice second byte")
+  "bytevector/copy slice second byte")
 
-;; --- bytevector-append ---
-(println "-- bytevector-append --")
+;; --- bytevector/append ---
+(println "-- bytevector/append --")
 (define bva       (bytevector 1 2))
 (define bvb       (bytevector 3 4))
 (define bvc       (bytevector 5))
-(define appended  (bytevector-append bva bvb bvc))
-(assert-eq (bytevector-length appended) 5 "bytevector-append total length")
-(assert-eq (bytevector-u8-ref appended 0) 1 "bytevector-append byte 0")
-(assert-eq (bytevector-u8-ref appended 2) 3 "bytevector-append byte 2")
-(assert-eq (bytevector-u8-ref appended 4) 5 "bytevector-append byte 4")
+(define appended  (bytevector/append bva bvb bvc))
+(assert-eq (bytevector/length appended) 5 "bytevector/append total length")
+(assert-eq (bytevector/ref appended 0) 1 "bytevector/append byte 0")
+(assert-eq (bytevector/ref appended 2) 3 "bytevector/append byte 2")
+(assert-eq (bytevector/ref appended 4) 5 "bytevector/append byte 4")
 
-;; --- bytevector->list ---
-(println "-- bytevector->list --")
-(define bv-to-list (bytevector->list (bytevector 10 20 30)))
-(assert-eq bv-to-list (list 10 20 30) "bytevector->list conversion")
+;; --- bytevector/to-list ---
+(println "-- bytevector/to-list --")
+(define bv-to-list (bytevector/to-list (bytevector 10 20 30)))
+(assert-eq bv-to-list (list 10 20 30) "bytevector/to-list conversion")
 
-;; --- list->bytevector ---
-(println "-- list->bytevector --")
-(define list-to-bv (list->bytevector (list 65 66 67)))
-(assert-eq (bytevector-length list-to-bv) 3 "list->bytevector length")
-(assert-eq (bytevector-u8-ref list-to-bv 0) 65 "list->bytevector first byte")
+;; --- list/to-bytevector ---
+(println "-- list/to-bytevector --")
+(define list-to-bv (list/to-bytevector (list 65 66 67)))
+(assert-eq (bytevector/length list-to-bv) 3 "list/to-bytevector length")
+(assert-eq (bytevector/ref list-to-bv 0) 65 "list/to-bytevector first byte")
 
 ;; Roundtrip
 (define bv-rt (bytevector 100 200 255 0))
-(assert-eq (bytevector->list (list->bytevector (bytevector->list bv-rt)))
-  (bytevector->list bv-rt)
+(assert-eq (bytevector/to-list (list/to-bytevector (bytevector/to-list bv-rt)))
+  (bytevector/to-list bv-rt)
   "list<->bytevector roundtrip")
 
-;; --- utf8->string ---
-(println "-- utf8->string --")
+;; --- utf8/to-string ---
+(println "-- utf8/to-string --")
 (define hello-bv (bytevector 72 101 108 108 111))
-(assert-eq (utf8->string hello-bv) "Hello" "utf8->string Hello")
+(assert-eq (utf8/to-string hello-bv) "Hello" "utf8/to-string Hello")
 
-;; --- string->utf8 ---
-(println "-- string->utf8 --")
-(define str-bv (string->utf8 "ABC"))
-(assert-eq (bytevector-length str-bv) 3 "string->utf8 length")
-(assert-eq (bytevector-u8-ref str-bv 0) 65 "string->utf8 byte A")
-(assert-eq (bytevector-u8-ref str-bv 1) 66 "string->utf8 byte B")
-(assert-eq (bytevector-u8-ref str-bv 2) 67 "string->utf8 byte C")
+;; --- string/to-utf8 ---
+(println "-- string/to-utf8 --")
+(define str-bv (string/to-utf8 "ABC"))
+(assert-eq (bytevector/length str-bv) 3 "string/to-utf8 length")
+(assert-eq (bytevector/ref str-bv 0) 65 "string/to-utf8 byte A")
+(assert-eq (bytevector/ref str-bv 1) 66 "string/to-utf8 byte B")
+(assert-eq (bytevector/ref str-bv 2) 67 "string/to-utf8 byte C")
 
 ;; Roundtrip string <-> bytevector
 (define original "Hello, World!")
-(assert-eq (utf8->string (string->utf8 original))
+(assert-eq (utf8/to-string (string/to-utf8 original))
   original
   "string<->utf8 roundtrip")
 
 ;; --- Literal syntax #u8(...) ---
 (println "-- #u8() literal syntax --")
 (define bv-lit #u8(1 2 3))
-(assert-eq (bytevector-length bv-lit) 3 "#u8() literal length")
-(assert-eq (bytevector-u8-ref bv-lit 0) 1 "#u8() literal first byte")
+(assert-eq (bytevector/length bv-lit) 3 "#u8() literal length")
+(assert-eq (bytevector/ref bv-lit 0) 1 "#u8() literal first byte")
 
 (println "")
 (println "=== All Bytevector tests passed! ===")

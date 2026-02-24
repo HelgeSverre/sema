@@ -9,16 +9,16 @@
 (define hex-digits "0123456789ABCDEF")
 
 (define (int->hex n)
-  (define (digit k) (substring hex-digits k (+ k 1)))
+  (define (digit k) (string/slice hex-digits k (+ k 1)))
   (define (go x acc)
     (if (< x 16)
-      (string-append (digit x) acc)
+      (string/append (digit x) acc)
       (go (math/quotient x 16)
-        (string-append (digit (mod x 16)) acc))))
+        (string/append (digit (mod x 16)) acc))))
   (if (= n 0) "0" (go n "")))
 
 (define (u+ cp)
-  (string-append "U+" (string/pad-left (int->hex cp) 4 "0")))
+  (string/append "U+" (string/pad-left (int->hex cp) 4 "0")))
 
 (define (cp->str cp)
   (string/from-codepoints (list cp)))
@@ -26,7 +26,7 @@
 (define (inspect label s)
   (println (format "\n── ~a ──" label))
   (println (format "  Glyph:      ~a" s))
-  (println (format "  Codepoints: ~a" (string-length s)))
+  (println (format "  Codepoints: ~a" (string/length s)))
   (println (format "  UTF-8 bytes: ~a" (string/byte-length s)))
   (let ((cps (string/codepoints s)))
     (for-each
@@ -79,8 +79,8 @@
 (define RI-A 127462)
 
 (define (flag-from-iso iso)
-  (let ((a (char->integer (string-ref iso 0)))
-        (b (char->integer (string-ref iso 1))))
+  (let ((a (char/to-integer (string/ref iso 0)))
+        (b (char/to-integer (string/ref iso 1))))
     (string/from-codepoints
       (list (+ RI-A (- a 65))
         (+ RI-A (- b 65))))))
@@ -146,7 +146,7 @@
         (format "    ~a  =  ~a  (~a codepoints, ~a bytes)"
           emoji
           recipe
-          (string-length emoji)
+          (string/length emoji)
           (string/byte-length emoji)))))
   families)
 
@@ -221,13 +221,13 @@
 
 (define family (string/from-codepoints (list 128104 8205 128105 8205 128103)))
 (println
-  (format "  Family:   ~a  (codepoints: ~a)" family (string-length family)))
+  (format "  Family:   ~a  (codepoints: ~a)" family (string/length family)))
 (define family-rev (string/reverse family))
 (println (format "  Reversed: ~a  (ZWJ bonds broken!)" family-rev))
 
 (define waving (string/from-codepoints (list wave 127997)))
 (println
-  (format "\n  Wave:     ~a  (codepoints: ~a)" waving (string-length waving)))
+  (format "\n  Wave:     ~a  (codepoints: ~a)" waving (string/length waving)))
 (define wave-rev (string/reverse waving))
 (println (format "  Reversed: ~a  (skin tone detached!)" wave-rev))
 
@@ -256,12 +256,12 @@
           (format "  ~a  ~a  ~a"
             (string/pad-right glyph 4)
             (string/pad-right
-              (string-append (string/repeat "█" bar-len)
+              (string/append (string/repeat "█" bar-len)
                 (string/repeat "░" (- 20 bar-len)))
               20)
             (format "~a bytes (~a codepoints) — ~a"
               bytes
-              (string-length glyph)
+              (string/length glyph)
               name))))))
   specimens)
 

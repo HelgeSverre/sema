@@ -754,4 +754,21 @@ pub fn register(env: &sema_core::Env) {
     if let Some(v) = env.get(sema_core::intern("get")) {
         env.set(sema_core::intern("hash-ref"), v);
     }
+
+    // module/function aliases for map-specific operations
+    if let Some(v) = env.get(sema_core::intern("hash-map")) {
+        env.set(sema_core::intern("map/new"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("deep-merge")) {
+        env.set(sema_core::intern("map/deep-merge"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("get-in")) {
+        env.set(sema_core::intern("map/get-in"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("assoc-in")) {
+        env.set(sema_core::intern("map/assoc-in"), v);
+    }
+    if let Some(v) = env.get(sema_core::intern("update-in")) {
+        env.set(sema_core::intern("map/update-in"), v);
+    }
 }

@@ -20,7 +20,7 @@
 (define (parse-command input)
   "Parse \"/command arg1 arg2\" into {:name \"command\" :args \"arg1 arg2\"}."
   (let* ((trimmed        (string/trim input))
-         (without-slash  (substring trimmed 1 (string-length trimmed)))
+         (without-slash  (string/slice trimmed 1 (string/length trimmed)))
          (parts          (string/split without-slash " "))
          (name           (car parts))
          (rest           (cdr parts))
@@ -60,63 +60,63 @@
 ;; ============================================================
 
 (define (cmd-help state)
-  (println-error "")
-  (println-error (term/style "  Commands:" :bold))
-  (println-error
+  (io/println-error "")
+  (io/println-error (term/style "  Commands:" :bold))
+  (io/println-error
     (format "    ~a  Show this help"
       (term/cyan (format "~a" "/help            "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Clear conversation history"
       (term/cyan (format "~a" "/clear           "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Show or switch model"
       (term/cyan (format "~a" "/model [name]    "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Compact conversation context"
       (term/cyan (format "~a" "/compact         "))))
-  (println-error "")
-  (println-error (term/style "  Plan Mode:" :bold))
-  (println-error
+  (io/println-error "")
+  (io/println-error (term/style "  Plan Mode:" :bold))
+  (io/println-error
     (format "    ~a  Investigate and create a plan"
       (term/cyan (format "~a" "/plan <goal>     "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Show current plan"
       (term/cyan (format "~a" "/plan show       "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Discard plan, return to normal"
       (term/cyan (format "~a" "/plan clear      "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Approve plan, start execution"
       (term/cyan (format "~a" "/approve         "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Execute next batch of steps"
       (term/cyan (format "~a" "/next            "))))
-  (println-error "")
-  (println-error (term/style "  Sessions:" :bold))
-  (println-error
+  (io/println-error "")
+  (io/println-error (term/style "  Sessions:" :bold))
+  (io/println-error
     (format "    ~a  List saved sessions"
       (term/cyan (format "~a" "/session list    "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Start new session"
       (term/cyan (format "~a" "/session new     "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Resume a session"
       (term/cyan (format "~a" "/session resume ID"))))
-  (println-error
+  (io/println-error
     (format "    ~a  Show token usage"
       (term/cyan (format "~a" "/usage           "))))
-  (println-error
+  (io/println-error
     (format "    ~a  Show current status"
       (term/cyan (format "~a" "/status          "))))
-  (println-error "")
-  (println-error (term/style "  Multi-Model:" :bold))
-  (println-error
+  (io/println-error "")
+  (io/println-error (term/style "  Multi-Model:" :bold))
+  (io/println-error
     (format "    ~a  Ask multiple LLMs and synthesize"
       (term/cyan (format "~a" "/consensus <question>"))))
-  (println-error
+  (io/println-error
     (format "    ~a  Exit pi-sema"
       (term/cyan (format "~a" "/quit            "))))
-  (println-error "")
+  (io/println-error "")
   state)
 
 ;; ============================================================
@@ -178,17 +178,17 @@
     (if (null? sessions)
       (show-info "No saved sessions.")
       (begin
-        (println-error "")
-        (println-error (term/style "  Saved Sessions:" :bold))
+        (io/println-error "")
+        (io/println-error (term/style "  Saved Sessions:" :bold))
         (for-each
           (lambda (s)
-            (println-error
+            (io/println-error
               (format "    ~a  ~a  ~a"
                 (term/cyan (truncate-str (get s :id "") 12))
                 (term/dim (get s :timestamp ""))
                 (term/dim (truncate-str (get s :preview "") 50)))))
           sessions)
-        (println-error ""))))
+        (io/println-error ""))))
   state)
 
 (define (cmd-session-new state)
@@ -230,23 +230,23 @@
   (let* ((messages    (get state :messages '()))
          (session     (get state :session {}))
          (est-tokens  (estimate-tokens messages)))
-    (println-error "")
-    (println-error (term/style "  Status:" :bold))
-    (println-error
+    (io/println-error "")
+    (io/println-error (term/style "  Status:" :bold))
+    (io/println-error
       (term/dim (format "  Model:          ~a" (get state :model ""))))
-    (println-error
+    (io/println-error
       (term/dim (format "  Mode:           ~a" (get state :mode :normal))))
     (when (not (= (get state :plan "") ""))
-      (println-error
+      (io/println-error
         (term/dim
           (format "  Plan:           ~a" (truncate-str (get state :plan "") 50)))))
-    (println-error
+    (io/println-error
       (term/dim (format "  Session ID:     ~a" (get session :id ""))))
-    (println-error (term/dim (format "  Messages:       ~a" (length messages))))
-    (println-error (term/dim (format "  Est. tokens:    ~a" est-tokens)))
-    (println-error
+    (io/println-error (term/dim (format "  Messages:       ~a" (length messages))))
+    (io/println-error (term/dim (format "  Est. tokens:    ~a" est-tokens)))
+    (io/println-error
       (term/dim (format "  Working dir:    ~a" (get state :cwd ""))))
-    (println-error ""))
+    (io/println-error ""))
   state)
 
 ;; ============================================================
@@ -261,11 +261,11 @@
         (if (= plan "")
           (show-info "No active plan.")
           (begin
-            (println-error "")
-            (println-error (term/style "  Active Plan:" :bold))
-            (println-error "")
+            (io/println-error "")
+            (io/println-error (term/style "  Active Plan:" :bold))
+            (io/println-error "")
             (println plan)
-            (println-error ""))))
+            (io/println-error ""))))
       state)
 
     ;; /plan clear — discard plan and return to normal mode
@@ -275,7 +275,7 @@
     ;; /plan <goal> — enter planning mode and generate a plan
     ((not (= args "")) (show-info (format "Entering planning mode: ~a" args))
       (show-info "Investigating codebase with read-only tools...")
-      (println-error "")
+      (io/println-error "")
       (try
         (let* ((result     (run-plan-turn state args))
                (plan-text  (get result :plan "")))
@@ -317,7 +317,7 @@
           "Starting execution — the agent will do 2-3 steps then pause.")
         (show-info
           "Type /next to continue, /plan show to review, /plan clear to abort.")
-        (println-error "")
+        (io/println-error "")
         (try
           (let* ((exec-state  (assoc state :mode :execute))
                  (result      (run-execute-turn exec-state))
@@ -356,7 +356,7 @@
         (show-error "No active plan. Use /plan <goal> to create one.")
         state)
       (else (show-info "Continuing execution...")
-        (println-error "")
+        (io/println-error "")
         (try
           (let* ((result    (run-execute-turn state))
                  (response  (get result :response ""))
@@ -406,32 +406,32 @@
   (let ((label        (:label cfg))
         (provider-kw  (:provider cfg))
         (model        (:model cfg)))
-    (println-error (term/dim (format "    ⟳ ~a (~a)..." label model)))
+    (io/println-error (term/dim (format "    ⟳ ~a (~a)..." label model)))
     (let ((start (time-ms)))
       (try
         (begin
           (llm/set-default provider-kw)
           (let* ((system-msg
-                   (string-append
+                   (string/append
                      "You are an expert software engineer. Give a clear, thorough answer. "
                      "Be specific and practical. Include code examples when relevant."
                      (if (= conversation-context "")
                        ""
-                       (string-append
+                       (string/append
                          "\n\nHere is the conversation context so far:\n\n"
                          conversation-context))))
                  (response
                    (llm/complete question
                      {:model model :max-tokens 1500 :system system-msg}))
                  (elapsed (- (time-ms) start)))
-            (println-error
+            (io/println-error
               (format "    ~a ~a ~a"
                 (term/green "✔")
                 (term/style label :bold)
                 (term/dim (format "(~as)" (/ elapsed 1000)))))
             {:label label :response response :error #f}))
         (catch e
-          (println-error
+          (io/println-error
             (format "    ~a ~a ~a"
               (term/red "✘")
               label
@@ -442,7 +442,7 @@
   "Synthesize multiple model responses into a unified answer."
   (llm/set-default default-provider)
   (let ((synthesis-prompt
-          (string-append
+          (string/append
             "You received responses from multiple AI models to the same question.\n\n"
             "## Question\n\n"
             question
@@ -478,12 +478,12 @@
             (length active)))
         (return state))
 
-      (println-error "")
-      (println-error (format "  ~a" (term/style "Consensus Query" :bold)))
-      (println-error (term/dim (format "  \"~a\"" (truncate-str args 80))))
-      (println-error
+      (io/println-error "")
+      (io/println-error (format "  ~a" (term/style "Consensus Query" :bold)))
+      (io/println-error (term/dim (format "  \"~a\"" (truncate-str args 80))))
+      (io/println-error
         (term/dim (format "  Asking ~a providers..." (length active))))
-      (println-error "")
+      (io/println-error "")
 
       ;; Build conversation context from recent messages
       (let* ((messages (get state :messages '()))
@@ -511,22 +511,22 @@
              (successful (filter (fn (r) (not (:error r))) results)))
 
         (when (< (length successful) 2)
-          (println-error "")
+          (io/println-error "")
           (show-error
             "Too many providers failed. Need at least 2 successful responses.")
           (llm/set-default original-provider)
           (return state))
 
         ;; Synthesize
-        (println-error "")
-        (println-error
+        (io/println-error "")
+        (io/println-error
           (term/dim
             (format "    ⟳ Synthesizing ~a responses..." (length successful))))
 
         (try
           (let ((synthesis
                   (consensus-synthesize args successful original-provider)))
-            (println-error
+            (io/println-error
               (format "    ~a ~a"
                 (term/green "✔")
                 (term/style "Synthesis complete" :bold)))
@@ -537,11 +537,11 @@
             ;; Display the result
             (show-response synthesis)
 
-            (println-error
+            (io/println-error
               (term/dim
                 (format "  Models consulted: ~a"
                   (string/join (map (fn (r) (:label r)) successful) ", "))))
-            (println-error "")
+            (io/println-error "")
 
             ;; Add to conversation history so the agent has context
             (let ((new-messages

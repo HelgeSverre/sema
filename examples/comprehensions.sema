@@ -97,7 +97,7 @@
 ;; for/map: build a lookup table
 (define squares-map
   (for/map ((n (range 1 11)))
-    (list (string->keyword (str n)) (* n n))))
+    (list (string/to-keyword (str n)) (* n n))))
 (println (format "\nSquares map: ~a" squares-map))
 
 ;; for/sum: sum of cubes

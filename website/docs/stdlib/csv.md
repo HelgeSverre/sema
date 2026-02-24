@@ -9,7 +9,7 @@ outline: [2, 3]
 Functions for parsing and encoding CSV (Comma-Separated Values) data. Sema uses the Rust [`csv`](https://docs.rs/csv) crate, which handles RFC 4180 edge cases like quoted fields, embedded commas, and newlines within fields.
 
 ::: tip Type mapping
-All CSV values are returned as **strings**. Use `string->number`, `string->symbol`, etc. to convert fields to the types you need.
+All CSV values are returned as **strings**. Use `string/to-number`, `string/to-symbol`, etc. to convert fields to the types you need.
 :::
 
 ### `csv/parse`
@@ -151,14 +151,14 @@ Decode a Base64 string to a bytevector. Unlike `base64/decode`, this does not re
 **Data URIs:**
 
 ```sema
-(string-append "data:image/png;base64," (base64/encode-bytes (file/read-bytes "icon.png")))
+(string/append "data:image/png;base64," (base64/encode-bytes (file/read-bytes "icon.png")))
 ```
 
 **API authentication (Basic Auth):**
 
 ```sema
 (define auth-header
-  (string-append "Basic " (base64/encode (string-append username ":" password))))
+  (string/append "Basic " (base64/encode (string/append username ":" password))))
 ```
 
 ## Hashing

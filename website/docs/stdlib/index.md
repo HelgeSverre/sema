@@ -13,8 +13,8 @@ Sema's stdlib follows consistent naming patterns:
 | Pattern           | Convention           | Example                                |
 | ----------------- | -------------------- | -------------------------------------- |
 | `module/function` | Slash-namespaced     | `string/trim`, `file/read`, `math/gcd` |
-| `legacy-name`     | Scheme compatibility | `string-append`, `string-length`       |
-| `type->type`      | Arrow conversions    | `string->symbol`, `list->vector`       |
+| `legacy-name`     | Scheme compat aliases | `string-append` → `string/append`      |
+| `type->type`      | Arrow conversions    | `string/to-symbol`, `list->vector`      |
 | `predicate?`      | Predicate suffix     | `null?`, `list?`, `even?`              |
 
 ## Quick Reference
@@ -44,7 +44,7 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                                                            | Description               |
 | ----------------------------------------------------------------------------------- | ------------------------- |
-| `string-append`, `string-length`, `string-ref`, `substring`                         | Core string ops           |
+| `string/append`, `string/length`, `string/ref`, `string/slice`                      | Core string ops           |
 | `str`, `format`                                                                     | Conversion & formatting   |
 | `string/split`, `string/join`, `string/trim`                                        | Split, join, trim         |
 | `string/upper`, `string/lower`, `string/capitalize`, `string/title-case`            | Case conversion           |
@@ -58,8 +58,8 @@ Sema's stdlib follows consistent naming patterns:
 | `string/replace-first`, `string/replace-last`                                       | Targeted replacement      |
 | `string/snake-case`, `string/kebab-case`, `string/camel-case`, `string/pascal-case` | Case conversion           |
 | `string/headline`, `string/words`                                                   | Headline & word splitting |
-| `char->integer`, `integer->char`, `char-alphabetic?`, ...                           | Character operations      |
-| `string->number`, `number->string`, `string->symbol`, ...                           | Type conversions          |
+| `char/to-integer`, `integer/to-char`, `char/alphabetic?`, ...                           | Character operations      |
+| `string/to-number`, `number/to-string`, `string/to-symbol`, ...                           | Type conversions          |
 
 ### [Lists](./lists)
 
@@ -98,7 +98,7 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                           | Description                  |
 | -------------------------------------------------- | ---------------------------- |
-| `hash-map`, `get`, `assoc`, `dissoc`, `merge`      | Core map ops                 |
+| `map/new`, `get`, `assoc`, `dissoc`, `merge`      | Core map ops                 |
 | `keys`, `vals`, `contains?`, `count`               | Inspection                   |
 | `map/entries`, `map/from-entries`                  | Entry conversion             |
 | `map/map-vals`, `map/map-keys`, `map/filter`       | Higher-order                 |
@@ -122,7 +122,7 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                                                                                      | Description                  |
 | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `display`, `println`, `pprint`, `print`, `print-error`, `println-error`, `newline`, `read-line`, `read-stdin` | Console I/O                  |
+| `display`, `println`, `pprint`, `print`, `io/print-error`, `io/println-error`, `newline`, `io/read-line`, `io/read-stdin` | Console I/O                  |
 | `file/read`, `file/write`, `file/append`                                                                      | File read/write              |
 | `file/read-bytes`, `file/write-bytes`                                                                         | Binary file I/O              |
 | `file/read-lines`, `file/write-lines`                                                                         | Line-based I/O               |
@@ -206,11 +206,11 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                                       | Description       |
 | -------------------------------------------------------------- | ----------------- |
-| `bytevector`, `make-bytevector`                                | Construction      |
-| `bytevector-length`, `bytevector-u8-ref`, `bytevector-u8-set!` | Access & mutation |
-| `bytevector-copy`, `bytevector-append`                         | Copy & append     |
-| `bytevector->list`, `list->bytevector`                         | List conversion   |
-| `utf8->string`, `string->utf8`                                 | String conversion |
+| `bytevector`, `bytevector/new`                                | Construction      |
+| `bytevector/length`, `bytevector/ref`, `bytevector/set!` | Access & mutation |
+| `bytevector/copy`, `bytevector/append`                         | Copy & append     |
+| `bytevector/to-list`, `list/to-bytevector`                         | List conversion   |
+| `utf8/to-string`, `string/to-utf8`                                 | String conversion |
 
 ### [Records](./records)
 

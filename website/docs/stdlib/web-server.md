@@ -383,7 +383,7 @@ Handle bidirectional WebSocket connections. Takes a handler function that receiv
 (define (handle-ws conn)
   (let ((msg ((:recv conn))))
     (when msg
-      ((:send conn) (string-append "echo: " msg))
+      ((:send conn) (string/append "echo: " msg))
       (handle-ws conn))))
 ```
 

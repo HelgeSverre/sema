@@ -48,11 +48,11 @@
 (define summary
   (conversation/map conv
     (fn (m)
-      (string-append "["
-        (keyword->string (message/role m))
+      (string/append "["
+        (keyword/to-string (message/role m))
         "] "
-        (if (> (string-length (message/content m)) 50)
-          (string-append (substring (message/content m) 0 50) "...")
+        (if (> (string/length (message/content m)) 50)
+          (string/append (string/slice (message/content m) 0 50) "...")
           (message/content m))))))
 (println "\n--- Summary ---")
 (for-each

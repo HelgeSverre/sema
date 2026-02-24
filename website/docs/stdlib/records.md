@@ -128,7 +128,7 @@ Both model "structured data", but they serve different purposes.
 
 - You need easy **serialization** (JSON, TOML, etc.)
 - You want to add/remove keys dynamically
-- You want generic operations like `get`, `assoc`, `merge`, `keys`, `get-in`, `update-in`
+- You want generic operations like `get`, `assoc`, `merge`, `keys`, `map/get-in`, `map/update-in`
 - You're interacting with external APIs
 
 ::: tip Common pattern
@@ -170,10 +170,10 @@ Records don't have a dedicated pattern form, but you can use binding patterns wi
 (define (describe v)
   (match v
     (p when (point? p)
-       (string-append "point("
-                      (number->string (point-x p))
+       (string/append "point("
+                      (number/to-string (point-x p))
                       ", "
-                      (number->string (point-y p))
+                      (number/to-string (point-y p))
                       ")"))
     (_ "not a point")))
 

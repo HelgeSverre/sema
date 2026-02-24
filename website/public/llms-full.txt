@@ -1080,7 +1080,7 @@ Byte arrays with `#u8(...)` literal syntax.
 #u8(1 2 3)
 #u8()
 (bytevector 1 2 3)
-(make-bytevector 4)
+(bytevector/new 4)
 ```
 
 ## Special Types
@@ -1150,24 +1150,24 @@ User-defined record types with constructors, predicates, and field accessors.
 
 ```scheme
 (str 42)                    ; => "42" (any value to string)
-(string->number "42")       ; => 42
-(number->string 42)         ; => "42"
-(string->symbol "foo")      ; => foo
-(symbol->string 'foo)       ; => "foo"
-(string->keyword "name")    ; => :name
-(keyword->string :name)     ; => "name"
-(char->integer #\A)         ; => 65
-(integer->char 65)          ; => #\A
-(char->string #\a)          ; => "a"
-(string->char "a")          ; => #\a
-(string->list "abc")        ; => (#\a #\b #\c)
+(string/to-number "42")       ; => 42
+(number/to-string 42)         ; => "42"
+(string/to-symbol "foo")      ; => foo
+(symbol/to-string 'foo)       ; => "foo"
+(string/to-keyword "name")    ; => :name
+(keyword/to-string :name)     ; => "name"
+(char/to-integer #\A)         ; => 65
+(integer/to-char 65)          ; => #\A
+(char/to-string #\a)          ; => "a"
+(string/to-char "a")          ; => #\a
+(string/to-list "abc")        ; => (#\a #\b #\c)
 (list->string '(#\h #\i))   ; => "hi"
 (vector->list [1 2 3])      ; => (1 2 3)
 (list->vector '(1 2 3))     ; => [1 2 3]
-(bytevector->list #u8(65))   ; => (65)
-(list->bytevector '(1 2 3))  ; => #u8(1 2 3)
-(utf8->string #u8(104 105))  ; => "hi"
-(string->utf8 "hi")          ; => #u8(104 105)
+(bytevector/to-list #u8(65))   ; => (65)
+(list/to-bytevector '(1 2 3))  ; => #u8(1 2 3)
+(utf8/to-string #u8(104 105))  ; => "hi"
+(string/to-utf8 "hi")          ; => #u8(104 105)
 (type 42)                    ; => "integer"
 ```
 
@@ -1524,12 +1524,12 @@ Parse a string into a Sema value.
 (read "(+ 1 2)")   ; => (+ 1 2) as a list value
 ```
 
-### `read-many`
+### `io/read-many`
 
 Parse a string containing multiple forms.
 
 ```scheme
-(read-many "(+ 1 2) (* 3 4)")   ; => ((+ 1 2) (* 3 4))
+(io/read-many "(+ 1 2) (* 3 4)")   ; => ((+ 1 2) (* 3 4))
 ```
 
 ### `type`
@@ -1545,10 +1545,10 @@ Return the type of a value as a string.
 ### Type Conversion Functions
 
 ```scheme
-(string->symbol "foo")       ; => foo
-(keyword->string :bar)       ; => "bar"
-(string->keyword "name")     ; => :name
-(symbol->string 'foo)        ; => "foo"
+(string/to-symbol "foo")       ; => foo
+(keyword/to-string :bar)       ; => "bar"
+(string/to-keyword "name")     ; => :name
+(symbol/to-string 'foo)        ; => "foo"
 ```
 
 ## Modules
@@ -2725,7 +2725,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
 ```scheme
 (llm/define-provider :echo
   {:complete (fn (req)
-    (string-append "Echo: " (:content (last (:messages req)))))
+    (string/append "Echo: " (:content (last (:messages req)))))
    :default-model "echo-v1"})
 
 (llm/complete "hello")  ;; => "Echo: hello"
@@ -2738,7 +2738,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
   {:complete (fn (req)
     (define resp (json/decode
       (http/post "https://my-api.example.com/chat"
-        {:headers {"Authorization" (string-append "Bearer " (env "MY_API_KEY"))
+        {:headers {"Authorization" (string/append "Bearer " (env "MY_API_KEY"))
                    "Content-Type" "application/json"}
          :body (json/encode {:model (:model req)
                              :prompt (:content (last (:messages req)))})})))
@@ -2782,7 +2782,7 @@ The `:tool-calls` list contains maps with `:id` (string), `:name` (string), and 
         ((string/starts-with? model "gpt")
          (begin (llm/set-default :openai)
                 (llm/complete (:content (last (:messages req))) {:model model})))
-        (else (error (string-append "Unknown model: " model))))))
+        (else (error (string/append "Unknown model: " model))))))
    :default-model "claude-sonnet-4-20250514"})
 ```
 
@@ -3021,8 +3021,8 @@ Sema's stdlib follows consistent naming patterns:
 | Pattern           | Convention           | Example                                |
 | ----------------- | -------------------- | -------------------------------------- |
 | `module/function` | Slash-namespaced     | `string/trim`, `file/read`, `math/gcd` |
-| `legacy-name`     | Scheme compatibility | `string-append`, `string-length`       |
-| `type->type`      | Arrow conversions    | `string->symbol`, `list->vector`       |
+| `legacy-name`     | Scheme compatibility | `string/append`, `string/length`       |
+| `type->type`      | Arrow conversions    | `string/to-symbol`, `list->vector`       |
 | `predicate?`      | Predicate suffix     | `null?`, `list?`, `even?`              |
 
 ## Quick Reference
@@ -3052,7 +3052,7 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                                                            | Description               |
 | ----------------------------------------------------------------------------------- | ------------------------- |
-| `string-append`, `string-length`, `string-ref`, `substring`                         | Core string ops           |
+| `string/append`, `string/length`, `string/ref`, `string/slice`                         | Core string ops           |
 | `str`, `format`                                                                     | Conversion & formatting   |
 | `string/split`, `string/join`, `string/trim`                                        | Split, join, trim         |
 | `string/upper`, `string/lower`, `string/capitalize`, `string/title-case`            | Case conversion           |
@@ -3066,8 +3066,8 @@ Sema's stdlib follows consistent naming patterns:
 | `string/replace-first`, `string/replace-last`                                       | Targeted replacement      |
 | `string/snake-case`, `string/kebab-case`, `string/camel-case`, `string/pascal-case` | Case conversion           |
 | `string/headline`, `string/words`                                                   | Headline & word splitting |
-| `char->integer`, `integer->char`, `char-alphabetic?`, ...                           | Character operations      |
-| `string->number`, `number->string`, `string->symbol`, ...                           | Type conversions          |
+| `char/to-integer`, `integer/to-char`, `char/alphabetic?`, ...                           | Character operations      |
+| `string/to-number`, `number/to-string`, `string/to-symbol`, ...                           | Type conversions          |
 
 ### [Lists](./lists)
 
@@ -3106,7 +3106,7 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                           | Description                  |
 | -------------------------------------------------- | ---------------------------- |
-| `hash-map`, `get`, `assoc`, `dissoc`, `merge`      | Core map ops                 |
+| `map/new`, `get`, `assoc`, `dissoc`, `merge`      | Core map ops                 |
 | `keys`, `vals`, `contains?`, `count`               | Inspection                   |
 | `map/entries`, `map/from-entries`                  | Entry conversion             |
 | `map/map-vals`, `map/map-keys`, `map/filter`       | Higher-order                 |
@@ -3130,7 +3130,7 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                                                                                      | Description                  |
 | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `display`, `println`, `pprint`, `print`, `print-error`, `println-error`, `newline`, `read-line`, `read-stdin` | Console I/O                  |
+| `display`, `println`, `pprint`, `print`, `io/print-error`, `io/println-error`, `newline`, `io/read-line`, `io/read-stdin` | Console I/O                  |
 | `file/read`, `file/write`, `file/append`                                                                      | File read/write              |
 | `file/read-bytes`, `file/write-bytes`                                                                         | Binary file I/O              |
 | `file/read-lines`, `file/write-lines`                                                                         | Line-based I/O               |
@@ -3201,11 +3201,11 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                                       | Description       |
 | -------------------------------------------------------------- | ----------------- |
-| `bytevector`, `make-bytevector`                                | Construction      |
-| `bytevector-length`, `bytevector-u8-ref`, `bytevector-u8-set!` | Access & mutation |
-| `bytevector-copy`, `bytevector-append`                         | Copy & append     |
-| `bytevector->list`, `list->bytevector`                         | List conversion   |
-| `utf8->string`, `string->utf8`                                 | String conversion |
+| `bytevector`, `bytevector/new`                                | Construction      |
+| `bytevector/length`, `bytevector/ref`, `bytevector/set!` | Access & mutation |
+| `bytevector/copy`, `bytevector/append`                         | Copy & append     |
+| `bytevector/to-list`, `list/to-bytevector`                         | List conversion   |
+| `utf8/to-string`, `string/to-utf8`                                 | String conversion |
 
 ### [Records](./records)
 
@@ -4075,7 +4075,7 @@ Test if a string is empty.
 Apply a character function to each character in a string, returning a new string.
 
 ```scheme
-(string/map char-upcase "hello")   ; => "HELLO"
+(string/map char/upcase "hello")   ; => "HELLO"
 ```
 
 ### `string/reverse`
@@ -4090,7 +4090,7 @@ Reverse a string.
 
 ### `string/byte-length`
 
-Return the UTF-8 byte length of a string (as opposed to character count from `string-length`). Useful for understanding the actual memory footprint — emoji and CJK characters use more bytes than ASCII.
+Return the UTF-8 byte length of a string (as opposed to character count from `string/length`). Useful for understanding the actual memory footprint — emoji and CJK characters use more bytes than ASCII.
 
 ```scheme
 (string/byte-length "hello")   ; => 5   (ASCII: 1 byte each)
@@ -4099,10 +4099,10 @@ Return the UTF-8 byte length of a string (as opposed to character count from `st
 (string/byte-length "😀")      ; => 4   (emoji: 4 bytes)
 ```
 
-Compare with `string-length` which counts characters:
+Compare with `string/length` which counts characters:
 
 ```scheme
-(string-length "😀")           ; => 1   (one character)
+(string/length "😀")           ; => 1   (one character)
 (string/byte-length "😀")      ; => 4   (four bytes)
 ```
 
@@ -4177,7 +4177,7 @@ Normalize a string to a Unicode normalization form. Supported forms: `:nfc`, `:n
 (string/normalize "e\u0301" :nfc)    ; => "é"
 
 ;; NFD: decompose composed characters
-(string-length (string/normalize "é" :nfd))  ; => 2 (e + combining accent)
+(string/length (string/normalize "é" :nfd))  ; => 2 (e + combining accent)
 
 ;; NFKC/NFKD: compatibility decomposition (ligatures, etc.)
 (string/normalize "\uFB01" :nfkc)    ; => "fi" (ﬁ ligature → two letters)
@@ -4212,43 +4212,43 @@ Case-insensitive string equality comparison. Compares two strings after applying
 
 These functions use legacy Scheme/R7RS naming conventions. They work identically to their modern equivalents and are kept for compatibility. Prefer the `string/` namespaced variants in new code.
 
-### `string-append`
+### `string/append`
 
 Concatenate strings together.
 
 ```scheme
-(string-append "hello" " " "world")   ; => "hello world"
-(string-append "a" "b" "c")           ; => "abc"
+(string/append "hello" " " "world")   ; => "hello world"
+(string/append "a" "b" "c")           ; => "abc"
 ```
 
-### `string-length`
+### `string/length`
 
 Return the number of characters in a string.
 
 ```scheme
-(string-length "hello")   ; => 5
-(string-length "")        ; => 0
-(string-length "héllo")   ; => 5
-(string-length "日本語")   ; => 3
+(string/length "hello")   ; => 5
+(string/length "")        ; => 0
+(string/length "héllo")   ; => 5
+(string/length "日本語")   ; => 3
 ```
 
-### `string-ref`
+### `string/ref`
 
 Return the character at a given index.
 
 ```scheme
-(string-ref "hello" 0)    ; => #\h
-(string-ref "hello" 4)    ; => #\o
+(string/ref "hello" 0)    ; => #\h
+(string/ref "hello" 4)    ; => #\o
 ```
 
-### `substring`
+### `string/slice`
 
 Extract a substring by start and end character index.
 
 ```scheme
-(substring "hello" 1 3)   ; => "el"
-(substring "hello" 0 5)   ; => "hello"
-(substring "héllo" 1 2)   ; => "é"
+(string/slice "hello" 1 3)   ; => "el"
+(string/slice "hello" 0 5)   ; => "hello"
+(string/slice "héllo" 1 2)   ; => "é"
 ```
 
 ### `str`
@@ -4281,90 +4281,90 @@ Character literals are written with the `#\` prefix.
 #\tab              ; named character: tab
 ```
 
-### `char->integer`
+### `char/to-integer`
 
 Convert a character to its Unicode code point.
 
 ```scheme
-(char->integer #\A)   ; => 65
-(char->integer #\a)   ; => 97
+(char/to-integer #\A)   ; => 65
+(char/to-integer #\a)   ; => 97
 ```
 
-### `integer->char`
+### `integer/to-char`
 
 Convert a Unicode code point to a character.
 
 ```scheme
-(integer->char 65)    ; => #\A
-(integer->char 955)   ; => #\λ
+(integer/to-char 65)    ; => #\A
+(integer/to-char 955)   ; => #\λ
 ```
 
-### `char-alphabetic?`
+### `char/alphabetic?`
 
 Test if a character is alphabetic.
 
 ```scheme
-(char-alphabetic? #\a)   ; => #t
-(char-alphabetic? #\5)   ; => #f
+(char/alphabetic? #\a)   ; => #t
+(char/alphabetic? #\5)   ; => #f
 ```
 
-### `char-numeric?`
+### `char/numeric?`
 
 Test if a character is numeric.
 
 ```scheme
-(char-numeric? #\5)      ; => #t
-(char-numeric? #\a)      ; => #f
+(char/numeric? #\5)      ; => #t
+(char/numeric? #\a)      ; => #f
 ```
 
-### `char-whitespace?`
+### `char/whitespace?`
 
 Test if a character is whitespace.
 
 ```scheme
-(char-whitespace? #\space)   ; => #t
-(char-whitespace? #\a)       ; => #f
+(char/whitespace? #\space)   ; => #t
+(char/whitespace? #\a)       ; => #f
 ```
 
-### `char-upper-case?`
+### `char/upper-case?`
 
 Test if a character is uppercase.
 
 ```scheme
-(char-upper-case? #\A)   ; => #t
-(char-upper-case? #\a)   ; => #f
+(char/upper-case? #\A)   ; => #t
+(char/upper-case? #\a)   ; => #f
 ```
 
-### `char-upcase`
+### `char/upcase`
 
 Convert a character to uppercase.
 
 ```scheme
-(char-upcase #\a)   ; => #\A
+(char/upcase #\a)   ; => #\A
 ```
 
-### `char-downcase`
+### `char/downcase`
 
 Convert a character to lowercase.
 
 ```scheme
-(char-downcase #\Z)   ; => #\z
+(char/downcase #\Z)   ; => #\z
 ```
 
-### `char->string`
+### `char/to-string`
 
 Convert a character to a single-character string.
 
 ```scheme
-(char->string #\a)   ; => "a"
+(char/to-string #\a)   ; => "a"
 ```
 
-### `string->char`
+### `string/to-char`
 
 Convert a single-character string to a character.
 
 ```scheme
-(string->char "a")   ; => #\a
+(string/to-char "a")   ; => #\a
 ```
 
 ## Character Comparison (R7RS)
@@ -4421,62 +4421,62 @@ Case-insensitive character equality.
 
 ## Type Conversions
 
-### `string->number`
+### `string/to-number`
 
 Parse a string as a number.
 
 ```scheme
-(string->number "42")     ; => 42
-(string->number "3.14")  ; => 3.14
+(string/to-number "42")     ; => 42
+(string/to-number "3.14")  ; => 3.14
 ```
 
-### `number->string`
+### `number/to-string`
 
 Convert a number to a string.
 
 ```scheme
-(number->string 42)      ; => "42"
-(number->string 3.14)   ; => "3.14"
+(number/to-string 42)      ; => "42"
+(number/to-string 3.14)   ; => "3.14"
 ```
 
-### `string->symbol`
+### `string/to-symbol`
 
 Convert a string to a symbol.
 
 ```scheme
-(string->symbol "foo")   ; => foo
+(string/to-symbol "foo")   ; => foo
 ```
 
-### `symbol->string`
+### `symbol/to-string`
 
 Convert a symbol to a string.
 
 ```scheme
-(symbol->string 'foo)   ; => "foo"
+(symbol/to-string 'foo)   ; => "foo"
 ```
 
-### `string->keyword`
+### `string/to-keyword`
 
 Convert a string to a keyword.
 
 ```scheme
-(string->keyword "name")   ; => :name
+(string/to-keyword "name")   ; => :name
 ```
 
-### `keyword->string`
+### `keyword/to-string`
 
 Convert a keyword to a string.
 
 ```scheme
-(keyword->string :name)   ; => "name"
+(keyword/to-string :name)   ; => "name"
 ```
 
-### `string->list`
+### `string/to-list`
 
 Convert a string to a list of characters.
 
 ```scheme
-(string->list "abc")   ; => (#\a #\b #\c)
+(string/to-list "abc")   ; => (#\a #\b #\c)
 ```
 
 ### `list->string`
@@ -5421,12 +5421,12 @@ Keywords are callable — when used as a function, they look up their value in a
 (:name {:name "Ada" :age 36})   ; => "Ada"
 ```
 
-### `hash-map`
+### `map/new`
 
 Create a map from key-value pairs.
 
 ```scheme
-(hash-map :a 1 :b 2)   ; => {:a 1 :b 2}
+(map/new :a 1 :b 2)   ; => {:a 1 :b 2}
 ```
 
 ### `get`
@@ -5531,7 +5531,7 @@ Apply a function to every key in a map.
 
 ```scheme
 (map/map-keys
-  (fn (k) (string->keyword (string/upper (keyword->string k))))
+  (fn (k) (string/to-keyword (string/upper (keyword/to-string k))))
   {:a 1})
 ; => {:A 1}
 ```
@@ -5999,20 +5999,20 @@ Alias for `display`. Print without a trailing newline.
 (print "also no newline")
 ```
 
-### `print-error`
+### `io/print-error`
 
 Print to stderr without a trailing newline.
 
 ```scheme
-(print-error "warning: something happened")
+(io/print-error "warning: something happened")
 ```
 
-### `println-error`
+### `io/println-error`
 
 Print to stderr with a trailing newline.
 
 ```scheme
-(println-error "error: file not found")
+(io/println-error "error: file not found")
 ```
 
 ### `newline`
@@ -6023,20 +6023,20 @@ Print a newline character.
 (newline)
 ```
 
-### `read-line`
+### `io/read-line`
 
 Read a line of input from stdin.
 
 ```scheme
-(define name (read-line))
+(define name (io/read-line))
 ```
 
-### `read-stdin`
+### `io/read-stdin`
 
 Read all of stdin as a string (until EOF).
 
 ```scheme
-(define input (read-stdin))
+(define input (io/read-stdin))
 ```
 
 ## File Operations
@@ -6379,7 +6379,7 @@ Combine PDF extraction with [LLM structured extraction](/docs/llm/extraction) to
 ;; Extract text from a PDF invoice
 (define text (text/clean-whitespace (pdf/extract-text "invoice.pdf")))
 (define pages (pdf/page-count "invoice.pdf"))
-(println (format "Extracted ~a chars from ~a page(s)" (string-length text) pages))
+(println (format "Extracted ~a chars from ~a page(s)" (string/length text) pages))
 
 ;; Use LLM to classify and extract structured data
 (llm/auto-configure)
@@ -6952,97 +6952,97 @@ Create a bytevector from byte values.
 (bytevector)             ; => #u8()
 ```
 
-### `make-bytevector`
+### `bytevector/new`
 
 Create a bytevector of a given length, optionally filled with a value.
 
 ```scheme
-(make-bytevector 4)       ; => #u8(0 0 0 0)
-(make-bytevector 3 255)   ; => #u8(255 255 255)
+(bytevector/new 4)       ; => #u8(0 0 0 0)
+(bytevector/new 3 255)   ; => #u8(255 255 255)
 ```
 
 ## Access & Mutation
 
-### `bytevector-length`
+### `bytevector/length`
 
 Return the length of a bytevector.
 
 ```scheme
-(bytevector-length #u8(1 2 3))   ; => 3
-(bytevector-length #u8())        ; => 0
+(bytevector/length #u8(1 2 3))   ; => 3
+(bytevector/length #u8())        ; => 0
 ```
 
-### `bytevector-u8-ref`
+### `bytevector/ref`
 
 Return the byte at a given index.
 
 ```scheme
-(bytevector-u8-ref #u8(10 20 30) 1)   ; => 20
-(bytevector-u8-ref #u8(10 20 30) 0)   ; => 10
+(bytevector/ref #u8(10 20 30) 1)   ; => 20
+(bytevector/ref #u8(10 20 30) 0)   ; => 10
 ```
 
-### `bytevector-u8-set!`
+### `bytevector/set!`
 
 Set the byte at a given index. Uses copy-on-write — the original bytevector is unchanged.
 
 ```scheme
-(bytevector-u8-set! #u8(1 2 3) 0 9)   ; => #u8(9 2 3)
+(bytevector/set! #u8(1 2 3) 0 9)   ; => #u8(9 2 3)
 ```
 
 ## Copy & Append
 
-### `bytevector-copy`
+### `bytevector/copy`
 
-Copy a slice of a bytevector. `(bytevector-copy bv start end)`.
+Copy a slice of a bytevector. `(bytevector/copy bv start end)`.
 
 ```scheme
-(bytevector-copy #u8(1 2 3 4 5) 1 3)   ; => #u8(2 3)
+(bytevector/copy #u8(1 2 3 4 5) 1 3)   ; => #u8(2 3)
 ```
 
-### `bytevector-append`
+### `bytevector/append`
 
 Concatenate bytevectors.
 
 ```scheme
-(bytevector-append #u8(1 2) #u8(3 4))   ; => #u8(1 2 3 4)
+(bytevector/append #u8(1 2) #u8(3 4))   ; => #u8(1 2 3 4)
 ```
 
 ## List Conversion
 
-### `bytevector->list`
+### `bytevector/to-list`
 
 Convert a bytevector to a list of integers.
 
 ```scheme
-(bytevector->list #u8(65 66))   ; => (65 66)
+(bytevector/to-list #u8(65 66))   ; => (65 66)
 ```
 
-### `list->bytevector`
+### `list/to-bytevector`
 
 Convert a list of integers to a bytevector.
 
 ```scheme
-(list->bytevector '(1 2 3))   ; => #u8(1 2 3)
+(list/to-bytevector '(1 2 3))   ; => #u8(1 2 3)
 ```
 
 ## String Conversion
 
-### `utf8->string`
+### `utf8/to-string`
 
 Decode a bytevector as a UTF-8 string.
 
 ```scheme
-(utf8->string #u8(104 105))       ; => "hi"
-(utf8->string #u8(72 101 108))    ; => "Hel"
+(utf8/to-string #u8(104 105))       ; => "hi"
+(utf8/to-string #u8(72 101 108))    ; => "Hel"
 ```
 
-### `string->utf8`
+### `string/to-utf8`
 
 Encode a string as a UTF-8 bytevector.
 
 ```scheme
-(string->utf8 "hi")     ; => #u8(104 105)
-(string->utf8 "Hello")  ; => #u8(72 101 108 108 111)
+(string/to-utf8 "hi")     ; => #u8(104 105)
+(string/to-utf8 "Hello")  ; => #u8(72 101 108 108 111)
 ```
 
 ---
@@ -7872,8 +7872,8 @@ These functions return an error when called in the playground:
 | ------------ | -------------------------------------------- |
 | `shell`      | No subprocess execution in browser           |
 | `exit`       | No process to exit                           |
-| `read-line`  | No stdin in browser                          |
-| `read-stdin` | No stdin in browser                          |
+| `io/read-line`  | No stdin in browser                          |
+| `io/read-stdin` | No stdin in browser                          |
 | `sleep`      | Cannot block the browser main thread (no-op) |
 
 ---
@@ -9616,7 +9616,7 @@ The full `Token` enum:
 | `BytevectorStart`       | `#u8(`           | `#u8(1 2 3)`            |
 | `Dot`                   | `.`              | `(a . b)`               |
 
-Symbol characters include alphanumeric plus `+ - * / ! ? < > = _ & % ^ ~ .` — a superset of Scheme's identifier syntax that allows operators and predicates like `nil?` or `string->number` as plain symbols.
+Symbol characters include alphanumeric plus `+ - * / ! ? < > = _ & % ^ ~ .` — a superset of Scheme's identifier syntax that allows operators and predicates like `nil?` or `string/to-number` as plain symbols.
 
 Booleans accept both `#t`/`#f` (R7RS) and `true`/`false` (as symbol aliases resolved during tokenization).
 
@@ -9892,7 +9892,7 @@ The `fold-lines` implementation moves (not clones) `acc` into the lambda env on 
 
 > **Status:** The mini-eval was deleted and replaced with a callback architecture. Stdlib now calls the real evaluator via `sema_core::call_callback`.
 
-**What the mini-eval was:** `sema-stdlib` previously contained its own minimal evaluator (`sema_eval_value`) that handled common forms via direct recursive calls, inlining builtins like `+`, `=`, `assoc`, `string/split`, and `string->number` to skip `Env` lookup and `NativeFn` dispatch entirely.
+**What the mini-eval was:** `sema-stdlib` previously contained its own minimal evaluator (`sema_eval_value`) that handled common forms via direct recursive calls, inlining builtins like `+`, `=`, `assoc`, `string/split`, and `string/to-number` to skip `Env` lookup and `NativeFn` dispatch entirely.
 
 **Why it was removed:**
 
@@ -10015,7 +10015,7 @@ if head_spur == sf.if_ {
 
 ## 7. Custom Number Parser _(removed)_
 
-> **Status:** This was part of the mini-eval's inlined `string->number` and was removed with it. The current `string->number` in `sema-stdlib/src/string.rs` uses Rust's standard `str::parse::<i64>()` with fallback to `str::parse::<f64>()`.
+> **Status:** This was part of the mini-eval's inlined `string/to-number` and was removed with it. The current `string/to-number` in `sema-stdlib/src/string.rs` uses Rust's standard `str::parse::<i64>()` with fallback to `str::parse::<f64>()`.
 
 **What it was:** A hand-rolled decimal parser that handled only `[-]digits[.digits]`, using a precomputed powers-of-10 lookup table for 1–4 fractional digits. It returned `None` for complex cases (scientific notation, infinity, NaN), falling back to the standard parser.
 
@@ -10065,7 +10065,7 @@ file/fold-lines
         │     ├── NativeFn inline dispatch (direct call, no callback indirection)
         │     ├── apply_lambda → fresh Env per call (no env reuse)
         │     ├── string/split → std str::split (no SIMD fast path)
-        │     ├── string->number → std parse::<i64> / parse::<f64>
+        │     ├── string/to-number → std parse::<i64> / parse::<f64>
         │     └── assoc → COW in-place mutation (Rc refcount == 1)
         ├── thread-local EvalContext (shared, not per-call)
         └── acc moved, not cloned → preserves refcount == 1
@@ -10211,7 +10211,7 @@ Emacs Lisp at 6.4x loads the entire file into a buffer with `insert-file-content
 
 ## Results (Simple/Idiomatic)
 
-To measure raw language runtime speed — independent of implementation tricks — we also benchmarked "simple" versions of each implementation. These use the language's built-in number parser (`string->number`, `string-to-number`, `tonumber`, etc.), per-line I/O, and standard data structures. No custom integer parsers, no block reads, no `(safety 0)`, no SIMD.
+To measure raw language runtime speed — independent of implementation tricks — we also benchmarked "simple" versions of each implementation. These use the language's built-in number parser (`string/to-number`, `string-to-number`, `tonumber`, etc.), per-line I/O, and standard data structures. No custom integer parsers, no block reads, no `(safety 0)`, no SIMD.
 
 **10 million rows (1.2 GB), best of 3 runs, single-threaded, Docker (linux/amd64):**
 
@@ -10248,7 +10248,7 @@ Comparing simple vs optimized times shows where optimization effort pays off and
 | **ECL**      | 14,974    | 22,961 | **1.5x** | Custom int×10 parser avoids `read-from-string` (full CL reader)  |
 | **Guile**    | 15,487    | 16,628 | **1.1x** | Custom int×10 parser, modest improvement                         |
 | **Fennel**   | 3,330     | 3,640  | **1.1x** | Already simple — LuaJIT's JIT optimizes it                       |
-| **Sema**     | 48,042    | 52,060 | **1.1x** | `string->float` + hashmap vs `string->number` + sorted map       |
+| **Sema**     | 48,042    | 52,060 | **1.1x** | `string/to-float` + hashmap vs `string/to-number` + sorted map       |
 | **Gambit**   | 5,553     | 5,714  | ~same    | Already uses `string->number`                                    |
 | **Clojure**  | 5,487     | 5,913  | ~same    | Only transient→persistent map optimization                       |
 | **Janet**    | 14,192    | 14,406 | ~same    | Already simple                                                   |
@@ -10263,7 +10263,7 @@ Comparing simple vs optimized times shows where optimization effort pays off and
 - **Number parsing is the dominant optimization** — every dialect that benefits from optimization does so primarily by replacing the language's built-in number parser with a hand-rolled integer×10 parser. This avoids the overhead of handling the full numeric tower, scientific notation, and float precision.
 - **Fennel/LuaJIT is the fastest with zero optimization effort.** The simple and optimized versions are nearly identical — LuaJIT's tracing JIT does all the work. This makes Fennel the clear winner in "performance per line of code."
 - **Gauche's `string-ref` is O(n)** — a hand-rolled char-by-char parser is actually _slower_ than `string->number` (C implementation) because Gauche uses a UTF-32 internal representation where `string-ref` must scan from the beginning.
-- **Sema's optimization gain is very small** (48.0s vs 52.1s = 1.1x), because `file/fold-lines` and COW mutation work in both versions. The difference is just `string->float` + hashmap vs `string->number` + sorted map.
+- **Sema's optimization gain is very small** (48.0s vs 52.1s = 1.1x), because `file/fold-lines` and COW mutation work in both versions. The difference is just `string/to-float` + hashmap vs `string/to-number` + sorted map.
 
 ## What This Benchmark Doesn't Show
 

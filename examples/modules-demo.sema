@@ -43,21 +43,21 @@
            \"-\")))
 
      (define (truncate s max-len)
-       (if (<= (string-length s) max-len)
+       (if (<= (string/length s) max-len)
          s
-         (string-append (substring s 0 (- max-len 3)) \"...\")))
+         (string/append (string/slice s 0 (- max-len 3)) \"...\")))
 
      (define (word-wrap s width)
        (let loop ((words (string/split s \" \")) (line \"\") (lines '()))
          (if (null? words)
-           (reverse (if (> (string-length line) 0) (cons line lines) lines))
+           (reverse (if (> (string/length line) 0) (cons line lines) lines))
            (let ((word (first words))
                  (rest-words (rest words)))
-             (if (= (string-length line) 0)
+             (if (= (string/length line) 0)
                (loop rest-words word lines)
-               (if (> (+ (string-length line) 1 (string-length word)) width)
+               (if (> (+ (string/length line) 1 (string/length word)) width)
                  (loop rest-words word (cons line lines))
-                 (loop rest-words (string-append line \" \" word) lines)))))))
+                 (loop rest-words (string/append line \" \" word) lines)))))))
 
      (define (repeat-str s n)
        (string/repeat s n)))")
@@ -119,7 +119,7 @@
 (println "\n=== Config DSL ===")
 
 (defmacro defconfig (name . pairs)
-  `(define ,name (hash-map ,@pairs)))
+  `(define ,name (map/new ,@pairs)))
 
 (defconfig db-config
   :host

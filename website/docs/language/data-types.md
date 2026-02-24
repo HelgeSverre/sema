@@ -177,7 +177,7 @@ Byte arrays with `#u8(...)` literal syntax.
 #u8(1 2 3)
 #u8()
 (bytevector 1 2 3)
-(make-bytevector 4)
+(bytevector/new 4)
 ```
 
 ## Special Types
@@ -248,23 +248,23 @@ User-defined record types with constructors, predicates, and field accessors.
 
 ```sema
 (str 42)                    ; => "42" (any value to string)
-(string->number "42")       ; => 42
-(number->string 42)         ; => "42"
-(string->symbol "foo")      ; => foo
-(symbol->string 'foo)       ; => "foo"
-(string->keyword "name")    ; => :name
-(keyword->string :name)     ; => "name"
-(char->integer #\A)         ; => 65
-(integer->char 65)          ; => #\A
-(char->string #\a)          ; => "a"
-(string->char "a")          ; => #\a
-(string->list "abc")        ; => (#\a #\b #\c)
+(string/to-number "42")       ; => 42
+(number/to-string 42)         ; => "42"
+(string/to-symbol "foo")      ; => foo
+(symbol/to-string 'foo)       ; => "foo"
+(string/to-keyword "name")    ; => :name
+(keyword/to-string :name)     ; => "name"
+(char/to-integer #\A)         ; => 65
+(integer/to-char 65)          ; => #\A
+(char/to-string #\a)          ; => "a"
+(string/to-char "a")          ; => #\a
+(string/to-list "abc")        ; => (#\a #\b #\c)
 (list->string '(#\h #\i))   ; => "hi"
 (vector->list [1 2 3])      ; => (1 2 3)
 (list->vector '(1 2 3))     ; => [1 2 3]
-(bytevector->list #u8(65))   ; => (65)
-(list->bytevector '(1 2 3))  ; => #u8(1 2 3)
-(utf8->string #u8(104 105))  ; => "hi"
-(string->utf8 "hi")          ; => #u8(104 105)
+(bytevector/to-list #u8(65))   ; => (65)
+(list/to-bytevector '(1 2 3))  ; => #u8(1 2 3)
+(utf8/to-string #u8(104 105))  ; => "hi"
+(string/to-utf8 "hi")          ; => #u8(104 105)
 (type 42)                    ; => "integer"
 ```

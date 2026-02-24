@@ -20,7 +20,7 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
 (println (format "Chunks (200 chars, no overlap): ~a chunks" (length chunks)))
 (for-each
   (lambda (c)
-    (println (format "  [~a chars] ~a" (string-length c) (text/truncate c 60))))
+    (println (format "  [~a chars] ~a" (string/length c) (text/truncate c 60))))
   chunks)
 
 ;; Chunk with overlap
@@ -116,7 +116,7 @@ Sema runs on all major platforms. The interpreter is implemented in Rust, provid
       (format "  chunk ~a/~a [~a chars] source=~a"
         (+ 1 (get meta :chunk-index))
         (get meta :total-chunks)
-        (string-length (document/text c))
+        (string/length (document/text c))
         (get meta :source))))
   doc-chunks)
 

@@ -163,8 +163,8 @@ Non-encodable types like functions and records throw errors:
 ```sema
 (define config (-> "config.toml" file/read toml/decode))
 
-(println "Server:" (get-in config [:server :host])
-         ":" (get-in config [:server :port]))
+(println "Server:" (map/get-in config [:server :host])
+         ":" (map/get-in config [:server :port]))
 ```
 
 ### Updating Config Values
@@ -174,8 +174,8 @@ Non-encodable types like functions and records throw errors:
 
 ;; Update the port and add a new setting
 (define updated (-> config
-                 (assoc-in [:server :port] 9090)
-                 (assoc-in [:server :debug] true)))
+                 (map/assoc-in [:server :port] 9090)
+                 (map/assoc-in [:server :debug] true)))
 
 (file/write "config.toml" (toml/encode updated))
 ```
@@ -193,7 +193,7 @@ origins = [\"https://example.com\"]
 ")
 
 (define config (toml/decode config-str))
-(define new-config (assoc-in config [:server :port] 8080))
+(define new-config (map/assoc-in config [:server :port] 8080))
 (toml/encode new-config)
 ```
 
@@ -214,6 +214,6 @@ Sema uses TOML for its own project configuration file (`sema.toml`). You can rea
 
 ```sema
 (define project (-> "sema.toml" file/read toml/decode))
-(println "Project:" (get-in project [:package :name]))
+(println "Project:" (map/get-in project [:package :name]))
 ```
 :::

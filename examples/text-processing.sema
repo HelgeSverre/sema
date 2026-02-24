@@ -19,7 +19,7 @@
   (foldl
     (fn (acc word)
       (map/update acc
-        (string->keyword word)
+        (string/to-keyword word)
         #(if (nil? %) 1 (+ % 1))))
     {}
     words))
@@ -32,7 +32,7 @@
 (println "\nTop 10 most frequent words:")
 (for-each
   (fn ([word count])
-    (let ((label  (string/pad-right (keyword->string word) 12))
+    (let ((label  (string/pad-right (keyword/to-string word) 12))
           (bar    (string/repeat "#" count)))
       (println f"  ${label}${bar}")))
   (take 10 sorted-freq))
@@ -40,7 +40,7 @@
 ;; --- Sentence extraction ---
 (define sentences
   (->> (regex/split "[.!?]+" sample-text)
-    (filter #(> (string-length (string/trim %)) 0))))
+    (filter #(> (string/length (string/trim %)) 0))))
 
 (println f"\n${(length sentences)} sentences found:")
 (for-each
@@ -64,9 +64,9 @@
     (->> (string/split title " ")
       (map
         (fn (word)
-          (if (> (string-length word) 0)
-            (string-append (string/upper (substring word 0 1))
-              (substring word 1))
+          (if (> (string/length word) 0)
+            (string/append (string/upper (string/slice word 0 1))
+              (string/slice word 1))
             word))))
     " "))
 (println f"\nTitle case: ${title-case}")
@@ -76,10 +76,10 @@
   (list->string
     (map
       (fn (ch)
-        (if (char-alphabetic? ch)
-          (let ((base (if (char-upper-case? ch) 65 97))
-                (code (char->integer ch)))
-            (integer->char (+ base (math/remainder (- (+ code shift) base) 26))))
+        (if (char/alphabetic? ch)
+          (let ((base (if (char/upper-case? ch) 65 97))
+                (code (char/to-integer ch)))
+            (integer/to-char (+ base (math/remainder (- (+ code shift) base) 26))))
           ch))
       (string/chars text))))
 

@@ -59,7 +59,7 @@
         (a     (abs tenths)))
     (let ((whole  (math/quotient a 10))
           (frac   (math/remainder a 10)))
-      (string-append sign (str whole) "." (str frac)))))
+      (string/append sign (str whole) "." (str frac)))))
 
 ;; --- Parse CLI arguments (after "--") ---
 (define (script-args)
@@ -72,7 +72,7 @@
 (define args (script-args))
 (define num-rows
   (if (>= (length args) 1)
-    (string->number (first args))
+    (string/to-number (first args))
     10000))
 (define output-file
   (if (>= (length args) 2)
@@ -101,7 +101,7 @@
           ;; Write this batch
           (begin
             (file/append output-file
-              (string-append (string/join (reverse lines) "\n") "\n"))
+              (string/append (string/join (reverse lines) "\n") "\n"))
             ;; Progress reporting every 100k rows
             (when
               (and (> end 0)
@@ -113,7 +113,7 @@
           ;; Generate one line
           (let ((station (nth stations (math/random-int 0 (- num-stations 1)))))
             (let ((line
-                    (string-append (get station :name)
+                    (string/append (get station :name)
                       ";"
                       (format-temp (generate-temp-tenths station)))))
               (build (+ j 1) (cons line lines)))))))))

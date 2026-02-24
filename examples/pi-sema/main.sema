@@ -25,7 +25,7 @@
           ((or (equal? arg "--model") (equal? arg "-m"))
             (if (null? rest)
               (begin
-                (println-error "Error: --model requires a value")
+                (io/println-error "Error: --model requires a value")
                 (exit 1))
               (begin
                 (set! result (assoc result :model (car rest)))
@@ -33,7 +33,7 @@
           ((or (equal? arg "--print") (equal? arg "-p"))
             (if (null? rest)
               (begin
-                (println-error "Error: --print requires a value")
+                (io/println-error "Error: --print requires a value")
                 (exit 1))
               (begin
                 (set! result (assoc result :prompt (car rest)))
@@ -68,7 +68,7 @@
 
     (define provider (llm/auto-configure))
     (when (nil? provider)
-      (println-error
+      (io/println-error
         "Error: No API key found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY.")
       (exit 1))
 
@@ -104,7 +104,7 @@
       (cond
         ;; EOF (nil or repeated empty on closed stdin)
         ((or (nil? input)
-           (and (= input "") (> eof-count 0))) (println-error "")
+           (and (= input "") (> eof-count 0))) (io/println-error "")
           (show-info "Goodbye!")
           (exit 0))
 
@@ -171,9 +171,9 @@
 
     (let loop ()
       (show-prompt (get current-state :mode :normal))
-      (handle-input (read-line))
+      (handle-input (io/read-line))
       (loop)))
 
   (catch e
-    (println-error (format "Fatal error: ~a" (get e :message (str e))))
+    (io/println-error (format "Fatal error: ~a" (get e :message (str e))))
     (exit 1)))

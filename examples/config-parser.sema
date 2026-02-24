@@ -17,7 +17,7 @@
     (map
       (fn (line)
         (let (([key val] (string/split (string/trim line) "=")))
-          (list (string->keyword (string/trim key))
+          (list (string/to-keyword (string/trim key))
             (parse-value (string/trim val))))))
     (foldl (fn (acc [key val]) (assoc acc key val)) {})))
 

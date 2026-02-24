@@ -6,7 +6,7 @@
 (define move-counter (list 0))
 
 (define (make-towers n)
-  (hash-map :A (range 1 (+ n 1)) :B (list) :C (list)))
+  (map/new :A (range 1 (+ n 1)) :B (list) :C (list)))
 
 (define (move-disk towers from to)
   (let* ((from-stack (get towers from))
@@ -18,9 +18,9 @@
 
 (define (render-disk disk width)
   (if (= disk 0)
-    (string-append (string/pad-left "|" width) (string/repeat " " (- width 1)))
+    (string/append (string/pad-left "|" width) (string/repeat " " (- width 1)))
     (let* ((arm (string/repeat "█" disk))
-           (line (string-append arm "|" arm))
+           (line (string/append arm "|" arm))
            (pad-left (string/pad-left line width))
            (total-width (- (* 2 width) 1)))
       (string/pad-right pad-left total-width))))
@@ -53,7 +53,7 @@
            (move-num (+ 1 (car move-counter))))
       (set! move-counter (list move-num))
       (println (format "--- Move ~a: Disk ~a from ~a → ~a ---"
-        move-num disk (keyword->string from) (keyword->string to)))
+        move-num disk (keyword/to-string from) (keyword/to-string to)))
       (display-towers towers2)
       (solve (- n 1) aux to from towers2))))
 

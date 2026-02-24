@@ -24,8 +24,8 @@
 
 (define (score-round round)
   (let ((opp (first round)) (you (nth round 1)))
-    (+ (get shape-score (string->keyword you))
-       (get outcome-map (string->keyword (string-append opp you))))))
+    (+ (get shape-score (string/to-keyword you))
+       (get outcome-map (string/to-keyword (string/append opp you))))))
 
 (define round-scores (map score-round rounds))
 (for-each (fn (i)
@@ -39,12 +39,12 @@
 
 (define (pangram? text)
   (let ((lower (string/lower text)))
-    (every (fn (ch) (string/contains? lower (char->string ch)))
+    (every (fn (ch) (string/contains? lower (char/to-string ch)))
            (string/chars "abcdefghijklmnopqrstuvwxyz"))))
 
 (for-each (fn (s)
   (println (format "  ~a → ~a"
-    (if (> (string-length s) 40) (string-append (substring s 0 37) "...") s)
+    (if (> (string/length s) 40) (string/append (string/slice s 0 37) "...") s)
     (if (pangram? s) "✓ pangram" "✗ not"))))
   (list "The quick brown fox jumps over the lazy dog"
         "Hello World"
@@ -57,7 +57,7 @@
                       :six 6 :seven 7 :eight 8 :nine 9 :ten 10})
 (define words-input '("three" "cats" "ate" "five" "fish" "and" "two" "pies" "plus" "one"))
 (define found (filter (fn (v) (not (nil? v)))
-  (map (fn (w) (get number-words (string->keyword w))) words-input)))
+  (map (fn (w) (get number-words (string/to-keyword w))) words-input)))
 
 (println (format "Input: ~a" (string/join words-input " ")))
 (println (format "Found: ~a" found))

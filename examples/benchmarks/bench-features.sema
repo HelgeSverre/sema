@@ -56,12 +56,12 @@
 ;; ============ 4. Character operations ============
 (println "\n=== Character operations ===")
 
-(bench "char-alphabetic?" (fn () (char-alphabetic? #\a)) 100000)
-(bench "char->integer" (fn () (char->integer #\z)) 100000)
-(bench "char-upcase" (fn () (char-upcase #\a)) 100000)
-(bench "string->list" (fn () (string->list "hello world test")) 100000)
+(bench "char/alphabetic?" (fn () (char/alphabetic? #\a)) 100000)
+(bench "char/to-integer" (fn () (char/to-integer #\z)) 100000)
+(bench "char/upcase" (fn () (char/upcase #\a)) 100000)
+(bench "string/to-list" (fn () (string/to-list "hello world test")) 100000)
 (bench "list->string" (fn () (list->string '(#\h #\e #\l #\l #\o))) 100000)
-(bench "string-ref" (fn () (string-ref "hello" 2)) 100000)
+(bench "string/ref" (fn () (string/ref "hello" 2)) 100000)
 
 ;; ============ 5. Lazy evaluation ============
 (println "\n=== Lazy evaluation (delay/force) ===")
@@ -105,7 +105,7 @@
 (println "\n=== String operations ===")
 
 (bench "string/split (;)" (fn () (string/split "Copenhagen;12.3" ";")) 100000)
-(bench "string->number" (fn () (string->number "12.3")) 100000)
+(bench "string/to-number" (fn () (string/to-number "12.3")) 100000)
 (bench "format (~a)" (fn () (format "~a=~a/~a/~a" "city" 1.0 2.0 3.0)) 100000)
 
 ;; ============ 9. Env lookup depth ============

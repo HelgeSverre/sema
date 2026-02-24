@@ -8,7 +8,7 @@
 
 (define provider (llm/auto-configure))
 (when (nil? provider)
-  (println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (io/println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
   (exit 1))
 
 ;; ---- Environment context ----
@@ -30,8 +30,8 @@
 
 ;; ---- Helper: truncate long strings ----
 (define (truncate-str s max-len)
-  (if (> (string-length s) max-len)
-    (string-append (substring s 0 max-len) "...")
+  (if (> (string/length s) max-len)
+    (string/append (string/slice s 0 max-len) "...")
     s))
 
 ;; ---- Tool definitions ----
@@ -59,7 +59,7 @@
    :content {:type :string :description "Content to write"}}
   (lambda (path content)
     (file/write path content)
-    (format "Wrote ~a bytes to ~a" (string-length content) path)))
+    (format "Wrote ~a bytes to ~a" (string/length content) path)))
 
 (deftool edit-file
   "Edit a file by replacing an exact string match. You must read the file first.
@@ -76,8 +76,8 @@ For creating new files, use write-file instead."
             (file/write path new-content)
             (format "Edited ~a: replaced ~a chars with ~a chars"
               path
-              (string-length old_string)
-              (string-length new_string)))
+              (string/length old_string)
+              (string/length new_string)))
           (format
             "Error: old_string not found in ~a. Read the file first to get exact content."
             path)))
@@ -118,13 +118,13 @@ Do NOT use for: destructive operations like rm -rf, formatting disks, etc."
       (error (format "Blocked unsafe command: ~a" command)))
     (define result (shell "sh" "-c" command))
     (define output
-      (string-append
+      (string/append
         (if (= (:stdout result) "")
           ""
-          (string-append "stdout:\n" (:stdout result)))
+          (string/append "stdout:\n" (:stdout result)))
         (if (= (:stderr result) "")
           ""
-          (string-append "\nstderr:\n" (:stderr result)))))
+          (string/append "\nstderr:\n" (:stderr result)))))
     (if (= (:exit-code result) 0)
       (if (= (string/trim output) "")
         "Command completed successfully (no output)."
@@ -166,16 +166,16 @@ Workflow: search → read → edit → verify"
     (cond
       ((= evt "start")
         ;; Show tool header
-        (println-error
+        (io/println-error
           (term/style (format "  ── ~a ──" tool) :bold :cyan))
         ;; Show key args (truncated)
         (when (map? args)
           (for-each
             (lambda (key)
               (let ((val (get args key)))
-                (println-error
+                (io/println-error
                   (format "     ~a: ~a"
-                    (term/dim (keyword->string key))
+                    (term/dim (keyword/to-string key))
                     (term/dim (truncate-str (format "~a" val) 60))))))
             (keys args)))
         ;; Start spinner
@@ -189,28 +189,28 @@ Workflow: search → read → edit → verify"
             {:symbol (term/green "✔")
              :text (term/dim (format "~a (~ams)" tool (:duration-ms event)))})
           (set! active-spinner #f))
-        (println-error "")))))
+        (io/println-error "")))))
 
 ;; ---- Interactive REPL ----
 
 (define prompt-str (term/style "sɛ̂ma ❯ " :bold :magenta))
 
-(println-error "")
-(println-error (term/style "  Coding Agent" :bold))
-(println-error (term/dim (format "  Working directory: ~a" cwd)))
-(println-error (term/dim "  Type your request, or 'quit' to exit."))
-(println-error "")
+(io/println-error "")
+(io/println-error (term/style "  Coding Agent" :bold))
+(io/println-error (term/dim (format "  Working directory: ~a" cwd)))
+(io/println-error (term/dim "  Type your request, or 'quit' to exit."))
+(io/println-error "")
 
 (define history '())
 
 (let loop ()
-  (print-error prompt-str)
-  (define input (read-line))
+  (io/print-error prompt-str)
+  (define input (io/read-line))
   (when
     (and (not (= input "quit"))
       (not (= input "exit"))
       (not (= input "")))
-    (println-error "")
+    (io/println-error "")
     (define result
       (agent/run coder
         input

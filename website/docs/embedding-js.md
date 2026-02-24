@@ -293,7 +293,7 @@ Use `evalGlobal` to build up state across multiple calls — this is the key pat
 // Define functions
 interp.evalGlobal(`
   (define (greet name)
-    (string-append "Hello, " name "!"))
+    (string/append "Hello, " name "!"))
 `);
 
 // Define data
@@ -496,7 +496,7 @@ A web application that lets users write Sema scripts to customize behavior. The 
   (filter (lambda (item) (> (:score item) 50))
     (map (lambda (item)
            (assoc item :label
-             (string-append (:name item) " (" (number->string (:score item)) ")")))
+             (string/append (:name item) " (" (number/to-string (:score item)) ")")))
          items)))
   </textarea>
   <button id="run">Run Transform</button>
@@ -632,7 +632,7 @@ Compared to the [Rust embedding API](./embedding), the WASM/JavaScript embedding
 | Sandbox/Caps | Fine-grained capability control | Inherently sandboxed by the browser |
 | Threading | Single-threaded (`Rc`) | Single-threaded (WASM) |
 | Eval step limit | Unlimited by default | 10M steps (prevents tab freezes) |
-| `stdin` / `read-line` | Works | Not available |
+| `stdin` / `io/read-line` | Works | Not available |
 
 ### Workarounds
 

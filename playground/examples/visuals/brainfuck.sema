@@ -7,7 +7,7 @@
 
 (define (find-matching-bracket prog pos dir)
   (let loop ((p (+ pos dir)) (depth 1))
-    (let ((ch (string-ref prog p)))
+    (let ((ch (string/ref prog p)))
       (cond
         ((and (= ch #\[) (= dir 1))  (loop (+ p dir) (+ depth 1)))
         ((and (= ch #\]) (= dir -1)) (loop (+ p dir) (+ depth 1)))
@@ -18,15 +18,15 @@
         (else (loop (+ p dir) depth))))))
 
 (define (bf-run program)
-  (let loop ((ip 0) (tape (hash-map)) (ptr 0) (output ""))
-    (if (>= ip (string-length program)) output
-      (let ((ch (string-ref program ip)))
+  (let loop ((ip 0) (tape (map/new)) (ptr 0) (output ""))
+    (if (>= ip (string/length program)) output
+      (let ((ch (string/ref program ip)))
         (cond
           ((= ch #\>) (loop (+ ip 1) tape (+ ptr 1) output))
           ((= ch #\<) (loop (+ ip 1) tape (- ptr 1) output))
           ((= ch #\+) (loop (+ ip 1) (tape-set tape ptr (mod (+ (tape-get tape ptr) 1) 256)) ptr output))
           ((= ch #\-) (loop (+ ip 1) (tape-set tape ptr (mod (+ (tape-get tape ptr) 255) 256)) ptr output))
-          ((= ch #\.) (loop (+ ip 1) tape ptr (string-append output (char->string (integer->char (tape-get tape ptr))))))
+          ((= ch #\.) (loop (+ ip 1) tape ptr (string/append output (char/to-string (integer/to-char (tape-get tape ptr))))))
           ((= ch #\[) (if (= (tape-get tape ptr) 0)
             (loop (find-matching-bracket program ip 1) tape ptr output)
             (loop (+ ip 1) tape ptr output)))

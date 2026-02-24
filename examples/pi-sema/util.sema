@@ -13,11 +13,11 @@
     (error (format "Absolute path not allowed: ~a" path)))
   (when (string/contains? path "..")
     (error (format "Path traversal not allowed: ~a" path)))
-  (define joined (string-append root "/" path))
+  (define joined (string/append root "/" path))
   ;; Trim trailing slashes
   (let loop ((s joined))
-    (if (and (> (string-length s) 1) (string/ends-with? s "/"))
-      (loop (substring s 0 (- (string-length s) 1)))
+    (if (and (> (string/length s) 1) (string/ends-with? s "/"))
+      (loop (string/slice s 0 (- (string/length s) 1)))
       s)))
 
 (define (safe-path? root path)
@@ -30,7 +30,7 @@
 (define (basename path)
   "Extract filename from path (e.g., \"/foo/bar/baz.rs\" → \"baz.rs\")."
   (define parts (string/split path "/"))
-  (define filtered (filter (lambda (s) (> (string-length s) 0)) parts))
+  (define filtered (filter (lambda (s) (> (string/length s) 0)) parts))
   (if (null? filtered)
     ""
     (last filtered)))
@@ -40,7 +40,7 @@
   (define idx (string/last-index-of path "/"))
   (if (nil? idx)
     "."
-    (let ((dir (substring path 0 idx)))
+    (let ((dir (string/slice path 0 idx)))
       (if (= dir "") "/" dir))))
 
 (define (file-extension path)
@@ -49,11 +49,11 @@
   (define idx (string/last-index-of name "."))
   (if (nil? idx)
     ""
-    (substring name (+ idx 1) (string-length name))))
+    (string/slice name (+ idx 1) (string/length name))))
 
 (define (path/join . parts)
   "Join path components with /."
-  (string/join (filter (lambda (s) (> (string-length s) 0)) parts) "/"))
+  (string/join (filter (lambda (s) (> (string/length s) 0)) parts) "/"))
 
 (define (path/dirname path)
   "Alias for dirname."
@@ -70,8 +70,8 @@
 
 (define (truncate-str s max-len)
   "If string is longer than max-len, truncate and append '…'."
-  (if (> (string-length s) max-len)
-    (string-append (substring s 0 max-len) "…")
+  (if (> (string/length s) max-len)
+    (string/append (string/slice s 0 max-len) "…")
     s))
 
 (define (lines->numbered text)
@@ -94,11 +94,11 @@
 
 (define (timestamp)
   "Return current time as epoch milliseconds string."
-  (number->string (time-ms)))
+  (number/to-string (time-ms)))
 
 (define (uuid)
   "Generate a simple unique ID using gensym."
-  (symbol->string (gensym "id")))
+  (symbol/to-string (gensym "id")))
 
 ;; ──────────────────────────────────────────────
 ;; Safety checks

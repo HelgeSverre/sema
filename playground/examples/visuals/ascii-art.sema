@@ -60,15 +60,15 @@
                        (target-row (round (* (- 1.0 y) 0.5 (- wave-rows 1)))))
                   (cond
                     ((= row (round target-row))
-                     (loop-col (+ col 1) (string-append acc "*")))
+                     (loop-col (+ col 1) (string/append acc "*")))
                     ((and (= row wave-mid) (= col 0))
-                     (loop-col (+ col 1) (string-append acc "+")))
+                     (loop-col (+ col 1) (string/append acc "+")))
                     ((= row wave-mid)
-                     (loop-col (+ col 1) (string-append acc "-")))
+                     (loop-col (+ col 1) (string/append acc "-")))
                     ((= col 0)
-                     (loop-col (+ col 1) (string-append acc "|")))
+                     (loop-col (+ col 1) (string/append acc "|")))
                     (else
-                     (loop-col (+ col 1) (string-append acc " ")))))))))
+                     (loop-col (+ col 1) (string/append acc " ")))))))))
       (println line))
     (loop-row (+ row 1))))
 
@@ -80,7 +80,7 @@
         (list "Go" 54) (list "Sema" 95) (list "Haskell" 42) (list "C" 61)))
 
 (define chart-max (foldl (fn (mx item) (if (> (nth item 1) mx) (nth item 1) mx)) 0 chart-data))
-(define max-label-len (foldl (fn (mx item) (if (> (string-length (nth item 0)) mx) (string-length (nth item 0)) mx)) 0 chart-data))
+(define max-label-len (foldl (fn (mx item) (if (> (string/length (nth item 0)) mx) (string/length (nth item 0)) mx)) 0 chart-data))
 
 (for-each
   (fn (item)

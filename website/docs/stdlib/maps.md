@@ -21,12 +21,12 @@ Keywords are callable — when used as a function, they look up their value in a
 (:name {:name "Ada" :age 36})   ; => "Ada"
 ```
 
-### `hash-map`
+### `map/new`
 
 Create a map from key-value pairs.
 
 ```sema
-(hash-map :a 1 :b 2)   ; => {:a 1 :b 2}
+(map/new :a 1 :b 2)   ; => {:a 1 :b 2}
 ```
 
 ### `get`
@@ -131,7 +131,7 @@ Apply a function to every key in a map.
 
 ```sema
 (map/map-keys
-  (fn (k) (string->keyword (string/upper (keyword->string k))))
+  (fn (k) (string/to-keyword (string/upper (keyword/to-string k))))
   {:a 1})
 ; => {:A 1}
 ```
@@ -254,39 +254,39 @@ Create a map from a list of keys and a list of values.
 
 ## Nested Map Operations
 
-### `get-in`
+### `map/get-in`
 
 Access a value at a nested key path. Returns `nil` (or a default) if any key is missing.
 
 ```sema
-(get-in {:a {:b {:c 42}}} [:a :b :c])           ; => 42
-(get-in {:a {:b 1}} [:a :c])                     ; => nil
-(get-in {:a {:b 1}} [:a :c] "default")           ; => "default"
+(map/get-in {:a {:b {:c 42}}} [:a :b :c])           ; => 42
+(map/get-in {:a {:b 1}} [:a :c])                     ; => nil
+(map/get-in {:a {:b 1}} [:a :c] "default")           ; => "default"
 ```
 
-### `assoc-in`
+### `map/assoc-in`
 
 Set a value at a nested key path. Creates intermediate maps if they don't exist.
 
 ```sema
-(assoc-in {:a {:b 1}} [:a :b] 42)                ; => {:a {:b 42}}
-(assoc-in {} [:a :b :c] 99)                      ; => {:a {:b {:c 99}}}
+(map/assoc-in {:a {:b 1}} [:a :b] 42)                ; => {:a {:b 42}}
+(map/assoc-in {} [:a :b :c] 99)                      ; => {:a {:b {:c 99}}}
 ```
 
-### `update-in`
+### `map/update-in`
 
 Update a value at a nested key path by applying a function.
 
 ```sema
-(update-in {:a {:b 10}} [:a :b] #(+ % 1))       ; => {:a {:b 11}}
+(map/update-in {:a {:b 10}} [:a :b] #(+ % 1))       ; => {:a {:b 11}}
 ```
 
-### `deep-merge`
+### `map/deep-merge`
 
 Recursively merge maps. Nested maps are merged rather than replaced. Non-map values in the overlay override the base.
 
 ```sema
-(deep-merge {:a {:b 1 :c 2}} {:a {:b 99}})      ; => {:a {:b 99 :c 2}}
-(deep-merge {:a {:b 1}} {:a 42})                 ; => {:a 42}
-(deep-merge {:a 1} {:b 2} {:c 3})               ; => {:a 1 :b 2 :c 3}
+(map/deep-merge {:a {:b 1 :c 2}} {:a {:b 99}})      ; => {:a {:b 99 :c 2}}
+(map/deep-merge {:a {:b 1}} {:a 42})                 ; => {:a 42}
+(map/deep-merge {:a 1} {:b 2} {:c 3})               ; => {:a 1 :b 2 :c 3}
 ```

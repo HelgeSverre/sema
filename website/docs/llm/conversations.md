@@ -148,7 +148,7 @@ Apply a function to each message, returning a list of results (not a conversatio
 
 ;; Build a summary with role prefixes
 (conversation/map conv
-  (fn (m) (string-append "[" (keyword->string (message/role m)) "] "
+  (fn (m) (string/append "[" (keyword/to-string (message/role m)) "] "
     (message/content m))))
 ```
 

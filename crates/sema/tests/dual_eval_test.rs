@@ -719,6 +719,52 @@ dual_eval_tests! {
     match_vec_exact_fallthrough: "(match '(1 2) ([a b c] :three) ([a b] :two) (_ :other))" => Value::keyword("two"),
 }
 
+// ============================================================
+// Module/function aliases — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // string aliases
+    string_length_alias: r#"(string/length "hello")"# => Value::int(5),
+    string_append_alias: r#"(string/append "a" "b")"# => Value::string("ab"),
+    string_ref_alias: r#"(string/ref "hello" 0)"# => Value::char('h'),
+    string_slice_alias: r#"(string/slice "hello" 1 3)"# => Value::string("el"),
+    string_to_symbol_alias: r#"(string/to-symbol "foo")"# => Value::symbol("foo"),
+    symbol_to_string_alias: r#"(symbol/to-string 'foo)"# => Value::string("foo"),
+    string_to_number_alias: r#"(string/to-number "42")"# => Value::int(42),
+    number_to_string_alias: r#"(number/to-string 42)"# => Value::string("42"),
+    string_to_keyword_alias: r#"(keyword? (string/to-keyword "foo"))"# => Value::bool(true),
+    keyword_to_string_alias: r#"(keyword/to-string :foo)"# => Value::string("foo"),
+    char_to_integer_alias: r#"(char/to-integer #\a)"# => Value::int(97),
+    integer_to_char_alias: r#"(integer/to-char 97)"# => Value::char('a'),
+    char_to_string_alias: r#"(char/to-string #\a)"# => Value::string("a"),
+    string_to_char_alias: r#"(string/to-char "a")"# => Value::char('a'),
+    string_to_list_alias: r#"(length (string/to-list "abc"))"# => Value::int(3),
+    string_to_float_alias: r#"(string/to-float "3.14")"# => Value::float(3.14),
+    char_alphabetic_alias: r#"(char/alphabetic? #\a)"# => Value::bool(true),
+    char_numeric_alias: r#"(char/numeric? #\5)"# => Value::bool(true),
+    char_whitespace_alias: r#"(char/whitespace? #\space)"# => Value::bool(true),
+    char_upper_case_alias: r#"(char/upper-case? #\A)"# => Value::bool(true),
+    char_lower_case_alias: r#"(char/lower-case? #\a)"# => Value::bool(true),
+    char_upcase_alias: r#"(char/upcase #\a)"# => Value::char('A'),
+    char_downcase_alias: r#"(char/downcase #\A)"# => Value::char('a'),
+
+    // map aliases
+    map_new_alias: r#"(map? (map/new :a 1))"# => Value::bool(true),
+    map_deep_merge_alias: r#"(get (map/deep-merge {:a 1} {:b 2}) :b)"# => Value::int(2),
+    map_get_in_alias: r#"(map/get-in {:a {:b 42}} '(:a :b))"# => Value::int(42),
+    map_assoc_in_alias: r#"(map/get-in (map/assoc-in {} '(:a :b) 1) '(:a :b))"# => Value::int(1),
+
+    // bytevector aliases
+    bytevector_new_alias: r#"(bytevector/length (bytevector/new 3))"# => Value::int(3),
+    bytevector_length_alias: r#"(bytevector/length (bytevector 1 2 3))"# => Value::int(3),
+    bytevector_ref_alias: r#"(bytevector/ref (bytevector 10 20 30) 1)"# => Value::int(20),
+    bytevector_append_alias: r#"(bytevector/length (bytevector/append (bytevector 1) (bytevector 2)))"# => Value::int(2),
+    bytevector_to_list_alias: r#"(length (bytevector/to-list (bytevector 1 2 3)))"# => Value::int(3),
+    string_to_utf8_alias: r#"(bytevector/length (string/to-utf8 "hi"))"# => Value::int(2),
+    utf8_to_string_alias: r#"(utf8/to-string (string/to-utf8 "hello"))"# => Value::string("hello"),
+}
+
 dual_eval_error_tests! {
     // & without rest pattern name
     destructure_err_amp_no_rest: "(let (([a &] '(1 2))) a)",

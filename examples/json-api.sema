@@ -6,13 +6,13 @@
 (println "--- Encoding to JSON ---\n")
 
 (define user
-  (hash-map
+  (map/new
     "name" "Alice"
     "age" 30
     "email" "alice@example.com"
     "tags" (list "admin" "verified")
     "address"
-      (hash-map
+      (map/new
         "city" "Oslo"
         "country" "Norway")))
 
@@ -39,7 +39,7 @@
 ;; --- Roundtrip ---
 (println "\n--- Roundtrip Encode/Decode ---\n")
 
-(define original (hash-map "x" 1 "y" (list 2 3) "z" (hash-map "nested" #t)))
+(define original (map/new "x" 1 "y" (list 2 3) "z" (map/new "nested" #t)))
 (define json-roundtrip  (json/encode original))
 (define roundtripped    (json/decode json-roundtrip))
 (println f"Original:     ${original}")
@@ -71,7 +71,7 @@
     (fn (cat)
       (let* ((items   (get by-category cat))
              (prices  (map #(get % :price) items)))
-        (hash-map
+        (map/new
           "category" cat
           "count" (length items)
           "total" (list/sum prices)
@@ -85,10 +85,10 @@
 (println "\n--- API Response Builder ---\n")
 
 (defun api-ok (data)
-  (hash-map "status" 200 "ok" #t "data" data))
+  (map/new "status" 200 "ok" #t "data" data))
 
 (defun api-error (code message)
-  (hash-map "status" code "ok" #f "error" message))
+  (map/new "status" code "ok" #f "error" message))
 
 (defun api-paginated (items page per-page)
   (let* ((total        (length items))
@@ -96,7 +96,7 @@
          (page-items   (take per-page (drop start items)))
          (total-pages  (ceil (/ total per-page))))
     (api-ok
-      (hash-map
+      (map/new
         "items" page-items
         "page" page
         "per_page" per-page
@@ -104,7 +104,7 @@
         "total_pages" total-pages))))
 
 (println "Success response:")
-(println (json/encode-pretty (api-ok (hash-map "user" "Alice" "role" "admin"))))
+(println (json/encode-pretty (api-ok (map/new "user" "Alice" "role" "admin"))))
 
 (println "\nError response:")
 (println (json/encode-pretty (api-error 404 "User not found")))

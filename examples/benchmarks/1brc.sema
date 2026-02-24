@@ -38,7 +38,7 @@
         acc
         (let* ((parts     (string/split line ";"))
                (name      (first parts))
-               (temp      (string->float (nth parts 1)))
+               (temp      (string/to-float (nth parts 1)))
                (existing  (get acc name)))
           (if (nil? existing)
             (assoc acc name (vector temp temp temp 1))
@@ -62,7 +62,7 @@
   (map (fn (name) (format-station name (get result name)))
     sorted-names))
 
-(define output (string-append "{" (string/join formatted ", ") "}"))
+(define output (string/append "{" (string/join formatted ", ") "}"))
 
 (define t2 (time-ms))
 (println (format "Formatted in ~a ms" (- t2 t1)))

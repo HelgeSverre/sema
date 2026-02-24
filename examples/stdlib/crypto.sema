@@ -12,7 +12,7 @@
 (println "-- uuid/v4 --")
 (define id1 (uuid/v4))
 (define id2 (uuid/v4))
-(assert-eq (string-length id1) 36 "uuid/v4 length is 36")
+(assert-eq (string/length id1) 36 "uuid/v4 length is 36")
 (assert-eq
   (regex/match?
     "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -66,7 +66,7 @@
 ;; --- hash/hmac-sha256 ---
 (println "-- hash/hmac-sha256 --")
 (define hmac-result (hash/hmac-sha256 "secret-key" "hello"))
-(assert-eq (string-length hmac-result)
+(assert-eq (string/length hmac-result)
   64
   "hash/hmac-sha256 produces 64 hex chars")
 (println "  ✓ hash/hmac-sha256 = " hmac-result)

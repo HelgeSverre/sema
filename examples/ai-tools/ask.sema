@@ -7,7 +7,7 @@
 
 (define provider (llm/auto-configure))
 (when (nil? provider)
-  (println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
+  (io/println-error "Error: Set ANTHROPIC_API_KEY or OPENAI_API_KEY")
   (exit 1))
 
 ;; Parse script args (everything after --)
@@ -34,7 +34,7 @@
     (newline))
 
   ;; Mode 2: Piped input
-  ((not (sys/interactive?)) (define input (read-stdin))
+  ((not (sys/interactive?)) (define input (io/read-stdin))
     (llm/stream
       (prompt
         (system system-prompt)
@@ -43,12 +43,12 @@
     (newline))
 
   ;; Mode 3: Interactive REPL with conversation memory
-  (else (println-error "AI Chat (type 'quit' to exit)")
-    (println-error "")
+  (else (io/println-error "AI Chat (type 'quit' to exit)")
+    (io/println-error "")
     (define conv (conversation/new {}))
     (let loop ()
-      (print-error "> ")
-      (define input (read-line))
+      (io/print-error "> ")
+      (define input (io/read-line))
       (when
         (and (not (= input "quit"))
           (not (= input "exit"))

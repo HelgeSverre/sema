@@ -14,9 +14,9 @@
 
 ;; Nested tables
 (define nested (toml/decode "[server]\nhost = \"localhost\"\nport = 8080\n\n[server.tls]\nenabled = true\ncert = \"/path/to/cert.pem\"\n"))
-(assert-eq (get-in nested [:server :host]) "localhost" "nested host")
-(assert-eq (get-in nested [:server :port]) 8080 "nested port")
-(assert-eq (get-in nested [:server :tls :enabled]) #t "nested tls enabled")
+(assert-eq (map/get-in nested [:server :host]) "localhost" "nested host")
+(assert-eq (map/get-in nested [:server :port]) 8080 "nested port")
+(assert-eq (map/get-in nested [:server :tls :enabled]) #t "nested tls enabled")
 
 ;; Arrays and arrays of tables
 (define arr-data (toml/decode "colors = [\"red\", \"green\", \"blue\"]\n\n[[fruits]]\nname = \"apple\"\ncolor = \"red\"\n\n[[fruits]]\nname = \"banana\"\ncolor = \"yellow\"\n"))
@@ -67,17 +67,17 @@
 ;; Round-trip
 (define config-str "[server]\nhost = \"0.0.0.0\"\nport = 3000\n\n[server.cors]\norigins = [\"https://example.com\"]\n")
 (define config (toml/decode config-str))
-(define new-config (assoc-in config [:server :port] 8080))
+(define new-config (map/assoc-in config [:server :port] 8080))
 (define rt-encoded (toml/encode new-config))
 (assert-eq (string? rt-encoded) #t "roundtrip encode returns string")
 ;; Verify the updated value survives roundtrip
 (define rt-decoded (toml/decode rt-encoded))
-(assert-eq (get-in rt-decoded [:server :port]) 8080 "roundtrip port updated")
-(assert-eq (get-in rt-decoded [:server :host]) "0.0.0.0" "roundtrip host preserved")
+(assert-eq (map/get-in rt-decoded [:server :port]) 8080 "roundtrip port updated")
+(assert-eq (map/get-in rt-decoded [:server :host]) "0.0.0.0" "roundtrip host preserved")
 
 ;; sema.toml pattern (just verify the pattern compiles/runs with a synthetic string)
 (define fake-sema-toml "[package]\nname = \"test-project\"\nversion = \"1.0.0\"\n")
 (define project (toml/decode fake-sema-toml))
-(assert-eq (get-in project [:package :name]) "test-project" "sema.toml pattern")
+(assert-eq (map/get-in project [:package :name]) "test-project" "sema.toml pattern")
 
 (println "=== toml.md: ALL PASSED ===")

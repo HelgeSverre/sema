@@ -20,7 +20,7 @@
       (when (not (nil? val))
         (println
           (format "  ~a = ~a"
-            (string/pad-right (keyword->string key) 8)
+            (string/pad-right (keyword/to-string key) 8)
             val)))))
   interesting-keys)
 
@@ -52,7 +52,7 @@
             (format "Record ~a: value=~a hash=~a"
               i
               (math/random-int 100 999)
-              (substring (hash/sha256 (str i)) 0 8))))
+              (string/slice (hash/sha256 (str i)) 0 8))))
       (file/write (path/join work-dir filename) content)))
   (range 1 6))
 
@@ -89,7 +89,7 @@
 
 ;; Extract log levels using regex
 (define log-lines
-  (filter (fn (l) (> (string-length l) 0)) (string/split log-content "\n")))
+  (filter (fn (l) (> (string/length l) 0)) (string/split log-content "\n")))
 (define log-levels
   (map (fn (line) (regex/find-all "INFO|WARN|ERROR" line)) log-lines))
 (define flat-levels (flatten log-levels))
@@ -130,7 +130,7 @@
         (println
           (format "  ~a → ~a"
             (string/pad-right name 20)
-            (substring (file-checksum path) 0 16))))))
+            (string/slice (file-checksum path) 0 16))))))
   (sort files))
 
 ;; === Cleanup ===

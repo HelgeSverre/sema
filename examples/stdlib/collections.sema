@@ -37,9 +37,9 @@
 
 ;; list/pluck (extract field from list of maps)
 (define people
-  (list (hash-map :name "Alice" :age 30)
-    (hash-map :name "Bob" :age 25)
-    (hash-map :name "Charlie" :age 35)))
+  (list (map/new :name "Alice" :age 30)
+    (map/new :name "Bob" :age 25)
+    (map/new :name "Charlie" :age 35)))
 (assert-eq (list/pluck :name people)
   (list "Alice" "Bob" "Charlie")
   "list/pluck")
@@ -135,12 +135,12 @@
 (println)
 
 ;; map/sort-keys
-(assert-eq (map/entries (map/sort-keys (hash-map :c 3 :a 1 :b 2)))
+(assert-eq (map/entries (map/sort-keys (map/new :c 3 :a 1 :b 2)))
   (list (list :a 1) (list :b 2) (list :c 3))
   "map/sort-keys")
 
 ;; map/except (inverse of select-keys)
-(define m (map/sort-keys (hash-map :a 1 :b 2 :c 3 :d 4)))
+(define m (map/sort-keys (map/new :a 1 :b 2 :c 3 :d 4)))
 (assert-eq (map/entries (map/except m (list :b :d)))
   (list (list :a 1) (list :c 3))
   "map/except")

@@ -4,7 +4,7 @@
 (println "=== Brainfuck Interpreter ===\n")
 
 ;; --- Tape operations (map of index -> value) ---
-(define tape  (hash-map))
+(define tape  (map/new))
 (define ptr   0)
 
 (define (tape-get t p)    (get t p 0))
@@ -13,7 +13,7 @@
 ;; --- Find matching bracket ---
 (define (find-matching-bracket program pos dir)
   (let loop ((p (+ pos dir)) (depth 1))
-    (let ((ch (string-ref program p)))
+    (let ((ch (string/ref program p)))
       (cond
         ((and (= ch #\[) (= dir 1)) (loop (+ p dir) (+ depth 1)))
         ((and (= ch #\]) (= dir -1)) (loop (+ p dir) (+ depth 1)))
@@ -25,13 +25,13 @@
 
 ;; --- Execute a BF program ---
 (define (bf-run program)
-  (define tape (hash-map))
+  (define tape (map/new))
   (define ptr 0)
   (define output "")
   (let loop ((ip 0) (tape tape) (ptr ptr) (output output))
-    (if (>= ip (string-length program))
+    (if (>= ip (string/length program))
       output
-      (let ((ch (string-ref program ip)))
+      (let ((ch (string/ref program ip)))
         (cond
           ;; > move pointer right
           ((= ch #\>) (loop (+ ip 1) tape (+ ptr 1) output))
@@ -58,8 +58,8 @@
             (loop (+ ip 1)
               tape
               ptr
-              (string-append output
-                (char->string (integer->char (tape-get tape ptr))))))
+              (string/append output
+                (char/to-string (integer/to-char (tape-get tape ptr))))))
 
           ;; , input (not supported — set cell to 0)
           ((= ch #\,) (loop (+ ip 1) (tape-set tape ptr 0) ptr output))
@@ -101,7 +101,7 @@
 (println
   (format "Output: ~a (ASCII ~a)"
     excl-result
-    (char->integer (string-ref excl-result 0))))
+    (char/to-integer (string/ref excl-result 0))))
 
 (println "\n--- Alphabet (A-Z) ---")
 ;; Set cell to 65 (ASCII 'A') then print 26 chars
@@ -118,7 +118,7 @@
 (define mul-result (bf-run mul-bf))
 (println
   (format "3 × 7 = ~a (char: ~a)"
-    (- (char->integer (string-ref mul-result 0)) 48)
+    (- (char/to-integer (string/ref mul-result 0)) 48)
     mul-result))
 
 (println "\n--- Nested Loop Test ---")
@@ -128,7 +128,7 @@
 (define nested-result (bf-run nested-bf))
 (println
   (format "3 × 4 = ~a (char: ~a)"
-    (- (char->integer (string-ref nested-result 0)) 48)
+    (- (char/to-integer (string/ref nested-result 0)) 48)
     nested-result))
 
 (println "\n--- Program Stats ---")
@@ -140,8 +140,8 @@
   (fn (p)
     (let* ((name   (first p))
            (code   (nth p 1))
-           (len    (string-length code))
-           (loops  (length (filter (fn (c) (= c #\[)) (string->list code)))))
+           (len    (string/length code))
+           (loops  (length (filter (fn (c) (= c #\[)) (string/to-list code)))))
       (println
         (format "  ~a: ~a chars, ~a loops"
           (string/pad-right name 14)
