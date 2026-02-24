@@ -2867,24 +2867,29 @@ fn eval_become(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     // Evaluate the new definition
     let new_def = eval::eval_value(ctx, &args[1], env)?;
 
-    // If the function has doctests, validate the candidate passes them
+    // If the function has doctests, validate the candidate passes them.
+    // Temporarily install new_def so recursive calls see the new version.
     if let Some(meta) = env.get_meta(spur) {
         if let Some(doc_val) = meta.get(&Value::keyword("doc")) {
             if let Some(docstring) = doc_val.as_str() {
                 let doctests = crate::doctest::parse_doctests(docstring);
                 if !doctests.is_empty() {
-                    // Create sandbox env with the new function bound
-                    let sandbox_env = Env::with_parent(Rc::new(env.clone()));
-                    sandbox_env.set(spur, new_def.clone());
+                    // Temporarily swap in the new definition so recursive calls
+                    // resolve to the candidate, not the old version.
+                    env.set(spur, new_def.clone());
 
+                    let child_env = Env::with_parent(Rc::new(env.clone()));
                     let results = crate::doctest::run_doctests(docstring, &mut |input| {
-                        eval::eval_string(ctx, input, &sandbox_env)
+                        eval::eval_string(ctx, input, &child_env)
                     });
 
                     let total = results.len();
                     let passed = results.iter().filter(|r| r.passed).count();
 
                     if passed < total {
+                        // Restore the old definition on failure
+                        env.set(spur, current.clone());
+
                         let mut failures = String::new();
                         for r in &results {
                             if !r.passed {
@@ -2899,6 +2904,9 @@ fn eval_become(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                             total - passed
                         )));
                     }
+
+                    // Doctests passed — restore current so history save below captures it
+                    env.set(spur, current.clone());
                 }
             }
         }
@@ -2926,8 +2934,13 @@ fn eval_become(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     history_list.push(Value::map(version_entry));
     env.set_meta(spur, history_key, Value::list(history_list));
 
-    // Install the new definition
+    // Install the new definition and update source metadata
     env.set(spur, new_def);
+    env.set_meta(
+        spur,
+        Value::keyword("source"),
+        Value::string(&args[1].to_string()),
+    );
 
     Ok(Trampoline::Value(Value::nil()))
 }
@@ -3004,10 +3017,16 @@ fn eval_rollback(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampol
             ))
         })?;
 
-    let old_value = entry
+    let entry_map = entry
         .as_map_rc()
-        .and_then(|m| m.get(&Value::keyword("value")).cloned())
+        .ok_or_else(|| SemaError::eval("rollback!: history entry is not a map"))?;
+
+    let old_value = entry_map
+        .get(&Value::keyword("value"))
+        .cloned()
         .ok_or_else(|| SemaError::eval("rollback!: history entry missing :value"))?;
+
+    let old_source = entry_map.get(&Value::keyword("source")).cloned();
 
     // Save current version to history before rolling back
     let current = env
@@ -3021,6 +3040,11 @@ fn eval_rollback(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampol
         Value::int(updated_history.len() as i64 + 1),
     );
     rollback_entry.insert(Value::keyword("value"), current);
+    if let Some(meta) = env.get_meta(spur) {
+        if let Some(source) = meta.get(&Value::keyword("source")) {
+            rollback_entry.insert(Value::keyword("source"), source.clone());
+        }
+    }
     updated_history.push(Value::map(rollback_entry));
     env.set_meta(
         spur,
@@ -3028,8 +3052,11 @@ fn eval_rollback(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampol
         Value::list(updated_history),
     );
 
-    // Restore the old value
+    // Restore the old value and source metadata
     env.set(spur, old_value);
+    if let Some(source) = old_source {
+        env.set_meta(spur, Value::keyword("source"), source);
+    }
 
     Ok(Trampoline::Value(Value::nil()))
 }
