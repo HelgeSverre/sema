@@ -227,15 +227,11 @@ fn download_runtime(
             }
             return Err(msg.into());
         } else if status.as_u16() == 403 || status.as_u16() == 429 {
-            return Err(format!(
-                "GitHub rate-limited the download. \
+            return Err("GitHub rate-limited the download. \
                  Try again later or set SEMA_RUNTIME_BASE_URL to use a mirror."
-            )
-            .into());
+                .into());
         } else {
-            return Err(
-                format!("failed to download checksum for {target}: HTTP {status}").into(),
-            );
+            return Err(format!("failed to download checksum for {target}: HTTP {status}").into());
         }
     }
     let checksum_text = checksum_response
@@ -265,7 +261,7 @@ fn download_runtime(
             .unwrap_or_default();
         if unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) } == 0 {
             let stat = unsafe { stat.assume_init() };
-            let avail = stat.f_bavail as u64 * stat.f_frsize as u64;
+            let avail = stat.f_bavail as u64 * stat.f_frsize;
             if avail < 200 * 1024 * 1024 {
                 eprintln!(
                     "  Warning: only {}MB free on disk — download may fail",
@@ -298,11 +294,9 @@ fn download_runtime(
                 }
                 return Err(msg.into());
             } else if status.as_u16() == 403 || status.as_u16() == 429 {
-                return Err(format!(
-                    "GitHub rate-limited the download. \
+                return Err("GitHub rate-limited the download. \
                      Try again later or set SEMA_RUNTIME_BASE_URL to use a mirror."
-                )
-                .into());
+                    .into());
             } else {
                 return Err(
                     format!("failed to download runtime for {target}: HTTP {status}").into(),
@@ -405,10 +399,7 @@ fn extract_tar_xz(
         }
 
         let path = entry.path()?;
-        let file_name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
         if file_name != bin_name {
             continue;
@@ -417,10 +408,9 @@ fn extract_tar_xz(
         // Enforce size limit
         let size = entry.header().size()?;
         if size > MAX_RUNTIME_SIZE {
-            return Err(format!(
-                "runtime binary too large ({size} bytes, max {MAX_RUNTIME_SIZE})"
-            )
-            .into());
+            return Err(
+                format!("runtime binary too large ({size} bytes, max {MAX_RUNTIME_SIZE})").into(),
+            );
         }
 
         // Stream to output with size limit
@@ -628,7 +618,7 @@ mod tests {
 
     #[test]
     fn test_parse_checksum_hash_only() {
-        let hash = "a" .repeat(64);
+        let hash = "a".repeat(64);
         assert_eq!(parse_sha256_checksum(&hash), Some(hash.clone()));
     }
 
@@ -758,10 +748,7 @@ mod tests {
         let mut data = vec![b'M', b'Z'];
         data.extend_from_slice(&[0u8; 100]);
         std::fs::write(&path, &data).unwrap();
-        assert!(validate_cached_runtime(
-            &path,
-            "x86_64-pc-windows-msvc"
-        ));
+        assert!(validate_cached_runtime(&path, "x86_64-pc-windows-msvc"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -975,9 +962,7 @@ mod tests {
             let mut writer = zip::ZipWriter::new(cursor);
             let options = zip::write::SimpleFileOptions::default();
             // Add a directory entry
-            writer
-                .add_directory("sema-lang-test/", options)
-                .unwrap();
+            writer.add_directory("sema-lang-test/", options).unwrap();
             // Add the actual binary
             writer
                 .start_file("sema-lang-test/sema.exe", options)
@@ -1060,17 +1045,8 @@ mod tests {
             expected_format("aarch64-unknown-linux-gnu"),
             BinaryFormat::Elf
         );
-        assert_eq!(
-            expected_format("aarch64-apple-darwin"),
-            BinaryFormat::MachO
-        );
-        assert_eq!(
-            expected_format("x86_64-apple-darwin"),
-            BinaryFormat::MachO
-        );
-        assert_eq!(
-            expected_format("x86_64-pc-windows-msvc"),
-            BinaryFormat::Pe
-        );
+        assert_eq!(expected_format("aarch64-apple-darwin"), BinaryFormat::MachO);
+        assert_eq!(expected_format("x86_64-apple-darwin"), BinaryFormat::MachO);
+        assert_eq!(expected_format("x86_64-pc-windows-msvc"), BinaryFormat::Pe);
     }
 }
