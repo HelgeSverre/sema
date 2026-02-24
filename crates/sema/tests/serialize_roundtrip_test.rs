@@ -40,8 +40,9 @@ fn eval_roundtrip(input: &str) -> Value {
         upvalues: Vec::new(),
     });
     let mut vm = VM::new(interp.global_env.clone(), functions);
-    vm.execute(closure, &interp.ctx)
-        .unwrap_or_else(|e| panic!("VM execution of deserialized program failed for `{input}`: {e}"))
+    vm.execute(closure, &interp.ctx).unwrap_or_else(|e| {
+        panic!("VM execution of deserialized program failed for `{input}`: {e}")
+    })
 }
 
 /// Assert that the round-trip result matches the tree-walker result.
@@ -80,9 +81,7 @@ fn roundtrip_closure_upvalue_mutation() {
 
 #[test]
 fn roundtrip_nested_closures() {
-    assert_roundtrip(
-        "(begin (define (f x) (fn (y) (fn (z) (list x y z)))) (((f 1) 2) 3))",
-    );
+    assert_roundtrip("(begin (define (f x) (fn (y) (fn (z) (list x y z)))) (((f 1) 2) 3))");
 }
 
 // ============================================================
@@ -103,10 +102,7 @@ fn roundtrip_try_catch_across_function() {
 
 #[test]
 fn roundtrip_match_quoted_literal() {
-    assert_roundtrip_eq(
-        "(match 'a ('a 1) (_ 0))",
-        Value::int(1),
-    );
+    assert_roundtrip_eq("(match 'a ('a 1) (_ 0))", Value::int(1));
 }
 
 // ============================================================
@@ -138,10 +134,7 @@ fn roundtrip_string_constant_reuse() {
 
 #[test]
 fn roundtrip_map_constants() {
-    assert_roundtrip_eq(
-        "(get {:a 1 :b 2 :c 3} :b)",
-        Value::int(2),
-    );
+    assert_roundtrip_eq("(get {:a 1 :b 2 :c 3} :b)", Value::int(2));
 }
 
 // ============================================================
@@ -150,9 +143,7 @@ fn roundtrip_map_constants() {
 
 #[test]
 fn roundtrip_deeply_nested_quoted() {
-    assert_roundtrip(
-        "(car (cdr '(1 (2 (3 (4))))))",
-    );
+    assert_roundtrip("(car (cdr '(1 (2 (3 (4))))))");
 }
 
 // ============================================================

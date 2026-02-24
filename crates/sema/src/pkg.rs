@@ -176,10 +176,7 @@ fn cmd_add_git(spec: &str) -> Result<(), String> {
         Err(e) => eprintln!("Warning: could not update sema.toml: {e}"),
     }
 
-    match update_lock_entry(
-        spec.path.as_str(),
-        LockEntry::Git { git_ref, commit },
-    ) {
+    match update_lock_entry(spec.path.as_str(), LockEntry::Git { git_ref, commit }) {
         Ok(()) => println!("✓ Updated sema.lock"),
         Err(e) => eprintln!("Warning: could not update sema.lock: {e}"),
     }
@@ -373,9 +370,7 @@ pub fn cmd_install(locked: bool) -> Result<(), String> {
         } else {
             // No lock entry or version changed — resolve fresh
             if new_lock.entries.contains_key(name) {
-                eprintln!(
-                    "Warning: '{name}' version changed in sema.toml, re-resolving..."
-                );
+                eprintln!("Warning: '{name}' version changed in sema.toml, re-resolving...");
             } else {
                 eprintln!("Warning: '{name}' not in sema.lock, resolving...");
             }
@@ -383,8 +378,8 @@ pub fn cmd_install(locked: bool) -> Result<(), String> {
 
             if is_git_spec(name) {
                 let spec_str = format!("{name}@{version}");
-                let spec = sema_core::resolve::PackageSpec::parse(&spec_str)
-                    .map_err(|e| e.to_string())?;
+                let spec =
+                    sema_core::resolve::PackageSpec::parse(&spec_str).map_err(|e| e.to_string())?;
                 let (git_ref, commit) = install_git(&spec)?;
                 new_lock
                     .entries
@@ -493,10 +488,9 @@ fn update_single_package(pkg_dir: &Path, dir: &Path) -> Result<(), String> {
         }
 
         run_git(Some(dir), &["pull"])?;
-        let current_ref = tracking_ref
-            .unwrap_or_else(|| current_git_ref(dir));
-        let commit = run_git(Some(dir), &["rev-parse", "HEAD"])
-            .unwrap_or_else(|_| "unknown".to_string());
+        let current_ref = tracking_ref.unwrap_or_else(|| current_git_ref(dir));
+        let commit =
+            run_git(Some(dir), &["rev-parse", "HEAD"]).unwrap_or_else(|_| "unknown".to_string());
         println!("✓ Updated {} → {current_ref}", rel.display());
 
         let _ = update_lock_entry(
@@ -566,10 +560,7 @@ pub fn cmd_remove(name: &str) -> Result<(), String> {
 fn read_dep_ref_from_toml(name: &str) -> Option<String> {
     let content = std::fs::read_to_string("sema.toml").ok()?;
     let doc: toml::Value = toml::from_str(&content).ok()?;
-    doc.get("deps")?
-        .get(name)?
-        .as_str()
-        .map(|s| s.to_string())
+    doc.get("deps")?.get(name)?.as_str().map(|s| s.to_string())
 }
 
 /// Add or update a dep entry in a sema.toml file.
@@ -848,8 +839,7 @@ fn read_registry_url() -> String {
 fn effective_registry(flag: Option<&str>) -> String {
     match flag {
         Some(url) => url.to_string(),
-        None => std::env::var("SEMA_REGISTRY_URL")
-            .unwrap_or_else(|_| read_registry_url()),
+        None => std::env::var("SEMA_REGISTRY_URL").unwrap_or_else(|_| read_registry_url()),
     }
 }
 
@@ -1429,9 +1419,9 @@ fn read_lock_file() -> Result<Option<LockFile>, String> {
     let mut entries = std::collections::BTreeMap::new();
 
     for (name, value) in packages {
-        let table = value.as_table().ok_or_else(|| {
-            format!("sema.lock: package '{name}' is not a table")
-        })?;
+        let table = value
+            .as_table()
+            .ok_or_else(|| format!("sema.lock: package '{name}' is not a table"))?;
         let source = table
             .get("source")
             .and_then(|v| v.as_str())
@@ -1439,10 +1429,9 @@ fn read_lock_file() -> Result<Option<LockFile>, String> {
 
         let entry = match source {
             "git" => {
-                let git_ref = table
-                    .get("ref")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| format!("sema.lock: git package '{name}' missing 'ref' field"))?;
+                let git_ref = table.get("ref").and_then(|v| v.as_str()).ok_or_else(|| {
+                    format!("sema.lock: git package '{name}' missing 'ref' field")
+                })?;
                 let commit = table
                     .get("commit")
                     .and_then(|v| v.as_str())
@@ -1455,15 +1444,24 @@ fn read_lock_file() -> Result<Option<LockFile>, String> {
                 }
             }
             "registry" => {
-                let version = table.get("version").and_then(|v| v.as_str()).ok_or_else(|| {
-                    format!("sema.lock: registry package '{name}' missing 'version' field")
-                })?;
-                let registry = table.get("registry").and_then(|v| v.as_str()).ok_or_else(|| {
-                    format!("sema.lock: registry package '{name}' missing 'registry' field")
-                })?;
-                let checksum = table.get("checksum").and_then(|v| v.as_str()).ok_or_else(|| {
-                    format!("sema.lock: registry package '{name}' missing 'checksum' field")
-                })?;
+                let version = table
+                    .get("version")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        format!("sema.lock: registry package '{name}' missing 'version' field")
+                    })?;
+                let registry = table
+                    .get("registry")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        format!("sema.lock: registry package '{name}' missing 'registry' field")
+                    })?;
+                let checksum = table
+                    .get("checksum")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        format!("sema.lock: registry package '{name}' missing 'checksum' field")
+                    })?;
                 LockEntry::Registry {
                     version: version.to_string(),
                     registry: registry.to_string(),
@@ -2670,8 +2668,14 @@ name = "myproject"
         .unwrap();
 
         let err = read_lock_file().unwrap_err();
-        assert!(err.contains("bad"), "error should mention package name, got: {err}");
-        assert!(err.contains("checksum"), "error should mention missing field, got: {err}");
+        assert!(
+            err.contains("bad"),
+            "error should mention package name, got: {err}"
+        );
+        assert!(
+            err.contains("checksum"),
+            "error should mention missing field, got: {err}"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -2951,11 +2955,7 @@ name = "myproject"
         )
         .unwrap();
 
-        fs::write(
-            LOCK_FILE,
-            "lock_version = 1\n\n[packages]\n",
-        )
-        .unwrap();
+        fs::write(LOCK_FILE, "lock_version = 1\n\n[packages]\n").unwrap();
 
         // Empty deps + empty lock = success
         cmd_install(true).unwrap();

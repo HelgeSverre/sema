@@ -887,7 +887,14 @@ fn run_build(
             };
             let target_output = format!("{stem}-{t}{ext}");
             eprintln!("\n━━━ Building for {t} ━━━");
-            if let Err(e) = run_build(file, Some(&target_output), includes, None, Some(t), no_cache) {
+            if let Err(e) = run_build(
+                file,
+                Some(&target_output),
+                includes,
+                None,
+                Some(t),
+                no_cache,
+            ) {
                 eprintln!("Error: {e}");
                 failures.push(*t);
             }
@@ -1060,8 +1067,8 @@ fn run_build(
     let runtime_path = if let Some(r) = runtime {
         // Validate runtime binary format against target if both are specified
         if let Some(resolved) = resolved_target {
-            let runtime_bytes = std::fs::read(r)
-                .map_err(|e| format!("cannot read --runtime file '{}': {e}", r))?;
+            let runtime_bytes =
+                std::fs::read(r).map_err(|e| format!("cannot read --runtime file '{}': {e}", r))?;
             let detected = cross_compile::detect_binary_format(&runtime_bytes);
             let expected = cross_compile::expected_format(resolved);
             if let Some(det) = detected {
@@ -1120,7 +1127,9 @@ fn run_build(
 
     if let Some(resolved) = resolved_target {
         if !cross_compile::is_host_target(resolved) {
-            eprintln!("  Note: this binary targets {resolved} and won't run on your current machine.");
+            eprintln!(
+                "  Note: this binary targets {resolved} and won't run on your current machine."
+            );
         }
     }
 

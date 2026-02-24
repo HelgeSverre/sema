@@ -652,7 +652,10 @@ mod tests {
         assert!(has_embedded_archive(&output_path).unwrap());
         let extracted = extract_archive(&output_path).unwrap();
         assert_eq!(extracted.metadata.get("entry").unwrap(), b"main.semac");
-        assert_eq!(extracted.files.get("main.semac").unwrap(), &vec![1, 2, 3, 4]);
+        assert_eq!(
+            extracted.files.get("main.semac").unwrap(),
+            &vec![1, 2, 3, 4]
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
