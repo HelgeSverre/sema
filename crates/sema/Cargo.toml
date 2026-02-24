@@ -41,6 +41,11 @@ semver.workspace = true
 tar.workspace = true
 flate2.workspace = true
 crc32fast = "1"
+xz2 = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 paste = "1"

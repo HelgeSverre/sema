@@ -86,6 +86,9 @@ sema build [OPTIONS] <FILE>
 | `-o, --output <PATH>`   | Output executable path (default: filename without extension) |
 | `--include <PATH>...`   | Additional files or directories to bundle (repeatable)    |
 | `--runtime <PATH>`      | Sema binary to use as runtime base (default: current exe) |
+| `--target <TARGET>`     | Target platform triple or alias (e.g. `linux`, `macos`, `windows`, or a full triple like `x86_64-unknown-linux-gnu`). Use `all` to build for all supported targets. |
+| `--list-targets`        | Show all supported target platforms and aliases            |
+| `--no-cache`            | Force re-download of cached runtime binaries              |
 
 ```bash
 # Build a standalone executable
@@ -96,9 +99,39 @@ sema build script.sema -o myapp              # explicit output path
 sema build script.sema --include data.json   # bundle a file
 sema build script.sema --include assets/     # bundle a directory
 
+# Cross-compile for other platforms
+sema build script.sema --target linux        # build for Linux (x86_64)
+sema build script.sema --target windows      # build for Windows
+sema build script.sema --target all          # build for all supported targets
+sema build script.sema --target linux --no-cache  # force re-download runtime
+
 # Run the standalone executable
 ./myapp --arg1 --arg2
 ```
+
+Cross-compilation downloads pre-built runtime binaries from GitHub Releases and caches them at `~/.sema/cache/runtimes/`. Use `--no-cache` to force a fresh download, or `--runtime` to provide your own binary.
+
+#### Using a custom runtime source
+
+If you maintain a fork of Sema or host runtime binaries on your own infrastructure, set `SEMA_RUNTIME_BASE_URL` to point to a directory containing release archives and SHA256 checksums:
+
+```bash
+export SEMA_RUNTIME_BASE_URL=https://github.com/yourname/sema/releases/download/v1.11.0
+sema build app.sema --target linux
+```
+
+The expected file layout at that URL is:
+
+```
+sema-lang-<target>.tar.xz          # Linux/macOS archive containing the sema binary
+sema-lang-<target>.tar.xz.sha256   # SHA256 checksum (hex hash, optionally followed by filename)
+sema-lang-<target>.zip             # Windows archive containing sema.exe
+sema-lang-<target>.zip.sha256      # SHA256 checksum
+```
+
+Where `<target>` is a full triple like `x86_64-unknown-linux-gnu` or `aarch64-apple-darwin`. This matches the asset naming used by [cargo-dist](https://opensource.axo.dev/cargo-dist/), so forks using cargo-dist will work out of the box.
+
+Alternatively, use `--runtime /path/to/sema` to skip downloading entirely and inject a local binary directly.
 
 ### `sema disasm`
 

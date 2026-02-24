@@ -424,6 +424,36 @@ pub fn write_bundled_executable(
     Ok(())
 }
 
+/// Like `write_bundled_executable`, but takes the runtime binary as a byte
+/// slice instead of reading from disk. Used for cross-compilation where the
+/// runtime bytes were downloaded/cached.
+pub fn write_bundled_executable_from_bytes(
+    runtime: &[u8],
+    output_path: &Path,
+    archive_bytes: &[u8],
+) -> io::Result<()> {
+    let mut out = std::fs::File::create(output_path)?;
+    out.write_all(runtime)?;
+    out.write_all(archive_bytes)?;
+
+    // Trailer
+    let archive_size = archive_bytes.len() as u64;
+    out.write_all(&archive_size.to_le_bytes())?;
+    out.write_all(MAGIC)?;
+
+    out.flush()?;
+    drop(out);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(output_path, perms)?;
+    }
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -601,6 +631,29 @@ mod tests {
         );
 
         // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_write_bundled_from_bytes_roundtrip() {
+        let dir = std::env::temp_dir().join("sema_archive_from_bytes_test");
+        let _ = std::fs::create_dir_all(&dir);
+        let output_path = dir.join("bundled_from_bytes");
+
+        let runtime = b"FAKE_RUNTIME_BINARY";
+        let mut metadata = HashMap::new();
+        metadata.insert("entry".to_string(), b"main.semac".to_vec());
+        let mut files = HashMap::new();
+        files.insert("main.semac".to_string(), vec![1, 2, 3, 4]);
+        let archive_bytes = serialize_archive(&metadata, &files);
+
+        write_bundled_executable_from_bytes(runtime, &output_path, &archive_bytes).unwrap();
+
+        assert!(has_embedded_archive(&output_path).unwrap());
+        let extracted = extract_archive(&output_path).unwrap();
+        assert_eq!(extracted.metadata.get("entry").unwrap(), b"main.semac");
+        assert_eq!(extracted.files.get("main.semac").unwrap(), &vec![1, 2, 3, 4]);
+
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

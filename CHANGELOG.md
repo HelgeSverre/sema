@@ -26,6 +26,7 @@
 - **Nested map operations** — `get-in`, `assoc-in`, `update-in` for deep map access and modification.
 - **Web server** — `http/serve` with Axum-based routing, path/query params, SSE streaming, and WebSocket support. Response helpers: `http/ok`, `http/created`, `http/no-content`, `http/not-found`, `http/html`, `http/text`, `http/redirect`, `http/error`, `http/stream`, `http/websocket`. Routing via `http/router`.
 - **`sema build`** — compile Sema programs into standalone executables. Traces imports recursively, bundles source into a VFS archive appended to the binary. Auto-detected on load.
+- **Cross-compilation (`sema build --target`)** — build standalone executables for other platforms. Downloads and caches pre-built runtime binaries from GitHub Releases. Supports `--target linux`, `--target macos`, `--target windows`, full triples, and `--target all`. Use `--no-cache` to force re-download, `--runtime` for custom binaries, or `SEMA_RUNTIME_BASE_URL` for self-hosted runtimes. Actionable error hints for download failures, format mismatches, and common mistakes.
 - **`string/intern`** — opt-in string value interning with thread-local intern table. Returns shared `Rc<String>` for O(1) equality via NaN-boxed pointer comparison.
 - **Shebang support** — `#!/usr/bin/env sema` lines are ignored in source files.
 - **`sys/sema-home`** — builtin returning the Sema home directory path.

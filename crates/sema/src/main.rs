@@ -61,6 +61,7 @@ fn find_config() -> Option<SemaConfig> {
 }
 
 mod archive;
+mod cross_compile;
 mod import_tracer;
 mod pkg;
 
@@ -321,7 +322,8 @@ enum Commands {
     /// Build a standalone executable with all dependencies bundled
     Build {
         /// Source file to compile and bundle
-        file: String,
+        #[arg(required_unless_present = "list_targets")]
+        file: Option<String>,
 
         /// Output executable path (default: filename without extension)
         #[arg(short, long)]
@@ -332,8 +334,21 @@ enum Commands {
         includes: Vec<String>,
 
         /// Sema binary to use as runtime base (default: current executable)
-        #[arg(long)]
+        #[arg(long, conflicts_with = "target")]
         runtime: Option<String>,
+
+        /// Target platform triple or alias (e.g. linux, macos, windows, or a full triple).
+        /// Use "all" to build for all supported targets.
+        #[arg(long)]
+        target: Option<String>,
+
+        /// Show all supported target platforms
+        #[arg(long)]
+        list_targets: bool,
+
+        /// Force re-download of cached runtime binaries
+        #[arg(long)]
+        no_cache: bool,
     },
     /// Format Sema source files
     Fmt {
@@ -539,8 +554,26 @@ fn main() {
                 output,
                 includes,
                 runtime,
+                target,
+                list_targets,
+                no_cache,
             } => {
-                run_build(&file, output.as_deref(), &includes, runtime.as_deref());
+                if list_targets {
+                    cross_compile::list_targets();
+                    return;
+                }
+                let file = file.expect("file is required unless --list-targets");
+                if let Err(e) = run_build(
+                    &file,
+                    output.as_deref(),
+                    &includes,
+                    runtime.as_deref(),
+                    target.as_deref(),
+                    no_cache,
+                ) {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
             }
             Commands::Fmt {
                 files,
@@ -831,20 +864,56 @@ fn try_run_embedded() -> Option<i32> {
     }
 }
 
-fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Option<&str>) {
+fn run_build(
+    file: &str,
+    output: Option<&str>,
+    includes: &[String],
+    runtime: Option<&str>,
+    target: Option<&str>,
+    no_cache: bool,
+) -> Result<(), String> {
+    // Handle --target all (build for every supported target)
+    if target == Some("all") {
+        let stem = std::path::Path::new(file)
+            .file_stem()
+            .unwrap_or(std::ffi::OsStr::new(file))
+            .to_string_lossy();
+        let mut failures = Vec::new();
+        for t in cross_compile::SUPPORTED_TARGETS {
+            let ext = if cross_compile::is_windows_target(t) {
+                ".exe"
+            } else {
+                ""
+            };
+            let target_output = format!("{stem}-{t}{ext}");
+            eprintln!("\n━━━ Building for {t} ━━━");
+            if let Err(e) = run_build(file, Some(&target_output), includes, None, Some(t), no_cache) {
+                eprintln!("Error: {e}");
+                failures.push(*t);
+            }
+        }
+        if !failures.is_empty() {
+            return Err(format!(
+                "failed to build for {} target(s): {}\n  Hint: re-run a single target for details: `sema build --target <target> {}`\n  Hint: use `--runtime /path/to/sema` if downloads fail, or install a released version of sema.",
+                failures.len(),
+                failures.join(", "),
+                file
+            ));
+        }
+        return Ok(());
+    }
+
     let path = std::path::Path::new(file);
 
     // Validate input file exists
     if !path.exists() {
-        eprintln!("Error: source file not found: {file}");
-        std::process::exit(1);
+        return Err(format!("source file not found: {file}"));
     }
 
     let source = match std::fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error reading {file}: {e}");
-            std::process::exit(1);
+            return Err(format!("reading {file}: {e}"));
         }
     };
 
@@ -858,16 +927,14 @@ fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Opt
     let result = match interpreter.compile_to_bytecode(&source) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("Compile error: {}", e.inner());
-            std::process::exit(1);
+            return Err(format!("compile error: {}", e.inner()));
         }
     };
 
     let bytecode = match sema_vm::serialize_to_bytes(&result, source_hash) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("Serialization error: {}", e.inner());
-            std::process::exit(1);
+            return Err(format!("serialization error: {}", e.inner()));
         }
     };
 
@@ -877,8 +944,7 @@ fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Opt
     let imports = match import_tracer::trace_imports(path) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Error tracing imports: {e}");
-            std::process::exit(1);
+            return Err(format!("tracing imports: {e}"));
         }
     };
 
@@ -964,25 +1030,83 @@ fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Opt
         Some(o) => std::path::PathBuf::from(o),
         None => {
             let stem = path.file_stem().unwrap_or(path.as_os_str());
-            std::path::PathBuf::from(stem)
+            let needs_exe = target
+                .and_then(|t| cross_compile::resolve_target(t).ok())
+                .is_some_and(cross_compile::is_windows_target)
+                || (target.is_none() && cfg!(windows));
+            if needs_exe {
+                std::path::PathBuf::from(format!("{}.exe", stem.to_string_lossy()))
+            } else {
+                std::path::PathBuf::from(stem)
+            }
         }
     };
 
+    // Check that output doesn't overwrite the source file
+    let input_canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let output_canonical =
+        std::fs::canonicalize(&output_path).unwrap_or_else(|_| output_path.clone());
+    if input_canonical == output_canonical {
+        return Err(format!(
+            "Output path would overwrite the source file '{}'.\n  Hint: use `-o <output>` to specify a different output path, or rename your source file to use a .sema extension.",
+            path.display()
+        ));
+    }
+
+    // Resolve target triple for later use
+    let resolved_target = target.and_then(|t| cross_compile::resolve_target(t).ok());
+
     // Determine runtime binary
-    let runtime_path = match runtime {
-        Some(r) => std::path::PathBuf::from(r),
-        None => match std::env::current_exe() {
+    let runtime_path = if let Some(r) = runtime {
+        // Validate runtime binary format against target if both are specified
+        if let Some(resolved) = resolved_target {
+            let runtime_bytes = std::fs::read(r)
+                .map_err(|e| format!("cannot read --runtime file '{}': {e}", r))?;
+            let detected = cross_compile::detect_binary_format(&runtime_bytes);
+            let expected = cross_compile::expected_format(resolved);
+            if let Some(det) = detected {
+                if det != expected {
+                    return Err(format!(
+                        "Runtime binary format mismatch: {resolved} expects {expected} but --runtime file is {det}\n  Hint: provide a {expected} binary built for {resolved}, or omit --runtime to download automatically."
+                    ));
+                }
+            }
+        }
+        std::path::PathBuf::from(r)
+    } else if let Some(t) = target {
+        let resolved = match cross_compile::resolve_target(t) {
+            Ok(t) => t,
+            Err(e) => {
+                return Err(e.to_string());
+            }
+        };
+        if cross_compile::is_host_target(resolved) {
+            eprintln!("  Target {resolved} matches host — using local runtime (no download)");
+            match std::env::current_exe() {
+                Ok(p) => p,
+                Err(e) => {
+                    return Err(format!("cannot determine current executable path: {e}"));
+                }
+            }
+        } else {
+            match cross_compile::ensure_runtime(resolved, no_cache) {
+                Ok(p) => p,
+                Err(e) => {
+                    return Err(e.to_string());
+                }
+            }
+        }
+    } else {
+        match std::env::current_exe() {
             Ok(p) => p,
             Err(e) => {
-                eprintln!("Error: cannot determine current executable path: {e}");
-                std::process::exit(1);
+                return Err(format!("cannot determine current executable path: {e}"));
             }
-        },
+        }
     };
 
     if let Err(e) = write_executable_platform(&runtime_path, &output_path, &archive_bytes) {
-        eprintln!("Error writing executable: {e}");
-        std::process::exit(1);
+        return Err(format!("writing executable: {e}"));
     }
 
     eprintln!(
@@ -993,50 +1117,84 @@ fn run_build(file: &str, output: Option<&str>, includes: &[String], runtime: Opt
             .unwrap_or(0),
         files.len()
     );
+
+    if let Some(resolved) = resolved_target {
+        if !cross_compile::is_host_target(resolved) {
+            eprintln!("  Note: this binary targets {resolved} and won't run on your current machine.");
+        }
+    }
+
+    Ok(())
 }
 
-/// Write the executable using platform-specific injection.
+/// Write the executable using format-aware injection.
+///
+/// Detects the binary format at runtime (not compile-time) so that
+/// cross-compilation works: e.g. injecting into an ELF binary from macOS.
+/// Note: libsui uses pure Rust for Mach-O ad-hoc signing (sha2 + object crate),
+/// so cross-injecting Mach-O from Linux works without macOS tools.
 fn write_executable_platform(
     runtime_path: &std::path::Path,
     output_path: &std::path::Path,
     archive_bytes: &[u8],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    #[cfg(target_os = "macos")]
-    {
-        let runtime = std::fs::read(runtime_path)?;
-        let mut out = std::fs::File::create(output_path)?;
-        libsui::Macho::from(runtime)?
-            .write_section("semaexec", archive_bytes.to_vec())?
-            .build_and_sign(&mut out)?;
+    let runtime = std::fs::read(runtime_path)?;
 
-        #[cfg(unix)]
+    let format = cross_compile::detect_binary_format(&runtime).ok_or_else(|| {
+        if runtime.len() < 4 {
+            "runtime binary too small to detect format".to_string()
+        } else if runtime[..4].iter().all(|&b| b.is_ascii_graphic() || b.is_ascii_whitespace())
+            || (runtime.len() >= 3 && runtime[..3] == [0xEF, 0xBB, 0xBF])
         {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o755);
-            std::fs::set_permissions(output_path, perms)?;
+            format!(
+                "unrecognized binary format (magic: {:02X} {:02X} {:02X} {:02X})\n  \
+                 This looks like a source file, not a compiled binary.",
+                runtime[0], runtime[1], runtime[2], runtime[3]
+            )
+        } else if (runtime[0] == 0x50 && runtime[1] == 0x4B)  // ZIP (PK)
+            || (runtime[0] == 0x1F && runtime[1] == 0x8B)      // gzip
+            || (runtime[..4] == [0xFD, 0x37, 0x7A, 0x58])      // xz
+        {
+            format!(
+                "unrecognized binary format (magic: {:02X} {:02X} {:02X} {:02X})\n  \
+                 This looks like an archive. Extract it first, or omit --runtime to let sema download automatically.",
+                runtime[0], runtime[1], runtime[2], runtime[3]
+            )
+        } else {
+            format!(
+                "unrecognized binary format (magic: {:02X} {:02X} {:02X} {:02X})\n  \
+                 The --runtime file doesn't appear to be a valid sema executable.",
+                runtime[0], runtime[1], runtime[2], runtime[3]
+            )
         }
+    })?;
 
-        return Ok(());
+    match format {
+        cross_compile::BinaryFormat::MachO => {
+            let mut out = std::fs::File::create(output_path)?;
+            libsui::Macho::from(runtime)?
+                .write_section("semaexec", archive_bytes.to_vec())?
+                .build_and_sign(&mut out)?;
+        }
+        cross_compile::BinaryFormat::Pe => {
+            let mut out = std::fs::File::create(output_path)?;
+            libsui::PortableExecutable::from(&runtime)?
+                .write_resource("semaexec", archive_bytes.to_vec())?
+                .build(&mut out)?;
+        }
+        cross_compile::BinaryFormat::Elf => {
+            archive::write_bundled_executable_from_bytes(&runtime, output_path, archive_bytes)?;
+            return Ok(());
+        }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(unix)]
     {
-        let runtime = std::fs::read(runtime_path)?;
-        let mut out = std::fs::File::create(output_path)?;
-        libsui::PortableExecutable::from(&runtime)?
-            .write_resource(&["semaexec"], archive_bytes.to_vec())?
-            .build(&mut out)?;
-        return Ok(());
+        use std::os::unix::fs::PermissionsExt;
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(output_path, perms)?;
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        archive::write_bundled_executable(runtime_path, output_path, archive_bytes)?;
-        return Ok(());
-    }
-
-    // Unreachable, but satisfies the compiler for all cfg combinations
-    #[allow(unreachable_code)]
     Ok(())
 }
 
