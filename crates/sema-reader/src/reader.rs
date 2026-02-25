@@ -9,6 +9,7 @@ struct Parser {
     tokens: Vec<SpannedToken>,
     pos: usize,
     span_map: SpanMap,
+    symbol_spans: Vec<(String, Span)>,
 }
 
 impl Parser {
@@ -17,6 +18,7 @@ impl Parser {
             tokens,
             pos: 0,
             span_map: SpanMap::new(),
+            symbol_spans: Vec::new(),
         }
     }
 
@@ -136,7 +138,13 @@ impl Parser {
             }
             Some(Token::BytevectorStart) => self.parse_bytevector(),
             Some(Token::ShortLambdaStart) => self.parse_short_lambda(),
-            Some(_) => self.parse_atom(),
+            Some(_) => {
+                let val = self.parse_atom()?;
+                if let Some(name) = val.as_symbol() {
+                    self.symbol_spans.push((name, span));
+                }
+                Ok(val)
+            }
         }
     }
 
@@ -351,6 +359,50 @@ impl Parser {
         ]))
     }
 
+    /// After a parse error, skip tokens until we reach a position that
+    /// could plausibly start a new top-level expression (depth-0 open bracket,
+    /// quote, or atom). This enables error recovery in `read_many_recover`.
+    fn recover_to_next_expr(&mut self) {
+        let mut depth: usize = 0;
+        while let Some(tok) = self.peek() {
+            match tok {
+                // Opening brackets increase depth
+                Token::LParen | Token::LBracket | Token::LBrace
+                | Token::ShortLambdaStart | Token::BytevectorStart => {
+                    if depth == 0 {
+                        // This could start a new top-level form — stop here
+                        return;
+                    }
+                    self.advance();
+                    depth += 1;
+                }
+                // Closing brackets decrease depth
+                Token::RParen | Token::RBracket | Token::RBrace => {
+                    if depth == 0 {
+                        // Stray closer at top level — stop and let parse_expr report it
+                        return;
+                    }
+                    self.advance();
+                    depth -= 1;
+                }
+                // Quote-like prefixes at depth 0 could start a new form
+                Token::Quote | Token::Quasiquote | Token::Unquote | Token::UnquoteSplice => {
+                    if depth == 0 {
+                        return;
+                    }
+                    self.advance();
+                }
+                // Atoms at depth 0 could be a top-level expression
+                _ => {
+                    if depth == 0 {
+                        return;
+                    }
+                    self.advance();
+                }
+            }
+        }
+    }
+
     fn parse_atom(&mut self) -> Result<Value, SemaError> {
         let span = self.span();
         match self.advance() {
@@ -555,6 +607,43 @@ pub fn read_many_with_spans(input: &str) -> Result<(Vec<Value>, SpanMap), SemaEr
         exprs.push(parser.parse_expr()?);
     }
     Ok((exprs, parser.span_map))
+}
+
+/// Read all s-expressions and return spans for both compound expressions and individual symbols.
+/// Symbol spans enable precise go-to-definition (jumping to the name, not the whole form).
+#[allow(clippy::type_complexity)]
+pub fn read_many_with_symbol_spans(input: &str) -> Result<(Vec<Value>, SpanMap, Vec<(String, Span)>), SemaError> {
+    let tokens = tokenize(input)?;
+    let mut parser = Parser::new(tokens);
+    let mut exprs = Vec::new();
+    while parser.peek().is_some() {
+        exprs.push(parser.parse_expr()?);
+    }
+    Ok((exprs, parser.span_map, parser.symbol_spans))
+}
+
+/// Read all s-expressions with error recovery.
+/// On parse errors, skips to the next top-level form and continues.
+/// Returns (successfully parsed forms, span map, collected errors).
+/// Tokenizer errors are returned as a single error with no parsed forms.
+pub fn read_many_with_spans_recover(input: &str) -> (Vec<Value>, SpanMap, Vec<SemaError>) {
+    let tokens = match tokenize(input) {
+        Ok(t) => t,
+        Err(e) => return (vec![], SpanMap::new(), vec![e]),
+    };
+    let mut parser = Parser::new(tokens);
+    let mut exprs = Vec::new();
+    let mut errors = Vec::new();
+    while parser.peek().is_some() {
+        match parser.parse_expr() {
+            Ok(expr) => exprs.push(expr),
+            Err(err) => {
+                errors.push(err);
+                parser.recover_to_next_expr();
+            }
+        }
+    }
+    (exprs, parser.span_map, errors)
 }
 
 #[cfg(test)]
@@ -1712,5 +1801,123 @@ mod tests {
 
         let val = read(":foo").unwrap();
         assert!(val.as_keyword().is_some());
+    }
+
+    // ── Error recovery tests ─────────────────────────────────────
+
+    #[test]
+    fn recover_valid_input_no_errors() {
+        let (exprs, _, errors) = read_many_with_spans_recover("(+ 1 2) (- 3 4)");
+        assert!(errors.is_empty());
+        assert_eq!(exprs.len(), 2);
+    }
+
+    #[test]
+    fn recover_stray_closer_then_valid() {
+        // Stray `)` then a valid form
+        let (exprs, _, errors) = read_many_with_spans_recover(") (+ 1 2)");
+        assert_eq!(errors.len(), 1);
+        assert_eq!(exprs.len(), 1);
+    }
+
+    #[test]
+    fn recover_unclosed_then_valid() {
+        // Unclosed list, then a valid form on the next line
+        let (_exprs, _, errors) = read_many_with_spans_recover("(define x\n(+ 1 2)");
+        // The first `(define x` consumes tokens including `(+ 1 2)` as part of
+        // its unterminated body, then hits EOF → 1 error, the (+ 1 2) is inside it
+        assert_eq!(errors.len(), 1);
+        // The second form got consumed by the unterminated first form
+        // so recovery can't salvage it — this is expected
+    }
+
+    #[test]
+    fn recover_multiple_stray_closers() {
+        let (exprs, _, errors) = read_many_with_spans_recover(") ] } (define x 1)");
+        assert_eq!(errors.len(), 3);
+        assert_eq!(exprs.len(), 1);
+        assert!(exprs[0].as_list().is_some());
+    }
+
+    #[test]
+    fn recover_mismatched_bracket() {
+        // Mismatched bracket: ( closed with ]
+        let (exprs, _, errors) = read_many_with_spans_recover("(define x] (+ 1 2)");
+        assert!(!errors.is_empty());
+        // After the mismatch error, recovery should find `(+ 1 2)`
+        assert!(!exprs.is_empty());
+    }
+
+    #[test]
+    fn recover_empty_input() {
+        let (exprs, _, errors) = read_many_with_spans_recover("");
+        assert!(errors.is_empty());
+        assert!(exprs.is_empty());
+    }
+
+    #[test]
+    fn recover_only_errors() {
+        let (exprs, _, errors) = read_many_with_spans_recover(") )");
+        assert_eq!(errors.len(), 2);
+        assert!(exprs.is_empty());
+    }
+
+    #[test]
+    fn recover_valid_between_errors() {
+        // error, valid, error
+        let (exprs, _, errors) = read_many_with_spans_recover(") (+ 1 2) )");
+        assert_eq!(errors.len(), 2);
+        assert_eq!(exprs.len(), 1);
+    }
+
+    // ── symbol span tracking ──
+
+    #[test]
+    fn test_symbol_spans_basic() {
+        let (_, _, sym_spans) = read_many_with_symbol_spans("(define x 42)").unwrap();
+        // Should record "define" and "x" (not 42 — it's an int, not a symbol)
+        let names: Vec<&str> = sym_spans.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"define"), "missing define in {:?}", names);
+        assert!(names.contains(&"x"), "missing x in {:?}", names);
+        assert_eq!(names.len(), 2);
+    }
+
+    #[test]
+    fn test_symbol_spans_positions() {
+        let (_, _, sym_spans) = read_many_with_symbol_spans("(defun foo (x) x)").unwrap();
+        // "foo" should have a precise span
+        let foo = sym_spans.iter().find(|(n, _)| n == "foo").unwrap();
+        assert_eq!(foo.1.line, 1);
+        assert_eq!(foo.1.col, 8); // 1-indexed: "(defun " = 7 chars, foo starts at col 8
+    }
+
+    #[test]
+    fn test_symbol_spans_no_synthetic() {
+        // '(a b) desugars to (quote (a b)) — "quote" should NOT appear in symbol_spans
+        let (_, _, sym_spans) = read_many_with_symbol_spans("'(a b)").unwrap();
+        let names: Vec<&str> = sym_spans.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(!names.contains(&"quote"), "synthetic 'quote' should not be in symbol_spans");
+        assert!(names.contains(&"a"));
+        assert!(names.contains(&"b"));
+    }
+
+    #[test]
+    fn test_symbol_spans_multiple_forms() {
+        let (_, _, sym_spans) = read_many_with_symbol_spans("(define x 1)\n(defun f (a) a)").unwrap();
+        let names: Vec<&str> = sym_spans.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"define"));
+        assert!(names.contains(&"x"));
+        assert!(names.contains(&"defun"));
+        assert!(names.contains(&"f"));
+        assert!(names.contains(&"a"));
+        // "a" should appear twice (param + body reference)
+        assert_eq!(names.iter().filter(|&&n| n == "a").count(), 2);
+    }
+
+    #[test]
+    fn test_symbol_spans_nil_excluded() {
+        // "nil" parses as Value::nil(), not a symbol — should not be in symbol_spans
+        let (_, _, sym_spans) = read_many_with_symbol_spans("nil").unwrap();
+        assert!(sym_spans.is_empty());
     }
 }

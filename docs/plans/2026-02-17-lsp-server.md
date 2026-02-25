@@ -653,11 +653,13 @@ When stateless eval becomes a bottleneck (large files, slow prefix, stateful wor
 | 0b | End positions on `Span` | Easy | ✅ Done |
 | T | Tree-sitter grammar + queries + editor configs | Easy–Medium | ✅ Done |
 | 1 | LSP: Parse diagnostics | Easy | ✅ Done |
-| 1b | LSP: Compile-time diagnostics (via sema-vm pipeline) | Medium | Not started |
+| 1b | LSP: Compile-time diagnostics (via sema-vm pipeline) | Medium | ✅ Done |
 | 2 | LSP: Completion | Medium | ✅ Done |
-| R | LSP: Runnable regions + eval bridge | Medium | ✅ CLI done (`sema eval`), CodeLens not started |
-| 3 | LSP: Go to definition | Hard | Not started |
-| 4 | LSP: Hover docs | Medium–Hard | Not started |
+| R | LSP: Runnable regions + eval bridge | Medium | ✅ Done (CLI + CodeLens + executeCommand) |
+| 3a | LSP: Import/load path resolution | Easy | ✅ Done |
+| 3b | LSP: Go to definition (user symbols) | Medium | ✅ Done |
+| 3c | LSP: Cross-file module definitions | Hard | ✅ Done |
+| 4 | LSP: Hover docs | Medium–Hard | ✅ Done |
 
 ### Implementation Order
 
@@ -667,10 +669,12 @@ When stateless eval becomes a bottleneck (large files, slow prefix, stateful wor
 4. ~~**Phase 1**~~ ✅ — LSP parse diagnostics (`crates/sema-lsp/`, `sema lsp` subcommand)
 5. ~~**Phase 2**~~ ✅ — LSP completion (special forms, builtins, user defs)
 6. ~~**Phase R (CLI)**~~ ✅ — `sema eval` subcommand with JSON envelope
-7. **Phase 1b** — compile-time diagnostics via `sema_vm::lower` → `resolve` → `compile` (catches unbound vars, arity errors without execution)
-8. **Phase R (LSP)** — CodeLens, executeCommand, `sema/evalResult` notifications
-9. **Phase 3a** — import path resolution (easy, do alongside Phase 2)
-10. **Phase 3b/3c + Phase 4** — incrementally as LSP matures
+7. ~~**Phase 1b**~~ ✅ — compile-time diagnostics via `sema_vm::compile_program` (catches unbound vars, arity errors)
+8. ~~**Phase R (LSP)**~~ ✅ — CodeLens, executeCommand, `sema/evalResult` notifications
+9. ~~**Phase 3a**~~ ✅ — import/load path resolution (go-to-definition for import strings)
+10. ~~**Phase 3b**~~ ✅ — go-to-definition for user-defined symbols (via SpanMap)
+11. ~~**Phase 4**~~ ✅ — hover documentation (builtin docs from website + user function signatures)
+12. ~~**Phase 3c**~~ ✅ — cross-file module definitions (go-to-definition + hover across imports)
 
 ---
 

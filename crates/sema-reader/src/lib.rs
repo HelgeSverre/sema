@@ -5,3 +5,5 @@ mod reader;
 pub use reader::read;
 pub use reader::read_many;
 pub use reader::read_many_with_spans;
+pub use reader::read_many_with_spans_recover;
+pub use reader::read_many_with_symbol_spans;
