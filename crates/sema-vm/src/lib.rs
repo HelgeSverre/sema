@@ -21,9 +21,9 @@ pub use core_expr::{
 };
 pub use disasm::disassemble;
 pub use emit::Emitter;
-pub use lower::lower;
+pub use lower::{lower, lower_with_spans};
 pub use opcodes::Op;
 pub use optimize::optimize as optimize_expr;
 pub use resolve::{resolve, resolve_with_locals};
 pub use serialize::{deserialize_from_bytes, is_bytecode_file, serialize_to_bytes};
-pub use vm::{compile_program, Closure, UpvalueCell, VM};
+pub use vm::{compile_program, compile_program_with_spans, Closure, UpvalueCell, VM};

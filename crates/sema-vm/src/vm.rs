@@ -1677,6 +1677,38 @@ fn vm_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
 
 /// Compile a sequence of Value ASTs through the full pipeline and produce
 /// the entry closure + function table ready for VM execution.
+pub fn compile_program_with_spans(
+    vals: &[Value],
+    span_map: &sema_core::SpanMap,
+) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
+    let mut resolved = Vec::new();
+    let mut total_locals: u16 = 0;
+    for val in vals {
+        let core = crate::lower::lower_with_spans(val, span_map)?;
+        let core = crate::optimize::optimize(core);
+        let (res, n) = crate::resolve::resolve_with_locals(&core)?;
+        total_locals = total_locals.max(n);
+        resolved.push(res);
+    }
+    let result = crate::compiler::compile_many_with_locals(&resolved, total_locals)?;
+
+    let functions: Vec<Rc<Function>> = result.functions.into_iter().map(Rc::new).collect();
+    let closure = Rc::new(Closure {
+        func: Rc::new(Function {
+            name: None,
+            chunk: result.chunk,
+            upvalue_descs: Vec::new(),
+            arity: 0,
+            has_rest: false,
+            local_names: Vec::new(),
+            source_file: None,
+        }),
+        upvalues: Vec::new(),
+    });
+
+    Ok((closure, functions))
+}
+
 pub fn compile_program(vals: &[Value]) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
@@ -1698,6 +1730,7 @@ pub fn compile_program(vals: &[Value]) -> Result<(Rc<Closure>, Vec<Rc<Function>>
             arity: 0,
             has_rest: false,
             local_names: Vec::new(),
+            source_file: None,
         }),
         upvalues: Vec::new(),
     });
@@ -2270,6 +2303,7 @@ mod tests {
             arity: 0,
             has_rest: false,
             local_names: vec![],
+            source_file: None,
         });
         let closure = Rc::new(Closure {
             func,
@@ -2282,6 +2316,27 @@ mod tests {
             Value::bool(true),
             "Op::Eq should coerce int 1 == float 1.0"
         );
+    }
+
+    #[test]
+    fn test_spans_in_compiled_chunks() {
+        let input = "(+ 1 2)\n(+ 3 4)";
+        let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
+        let (closure, _functions) = compile_program_with_spans(&vals, &span_map).unwrap();
+        assert!(
+            !closure.func.chunk.spans.is_empty(),
+            "spans should be populated"
+        );
+        // Verify spans have correct line numbers
+        let lines: Vec<u32> = closure
+            .func
+            .chunk
+            .spans
+            .iter()
+            .map(|(_, s)| s.line as u32)
+            .collect();
+        assert!(lines.contains(&1), "should have span on line 1");
+        assert!(lines.contains(&2), "should have span on line 2");
     }
 
     #[test]
@@ -2302,6 +2357,7 @@ mod tests {
             arity: 0,
             has_rest: false,
             local_names: vec![],
+            source_file: None,
         });
         let closure = Rc::new(Closure {
             func,

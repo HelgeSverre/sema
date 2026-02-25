@@ -195,6 +195,7 @@ pub fn optimize(expr: CoreExpr) -> CoreExpr {
         CoreExpr::Delay(e) => CoreExpr::Delay(Box::new(optimize(*e))),
         CoreExpr::Force(e) => CoreExpr::Force(Box::new(optimize(*e))),
         CoreExpr::Macroexpand(e) => CoreExpr::Macroexpand(Box::new(optimize(*e))),
+        CoreExpr::Spanned(span, inner) => CoreExpr::Spanned(span, Box::new(optimize(*inner))),
         // Pass through: Const, Var, Quote, DefineRecordType
         other => other,
     }

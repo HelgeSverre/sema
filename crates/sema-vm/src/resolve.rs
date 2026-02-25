@@ -405,6 +405,11 @@ fn resolve_expr_inner(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr,
         CoreExpr::Macroexpand(expr) => {
             Ok(ResolvedExpr::Macroexpand(Box::new(resolve_expr(expr, r)?)))
         }
+
+        CoreExpr::Spanned(span, inner) => {
+            let resolved = resolve_expr(inner, r)?;
+            Ok(ResolvedExpr::Spanned(*span, Box::new(resolved)))
+        }
     }
 }
 

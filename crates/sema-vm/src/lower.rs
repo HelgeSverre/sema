@@ -1,7 +1,8 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use sema_core::{intern, SemaError, Spur, Value, ValueView};
+use sema_core::{intern, SemaError, Span, SpanMap, Spur, Value, ValueView};
 
 use crate::core_expr::{CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry};
 
@@ -11,11 +12,34 @@ const MAX_LOWER_DEPTH: usize = 256;
 
 thread_local! {
     static LOWER_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static SPAN_MAP: RefCell<Option<SpanMap>> = const { RefCell::new(None) };
 }
 
 /// Lower a Value AST into CoreExpr IR.
 pub fn lower(expr: &Value) -> Result<CoreExpr, SemaError> {
     lower_expr(expr, false)
+}
+
+/// Lower a Value AST into CoreExpr IR, attaching source spans from the SpanMap.
+pub fn lower_with_spans(expr: &Value, span_map: &SpanMap) -> Result<CoreExpr, SemaError> {
+    SPAN_MAP.with(|sm| {
+        *sm.borrow_mut() = Some(span_map.clone());
+    });
+    let result = lower_expr(expr, false);
+    SPAN_MAP.with(|sm| {
+        *sm.borrow_mut() = None;
+    });
+    result
+}
+
+/// Look up the span for a list Value using its Rc pointer identity.
+fn lookup_span(val: &Value) -> Option<Span> {
+    if let Some(rc) = val.as_list_rc() {
+        let ptr = Rc::as_ptr(&rc) as usize;
+        SPAN_MAP.with(|sm| sm.borrow().as_ref().and_then(|map| map.get(&ptr).copied()))
+    } else {
+        None
+    }
 }
 
 /// Lower a sequence of expressions, marking the last as tail position.
@@ -80,7 +104,12 @@ fn lower_expr_inner(expr: &Value, tail: bool) -> Result<CoreExpr, SemaError> {
             if items.is_empty() {
                 return Ok(CoreExpr::Const(Value::nil()));
             }
-            lower_list(&items, tail)
+            let span = lookup_span(expr);
+            let inner = lower_list(&items, tail)?;
+            match span {
+                Some(s) => Ok(CoreExpr::Spanned(s, Box::new(inner))),
+                None => Ok(inner),
+            }
         }
 
         // Nil, Bool, Int, Float, String, Char, Keyword, Bytevector,

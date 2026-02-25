@@ -229,6 +229,10 @@ impl Compiler {
             ResolvedExpr::Delay(expr) => self.compile_delay(expr),
             ResolvedExpr::Force(expr) => self.compile_force(expr),
             ResolvedExpr::Macroexpand(expr) => self.compile_macroexpand(expr),
+            ResolvedExpr::Spanned(span, inner) => {
+                self.emit.emit_span(*span);
+                self.compile_expr(inner)
+            }
         }
     }
 
@@ -409,6 +413,7 @@ impl Compiler {
             arity: def.params.len() as u16,
             has_rest: def.rest.is_some(),
             local_names: Vec::new(),
+            source_file: None,
         };
         self.functions.push(func);
         self.functions.extend(child_functions);
@@ -660,6 +665,7 @@ impl Compiler {
             arity: params.len() as u16,
             has_rest: false,
             local_names: Vec::new(),
+            source_file: None,
         };
         self.functions.push(func);
         self.functions.extend(child_functions);

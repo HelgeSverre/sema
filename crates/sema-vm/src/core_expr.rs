@@ -1,4 +1,4 @@
-use sema_core::{Spur, Value};
+use sema_core::{Span, Spur, Value};
 
 /// How a variable reference was resolved by the resolver pass.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +141,8 @@ pub enum CoreExpr {
     Force(Box<CoreExpr>),
     /// Macroexpand
     Macroexpand(Box<CoreExpr>),
+    /// Source location annotation (transparent to evaluation)
+    Spanned(Span, Box<CoreExpr>),
 }
 
 /// A prompt entry: either a role-content form or an expression.
@@ -266,6 +268,8 @@ pub enum ResolvedExpr {
     Delay(Box<ResolvedExpr>),
     Force(Box<ResolvedExpr>),
     Macroexpand(Box<ResolvedExpr>),
+    /// Source location annotation (transparent to evaluation)
+    Spanned(Span, Box<ResolvedExpr>),
 }
 
 #[derive(Debug, Clone)]
