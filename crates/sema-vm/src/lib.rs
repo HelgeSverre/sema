@@ -2,6 +2,7 @@
 pub mod chunk;
 pub mod compiler;
 pub mod core_expr;
+pub mod debug;
 pub mod disasm;
 pub mod emit;
 pub mod lower;
@@ -19,6 +20,7 @@ pub use core_expr::{
     CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry, ResolvedExpr, ResolvedLambda, VarRef,
     VarResolution,
 };
+pub use debug::{DebugCommand, DebugEvent, DebugState, StepMode, StopReason};
 pub use disasm::disassemble;
 pub use emit::Emitter;
 pub use lower::{lower, lower_with_spans};

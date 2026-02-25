@@ -97,7 +97,41 @@ impl VM {
         self.run(ctx)
     }
 
+    pub fn execute_debug(
+        &mut self,
+        closure: Rc<Closure>,
+        ctx: &EvalContext,
+        debug: &mut crate::debug::DebugState,
+    ) -> Result<Value, SemaError> {
+        let base = self.stack.len();
+        let n_locals = closure.func.chunk.n_locals as usize;
+        self.stack.resize(base + n_locals, Value::nil());
+        self.frames.push(CallFrame {
+            closure,
+            pc: 0,
+            base,
+            open_upvalues: None,
+        });
+        self.run_debug(ctx, debug)
+    }
+
     fn run(&mut self, ctx: &EvalContext) -> Result<Value, SemaError> {
+        self.run_inner(ctx, None)
+    }
+
+    fn run_debug(
+        &mut self,
+        ctx: &EvalContext,
+        debug: &mut crate::debug::DebugState,
+    ) -> Result<Value, SemaError> {
+        self.run_inner(ctx, Some(debug))
+    }
+
+    fn run_inner(
+        &mut self,
+        ctx: &EvalContext,
+        mut debug: Option<&mut crate::debug::DebugState>,
+    ) -> Result<Value, SemaError> {
         // Raw-pointer macros for reading operands without bounds checks in inner loop
         macro_rules! read_u16 {
             ($code:expr, $pc:expr) => {{
@@ -179,6 +213,36 @@ impl VM {
                 debug_assert!(pc < code_len, "pc {pc} out of bounds (len {code_len})");
                 let op = unsafe { *code.add(pc) };
                 pc += 1;
+
+                // Debug hook: check at span boundaries
+                if let Some(ref mut dbg) = debug {
+                    let pc32 = (pc - 1) as u32;
+                    let func = &self.frames[fi].closure.func;
+                    let stop_info = func
+                        .chunk
+                        .spans
+                        .binary_search_by_key(&pc32, |(p, _)| *p)
+                        .ok()
+                        .map(|idx| {
+                            let line = func.chunk.spans[idx].1.line as u32;
+                            let file = func.source_file.clone();
+                            (file, line)
+                        });
+                    if let Some((file, line)) = stop_info {
+                        let frame_depth = self.frames.len();
+                        if dbg.should_stop(file.as_ref(), line, frame_depth) {
+                            self.frames[fi].pc = pc;
+                            let reason = if dbg.pause_requested {
+                                crate::debug::StopReason::Pause
+                            } else if dbg.step_mode != crate::debug::StepMode::Continue {
+                                crate::debug::StopReason::Step
+                            } else {
+                                crate::debug::StopReason::Breakpoint
+                            };
+                            dbg.handle_stop(file.as_ref(), line, frame_depth, reason);
+                        }
+                    }
+                }
 
                 match op {
                     // --- Constants & stack ---
@@ -2316,6 +2380,43 @@ mod tests {
             Value::bool(true),
             "Op::Eq should coerce int 1 == float 1.0"
         );
+    }
+
+    #[test]
+    fn test_debug_hook_stops_at_span() {
+        use crate::debug::{DebugCommand, DebugEvent, DebugState, StepMode};
+        use std::sync::mpsc;
+
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+
+        let input = "(+ 1 2)\n(+ 3 4)";
+        let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
+        let (closure, functions) = compile_program_with_spans(&vals, &span_map).unwrap();
+
+        let (event_tx, event_rx) = mpsc::channel();
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let mut debug_state = DebugState::new(event_tx, cmd_rx);
+        debug_state.step_mode = StepMode::StepInto;
+
+        // Send Continue commands so the VM doesn't block forever
+        cmd_tx.send(DebugCommand::Continue).unwrap();
+        cmd_tx.send(DebugCommand::Continue).unwrap();
+
+        let mut vm = VM::new(globals, functions);
+        let result = vm.execute_debug(closure, &ctx, &mut debug_state).unwrap();
+        assert_eq!(result, Value::int(7));
+
+        // Should have received at least one Stopped event
+        let event = event_rx.try_recv();
+        assert!(
+            event.is_ok(),
+            "should have received a Stopped event from debug hook"
+        );
+        match event.unwrap() {
+            DebugEvent::Stopped { .. } => {} // expected
+            other => panic!("expected Stopped event, got {other:?}"),
+        }
     }
 
     #[test]
