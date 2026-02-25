@@ -2432,6 +2432,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "sema-dap"
+version = "1.12.0"
+dependencies = [
+ "sema-core",
+ "sema-eval",
+ "sema-reader",
+ "sema-stdlib",
+ "sema-vm",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "sema-eval"
 version = "1.12.0"
 dependencies = [
@@ -2465,6 +2479,7 @@ dependencies = [
  "reqwest",
  "rustyline",
  "sema-core",
+ "sema-dap",
  "sema-eval",
  "sema-fmt",
  "sema-llm",

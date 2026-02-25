@@ -20,7 +20,10 @@ pub use core_expr::{
     CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry, ResolvedExpr, ResolvedLambda, VarRef,
     VarResolution,
 };
-pub use debug::{DebugCommand, DebugEvent, DebugState, StepMode, StopReason};
+pub use debug::{
+    decode_scope_ref, scope_locals_ref, scope_upvalues_ref, DebugCommand, DebugEvent, DebugState,
+    ScopeKind, StepMode, StopReason,
+};
 pub use disasm::disassemble;
 pub use emit::Emitter;
 pub use lower::{lower, lower_with_spans};
@@ -28,4 +31,7 @@ pub use opcodes::Op;
 pub use optimize::optimize as optimize_expr;
 pub use resolve::{resolve, resolve_with_locals};
 pub use serialize::{deserialize_from_bytes, is_bytecode_file, serialize_to_bytes};
-pub use vm::{compile_program, compile_program_with_spans, Closure, UpvalueCell, VM};
+pub use vm::{
+    compile_program, compile_program_with_spans, compile_program_with_spans_and_source, Closure,
+    UpvalueCell, VM,
+};

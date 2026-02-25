@@ -52,6 +52,29 @@ Go-to-definition works even when the file has syntax errors.
 
 Find every occurrence of a symbol across all open documents. Searches all files currently tracked by the LSP server.
 
+### Document Symbols
+
+Outline view and breadcrumbs for the current file. Lists all top-level definitions (`define`, `defun`, `defn`, `defmacro`, `defagent`, `deftool`) with their kind, full form range, and precise name selection range.
+
+### Workspace Symbols
+
+Fuzzy search for symbols across all open documents. Triggered via the command palette or keybinding (e.g., `Ctrl+T` in VS Code). Matches symbol names case-insensitively.
+
+### Signature Help
+
+Parameter hints shown while typing inside function calls. Triggered by `(` and space characters:
+
+- **User-defined functions** — shows the function name and parameter list with active parameter highlighting
+- **Imported functions** — shows the signature from the imported module
+- **Built-in functions** — shows the function documentation from the stdlib reference
+
+### Rename
+
+Rename a user-defined symbol across all open documents:
+
+- **Prepare rename** — verifies the cursor is on a renameable symbol (not a built-in or special form) and returns its range
+- **Rename** — finds all occurrences across all open documents and generates text edits
+
 ### Code Lenses
 
 Every top-level expression shows a **▶ Run** code lens above it. Clicking it evaluates all forms up to and including that expression in a sandboxed subprocess using `sema eval`, and reports the result (value, stdout, stderr, timing) back to the editor via a custom `sema/evalResult` notification.
@@ -130,6 +153,4 @@ The server sends a custom `sema/evalResult` notification after executing a code 
 
 The LSP server provides a complete editing experience for Sema. Planned additions include:
 
-- Rename support
-- Signature help
 - VS Code extension integration

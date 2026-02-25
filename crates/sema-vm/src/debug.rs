@@ -50,7 +50,46 @@ pub enum DebugCommand {
         lines: Vec<u32>,
         reply: mpsc::SyncSender<Vec<u32>>,
     },
+    GetStackTrace {
+        reply: mpsc::SyncSender<Vec<DapStackFrame>>,
+    },
+    GetScopes {
+        frame_id: usize,
+        reply: mpsc::SyncSender<Vec<DapScope>>,
+    },
+    GetVariables {
+        reference: u64,
+        reply: mpsc::SyncSender<Vec<DapVariable>>,
+    },
     Disconnect,
+}
+
+/// Decoded scope variable reference.
+pub enum ScopeKind {
+    Locals(usize),
+    Upvalues(usize),
+}
+
+/// Encode a locals scope reference for the given frame.
+pub fn scope_locals_ref(frame_id: usize) -> u64 {
+    (frame_id as u64) * 2 + 1
+}
+
+/// Encode an upvalues scope reference for the given frame.
+pub fn scope_upvalues_ref(frame_id: usize) -> u64 {
+    (frame_id as u64) * 2 + 2
+}
+
+/// Decode a scope variable reference into frame ID and kind.
+pub fn decode_scope_ref(reference: u64) -> Option<ScopeKind> {
+    if reference == 0 {
+        return None;
+    }
+    if reference % 2 == 1 {
+        Some(ScopeKind::Locals(((reference - 1) / 2) as usize))
+    } else {
+        Some(ScopeKind::Upvalues(((reference - 2) / 2) as usize))
+    }
 }
 
 /// Events sent from the VM backend to the DAP frontend.
@@ -137,62 +176,6 @@ impl DebugState {
                     }
             }
             StepMode::StepOut => frame_depth < self.step_frame_depth,
-        }
-    }
-
-    /// Block the VM thread, send a Stopped event, and wait for a resume command.
-    pub fn handle_stop(
-        &mut self,
-        file: Option<&PathBuf>,
-        line: u32,
-        frame_depth: usize,
-        reason: StopReason,
-    ) {
-        self.last_stop_line = file.map(|f| (f.clone(), line));
-        self.pause_requested = false;
-
-        let _ = self.event_tx.send(DebugEvent::Stopped {
-            reason,
-            description: None,
-        });
-
-        loop {
-            match self.command_rx.recv() {
-                Ok(DebugCommand::Continue) => {
-                    self.step_mode = StepMode::Continue;
-                    break;
-                }
-                Ok(DebugCommand::StepInto) => {
-                    self.step_mode = StepMode::StepInto;
-                    self.step_frame_depth = frame_depth;
-                    break;
-                }
-                Ok(DebugCommand::StepOver) => {
-                    self.step_mode = StepMode::StepOver;
-                    self.step_frame_depth = frame_depth;
-                    break;
-                }
-                Ok(DebugCommand::StepOut) => {
-                    self.step_mode = StepMode::StepOut;
-                    self.step_frame_depth = frame_depth;
-                    break;
-                }
-                Ok(DebugCommand::Pause) => {
-                    // Already paused
-                }
-                Ok(DebugCommand::SetBreakpoints { file, lines, reply }) => {
-                    let ids = self.set_breakpoints(&file, &lines);
-                    let _ = reply.send(ids);
-                }
-                Ok(DebugCommand::Disconnect) => {
-                    self.step_mode = StepMode::Continue;
-                    break;
-                }
-                Err(_) => {
-                    self.step_mode = StepMode::Continue;
-                    break;
-                }
-            }
         }
     }
 

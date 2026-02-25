@@ -196,6 +196,7 @@ impl VM {
 
         // Two-level dispatch: outer loop caches frame locals, inner loop dispatches opcodes.
         // We only break to the outer loop when frames change (Call/TailCall/Return/exceptions).
+        let mut debug_poll_counter: u32 = 0;
         'dispatch: loop {
             let fi = self.frames.len() - 1;
             let frame = &self.frames[fi];
@@ -206,6 +207,20 @@ impl VM {
             let has_open_upvalues = frame.open_upvalues.is_some();
             #[cfg(debug_assertions)]
             let code_len = frame.closure.func.chunk.code.len();
+
+            // Cache the next span boundary to avoid binary_search per instruction
+            let (mut next_span_idx, mut next_span_pc) = if debug.is_some() {
+                let spans = &frame.closure.func.chunk.spans;
+                let idx = match spans.binary_search_by_key(&(pc as u32), |(p, _)| *p) {
+                    Ok(i) => i,
+                    Err(i) => i,
+                };
+                let npc = spans.get(idx).map(|(p, _)| *p).unwrap_or(u32::MAX);
+                (idx, npc)
+            } else {
+                (0, u32::MAX)
+            };
+
             let _ = frame; // release borrow so we can mutate self
 
             loop {
@@ -214,21 +229,69 @@ impl VM {
                 let op = unsafe { *code.add(pc) };
                 pc += 1;
 
-                // Debug hook: check at span boundaries
+                // Debug hook: span-cached check and command polling
                 if let Some(ref mut dbg) = debug {
-                    let pc32 = (pc - 1) as u32;
-                    let func = &self.frames[fi].closure.func;
-                    let stop_info = func
-                        .chunk
-                        .spans
-                        .binary_search_by_key(&pc32, |(p, _)| *p)
-                        .ok()
-                        .map(|idx| {
-                            let line = func.chunk.spans[idx].1.line as u32;
-                            let file = func.source_file.clone();
-                            (file, line)
-                        });
-                    if let Some((file, line)) = stop_info {
+                    // Poll for Pause/Disconnect every 128 instructions
+                    debug_poll_counter = debug_poll_counter.wrapping_add(1);
+                    if debug_poll_counter & 127 == 0 {
+                        while let Ok(cmd) = dbg.command_rx.try_recv() {
+                            match cmd {
+                                crate::debug::DebugCommand::Pause => {
+                                    dbg.pause_requested = true;
+                                }
+                                crate::debug::DebugCommand::Disconnect => {
+                                    self.frames[fi].pc = pc;
+                                    return Ok(Value::nil());
+                                }
+                                crate::debug::DebugCommand::SetBreakpoints {
+                                    file,
+                                    lines,
+                                    reply,
+                                } => {
+                                    let ids = dbg.set_breakpoints(&file, &lines);
+                                    let _ = reply.send(ids);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+
+                    let op_pc = (pc - 1) as u32;
+                    // Fast path: skip if not at a span boundary (single integer compare)
+                    let at_span = if op_pc == next_span_pc {
+                        let spans = &self.frames[fi].closure.func.chunk.spans;
+                        let line = spans[next_span_idx].1.line as u32;
+                        let file = self.frames[fi].closure.func.source_file.clone();
+                        next_span_idx += 1;
+                        next_span_pc =
+                            spans.get(next_span_idx).map(|(p, _)| *p).unwrap_or(u32::MAX);
+                        Some((file, line))
+                    } else if op_pc > next_span_pc {
+                        // Jumped past — resync via binary search
+                        let spans = &self.frames[fi].closure.func.chunk.spans;
+                        match spans.binary_search_by_key(&op_pc, |(p, _)| *p) {
+                            Ok(i) => {
+                                let line = spans[i].1.line as u32;
+                                let file = self.frames[fi].closure.func.source_file.clone();
+                                next_span_idx = i + 1;
+                                next_span_pc = spans
+                                    .get(next_span_idx)
+                                    .map(|(p, _)| *p)
+                                    .unwrap_or(u32::MAX);
+                                Some((file, line))
+                            }
+                            Err(i) => {
+                                next_span_idx = i;
+                                next_span_pc =
+                                    spans.get(i).map(|(p, _)| *p).unwrap_or(u32::MAX);
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    if let Some((file, line)) = at_span {
                         let frame_depth = self.frames.len();
                         if dbg.should_stop(file.as_ref(), line, frame_depth) {
                             self.frames[fi].pc = pc;
@@ -239,7 +302,67 @@ impl VM {
                             } else {
                                 crate::debug::StopReason::Breakpoint
                             };
-                            dbg.handle_stop(file.as_ref(), line, frame_depth, reason);
+                            // Inline stop: send event and wait for resume
+                            dbg.last_stop_line = file.map(|f| (f.clone(), line));
+                            dbg.pause_requested = false;
+                            let _ = dbg.event_tx.send(crate::debug::DebugEvent::Stopped {
+                                reason,
+                                description: None,
+                            });
+                            loop {
+                                match dbg.command_rx.recv() {
+                                    Ok(crate::debug::DebugCommand::Continue) => {
+                                        dbg.step_mode = crate::debug::StepMode::Continue;
+                                        break;
+                                    }
+                                    Ok(crate::debug::DebugCommand::StepInto) => {
+                                        dbg.step_mode = crate::debug::StepMode::StepInto;
+                                        dbg.step_frame_depth = frame_depth;
+                                        break;
+                                    }
+                                    Ok(crate::debug::DebugCommand::StepOver) => {
+                                        dbg.step_mode = crate::debug::StepMode::StepOver;
+                                        dbg.step_frame_depth = frame_depth;
+                                        break;
+                                    }
+                                    Ok(crate::debug::DebugCommand::StepOut) => {
+                                        dbg.step_mode = crate::debug::StepMode::StepOut;
+                                        dbg.step_frame_depth = frame_depth;
+                                        break;
+                                    }
+                                    Ok(crate::debug::DebugCommand::Pause) => {}
+                                    Ok(crate::debug::DebugCommand::SetBreakpoints {
+                                        file,
+                                        lines,
+                                        reply,
+                                    }) => {
+                                        let ids = dbg.set_breakpoints(&file, &lines);
+                                        let _ = reply.send(ids);
+                                    }
+                                    Ok(crate::debug::DebugCommand::GetStackTrace { reply }) => {
+                                        let _ = reply.send(self.debug_stack_trace());
+                                    }
+                                    Ok(crate::debug::DebugCommand::GetScopes {
+                                        frame_id,
+                                        reply,
+                                    }) => {
+                                        let _ = reply.send(self.debug_scopes(frame_id));
+                                    }
+                                    Ok(crate::debug::DebugCommand::GetVariables {
+                                        reference,
+                                        reply,
+                                    }) => {
+                                        let _ = reply.send(self.debug_variables(reference));
+                                    }
+                                    Ok(crate::debug::DebugCommand::Disconnect) => {
+                                        return Ok(Value::nil());
+                                    }
+                                    Err(_) => {
+                                        dbg.step_mode = crate::debug::StepMode::Continue;
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1617,6 +1740,30 @@ impl VM {
             .collect()
     }
 
+    pub fn debug_scopes(&self, frame_id: usize) -> Vec<crate::debug::DapScope> {
+        let mut scopes = vec![crate::debug::DapScope {
+            name: "Locals".to_string(),
+            variables_reference: crate::debug::scope_locals_ref(frame_id),
+            expensive: false,
+        }];
+        if !self.debug_upvalues(frame_id).is_empty() {
+            scopes.push(crate::debug::DapScope {
+                name: "Closure".to_string(),
+                variables_reference: crate::debug::scope_upvalues_ref(frame_id),
+                expensive: false,
+            });
+        }
+        scopes
+    }
+
+    pub fn debug_variables(&self, reference: u64) -> Vec<crate::debug::DapVariable> {
+        match crate::debug::decode_scope_ref(reference) {
+            None => Vec::new(),
+            Some(crate::debug::ScopeKind::Locals(frame_id)) => self.debug_locals(frame_id),
+            Some(crate::debug::ScopeKind::Upvalues(frame_id)) => self.debug_upvalues(frame_id),
+        }
+    }
+
     fn span_at_pc(&self, frame: &CallFrame) -> (u64, u64) {
         let pc32 = frame.pc as u32;
         let spans = &frame.closure.func.chunk.spans;
@@ -1839,6 +1986,14 @@ pub fn compile_program_with_spans(
     vals: &[Value],
     span_map: &sema_core::SpanMap,
 ) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
+    compile_program_with_spans_and_source(vals, span_map, None)
+}
+
+pub fn compile_program_with_spans_and_source(
+    vals: &[Value],
+    span_map: &sema_core::SpanMap,
+    source_file: Option<std::path::PathBuf>,
+) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
     for val in vals {
@@ -1850,7 +2005,16 @@ pub fn compile_program_with_spans(
     }
     let result = crate::compiler::compile_many_with_locals(&resolved, total_locals)?;
 
-    let functions: Vec<Rc<Function>> = result.functions.into_iter().map(Rc::new).collect();
+    let functions: Vec<Rc<Function>> = result
+        .functions
+        .into_iter()
+        .map(|mut f| {
+            if f.source_file.is_none() {
+                f.source_file = source_file.clone();
+            }
+            Rc::new(f)
+        })
+        .collect();
     let closure = Rc::new(Closure {
         func: Rc::new(Function {
             name: None,
@@ -1859,7 +2023,7 @@ pub fn compile_program_with_spans(
             arity: 0,
             has_rest: false,
             local_names: Vec::new(),
-            source_file: None,
+            source_file,
         }),
         upvalues: Vec::new(),
     });

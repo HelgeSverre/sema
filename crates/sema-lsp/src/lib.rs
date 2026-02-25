@@ -11,6 +11,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 use sema_core::{Caps, SemaError, Sandbox, Span, SpanMap};
 
 mod builtin_docs;
+pub mod scope;
 
 // ── Public helpers (also used by tests) ──────────────────────────
 
@@ -377,6 +378,303 @@ pub fn import_paths_from_ast(ast: &[sema_core::Value]) -> Vec<String> {
         }
     }
     paths
+}
+
+/// Parse parameter names from a params string like "(a b)" or "(a b . rest)".
+fn parse_param_names(params_str: &str) -> Vec<String> {
+    let inner = params_str
+        .trim()
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .unwrap_or(params_str.trim());
+    // Strip line comments before splitting
+    let cleaned: String = inner
+        .lines()
+        .map(|line| line.split(';').next().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join(" ");
+    cleaned
+        .split_whitespace()
+        .filter(|&s| s != ".")
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Find the enclosing function call at the given cursor position.
+/// Returns `(function_name, active_parameter_index)` where active_parameter_index
+/// is the 0-based index of the argument the cursor is currently on.
+pub fn find_enclosing_call(text: &str, line: u32, character: u32) -> Option<(String, usize)> {
+    // Convert line/character to byte offset
+    let mut byte_offset = 0;
+    for (i, l) in text.split('\n').enumerate() {
+        if i == line as usize {
+            byte_offset += utf16_to_byte_offset(l, character);
+            break;
+        }
+        byte_offset += l.len() + 1;
+    }
+    let cursor = byte_offset.min(text.len());
+
+    // Ensure cursor is on a valid UTF-8 char boundary
+    let prefix = match text.get(..cursor) {
+        Some(s) => s,
+        None => return None,
+    };
+
+    // Forward scan tracking paren positions and string/comment state
+    let mut paren_stack: Vec<(usize, u8)> = Vec::new(); // (byte_pos, delimiter)
+    let mut in_string = false;
+    let mut escape = false;
+    let mut in_comment = false;
+
+    for (i, ch) in prefix.char_indices() {
+        if in_comment {
+            if ch == '\n' {
+                in_comment = false;
+            }
+            continue;
+        }
+        if in_string {
+            if escape {
+                escape = false;
+                continue;
+            }
+            if ch == '\\' {
+                escape = true;
+                continue;
+            }
+            if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            ';' => in_comment = true,
+            '"' => {
+                in_string = true;
+                escape = false;
+            }
+            '(' => paren_stack.push((i, b'(')),
+            ')' => {
+                paren_stack.pop();
+            }
+            '[' => paren_stack.push((i, b'[')),
+            ']' => {
+                paren_stack.pop();
+            }
+            '{' => paren_stack.push((i, b'{')),
+            '}' => {
+                paren_stack.pop();
+            }
+            _ => {}
+        }
+    }
+
+    // Find the innermost unclosed `(` (not `[` or `{`)
+    let paren_pos = paren_stack
+        .into_iter()
+        .rev()
+        .find(|&(_, ch)| ch == b'(')
+        .map(|(pos, _)| pos)?;
+
+    let after_paren = &text[paren_pos + 1..cursor];
+
+    // Extract function name (first whitespace-delimited token)
+    let trimmed = after_paren.trim_start();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let func_end = trimmed
+        .find(|ch: char| {
+            ch.is_whitespace() || matches!(ch, '(' | ')' | '[' | ']' | '{' | '}' | ';' | '"')
+        })
+        .unwrap_or(trimmed.len());
+    let func_name = &trimmed[..func_end];
+    if func_name.is_empty() {
+        return None;
+    }
+
+    // Count complete depth-0 arguments after function name
+    let rest = &trimmed[func_end..];
+    let mut arg_count = 0usize;
+    let mut nest = 0i32;
+    let mut in_atom = false;
+    let mut in_str = false;
+    let mut esc = false;
+    let mut in_cmt = false;
+
+    for ch in rest.chars() {
+        if in_cmt {
+            if ch == '\n' {
+                in_cmt = false;
+            }
+            continue;
+        }
+        if in_str {
+            if esc {
+                esc = false;
+                continue;
+            }
+            if ch == '\\' {
+                esc = true;
+                continue;
+            }
+            if ch == '"' {
+                in_str = false;
+                if nest == 0 {
+                    arg_count += 1;
+                    in_atom = false;
+                }
+            }
+            continue;
+        }
+        match ch {
+            ';' => {
+                in_cmt = true;
+                if nest == 0 && in_atom {
+                    arg_count += 1;
+                    in_atom = false;
+                }
+            }
+            '"' => {
+                in_str = true;
+                esc = false;
+                if nest == 0 && !in_atom {
+                    in_atom = true;
+                }
+            }
+            '(' | '[' | '{' => {
+                if nest == 0 && !in_atom {
+                    in_atom = true;
+                }
+                nest += 1;
+            }
+            ')' | ']' | '}' => {
+                if nest > 0 {
+                    nest -= 1;
+                    if nest == 0 && in_atom {
+                        arg_count += 1;
+                        in_atom = false;
+                    }
+                }
+            }
+            _ if ch.is_whitespace() => {
+                if nest == 0 && in_atom {
+                    arg_count += 1;
+                    in_atom = false;
+                }
+            }
+            _ => {
+                if nest == 0 && !in_atom {
+                    in_atom = true;
+                }
+            }
+        }
+    }
+
+    Some((func_name.to_string(), arg_count))
+}
+
+/// Build `DocumentSymbol` entries from a pre-parsed AST.
+#[allow(deprecated)]
+pub fn document_symbols_from_ast(
+    ast: &[sema_core::Value],
+    span_map: &SpanMap,
+    symbol_spans: &[(String, Span)],
+) -> Vec<DocumentSymbol> {
+    let mut symbols = Vec::new();
+    for expr in ast {
+        if let Some(items) = expr.as_list() {
+            if items.len() >= 2 {
+                if let Some(head) = items[0].as_symbol() {
+                    let (name, kind, name_range) = match head.as_str() {
+                        "defun" | "defn" => {
+                            if let Some(name) = items[1].as_symbol() {
+                                let fs = expr_span(expr, span_map);
+                                let nr = fs.and_then(|s| find_name_span(&name, s, symbol_spans));
+                                (name, SymbolKind::FUNCTION, nr)
+                            } else {
+                                continue;
+                            }
+                        }
+                        "defmacro" => {
+                            if let Some(name) = items[1].as_symbol() {
+                                let fs = expr_span(expr, span_map);
+                                let nr = fs.and_then(|s| find_name_span(&name, s, symbol_spans));
+                                (name, SymbolKind::OPERATOR, nr)
+                            } else {
+                                continue;
+                            }
+                        }
+                        "defagent" => {
+                            if let Some(name) = items[1].as_symbol() {
+                                let fs = expr_span(expr, span_map);
+                                let nr = fs.and_then(|s| find_name_span(&name, s, symbol_spans));
+                                (name, SymbolKind::CLASS, nr)
+                            } else {
+                                continue;
+                            }
+                        }
+                        "deftool" => {
+                            if let Some(name) = items[1].as_symbol() {
+                                let fs = expr_span(expr, span_map);
+                                let nr = fs.and_then(|s| find_name_span(&name, s, symbol_spans));
+                                (name, SymbolKind::METHOD, nr)
+                            } else {
+                                continue;
+                            }
+                        }
+                        "define" => {
+                            if let Some(name) = items[1].as_symbol() {
+                                let fs = expr_span(expr, span_map);
+                                let nr = fs.and_then(|s| find_name_span(&name, s, symbol_spans));
+                                (name, SymbolKind::VARIABLE, nr)
+                            } else if let Some(sig) = items[1].as_list() {
+                                if !sig.is_empty() {
+                                    if let Some(name) = sig[0].as_symbol() {
+                                        let ss = expr_span(&items[1], span_map);
+                                        let nr = ss.and_then(|s| {
+                                            find_name_span(&name, s, symbol_spans)
+                                        });
+                                        (name, SymbolKind::FUNCTION, nr)
+                                    } else {
+                                        continue;
+                                    }
+                                } else {
+                                    continue;
+                                }
+                            } else {
+                                continue;
+                            }
+                        }
+                        _ => continue,
+                    };
+
+                    let form_range = expr_range(expr, span_map).unwrap_or_default();
+                    let selection_range = name_range.unwrap_or(form_range);
+
+                    let detail = if kind == SymbolKind::FUNCTION {
+                        extract_params_from_ast(ast, &name)
+                    } else {
+                        None
+                    };
+
+                    symbols.push(DocumentSymbol {
+                        name,
+                        detail,
+                        kind,
+                        tags: None,
+                        deprecated: None,
+                        range: form_range,
+                        selection_range,
+                        children: None,
+                    });
+                }
+            }
+        }
+    }
+    symbols
 }
 
 // ── Custom notification: sema/evalResult ─────────────────────────
@@ -941,6 +1239,185 @@ mod tests {
         let paths = import_paths_from_ast(&ast);
         assert_eq!(paths, vec!["a.sema", "b.sema", "c.sema"]);
     }
+
+    // ── find_enclosing_call ──────────────────────────────────────
+
+    #[test]
+    fn enclosing_call_simple() {
+        // (foo |) — cursor after space, 0 args
+        let result = find_enclosing_call("(foo )", 0, 5);
+        assert_eq!(result, Some(("foo".to_string(), 0)));
+    }
+
+    #[test]
+    fn enclosing_call_one_arg() {
+        // (foo bar |) — cursor after bar, 1 complete arg
+        let result = find_enclosing_call("(foo bar )", 0, 9);
+        assert_eq!(result, Some(("foo".to_string(), 1)));
+    }
+
+    #[test]
+    fn enclosing_call_two_args() {
+        // (foo bar baz |)
+        let result = find_enclosing_call("(foo bar baz )", 0, 13);
+        assert_eq!(result, Some(("foo".to_string(), 2)));
+    }
+
+    #[test]
+    fn enclosing_call_nested() {
+        // (foo (bar |)) — cursor inside nested call
+        let result = find_enclosing_call("(foo (bar ))", 0, 10);
+        assert_eq!(result, Some(("bar".to_string(), 0)));
+    }
+
+    #[test]
+    fn enclosing_call_after_nested() {
+        // (foo (bar 1) |) — cursor after completed nested expr
+        let result = find_enclosing_call("(foo (bar 1) )", 0, 13);
+        assert_eq!(result, Some(("foo".to_string(), 1)));
+    }
+
+    #[test]
+    fn enclosing_call_multiline() {
+        let src = "(defun add\n  (a b)\n  (+ a b))";
+        // cursor on line 2, col 7: inside (+ a |b)
+        let result = find_enclosing_call(src, 2, 7);
+        assert_eq!(result, Some(("+".to_string(), 1)));
+    }
+
+    #[test]
+    fn enclosing_call_string_arg() {
+        // (foo "hello" |) — string counts as one arg
+        let result = find_enclosing_call("(foo \"hello\" )", 0, 13);
+        assert_eq!(result, Some(("foo".to_string(), 1)));
+    }
+
+    #[test]
+    fn enclosing_call_in_vector() {
+        // [1 2 |] — inside vector, not a call
+        let result = find_enclosing_call("[1 2 ]", 0, 5);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn enclosing_call_empty_parens() {
+        // (|) — cursor in empty parens, no function name
+        let result = find_enclosing_call("()", 0, 1);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn enclosing_call_with_comment() {
+        // Paren in comment should be ignored
+        let src = "; (not a call\n(foo bar )";
+        let result = find_enclosing_call(src, 1, 9);
+        assert_eq!(result, Some(("foo".to_string(), 1)));
+    }
+
+    #[test]
+    fn enclosing_call_string_with_paren() {
+        // Paren inside string should be ignored
+        let src = "(foo \"(not\" bar )";
+        let result = find_enclosing_call(src, 0, 16);
+        assert_eq!(result, Some(("foo".to_string(), 2)));
+    }
+
+    // ── parse_param_names ────────────────────────────────────────
+
+    #[test]
+    fn param_names_simple() {
+        assert_eq!(parse_param_names("(a b c)"), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn param_names_single() {
+        assert_eq!(parse_param_names("(x)"), vec!["x"]);
+    }
+
+    #[test]
+    fn param_names_variadic() {
+        assert_eq!(parse_param_names("(a b . rest)"), vec!["a", "b", "rest"]);
+    }
+
+    #[test]
+    fn param_names_empty() {
+        let result: Vec<String> = parse_param_names("()");
+        assert!(result.is_empty());
+    }
+
+    // ── document_symbols_from_ast ────────────────────────────────
+
+    #[test]
+    fn doc_symbols_defun() {
+        let src = "(defun foo (x) x)";
+        let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "foo");
+        assert_eq!(symbols[0].kind, SymbolKind::FUNCTION);
+        assert!(symbols[0].detail.is_some());
+    }
+
+    #[test]
+    fn doc_symbols_define_variable() {
+        let src = "(define x 42)";
+        let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "x");
+        assert_eq!(symbols[0].kind, SymbolKind::VARIABLE);
+        assert!(symbols[0].detail.is_none());
+    }
+
+    #[test]
+    fn doc_symbols_define_function_shorthand() {
+        let src = "(define (square x) (* x x))";
+        let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "square");
+        assert_eq!(symbols[0].kind, SymbolKind::FUNCTION);
+    }
+
+    #[test]
+    fn doc_symbols_defmacro() {
+        let src = "(defmacro unless (test body) `(if (not ,test) ,body))";
+        let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        assert_eq!(symbols.len(), 1);
+        assert_eq!(symbols[0].name, "unless");
+        assert_eq!(symbols[0].kind, SymbolKind::OPERATOR);
+    }
+
+    #[test]
+    fn doc_symbols_multiple() {
+        let src = "(define x 1)\n(defun f (a) a)\n(defmacro m (x) x)";
+        let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        assert_eq!(symbols.len(), 3);
+        assert_eq!(symbols[0].name, "x");
+        assert_eq!(symbols[1].name, "f");
+        assert_eq!(symbols[2].name, "m");
+    }
+
+    #[test]
+    fn doc_symbols_no_defs() {
+        let src = "(+ 1 2)\n(println \"hello\")";
+        let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        assert!(symbols.is_empty());
+    }
+
+    #[test]
+    fn doc_symbols_selection_range_is_name() {
+        let src = "(defun foo (x) x)";
+        let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        assert_eq!(symbols.len(), 1);
+        // selection_range should be just "foo", not the whole form
+        let sel = symbols[0].selection_range;
+        assert_eq!(sel.end.character - sel.start.character, 3); // "foo" = 3 chars
+    }
 }
 
 // ── Backend thread messages ──────────────────────────────────────
@@ -984,6 +1461,36 @@ enum LspRequest {
         position: Position,
         reply: tokio::sync::oneshot::Sender<Vec<Location>>,
     },
+    /// Document symbols request.
+    DocumentSymbols {
+        uri: Url,
+        reply: tokio::sync::oneshot::Sender<DocumentSymbolResponse>,
+    },
+    /// Workspace symbols request.
+    WorkspaceSymbols {
+        query: String,
+        #[allow(deprecated)]
+        reply: tokio::sync::oneshot::Sender<Vec<SymbolInformation>>,
+    },
+    /// Signature help request.
+    SignatureHelp {
+        uri: Url,
+        position: Position,
+        reply: tokio::sync::oneshot::Sender<Option<SignatureHelp>>,
+    },
+    /// Rename request.
+    Rename {
+        uri: Url,
+        position: Position,
+        new_name: String,
+        reply: tokio::sync::oneshot::Sender<Option<WorkspaceEdit>>,
+    },
+    /// Prepare rename request.
+    PrepareRename {
+        uri: Url,
+        position: Position,
+        reply: tokio::sync::oneshot::Sender<Option<PrepareRenameResponse>>,
+    },
     /// Execute command (sema.runTopLevel).
     ExecuteCommand {
         command: String,
@@ -1000,8 +1507,18 @@ struct ImportCache {
     ast: Vec<sema_core::Value>,
     span_map: SpanMap,
     symbol_spans: Vec<(String, Span)>,
+    #[allow(dead_code)]
+    scope_tree: scope::ScopeTree,
     /// Modification time when we last read the file.
     mtime: std::time::SystemTime,
+}
+
+/// Cached parse result for an open document (updated on every didChange).
+struct CachedParse {
+    ast: Vec<sema_core::Value>,
+    span_map: SpanMap,
+    symbol_spans: Vec<(String, Span)>,
+    scope_tree: scope::ScopeTree,
 }
 
 struct BackendState {
@@ -1016,6 +1533,8 @@ struct BackendState {
     builtin_docs: HashMap<String, String>,
     /// Cached parse results for imported files (by absolute path).
     import_cache: HashMap<PathBuf, ImportCache>,
+    /// Cached parse results for open documents (updated on didChange).
+    cached_parses: HashMap<String, CachedParse>,
 }
 
 impl BackendState {
@@ -1040,6 +1559,7 @@ impl BackendState {
             cached_user_defs: HashMap::new(),
             builtin_docs: builtin_docs::build_builtin_docs(),
             import_cache: HashMap::new(),
+            cached_parses: HashMap::new(),
         }
     }
 
@@ -1051,6 +1571,7 @@ impl BackendState {
             cached_user_defs: HashMap::new(),
             builtin_docs: HashMap::new(),
             import_cache: HashMap::new(),
+            cached_parses: HashMap::new(),
         }
     }
 
@@ -1069,6 +1590,7 @@ impl BackendState {
         let text = std::fs::read_to_string(path).ok()?;
         let (ast, span_map, symbol_spans) =
             sema_reader::read_many_with_symbol_spans(&text).ok()?;
+        let scope_tree = scope::ScopeTree::build(&ast, &span_map, &symbol_spans);
 
         self.import_cache.insert(
             path.to_path_buf(),
@@ -1076,6 +1598,7 @@ impl BackendState {
                 ast,
                 span_map,
                 symbol_spans,
+                scope_tree,
                 mtime,
             },
         );
@@ -1135,6 +1658,22 @@ impl BackendState {
             }
         }
 
+        // Local bindings from scope tree
+        if let Some(cached) = self.cached_parses.get(uri_str) {
+            let sema_line = position.line as usize + 1;
+            let sema_col = position.character as usize + 1;
+            for (name, _span) in cached.scope_tree.visible_bindings_at(sema_line, sema_col) {
+                if prefix.is_empty() || name.starts_with(prefix) {
+                    items.push(CompletionItem {
+                        label: name,
+                        kind: Some(CompletionItemKind::VARIABLE),
+                        sort_text: Some("0".to_string()),
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+
         items
     }
 
@@ -1179,13 +1718,11 @@ impl BackendState {
     ) -> Option<GotoDefinitionResponse> {
         let uri_str = uri.as_str();
         let text = self.documents.get(uri_str)?.clone();
-
-        // Parse once for import, symbol, and definition lookups
-        let (ast, span_map, symbol_spans, _errors) =
-            sema_reader::read_many_with_spans_recover(&text);
+        let cached = self.cached_parses.get(uri_str)?;
 
         // Phase 3a: Check if cursor is on an import/load path string
-        if let Some(path_str) = import_path_from_ast(&ast, &span_map, position.line) {
+        if let Some(path_str) = import_path_from_ast(&cached.ast, &cached.span_map, position.line)
+        {
             if let Some(resolved) = resolve_import_path(uri, &path_str) {
                 if resolved.exists() {
                     let target_uri = Url::from_file_path(&resolved).ok()?;
@@ -1207,21 +1744,18 @@ impl BackendState {
             return None;
         }
 
-        // Search current document for the definition
-        let defs = user_definitions_from_ast(&ast, &span_map, &symbol_spans);
-        for (name, range) in &defs {
-            if name == &symbol {
-                if let Some(range) = range {
-                    return Some(GotoDefinitionResponse::Scalar(Location {
-                        uri: uri.clone(),
-                        range: *range,
-                    }));
-                }
-            }
+        // Check scope tree for binding definition (local + top-level)
+        let sema_line = position.line as usize + 1;
+        let sema_col = position.character as usize + 1;
+        if let Some(resolved) = cached.scope_tree.resolve_at(&symbol, sema_line, sema_col) {
+            return Some(GotoDefinitionResponse::Scalar(Location {
+                uri: uri.clone(),
+                range: span_to_range(&resolved.def_span),
+            }));
         }
 
         // Phase 3c: Search imported modules for the definition
-        let import_paths = import_paths_from_ast(&ast);
+        let import_paths = import_paths_from_ast(&cached.ast);
         for path_str in &import_paths {
             let resolved = match resolve_import_path(uri, path_str) {
                 Some(p) if p.exists() => p,
@@ -1271,22 +1805,53 @@ impl BackendState {
             return vec![];
         }
 
+        // 1-indexed position for scope tree queries
+        let sema_line = position.line as usize + 1;
+        let sema_col = position.character as usize + 1;
+
+        // Check scope tree in the current document
+        if let Some(cached) = self.cached_parses.get(uri_str) {
+            if cached.scope_tree.is_locally_scoped(symbol, sema_line, sema_col) {
+                // Locally scoped — only return references within this document's scope
+                let refs = cached.scope_tree.find_scope_aware_references(
+                    symbol,
+                    sema_line,
+                    sema_col,
+                    &cached.symbol_spans,
+                );
+                return refs
+                    .into_iter()
+                    .map(|span| Location {
+                        uri: uri.clone(),
+                        range: span_to_range(&span),
+                    })
+                    .collect();
+            }
+        }
+
+        // Top-level/global symbol — search all open documents, but skip
+        // occurrences that are shadowed by local bindings in each document.
         let mut locations = Vec::new();
 
-        // Search all open documents for occurrences of this symbol
-        for (doc_uri_str, doc_text) in &self.documents {
-            let (_, _, symbol_spans, _) = sema_reader::read_many_with_spans_recover(doc_text);
+        for (doc_uri_str, cached) in &self.cached_parses {
             let doc_uri = match Url::parse(doc_uri_str) {
                 Ok(u) => u,
                 Err(_) => continue,
             };
-            for (name, span) in &symbol_spans {
-                if name == symbol {
-                    locations.push(Location {
-                        uri: doc_uri.clone(),
-                        range: span_to_range(span),
-                    });
+            for (name, span) in &cached.symbol_spans {
+                if name != symbol {
+                    continue;
                 }
+                // Only include this occurrence if it resolves to the top-level
+                // definition (not shadowed by a local binding).
+                match cached.scope_tree.resolve_at(name, span.line, span.col) {
+                    Some(resolved) if !resolved.is_top_level => continue,
+                    _ => {}
+                }
+                locations.push(Location {
+                    uri: doc_uri.clone(),
+                    range: span_to_range(span),
+                });
             }
         }
 
@@ -1320,17 +1885,19 @@ impl BackendState {
             });
         }
 
-        // Parse once for user definition lookup + params extraction
-        let (parsed_ast, parsed_span_map, parsed_sym_spans, _) =
-            sema_reader::read_many_with_spans_recover(&text);
+        // Use cached parse for user definition lookup + params extraction
+        let cached = match self.cached_parses.get(uri_str) {
+            Some(c) => c,
+            None => return None,
+        };
 
         // Check user definitions — show signature if available
         {
-            let defs = user_definitions_from_ast(&parsed_ast, &parsed_span_map, &parsed_sym_spans);
+            let defs = user_definitions_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
             for (name, _) in &defs {
                 if name == &symbol {
                     let mut hover_text = format!("```sema\n({symbol}");
-                    if let Some(params) = extract_params_from_ast(&parsed_ast, &symbol) {
+                    if let Some(params) = extract_params_from_ast(&cached.ast, &symbol) {
                         hover_text.push(' ');
                         hover_text.push_str(&params);
                     }
@@ -1370,25 +1937,25 @@ impl BackendState {
 
         // Phase 3c: Check imported modules for hover info
         {
-            let import_paths = import_paths_from_ast(&parsed_ast);
+            let import_paths = import_paths_from_ast(&cached.ast);
             for path_str in &import_paths {
                 let resolved = match resolve_import_path(uri, path_str) {
                     Some(p) if p.exists() => p,
                     _ => continue,
                 };
-                let cached = match self.get_import_cache(&resolved) {
+                let import_cached = match self.get_import_cache(&resolved) {
                     Some(c) => c,
                     None => continue,
                 };
                 let target_defs =
-                    user_definitions_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
+                    user_definitions_from_ast(&import_cached.ast, &import_cached.span_map, &import_cached.symbol_spans);
                 if target_defs.iter().any(|(n, _)| n == &symbol) {
                     let module_name = Path::new(path_str)
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or(path_str);
                     let mut hover_text = format!("```sema\n({symbol}");
-                    if let Some(params) = extract_params_from_ast(&cached.ast, &symbol) {
+                    if let Some(params) = extract_params_from_ast(&import_cached.ast, &symbol) {
                         hover_text.push(' ');
                         hover_text.push_str(&params);
                     }
@@ -1573,6 +2140,279 @@ impl BackendState {
                 .await;
         });
     }
+
+    fn handle_document_symbols(&self, uri: &Url) -> DocumentSymbolResponse {
+        let cached = match self.cached_parses.get(uri.as_str()) {
+            Some(c) => c,
+            None => return DocumentSymbolResponse::Nested(vec![]),
+        };
+        let symbols = document_symbols_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
+        DocumentSymbolResponse::Nested(symbols)
+    }
+
+    #[allow(deprecated)]
+    fn handle_workspace_symbols(&self, query: &str) -> Vec<SymbolInformation> {
+        let mut results = Vec::new();
+        let query_lower = query.to_lowercase();
+
+        for (doc_uri_str, cached) in &self.cached_parses {
+            let doc_uri = match Url::parse(doc_uri_str) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+
+            let symbols =
+                document_symbols_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
+
+            for sym in symbols {
+                if query.is_empty() || sym.name.to_lowercase().contains(&query_lower) {
+                    results.push(SymbolInformation {
+                        name: sym.name,
+                        kind: sym.kind,
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: doc_uri.clone(),
+                            range: sym.selection_range,
+                        },
+                        container_name: None,
+                    });
+                }
+            }
+        }
+
+        results
+    }
+
+    fn handle_signature_help(
+        &mut self,
+        uri: &Url,
+        position: &Position,
+    ) -> Option<SignatureHelp> {
+        let uri_str = uri.as_str();
+        let text = self.documents.get(uri_str)?.clone();
+
+        let (func_name, active_param) =
+            find_enclosing_call(&text, position.line, position.character)?;
+
+        // Try user definitions in current document (use cached parse)
+        let cached = self.cached_parses.get(uri_str)?;
+
+        if let Some(params_str) = extract_params_from_ast(&cached.ast, &func_name) {
+            let param_names = parse_param_names(&params_str);
+            let label = format!("({func_name} {})", param_names.join(" "));
+            let parameters: Vec<ParameterInformation> = param_names
+                .iter()
+                .map(|p| ParameterInformation {
+                    label: ParameterLabel::Simple(p.clone()),
+                    documentation: None,
+                })
+                .collect();
+
+            return Some(SignatureHelp {
+                signatures: vec![SignatureInformation {
+                    label,
+                    documentation: None,
+                    parameters: Some(parameters),
+                    active_parameter: Some(active_param as u32),
+                }],
+                active_signature: Some(0),
+                active_parameter: Some(active_param as u32),
+            });
+        }
+
+        // Try imported files
+        let import_paths = import_paths_from_ast(&cached.ast);
+        for path_str in &import_paths {
+            let resolved = match resolve_import_path(uri, path_str) {
+                Some(p) if p.exists() => p,
+                _ => continue,
+            };
+            let cached = match self.get_import_cache(&resolved) {
+                Some(c) => c,
+                None => continue,
+            };
+            if let Some(params_str) = extract_params_from_ast(&cached.ast, &func_name) {
+                let param_names = parse_param_names(&params_str);
+                let label = format!("({func_name} {})", param_names.join(" "));
+                let parameters: Vec<ParameterInformation> = param_names
+                    .iter()
+                    .map(|p| ParameterInformation {
+                        label: ParameterLabel::Simple(p.clone()),
+                        documentation: None,
+                    })
+                    .collect();
+
+                return Some(SignatureHelp {
+                    signatures: vec![SignatureInformation {
+                        label,
+                        documentation: None,
+                        parameters: Some(parameters),
+                        active_parameter: Some(active_param as u32),
+                    }],
+                    active_signature: Some(0),
+                    active_parameter: Some(active_param as u32),
+                });
+            }
+        }
+
+        // Try builtin docs (no parameter highlighting, just doc)
+        if let Some(doc) = self.builtin_docs.get(&func_name) {
+            return Some(SignatureHelp {
+                signatures: vec![SignatureInformation {
+                    label: func_name,
+                    documentation: Some(Documentation::MarkupContent(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: doc.clone(),
+                    })),
+                    parameters: None,
+                    active_parameter: None,
+                }],
+                active_signature: Some(0),
+                active_parameter: None,
+            });
+        }
+
+        None
+    }
+
+    fn handle_prepare_rename(
+        &self,
+        uri: &Url,
+        position: &Position,
+    ) -> Option<PrepareRenameResponse> {
+        let text = self.documents.get(uri.as_str())?;
+        let line_idx = position.line as usize;
+        let line = text.lines().nth(line_idx)?;
+        let byte_offset = utf16_to_byte_offset(line, position.character);
+        let symbol = extract_symbol_at(line, byte_offset);
+        if symbol.is_empty() {
+            return None;
+        }
+
+        // Don't allow renaming builtins or special forms
+        if self.builtin_names.iter().any(|n| n == symbol)
+            || sema_eval::SPECIAL_FORM_NAMES.contains(&symbol)
+        {
+            return None;
+        }
+
+        // Find the symbol occurrence at this cursor position using cached parse
+        let cached = self.cached_parses.get(uri.as_str())?;
+        for (name, span) in &cached.symbol_spans {
+            if name == symbol {
+                let range = span_to_range(span);
+                if position.line >= range.start.line
+                    && position.line <= range.end.line
+                    && position.character >= range.start.character
+                    && position.character < range.end.character
+                {
+                    return Some(PrepareRenameResponse::RangeWithPlaceholder {
+                        range,
+                        placeholder: symbol.to_string(),
+                    });
+                }
+            }
+        }
+
+        None
+    }
+
+    fn handle_rename(
+        &self,
+        uri: &Url,
+        position: &Position,
+        new_name: &str,
+    ) -> Option<WorkspaceEdit> {
+        let text = self.documents.get(uri.as_str())?;
+        let line_idx = position.line as usize;
+        let line = text.lines().nth(line_idx)?;
+        let byte_offset = utf16_to_byte_offset(line, position.character);
+        let symbol = extract_symbol_at(line, byte_offset);
+        if symbol.is_empty() {
+            return None;
+        }
+
+        // Don't allow renaming builtins or special forms
+        if self.builtin_names.iter().any(|n| n == symbol)
+            || sema_eval::SPECIAL_FORM_NAMES.contains(&symbol)
+        {
+            return None;
+        }
+
+        // 1-indexed position for scope tree queries
+        let sema_line = position.line as usize + 1;
+        let sema_col = position.character as usize + 1;
+
+        let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
+
+        // Check if the symbol is locally scoped
+        if let Some(cached) = self.cached_parses.get(uri.as_str()) {
+            if cached.scope_tree.is_locally_scoped(symbol, sema_line, sema_col) {
+                // Locally scoped — only rename within this document's scope
+                let refs = cached.scope_tree.find_scope_aware_references(
+                    symbol,
+                    sema_line,
+                    sema_col,
+                    &cached.symbol_spans,
+                );
+                let edits: Vec<TextEdit> = refs
+                    .into_iter()
+                    .map(|span| TextEdit {
+                        range: span_to_range(&span),
+                        new_text: new_name.to_string(),
+                    })
+                    .collect();
+                if edits.is_empty() {
+                    return None;
+                }
+                changes.insert(uri.clone(), edits);
+                return Some(WorkspaceEdit {
+                    changes: Some(changes),
+                    document_changes: None,
+                    change_annotations: None,
+                });
+            }
+        }
+
+        // Top-level/global symbol — rename across all documents,
+        // but skip occurrences shadowed by local bindings.
+        for (doc_uri_str, cached) in &self.cached_parses {
+            let doc_uri = match Url::parse(doc_uri_str) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            let mut edits = Vec::new();
+            for (name, span) in &cached.symbol_spans {
+                if name != symbol {
+                    continue;
+                }
+                // Only include this occurrence if it resolves to the top-level
+                // definition (not shadowed by a local binding).
+                match cached.scope_tree.resolve_at(name, span.line, span.col) {
+                    Some(resolved) if !resolved.is_top_level => continue,
+                    _ => {}
+                }
+                edits.push(TextEdit {
+                    range: span_to_range(span),
+                    new_text: new_name.to_string(),
+                });
+            }
+            if !edits.is_empty() {
+                changes.insert(doc_uri, edits);
+            }
+        }
+
+        if changes.is_empty() {
+            return None;
+        }
+
+        Some(WorkspaceEdit {
+            changes: Some(changes),
+            document_changes: None,
+            change_annotations: None,
+        })
+    }
 }
 
 // ── tower-lsp Backend ────────────────────────────────────────────
@@ -1610,6 +2450,17 @@ impl LanguageServer for Backend {
                 code_lens_provider: Some(CodeLensOptions {
                     resolve_provider: Some(false),
                 }),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), " ".to_string()]),
+                    retrigger_characters: None,
+                    work_done_progress_options: Default::default(),
+                }),
+                rename_provider: Some(OneOf::Right(RenameOptions {
+                    prepare_provider: Some(true),
+                    work_done_progress_options: Default::default(),
+                })),
                 execute_command_provider: Some(ExecuteCommandOptions {
                     commands: vec!["sema.runTopLevel".to_string()],
                     ..Default::default()
@@ -1757,6 +2608,103 @@ impl LanguageServer for Backend {
         });
         Ok(None)
     }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::DocumentSymbols {
+            uri,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(response) => Ok(Some(response)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::WorkspaceSymbols {
+            query: params.query,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(symbols) if symbols.is_empty() => Ok(None),
+            Ok(symbols) => Ok(Some(symbols)),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn signature_help(
+        &self,
+        params: SignatureHelpParams,
+    ) -> Result<Option<SignatureHelp>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::SignatureHelp {
+            uri,
+            position,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(response) => Ok(response),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn rename(
+        &self,
+        params: RenameParams,
+    ) -> Result<Option<WorkspaceEdit>> {
+        let uri = params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+        let new_name = params.new_name;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::Rename {
+            uri,
+            position,
+            new_name,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(response) => Ok(response),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn prepare_rename(
+        &self,
+        params: TextDocumentPositionParams,
+    ) -> Result<Option<PrepareRenameResponse>> {
+        let uri = params.text_document.uri;
+        let position = params.position;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::PrepareRename {
+            uri,
+            position,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(response) => Ok(response),
+            Err(_) => Ok(None),
+        }
+    }
 }
 
 // ── Server entry point ───────────────────────────────────────────
@@ -1782,13 +2730,39 @@ pub async fn run_server() {
         while let Some(req) = rx.blocking_recv() {
             match req {
                 LspRequest::DocumentChanged { uri, text } => {
-                    let diags = analyze_document(&text);
-                    // Update cached user definitions on successful parse
+                    // Parse once, cache the result, and derive diagnostics
+                    let (ast, span_map, symbol_spans, errors) =
+                        sema_reader::read_many_with_spans_recover(&text);
+
+                    let mut diags: Vec<Diagnostic> = errors
+                        .iter()
+                        .map(|err| error_diagnostic(err, DiagnosticSeverity::ERROR))
+                        .collect();
+                    if diags.is_empty() {
+                        diags.extend(compile_diagnostics(&ast));
+                    }
+
                     let uri_str = uri.as_str().to_string();
-                    let defs = user_definitions(&text);
+                    let defs: Vec<String> =
+                        user_definitions_from_ast(&ast, &span_map, &symbol_spans)
+                            .into_iter()
+                            .map(|(name, _)| name)
+                            .collect();
                     if !defs.is_empty() || diags.is_empty() {
                         state.cached_user_defs.insert(uri_str.clone(), defs);
                     }
+
+                    let scope_tree =
+                        scope::ScopeTree::build(&ast, &span_map, &symbol_spans);
+                    state.cached_parses.insert(
+                        uri_str.clone(),
+                        CachedParse {
+                            ast,
+                            span_map,
+                            symbol_spans,
+                            scope_tree,
+                        },
+                    );
                     state.documents.insert(uri_str, text);
 
                     let client = client.clone();
@@ -1799,6 +2773,7 @@ pub async fn run_server() {
                 LspRequest::DocumentClosed { uri } => {
                     state.documents.remove(uri.as_str());
                     state.cached_user_defs.remove(uri.as_str());
+                    state.cached_parses.remove(uri.as_str());
 
                     let client = client.clone();
                     handle.block_on(async {
@@ -1839,6 +2814,39 @@ pub async fn run_server() {
                     reply,
                 } => {
                     let result = state.handle_references(&uri, &position);
+                    let _ = reply.send(result);
+                }
+                LspRequest::DocumentSymbols { uri, reply } => {
+                    let result = state.handle_document_symbols(&uri);
+                    let _ = reply.send(result);
+                }
+                LspRequest::WorkspaceSymbols { query, reply } => {
+                    let result = state.handle_workspace_symbols(&query);
+                    let _ = reply.send(result);
+                }
+                LspRequest::SignatureHelp {
+                    uri,
+                    position,
+                    reply,
+                } => {
+                    let result = state.handle_signature_help(&uri, &position);
+                    let _ = reply.send(result);
+                }
+                LspRequest::Rename {
+                    uri,
+                    position,
+                    new_name,
+                    reply,
+                } => {
+                    let result = state.handle_rename(&uri, &position, &new_name);
+                    let _ = reply.send(result);
+                }
+                LspRequest::PrepareRename {
+                    uri,
+                    position,
+                    reply,
+                } => {
+                    let result = state.handle_prepare_rename(&uri, &position);
                     let _ = reply.send(result);
                 }
                 LspRequest::ExecuteCommand { command, arguments } => {

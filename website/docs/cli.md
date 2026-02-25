@@ -324,40 +324,7 @@ Start the Language Server Protocol (LSP) server. Communicates over stdio using t
 sema lsp
 ```
 
-**Features:**
-- **Parse diagnostics** — real-time error squiggles for syntax errors (unclosed parens, unterminated strings, etc.)
-- **Completion** — special forms, stdlib builtins, and user-defined top-level names
-
-**Editor setup:**
-
-::: code-group
-```toml [Helix (languages.toml)]
-[[language]]
-name = "sema"
-language-servers = ["sema-lsp"]
-
-[language-server.sema-lsp]
-command = "sema"
-args = ["lsp"]
-```
-
-```lua [Neovim (init.lua)]
-local lspconfig = require('lspconfig')
-local configs = require('lspconfig.configs')
-
-if not configs.sema then
-  configs.sema = {
-    default_config = {
-      cmd = { 'sema', 'lsp' },
-      filetypes = { 'sema' },
-      root_dir = lspconfig.util.root_pattern('sema.toml', '.git'),
-    },
-  }
-end
-
-lspconfig.sema.setup({})
-```
-:::
+Provides diagnostics, completion, hover, go-to-definition, and code lenses. See the [LSP documentation](/docs/lsp.html) for full feature details and editor setup instructions.
 
 ## Examples
 

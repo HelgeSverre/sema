@@ -25,11 +25,17 @@ pub fn lower_with_spans(expr: &Value, span_map: &SpanMap) -> Result<CoreExpr, Se
     SPAN_MAP.with(|sm| {
         *sm.borrow_mut() = Some(span_map.clone());
     });
-    let result = lower_expr(expr, false);
-    SPAN_MAP.with(|sm| {
-        *sm.borrow_mut() = None;
-    });
-    result
+    // Guard ensures SPAN_MAP is cleared even on panic
+    struct SpanMapGuard;
+    impl Drop for SpanMapGuard {
+        fn drop(&mut self) {
+            SPAN_MAP.with(|sm| {
+                *sm.borrow_mut() = None;
+            });
+        }
+    }
+    let _guard = SpanMapGuard;
+    lower_expr(expr, false)
 }
 
 /// Look up the span for a list Value using its Rc pointer identity.

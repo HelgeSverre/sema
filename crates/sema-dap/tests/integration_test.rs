@@ -177,3 +177,115 @@ fn test_dap_launch_and_run() {
     // Cleanup
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_dap_breakpoint_and_continue() {
+    let binary = sema_binary();
+
+    let dir = std::env::temp_dir().join("sema_dap_bp_test");
+    std::fs::create_dir_all(&dir).unwrap();
+    let program_path = dir.join("test_bp.sema");
+    // Multi-line program — set breakpoint on line 2
+    std::fs::write(&program_path, "(define x 1)\n(define y 2)\n(+ x y)\n").unwrap();
+
+    let mut child = Command::new(&binary)
+        .arg("dap")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn {binary}: {e}"));
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+
+    // Initialize
+    send_dap(&mut stdin, 1, "initialize", Some(serde_json::json!({})));
+    let _resp = read_dap(&mut reader).unwrap();
+    let _event = read_dap(&mut reader).unwrap();
+
+    // Set breakpoint on line 2 before launch
+    send_dap(
+        &mut stdin,
+        2,
+        "setBreakpoints",
+        Some(serde_json::json!({
+            "source": { "path": program_path.to_string_lossy() },
+            "breakpoints": [{ "line": 2 }],
+        })),
+    );
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "setBreakpoints");
+    assert_eq!(resp["success"], true);
+
+    // Launch with stopOnEntry = false
+    send_dap(
+        &mut stdin,
+        3,
+        "launch",
+        Some(serde_json::json!({
+            "program": program_path.to_string_lossy(),
+        })),
+    );
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "launch");
+    assert_eq!(resp["success"], true);
+
+    // ConfigurationDone
+    send_dap(&mut stdin, 4, "configurationDone", None);
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "configurationDone");
+    assert_eq!(resp["success"], true);
+
+    // Should get a stopped event (breakpoint or step)
+    let mut got_stopped = false;
+    for _ in 0..10 {
+        if let Some(msg) = read_dap(&mut reader) {
+            if msg["type"] == "event" && msg["event"] == "stopped" {
+                got_stopped = true;
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    assert!(got_stopped, "should receive stopped event at breakpoint");
+
+    // Request stack trace while stopped
+    send_dap(&mut stdin, 5, "stackTrace", Some(serde_json::json!({})));
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "stackTrace");
+    assert_eq!(resp["success"], true);
+    let frames = resp["body"]["stackFrames"].as_array().unwrap();
+    assert!(!frames.is_empty(), "should have at least one stack frame");
+
+    // Continue execution
+    send_dap(&mut stdin, 6, "continue", Some(serde_json::json!({})));
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "continue");
+    assert_eq!(resp["success"], true);
+
+    // Should get terminated event
+    let mut got_terminated = false;
+    for _ in 0..10 {
+        if let Some(msg) = read_dap(&mut reader) {
+            if msg["type"] == "event" && msg["event"] == "terminated" {
+                got_terminated = true;
+                break;
+            }
+        } else {
+            break;
+        }
+    }
+    assert!(got_terminated, "should receive terminated event");
+
+    // Disconnect
+    send_dap(&mut stdin, 7, "disconnect", None);
+    let _ = read_dap(&mut reader);
+
+    let status = child.wait().expect("failed to wait for child");
+    assert!(status.success());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -6,6 +6,8 @@ outline: [2, 3]
 
 Sema has editor plugins for VS Code, Vim/Neovim, Emacs, Helix, and Zed. All plugins provide syntax highlighting for the full standard library, special forms, keyword literals, character literals, strings, numbers, comments, and LLM primitives.
 
+Sema also includes a built-in [Language Server (LSP)](/docs/lsp.html) that provides diagnostics, completion, hover, go-to-definition, and code lenses. See the [LSP documentation](/docs/lsp.html) for setup instructions and feature details.
+
 Source code for all editor plugins is in the [`editors/`](https://github.com/HelgeSverre/sema/tree/main/editors) directory.
 
 ## VS Code

@@ -1,0 +1,84 @@
+<idea-plugin>
+    <id>com.sema.intellij</id>
+    <name>Sema</name>
+    <vendor url="https://sema-lang.com">Helge Sverre</vendor>
+    <description><![CDATA[
+        Language support for <a href="https://sema-lang.com">Sema</a>, a Lisp dialect with first-class LLM primitives.
+        <ul>
+            <li>Syntax highlighting</li>
+            <li>Code completion (builtins, special forms, user definitions)</li>
+            <li>Hover documentation</li>
+            <li>Go to definition (including cross-module)</li>
+            <li>Diagnostics (parse errors and compile warnings)</li>
+            <li>Code lenses (Run top-level forms)</li>
+            <li>Brace matching and auto-pairing</li>
+            <li>Line and block commenting</li>
+        </ul>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.redhat.devtools.lsp4ij</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <fileType
+            name="Sema"
+            language="Sema"
+            extensions="sema"
+            implementationClass="com.sema.intellij.SemaFileType"
+            fieldName="INSTANCE"/>
+        <fileType
+            name="Semac"
+            extensions="semac"
+            implementationClass="com.sema.intellij.SemacFileType"
+            fieldName="INSTANCE"/>
+        <lang.syntaxHighlighterFactory
+            language="Sema"
+            implementationClass="com.sema.intellij.SemaSyntaxHighlighterFactory"/>
+        <lang.braceMatcher
+            language="Sema"
+            implementationClass="com.sema.intellij.SemaBraceMatcher"/>
+        <lang.commenter
+            language="Sema"
+            implementationClass="com.sema.intellij.SemaCommenter"/>
+        <lang.parserDefinition
+            language="Sema"
+            implementationClass="com.sema.intellij.SemaParserDefinition"/>
+        <colorSettingsPage implementation="com.sema.intellij.SemaColorSettingsPage"/>
+        <configurationType implementation="com.sema.intellij.run.SemaRunConfigurationType"/>
+        <runConfigurationProducer implementation="com.sema.intellij.run.SemaRunConfigurationProducer"/>
+
+        <!-- LSP4IJ language-specific bindings (required for non-TEXT/textmate languages) -->
+        <codeInsight.parameterInfo
+            language="Sema"
+            implementationClass="com.redhat.devtools.lsp4ij.features.signatureHelp.LSPParameterInfoHandler"/>
+        <lang.foldingBuilder
+            language="Sema"
+            implementationClass="com.redhat.devtools.lsp4ij.features.foldingRange.LSPFoldingRangeBuilder"
+            order="first"/>
+        <lang.psiStructureViewFactory
+            language="Sema"
+            implementationClass="com.redhat.devtools.lsp4ij.features.documentSymbol.LSPDocumentSymbolStructureViewFactory"/>
+    </extensions>
+
+    <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
+        <server id="sema-lsp"
+                name="Sema Language Server"
+                factoryClass="com.sema.intellij.lsp.SemaLanguageServerFactory">
+            <description><![CDATA[
+                <p>Language server for Sema, providing completions, hover, diagnostics, go-to-definition, and code lenses.</p>
+            ]]></description>
+        </server>
+        <languageMapping language="Sema"
+                         serverId="sema-lsp"
+                         languageId="sema"/>
+    </extensions>
+
+    <actions>
+        <action id="sema.clearResults"
+                class="com.sema.intellij.lsp.ClearEvalResultsAction"
+                text="Clear Sema Results"
+                description="Clear all inline eval result decorations">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+    </actions>
+</idea-plugin>
