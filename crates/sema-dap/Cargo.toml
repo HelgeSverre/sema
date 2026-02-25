@@ -16,3 +16,6 @@ sema-stdlib.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std", "sync", "io-util"] }
 serde.workspace = true
 serde_json.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
