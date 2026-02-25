@@ -10,6 +10,7 @@ members = [
     "crates/sema-wasm",
     "crates/sema-fmt",
     "crates/sema-lsp",
+    "crates/sema-dap",
 ]
 exclude = ["pkg"]
 resolver = "2"
@@ -30,6 +31,7 @@ sema-stdlib = { version = "=1.12.0", path = "crates/sema-stdlib" }
 sema-vm = { version = "=1.12.0", path = "crates/sema-vm" }
 sema-fmt = { version = "=1.12.0", path = "crates/sema-fmt" }
 sema-lsp = { version = "=1.12.0", path = "crates/sema-lsp" }
+sema-dap = { version = "=1.12.0", path = "crates/sema-dap" }
 
 tower-lsp = "0.20"
 dashmap = "6"

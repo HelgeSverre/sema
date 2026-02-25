@@ -1,0 +1,18 @@
+[package]
+name = "sema-dap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Debug Adapter Protocol server for Sema"
+
+[dependencies]
+sema-core.workspace = true
+sema-reader.workspace = true
+sema-eval.workspace = true
+sema-vm.workspace = true
+sema-stdlib.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std", "sync", "io-util"] }
+serde.workspace = true
+serde_json.workspace = true
