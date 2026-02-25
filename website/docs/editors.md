@@ -4,7 +4,7 @@ outline: [2, 3]
 
 # Editor Support
 
-Sema has editor plugins for VS Code, Vim/Neovim, Emacs, Helix, and Zed. All plugins provide syntax highlighting for the full standard library, special forms, keyword literals, character literals, strings, numbers, comments, and LLM primitives.
+Sema has editor plugins for VS Code, IntelliJ IDEA, Vim/Neovim, Emacs, Helix, and Zed. All plugins provide syntax highlighting for the full standard library, special forms, keyword literals, character literals, strings, numbers, comments, and LLM primitives.
 
 Sema also includes a built-in [Language Server (LSP)](/docs/lsp.html) that provides diagnostics, completion, hover, go-to-definition, and code lenses. See the [LSP documentation](/docs/lsp.html) for setup instructions and feature details.
 
@@ -35,6 +35,55 @@ Restart VS Code after installing.
 - Comment toggling (<kbd>Ctrl</kbd>+<kbd>/</kbd> / <kbd>Cmd</kbd>+<kbd>/</kbd>)
 - Indentation rules for all bracket types
 - Arithmetic/comparison operator highlighting
+
+## IntelliJ IDEA
+
+Full IDE support via the [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) plugin, connecting to the built-in Sema [Language Server](/docs/lsp.html) for completions, diagnostics, hover docs, go-to-definition, code lenses, and more.
+
+### Requirements
+
+- IntelliJ IDEA 2024.1+ (Community or Ultimate)
+- [LSP4IJ](https://plugins.jetbrains.com/plugin/23257-lsp4ij) plugin (installed automatically as a dependency)
+- `sema` binary on PATH (or set the `SEMA_PATH` environment variable)
+
+### Install
+
+Build and install from source:
+
+```bash
+cd editors/intellij
+./gradlew buildPlugin
+```
+
+Then install the generated ZIP:
+
+1. Open **Settings → Plugins → ⚙️ → Install Plugin from Disk…**
+2. Select `editors/intellij/build/distributions/sema-intellij-*.zip`
+3. Restart the IDE
+
+### Features
+
+- Syntax highlighting (special forms, builtins, keywords, strings, numbers, booleans, character literals, comments, regex literals)
+- Code completion — builtins, special forms, user-defined symbols, scope-aware local bindings
+- Hover documentation — builtin docs, function signatures, import info
+- Go to definition — user definitions, cross-module navigation, import path resolution
+- Find references — scope-aware, local and cross-file
+- Rename — scope-aware, blocks renaming builtins and special forms
+- Diagnostics — real-time parse errors and compile-time warnings
+- Code lenses — ▶ Run top-level forms with inline result display
+- Brace matching — auto-pair `()`, `[]`, `{}`
+- Commenting — line (`;`) and block (`#| |#`) comments
+- Run configurations — right-click `.sema` files to run, or create from the Run menu
+- File icons — `.sema` source and `.semac` bytecode
+- Color settings page — customizable syntax colors under **Settings → Editor → Color Scheme → Sema**
+
+### Configuration
+
+Set the `SEMA_PATH` environment variable to the path of your `sema` binary if it's not on PATH:
+
+```bash
+export SEMA_PATH=/path/to/sema
+```
 
 ## Vim / Neovim
 
