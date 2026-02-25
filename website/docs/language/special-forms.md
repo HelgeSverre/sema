@@ -10,12 +10,14 @@ Special forms are built into the evaluator — they control evaluation order and
 
 ### `define`
 
-Bind a value or define a function.
+Bind a value to a name.
 
 ```sema
 (define x 42)                          ; bind a value
-(define (square x) (* x x))           ; define a function (shorthand)
+(define pi 3.14159)                    ; bind another value
 ```
+
+The Scheme-style function shorthand `(define (f x) ...)` is supported but [`defn`](#defn) is preferred for function definitions.
 
 ### `set!`
 
@@ -68,17 +70,21 @@ Alias for `lambda`.
 (fn (x . rest) rest)                   ; rest parameters with dot notation
 ```
 
-### `defun`
+### `defn`
 
-Define a named function (equivalent to `(define (name params...) body...)`).
+Define a named function.
 
 ```sema
-(defun square (x) (* x x))
-(defun greet (name) f"Hello, ${name}!")
+(defn square (x) (* x x))
+(defn greet (name) f"Hello, ${name}!")
 ```
 
-::: tip Clojure alias
-`defn` is accepted as an alias for `defun`.
+::: tip Preferred style
+Use `defn` for named functions and `define` for value bindings. The Scheme-style `(define (f x) ...)` function shorthand is supported for compatibility but `defn` is the canonical Sema form.
+:::
+
+::: info Alias
+`defun` is accepted as an alias for `defn`.
 :::
 
 ## Conditionals
@@ -247,7 +253,7 @@ Loop construct with tail-call optimization.
 
 ## Destructuring
 
-`let`, `let*`, `define`, and `lambda` all support destructuring patterns in binding positions.
+`let`, `let*`, `define`, `defn`, and `lambda` all support destructuring patterns in binding positions.
 
 ### Vector Destructuring
 
@@ -290,11 +296,11 @@ Explicit key-pattern pairs:
 ### Destructuring in Function Parameters
 
 ```sema
-(define (sum-pair [a b])
+(defn sum-pair ([a b])
   (+ a b))
 (sum-pair '(3 4))                       ; => 7
 
-(define (greet {:keys [name title]})
+(defn greet ({:keys [name title]})
   (format "Hello ~a ~a" title name))
 (greet {:name "Smith" :title "Dr."})    ; => "Hello Dr. Smith"
 ```

@@ -136,9 +136,9 @@ Define a module with explicit exports.
 ;; math-utils.sema
 (module math-utils
   (export square cube)
-  (define (square x) (* x x))
-  (define (cube x) (* x x x))
-  (define (internal-helper x) x))      ; not exported
+  (defn square (x) (* x x))
+  (defn cube (x) (* x x x))
+  (defn internal-helper (x) x))      ; not exported
 ```
 
 ### `import`

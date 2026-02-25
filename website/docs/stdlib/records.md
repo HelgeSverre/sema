@@ -69,7 +69,7 @@ The constructor is positional — its arity must match exactly:
 Sema records are immutable. To "update" a record, construct a new one:
 
 ```sema
-(define (move-point p dx dy)
+(defn move-point (p dx dy)
   (make-point (+ (point-x p) dx)
               (+ (point-y p) dy)))
 
@@ -167,7 +167,7 @@ Records can contain any values, including other records:
 Records don't have a dedicated pattern form, but you can use binding patterns with `when` guards:
 
 ```sema
-(define (describe v)
+(defn describe (v)
   (match v
     (p when (point? p)
        (string/append "point("
@@ -184,7 +184,7 @@ Records don't have a dedicated pattern form, but you can use binding patterns wi
 You can also match on `type`:
 
 ```sema
-(define (record-type-name v)
+(defn record-type-name (v)
   (match (type v)
     (:point "a point")
     (:person "a person")
@@ -201,7 +201,7 @@ Use records to represent values that have been validated:
   email?
   (value email-value))
 
-(define (parse-email s)
+(defn parse-email (s)
   (if (regex/match? #".+@.+\..+" s)
       (make-email s)
       (error "invalid email")))
@@ -245,7 +245,7 @@ Use records to represent values that have been validated:
 Records are **not JSON-encodable** directly. If you need to serialize a record, convert it to a map first:
 
 ```sema
-(define (point->map p)
+(defn point->map (p)
   {:x (point-x p) :y (point-y p)})
 
 (json/encode (point->map (make-point 1 2)))

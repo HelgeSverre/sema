@@ -205,6 +205,6 @@ Compute an HMAC-SHA256 message authentication code. Returns a 64-character hex s
 
 ```sema
 ;; Verify a webhook signature from a provider
-(define (verify-webhook payload secret signature)
+(defn verify-webhook (payload secret signature)
   (equal? (hash/hmac-sha256 secret payload) signature))
 ```

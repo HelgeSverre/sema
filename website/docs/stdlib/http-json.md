@@ -220,7 +220,7 @@ Network errors (DNS failure, connection refused, timeout) throw a `SemaError::Io
 #### Paginated API Requests
 
 ```sema
-(define (fetch-all-pages base-url)
+(defn fetch-all-pages (base-url)
   (let loop ((page 1) (results '()))
     (define resp (http/get (format "~a?page=~a" base-url page)))
     (define data (json/decode (:body resp)))

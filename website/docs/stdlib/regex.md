@@ -190,7 +190,7 @@ Use regex when you need character classes, repetition, alternation, or capture g
 ### Validate an identifier
 
 ```sema
-(define (identifier? s)
+(defn identifier? (s)
   (regex/match? #"^[A-Za-z_][A-Za-z0-9_]*$" s))
 
 (identifier? "foo_1")   ; => #t
@@ -200,7 +200,7 @@ Use regex when you need character classes, repetition, alternation, or capture g
 ### Extract a number from text
 
 ```sema
-(define (extract-first-int s)
+(defn extract-first-int (s)
   (let ((m (regex/match #"\d+" s)))
     (if (nil? m)
         nil
@@ -219,7 +219,7 @@ Use regex when you need character classes, repetition, alternation, or capture g
 ### Parse key-value pairs
 
 ```sema
-(define (parse-kv line)
+(defn parse-kv (line)
   (let ((m (regex/match #"^(\w+)\s*=\s*(.+)$" line)))
     (if (nil? m)
         nil

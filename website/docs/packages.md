@@ -406,10 +406,10 @@ Edit the generated `package.sema` to define your package's API:
 
 ```sema
 ;; package.sema — package entrypoint
-(defun parse-row (line)
+(defn parse-row (line)
   (map string/trim (string/split line ",")))
 
-(defun parse-csv (text)
+(defn parse-csv (text)
   (map parse-row (string/split text "\n")))
 ```
 
@@ -424,7 +424,7 @@ This fetches the package and adds it to your `sema.toml` automatically. Then use
 ```sema
 (import "http-helpers")
 
-(defun fetch-csv (url)
+(defn fetch-csv (url)
   (parse-csv (:body (http-helpers/get url))))
 ```
 

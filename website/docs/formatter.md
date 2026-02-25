@@ -92,7 +92,7 @@ The formatter uses a "try flat, then multi-line" strategy. If a form fits within
 (+ 1 2 3)
 
 ;; Too long — breaks with body indentation
-(define (calculate-fibonacci-sequence n)
+(defn calculate-fibonacci-sequence (n)
   (if (< n 2)
     n
     (+ (calculate-fibonacci-sequence (- n 1))
