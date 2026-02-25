@@ -11,6 +11,7 @@ description = "Language Server Protocol server for Sema"
 sema-core.workspace = true
 sema-reader.workspace = true
 sema-eval.workspace = true
+sema-vm.workspace = true
 tower-lsp.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "io-std", "sync"] }
 serde.workspace = true

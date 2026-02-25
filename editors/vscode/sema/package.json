@@ -9,6 +9,10 @@
   },
   "license": "MIT",
   "icon": "icon.png",
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onLanguage:sema"
+  ],
   "homepage": "https://sema-lang.com",
   "bugs": {
     "url": "https://github.com/helgesverre/sema/issues"
@@ -31,6 +35,11 @@
     "s-expression",
     "ai"
   ],
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
   "contributes": {
     "languages": [
       {
@@ -51,6 +60,30 @@
         "scopeName": "source.sema",
         "path": "./syntaxes/sema.tmLanguage.json"
       }
-    ]
+    ],
+    "commands": [
+      {
+        "command": "sema.clearResults",
+        "title": "Sema: Clear Inline Results"
+      }
+    ],
+    "configuration": {
+      "title": "Sema",
+      "properties": {
+        "sema.path": {
+          "type": "string",
+          "default": "sema",
+          "description": "Path to the sema binary"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.0.0"
   }
 }

@@ -2508,6 +2508,7 @@ dependencies = [
  "sema-core",
  "sema-eval",
  "sema-reader",
+ "sema-vm",
  "serde",
  "serde_json",
  "tokio",
