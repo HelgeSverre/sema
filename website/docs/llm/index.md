@@ -38,6 +38,10 @@ Persistent, immutable conversation state with automatic LLM round-trips.
 
 Define tools the LLM can invoke, and build agents with system prompts, tools, and multi-turn loops.
 
+### [Living Code](./living-code.md)
+
+Self-aware programs: docstrings as specs, conversational introspection (`ask`), auto-repair (`heal!`), runtime self-modification (`become!`/`rollback!`/`freeze!`), and LLM-driven genetic programming (`evolve`).
+
 ### [Embeddings & Similarity](./embeddings.md)
 
 Generate embeddings (as bytevectors), compute cosine similarity, and access embedding dimensions.

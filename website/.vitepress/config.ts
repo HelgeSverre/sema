@@ -76,6 +76,7 @@ export default defineConfig({
             { text: 'Conversations', link: '/docs/llm/conversations' },
             { text: 'Structured Extraction', link: '/docs/llm/extraction' },
             { text: 'Tools & Agents', link: '/docs/llm/tools-agents' },
+            { text: 'Living Code', link: '/docs/llm/living-code' },
             { text: 'Embeddings', link: '/docs/llm/embeddings' },
             { text: 'Vector Store & Math', link: '/docs/llm/vector-store' },
             { text: 'Caching', link: '/docs/llm/caching' },
