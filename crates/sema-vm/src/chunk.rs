@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use sema_core::{Span, Spur, Value};
 
 /// A compiled code object (bytecode + metadata).
@@ -48,6 +50,7 @@ pub struct Function {
     pub arity: u16,
     pub has_rest: bool,
     pub local_names: Vec<(u16, Spur)>,
+    pub source_file: Option<PathBuf>,
 }
 
 /// Describes how an upvalue is captured relative to the immediately enclosing function.

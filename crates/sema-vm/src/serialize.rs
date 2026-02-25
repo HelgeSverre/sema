@@ -630,6 +630,7 @@ pub fn deserialize_function(
         arity,
         has_rest,
         local_names,
+        source_file: None,
     })
 }
 
@@ -1552,6 +1553,7 @@ mod tests {
             arity: 2,
             has_rest: true,
             local_names: vec![(0, intern("x")), (1, intern("y"))],
+            source_file: None,
         };
 
         let mut buf = Vec::new();
@@ -1589,6 +1591,7 @@ mod tests {
             arity: 0,
             has_rest: false,
             local_names: vec![],
+            source_file: None,
         };
 
         let mut buf = Vec::new();
@@ -1654,6 +1657,7 @@ mod tests {
             arity: 1,
             has_rest: false,
             local_names: vec![(0, intern("x"))],
+            source_file: None,
         };
 
         let result = CompileResult {
