@@ -4,10 +4,12 @@ outline: [2, 3]
 
 # Living Code
 
-Sema programs can inspect, test, and rewrite themselves at runtime. Living Code is a set of special forms and stdlib functions that turn code into a conversational, self-aware medium -- programs that document themselves, answer questions about their own behavior, heal their own bugs, and evolve toward better solutions.
+Living Code extends Sema's [metaprogramming primitives](../language/metaprogramming.md) with LLM intelligence -- programs that answer questions about themselves, repair their own bugs, and evolve toward better solutions.
 
-::: warning
-Living Code features can change program behavior at runtime. Use doctests as contracts, `history`/`rollback!` for reversibility, and `freeze!` to stabilize proven code.
+These features require an LLM provider to be configured. See [Completion & Chat](./completion.md) for setup.
+
+::: tip Prerequisites
+Living Code builds on docstrings, doctests, `source-of`, `become!`, and `history`. If you're not familiar with those, read [Metaprogramming](../language/metaprogramming.md) first.
 :::
 
 ### Quick Taste
@@ -21,134 +23,21 @@ Living Code features can change program behavior at runtime. Use doctests as con
   (n)
   (if (<= n 1) 1 (* n (factorial (- n 1)))))
 
-;; Inspect
-(doc factorial)                ; pretty-print docs + source
-(source-of factorial)          ; => "(fn (n) (if (<= n 1) 1 ...))"
-(doctest factorial)            ; => {:passed 2 :total 2 :name "factorial"}
-
-;; Converse
+;; Ask questions about any value
 (ask factorial "Is this tail-recursive?")
 
-;; Upgrade
-(become! factorial
-  (fn (n) (let loop ((i n) (acc 1))
-    (if (<= i 1) acc (loop (- i 1) (* acc i))))))
+;; Get code suggestions
+(ask/code factorial "Make this tail-recursive")
 
-;; Review
-(history factorial)            ; => ({:version 1 :value <lambda> :source "..."})
+;; Auto-repair: LLM rewrites until all doctests pass
+(heal! parse-date)
+
+;; Evolve: breed candidates via LLM, scored by fitness
+(evolve :name "fast-sort" :spec '((>>> (fast-sort '(3 1 2)) (1 2 3)))
+        :fitness (fn (f r) (get r :passed)) :seed-prompt "Write a sort function.")
 ```
-
-## Docstrings & Doctests
-
-### `defn` with docstrings
-
-`defn` accepts an optional docstring as its second argument (before params). The docstring is stored as metadata and used by `doc`, `doctest`, `ask`, and `heal!`. The Scheme-style `define` also supports docstrings: `(define (f x) "docstring" body...)`.
-
-```sema
-(defn factorial "Compute n!.
-    >>> (factorial 0)
-    1
-    >>> (factorial 5)
-    120"
-  (n)
-  (if (<= n 1) 1 (* n (factorial (- n 1)))))
-```
-
-Doctest syntax:
-
-- `>>> expr` followed by expected result on the next line
-- `!! substring` expects an error containing substring
-- `>>>!` evaluates but doesn't check (setup)
-
-### `(doc sym)`
-
-Pretty-print documentation for a symbol. Shows name, parameters, docstring, and source.
-
-```sema
-(doc factorial)
-```
-
-### `(doc/search query)`
-
-Search all defined symbols by name or docstring content. Returns a list of `{:name ... :doc ...}` maps.
-
-```sema
-(doc/search "sort")    ; find all functions mentioning "sort"
-```
-
-### `(doctest sym)`
-
-Run all doctests from a symbol's docstring. Returns `{:passed n :total n :name "..."}`.
-
-```sema
-(doctest factorial)    ; => {:name "factorial" :passed 2 :total 2}
-```
-
-### `(meta sym)`
-
-Return all metadata for a symbol as a map. Includes `:name`, `:type`, `:params`, `:arity`, `:doc`, `:source`, `:variadic?`, and any custom metadata.
-
-```sema
-(meta factorial)
-; => {:arity 1 :doc "Compute n!. ..." :name "factorial" :params (n) :type :lambda}
-```
-
-### Testing from the CLI
-
-```bash
-sema test src/**/*.sema       # run all doctests in matching files
-sema test --heal src/lib.sema # run doctests, auto-heal failures with LLM
-```
-
-::: tip
-Treat docstrings as specifications: concise purpose + concrete examples. The LLM reads them during `ask`, `heal!`, and `evolve`.
-:::
-
-## Source Introspection
-
-### `(source-of sym)`
-
-Return the source text of a definition as a string.
-
-```sema
-(source-of factorial)  ; => "(fn (n) (if (<= n 1) 1 (* n (factorial (- n 1)))))"
-```
-
-### Reader directives: `;;@key value`
-
-Attach structured metadata to definitions using directive comments. Place them on the line before a `defn`, `define`, or `defmacro`.
-
-```sema
-;;@since 1.5
-;;@stability stable
-;;@author helge
-(defn parse-date "Parse a date string." (s) ...)
-```
-
-Directives are captured by the reader and available through `read-source`.
-
-### `(read-source path)`
-
-Read and parse source files, returning structured data for each top-level definition. Supports glob patterns.
-
-```sema
-(read-source "src/**/*.sema")
-; => list of {:type :defn :name "..." :doc "..." :params (...) :body (...) :directives {...} :source "..."}
-```
-
-::: tip
-Combine `read-source` with higher-order functions to build custom tooling:
-```sema
-;; Find all deprecated functions
-(->> (read-source "src/**/*.sema")
-     (filter #(get-in % [:directives :deprecated]))
-     (map :name))
-```
-:::
 
 ## Conversational Introspection
-
-These forms require an LLM provider to be configured.
 
 ### `(ask target question)`
 
@@ -163,14 +52,20 @@ Ask a natural-language question about any value. The LLM receives the value's so
 ; => "The password is hardcoded in plain text..."
 ```
 
+`ask` works on any value -- functions, maps, lists, strings. For functions, it automatically includes source code, parameters, and docstring in the LLM context.
+
 ### `(ask/code target instruction)`
 
-Like `ask`, but the LLM returns a Sema code expression that can be evaluated.
+Like `ask`, but the LLM returns a Sema code expression that can be evaluated or applied with [`become!`](../language/metaprogramming.md#become-sym-new-definition).
 
 ```sema
 (ask/code factorial "Make this tail-recursive")
 ; => "(fn (n) (let loop ((i n) (acc 1)) (if (<= i 1) acc (loop (- i 1) (* acc i)))))"
 ```
+
+::: warning
+`ask/code` returns a string containing code, not an evaluated result. Inspect it before applying with `become!`.
+:::
 
 ### `(heal! sym)`
 
@@ -192,82 +87,16 @@ Auto-repair a function by running its doctests. If any fail, the LLM is asked to
 ;; On success, the new implementation replaces the old one.
 ```
 
-::: warning
-`heal!` modifies the function in place. Use `(source-of sym)` after healing to inspect the new implementation, and `(history sym)` to see previous versions.
-:::
+`heal!` uses the doctest gate from `become!` -- each candidate must pass all doctests. The old version is saved to [`history`](../language/metaprogramming.md#history-sym).
 
-## Runtime Self-Modification
+You can also heal from the CLI:
 
-### `(observe! sym sample-size callback)`
-
-Wrap a function with an invisible logger. After `sample-size` calls, the original function is restored and `callback` is invoked with the call log (a list of `{:args ... :result ... :time-ms ...}` maps).
-
-```sema
-(defn fib "Fibonacci.
-    >>> (fib 0)
-    0
-    >>> (fib 10)
-    55"
-  (n) (if (<= n 1) n (+ (fib (- n 1)) (fib (- n 2)))))
-
-(observe! fib 100
-  (fn (log)
-    (let ((total-ms (foldl + 0 (map #(get % :time-ms) log)))
-          (unique-args (length (dedup (map #(get % :args) log)))))
-      (println f"100 calls: ${total-ms}ms total, ${unique-args} unique inputs"))))
-
-;; Now use fib normally — after 100 calls, the callback fires and fib is restored.
-```
-
-### `(become! sym new-definition)`
-
-Replace a function's definition at runtime. If the function has doctests, the candidate must pass all of them or the replacement is rejected. Saves the old version to history.
-
-```sema
-;; Upgrade fib to a memoized version
-(become! fib
-  (let ((cache {}))
-    (fn (n)
-      (or (get cache n)
-          (let ((v (if (<= n 1) n (+ (fib (- n 1)) (fib (- n 2))))))
-            (set! cache (assoc cache n v))
-            v)))))
-;; Doctests run automatically — if they fail, fib is unchanged.
-```
-
-::: danger
-`become!` is powerful but dangerous. Always ensure functions have doctests before using it in production. The doctest gate is your safety net.
-:::
-
-### `(history sym)`
-
-Return the version history of a binding as a list of `{:version n :value <old-fn> :source "..."}` maps. Each `become!` and `rollback!` creates a history entry.
-
-```sema
-(history fib)
-; => ({:version 1 :value <lambda> :source "(fn (n) ...)"})
-```
-
-### `(rollback! sym version)`
-
-Restore a previous version from history. Creates a new history entry for the current version before rolling back.
-
-```sema
-(rollback! fib 1)   ; restore the original implementation
-(fib 10)            ; => 55 (works, but slow again)
-```
-
-### `(freeze! sym)`
-
-Permanently prevent further `become!` or `rollback!` on a function. Use this to stabilize proven implementations.
-
-```sema
-(freeze! fib)
-(become! fib (fn (n) 0))  ; => Error: 'fib' is frozen and cannot be modified
+```bash
+sema test --heal src/lib.sema   # run doctests, auto-heal failures
 ```
 
 ::: tip
-The safety workflow: `observe!` to understand behavior, `become!` to upgrade (gated by doctests), `history` to inspect changes, `rollback!` if something goes wrong, `freeze!` once stable.
+`heal!` works best with small, well-specified functions. Write tight doctests that cover edge cases -- the LLM uses them as both the specification and the acceptance criteria.
 :::
 
 ## Genetic Programming
@@ -368,11 +197,11 @@ The fitness function receives two arguments: the candidate function value and a 
 Start with correctness-only fitness. Once `evolve` reliably produces correct candidates, add performance objectives.
 :::
 
-## Putting It Together
+## Scenarios
 
-### Scenario 1: Self-Healing Parser
+### Self-Healing Parser
 
-A date parser that handles ISO format but breaks on other inputs. Define the full specification as doctests, then let the system heal itself:
+Define the full specification as doctests, then let the system heal itself:
 
 ```sema
 (defn parse-date "Parse date strings into ISO format.
@@ -384,25 +213,16 @@ A date parser that handles ISO format but breaks on other inputs. Define the ful
     \"2024-01-15\""
   (s) s)
 
-;; Check what fails
-(doctest parse-date)     ; => {:passed 1 :total 3 :name "parse-date"}
-
-;; Auto-repair
-(heal! parse-date)
-
-;; Verify
-(doctest parse-date)     ; => {:passed 3 :total 3 :name "parse-date"}
-
-;; Inspect what changed
-(source-of parse-date)
-
-;; Lock it down
-(freeze! parse-date)
+(doctest parse-date)     ; => {:passed 1 :total 3}
+(heal! parse-date)       ; LLM fixes it
+(doctest parse-date)     ; => {:passed 3 :total 3}
+(source-of parse-date)   ; inspect the new implementation
+(freeze! parse-date)     ; lock it down
 ```
 
-### Scenario 2: Adaptive Memoization
+### Observe, Ask, Upgrade
 
-A function that's expensive for repeated calls. Use `observe!` to collect usage data, then let the LLM decide how to optimize:
+Use [`observe!`](../language/metaprogramming.md#observe-sym-sample-size-callback) to collect usage data, then let the LLM decide how to optimize:
 
 ```sema
 (defn compute "Expensive computation.
@@ -418,17 +238,14 @@ A function that's expensive for repeated calls. Use `observe!` to collect usage 
     (let ((unique (length (dedup (map #(get % :args) log))))
           (total  (length log)))
       (when (< unique (/ total 2))
-        ;; Many repeated calls — ask for memoization
+        ;; Many repeated calls -- ask for memoization
         (let ((suggestion (ask/code compute "Add memoization")))
           (println f"Suggested:\n${suggestion}"))))))
-
-;; ... use compute normally ...
-;; After 50 calls, the callback fires with the analysis
 ```
 
-### Scenario 3: Evolving for Performance
+### Evolving for Performance
 
-Use `evolve` to find the fastest implementation of a function, then benchmark and freeze the winner:
+Use `evolve` to find the fastest implementation, then benchmark and freeze:
 
 ```sema
 (define best-fib
@@ -453,20 +270,18 @@ Use `evolve` to find the fastest implementation of a function, then benchmark an
 
 ## Best Practices
 
-1. **Doctests are contracts.** Every function that participates in `become!`, `heal!`, or `evolve` should have doctests. They are the safety net that prevents regressions.
+1. **Doctests are contracts.** Every function that participates in `heal!` or `evolve` needs doctests. They are what the LLM tries to satisfy.
 
 2. **Keep targets small.** Don't `ask` or `heal!` an entire module. Target individual functions with clear specifications.
 
-3. **Use history and rollback.** Before `become!`, know that you can always `(rollback! sym 1)` to get back. Check `(history sym)` to see what changed.
+3. **Inspect before applying.** Use `ask` to understand, `ask/code` to generate, review the output, then `become!` to apply.
 
-4. **Freeze stable code.** Once a function is battle-tested, `(freeze! sym)` prevents accidental modification.
+4. **Use `observe!` before optimizing.** Measure before you modify. Let the data tell you what to optimize.
 
-5. **Start with `ask` before `ask/code`.** Use `ask` to understand the problem, `ask/code` to generate a solution, and `become!` to apply it -- not all at once.
-
-6. **Use `observe!` before optimizing.** Measure before you modify. Let the data tell you what to optimize.
+5. **Freeze after healing.** Once `heal!` or `evolve` produces a good result, `(freeze! sym)` prevents accidental modification.
 
 ## Related
 
-- [Completion & Chat](./completion.md) -- LLM provider configuration needed for `ask`, `heal!`, and `evolve`
+- [Metaprogramming](../language/metaprogramming.md) -- docstrings, doctests, introspection, `become!`/`rollback!`/`freeze!` (no LLM needed)
+- [Completion & Chat](./completion.md) -- LLM provider setup
 - [Tools & Agents](./tools-agents.md) -- structured LLM interactions
-- [Special Forms](../language/special-forms.md) -- full language reference

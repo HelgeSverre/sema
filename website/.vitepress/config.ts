@@ -65,6 +65,7 @@ export default defineConfig({
             { text: 'Data Types', link: '/docs/language/data-types' },
             { text: 'Special Forms', link: '/docs/language/special-forms' },
             { text: 'Macros & Modules', link: '/docs/language/macros-modules' },
+            { text: 'Metaprogramming', link: '/docs/language/metaprogramming' },
           ],
         },
         {

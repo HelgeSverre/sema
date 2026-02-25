@@ -40,7 +40,7 @@ Define tools the LLM can invoke, and build agents with system prompts, tools, an
 
 ### [Living Code](./living-code.md)
 
-Self-aware programs: docstrings as specs, conversational introspection (`ask`), auto-repair (`heal!`), runtime self-modification (`become!`/`rollback!`/`freeze!`), and LLM-driven genetic programming (`evolve`).
+LLM-powered code intelligence: conversational introspection (`ask`, `ask/code`), auto-repair (`heal!`), and genetic programming (`evolve`). Builds on the [Metaprogramming](../language/metaprogramming.md) primitives.
 
 ### [Embeddings & Similarity](./embeddings.md)
 
