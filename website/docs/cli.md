@@ -43,6 +43,79 @@ sema ast [OPTIONS] [FILE]
 | `-e, --eval <EXPR>` | Parse expression instead of file |
 | `--json`            | Output AST as JSON               |
 
+### `sema eval`
+
+Evaluate Sema code and return results. Designed for machine consumption (editor/LSP integration).
+
+```
+sema eval [OPTIONS]
+```
+
+| Flag                  | Description                                                      |
+| --------------------- | ---------------------------------------------------------------- |
+| `--stdin`             | Read program from stdin                                          |
+| `--expr <CODE>`       | Evaluate a single expression                                     |
+| `--json`              | Emit JSON result envelope                                        |
+| `--path <FILE>`       | Set file context for imports and error spans                     |
+| `--sandbox <MODE>`    | Sandbox mode (`strict`, `all`, or comma-separated capabilities)  |
+| `--no-llm`            | Disable LLM features                                             |
+| `--timeout <MS>`      | Kill evaluation after N ms (default: 5000)                       |
+| `--vm`                | Use bytecode VM instead of tree-walker                           |
+
+**Examples:**
+
+```bash
+# Evaluate an expression
+sema eval --expr "(+ 1 2)"
+
+# Read from stdin (avoids shell quoting issues)
+echo '(* 6 7)' | sema eval --stdin
+
+# JSON output for programmatic use
+sema eval --expr "(+ 1 2)" --json
+# => {"ok":true,"value":"3","error":null,"elapsedMs":0}
+
+# Multi-form context: defines are available to later expressions
+echo '(define pi 3.14) (define (area r) (* pi r r)) (area 10)' | sema eval --stdin --json
+# => {"ok":true,"value":"314.0","error":null,"elapsedMs":0}
+
+# Sandboxed evaluation (used by LSP)
+sema eval --expr "(+ 1 2)" --json --sandbox strict --no-llm
+```
+
+**JSON envelope format:**
+
+```json
+{
+  "ok": true,
+  "value": "42",
+  "stdout": "",
+  "stderr": "",
+  "error": null,
+  "elapsedMs": 12
+}
+```
+
+Output from `print`/`println`/`display` is captured into `stdout`; `print-error`/`println-error` into `stderr`. These fields are always present (empty string when no output).
+
+On error:
+
+```json
+{
+  "ok": false,
+  "value": null,
+  "stdout": "",
+  "stderr": "",
+  "error": {
+    "message": "Unbound variable: foo",
+    "hint": "Did you mean 'for'?",
+    "line": 3,
+    "col": 5
+  },
+  "elapsedMs": 2
+}
+```
+
 ### `sema compile`
 
 Compile a source file to a `.semac` bytecode file. The compiled file can be executed directly with `sema` (auto-detected via magic number). See [Bytecode File Format](./internals/bytecode-format.md) for details on the format.
@@ -242,6 +315,49 @@ sema fmt --check
 # Preview changes
 sema fmt --diff
 ```
+
+### `sema lsp`
+
+Start the Language Server Protocol (LSP) server. Communicates over stdio using the standard LSP JSON-RPC protocol.
+
+```
+sema lsp
+```
+
+**Features:**
+- **Parse diagnostics** — real-time error squiggles for syntax errors (unclosed parens, unterminated strings, etc.)
+- **Completion** — special forms, stdlib builtins, and user-defined top-level names
+
+**Editor setup:**
+
+::: code-group
+```toml [Helix (languages.toml)]
+[[language]]
+name = "sema"
+language-servers = ["sema-lsp"]
+
+[language-server.sema-lsp]
+command = "sema"
+args = ["lsp"]
+```
+
+```lua [Neovim (init.lua)]
+local lspconfig = require('lspconfig')
+local configs = require('lspconfig.configs')
+
+if not configs.sema then
+  configs.sema = {
+    default_config = {
+      cmd = { 'sema', 'lsp' },
+      filetypes = { 'sema' },
+      root_dir = lspconfig.util.root_pattern('sema.toml', '.git'),
+    },
+  }
+end
+
+lspconfig.sema.setup({})
+```
+:::
 
 ## Examples
 

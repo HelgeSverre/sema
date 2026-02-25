@@ -9,6 +9,7 @@ members = [
     "crates/sema",
     "crates/sema-wasm",
     "crates/sema-fmt",
+    "crates/sema-lsp",
 ]
 exclude = ["pkg"]
 resolver = "2"
@@ -28,6 +29,10 @@ sema-llm = { version = "=1.11.0", path = "crates/sema-llm" }
 sema-stdlib = { version = "=1.11.0", path = "crates/sema-stdlib" }
 sema-vm = { version = "=1.11.0", path = "crates/sema-vm" }
 sema-fmt = { version = "=1.11.0", path = "crates/sema-fmt" }
+sema-lsp = { version = "=1.11.0", path = "crates/sema-lsp" }
+
+tower-lsp = "0.20"
+dashmap = "6"
 
 regex = "1"
 thiserror = "2"

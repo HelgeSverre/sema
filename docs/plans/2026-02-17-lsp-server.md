@@ -350,29 +350,327 @@ The extension currently only provides TextMate grammar. Add LSP client:
 
 ---
 
+## Phase R: Runnable Regions — Evaluate Code from the Editor
+
+**Complexity:** Medium
+**Depends on:** Phase 0b (end spans), Phase 1 (LSP plumbing)
+**Reuses:** `sema` CLI subprocess, `read_many_with_spans`, doctest detection from Living Code
+
+### Overview
+
+Enable evaluating individual top-level forms, selections, and doctests directly from the editor with inline result display. The LSP handles code lens + command dispatch; actual evaluation is delegated to a `sema` subprocess for isolation.
+
+### Architecture: LSP ≠ Evaluator
+
+The LSP server **never evaluates user code**. It delegates to a `sema eval` subprocess:
+
+```
+┌──────────────┐  CodeLens / executeCommand  ┌──────────────┐
+│   Editor     │ ◄──────────────────────────► │  sema-lsp    │
+│  (VS Code,   │                              │  (analysis   │
+│   Zed, etc.) │  sema/evalResult (notify)    │   only)      │
+└──────────────┘ ◄──────────────────────────  └──────┬───────┘
+                                                     │ spawn
+                                                     ▼
+                                              ┌──────────────┐
+                                              │ sema eval    │
+                                              │ --stdin      │
+                                              │ --json       │
+                                              │ (subprocess) │
+                                              └──────────────┘
+```
+
+**Why not evaluate inside the LSP?**
+- The LSP backend thread owns an `Interpreter` under `Sandbox::deny(Caps::ALL)` for analysis. Mixing in interactive evaluation would block diagnostics/completions, complicate cancellation, and create pressure to relax sandboxing.
+- `Rc`-based values can't cross thread boundaries — subprocess isolation avoids this entirely.
+- Subprocess model gives clean timeouts, cancellation, and capability control.
+
+### New CLI: `sema eval`
+
+Add a dedicated `eval` subcommand optimized for machine consumption:
+
+```bash
+# Read program from stdin, emit JSON result envelope
+sema eval --stdin --json --path /abs/file.sema
+
+# With sandbox + no LLM (default for LSP-triggered evals)
+sema eval --stdin --json --sandbox strict --no-llm --path /abs/file.sema
+```
+
+**Arguments:**
+- `--stdin` — read program text from stdin (avoids shell quoting issues)
+- `--json` — emit machine-readable result envelope (single JSON object on stdout)
+- `--path <file>` — set "current file" for error spans + relative import resolution
+- `--sandbox <mode>` — sandbox mode (reuses existing `--sandbox` logic)
+- `--no-llm` / `--no-init` — disable LLM features
+- `--timeout <ms>` — kill after N milliseconds (default: 5000)
+
+**JSON output envelope:**
+
+```jsonc
+{
+  "ok": true,
+  "value": "42",
+  "stdout": "hello world\n",
+  "stderr": "",
+  "error": null,
+  "elapsedMs": 12
+}
+```
+
+On error:
+
+```jsonc
+{
+  "ok": false,
+  "value": null,
+  "stdout": "",
+  "stderr": "",
+  "error": {
+    "message": "Unbound variable: foo",
+    "hint": "Did you mean 'for'?",
+    "line": 3,
+    "col": 5
+  },
+  "elapsedMs": 2
+}
+```
+
+### LSP Features
+
+#### CodeLens: `textDocument/codeLens`
+
+Walk the parsed AST for each open document and return one lens stub per top-level form:
+
+| Form type | Lens title | Command |
+|-----------|-----------|---------|
+| Any top-level form | `▶ Run` | `sema.runTopLevel` |
+| `defn`/`defun` with doctests | `▶ Run Doctests` | `sema.runDoctests` |
+| `defagent` | `▶ Run Agent` | `sema.runTopLevel` |
+
+**Stub payload (in `data` field):**
+
+```jsonc
+{
+  "uri": "file:///path/to/file.sema",
+  "kind": "run",           // "run" | "doctests"
+  "formIndex": 3,          // index into top-level forms
+  "range": { "start": { "line": 5, "character": 0 }, "end": { "line": 12, "character": 1 } },
+  "docVersion": 17         // document version for staleness check
+}
+```
+
+**`codeLens/resolve`:** Attach the command title + arguments based on `data.kind`.
+
+#### Execute Command: `workspace/executeCommand`
+
+**Commands advertised during `initialize`:**
+
+| Command | Arguments | Description |
+|---------|-----------|-------------|
+| `sema.runTopLevel` | `[LensData]` | Evaluate a top-level form with its context |
+| `sema.runDoctests` | `[LensData]` | Run doctests for a function |
+| `sema.evalRange` | `[uri, range]` | Evaluate arbitrary selected text |
+
+**Execution flow for `sema.runTopLevel`:**
+
+1. Look up document text from the open document store.
+2. Parse with `read_many_with_spans` to get top-level forms.
+3. Construct the evaluation program: **all prior forms `[0..i)` as context** + **target form `[i]`**.
+4. Spawn `sema eval --stdin --json --sandbox strict --no-llm --path <file>`.
+5. Pipe the constructed program to stdin, capture stdout.
+6. Parse JSON result envelope.
+7. Send `sema/evalResult` notification to client.
+
+**Context construction (Phase R1 — simple, stateless):**
+
+```
+;; forms 0 through i-1 (establish definitions, imports)
+(import "utils.sema")
+(define pi 3.14159)
+(defn area (r) (* pi r r))
+
+;; target form (form i — its return value is the result)
+(area 5)
+```
+
+This re-runs prefix forms on every evaluation. Acceptable for Phase R1; a long-lived REPL session (Phase R2) avoids this.
+
+#### Custom Notification: `sema/evalResult`
+
+**Method:** `"sema/evalResult"`
+
+```jsonc
+{
+  "uri": "file:///path/to/file.sema",
+  "range": { "start": {...}, "end": {...} },
+  "kind": "run",
+  "value": "78.53975",
+  "stdout": "",
+  "stderr": "",
+  "ok": true,
+  "elapsedMs": 15,
+  "taskId": "uuid"
+}
+```
+
+For doctests:
+
+```jsonc
+{
+  "uri": "...",
+  "range": {...},
+  "kind": "doctests",
+  "value": null,
+  "ok": true,
+  "stdout": "area: 3/3 ✓\n",
+  "stderr": "",
+  "elapsedMs": 42,
+  "taskId": "uuid"
+}
+```
+
+### VS Code Extension Changes
+
+The current `editors/vscode/sema/` is grammar-only. Add a TypeScript extension:
+
+**New file layout:**
+
+```
+editors/vscode/sema/
+  package.json          # updated: add main, activationEvents, commands, keybindings
+  tsconfig.json         # new
+  src/
+    extension.ts        # new: activation, LSP client setup, output channel
+    lspClient.ts        # new: spawn `sema lsp`, register notification handlers
+    evalDecorations.ts  # new: inline `=> value` decorations via VS Code API
+    commands.ts         # new: evalForm, evalSelection, clearResults
+```
+
+**Keybindings:**
+
+| Keybinding | Command | Description |
+|-----------|---------|-------------|
+| `Ctrl+Enter` | `sema.evalForm` | Evaluate current top-level form |
+| `Shift+Enter` | `sema.evalSelection` | Evaluate selection (or form at cursor) |
+| `Ctrl+Shift+Backspace` | `sema.clearResults` | Clear all inline result decorations |
+
+**Inline result display:**
+
+Uses VS Code's `TextEditorDecorationType` with `after:` render options:
+
+```typescript
+const resultDecoration = vscode.window.createTextEditorDecorationType({
+  after: { textDecoration: 'none', fontStyle: 'italic' },
+  rangeBehavior: vscode.DecorationRangeBehavior.ClosedOpen,
+});
+
+// Applied per-result:
+{ renderOptions: { after: { contentText: ' => 78.53975', color: '#88c070' } } }
+```
+
+Results are truncated to ~120 chars inline; full output goes to the "Sema" output channel.
+
+**Output channel:**
+
+```
+[file.sema:7] ▶ (area 5)
+=> 78.53975 (15ms)
+
+[file.sema:1-5] ▶ Run Doctests: area
+area: 3/3 ✓ (42ms)
+```
+
+### Zed Integration
+
+Extend `editors/zed/languages/sema/runnables.scm` to support per-form runs:
+
+```scheme
+; Run individual top-level definitions
+(list
+  . (symbol) @_f
+  . (symbol) @run
+  (#any-of? @_f "defun" "defn" "defmacro" "defagent" "deftool" "define")
+) @_source (#set! tag "sema-run-form")
+
+; Run any top-level expression
+(source_file (list) @run (#set! tag "sema-run-form"))
+```
+
+Add matching task in `tasks.json`:
+
+```jsonc
+{
+  "label": "sema run form",
+  "command": "sema",
+  "args": ["eval", "--stdin", "--path", "$ZED_FILE"],
+  "tags": ["sema-run-form"]
+}
+```
+
+### Safety & Guardrails
+
+1. **Sandbox by default** — LSP-triggered evals use `--sandbox strict --no-llm` unless the user opts in via LSP `initializationOptions`.
+2. **Timeouts** — subprocess killed after 5s (configurable). Inline result shows `⏱ timeout` on expiry.
+3. **Result truncation** — inline display truncated to 120 chars. Full output in the output channel.
+4. **Cancellation** — if user triggers a new eval on the same form before the previous completes, kill the old subprocess.
+5. **UTF-16 ↔ UTF-8** — LSP positions are UTF-16. Document text store must handle offset conversion correctly.
+6. **Staleness** — check `docVersion` before applying results; discard if document has changed since eval was requested.
+
+### Implementation Checklist
+
+| Task | Location | Effort |
+|------|----------|--------|
+| `sema eval` subcommand (--stdin, --json, --timeout) | `crates/sema/src/main.rs` | M |
+| JSON result envelope serialization | `crates/sema/src/main.rs` | S |
+| CodeLens provider (top-level form detection) | `crates/sema-lsp/src/features/codelens.rs` | M |
+| Doctest detection in CodeLens | `crates/sema-lsp/src/features/codelens.rs` | S |
+| Execute command handler + subprocess runner | `crates/sema-lsp/src/features/execute_command.rs` | M |
+| `sema/evalResult` notification type | `crates/sema-lsp/src/protocol.rs` | S |
+| Context construction (prefix forms) | `crates/sema-lsp/src/eval/subprocess.rs` | M |
+| VS Code extension entry point + LSP client | `editors/vscode/sema/src/extension.ts` | M |
+| Inline result decorations | `editors/vscode/sema/src/evalDecorations.ts` | M |
+| Eval keybindings + commands | `editors/vscode/sema/src/commands.ts` | S |
+| Zed runnables.scm update | `editors/zed/languages/sema/runnables.scm` | S |
+
+### Future: Phase R2 — Long-Lived REPL Session
+
+When stateless eval becomes a bottleneck (large files, slow prefix, stateful workflows):
+
+- Add `sema repl --machine --json` mode — line-delimited JSON request/response protocol.
+- LSP manages one REPL session per workspace folder.
+- Track "loaded up to formIndex/version" per document to avoid re-running prefix.
+- Protocol: `{ "id": 1, "op": "eval", "code": "...", "path": "..." }` → `{ "id": 1, "ok": true, "value": "..." }`
+- Reset session on config change or explicit user command.
+
+---
+
 ## Summary
 
 | Phase | Feature | Complexity | Status |
 |-------|---------|------------|--------|
 | 0a | Special forms export | Easy | ✅ Done |
-| 0b | End positions on `Span` | Easy | Not started |
-| T | Tree-sitter grammar + queries + editor configs | Easy–Medium | Not started |
-| 1 | LSP: Parse diagnostics | Easy | Not started |
+| 0b | End positions on `Span` | Easy | ✅ Done |
+| T | Tree-sitter grammar + queries + editor configs | Easy–Medium | ✅ Done |
+| 1 | LSP: Parse diagnostics | Easy | ✅ Done |
 | 1b | LSP: Compile-time diagnostics (via sema-vm pipeline) | Medium | Not started |
-| 2 | LSP: Completion | Medium | Not started |
+| 2 | LSP: Completion | Medium | ✅ Done |
+| R | LSP: Runnable regions + eval bridge | Medium | ✅ CLI done (`sema eval`), CodeLens not started |
 | 3 | LSP: Go to definition | Hard | Not started |
 | 4 | LSP: Hover docs | Medium–Hard | Not started |
 
 ### Implementation Order
 
 1. ~~**Phase 0a**~~ ✅ — special forms list unified
-2. **Phase T** — tree-sitter grammar (immediate payoff across all modern editors, independent of LSP)
-3. **Phase 1** — LSP parse diagnostics (immediate value, validates tower-lsp plumbing)
-4. **Phase 1b** — compile-time diagnostics via `sema_vm::lower` → `resolve` → `compile` (catches unbound vars, arity errors without execution)
-5. **Phase 2** — LSP completion (most-requested IDE feature)
-6. **Phase 0b** — end spans (do before Phase 3, improves diagnostics)
-7. **Phase 3a** — import path resolution (easy, do alongside Phase 2)
-8. **Phase 3b/3c + Phase 4** — incrementally as LSP matures
+2. ~~**Phase T**~~ ✅ — tree-sitter grammar (`editors/tree-sitter-sema/`)
+3. ~~**Phase 0b**~~ ✅ — end spans (`Span` has `end_line`/`end_col`)
+4. ~~**Phase 1**~~ ✅ — LSP parse diagnostics (`crates/sema-lsp/`, `sema lsp` subcommand)
+5. ~~**Phase 2**~~ ✅ — LSP completion (special forms, builtins, user defs)
+6. ~~**Phase R (CLI)**~~ ✅ — `sema eval` subcommand with JSON envelope
+7. **Phase 1b** — compile-time diagnostics via `sema_vm::lower` → `resolve` → `compile` (catches unbound vars, arity errors without execution)
+8. **Phase R (LSP)** — CodeLens, executeCommand, `sema/evalResult` notifications
+9. **Phase 3a** — import path resolution (easy, do alongside Phase 2)
+10. **Phase 3b/3c + Phase 4** — incrementally as LSP matures
 
 ---
 

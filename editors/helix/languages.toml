@@ -7,10 +7,15 @@ scope = "source.sema"
 injection-regex = "sema"
 file-types = ["sema"]
 comment-tokens = ";"
-roots = []
+roots = ["sema.toml"]
 grammar = "sema"
 indent = { tab-width = 2, unit = "  " }
 auto-format = false
+language-servers = ["sema-lsp"]
+
+[language-server.sema-lsp]
+command = "sema"
+args = ["lsp"]
 
 [language.auto-pairs]
 "(" = ")"
