@@ -4,7 +4,7 @@
   (symbol) @_f
   .
   (symbol) @name
-  (#any-of? @_f "defun" "defmacro" "defagent" "deftool" "define-record-type")
+  (#any-of? @_f "defun" "defn" "defmacro" "defagent" "deftool" "define-record-type")
 ) @item
 
 ; (define (name args...) body)
