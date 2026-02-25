@@ -155,9 +155,87 @@ Janet is ~1.7× faster than Sema's VM on the 1BRC benchmark. Realistically:
 
 Combined, Sema would be **competitive with Janet** and **ahead of Guile/Gauche**. This would move Sema from 11.2× behind SBCL to roughly 5–6× behind — solidly mid-pack among interpreted Lisps.
 
+## Tier 4: Build & Compiler Tuning (Free Wins)
+
+### 10. LTO "fat" for release builds
+
+**Impact:** Estimated 5–10% on cross-crate hot paths
+**Effort:** Trivial (one-line change)
+**Status:** Not started — currently using `lto = "thin"`
+
+The VM dispatcher in `sema-vm` calls into `sema-core` value operations (`view()`, `try_as_small_int()`, `as_int()`) millions of times per benchmark. With thin LTO, LLVM can't always inline across crate boundaries. Fat LTO (`lto = "fat"`) enables full cross-crate inlining at the cost of slower compile times. The `dist` profile should also be upgraded.
+
+### 11. `target-cpu=native` for local benchmarking
+
+**Impact:** 0–5%, depends on instruction set extensions available
+**Effort:** Trivial (RUSTFLAGS)
+**Status:** Not started
+
+Building with `RUSTFLAGS="-C target-cpu=native"` lets LLVM use the full instruction set of the host CPU (e.g., Apple Silicon NEON, AVX2 on x86). Not suitable for distributed binaries, but should be standard practice for local benchmarking. Can be added to `.cargo/config.toml` under a `[target]` profile or a `Makefile` benchmark target.
+
+### 12. `#[inline(always)]` audit on hot Value accessors
+
+**Impact:** 5–10% on dispatch-heavy benchmarks
+**Effort:** Small (hours)
+**Status:** Not started
+
+Ensure the hottest `Value` methods are `#[inline(always)]`: `try_as_small_int()`, `as_int()`, `as_float()`, `is_truthy()`, `view()`, `raw_tag()`, `is_immediate()`, `type_name()`. Without this annotation, LLVM may choose not to inline across crate boundaries even with LTO, especially for methods called from tight loops in `sema-vm`. Verify with `cargo-asm` or `samply` that these are actually inlined in the dispatch loop.
+
+### 13. Profile-Guided Optimization (PGO)
+
+**Impact:** Estimated 10–20% on representative workloads
+**Effort:** Medium (set up PGO pipeline)
+**Status:** Not started
+
+Use Rust's PGO support (`-C profile-generate` / `-C profile-use`) with representative Sema benchmarks (tak, 1BRC, deriv) as the training workload. This lets LLVM:
+- Lay out the dispatch function's basic blocks optimally for actual opcode frequency
+- Apply branch prediction hints matching real usage patterns
+- Inline decisions based on measured call frequency
+
+Pipeline: build with instrumentation → run benchmarks → merge profiles → rebuild with `-C profile-use`. Can be integrated into CI for release builds. See [rustc PGO docs](https://doc.rust-lang.org/rustc/profile-guided-optimization.html).
+
+## Tier 5: Speculative / Research (Long-Term)
+
+### 14. Quickening (speculative type specialization)
+
+**Impact:** Estimated 20–40% on type-stable hot loops
+**Effort:** Large (weeks)
+**Status:** Research
+
+After first execution, rewrite generic opcodes with type-specialized versions based on observed operand types. For example, if `Add` always sees two `IntSmall` values, rewrite it in-place to `AddInt` which skips the type check and NaN-unboxing. If the type guard fails at runtime, deoptimize back to the generic version.
+
+This is essentially what CPython 3.11+ does with its "specializing adaptive interpreter." Key design decisions:
+- **Granularity:** Per-instruction (CPython) vs per-basic-block
+- **Deoptimization:** Rewrite back to generic op on guard failure, with a counter to avoid re-specializing thrashing call sites
+- **Mutable bytecode:** Requires `Chunk.code` to be mutable at runtime (currently `Vec<u8>`, so this works)
+- **Interaction with superinstructions:** Quickened ops can themselves be fused into super-quickened pairs
+
+Prerequisite: instruction frequency profiling (superinstructions Phase 3) to identify which opcodes are worth specializing.
+
+### 15. Copy-and-patch JIT
+
+**Impact:** Estimated 3–5× over interpretation
+**Effort:** Very large (months)
+**Status:** Research
+
+A lightweight JIT approach that avoids the complexity of a full compiler backend. Pre-compile native code "stencils" for each opcode at build time (using `cc` or `include_bytes!` with precompiled blobs), then at runtime `memcpy` them into an executable buffer and patch operand slots (register indices, constants, jump targets).
+
+This gets native-code performance without a full Cranelift/LLVM JIT integration. References:
+- Xu & Kjolstad, *Copy-and-Patch Compilation* (OOPSLA 2021)
+- CPython 3.13's copy-and-patch JIT implementation
+- Haas's *Copy-and-Patch for Lua* experiments
+
+Considerations for Sema:
+- Rust's `mmap` + `mprotect` for executable memory (or use the `region` crate)
+- Stencils would be architecture-specific (`aarch64` for Apple Silicon, `x86_64` for Linux/CI)
+- NaN-boxed `Value(u64)` fits in a single register, making stencils simpler than tagged-pointer schemes
+- Could target only hot loops (detected via execution counter) rather than whole-program compilation
+
+This would move Sema from the "fast interpreter" tier into the "JIT-compiled" tier, potentially competitive with LuaJIT's interpreter mode (though not its tracing JIT).
+
 ## What's Not Realistic
 
-Catching SBCL (1.0×) or Chez Scheme (1.3×) is not possible without a native code compiler. Those implementations compile Lisp to machine code — `(+ x y)` becomes an `ADD` instruction. No amount of VM optimization can match that. A JIT compiler (like LuaJIT) could close the gap further, but that's a multi-year project and changes the character of the language.
+Catching SBCL (1.0×) or Chez Scheme (1.3×) is not possible without a native code compiler. Those implementations compile Lisp to machine code — `(+ x y)` becomes an `ADD` instruction. No amount of VM optimization can match that. A copy-and-patch JIT (§15) could close the gap to ~2–3× behind SBCL, but a full tracing JIT (like LuaJIT) is a multi-year project and changes the character of the language.
 
 ## Previously Tried and Rejected
 
