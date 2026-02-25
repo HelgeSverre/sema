@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.12.0
+
+### Added
+
+- **Language Server Protocol (LSP)** — new `sema-lsp` crate (`crates/sema-lsp/`) with `sema lsp` subcommand providing a full-featured LSP server for Sema:
+  - **Parse diagnostics** — real-time error squiggles for syntax errors with error recovery (reports multiple errors). Uses `read_many_with_spans_recover` for resilient parsing.
+  - **Compile-time diagnostics** — unbound variable, arity mismatch, and invalid form detection via `sema_vm::compile_program`, shown as warnings.
+  - **Completion** — special forms, stdlib builtins, user-defined symbols, and scope-aware local bindings (let/lambda params). Local bindings sort before globals.
+  - **Go to definition** — user-defined symbols (same file), local bindings (lambda params, let variables), cross-file module definitions via import/load path resolution, and import path strings → file navigation.
+  - **Hover documentation** — 160+ builtin docs scraped from sema-lang.com, user function signatures with params, special form labels, and imported symbol provenance.
+  - **Find all references** — scope-aware: local variables only show same-scope references; top-level symbols search across all open documents, excluding shadowed occurrences.
+  - **Rename** — scope-aware: renaming a local binding only renames within its scope; renaming a top-level symbol renames across all open files, skipping shadowed locals. Blocks renaming builtins and special forms.
+  - **Document symbols** — outline view of all top-level definitions (defun, defn, define, defmacro, defagent, deftool) with symbol kinds and precise name ranges.
+  - **Workspace symbols** — search user definitions across all open documents.
+  - **Signature help** — parameter highlighting for user-defined and imported functions, with builtin doc fallback.
+  - **CodeLens** — "▶ Run" lens on every top-level form, executing via `sema eval` subprocess with inline result display via `sema/evalResult` custom notification.
+  - **Scope tree** (`scope.rs`) — lexical scope analysis built from the AST, tracking all binding forms: `define`, `defun`/`defn`, `defmacro`, `lambda`/`fn`, `let`/`let*`/`letrec`, named `let`, `match`, `do`, `try`/`catch`, `for` variants. Powers scope-aware rename, references, go-to-definition, and completion.
+  - **Threading model** — dedicated backend thread owns all `Rc` state; async LSP handlers communicate via channel + oneshot.
+  - **Caching** — per-document `CachedParse` (AST, SpanMap, symbol spans, scope tree) updated on every edit; per-import-file cache with mtime invalidation. All request handlers use cached data (no redundant re-parsing).
+
+- **Debug Adapter Protocol (DAP)** — new `sema-dap` crate (`crates/sema-dap/`) with `sema dap` subcommand for step-debugging Sema programs:
+  - **VM debug hooks** — `DebugState` with breakpoint management, step modes (StepIn, StepOver, StepOut, Continue), and per-instruction debug callback in the VM run loop.
+  - **Source span propagation** — compilation pipeline now tracks source file and spans through lowering → optimization → resolution → compilation, enabling source-level debugging.
+  - **Debug inspection** — stack, locals, and upvalue inspection methods on the VM for variable display during paused execution.
+  - **DAP server** — stdio-based JSON transport implementing initialize, launch, setBreakpoints, continue, next, stepIn, stepOut, threads, stackTrace, scopes, variables, evaluate, and disconnect.
+  - **VS Code integration** — launch configuration example for VS Code DAP client.
+
+- **IntelliJ IDEA plugin** (`editors/intellij/`) — full IDE support via LSP4IJ:
+  - Syntax highlighting (keywords, strings, numbers, comments, symbols, keywords).
+  - Custom lexer matching Sema's syntax (`:keywords`, `#"regex"`, `f"strings"`, `#| block comments |#`).
+  - Brace matching and commenting (line `;` and block `#| |#`).
+  - Run configurations for `.sema` files.
+  - File type registration for `.sema` and `.semac` with custom icons.
+  - LSP client with `sema/evalResult` notification handling and inline result display.
+  - Color settings page with configurable syntax colors.
+
+### Changed
+
+- **`Span` derives `PartialEq, Eq`** — enables scope tree reference comparison without manual field matching.
+
+### Documentation
+
+- **DAP design doc** — `docs/plans/2026-02-25-dap-debug-adapter.md` and implementation plan.
+- **IntelliJ plugin plan** — `docs/plans/2026-02-25-intellij-plugin.md` and eval result notification spec.
+- **LSP docs updated** — `website/docs/lsp.md` updated with rename, references, document symbols, signature help.
+- **CLI docs updated** — `website/docs/cli.md` updated with `sema lsp` and `sema dap` subcommands.
+- **Editors docs updated** — `website/docs/editors.md` updated with IntelliJ plugin section.
+
+### Internal
+
+- **`sema-vm` debug module** — new `debug.rs` with `DebugState`, `StepMode`, breakpoint tracking, and `source_file` on `Function`.
+- **`sema-vm` span tracking** — `CoreExpr` nodes carry source spans through the compilation pipeline; `Chunk.spans` populated during normal compilation.
+- **LSP builtin docs** — `builtin_docs.rs` generates markdown documentation for 160+ stdlib functions from curated data.
+- **111 LSP tests** — comprehensive test suite covering diagnostics, completion, symbol extraction, scope tree resolution, rename scoping, and reference scoping.
+
 ## 1.11.0
 
 ### Added
