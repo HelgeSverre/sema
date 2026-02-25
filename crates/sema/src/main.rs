@@ -377,6 +377,8 @@ enum Commands {
     },
     /// Start the Language Server Protocol server
     Lsp,
+    /// Start the Debug Adapter Protocol server
+    Dap,
     /// Evaluate code and return results (designed for machine consumption by editors/LSP)
     Eval {
         /// Read program from stdin instead of --expr
@@ -633,11 +635,19 @@ fn main() {
                 );
             }
             Commands::Lsp => {
+                eprintln!("Sema LSP server starting on stdio...");
                 tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build()
                     .expect("Failed to create tokio runtime")
                     .block_on(sema_lsp::run_server());
+            }
+            Commands::Dap => {
+                tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .expect("Failed to create tokio runtime")
+                    .block_on(sema_dap::run_server());
             }
             Commands::Eval {
                 stdin,
@@ -1780,6 +1790,7 @@ fn run_bytecode_bytes(
             arity: 0,
             has_rest: false,
             local_names: Vec::new(),
+            source_file: None,
         }),
         upvalues: Vec::new(),
     });
