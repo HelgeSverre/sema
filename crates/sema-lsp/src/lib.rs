@@ -2473,6 +2473,13 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         let _ = self.tx.send(LspRequest::Shutdown);
+        // Workaround for tower-lsp#399: `Server::serve()` may not return
+        // after the `exit` notification. Schedule a forced exit so the
+        // process doesn't hang indefinitely.
+        tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            std::process::exit(0);
+        });
         Ok(())
     }
 
