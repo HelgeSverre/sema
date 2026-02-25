@@ -1,6 +1,6 @@
 plugins {
     id("org.jetbrains.kotlin.jvm") version "1.9.25"
-    id("org.jetbrains.intellij.platform") version "2.3.0"
+    id("org.jetbrains.intellij.platform") version "2.10.5"
 }
 
 group = providers.gradleProperty("pluginGroup").get()
@@ -16,7 +16,7 @@ repositories {
 dependencies {
     intellijPlatform {
         create(providers.gradleProperty("platformType").get(), providers.gradleProperty("platformVersion").get())
-        plugin("com.redhat.devtools.lsp4ij:0.10.0")
+        plugin("com.redhat.devtools.lsp4ij:0.19.1")
         instrumentationTools()
     }
 }
