@@ -154,7 +154,7 @@ pub fn compile_diagnostics(exprs: &[sema_core::Value]) -> Vec<Diagnostic> {
 /// Parse and compile-check source text, returning all diagnostics.
 /// Uses error recovery to report multiple parse errors at once.
 pub fn analyze_document(text: &str) -> Vec<Diagnostic> {
-    let (exprs, _spans, errors) = sema_reader::read_many_with_spans_recover(text);
+    let (exprs, _spans, _symbol_spans, errors) = sema_reader::read_many_with_spans_recover(text);
     let mut diags: Vec<Diagnostic> = errors
         .iter()
         .map(|err| error_diagnostic(err, DiagnosticSeverity::ERROR))
@@ -995,6 +995,15 @@ enum LspRequest {
 
 // ── Backend (runs on a dedicated std::thread, owns all Rc state) ─
 
+/// Cached parse result for an imported file.
+struct ImportCache {
+    ast: Vec<sema_core::Value>,
+    span_map: SpanMap,
+    symbol_spans: Vec<(String, Span)>,
+    /// Modification time when we last read the file.
+    mtime: std::time::SystemTime,
+}
+
 struct BackendState {
     /// Cached builtin names (from stdlib env).
     builtin_names: Vec<String>,
@@ -1005,6 +1014,8 @@ struct BackendState {
     cached_user_defs: HashMap<String, Vec<String>>,
     /// Builtin documentation (name → markdown doc string).
     builtin_docs: HashMap<String, String>,
+    /// Cached parse results for imported files (by absolute path).
+    import_cache: HashMap<PathBuf, ImportCache>,
 }
 
 impl BackendState {
@@ -1028,6 +1039,7 @@ impl BackendState {
             documents: HashMap::new(),
             cached_user_defs: HashMap::new(),
             builtin_docs: builtin_docs::build_builtin_docs(),
+            import_cache: HashMap::new(),
         }
     }
 
@@ -1038,7 +1050,36 @@ impl BackendState {
             documents,
             cached_user_defs: HashMap::new(),
             builtin_docs: HashMap::new(),
+            import_cache: HashMap::new(),
         }
+    }
+
+    /// Get or refresh the cached parse result for an imported file.
+    fn get_import_cache(&mut self, path: &Path) -> Option<&ImportCache> {
+        let mtime = std::fs::metadata(path).and_then(|m| m.modified()).ok()?;
+
+        // Check if cache is still valid
+        if let Some(cached) = self.import_cache.get(path) {
+            if cached.mtime == mtime {
+                return self.import_cache.get(path);
+            }
+        }
+
+        // Read and parse the file
+        let text = std::fs::read_to_string(path).ok()?;
+        let (ast, span_map, symbol_spans) =
+            sema_reader::read_many_with_symbol_spans(&text).ok()?;
+
+        self.import_cache.insert(
+            path.to_path_buf(),
+            ImportCache {
+                ast,
+                span_map,
+                symbol_spans,
+                mtime,
+            },
+        );
+        self.import_cache.get(path)
     }
 
     fn handle_complete(&self, uri: &Url, position: &Position) -> Vec<CompletionItem> {
@@ -1132,16 +1173,16 @@ impl BackendState {
     }
 
     fn handle_goto_definition(
-        &self,
+        &mut self,
         uri: &Url,
         position: &Position,
     ) -> Option<GotoDefinitionResponse> {
         let uri_str = uri.as_str();
-        let text = self.documents.get(uri_str)?;
+        let text = self.documents.get(uri_str)?.clone();
 
         // Parse once for import, symbol, and definition lookups
-        let (ast, span_map, symbol_spans) =
-            sema_reader::read_many_with_symbol_spans(text).ok()?;
+        let (ast, span_map, symbol_spans, _errors) =
+            sema_reader::read_many_with_spans_recover(&text);
 
         // Phase 3a: Check if cursor is on an import/load path string
         if let Some(path_str) = import_path_from_ast(&ast, &span_map, position.line) {
@@ -1161,7 +1202,7 @@ impl BackendState {
         let line_idx = position.line as usize;
         let line = text.lines().nth(line_idx)?;
         let byte_offset = utf16_to_byte_offset(line, position.character);
-        let symbol = extract_symbol_at(line, byte_offset);
+        let symbol = extract_symbol_at(line, byte_offset).to_string();
         if symbol.is_empty() {
             return None;
         }
@@ -1169,7 +1210,7 @@ impl BackendState {
         // Search current document for the definition
         let defs = user_definitions_from_ast(&ast, &span_map, &symbol_spans);
         for (name, range) in &defs {
-            if name == symbol {
+            if name == &symbol {
                 if let Some(range) = range {
                     return Some(GotoDefinitionResponse::Scalar(Location {
                         uri: uri.clone(),
@@ -1186,19 +1227,14 @@ impl BackendState {
                 Some(p) if p.exists() => p,
                 _ => continue,
             };
-            let target_text = match std::fs::read_to_string(&resolved) {
-                Ok(t) => t,
-                Err(_) => continue,
+            let cached = match self.get_import_cache(&resolved) {
+                Some(c) => c,
+                None => continue,
             };
-            let (target_ast, target_span_map, target_sym_spans) =
-                match sema_reader::read_many_with_symbol_spans(&target_text) {
-                    Ok(r) => r,
-                    Err(_) => continue,
-                };
             let target_defs =
-                user_definitions_from_ast(&target_ast, &target_span_map, &target_sym_spans);
+                user_definitions_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
             for (name, range) in &target_defs {
-                if name == symbol {
+                if name == &symbol {
                     if let Some(range) = range {
                         let target_uri = Url::from_file_path(&resolved).ok()?;
                         return Some(GotoDefinitionResponse::Scalar(Location {
@@ -1235,41 +1271,46 @@ impl BackendState {
             return vec![];
         }
 
-        let (_, _, symbol_spans) =
-            match sema_reader::read_many_with_symbol_spans(text) {
-                Ok(r) => r,
-                Err(_) => return vec![],
-            };
+        let mut locations = Vec::new();
 
-        // Find all occurrences of this symbol in the current document
-        symbol_spans
-            .iter()
-            .filter(|(name, _)| name == symbol)
-            .map(|(_, span)| Location {
-                uri: uri.clone(),
-                range: span_to_range(span),
-            })
-            .collect()
+        // Search all open documents for occurrences of this symbol
+        for (doc_uri_str, doc_text) in &self.documents {
+            let (_, _, symbol_spans, _) = sema_reader::read_many_with_spans_recover(doc_text);
+            let doc_uri = match Url::parse(doc_uri_str) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            for (name, span) in &symbol_spans {
+                if name == symbol {
+                    locations.push(Location {
+                        uri: doc_uri.clone(),
+                        range: span_to_range(span),
+                    });
+                }
+            }
+        }
+
+        locations
     }
 
     fn handle_hover(
-        &self,
+        &mut self,
         uri: &Url,
         position: &Position,
     ) -> Option<Hover> {
         let uri_str = uri.as_str();
-        let text = self.documents.get(uri_str)?;
+        let text = self.documents.get(uri_str)?.clone();
 
         let line_idx = position.line as usize;
         let line = text.lines().nth(line_idx)?;
         let byte_offset = utf16_to_byte_offset(line, position.character);
-        let symbol = extract_symbol_at(line, byte_offset);
+        let symbol = extract_symbol_at(line, byte_offset).to_string();
         if symbol.is_empty() {
             return None;
         }
 
         // Check builtin docs first
-        if let Some(doc) = self.builtin_docs.get(symbol) {
+        if let Some(doc) = self.builtin_docs.get(symbol.as_str()) {
             return Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
@@ -1280,15 +1321,16 @@ impl BackendState {
         }
 
         // Parse once for user definition lookup + params extraction
-        let parsed = sema_reader::read_many_with_symbol_spans(text).ok();
+        let (parsed_ast, parsed_span_map, parsed_sym_spans, _) =
+            sema_reader::read_many_with_spans_recover(&text);
 
         // Check user definitions — show signature if available
-        if let Some((ref ast, ref span_map, ref sym_spans)) = parsed {
-            let defs = user_definitions_from_ast(ast, span_map, sym_spans);
+        {
+            let defs = user_definitions_from_ast(&parsed_ast, &parsed_span_map, &parsed_sym_spans);
             for (name, _) in &defs {
-                if name == symbol {
+                if name == &symbol {
                     let mut hover_text = format!("```sema\n({symbol}");
-                    if let Some(params) = extract_params_from_ast(ast, symbol) {
+                    if let Some(params) = extract_params_from_ast(&parsed_ast, &symbol) {
                         hover_text.push(' ');
                         hover_text.push_str(&params);
                     }
@@ -1305,7 +1347,7 @@ impl BackendState {
         }
 
         // Check if it's a known special form (without explicit doc)
-        if sema_eval::SPECIAL_FORM_NAMES.contains(&symbol) {
+        if sema_eval::SPECIAL_FORM_NAMES.contains(&symbol.as_str()) {
             return Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
@@ -1316,7 +1358,7 @@ impl BackendState {
         }
 
         // Check if it's a known builtin (without explicit doc)
-        if self.builtin_names.iter().any(|n| n == symbol) {
+        if self.builtin_names.iter().any(|n| n == &symbol) {
             return Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
@@ -1327,31 +1369,26 @@ impl BackendState {
         }
 
         // Phase 3c: Check imported modules for hover info
-        if let Some((ref ast, _, _)) = parsed {
-            let import_paths = import_paths_from_ast(ast);
+        {
+            let import_paths = import_paths_from_ast(&parsed_ast);
             for path_str in &import_paths {
                 let resolved = match resolve_import_path(uri, path_str) {
                     Some(p) if p.exists() => p,
                     _ => continue,
                 };
-                let target_text = match std::fs::read_to_string(&resolved) {
-                    Ok(t) => t,
-                    Err(_) => continue,
+                let cached = match self.get_import_cache(&resolved) {
+                    Some(c) => c,
+                    None => continue,
                 };
-                let (target_ast, target_span_map, target_sym_spans) =
-                    match sema_reader::read_many_with_symbol_spans(&target_text) {
-                        Ok(r) => r,
-                        Err(_) => continue,
-                    };
                 let target_defs =
-                    user_definitions_from_ast(&target_ast, &target_span_map, &target_sym_spans);
-                if target_defs.iter().any(|(n, _)| n == symbol) {
+                    user_definitions_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
+                if target_defs.iter().any(|(n, _)| n == &symbol) {
                     let module_name = Path::new(path_str)
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .unwrap_or(path_str);
                     let mut hover_text = format!("```sema\n({symbol}");
-                    if let Some(params) = extract_params_from_ast(&target_ast, symbol) {
+                    if let Some(params) = extract_params_from_ast(&cached.ast, &symbol) {
                         hover_text.push(' ');
                         hover_text.push_str(&params);
                     }

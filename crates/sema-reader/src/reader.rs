@@ -626,10 +626,11 @@ pub fn read_many_with_symbol_spans(input: &str) -> Result<(Vec<Value>, SpanMap, 
 /// On parse errors, skips to the next top-level form and continues.
 /// Returns (successfully parsed forms, span map, collected errors).
 /// Tokenizer errors are returned as a single error with no parsed forms.
-pub fn read_many_with_spans_recover(input: &str) -> (Vec<Value>, SpanMap, Vec<SemaError>) {
+#[allow(clippy::type_complexity)]
+pub fn read_many_with_spans_recover(input: &str) -> (Vec<Value>, SpanMap, Vec<(String, Span)>, Vec<SemaError>) {
     let tokens = match tokenize(input) {
         Ok(t) => t,
-        Err(e) => return (vec![], SpanMap::new(), vec![e]),
+        Err(e) => return (vec![], SpanMap::new(), vec![], vec![e]),
     };
     let mut parser = Parser::new(tokens);
     let mut exprs = Vec::new();
@@ -643,7 +644,7 @@ pub fn read_many_with_spans_recover(input: &str) -> (Vec<Value>, SpanMap, Vec<Se
             }
         }
     }
-    (exprs, parser.span_map, errors)
+    (exprs, parser.span_map, parser.symbol_spans, errors)
 }
 
 #[cfg(test)]
@@ -1807,7 +1808,7 @@ mod tests {
 
     #[test]
     fn recover_valid_input_no_errors() {
-        let (exprs, _, errors) = read_many_with_spans_recover("(+ 1 2) (- 3 4)");
+        let (exprs, _, _, errors) = read_many_with_spans_recover("(+ 1 2) (- 3 4)");
         assert!(errors.is_empty());
         assert_eq!(exprs.len(), 2);
     }
@@ -1815,7 +1816,7 @@ mod tests {
     #[test]
     fn recover_stray_closer_then_valid() {
         // Stray `)` then a valid form
-        let (exprs, _, errors) = read_many_with_spans_recover(") (+ 1 2)");
+        let (exprs, _, _, errors) = read_many_with_spans_recover(") (+ 1 2)");
         assert_eq!(errors.len(), 1);
         assert_eq!(exprs.len(), 1);
     }
@@ -1823,7 +1824,7 @@ mod tests {
     #[test]
     fn recover_unclosed_then_valid() {
         // Unclosed list, then a valid form on the next line
-        let (_exprs, _, errors) = read_many_with_spans_recover("(define x\n(+ 1 2)");
+        let (_exprs, _, _, errors) = read_many_with_spans_recover("(define x\n(+ 1 2)");
         // The first `(define x` consumes tokens including `(+ 1 2)` as part of
         // its unterminated body, then hits EOF → 1 error, the (+ 1 2) is inside it
         assert_eq!(errors.len(), 1);
@@ -1833,7 +1834,7 @@ mod tests {
 
     #[test]
     fn recover_multiple_stray_closers() {
-        let (exprs, _, errors) = read_many_with_spans_recover(") ] } (define x 1)");
+        let (exprs, _, _, errors) = read_many_with_spans_recover(") ] } (define x 1)");
         assert_eq!(errors.len(), 3);
         assert_eq!(exprs.len(), 1);
         assert!(exprs[0].as_list().is_some());
@@ -1842,7 +1843,7 @@ mod tests {
     #[test]
     fn recover_mismatched_bracket() {
         // Mismatched bracket: ( closed with ]
-        let (exprs, _, errors) = read_many_with_spans_recover("(define x] (+ 1 2)");
+        let (exprs, _, _, errors) = read_many_with_spans_recover("(define x] (+ 1 2)");
         assert!(!errors.is_empty());
         // After the mismatch error, recovery should find `(+ 1 2)`
         assert!(!exprs.is_empty());
@@ -1850,14 +1851,14 @@ mod tests {
 
     #[test]
     fn recover_empty_input() {
-        let (exprs, _, errors) = read_many_with_spans_recover("");
+        let (exprs, _, _, errors) = read_many_with_spans_recover("");
         assert!(errors.is_empty());
         assert!(exprs.is_empty());
     }
 
     #[test]
     fn recover_only_errors() {
-        let (exprs, _, errors) = read_many_with_spans_recover(") )");
+        let (exprs, _, _, errors) = read_many_with_spans_recover(") )");
         assert_eq!(errors.len(), 2);
         assert!(exprs.is_empty());
     }
@@ -1865,7 +1866,7 @@ mod tests {
     #[test]
     fn recover_valid_between_errors() {
         // error, valid, error
-        let (exprs, _, errors) = read_many_with_spans_recover(") (+ 1 2) )");
+        let (exprs, _, _, errors) = read_many_with_spans_recover(") (+ 1 2) )");
         assert_eq!(errors.len(), 2);
         assert_eq!(exprs.len(), 1);
     }
