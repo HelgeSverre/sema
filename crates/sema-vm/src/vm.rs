@@ -1539,6 +1539,100 @@ impl VM {
         // No handler found anywhere
         Ok(ExceptionAction::Propagate(err))
     }
+
+    // --- Debug inspection methods ---
+
+    pub fn debug_frame_count(&self) -> usize {
+        self.frames.len()
+    }
+
+    pub fn debug_stack_trace(&self) -> Vec<crate::debug::DapStackFrame> {
+        self.frames
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, frame)| {
+                let func = &frame.closure.func;
+                let name = func
+                    .name
+                    .map(sema_core::resolve)
+                    .unwrap_or_else(|| "<main>".to_string());
+                let (line, col) = self.span_at_pc(frame);
+                crate::debug::DapStackFrame {
+                    id: i as u64,
+                    name,
+                    line,
+                    column: col,
+                    source_file: func.source_file.clone(),
+                }
+            })
+            .collect()
+    }
+
+    pub fn debug_locals(&self, frame_idx: usize) -> Vec<crate::debug::DapVariable> {
+        let Some(frame) = self.frames.get(frame_idx) else {
+            return Vec::new();
+        };
+        let func = &frame.closure.func;
+        let mut vars = Vec::new();
+        for &(slot, spur) in &func.local_names {
+            let idx = frame.base + slot as usize;
+            let val = if let Some(ref open) = frame.open_upvalues {
+                if let Some(Some(cell)) = open.get(slot as usize) {
+                    cell.value.borrow().clone()
+                } else {
+                    self.stack.get(idx).cloned().unwrap_or(Value::nil())
+                }
+            } else {
+                self.stack.get(idx).cloned().unwrap_or(Value::nil())
+            };
+            vars.push(crate::debug::DapVariable {
+                name: sema_core::resolve(spur),
+                value: sema_core::pretty_print(&val, 80),
+                type_name: val.type_name().to_string(),
+                variables_reference: 0,
+            });
+        }
+        vars
+    }
+
+    pub fn debug_upvalues(&self, frame_idx: usize) -> Vec<crate::debug::DapVariable> {
+        let Some(frame) = self.frames.get(frame_idx) else {
+            return Vec::new();
+        };
+        frame
+            .closure
+            .upvalues
+            .iter()
+            .enumerate()
+            .map(|(i, uv)| {
+                let val = uv.value.borrow().clone();
+                crate::debug::DapVariable {
+                    name: format!("upvalue_{i}"),
+                    value: sema_core::pretty_print(&val, 80),
+                    type_name: val.type_name().to_string(),
+                    variables_reference: 0,
+                }
+            })
+            .collect()
+    }
+
+    fn span_at_pc(&self, frame: &CallFrame) -> (u64, u64) {
+        let pc32 = frame.pc as u32;
+        let spans = &frame.closure.func.chunk.spans;
+        // Find the most recent span at or before the current PC
+        match spans.binary_search_by_key(&pc32, |(p, _)| *p) {
+            Ok(idx) => {
+                let span = &spans[idx].1;
+                (span.line as u64, span.col as u64 + 1)
+            }
+            Err(idx) if idx > 0 => {
+                let span = &spans[idx - 1].1;
+                (span.line as u64, span.col as u64 + 1)
+            }
+            _ => (0, 0),
+        }
+    }
 }
 
 enum ExceptionAction {

@@ -1,6 +1,30 @@
 use std::path::PathBuf;
 use std::sync::mpsc;
 
+#[derive(Debug, Clone)]
+pub struct DapStackFrame {
+    pub id: u64,
+    pub name: String,
+    pub line: u64,
+    pub column: u64,
+    pub source_file: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DapVariable {
+    pub name: String,
+    pub value: String,
+    pub type_name: String,
+    pub variables_reference: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct DapScope {
+    pub name: String,
+    pub variables_reference: u64,
+    pub expensive: bool,
+}
+
 /// Current stepping mode for the debugger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StepMode {
