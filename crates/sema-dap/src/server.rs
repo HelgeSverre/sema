@@ -544,11 +544,7 @@ fn backend_thread(
                 interp = Some(interpreter);
             }
 
-            BackendRequest::SetBreakpoints {
-                file,
-                lines,
-                reply,
-            } => {
+            BackendRequest::SetBreakpoints { file, lines, reply } => {
                 // Only used before launch (pending breakpoints)
                 if let Some(ref mut ds) = debug_state {
                     let ids = ds.set_breakpoints(&file, &lines);
@@ -564,18 +560,19 @@ fn backend_thread(
             }
 
             BackendRequest::ConfigurationDone => {
-                if let (Some(ref mut vm_inst), Some(ref cl), Some(ref mut ds), Some(ref interpreter)) =
-                    (&mut vm, &closure, &mut debug_state, &interp)
+                if let (
+                    Some(ref mut vm_inst),
+                    Some(ref cl),
+                    Some(ref mut ds),
+                    Some(ref interpreter),
+                ) = (&mut vm, &closure, &mut debug_state, &interp)
                 {
                     match vm_inst.execute_debug(cl.clone(), &interpreter.ctx, ds) {
                         Ok(val) => {
                             if !val.is_nil() {
                                 let _ = event_tx.blocking_send(DebugEvent::Output {
                                     category: "stdout".to_string(),
-                                    output: format!(
-                                        "{}\n",
-                                        sema_core::pretty_print(&val, 80)
-                                    ),
+                                    output: format!("{}\n", sema_core::pretty_print(&val, 80)),
                                 });
                             }
                         }

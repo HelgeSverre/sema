@@ -2594,6 +2594,7 @@ dependencies = [
  "sema-fmt",
  "sema-reader",
  "sema-stdlib",
+ "sema-vm",
  "serde_json",
  "uuid",
  "wasm-bindgen",

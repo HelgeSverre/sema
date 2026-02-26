@@ -837,20 +837,42 @@ fn run_eval(
     let program = if use_stdin {
         use std::io::Read;
         let mut buf = String::new();
-        std::io::stdin().read_to_string(&mut buf).unwrap_or_else(|e| {
-            if json {
-                print_eval_json(&EvalJsonResult { ok: false, value: None, stdout: "", stderr: "", error_msg: None, error_hint: None, error_line: None, error_col: None, elapsed_ms: 0 });
-            } else {
-                eprintln!("Error reading stdin: {e}");
-            }
-            std::process::exit(1);
-        });
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .unwrap_or_else(|e| {
+                if json {
+                    print_eval_json(&EvalJsonResult {
+                        ok: false,
+                        value: None,
+                        stdout: "",
+                        stderr: "",
+                        error_msg: None,
+                        error_hint: None,
+                        error_line: None,
+                        error_col: None,
+                        elapsed_ms: 0,
+                    });
+                } else {
+                    eprintln!("Error reading stdin: {e}");
+                }
+                std::process::exit(1);
+            });
         buf
     } else if let Some(e) = expr {
         e
     } else {
         if json {
-            print_eval_json(&EvalJsonResult { ok: false, value: None, stdout: "", stderr: "", error_msg: Some("Either --stdin or --expr is required"), error_hint: None, error_line: None, error_col: None, elapsed_ms: 0 });
+            print_eval_json(&EvalJsonResult {
+                ok: false,
+                value: None,
+                stdout: "",
+                stderr: "",
+                error_msg: Some("Either --stdin or --expr is required"),
+                error_hint: None,
+                error_line: None,
+                error_col: None,
+                elapsed_ms: 0,
+            });
         } else {
             eprintln!("Error: either --stdin or --expr is required");
         }
@@ -861,7 +883,17 @@ fn run_eval(
     let sandbox = match &sandbox_arg {
         Some(value) => sema_core::Sandbox::parse_cli(value).unwrap_or_else(|e| {
             if json {
-                print_eval_json(&EvalJsonResult { ok: false, value: None, stdout: "", stderr: "", error_msg: Some(&format!("Invalid sandbox: {e}")), error_hint: None, error_line: None, error_col: None, elapsed_ms: 0 });
+                print_eval_json(&EvalJsonResult {
+                    ok: false,
+                    value: None,
+                    stdout: "",
+                    stderr: "",
+                    error_msg: Some(&format!("Invalid sandbox: {e}")),
+                    error_hint: None,
+                    error_line: None,
+                    error_col: None,
+                    elapsed_ms: 0,
+                });
             } else {
                 eprintln!("Error: {e}");
             }
@@ -881,7 +913,9 @@ fn run_eval(
     if let Some(ref p) = path {
         let file_path = std::path::Path::new(p);
         // Try to canonicalize; fall back to the raw path (supports unsaved/virtual buffers)
-        let resolved = file_path.canonicalize().unwrap_or_else(|_| PathBuf::from(p));
+        let resolved = file_path
+            .canonicalize()
+            .unwrap_or_else(|_| PathBuf::from(p));
         interpreter.ctx.push_file_path(resolved);
     }
 
@@ -904,8 +938,22 @@ fn run_eval(
     match result {
         Ok(val) => {
             if json {
-                let val_str = if val.is_nil() { None } else { Some(pretty_print(&val, 120)) };
-                print_eval_json(&EvalJsonResult { ok: true, value: val_str.as_deref(), stdout: &stdout_text, stderr: &stderr_text, error_msg: None, error_hint: None, error_line: None, error_col: None, elapsed_ms });
+                let val_str = if val.is_nil() {
+                    None
+                } else {
+                    Some(pretty_print(&val, 120))
+                };
+                print_eval_json(&EvalJsonResult {
+                    ok: true,
+                    value: val_str.as_deref(),
+                    stdout: &stdout_text,
+                    stderr: &stderr_text,
+                    error_msg: None,
+                    error_hint: None,
+                    error_line: None,
+                    error_col: None,
+                    elapsed_ms,
+                });
             } else if !val.is_nil() {
                 println!("{}", pretty_print(&val, 120));
             }
@@ -917,14 +965,25 @@ fn run_eval(
             // Extract line+col from Reader span or first stack trace frame
             let (line, col) = match inner {
                 SemaError::Reader { span, .. } => (Some(span.line), Some(span.col)),
-                _ => e.stack_trace()
+                _ => e
+                    .stack_trace()
                     .and_then(|t| t.0.first())
                     .and_then(|f| f.span.as_ref())
                     .map(|s| (Some(s.line), Some(s.col)))
                     .unwrap_or((None, None)),
             };
             if json {
-                print_eval_json(&EvalJsonResult { ok: false, value: None, stdout: &stdout_text, stderr: &stderr_text, error_msg: Some(&msg), error_hint: hint.as_deref(), error_line: line, error_col: col, elapsed_ms });
+                print_eval_json(&EvalJsonResult {
+                    ok: false,
+                    value: None,
+                    stdout: &stdout_text,
+                    stderr: &stderr_text,
+                    error_msg: Some(&msg),
+                    error_hint: hint.as_deref(),
+                    error_line: line,
+                    error_col: col,
+                    elapsed_ms,
+                });
             } else {
                 print_error(&e);
                 std::process::exit(1);

@@ -112,26 +112,118 @@ impl VM {
             base,
             open_upvalues: None,
         });
-        self.run_debug(ctx, debug)
+
+        loop {
+            match self.run_inner(ctx, Some(debug))? {
+                crate::debug::VmExecResult::Finished(v) => return Ok(v),
+                crate::debug::VmExecResult::Yielded => continue,
+                crate::debug::VmExecResult::Stopped(info) => {
+                    let _ = debug.event_tx.send(crate::debug::DebugEvent::Stopped {
+                        reason: info.reason,
+                        description: None,
+                    });
+
+                    loop {
+                        match debug.command_rx.recv() {
+                            Ok(crate::debug::DebugCommand::Continue) => {
+                                debug.step_mode = crate::debug::StepMode::Continue;
+                                break;
+                            }
+                            Ok(crate::debug::DebugCommand::StepInto) => {
+                                debug.step_mode = crate::debug::StepMode::StepInto;
+                                debug.step_frame_depth = self.frames.len();
+                                break;
+                            }
+                            Ok(crate::debug::DebugCommand::StepOver) => {
+                                debug.step_mode = crate::debug::StepMode::StepOver;
+                                debug.step_frame_depth = self.frames.len();
+                                break;
+                            }
+                            Ok(crate::debug::DebugCommand::StepOut) => {
+                                debug.step_mode = crate::debug::StepMode::StepOut;
+                                debug.step_frame_depth = self.frames.len();
+                                break;
+                            }
+                            Ok(crate::debug::DebugCommand::Pause) => {}
+                            Ok(crate::debug::DebugCommand::SetBreakpoints {
+                                file,
+                                lines,
+                                reply,
+                            }) => {
+                                let ids = debug.set_breakpoints(&file, &lines);
+                                let _ = reply.send(ids);
+                            }
+                            Ok(crate::debug::DebugCommand::GetStackTrace { reply }) => {
+                                let _ = reply.send(self.debug_stack_trace());
+                            }
+                            Ok(crate::debug::DebugCommand::GetScopes { frame_id, reply }) => {
+                                let _ = reply.send(self.debug_scopes(frame_id));
+                            }
+                            Ok(crate::debug::DebugCommand::GetVariables { reference, reply }) => {
+                                let _ = reply.send(self.debug_variables(reference));
+                            }
+                            Ok(crate::debug::DebugCommand::Disconnect) => {
+                                return Ok(Value::nil());
+                            }
+                            Err(_) => {
+                                debug.step_mode = crate::debug::StepMode::Continue;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    fn run(&mut self, ctx: &EvalContext) -> Result<Value, SemaError> {
-        self.run_inner(ctx, None)
-    }
-
-    fn run_debug(
+    /// Run the VM cooperatively: execute until completion or a debug stop.
+    /// The caller is responsible for managing debug state between calls.
+    pub fn run_cooperative(
         &mut self,
         ctx: &EvalContext,
         debug: &mut crate::debug::DebugState,
-    ) -> Result<Value, SemaError> {
+    ) -> Result<crate::debug::VmExecResult, SemaError> {
         self.run_inner(ctx, Some(debug))
+    }
+
+    /// Start cooperative debug execution: push the initial frame and run.
+    pub fn start_cooperative(
+        &mut self,
+        closure: Rc<Closure>,
+        ctx: &EvalContext,
+        debug: &mut crate::debug::DebugState,
+    ) -> Result<crate::debug::VmExecResult, SemaError> {
+        let base = self.stack.len();
+        let n_locals = closure.func.chunk.n_locals as usize;
+        self.stack.resize(base + n_locals, Value::nil());
+        self.frames.push(CallFrame {
+            closure,
+            pc: 0,
+            base,
+            open_upvalues: None,
+        });
+        self.run_inner(ctx, Some(debug))
+    }
+
+    /// Number of active call frames.
+    pub fn frame_count(&self) -> usize {
+        self.frames.len()
+    }
+
+    fn run(&mut self, ctx: &EvalContext) -> Result<Value, SemaError> {
+        match self.run_inner(ctx, None)? {
+            crate::debug::VmExecResult::Finished(v) => Ok(v),
+            crate::debug::VmExecResult::Stopped(_) | crate::debug::VmExecResult::Yielded => {
+                unreachable!("Stopped/Yielded without debug state")
+            }
+        }
     }
 
     fn run_inner(
         &mut self,
         ctx: &EvalContext,
         mut debug: Option<&mut crate::debug::DebugState>,
-    ) -> Result<Value, SemaError> {
+    ) -> Result<crate::debug::VmExecResult, SemaError> {
         // Raw-pointer macros for reading operands without bounds checks in inner loop
         macro_rules! read_u16 {
             ($code:expr, $pc:expr) => {{
@@ -197,7 +289,17 @@ impl VM {
         // Two-level dispatch: outer loop caches frame locals, inner loop dispatches opcodes.
         // We only break to the outer loop when frames change (Call/TailCall/Return/exceptions).
         let mut debug_poll_counter: u32 = 0;
+        // Track whether we've been through at least one dispatch iteration.
+        // On frame transitions (Call/TailCall/Return), resume_skip is cleared
+        // so breakpoints re-trigger on new loop iterations.
+        let mut dispatch_count: u32 = 0;
         'dispatch: loop {
+            if dispatch_count > 0 {
+                if let Some(ref mut dbg) = debug {
+                    dbg.resume_skip = false;
+                }
+            }
+            dispatch_count += 1;
             let fi = self.frames.len() - 1;
             let frame = &self.frames[fi];
             let code = frame.closure.func.chunk.code.as_ptr();
@@ -205,7 +307,6 @@ impl VM {
             let base = frame.base;
             let mut pc = frame.pc;
             let has_open_upvalues = frame.open_upvalues.is_some();
-            #[cfg(debug_assertions)]
             let code_len = frame.closure.func.chunk.code.len();
 
             // Cache the next span boundary to avoid binary_search per instruction
@@ -224,8 +325,11 @@ impl VM {
             let _ = frame; // release borrow so we can mutate self
 
             loop {
-                #[cfg(debug_assertions)]
-                debug_assert!(pc < code_len, "pc {pc} out of bounds (len {code_len})");
+                if pc >= code_len {
+                    return Err(SemaError::eval(format!(
+                        "VM: program counter out of bounds (pc={pc}, len={code_len})"
+                    )));
+                }
                 let op = unsafe { *code.add(pc) };
                 pc += 1;
 
@@ -241,7 +345,7 @@ impl VM {
                                 }
                                 crate::debug::DebugCommand::Disconnect => {
                                     self.frames[fi].pc = pc;
-                                    return Ok(Value::nil());
+                                    return Ok(crate::debug::VmExecResult::Finished(Value::nil()));
                                 }
                                 crate::debug::DebugCommand::SetBreakpoints {
                                     file,
@@ -263,8 +367,10 @@ impl VM {
                         let line = spans[next_span_idx].1.line as u32;
                         let file = self.frames[fi].closure.func.source_file.clone();
                         next_span_idx += 1;
-                        next_span_pc =
-                            spans.get(next_span_idx).map(|(p, _)| *p).unwrap_or(u32::MAX);
+                        next_span_pc = spans
+                            .get(next_span_idx)
+                            .map(|(p, _)| *p)
+                            .unwrap_or(u32::MAX);
                         Some((file, line))
                     } else if op_pc > next_span_pc {
                         // Jumped past — resync via binary search
@@ -282,87 +388,86 @@ impl VM {
                             }
                             Err(i) => {
                                 next_span_idx = i;
-                                next_span_pc =
-                                    spans.get(i).map(|(p, _)| *p).unwrap_or(u32::MAX);
+                                next_span_pc = spans.get(i).map(|(p, _)| *p).unwrap_or(u32::MAX);
                                 None
                             }
+                        }
+                    } else if next_span_idx > 0 {
+                        // Check for backward jump: op_pc is before our current
+                        // span window (e.g., loop back-edge). Resync via binary search.
+                        // Clear resume_skip so breakpoints re-trigger on new iterations.
+                        let spans = &self.frames[fi].closure.func.chunk.spans;
+                        if op_pc < spans[next_span_idx - 1].0 {
+                            dbg.resume_skip = false;
+                            match spans.binary_search_by_key(&op_pc, |(p, _)| *p) {
+                                Ok(i) => {
+                                    let line = spans[i].1.line as u32;
+                                    let file = self.frames[fi].closure.func.source_file.clone();
+                                    next_span_idx = i + 1;
+                                    next_span_pc = spans
+                                        .get(next_span_idx)
+                                        .map(|(p, _)| *p)
+                                        .unwrap_or(u32::MAX);
+                                    Some((file, line))
+                                }
+                                Err(i) => {
+                                    next_span_idx = i;
+                                    next_span_pc =
+                                        spans.get(i).map(|(p, _)| *p).unwrap_or(u32::MAX);
+                                    None
+                                }
+                            }
+                        } else {
+                            None
                         }
                     } else {
                         None
                     };
 
                     if let Some((file, line)) = at_span {
-                        let frame_depth = self.frames.len();
-                        if dbg.should_stop(file.as_ref(), line, frame_depth) {
-                            self.frames[fi].pc = pc;
-                            let reason = if dbg.pause_requested {
-                                crate::debug::StopReason::Pause
-                            } else if dbg.step_mode != crate::debug::StepMode::Continue {
-                                crate::debug::StopReason::Step
-                            } else {
-                                crate::debug::StopReason::Breakpoint
-                            };
-                            // Inline stop: send event and wait for resume
-                            dbg.last_stop_line = file.map(|f| (f.clone(), line));
-                            dbg.pause_requested = false;
-                            let _ = dbg.event_tx.send(crate::debug::DebugEvent::Stopped {
-                                reason,
-                                description: None,
-                            });
-                            loop {
-                                match dbg.command_rx.recv() {
-                                    Ok(crate::debug::DebugCommand::Continue) => {
-                                        dbg.step_mode = crate::debug::StepMode::Continue;
-                                        break;
-                                    }
-                                    Ok(crate::debug::DebugCommand::StepInto) => {
-                                        dbg.step_mode = crate::debug::StepMode::StepInto;
-                                        dbg.step_frame_depth = frame_depth;
-                                        break;
-                                    }
-                                    Ok(crate::debug::DebugCommand::StepOver) => {
-                                        dbg.step_mode = crate::debug::StepMode::StepOver;
-                                        dbg.step_frame_depth = frame_depth;
-                                        break;
-                                    }
-                                    Ok(crate::debug::DebugCommand::StepOut) => {
-                                        dbg.step_mode = crate::debug::StepMode::StepOut;
-                                        dbg.step_frame_depth = frame_depth;
-                                        break;
-                                    }
-                                    Ok(crate::debug::DebugCommand::Pause) => {}
-                                    Ok(crate::debug::DebugCommand::SetBreakpoints {
-                                        file,
-                                        lines,
-                                        reply,
-                                    }) => {
-                                        let ids = dbg.set_breakpoints(&file, &lines);
-                                        let _ = reply.send(ids);
-                                    }
-                                    Ok(crate::debug::DebugCommand::GetStackTrace { reply }) => {
-                                        let _ = reply.send(self.debug_stack_trace());
-                                    }
-                                    Ok(crate::debug::DebugCommand::GetScopes {
-                                        frame_id,
-                                        reply,
-                                    }) => {
-                                        let _ = reply.send(self.debug_scopes(frame_id));
-                                    }
-                                    Ok(crate::debug::DebugCommand::GetVariables {
-                                        reference,
-                                        reply,
-                                    }) => {
-                                        let _ = reply.send(self.debug_variables(reference));
-                                    }
-                                    Ok(crate::debug::DebugCommand::Disconnect) => {
-                                        return Ok(Value::nil());
-                                    }
-                                    Err(_) => {
-                                        dbg.step_mode = crate::debug::StepMode::Continue;
-                                        break;
-                                    }
-                                }
+                        if dbg.resume_skip {
+                            // Keep skipping while on the same line as last stop.
+                            // This prevents re-triggering breakpoints on multi-opcode lines.
+                            let same_line = dbg
+                                .last_stop_line
+                                .as_ref()
+                                .is_some_and(|(_, last_line)| line == *last_line);
+                            if !same_line {
+                                dbg.resume_skip = false;
                             }
+                        }
+                        if !dbg.resume_skip {
+                            let frame_depth = self.frames.len();
+                            if dbg.should_stop(file.as_ref(), line, frame_depth) {
+                                self.frames[fi].pc = pc - 1;
+                                let reason = if dbg.pause_requested {
+                                    crate::debug::StopReason::Pause
+                                } else if dbg.step_mode != crate::debug::StepMode::Continue {
+                                    crate::debug::StopReason::Step
+                                } else {
+                                    crate::debug::StopReason::Breakpoint
+                                };
+                                dbg.last_stop_line = file.as_ref().map(|f| (f.clone(), line));
+                                dbg.pause_requested = false;
+                                dbg.resume_skip = true;
+                                return Ok(crate::debug::VmExecResult::Stopped(
+                                    crate::debug::StopInfo {
+                                        reason,
+                                        file: file.clone(),
+                                        line,
+                                    },
+                                ));
+                            }
+                        }
+                    }
+
+                    // Instruction budget yield check (for cooperative WASM execution).
+                    // Checked every 128 instructions, after breakpoints so they take priority.
+                    if debug_poll_counter & 127 == 0 && dbg.instructions_remaining > 0 {
+                        dbg.instructions_remaining = dbg.instructions_remaining.saturating_sub(128);
+                        if dbg.instructions_remaining == 0 {
+                            self.frames[fi].pc = pc - 1;
+                            return Ok(crate::debug::VmExecResult::Yielded);
                         }
                     }
                 }
@@ -526,7 +631,7 @@ impl VM {
                         let frame = self.frames.pop().unwrap();
                         self.stack.truncate(frame.base);
                         if self.frames.is_empty() {
-                            return Ok(result);
+                            return Ok(crate::debug::VmExecResult::Finished(result));
                         }
                         self.stack.push(result);
                         continue 'dispatch;
@@ -2031,6 +2136,56 @@ pub fn compile_program_with_spans_and_source(
     Ok((closure, functions))
 }
 
+/// Extract the set of source lines that have bytecode spans (valid breakpoint locations).
+/// Includes spans from the main chunk and all sub-functions.
+pub fn valid_breakpoint_lines(
+    closure: &Closure,
+    functions: &[Rc<Function>],
+) -> Vec<u32> {
+    let mut lines = std::collections::BTreeSet::new();
+    for (_, s) in &closure.func.chunk.spans {
+        lines.insert(s.line as u32);
+    }
+    for f in functions {
+        for (_, s) in &f.chunk.spans {
+            lines.insert(s.line as u32);
+        }
+    }
+    lines.into_iter().collect()
+}
+
+/// Snap a requested breakpoint line to the nearest valid line with bytecode spans.
+/// Prefers the same line, then searches forward, then backward.
+/// Returns None if no valid lines exist.
+pub fn snap_breakpoint_line(requested: u32, valid_lines: &[u32]) -> Option<u32> {
+    if valid_lines.is_empty() {
+        return None;
+    }
+    if valid_lines.contains(&requested) {
+        return Some(requested);
+    }
+    // Binary search for insertion point
+    let idx = valid_lines.partition_point(|&l| l < requested);
+    let forward = valid_lines.get(idx).copied();
+    let backward = if idx > 0 {
+        valid_lines.get(idx - 1).copied()
+    } else {
+        None
+    };
+    match (forward, backward) {
+        (Some(f), Some(b)) => {
+            if (f - requested) <= (requested - b) {
+                Some(f)
+            } else {
+                Some(b)
+            }
+        }
+        (Some(f), None) => Some(f),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
 pub fn compile_program(vals: &[Value]) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
@@ -2675,6 +2830,176 @@ mod tests {
             DebugEvent::Stopped { .. } => {} // expected
             other => panic!("expected Stopped event, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn test_vm_oob_jump_returns_error() {
+        // Issue #1: A jump that goes past the end of bytecode should return
+        // an error, not cause undefined behavior from unsafe pointer reads.
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+
+        let globals = Rc::new(Env::new());
+        let ctx = EvalContext::new();
+        let mut e = Emitter::new();
+        // Emit a forward JUMP with an offset that goes way past the end
+        e.emit_op(Op::Jump);
+        e.emit_i32(1000); // jump to PC 1005, but code is only ~6 bytes
+        e.emit_op(Op::Return);
+        let func = Rc::new(crate::chunk::Function {
+            name: None,
+            chunk: e.into_chunk(),
+            upvalue_descs: vec![],
+            arity: 0,
+            has_rest: false,
+            local_names: vec![],
+            source_file: None,
+        });
+        let closure = Rc::new(Closure {
+            func,
+            upvalues: vec![],
+        });
+        let mut vm = VM::new(globals, vec![]);
+        let result = vm.execute(closure, &ctx);
+        assert!(
+            result.is_err(),
+            "out-of-bounds jump should return an error, not UB"
+        );
+    }
+
+    #[test]
+    fn test_breakpoint_fires_on_each_loop_iteration() {
+        // Issue #2: resume_skip prevents breakpoints from re-triggering in
+        // single-line loops. After stopping at a breakpoint on a loop line,
+        // "Continue" should stop again on the next iteration.
+        use crate::debug::{DebugState, StepMode, VmExecResult};
+        use std::path::PathBuf;
+
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+
+        // A single-line loop: the loop body stays on line 1
+        let input = "(let loop ((i 0)) (if (< i 5) (loop (+ i 1)) i))";
+        let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
+        let source_file = PathBuf::from("<test>");
+        let (closure, functions) =
+            compile_program_with_spans_and_source(&vals, &span_map, Some(source_file.clone()))
+                .unwrap();
+
+        let mut vm = VM::new(globals, functions);
+        let mut debug = DebugState::new_headless();
+
+        // Set breakpoint on line 1 (the only line)
+        debug.set_breakpoints(&source_file, &[1]);
+        debug.step_mode = StepMode::StepInto; // stop on entry first
+
+        // Start: should stop on entry
+        let result = vm
+            .start_cooperative(closure, &ctx, &mut debug)
+            .unwrap();
+        assert!(
+            matches!(result, VmExecResult::Stopped(_)),
+            "should stop on entry"
+        );
+
+        // Continue: should hit the breakpoint on line 1
+        debug.step_mode = StepMode::Continue;
+        let result = vm.run_cooperative(&ctx, &mut debug).unwrap();
+        assert!(
+            matches!(result, VmExecResult::Stopped(_)),
+            "should stop at breakpoint on first pass"
+        );
+
+        // Continue again: should hit breakpoint again on next iteration
+        debug.step_mode = StepMode::Continue;
+        let result = vm.run_cooperative(&ctx, &mut debug).unwrap();
+        assert!(
+            matches!(result, VmExecResult::Stopped(_)),
+            "should stop at breakpoint on second iteration (resume_skip bug)"
+        );
+    }
+
+    #[test]
+    fn test_valid_breakpoint_lines_extraction() {
+        // Verify that valid_breakpoint_lines correctly extracts lines with spans
+        let code = "(+ 1 2)\n\n; comment\n(+ 3 4)";
+        let (vals, span_map) = sema_reader::read_many_with_spans(code).unwrap();
+        let (closure, functions) = compile_program_with_spans(&vals, &span_map).unwrap();
+        let lines = valid_breakpoint_lines(&closure, &functions);
+
+        assert!(lines.contains(&1), "line 1 (expr) should be valid");
+        assert!(!lines.contains(&2), "line 2 (empty) should not be valid");
+        assert!(!lines.contains(&3), "line 3 (comment) should not be valid");
+        assert!(lines.contains(&4), "line 4 (expr) should be valid");
+    }
+
+    #[test]
+    fn test_snap_breakpoint_line() {
+        let valid = vec![1, 3, 5, 10];
+
+        // Exact match
+        assert_eq!(snap_breakpoint_line(3, &valid), Some(3));
+        // Snap forward (closer)
+        assert_eq!(snap_breakpoint_line(4, &valid), Some(5));
+        // Equidistant between 1 and 3: prefers forward
+        assert_eq!(snap_breakpoint_line(2, &valid), Some(3));
+        // Equidistant: prefers forward
+        assert_eq!(snap_breakpoint_line(4, &[3, 5]), Some(5));
+        // Past the end: snaps to last
+        assert_eq!(snap_breakpoint_line(20, &valid), Some(10));
+        // Before the start: snaps to first
+        assert_eq!(snap_breakpoint_line(0, &valid), Some(1));
+        // Empty valid lines
+        assert_eq!(snap_breakpoint_line(5, &[]), None);
+    }
+
+    #[test]
+    fn test_bare_literal_breakpoint_snaps() {
+        // Bare literals (like `42` or `"hello"`) don't get spans.
+        // A breakpoint on a bare literal line should snap to the nearest line with spans.
+        let code = "\"hello\"\n42\n(+ 1 2)";
+        let (vals, span_map) = sema_reader::read_many_with_spans(code).unwrap();
+        let (closure, functions) = compile_program_with_spans(&vals, &span_map).unwrap();
+        let valid = valid_breakpoint_lines(&closure, &functions);
+
+        // Lines 1 and 2 are bare literals — no spans
+        assert!(!valid.contains(&1), "bare string should lack span");
+        assert!(!valid.contains(&2), "bare int should lack span");
+        assert!(valid.contains(&3), "function call should have span");
+
+        // Snapping: line 1 and 2 should snap to line 3
+        assert_eq!(snap_breakpoint_line(1, &valid), Some(3));
+        assert_eq!(snap_breakpoint_line(2, &valid), Some(3));
+    }
+
+    #[test]
+    fn test_global_redefinition_is_idempotent() {
+        // Issue #3: The HTTP replay-restart strategy re-executes side effects.
+        // Verify that re-defining globals doesn't error — (define x ...) twice
+        // should just overwrite, not fail.
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+
+        // First run: define x
+        eval_str("(define x 42)", &globals, &ctx).unwrap();
+        assert_eq!(
+            eval_str("x", &globals, &ctx).unwrap(),
+            Value::int(42)
+        );
+
+        // Second run (simulating replay): redefine x with same value
+        eval_str("(define x 42)", &globals, &ctx).unwrap();
+        assert_eq!(
+            eval_str("x", &globals, &ctx).unwrap(),
+            Value::int(42)
+        );
+
+        // Third run: redefine with different value (replay after mutation)
+        eval_str("(define x 99)", &globals, &ctx).unwrap();
+        assert_eq!(
+            eval_str("x", &globals, &ctx).unwrap(),
+            Value::int(99)
+        );
     }
 
     #[test]

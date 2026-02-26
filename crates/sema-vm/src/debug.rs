@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 use std::sync::mpsc;
 
+use sema_core::Value;
+
 #[derive(Debug, Clone)]
 pub struct DapStackFrame {
     pub id: u64,
@@ -126,6 +128,13 @@ pub struct DebugState {
     pub last_stop_line: Option<(PathBuf, u32)>,
     /// External pause request (set by DAP frontend, checked by VM)
     pub pause_requested: bool,
+    /// Skip debug stop checks while on the same line as last_stop_line.
+    /// Set after returning Stopped; cleared when execution moves to a different line.
+    pub resume_skip: bool,
+    /// Instruction budget for cooperative yielding. When > 0, the VM will yield
+    /// after executing approximately this many instructions. Set to 0 to disable.
+    /// Decremented during execution; caller should reset before each resume.
+    pub instructions_remaining: u32,
     /// Channel to send events to the DAP frontend
     pub event_tx: mpsc::Sender<DebugEvent>,
     /// Channel to receive commands from the DAP frontend
@@ -144,6 +153,28 @@ impl DebugState {
             step_frame_depth: 0,
             last_stop_line: None,
             pause_requested: false,
+            resume_skip: false,
+            instructions_remaining: 0,
+            event_tx,
+            command_rx,
+            next_bp_id: 1,
+        }
+    }
+
+    /// Create a DebugState without functional channels.
+    /// Used for cooperative (WASM) execution where commands are applied
+    /// between `run_inner` calls, not via channels.
+    pub fn new_headless() -> Self {
+        let (event_tx, _) = mpsc::channel();
+        let (_, command_rx) = mpsc::channel();
+        DebugState {
+            breakpoints: std::collections::HashMap::new(),
+            step_mode: StepMode::Continue,
+            step_frame_depth: 0,
+            last_stop_line: None,
+            pause_requested: false,
+            resume_skip: false,
+            instructions_remaining: 0,
             event_tx,
             command_rx,
             next_bp_id: 1,
@@ -193,4 +224,24 @@ impl DebugState {
             })
             .collect()
     }
+}
+
+/// Result of cooperative VM execution.
+#[derive(Debug)]
+pub enum VmExecResult {
+    /// Execution completed normally with a return value.
+    Finished(Value),
+    /// Execution paused at a debug stop point.
+    Stopped(StopInfo),
+    /// Execution yielded after exhausting the instruction budget.
+    /// Call `run_cooperative` again to continue.
+    Yielded,
+}
+
+/// Information about why and where the VM stopped.
+#[derive(Debug, Clone)]
+pub struct StopInfo {
+    pub reason: StopReason,
+    pub file: Option<PathBuf>,
+    pub line: u32,
 }

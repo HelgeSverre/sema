@@ -177,7 +177,7 @@ impl Interpreter {
     /// Pre-process a top-level expression for VM compilation.
     /// Evaluates `defmacro` forms via the tree-walker to register macros,
     /// then expands macro calls in all other forms.
-    fn expand_for_vm(&self, expr: &Value) -> EvalResult {
+    pub fn expand_for_vm(&self, expr: &Value) -> EvalResult {
         if let Some(items) = expr.as_list() {
             if let Some(s) = items.first().and_then(|v| v.as_symbol_spur()) {
                 let name = resolve(s);
@@ -187,8 +187,16 @@ impl Interpreter {
                 }
                 if name == "begin" || name == "progn" {
                     let mut new_items = vec![Value::symbol_from_spur(s)];
+                    let mut changed = false;
                     for item in &items[1..] {
-                        new_items.push(self.expand_for_vm(item)?);
+                        let expanded = self.expand_for_vm(item)?;
+                        if expanded.raw_bits() != item.raw_bits() {
+                            changed = true;
+                        }
+                        new_items.push(expanded);
+                    }
+                    if !changed {
+                        return Ok(expr.clone());
                     }
                     return Ok(Value::list(new_items));
                 }
@@ -198,6 +206,8 @@ impl Interpreter {
     }
 
     /// Recursively expand macro calls in an expression.
+    /// Preserves Rc pointer identity when no actual expansion occurs,
+    /// so that span lookups (keyed by Rc pointer) remain valid.
     fn expand_macros(&self, expr: &Value) -> EvalResult {
         if let Some(items) = expr.as_list() {
             if !items.is_empty() {
@@ -214,9 +224,19 @@ impl Interpreter {
                         }
                     }
                 }
-                let expanded: Result<Vec<Value>, SemaError> =
-                    items.iter().map(|v| self.expand_macros(v)).collect();
-                return Ok(Value::list(expanded?));
+                let expanded: Vec<Value> = items
+                    .iter()
+                    .map(|v| self.expand_macros(v))
+                    .collect::<Result<_, _>>()?;
+                // If no item changed, return original to preserve Rc identity (and spans)
+                let changed = expanded
+                    .iter()
+                    .zip(items.iter())
+                    .any(|(a, b)| a.raw_bits() != b.raw_bits());
+                if !changed {
+                    return Ok(expr.clone());
+                }
+                return Ok(Value::list(expanded));
             }
         }
         Ok(expr.clone())

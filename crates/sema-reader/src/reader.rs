@@ -367,8 +367,11 @@ impl Parser {
         while let Some(tok) = self.peek() {
             match tok {
                 // Opening brackets increase depth
-                Token::LParen | Token::LBracket | Token::LBrace
-                | Token::ShortLambdaStart | Token::BytevectorStart => {
+                Token::LParen
+                | Token::LBracket
+                | Token::LBrace
+                | Token::ShortLambdaStart
+                | Token::BytevectorStart => {
                     if depth == 0 {
                         // This could start a new top-level form — stop here
                         return;
@@ -612,7 +615,9 @@ pub fn read_many_with_spans(input: &str) -> Result<(Vec<Value>, SpanMap), SemaEr
 /// Read all s-expressions and return spans for both compound expressions and individual symbols.
 /// Symbol spans enable precise go-to-definition (jumping to the name, not the whole form).
 #[allow(clippy::type_complexity)]
-pub fn read_many_with_symbol_spans(input: &str) -> Result<(Vec<Value>, SpanMap, Vec<(String, Span)>), SemaError> {
+pub fn read_many_with_symbol_spans(
+    input: &str,
+) -> Result<(Vec<Value>, SpanMap, Vec<(String, Span)>), SemaError> {
     let tokens = tokenize(input)?;
     let mut parser = Parser::new(tokens);
     let mut exprs = Vec::new();
@@ -627,7 +632,9 @@ pub fn read_many_with_symbol_spans(input: &str) -> Result<(Vec<Value>, SpanMap, 
 /// Returns (successfully parsed forms, span map, collected errors).
 /// Tokenizer errors are returned as a single error with no parsed forms.
 #[allow(clippy::type_complexity)]
-pub fn read_many_with_spans_recover(input: &str) -> (Vec<Value>, SpanMap, Vec<(String, Span)>, Vec<SemaError>) {
+pub fn read_many_with_spans_recover(
+    input: &str,
+) -> (Vec<Value>, SpanMap, Vec<(String, Span)>, Vec<SemaError>) {
     let tokens = match tokenize(input) {
         Ok(t) => t,
         Err(e) => return (vec![], SpanMap::new(), vec![], vec![e]),
@@ -1897,14 +1904,18 @@ mod tests {
         // '(a b) desugars to (quote (a b)) — "quote" should NOT appear in symbol_spans
         let (_, _, sym_spans) = read_many_with_symbol_spans("'(a b)").unwrap();
         let names: Vec<&str> = sym_spans.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(!names.contains(&"quote"), "synthetic 'quote' should not be in symbol_spans");
+        assert!(
+            !names.contains(&"quote"),
+            "synthetic 'quote' should not be in symbol_spans"
+        );
         assert!(names.contains(&"a"));
         assert!(names.contains(&"b"));
     }
 
     #[test]
     fn test_symbol_spans_multiple_forms() {
-        let (_, _, sym_spans) = read_many_with_symbol_spans("(define x 1)\n(defun f (a) a)").unwrap();
+        let (_, _, sym_spans) =
+            read_many_with_symbol_spans("(define x 1)\n(defun f (a) a)").unwrap();
         let names: Vec<&str> = sym_spans.iter().map(|(n, _)| n.as_str()).collect();
         assert!(names.contains(&"define"));
         assert!(names.contains(&"x"));

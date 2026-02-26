@@ -13048,9 +13048,13 @@ fn test_eval_expr_json() {
         .args(["eval", "--expr", "(+ 1 2)", "--json", "--no-llm"])
         .output()
         .expect("failed to run sema eval");
-    assert!(output.status.success(), "stderr: {}", String::from_utf8_lossy(&output.stderr));
-    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .expect("invalid JSON output");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let json: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("invalid JSON output");
     assert_eq!(json["ok"], true);
     assert_eq!(json["value"], "3");
     assert_eq!(json["stdout"], "");
@@ -13109,7 +13113,10 @@ fn test_eval_nil_result_json() {
     assert!(output.status.success());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], true);
-    assert!(json["value"].is_null(), "define returns nil, value should be null");
+    assert!(
+        json["value"].is_null(),
+        "define returns nil, value should be null"
+    );
 }
 
 #[test]
@@ -13122,9 +13129,12 @@ fn test_eval_stdin_multi_form() {
         .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("failed to spawn sema eval");
-    child.stdin.take().unwrap().write_all(
-        b"(define pi 3.14)\n(define (area r) (* pi r r))\n(area 10)"
-    ).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(b"(define pi 3.14)\n(define (area r) (* pi r r))\n(area 10)")
+        .unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(output.status.success());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
@@ -13138,20 +13148,35 @@ fn test_eval_no_input_error() {
         .args(["eval", "--no-llm"])
         .output()
         .expect("failed to run sema eval");
-    assert!(!output.status.success(), "should fail without --stdin or --expr");
+    assert!(
+        !output.status.success(),
+        "should fail without --stdin or --expr"
+    );
 }
 
 #[test]
 fn test_eval_sandbox_blocks_shell() {
     let output = sema_cmd()
-        .args(["eval", "--expr", "(shell \"echo hi\")", "--json", "--no-llm", "--sandbox", "strict"])
+        .args([
+            "eval",
+            "--expr",
+            "(shell \"echo hi\")",
+            "--json",
+            "--no-llm",
+            "--sandbox",
+            "strict",
+        ])
         .output()
         .expect("failed to run sema eval");
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     let msg = json["error"]["message"].as_str().unwrap();
-    assert!(msg.to_lowercase().contains("sandbox") || msg.to_lowercase().contains("denied") || msg.to_lowercase().contains("not permitted"),
-            "expected sandbox error, got: {msg}");
+    assert!(
+        msg.to_lowercase().contains("sandbox")
+            || msg.to_lowercase().contains("denied")
+            || msg.to_lowercase().contains("not permitted"),
+        "expected sandbox error, got: {msg}"
+    );
 }
 
 #[test]
@@ -13170,7 +13195,13 @@ fn test_eval_parse_error_json() {
 #[test]
 fn test_eval_stdout_captured_in_json() {
     let output = sema_cmd()
-        .args(["eval", "--expr", "(println \"hello world\") (+ 1 2)", "--json", "--no-llm"])
+        .args([
+            "eval",
+            "--expr",
+            "(println \"hello world\") (+ 1 2)",
+            "--json",
+            "--no-llm",
+        ])
         .output()
         .expect("failed to run sema eval");
     assert!(output.status.success());
@@ -13185,7 +13216,13 @@ fn test_eval_stdout_captured_in_json() {
 #[test]
 fn test_eval_stderr_captured_in_json() {
     let output = sema_cmd()
-        .args(["eval", "--expr", "(print-error \"oops\") 42", "--json", "--no-llm"])
+        .args([
+            "eval",
+            "--expr",
+            "(print-error \"oops\") 42",
+            "--json",
+            "--no-llm",
+        ])
         .output()
         .expect("failed to run sema eval");
     assert!(output.status.success());
@@ -13204,13 +13241,24 @@ fn test_eval_error_has_line_and_col() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
     // Parse errors should include line info
-    assert!(json["error"]["line"].as_u64().is_some(), "expected line in error: {json}");
+    assert!(
+        json["error"]["line"].as_u64().is_some(),
+        "expected line in error: {json}"
+    );
 }
 
 #[test]
 fn test_eval_virtual_path_does_not_crash() {
     let output = sema_cmd()
-        .args(["eval", "--expr", "(+ 1 2)", "--json", "--no-llm", "--path", "/nonexistent/untitled.sema"])
+        .args([
+            "eval",
+            "--expr",
+            "(+ 1 2)",
+            "--json",
+            "--no-llm",
+            "--path",
+            "/nonexistent/untitled.sema",
+        ])
         .output()
         .expect("failed to run sema eval");
     assert!(output.status.success());

@@ -22,7 +22,7 @@ pub use core_expr::{
 };
 pub use debug::{
     decode_scope_ref, scope_locals_ref, scope_upvalues_ref, DebugCommand, DebugEvent, DebugState,
-    ScopeKind, StepMode, StopReason,
+    ScopeKind, StepMode, StopInfo, StopReason, VmExecResult,
 };
 pub use disasm::disassemble;
 pub use emit::Emitter;
@@ -32,6 +32,6 @@ pub use optimize::optimize as optimize_expr;
 pub use resolve::{resolve, resolve_with_locals};
 pub use serialize::{deserialize_from_bytes, is_bytecode_file, serialize_to_bytes};
 pub use vm::{
-    compile_program, compile_program_with_spans, compile_program_with_spans_and_source, Closure,
-    UpvalueCell, VM,
+    compile_program, compile_program_with_spans, compile_program_with_spans_and_source,
+    snap_breakpoint_line, valid_breakpoint_lines, Closure, UpvalueCell, VM,
 };

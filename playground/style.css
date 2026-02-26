@@ -260,7 +260,7 @@
     top: 0; left: 0;
     width: 100%;
     height: 100%;
-    padding: 1.25rem;
+    padding: 1.25rem 1.25rem 1.25rem calc(40px + 1rem);
     font-family: var(--mono);
     font-size: 13px;
     line-height: 1.65;
@@ -294,6 +294,65 @@
   textarea#editor::placeholder { color: var(--text-dim); -webkit-text-fill-color: var(--text-dim); }
   textarea#editor::selection { background: var(--gold); color: var(--bg); -webkit-text-fill-color: var(--bg); }
   .editor-highlight.focused { background: #0b0b0b; }
+
+  /* ── Line number gutter ── */
+  .editor-gutter {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 40px;
+    height: 100%;
+    padding-top: 1.25rem;
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.65;
+    color: var(--text-dim);
+    background: var(--bg-editor);
+    border-right: 1px solid var(--border);
+    overflow: hidden;
+    z-index: 2;
+    user-select: none;
+    cursor: default;
+  }
+  .gutter-line {
+    padding: 0 6px 0 0;
+    text-align: right;
+    height: 1.65em;
+    position: relative;
+    cursor: pointer;
+    transition: color 0.1s;
+  }
+  .gutter-line:hover {
+    color: var(--text);
+  }
+  .gutter-line.breakpoint::before {
+    content: '●';
+    position: absolute;
+    left: 3px;
+    color: var(--error);
+    font-size: 10px;
+    line-height: 1.65em;
+  }
+  .gutter-line.breakpoint {
+    color: var(--error);
+  }
+  .gutter-line.current-line {
+    background: rgba(200, 168, 85, 0.15);
+    color: var(--gold);
+  }
+
+  /* ── Debug current line highlight ── */
+  .debug-line-highlight {
+    position: absolute;
+    left: 40px;
+    right: 0;
+    height: 1.65em;
+    background: rgba(200, 168, 85, 0.1);
+    border-left: 2px solid var(--gold);
+    pointer-events: none;
+    z-index: 0;
+  }
+
   .hl-comment { color: var(--text-dim); font-style: italic; }
   .hl-string { color: #a8c47a; }
   .hl-keyword { color: var(--gold); }
@@ -367,6 +426,76 @@
     width: 1px;
     height: 16px;
     background: var(--border);
+  }
+
+  /* ── Debug controls ── */
+  .debug-btn {
+    background: transparent;
+    color: var(--gold);
+    border: 1px solid var(--gold-dim);
+  }
+  .debug-btn:hover:not(:disabled) {
+    background: var(--gold-glow);
+  }
+  .debug-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+  }
+  .debug-controls.hidden { display: none; }
+  .debug-ctrl-btn {
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 0.8rem;
+    width: 28px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .debug-ctrl-btn:hover {
+    background: var(--gold-glow);
+    color: var(--gold);
+    border-color: var(--gold-dim);
+  }
+  .debug-ctrl-btn.dbg-stop:hover {
+    color: var(--error);
+    border-color: var(--error);
+  }
+
+  /* ── Debug variables panel ── */
+  .debug-vars-panel {
+    border-bottom: 1px solid var(--border);
+    padding: 0.75rem 1.25rem;
+    margin-bottom: 0.5rem;
+  }
+  .debug-vars-header {
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 0.5rem;
+  }
+  .debug-var-row {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.65;
+    padding: 0.1rem 0;
+  }
+  .debug-var-name {
+    color: var(--gold);
+  }
+  .debug-var-value {
+    color: var(--text-bright);
+  }
+  .debug-var-type {
+    color: var(--text-dim);
+    font-size: 0.7rem;
   }
 
   /* ── Splitters ── */

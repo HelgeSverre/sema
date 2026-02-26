@@ -11,6 +11,9 @@ let vfsHost = null;
 let vfsBackend = null;
 let backendName = 'memory';
 let activeFilePath = null;
+let breakpoints = new Set();
+let currentDebugLine = null;
+let debugState = 'idle'; // 'idle' | 'running' | 'paused'
 
 const STORAGE_KEY = 'sema-playground';
 
@@ -414,6 +417,7 @@ async function main() {
   document.getElementById('status').className = 'status-text status-ready';
   document.getElementById('run-btn').disabled = false;
   document.getElementById('fmt-btn').disabled = false;
+  document.getElementById('debug-btn').disabled = false;
   document.getElementById('output').innerHTML = '<div class="output-welcome">Ready. Write some Sema code and press Run.</div>';
 
   document.getElementById('loading').classList.add('hidden');
@@ -523,13 +527,342 @@ function scheduleHighlight() {
   cancelAnimationFrame(hlRaf);
   hlRaf = requestAnimationFrame(() => {
     hlEl.innerHTML = highlightSema(editorEl.value);
+    updateGutter();
   });
 }
 
 function syncScroll() {
   hlEl.scrollTop = editorEl.scrollTop;
   hlEl.scrollLeft = editorEl.scrollLeft;
+  gutterEl.scrollTop = editorEl.scrollTop;
+  updateLineHighlight();
 }
+
+// ── Line number gutter ──
+
+const gutterEl = document.getElementById('editor-gutter');
+
+function updateGutter() {
+  const code = editorEl.value;
+  const lineCount = (code.match(/\n/g) || []).length + 1;
+  gutterEl.innerHTML = '';
+  for (let i = 1; i <= lineCount; i++) {
+    const line = document.createElement('div');
+    line.className = 'gutter-line';
+    if (breakpoints.has(i)) line.classList.add('breakpoint');
+    if (currentDebugLine === i) line.classList.add('current-line');
+    line.textContent = i;
+    line.addEventListener('click', () => toggleBreakpoint(i));
+    gutterEl.appendChild(line);
+  }
+  updateLineHighlight();
+}
+
+function setsEqual(a, b) {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+let validLinesCode = null; // editor content when validBreakpointLines was computed
+
+/** Ensure validBreakpointLines is up-to-date for the current editor content. */
+function ensureValidLines() {
+  if (!interp) return;
+  const code = editorEl.value;
+  if (validBreakpointLines && validLinesCode === code) return;
+  try {
+    const lines = interp.getValidBreakpointLines(code);
+    validBreakpointLines = new Set(lines);
+    validLinesCode = code;
+  } catch (_) {
+    // Parse error — clear valid lines so no snapping happens
+    validBreakpointLines = null;
+    validLinesCode = null;
+  }
+}
+
+function snapToValidLine(lineNum) {
+  if (!validBreakpointLines || validBreakpointLines.has(lineNum)) return lineNum;
+  const valid = Array.from(validBreakpointLines).sort((a, b) => a - b);
+  let best = null;
+  let bestDist = Infinity;
+  for (const v of valid) {
+    const d = Math.abs(v - lineNum);
+    if (d < bestDist) { bestDist = d; best = v; }
+  }
+  return best !== null ? best : lineNum;
+}
+
+function toggleBreakpoint(lineNum) {
+  ensureValidLines();
+  if (breakpoints.has(lineNum)) {
+    breakpoints.delete(lineNum);
+  } else {
+    lineNum = snapToValidLine(lineNum);
+    if (breakpoints.has(lineNum)) {
+      // Already have a breakpoint at the snapped line — toggle it off
+      breakpoints.delete(lineNum);
+    } else {
+      breakpoints.add(lineNum);
+    }
+  }
+  updateGutter();
+  if (interp && interp.debugIsActive()) {
+    interp.debugSetBreakpoints(Array.from(breakpoints));
+  }
+}
+
+function updateLineHighlight() {
+  const existing = document.querySelector('.debug-line-highlight');
+  if (existing) existing.remove();
+
+  if (currentDebugLine !== null) {
+    const style = getComputedStyle(editorEl);
+    const lineHeight = parseFloat(style.lineHeight) || 21.45;
+    const paddingTop = parseFloat(style.paddingTop) || 20;
+    const hl = document.createElement('div');
+    hl.className = 'debug-line-highlight';
+    hl.style.top = `${paddingTop + (currentDebugLine - 1) * lineHeight - editorEl.scrollTop}px`;
+    editorEl.parentElement.appendChild(hl);
+  }
+}
+
+// ── Debug state machine ──
+
+const debugBtn = document.getElementById('debug-btn');
+const debugControls = document.getElementById('debug-controls');
+
+function setDebugState(state) {
+  debugState = state;
+  const runBtn = document.getElementById('run-btn');
+  const fmtBtn = document.getElementById('fmt-btn');
+
+  switch (state) {
+    case 'idle':
+      debugBtn.disabled = false;
+      runBtn.disabled = false;
+      fmtBtn.disabled = false;
+      debugControls.classList.add('hidden');
+      editorEl.readOnly = false;
+      currentDebugLine = null;
+      validBreakpointLines = null;
+      updateGutter();
+      const varsPanel = document.getElementById('debug-vars');
+      if (varsPanel) varsPanel.remove();
+      document.getElementById('status').textContent = 'Ready';
+      document.getElementById('status').className = 'status-text status-ready';
+      break;
+    case 'running':
+      debugBtn.disabled = true;
+      runBtn.disabled = true;
+      fmtBtn.disabled = true;
+      debugControls.classList.remove('hidden');
+      editorEl.readOnly = true;
+      document.getElementById('status').textContent = 'Debugging…';
+      document.getElementById('status').className = 'status-text status-loading';
+      break;
+    case 'paused':
+      debugBtn.disabled = true;
+      runBtn.disabled = true;
+      fmtBtn.disabled = true;
+      debugControls.classList.remove('hidden');
+      editorEl.readOnly = true;
+      document.getElementById('status').textContent = `Paused at line ${currentDebugLine}`;
+      document.getElementById('status').className = 'status-text status-loading';
+      break;
+  }
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+let validBreakpointLines = null; // Set of lines that can have breakpoints
+
+function handleDebugResult(result) {
+  // Sync breakpoint positions if the response includes validation info
+  if (result.validLines) {
+    validBreakpointLines = new Set(result.validLines);
+  }
+  if (result.breakpoints) {
+    // Replace user breakpoints with snapped positions from WASM
+    const snapped = new Set(result.breakpoints);
+    if (!setsEqual(breakpoints, snapped)) {
+      breakpoints = snapped;
+      updateGutter();
+    }
+  }
+
+  if (result.output && result.output.length > 0) {
+    for (const line of result.output) {
+      const div = document.createElement('div');
+      div.className = 'output-line';
+      div.textContent = line;
+      outputEl.appendChild(div);
+    }
+  }
+
+  if (result.status === 'stopped') {
+    currentDebugLine = result.line;
+    updateGutter();
+    scrollToLine(result.line);
+    updateVariablesPanel();
+    setDebugState('paused');
+  } else if (result.status === 'yielded') {
+    // VM yielded to keep browser responsive — resume after yielding to event loop
+    setTimeout(() => {
+      if (debugState === 'running' && interp) {
+        try {
+          handleDebugResult(interp.debugPoll());
+        } catch (e) {
+          showDebugError(e);
+        }
+      }
+    }, 0);
+  } else if (result.status === 'http_needed') {
+    // VM hit an HTTP call — perform the fetch and restart the debug session
+    handleDebugHttpNeeded(result.request);
+    return;
+  } else if (result.status === 'finished') {
+    if (result.value !== null && result.value !== undefined) {
+      const div = document.createElement('div');
+      div.className = 'output-value';
+      div.textContent = `=> ${result.value}`;
+      outputEl.appendChild(div);
+    }
+    interp.debugStop();
+    setDebugState('idle');
+  } else if (result.status === 'error') {
+    const div = document.createElement('div');
+    div.className = 'output-error';
+    div.textContent = result.error;
+    outputEl.appendChild(div);
+    interp.debugStop();
+    setDebugState('idle');
+  }
+}
+
+let debugHttpRetries = 0;
+const MAX_DEBUG_HTTP_RETRIES = 50;
+
+async function handleDebugHttpNeeded(request) {
+  debugHttpRetries++;
+  if (debugHttpRetries > MAX_DEBUG_HTTP_RETRIES) {
+    showDebugError(new Error('Exceeded maximum HTTP requests during debug session'));
+    return;
+  }
+
+  try {
+    // Let WASM perform the fetch and cache the response natively
+    const success = await interp.debugPerformFetch(JSON.stringify(request));
+    if (!success) {
+      showDebugError(new Error(`HTTP fetch failed: ${request.method} ${request.url}`));
+      return;
+    }
+
+    // Restart the debug session — cached response will be used this time
+    const code = editorEl.value;
+    outputEl.innerHTML = '';
+    const result = interp.debugStart(code, Array.from(breakpoints));
+    handleDebugResult(result);
+  } catch (e) {
+    showDebugError(e);
+  }
+}
+
+function showDebugError(e) {
+  const div = document.createElement('div');
+  div.className = 'output-error';
+  div.textContent = e.message || String(e);
+  outputEl.appendChild(div);
+  try { interp.debugStop(); } catch (_) { /* ignore */ }
+  setDebugState('idle');
+}
+
+function scrollToLine(line) {
+  const lineHeight = parseFloat(getComputedStyle(editorEl).lineHeight) || 21.45;
+  const targetScroll = (line - 1) * lineHeight - editorEl.clientHeight / 2 + lineHeight;
+  editorEl.scrollTop = Math.max(0, targetScroll);
+  syncScroll();
+}
+
+function updateVariablesPanel() {
+  const existing = document.getElementById('debug-vars');
+  if (existing) existing.remove();
+
+  if (debugState !== 'paused' || !interp) return;
+
+  const locals = interp.debugGetLocals();
+  if (!locals || !Array.isArray(locals) || locals.length === 0) return;
+
+  const panel = document.createElement('div');
+  panel.id = 'debug-vars';
+  panel.className = 'debug-vars-panel';
+
+  const header = document.createElement('div');
+  header.className = 'debug-vars-header';
+  header.textContent = 'Variables';
+  panel.appendChild(header);
+
+  for (const v of locals) {
+    const row = document.createElement('div');
+    row.className = 'debug-var-row';
+    row.innerHTML = `<span class="debug-var-name">${escapeHtml(v.name)}</span> = <span class="debug-var-value">${escapeHtml(v.value)}</span> <span class="debug-var-type">(${escapeHtml(v.type)})</span>`;
+    panel.appendChild(row);
+  }
+
+  outputEl.insertBefore(panel, outputEl.firstChild);
+}
+
+// Debug button
+debugBtn.addEventListener('click', () => {
+  if (!interp || debugState !== 'idle') return;
+  const code = editorEl.value;
+  if (!code.trim()) return;
+
+  outputEl.innerHTML = '';
+  setDebugState('running');
+  debugHttpRetries = 0;
+
+  try {
+    const result = interp.debugStart(code, Array.from(breakpoints));
+    handleDebugResult(result);
+  } catch (e) {
+    showDebugError(e);
+  }
+});
+
+// Debug control buttons
+document.getElementById('dbg-continue').addEventListener('click', () => {
+  if (!interp || debugState !== 'paused') return;
+  setDebugState('running');
+  try { handleDebugResult(interp.debugContinue()); } catch (e) { showDebugError(e); }
+});
+
+document.getElementById('dbg-step-over').addEventListener('click', () => {
+  if (!interp || debugState !== 'paused') return;
+  setDebugState('running');
+  try { handleDebugResult(interp.debugStepOver()); } catch (e) { showDebugError(e); }
+});
+
+document.getElementById('dbg-step-into').addEventListener('click', () => {
+  if (!interp || debugState !== 'paused') return;
+  setDebugState('running');
+  try { handleDebugResult(interp.debugStepInto()); } catch (e) { showDebugError(e); }
+});
+
+document.getElementById('dbg-step-out').addEventListener('click', () => {
+  if (!interp || debugState !== 'paused') return;
+  setDebugState('running');
+  try { handleDebugResult(interp.debugStepOut()); } catch (e) { showDebugError(e); }
+});
+
+document.getElementById('dbg-stop').addEventListener('click', () => {
+  if (!interp) return;
+  interp.debugStop();
+  setDebugState('idle');
+});
 
 // ── Undo/redo ──
 
@@ -538,6 +871,9 @@ const editorUndo = new TextareaUndo(editorEl, { onChange: scheduleHighlight });
 editorEl.addEventListener('input', () => {
   scheduleHighlight();
   debounceSaveEditor();
+  // Invalidate valid breakpoint lines cache when code changes
+  validBreakpointLines = null;
+  validLinesCode = null;
 });
 editorEl.addEventListener('scroll', syncScroll);
 editorEl.addEventListener('focus', () => hlEl.classList.add('focused'));
@@ -554,6 +890,32 @@ function debounceSaveEditor() {
 
 // Keyboard shortcut: Cmd/Ctrl+Enter and Tab/Shift+Tab
 editorEl.addEventListener('keydown', (e) => {
+  // Debug keyboard shortcuts
+  if (e.key === 'F5' && debugState === 'paused') {
+    e.preventDefault();
+    document.getElementById('dbg-continue').click();
+    return;
+  }
+  if (e.key === 'F10' && debugState === 'paused') {
+    e.preventDefault();
+    document.getElementById('dbg-step-over').click();
+    return;
+  }
+  if (e.key === 'F11' && !e.shiftKey && debugState === 'paused') {
+    e.preventDefault();
+    document.getElementById('dbg-step-into').click();
+    return;
+  }
+  if (e.key === 'F11' && e.shiftKey && debugState === 'paused') {
+    e.preventDefault();
+    document.getElementById('dbg-step-out').click();
+    return;
+  }
+  if (e.key === 'Escape' && debugState !== 'idle') {
+    e.preventDefault();
+    document.getElementById('dbg-stop').click();
+    return;
+  }
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
     e.preventDefault();
     run();

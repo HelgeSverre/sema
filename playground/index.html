@@ -61,9 +61,18 @@
         <button class="run-btn" id="run-btn" data-testid="run-btn" disabled data-tooltip="Run code (⌘+Enter)" data-tooltip-pos="right">
           Run<span class="shortcut">⌘↵</span>
         </button>
+        <button class="run-btn debug-btn" id="debug-btn" data-testid="debug-btn" disabled data-tooltip="Debug with breakpoints">Debug</button>
+        <div class="debug-controls hidden" id="debug-controls" data-testid="debug-controls">
+          <button class="debug-ctrl-btn" id="dbg-continue" data-tooltip="Continue (F5)">▶</button>
+          <button class="debug-ctrl-btn" id="dbg-step-over" data-tooltip="Step Over (F10)">⏭</button>
+          <button class="debug-ctrl-btn" id="dbg-step-into" data-tooltip="Step Into (F11)">↓</button>
+          <button class="debug-ctrl-btn" id="dbg-step-out" data-tooltip="Step Out (⇧F11)">↑</button>
+          <button class="debug-ctrl-btn dbg-stop" id="dbg-stop" data-tooltip="Stop (Esc)">⬛</button>
+        </div>
       </div>
     </div>
     <div class="editor-wrap">
+      <div class="editor-gutter" id="editor-gutter"></div>
       <textarea id="editor" data-testid="editor" spellcheck="false" placeholder=";; Write Sema code here…
 ;; Press ⌘+Enter or click Run to evaluate
 

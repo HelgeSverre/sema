@@ -18,6 +18,7 @@ sema-reader = { path = "../sema-reader" }
 sema-eval = { path = "../sema-eval" }
 sema-stdlib = { path = "../sema-stdlib" }
 sema-fmt = { path = "../sema-fmt" }
+sema-vm = { path = "../sema-vm" }
 js-sys = "0.3"
 getrandom = { version = "0.4", features = ["wasm_js"] }
 serde_json = { workspace = true }

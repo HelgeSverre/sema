@@ -28,6 +28,16 @@ thread_local! {
     static VFS_TOTAL_BYTES: Cell<usize> = const { Cell::new(0) };
 }
 
+/// Active debug session state for cooperative VM execution.
+struct DebugSession {
+    vm: sema_vm::VM,
+    debug: sema_vm::DebugState,
+}
+
+thread_local! {
+    static DEBUG_SESSION: RefCell<Option<DebugSession>> = const { RefCell::new(None) };
+}
+
 const VFS_MAX_TOTAL_BYTES: usize = 16 * 1024 * 1024; // 16 MB total
 const VFS_MAX_FILE_BYTES: usize = 1024 * 1024; // 1 MB per file
 const VFS_MAX_FILES: usize = 256;
@@ -132,6 +142,10 @@ fn take_output() -> Vec<String> {
 
 const HTTP_AWAIT_MARKER: &str = "__SEMA_WASM_HTTP__";
 const MAX_REPLAYS: usize = 50;
+
+/// Instruction budget per cooperative VM yield. The VM will execute up to this
+/// many instructions before yielding back to the browser event loop.
+const WASM_DEBUG_INSTRUCTION_BUDGET: u32 = 500_000;
 
 /// Build a deterministic cache key from HTTP request parameters.
 fn http_cache_key(
@@ -1891,6 +1905,312 @@ impl WasmInterpreter {
         js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
     }
 
+    /// Start a debug session. Compiles the code, sets breakpoints on given lines,
+    /// and runs until the first stop or completion.
+    /// Returns JSON: { status: "stopped"|"finished"|"error"|"http_needed", ... }
+    #[wasm_bindgen(js_name = debugStart)]
+    pub fn debug_start(&self, code: &str, breakpoint_lines: &js_sys::Array) -> JsValue {
+        // End any existing session
+        DEBUG_SESSION.with(|s| {
+            *s.borrow_mut() = None;
+        });
+
+        OUTPUT.with(|o| o.borrow_mut().clear());
+        LINE_BUF.with(|b| b.borrow_mut().clear());
+
+        let bp_lines: Vec<u32> = breakpoint_lines
+            .iter()
+            .filter_map(|v| v.as_f64().map(|n| n as u32))
+            .collect();
+
+        // Parse
+        let (exprs, spans) = match sema_reader::read_many_with_spans(code) {
+            Ok(r) => r,
+            Err(e) => return self.debug_error_result(&e),
+        };
+        self.inner.ctx.merge_span_table(spans);
+        if exprs.is_empty() {
+            return self.debug_finished_result(&sema_core::Value::nil());
+        }
+
+        // Expand macros
+        let mut expanded = Vec::new();
+        for expr in &exprs {
+            match self.inner.expand_for_vm(expr) {
+                Ok(exp) => {
+                    if !exp.is_nil() {
+                        expanded.push(exp);
+                    }
+                }
+                Err(e) => return self.debug_error_result(&e),
+            }
+        }
+        if expanded.is_empty() {
+            return self.debug_finished_result(&sema_core::Value::nil());
+        }
+
+        // Compile with spans and source file for breakpoint matching
+        let source_file = std::path::PathBuf::from("<playground>");
+        let span_map = self.inner.ctx.span_table.borrow().clone();
+        let (closure, functions) = match sema_vm::compile_program_with_spans_and_source(
+            &expanded,
+            &span_map,
+            Some(source_file.clone()),
+        ) {
+            Ok(r) => r,
+            Err(e) => return self.debug_error_result(&e),
+        };
+
+        // Extract valid breakpoint lines from compiled spans
+        let valid_lines = sema_vm::valid_breakpoint_lines(&closure, &functions);
+
+        // Snap requested breakpoints to valid lines
+        let snapped_bp_lines: Vec<u32> = bp_lines
+            .iter()
+            .filter_map(|&line| sema_vm::snap_breakpoint_line(line, &valid_lines))
+            .collect();
+
+        let mut vm = sema_vm::VM::new(self.inner.global_env.clone(), functions);
+        let mut debug = sema_vm::DebugState::new_headless();
+
+        // Set snapped breakpoints
+        if !snapped_bp_lines.is_empty() {
+            debug.set_breakpoints(&source_file, &snapped_bp_lines);
+        }
+
+        // Stop on entry
+        debug.step_mode = sema_vm::StepMode::StepInto;
+        debug.instructions_remaining = WASM_DEBUG_INSTRUCTION_BUDGET;
+
+        // Helper: attach validLines and breakpoints to a debug response
+        let attach_bp_info = |result: JsValue| -> JsValue {
+            let valid_arr = js_sys::Array::new();
+            for &l in &valid_lines {
+                valid_arr.push(&JsValue::from_f64(l as f64));
+            }
+            let bp_arr = js_sys::Array::new();
+            for &l in &snapped_bp_lines {
+                bp_arr.push(&JsValue::from_f64(l as f64));
+            }
+            let _ = js_sys::Reflect::set(
+                &result,
+                &JsValue::from_str("validLines"),
+                &valid_arr,
+            );
+            let _ = js_sys::Reflect::set(
+                &result,
+                &JsValue::from_str("breakpoints"),
+                &bp_arr,
+            );
+            result
+        };
+
+        match vm.start_cooperative(closure, &self.inner.ctx, &mut debug) {
+            Ok(sema_vm::VmExecResult::Stopped(info)) => {
+                let result = attach_bp_info(self.debug_stopped_result(&info));
+                DEBUG_SESSION.with(|s| {
+                    *s.borrow_mut() = Some(DebugSession { vm, debug });
+                });
+                result
+            }
+            Ok(sema_vm::VmExecResult::Yielded) => {
+                let result = attach_bp_info(self.debug_yielded_result());
+                DEBUG_SESSION.with(|s| {
+                    *s.borrow_mut() = Some(DebugSession { vm, debug });
+                });
+                result
+            }
+            Ok(sema_vm::VmExecResult::Finished(v)) => attach_bp_info(self.debug_finished_result(&v)),
+            Err(e) => self.debug_maybe_http_error(&e),
+        }
+    }
+
+    /// Perform an HTTP fetch from a debug marker and cache the result.
+    /// Called by JS in response to a "http_needed" status.
+    /// Takes the marker JSON from the request field. Returns true on success.
+    #[wasm_bindgen(js_name = debugPerformFetch)]
+    pub async fn debug_perform_fetch(&self, marker_json: &str) -> bool {
+        match perform_fetch_from_marker(marker_json).await {
+            Ok((key, response)) => {
+                HTTP_CACHE.with(|c| {
+                    c.borrow_mut().insert(key, response);
+                });
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    #[wasm_bindgen(js_name = debugContinue)]
+    pub fn debug_continue(&self) -> JsValue {
+        self.debug_resume(sema_vm::StepMode::Continue)
+    }
+
+    #[wasm_bindgen(js_name = debugStepInto)]
+    pub fn debug_step_into(&self) -> JsValue {
+        self.debug_resume(sema_vm::StepMode::StepInto)
+    }
+
+    #[wasm_bindgen(js_name = debugStepOver)]
+    pub fn debug_step_over(&self) -> JsValue {
+        self.debug_resume(sema_vm::StepMode::StepOver)
+    }
+
+    #[wasm_bindgen(js_name = debugStepOut)]
+    pub fn debug_step_out(&self) -> JsValue {
+        self.debug_resume(sema_vm::StepMode::StepOut)
+    }
+
+    #[wasm_bindgen(js_name = debugPoll)]
+    pub fn debug_poll(&self) -> JsValue {
+        DEBUG_SESSION.with(|s| {
+            let mut session = s.borrow_mut();
+            let Some(ref mut sess) = *session else {
+                return self.debug_error_str("No active debug session");
+            };
+
+            sess.debug.instructions_remaining = WASM_DEBUG_INSTRUCTION_BUDGET;
+
+            match sess.vm.run_cooperative(&self.inner.ctx, &mut sess.debug) {
+                Ok(sema_vm::VmExecResult::Stopped(info)) => self.debug_stopped_result(&info),
+                Ok(sema_vm::VmExecResult::Yielded) => self.debug_yielded_result(),
+                Ok(sema_vm::VmExecResult::Finished(v)) => {
+                    let result = self.debug_finished_result(&v);
+                    *session = None;
+                    result
+                }
+                Err(e) => {
+                    let result = self.debug_maybe_http_error(&e);
+                    *session = None;
+                    result
+                }
+            }
+        })
+    }
+
+    #[wasm_bindgen(js_name = debugStop)]
+    pub fn debug_stop(&self) {
+        DEBUG_SESSION.with(|s| {
+            *s.borrow_mut() = None;
+        });
+    }
+
+    #[wasm_bindgen(js_name = debugGetLocals)]
+    pub fn debug_get_locals(&self) -> JsValue {
+        DEBUG_SESSION.with(|s| {
+            let session = s.borrow();
+            let Some(ref sess) = *session else {
+                return JsValue::NULL;
+            };
+            let frame_idx = sess.vm.frame_count().saturating_sub(1);
+            let locals = sess.vm.debug_locals(frame_idx);
+            let arr = js_sys::Array::new();
+            for var in &locals {
+                let obj = js_sys::Object::new();
+                let _ = js_sys::Reflect::set(&obj, &"name".into(), &JsValue::from_str(&var.name));
+                let _ = js_sys::Reflect::set(&obj, &"value".into(), &JsValue::from_str(&var.value));
+                let _ =
+                    js_sys::Reflect::set(&obj, &"type".into(), &JsValue::from_str(&var.type_name));
+                arr.push(&obj);
+            }
+            arr.into()
+        })
+    }
+
+    #[wasm_bindgen(js_name = debugGetStackTrace)]
+    pub fn debug_get_stack_trace(&self) -> JsValue {
+        DEBUG_SESSION.with(|s| {
+            let session = s.borrow();
+            let Some(ref sess) = *session else {
+                return js_sys::Array::new().into();
+            };
+            let frames = sess.vm.debug_stack_trace();
+            let arr = js_sys::Array::new();
+            for frame in &frames {
+                let obj = js_sys::Object::new();
+                let _ = js_sys::Reflect::set(&obj, &"name".into(), &JsValue::from_str(&frame.name));
+                let _ = js_sys::Reflect::set(
+                    &obj,
+                    &"line".into(),
+                    &JsValue::from_f64(frame.line as f64),
+                );
+                let _ = js_sys::Reflect::set(
+                    &obj,
+                    &"column".into(),
+                    &JsValue::from_f64(frame.column as f64),
+                );
+                arr.push(&obj);
+            }
+            arr.into()
+        })
+    }
+
+    /// Compile code and return the set of lines that are valid breakpoint targets.
+    /// Returns a JS array of line numbers (sorted). Returns empty array on parse/compile error.
+    #[wasm_bindgen(js_name = getValidBreakpointLines)]
+    pub fn get_valid_breakpoint_lines(&self, code: &str) -> js_sys::Array {
+        let result = js_sys::Array::new();
+
+        let (exprs, spans) = match sema_reader::read_many_with_spans(code) {
+            Ok(r) => r,
+            Err(_) => return result,
+        };
+        self.inner.ctx.merge_span_table(spans);
+        if exprs.is_empty() {
+            return result;
+        }
+
+        let mut expanded = Vec::new();
+        for expr in &exprs {
+            match self.inner.expand_for_vm(expr) {
+                Ok(exp) => {
+                    if !exp.is_nil() {
+                        expanded.push(exp);
+                    }
+                }
+                Err(_) => return result,
+            }
+        }
+        if expanded.is_empty() {
+            return result;
+        }
+
+        let source_file = std::path::PathBuf::from("<playground>");
+        let span_map = self.inner.ctx.span_table.borrow().clone();
+        let (closure, functions) = match sema_vm::compile_program_with_spans_and_source(
+            &expanded,
+            &span_map,
+            Some(source_file),
+        ) {
+            Ok(r) => r,
+            Err(_) => return result,
+        };
+
+        for line in sema_vm::valid_breakpoint_lines(&closure, &functions) {
+            result.push(&JsValue::from_f64(line as f64));
+        }
+        result
+    }
+
+    #[wasm_bindgen(js_name = debugSetBreakpoints)]
+    pub fn debug_set_breakpoints(&self, lines: &js_sys::Array) {
+        let bp_lines: Vec<u32> = lines
+            .iter()
+            .filter_map(|v| v.as_f64().map(|n| n as u32))
+            .collect();
+        DEBUG_SESSION.with(|s| {
+            if let Some(ref mut sess) = *s.borrow_mut() {
+                let file = std::path::PathBuf::from("<playground>");
+                sess.debug.set_breakpoints(&file, &bp_lines);
+            }
+        });
+    }
+
+    #[wasm_bindgen(js_name = debugIsActive)]
+    pub fn debug_is_active(&self) -> bool {
+        DEBUG_SESSION.with(|s| s.borrow().is_some())
+    }
+
     /// Create interpreter with options: {stdlib: false, deny: ["network", "fs-write"]}
     #[wasm_bindgen(js_name = createWithOptions)]
     pub fn new_with_options(opts: JsValue) -> WasmInterpreter {
@@ -2260,6 +2580,141 @@ impl WasmInterpreter {
     /// Get the Sema version
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()
+    }
+}
+
+impl WasmInterpreter {
+    fn debug_resume(&self, mode: sema_vm::StepMode) -> JsValue {
+        DEBUG_SESSION.with(|s| {
+            let mut session = s.borrow_mut();
+            let Some(ref mut sess) = *session else {
+                return self.debug_error_str("No active debug session");
+            };
+
+            sess.debug.step_mode = mode;
+            if mode != sema_vm::StepMode::Continue {
+                sess.debug.step_frame_depth = sess.vm.frame_count();
+            }
+            sess.debug.instructions_remaining = WASM_DEBUG_INSTRUCTION_BUDGET;
+
+            match sess.vm.run_cooperative(&self.inner.ctx, &mut sess.debug) {
+                Ok(sema_vm::VmExecResult::Stopped(info)) => self.debug_stopped_result(&info),
+                Ok(sema_vm::VmExecResult::Yielded) => self.debug_yielded_result(),
+                Ok(sema_vm::VmExecResult::Finished(v)) => {
+                    let result = self.debug_finished_result(&v);
+                    *session = None;
+                    result
+                }
+                Err(e) => {
+                    let result = self.debug_maybe_http_error(&e);
+                    *session = None;
+                    result
+                }
+            }
+        })
+    }
+
+    fn debug_stopped_result(&self, info: &sema_vm::StopInfo) -> JsValue {
+        let output = take_output();
+        let output_json = output
+            .iter()
+            .map(|s| format!("\"{}\"", escape_json(s)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let reason = match info.reason {
+            sema_vm::StopReason::Breakpoint => "breakpoint",
+            sema_vm::StopReason::Step => "step",
+            sema_vm::StopReason::Pause => "pause",
+            sema_vm::StopReason::Entry => "entry",
+        };
+        let json_str = format!(
+            "{{\"status\":\"stopped\",\"line\":{},\"reason\":\"{}\",\"output\":[{}]}}",
+            info.line, reason, output_json,
+        );
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+    }
+
+    fn debug_finished_result(&self, val: &sema_core::Value) -> JsValue {
+        let output = take_output();
+        let val_str = if val.is_nil() {
+            "null".to_string()
+        } else {
+            format!("\"{}\"", escape_json(&sema_core::pretty_print(val, 80)))
+        };
+        let output_json = output
+            .iter()
+            .map(|s| format!("\"{}\"", escape_json(s)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let json_str = format!(
+            "{{\"status\":\"finished\",\"value\":{},\"output\":[{}],\"error\":null}}",
+            val_str, output_json,
+        );
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+    }
+
+    fn debug_yielded_result(&self) -> JsValue {
+        let output = take_output();
+        let output_json = output
+            .iter()
+            .map(|s| format!("\"{}\"", escape_json(s)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let json_str = format!("{{\"status\":\"yielded\",\"output\":[{}]}}", output_json,);
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+    }
+
+    /// Check if an error is an HTTP await marker; if so, return an "http_needed"
+    /// result so JS can perform the fetch and restart the debug session.
+    fn debug_maybe_http_error(&self, e: &sema_core::SemaError) -> JsValue {
+        if let Some(json_payload) = parse_http_marker(e) {
+            return self.debug_http_needed_result(&json_payload);
+        }
+        self.debug_error_result(e)
+    }
+
+    fn debug_http_needed_result(&self, marker_json: &str) -> JsValue {
+        let output = take_output();
+        let output_json = output
+            .iter()
+            .map(|s| format!("\"{}\"", escape_json(s)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let json_str = format!(
+            "{{\"status\":\"http_needed\",\"output\":[{}],\"request\":{}}}",
+            output_json, marker_json,
+        );
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+    }
+
+    fn debug_error_result(&self, e: &sema_core::SemaError) -> JsValue {
+        let output = take_output();
+        let mut err_str = format!("{}", e.inner());
+        if let Some(trace) = e.stack_trace() {
+            err_str.push_str(&format!("\n{trace}"));
+        }
+        if let Some(hint) = e.hint() {
+            err_str.push_str(&format!("\n  hint: {hint}"));
+        }
+        let output_json = output
+            .iter()
+            .map(|s| format!("\"{}\"", escape_json(s)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let json_str = format!(
+            "{{\"status\":\"error\",\"output\":[{}],\"error\":\"{}\"}}",
+            output_json,
+            escape_json(&err_str),
+        );
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
+    }
+
+    fn debug_error_str(&self, msg: &str) -> JsValue {
+        let json_str = format!(
+            "{{\"status\":\"error\",\"output\":[],\"error\":\"{}\"}}",
+            escape_json(msg),
+        );
+        js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
     }
 }
 
