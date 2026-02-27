@@ -58,6 +58,30 @@ If you need a custom command during development, override the task in your proje
 ]
 ```
 
+## Language Server (LSP)
+
+Sema includes a built-in language server. To enable it in Zed, add the following to your Zed settings (`Cmd+,` or **Zed → Settings → Open Settings**):
+
+```json
+{
+  "lsp": {
+    "sema": {
+      "binary": {
+        "path": "sema",
+        "arguments": ["lsp"]
+      }
+    }
+  },
+  "languages": {
+    "Sema": {
+      "language_servers": ["sema"]
+    }
+  }
+}
+```
+
+This requires the `sema` CLI to be installed and available on your `PATH` (see [Running Sema files](#running-sema-files) above).
+
 ## How It Works
 
 This extension uses the dedicated **[tree-sitter-sema](https://github.com/helgesverre/tree-sitter-sema)** grammar for parsing `.sema` files. The grammar provides native support for Sema-specific syntax — keyword literals (`:name`), hash maps, vectors, and more. The query files layer Sema-specific captures on top — highlighting LLM primitives, slash-namespaced builtins (`string/trim`, `llm/chat`), and special forms like `defagent` and `deftool`.

@@ -98,3 +98,46 @@ programs.neovim.extraConfig = ''
 | `semaParens`       | Parentheses, brackets, and braces                     |
 
 Override any group in your colorscheme to customise appearance.
+
+## LSP Support
+
+Sema ships with a built-in language server. Run it with `sema lsp`.
+
+**Available features:** completions, hover docs, go-to-definition, find references, rename, signature help, diagnostics, document symbols, and code lens (run expressions).
+
+### nvim-lspconfig (Neovim built-in LSP)
+
+Add to your Neovim config:
+
+```lua
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'sema',
+  callback = function()
+    vim.lsp.start({
+      name = 'sema',
+      cmd = { 'sema', 'lsp' },
+      root_dir = vim.fs.dirname(vim.fs.find({ 'sema.toml', '.git' }, { upward = true })[1]),
+    })
+  end,
+})
+```
+
+### coc.nvim
+
+Add to `:CocConfig`:
+
+```json
+{
+  "languageserver": {
+    "sema": {
+      "command": "sema",
+      "args": ["lsp"],
+      "filetypes": ["sema"]
+    }
+  }
+}
+```
+
+### Inline Results (Advanced)
+
+The Sema LSP server emits a custom `sema/evalResult` notification for displaying inline evaluation results. This requires a custom handler in your client — see the Sema documentation for details.

@@ -60,3 +60,35 @@ In `config.el`:
 ;; Path to the sema binary (default: "sema")
 (setq sema-program "/path/to/sema")
 ```
+
+## LSP Support
+
+Sema ships with a built-in language server. Run it with `sema lsp`.
+
+**Available features:** completions, hover docs, go-to-definition, find references, rename, signature help, diagnostics, document symbols, and code lens (run expressions).
+
+### eglot (built-in since Emacs 29)
+
+```elisp
+(with-eval-after-load 'eglot
+  (add-to-list 'eglot-server-programs
+               '(sema-mode . ("sema" "lsp"))))
+```
+
+Then run `M-x eglot` in a `.sema` buffer to start the server.
+
+### lsp-mode
+
+```elisp
+(with-eval-after-load 'lsp-mode
+  (add-to-list 'lsp-language-id-configuration '(sema-mode . "sema"))
+  (lsp-register-client
+   (make-lsp-client
+    :new-connection (lsp-stdio-connection '("sema" "lsp"))
+    :activation-fn (lsp-activate-on "sema")
+    :server-id 'sema-lsp)))
+```
+
+### Inline Results (Advanced)
+
+The Sema LSP server emits a custom `sema/evalResult` notification for displaying inline evaluation results. This requires a custom handler in your client — see the Sema documentation for details.
