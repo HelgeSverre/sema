@@ -15,11 +15,11 @@ pub mod scope;
 
 // Re-export public helpers for external consumers
 pub use helpers::{
-    analyze_document, compile_diagnostics, error_span, extract_params, extract_params_from_ast,
-    extract_prefix, extract_symbol_at, find_enclosing_call, import_path_at_cursor,
-    import_path_from_ast, import_paths_from_ast, parse_diagnostics, resolve_import_path,
-    span_to_range, top_level_ranges, user_definitions, user_definitions_from_ast,
-    user_definitions_with_spans, utf16_to_byte_offset, document_symbols_from_ast,
+    analyze_document, compile_diagnostics, document_symbols_from_ast, error_span, extract_params,
+    extract_params_from_ast, extract_prefix, extract_symbol_at, find_enclosing_call,
+    import_path_at_cursor, import_path_from_ast, import_paths_from_ast, parse_diagnostics,
+    resolve_import_path, span_to_range, top_level_ranges, user_definitions,
+    user_definitions_from_ast, user_definitions_with_spans, utf16_to_byte_offset,
 };
 
 use helpers::*;
@@ -1055,10 +1055,7 @@ mod tests {
     #[test]
     fn param_names_with_comments() {
         // Comments in multiline param string
-        assert_eq!(
-            parse_param_names("(a ; first\n b)"),
-            vec!["a", "b"]
-        );
+        assert_eq!(parse_param_names("(a ; first\n b)"), vec!["a", "b"]);
     }
 
     #[test]
@@ -1141,9 +1138,7 @@ impl WorkspaceScanner {
                         self.dir_stack.push(path);
                     }
                 }
-            } else if meta.is_file()
-                && path.extension().and_then(|e| e.to_str()) == Some("sema")
-            {
+            } else if meta.is_file() && path.extension().and_then(|e| e.to_str()) == Some("sema") {
                 files.push(path);
             }
         }
@@ -2227,29 +2222,27 @@ impl BackendState {
         let mut raw_tokens: Vec<(usize, usize, usize, u32, u32)> = Vec::new();
 
         for (name, span) in &cached.symbol_spans {
-            let (token_type, modifiers) =
-                if sema_eval::SPECIAL_FORM_NAMES.contains(&name.as_str()) {
-                    (token_types::KEYWORD, 0u32)
-                } else if user_macro_names.contains(name.as_str()) {
-                    (token_types::MACRO, 0u32)
-                } else if self.builtin_names.contains(name.as_str()) {
-                    (token_types::FUNCTION, token_modifiers::DEFAULT_LIBRARY)
-                } else {
-                    // Check scope tree for classification
-                    match cached.scope_tree.resolve_at(name, span.line, span.col) {
-                        Some(resolved) if !resolved.is_top_level => {
-                            (token_types::PARAMETER, 0u32)
+            let (token_type, modifiers) = if sema_eval::SPECIAL_FORM_NAMES.contains(&name.as_str())
+            {
+                (token_types::KEYWORD, 0u32)
+            } else if user_macro_names.contains(name.as_str()) {
+                (token_types::MACRO, 0u32)
+            } else if self.builtin_names.contains(name.as_str()) {
+                (token_types::FUNCTION, token_modifiers::DEFAULT_LIBRARY)
+            } else {
+                // Check scope tree for classification
+                match cached.scope_tree.resolve_at(name, span.line, span.col) {
+                    Some(resolved) if !resolved.is_top_level => (token_types::PARAMETER, 0u32),
+                    Some(_) => {
+                        if user_fn_names.contains(name.as_str()) {
+                            (token_types::FUNCTION, 0u32)
+                        } else {
+                            (token_types::VARIABLE, 0u32)
                         }
-                        Some(_) => {
-                            if user_fn_names.contains(name.as_str()) {
-                                (token_types::FUNCTION, 0u32)
-                            } else {
-                                (token_types::VARIABLE, 0u32)
-                            }
-                        }
-                        None => continue,
                     }
-                };
+                    None => continue,
+                }
+            };
 
             // Skip multi-line tokens (shouldn't happen for symbols, but
             // the length calculation assumes a single line).
@@ -2471,8 +2464,7 @@ impl BackendState {
 
             if let Some(params) = &param_names {
                 // Find argument positions by scanning the source text within the form.
-                let arg_positions =
-                    find_arg_positions_in_form(form_span, &lines, items.len() - 1);
+                let arg_positions = find_arg_positions_in_form(form_span, &lines, items.len() - 1);
 
                 let args = &items[1..];
                 for (i, _arg) in args.iter().enumerate() {
@@ -2589,9 +2581,7 @@ impl BackendState {
         }
 
         // Don't allow renaming builtins or special forms
-        if self.builtin_names.contains(symbol)
-            || sema_eval::SPECIAL_FORM_NAMES.contains(&symbol)
-        {
+        if self.builtin_names.contains(symbol) || sema_eval::SPECIAL_FORM_NAMES.contains(&symbol) {
             return None;
         }
 
@@ -2632,9 +2622,7 @@ impl BackendState {
         }
 
         // Don't allow renaming builtins or special forms
-        if self.builtin_names.contains(symbol)
-            || sema_eval::SPECIAL_FORM_NAMES.contains(&symbol)
-        {
+        if self.builtin_names.contains(symbol) || sema_eval::SPECIAL_FORM_NAMES.contains(&symbol) {
             return None;
         }
 
@@ -3151,7 +3139,8 @@ pub async fn run_server() {
         let mut state = BackendState::new();
         // Deferred messages from document change batching, processed
         // before reading from the channel to preserve ordering.
-        let mut deferred: std::collections::VecDeque<LspRequest> = std::collections::VecDeque::new();
+        let mut deferred: std::collections::VecDeque<LspRequest> =
+            std::collections::VecDeque::new();
 
         while let Some(req) = if deferred.is_empty() {
             rx.blocking_recv()
@@ -3160,10 +3149,8 @@ pub async fn run_server() {
             // interactive requests always see the latest AST. Only
             // yield to new interactive requests when the deferred queue
             // contains non-document-change items (e.g. scan continuations).
-            let front_is_doc_change = matches!(
-                deferred.front(),
-                Some(LspRequest::DocumentChanged { .. })
-            );
+            let front_is_doc_change =
+                matches!(deferred.front(), Some(LspRequest::DocumentChanged { .. }));
             if front_is_doc_change {
                 // Must process document updates before any interactive
                 // request to prevent stale-AST responses.
@@ -3383,8 +3370,7 @@ pub async fn run_server() {
                     // the order they're discovered.
                     if !scanner.pending_files.is_empty() {
                         let to_parse = scanner.pending_files.len().min(BATCH_SIZE);
-                        let batch: Vec<PathBuf> =
-                            scanner.pending_files.drain(..to_parse).collect();
+                        let batch: Vec<PathBuf> = scanner.pending_files.drain(..to_parse).collect();
                         for path in &batch {
                             let _ = state.get_import_cache(path);
                         }

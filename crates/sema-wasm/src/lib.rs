@@ -1992,16 +1992,8 @@ impl WasmInterpreter {
             for &l in &snapped_bp_lines {
                 bp_arr.push(&JsValue::from_f64(l as f64));
             }
-            let _ = js_sys::Reflect::set(
-                &result,
-                &JsValue::from_str("validLines"),
-                &valid_arr,
-            );
-            let _ = js_sys::Reflect::set(
-                &result,
-                &JsValue::from_str("breakpoints"),
-                &bp_arr,
-            );
+            let _ = js_sys::Reflect::set(&result, &JsValue::from_str("validLines"), &valid_arr);
+            let _ = js_sys::Reflect::set(&result, &JsValue::from_str("breakpoints"), &bp_arr);
             result
         };
 
@@ -2020,7 +2012,9 @@ impl WasmInterpreter {
                 });
                 result
             }
-            Ok(sema_vm::VmExecResult::Finished(v)) => attach_bp_info(self.debug_finished_result(&v)),
+            Ok(sema_vm::VmExecResult::Finished(v)) => {
+                attach_bp_info(self.debug_finished_result(&v))
+            }
             Err(e) => self.debug_maybe_http_error(&e),
         }
     }

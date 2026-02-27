@@ -1113,6 +1113,8 @@ mod tests {
 
         assert_eq!(chunk2.code, chunk.code);
         assert_eq!(chunk2.consts.len(), chunk.consts.len());
+        assert_eq!(chunk2.consts[0], Value::int(42));
+        assert_eq!(chunk2.consts[1], Value::string("hello"));
         assert_eq!(chunk2.n_locals, 2);
         assert_eq!(chunk2.max_stack, 4);
     }

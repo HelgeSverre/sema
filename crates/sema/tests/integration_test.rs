@@ -328,15 +328,21 @@ fn test_defagent() {
 #[test]
 fn test_load_special_form() {
     // Write a temp file and load it
-    eval(r#"(file/write "/tmp/sema-test-load.sema" "(define loaded-value 42)")"#);
-    let result = eval(
+    let dir = unique_temp_dir("load");
+    let path = dir.join("load.sema");
+    let lp = lisp_path(&path);
+    eval(&format!(
+        r#"(file/write "{lp}" "(define loaded-value 42)")"#
+    ));
+    let result = eval(&format!(
         r#"
         (begin
-          (load "/tmp/sema-test-load.sema")
+          (load "{lp}")
           loaded-value)
     "#,
-    );
+    ));
     assert_eq!(result, Value::int(42));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -581,82 +587,96 @@ fn lisp_path(path: &std::path::Path) -> String {
 #[test]
 fn test_module_import() {
     // Write a module file
-    eval(
-        r#"(file/write "/tmp/sema-test-module.sema" "(module math (export add square) (define (add a b) (+ a b)) (define (square x) (* x x)) (define internal 42))")"#,
-    );
+    let dir = unique_temp_dir("module");
+    let path = dir.join("module.sema");
+    let lp = lisp_path(&path);
+    eval(&format!(
+        r#"(file/write "{lp}" "(module math (export add square) (define (add a b) (+ a b)) (define (square x) (* x x)) (define internal 42))")"#
+    ));
     // Import and use
     assert_eq!(
-        eval(
+        eval(&format!(
             r#"
             (begin
-              (import "/tmp/sema-test-module.sema")
+              (import "{lp}")
               (add 3 4))
         "#
-        ),
+        )),
         Value::int(7)
     );
     assert_eq!(
-        eval(
+        eval(&format!(
             r#"
             (begin
-              (import "/tmp/sema-test-module.sema")
+              (import "{lp}")
               (square 5))
         "#
-        ),
+        )),
         Value::int(25)
     );
     // internal should NOT be exported
-    let err = eval_err(
+    let err = eval_err(&format!(
         r#"
         (begin
-          (import "/tmp/sema-test-module.sema")
+          (import "{lp}")
           internal)
-    "#,
-    );
+    "#
+    ));
     assert!(matches!(err.inner(), SemaError::Unbound(_)));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn test_selective_import() {
-    eval(
-        r#"(file/write "/tmp/sema-test-sel.sema" "(module m (export foo bar) (define (foo) 1) (define (bar) 2))")"#,
-    );
+    let dir = unique_temp_dir("sel");
+    let path = dir.join("sel.sema");
+    let lp = lisp_path(&path);
+    eval(&format!(
+        r#"(file/write "{lp}" "(module m (export foo bar) (define (foo) 1) (define (bar) 2))")"#
+    ));
     assert_eq!(
-        eval(
+        eval(&format!(
             r#"
             (begin
-              (import "/tmp/sema-test-sel.sema" foo)
+              (import "{lp}" foo)
               (foo))
         "#
-        ),
+        )),
         Value::int(1)
     );
     // bar should not be imported
-    let err = eval_err(
+    let err = eval_err(&format!(
         r#"
         (begin
-          (import "/tmp/sema-test-sel.sema" foo)
+          (import "{lp}" foo)
           (bar))
-    "#,
-    );
+    "#
+    ));
     assert!(matches!(err.inner(), SemaError::Unbound(_)));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn test_module_cache() {
-    eval(r#"(file/write "/tmp/sema-test-cache.sema" "(module c (export val) (define val 99))")"#);
+    let dir = unique_temp_dir("cache");
+    let path = dir.join("cache.sema");
+    let lp = lisp_path(&path);
+    eval(&format!(
+        r#"(file/write "{lp}" "(module c (export val) (define val 99))")"#
+    ));
     // Import twice — should work fine (cached)
     assert_eq!(
-        eval(
+        eval(&format!(
             r#"
             (begin
-              (import "/tmp/sema-test-cache.sema")
-              (import "/tmp/sema-test-cache.sema")
+              (import "{lp}")
+              (import "{lp}")
               val)
         "#
-        ),
+        )),
         Value::int(99)
     );
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -884,9 +904,8 @@ fn test_macroexpand() {
 
 #[test]
 fn test_file_operations() {
-    let dir = "/tmp/sema-test-fileops";
-    // Clean up from previous runs
-    let _ = std::fs::remove_dir_all(dir);
+    let dir = unique_temp_dir("fileops");
+    let dir = dir.to_string_lossy().to_string();
 
     eval(&format!(r#"(file/mkdir "{dir}/sub")"#));
     assert_eq!(
@@ -2240,9 +2259,8 @@ fn test_sys_env_all() {
 
 #[test]
 fn test_file_is_file() {
-    let dir = "/tmp/sema-test-isfile";
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).unwrap();
+    let dir = unique_temp_dir("isfile");
+    let dir = dir.to_string_lossy().to_string();
     std::fs::write(format!("{dir}/a.txt"), "hello").unwrap();
 
     assert_eq!(
@@ -2264,9 +2282,8 @@ fn test_file_is_file() {
 #[test]
 fn test_file_is_symlink() {
     // Non-symlink file should return false
-    let dir = "/tmp/sema-test-symlink";
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).unwrap();
+    let dir = unique_temp_dir("symlink");
+    let dir = dir.to_string_lossy().to_string();
     std::fs::write(format!("{dir}/a.txt"), "hello").unwrap();
 
     assert_eq!(
@@ -2664,9 +2681,8 @@ fn test_read_many() {
 
 #[test]
 fn test_file_append_standalone() {
-    let dir = "/tmp/sema-test-append";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("append");
+    let dir = dir.to_string_lossy().to_string();
 
     eval(&format!(r#"(file/write "{dir}/a.txt" "hello")"#));
     eval(&format!(r#"(file/append "{dir}/a.txt" " world")"#));
@@ -2688,9 +2704,8 @@ fn test_file_append_standalone() {
 
 #[test]
 fn test_file_delete_standalone() {
-    let dir = "/tmp/sema-test-delete";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("delete");
+    let dir = dir.to_string_lossy().to_string();
 
     eval(&format!(r#"(file/write "{dir}/del.txt" "bye")"#));
     assert_eq!(
@@ -2712,9 +2727,8 @@ fn test_file_delete_standalone() {
 
 #[test]
 fn test_file_rename_standalone() {
-    let dir = "/tmp/sema-test-rename";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("rename");
+    let dir = dir.to_string_lossy().to_string();
 
     eval(&format!(r#"(file/write "{dir}/old.txt" "content")"#));
     eval(&format!(r#"(file/rename "{dir}/old.txt" "{dir}/new.txt")"#));
@@ -2736,9 +2750,8 @@ fn test_file_rename_standalone() {
 
 #[test]
 fn test_file_list_standalone() {
-    let dir = "/tmp/sema-test-list";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("list");
+    let dir = dir.to_string_lossy().to_string();
 
     eval(&format!(r#"(file/write "{dir}/a.txt" "a")"#));
     eval(&format!(r#"(file/write "{dir}/b.txt" "b")"#));
@@ -2759,8 +2772,8 @@ fn test_file_list_standalone() {
 
 #[test]
 fn test_file_mkdir_standalone() {
-    let dir = "/tmp/sema-test-mkdir";
-    let _ = std::fs::remove_dir_all(dir);
+    let dir = unique_temp_dir("mkdir");
+    let dir = dir.to_string_lossy().to_string();
 
     // Recursive mkdir
     eval(&format!(r#"(file/mkdir "{dir}/a/b/c")"#));
@@ -2782,9 +2795,8 @@ fn test_file_mkdir_standalone() {
 
 #[test]
 fn test_file_is_directory_standalone() {
-    let dir = "/tmp/sema-test-isdir";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("isdir");
+    let dir = dir.to_string_lossy().to_string();
     eval(&format!(r#"(file/write "{dir}/f.txt" "file")"#));
 
     assert_eq!(
@@ -2805,9 +2817,8 @@ fn test_file_is_directory_standalone() {
 
 #[test]
 fn test_file_info_standalone() {
-    let dir = "/tmp/sema-test-info";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("info");
+    let dir = dir.to_string_lossy().to_string();
     eval(&format!(r#"(file/write "{dir}/test.txt" "hello")"#));
 
     // File info
@@ -2837,9 +2848,8 @@ fn test_file_info_standalone() {
 
 #[test]
 fn test_file_read_lines() {
-    let dir = "/tmp/sema-test-readlines";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("readlines");
+    let dir = dir.to_string_lossy().to_string();
 
     eval(&format!(
         r#"(file/write "{dir}/lines.txt" "alpha\nbeta\ngamma")"#
@@ -2869,9 +2879,8 @@ fn test_file_read_lines() {
 
 #[test]
 fn test_file_write_lines() {
-    let dir = "/tmp/sema-test-writelines";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("writelines");
+    let dir = dir.to_string_lossy().to_string();
 
     eval(&format!(
         r#"(file/write-lines "{dir}/out.txt" (list "line1" "line2" "line3"))"#
@@ -3068,9 +3077,8 @@ fn test_file_fold_lines() {
 
 #[test]
 fn test_file_copy() {
-    let dir = "/tmp/sema-test-copy";
-    let _ = std::fs::remove_dir_all(dir);
-    eval(&format!(r#"(file/mkdir "{dir}")"#));
+    let dir = unique_temp_dir("copy");
+    let dir = dir.to_string_lossy().to_string();
 
     eval(&format!(r#"(file/write "{dir}/src.txt" "original")"#));
     eval(&format!(r#"(file/copy "{dir}/src.txt" "{dir}/dest.txt")"#));
@@ -4220,15 +4228,19 @@ fn test_stack_trace_in_try_catch() {
 #[test]
 fn test_stack_trace_loaded_file() {
     // Write a file with a function that errors
-    eval(
-        r#"(file/write "/tmp/sema-test-trace.sema"
-             "(define (bad-fn x) (+ x \"oops\"))")"#,
-    );
-    let err = eval_err(r#"(load "/tmp/sema-test-trace.sema") (bad-fn 1)"#);
+    let dir = unique_temp_dir("trace");
+    let path = dir.join("trace.sema");
+    let lp = lisp_path(&path);
+    eval(&format!(
+        r#"(file/write "{lp}"
+             "(define (bad-fn x) (+ x \"oops\"))")"#
+    ));
+    let err = eval_err(&format!(r#"(load "{lp}") (bad-fn 1)"#));
     let trace = err.stack_trace().expect("should have stack trace");
     let names: Vec<&str> = trace.0.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names[0], "+");
     assert_eq!(names[1], "bad-fn");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -5817,24 +5829,52 @@ fn test_term_spinner_update() {
 // Regression tests: deftool params stored as BTreeMap (alphabetical keys).
 // Lambda handlers must receive args in declaration order, not alphabetical.
 // The actual json_args_to_sema ordering fix is tested via unit tests in
-// sema-llm/src/builtins.rs. These integration tests verify the deftool
-// special form preserves lambda param semantics.
+// sema-llm/src/builtins.rs (test_execute_tool_call_arg_ordering, etc.).
+// These integration tests verify that deftool creates a well-formed tool
+// definition with the expected name, description, and parameter map.
 
 #[test]
 fn test_deftool_lambda_param_order_not_alphabetical() {
     // Params :path/:content — alphabetically content < path, but lambda declares (path content).
-    // Verify calling the handler directly respects lambda param names, not map key order.
-    let result = eval(
-        r#"(begin
-          (deftool write-file
-            "Write content to a file"
-            {:path {:type :string :description "File path"}
-             :content {:type :string :description "File content"}}
-            (lambda (path content) (list path content)))
-          ;; Direct call: args are positional per lambda declaration order
-          ((lambda (path content) (list path content)) "/tmp/test.txt" "hello world"))"#,
+    // Verify tool name and description are stored correctly.
+    assert_eq!(
+        eval(
+            r#"(begin
+              (deftool write-file
+                "Write content to a file"
+                {:path {:type :string :description "File path"}
+                 :content {:type :string :description "File content"}}
+                (lambda (path content) (list path content)))
+              (tool/name write-file))"#,
+        ),
+        Value::string("write-file")
     );
-    assert_eq!(format!("{}", result), "(\"/tmp/test.txt\" \"hello world\")");
+    assert_eq!(
+        eval(
+            r#"(begin
+              (deftool write-file
+                "Write content to a file"
+                {:path {:type :string :description "File path"}
+                 :content {:type :string :description "File content"}}
+                (lambda (path content) (list path content)))
+              (tool/description write-file))"#,
+        ),
+        Value::string("Write content to a file")
+    );
+    // Param keys are BTreeMap-sorted (alphabetical) — this is the root cause
+    // of the ordering bug that json_args_to_sema fixes
+    assert_eq!(
+        eval_to_string(
+            r#"(begin
+              (deftool write-file
+                "Write content to a file"
+                {:path {:type :string :description "File path"}
+                 :content {:type :string :description "File content"}}
+                (lambda (path content) (list path content)))
+              (keys (tool/parameters write-file)))"#,
+        ),
+        "(:content :path)"
+    );
 }
 
 #[test]
@@ -5869,22 +5909,36 @@ fn test_deftool_param_keys_sorted_alphabetically() {
 
 #[test]
 fn test_deftool_three_params_ordering() {
-    // Verify that deftool with 3 params where declaration != alphabetical works correctly.
-    // This is a smoke test — the actual execute_tool_call fix is in unit tests.
-    let result = eval(
-        r#"(begin
-          (deftool multi-tool "test"
-            {:c_third {:type :string}
-             :a_first {:type :string}
-             :b_second {:type :string}}
-            (lambda (c_third a_first b_second)
-              (string-append c_third "-" a_first "-" b_second)))
-          ;; Calling the lambda directly proves param binding works
-          (let ((f (lambda (c_third a_first b_second)
-                     (string-append c_third "-" a_first "-" b_second))))
-            (f "C" "A" "B")))"#,
+    // Verify that deftool with 3 params creates a tool with correct structure.
+    // The actual execute_tool_call ordering fix is tested in unit tests
+    // (sema-llm/src/builtins.rs::test_execute_tool_call_arg_ordering).
+    assert_eq!(
+        eval(
+            r#"(begin
+              (deftool multi-tool "test"
+                {:c_third {:type :string}
+                 :a_first {:type :string}
+                 :b_second {:type :string}}
+                (lambda (c_third a_first b_second)
+                  (string-append c_third "-" a_first "-" b_second)))
+              (tool/name multi-tool))"#,
+        ),
+        Value::string("multi-tool")
     );
-    assert_eq!(result, Value::string("C-A-B"));
+    // BTreeMap sorts: a_first < b_second < c_third — opposite of declaration order
+    assert_eq!(
+        eval_to_string(
+            r#"(begin
+              (deftool multi-tool "test"
+                {:c_third {:type :string}
+                 :a_first {:type :string}
+                 :b_second {:type :string}}
+                (lambda (c_third a_first b_second)
+                  (string-append c_third "-" a_first "-" b_second)))
+              (keys (tool/parameters multi-tool)))"#,
+        ),
+        "(:a_first :b_second :c_third)"
+    );
 }
 
 #[test]
@@ -7096,19 +7150,23 @@ fn test_base64_encode_bytes_empty() {
 
 #[test]
 fn test_file_read_bytes() {
+    let dir = unique_temp_dir("readbytes");
+    let path = dir.join("bytes.txt");
+    let lp = lisp_path(&path);
     let interp = Interpreter::new();
     let result = interp
-        .eval_str(
+        .eval_str(&format!(
             r#"(begin
-                (file/write "/tmp/sema-test-bytes.txt" "ABC")
-                (define bv (file/read-bytes "/tmp/sema-test-bytes.txt"))
+                (file/write "{lp}" "ABC")
+                (define bv (file/read-bytes "{lp}"))
                 (list (bytevector-length bv)
                       (bytevector-u8-ref bv 0)
                       (bytevector-u8-ref bv 1)
-                      (bytevector-u8-ref bv 2)))"#,
-        )
+                      (bytevector-u8-ref bv 2)))"#
+        ))
         .unwrap();
     assert_eq!(result.to_string(), "(3 65 66 67)");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -7120,15 +7178,19 @@ fn test_file_read_bytes_not_found() {
 
 #[test]
 fn test_file_write_bytes() {
+    let dir = unique_temp_dir("writebytes");
+    let path = dir.join("write-bytes.bin");
+    let lp = lisp_path(&path);
     let interp = Interpreter::new();
     let result = interp
-        .eval_str(
+        .eval_str(&format!(
             r#"(begin
-                (file/write-bytes "/tmp/sema-test-write-bytes.bin" (bytevector 72 101 108 108 111))
-                (file/read "/tmp/sema-test-write-bytes.bin"))"#,
-        )
+                (file/write-bytes "{lp}" (bytevector 72 101 108 108 111))
+                (file/read "{lp}"))"#
+        ))
         .unwrap();
     assert_eq!(result, Value::string("Hello"));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
+use std::time::Duration;
 
 fn sema_binary() -> String {
     // Find the sema binary in the target directory
@@ -12,6 +13,17 @@ fn sema_binary() -> String {
         .to_path_buf();
     path.push("sema");
     path.to_string_lossy().to_string()
+}
+
+fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let dir =
+        std::env::temp_dir().join(format!("sema-dap-{prefix}-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("failed to create temp dir");
+    dir
 }
 
 fn send_dap(stdin: &mut impl Write, seq: u64, command: &str, args: Option<serde_json::Value>) {
@@ -32,10 +44,20 @@ fn send_dap(stdin: &mut impl Write, seq: u64, command: &str, args: Option<serde_
     stdin.flush().unwrap();
 }
 
-fn read_dap(reader: &mut BufReader<impl Read>) -> Option<serde_json::Value> {
+/// Read a DAP message from the child process stdout with a timeout.
+fn read_dap_timeout(
+    reader: &mut BufReader<impl Read>,
+    timeout: Duration,
+) -> Option<serde_json::Value> {
+    // Use a simple polling approach: set a deadline, read in a loop
+    let deadline = std::time::Instant::now() + timeout;
+
     let mut header = String::new();
     let mut content_length: Option<usize> = None;
     loop {
+        if std::time::Instant::now() > deadline {
+            return None;
+        }
         header.clear();
         let n = reader.read_line(&mut header).ok()?;
         if n == 0 {
@@ -53,6 +75,32 @@ fn read_dap(reader: &mut BufReader<impl Read>) -> Option<serde_json::Value> {
     let mut body = vec![0u8; len];
     reader.read_exact(&mut body).ok()?;
     serde_json::from_slice(&body).ok()
+}
+
+/// Default read timeout for DAP messages (10 seconds).
+const DAP_TIMEOUT: Duration = Duration::from_secs(10);
+
+fn read_dap(reader: &mut BufReader<impl Read>) -> Option<serde_json::Value> {
+    read_dap_timeout(reader, DAP_TIMEOUT)
+}
+
+/// Wait for a specific DAP event, skipping unrelated messages.
+/// Returns true if the event was found within the limit.
+fn wait_for_event(
+    reader: &mut BufReader<impl Read>,
+    event_name: &str,
+    max_messages: usize,
+) -> bool {
+    for _ in 0..max_messages {
+        if let Some(msg) = read_dap(reader) {
+            if msg["type"] == "event" && msg["event"] == event_name {
+                return true;
+            }
+        } else {
+            return false;
+        }
+    }
+    false
 }
 
 #[test]
@@ -110,9 +158,8 @@ fn test_dap_initialize_and_disconnect() {
 fn test_dap_launch_and_run() {
     let binary = sema_binary();
 
-    // Create a simple test program
-    let dir = std::env::temp_dir().join("sema_dap_test");
-    std::fs::create_dir_all(&dir).unwrap();
+    // Create a simple test program in a unique temp dir
+    let dir = unique_temp_dir("launch");
     let program_path = dir.join("test.sema");
     std::fs::write(&program_path, "(+ 1 2)\n").unwrap();
 
@@ -153,19 +200,11 @@ fn test_dap_launch_and_run() {
     assert_eq!(resp["success"], true);
 
     // Should get terminated event (program runs to completion)
-    // May get output events first
-    let mut got_terminated = false;
-    for _ in 0..10 {
-        if let Some(msg) = read_dap(&mut reader) {
-            if msg["type"] == "event" && msg["event"] == "terminated" {
-                got_terminated = true;
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-    assert!(got_terminated, "should receive terminated event");
+    // May get output events first — allow up to 50 messages
+    assert!(
+        wait_for_event(&mut reader, "terminated", 50),
+        "should receive terminated event"
+    );
 
     // Disconnect
     send_dap(&mut stdin, 4, "disconnect", None);
@@ -182,8 +221,7 @@ fn test_dap_launch_and_run() {
 fn test_dap_breakpoint_and_continue() {
     let binary = sema_binary();
 
-    let dir = std::env::temp_dir().join("sema_dap_bp_test");
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = unique_temp_dir("bp");
     let program_path = dir.join("test_bp.sema");
     // Multi-line program — set breakpoint on line 2
     std::fs::write(&program_path, "(define x 1)\n(define y 2)\n(+ x y)\n").unwrap();
@@ -238,19 +276,11 @@ fn test_dap_breakpoint_and_continue() {
     assert_eq!(resp["command"], "configurationDone");
     assert_eq!(resp["success"], true);
 
-    // Should get a stopped event (breakpoint or step)
-    let mut got_stopped = false;
-    for _ in 0..10 {
-        if let Some(msg) = read_dap(&mut reader) {
-            if msg["type"] == "event" && msg["event"] == "stopped" {
-                got_stopped = true;
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-    assert!(got_stopped, "should receive stopped event at breakpoint");
+    // Should get a stopped event (breakpoint or step) — allow up to 50 messages
+    assert!(
+        wait_for_event(&mut reader, "stopped", 50),
+        "should receive stopped event at breakpoint"
+    );
 
     // Request stack trace while stopped
     send_dap(&mut stdin, 5, "stackTrace", Some(serde_json::json!({})));
@@ -266,19 +296,11 @@ fn test_dap_breakpoint_and_continue() {
     assert_eq!(resp["command"], "continue");
     assert_eq!(resp["success"], true);
 
-    // Should get terminated event
-    let mut got_terminated = false;
-    for _ in 0..10 {
-        if let Some(msg) = read_dap(&mut reader) {
-            if msg["type"] == "event" && msg["event"] == "terminated" {
-                got_terminated = true;
-                break;
-            }
-        } else {
-            break;
-        }
-    }
-    assert!(got_terminated, "should receive terminated event");
+    // Should get terminated event — allow up to 50 messages
+    assert!(
+        wait_for_event(&mut reader, "terminated", 50),
+        "should receive terminated event"
+    );
 
     // Disconnect
     send_dap(&mut stdin, 7, "disconnect", None);

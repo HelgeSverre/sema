@@ -70,7 +70,11 @@ pub(crate) fn span_contains(outer: &Span, inner: &Span) -> bool {
 
 /// Find the precise span of a symbol `name` within a form's span.
 /// Searches `symbol_spans` for the first occurrence of `name` contained in `form_span`.
-pub(crate) fn find_name_span(name: &str, form_span: &Span, symbol_spans: &[(String, Span)]) -> Option<Range> {
+pub(crate) fn find_name_span(
+    name: &str,
+    form_span: &Span,
+    symbol_spans: &[(String, Span)],
+) -> Option<Range> {
     symbol_spans
         .iter()
         .find(|(sym_name, sym_span)| sym_name == name && span_contains(form_span, sym_span))
@@ -859,4 +863,3 @@ pub fn user_definitions(text: &str) -> Vec<String> {
         .map(|(name, _)| name)
         .collect()
 }
-

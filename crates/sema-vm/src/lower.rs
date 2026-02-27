@@ -1569,7 +1569,7 @@ mod tests {
     #[test]
     fn test_lower_string() {
         match lower_str("\"hello\"") {
-            CoreExpr::Const(v) => assert!(v.as_str().is_some()),
+            CoreExpr::Const(v) => assert_eq!(v, Value::string("hello")),
             other => panic!("expected Const, got {other:?}"),
         }
     }
@@ -1597,7 +1597,7 @@ mod tests {
     #[test]
     fn test_lower_keyword() {
         match lower_str(":key") {
-            CoreExpr::Const(v) => assert!(v.as_keyword_spur().is_some()),
+            CoreExpr::Const(v) => assert_eq!(v, Value::keyword("key")),
             other => panic!("expected Const, got {other:?}"),
         }
     }
@@ -1617,17 +1617,26 @@ mod tests {
 
     #[test]
     fn test_lower_vector() {
-        assert!(matches!(lower_str("[1 2 3]"), CoreExpr::MakeVector(_)));
+        match lower_str("[1 2 3]") {
+            CoreExpr::MakeVector(elems) => assert_eq!(elems.len(), 3),
+            other => panic!("expected MakeVector, got {other:?}"),
+        }
     }
 
     #[test]
     fn test_lower_map() {
-        assert!(matches!(lower_str("{:a 1 :b 2}"), CoreExpr::MakeMap(_)));
+        match lower_str("{:a 1 :b 2}") {
+            CoreExpr::MakeMap(pairs) => assert_eq!(pairs.len(), 2),
+            other => panic!("expected MakeMap, got {other:?}"),
+        }
     }
 
     #[test]
     fn test_lower_quote() {
-        assert!(matches!(lower_str("(quote x)"), CoreExpr::Quote(_)));
+        match lower_str("(quote x)") {
+            CoreExpr::Quote(v) => assert!(v.as_symbol_spur().is_some()),
+            other => panic!("expected Quote, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1664,7 +1673,13 @@ mod tests {
 
     #[test]
     fn test_lower_cond() {
-        assert!(matches!(lower_str("(cond (#t 1))"), CoreExpr::If { .. }));
+        match lower_str("(cond (#t 1))") {
+            CoreExpr::If { test, then, .. } => {
+                assert!(matches!(*test, CoreExpr::Const(v) if v == Value::bool(true)));
+                assert!(matches!(*then, CoreExpr::Const(v) if v == Value::int(1)));
+            }
+            other => panic!("expected If, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1708,7 +1723,12 @@ mod tests {
 
     #[test]
     fn test_lower_set() {
-        assert!(matches!(lower_str("(set! x 42)"), CoreExpr::Set(_, _)));
+        match lower_str("(set! x 42)") {
+            CoreExpr::Set(_, val) => {
+                assert!(matches!(*val, CoreExpr::Const(v) if v == Value::int(42)));
+            }
+            other => panic!("expected Set, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1725,7 +1745,13 @@ mod tests {
 
     #[test]
     fn test_lower_fn() {
-        assert!(matches!(lower_str("(fn (x) x)"), CoreExpr::Lambda(_)));
+        match lower_str("(fn (x) x)") {
+            CoreExpr::Lambda(def) => {
+                assert_eq!(def.params.len(), 1);
+                assert!(def.rest.is_none());
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
     }
 
     #[test]

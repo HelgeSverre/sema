@@ -2099,8 +2099,7 @@ pub fn compile_program_with_spans_and_source(
     span_map: &sema_core::SpanMap,
     source_file: Option<std::path::PathBuf>,
 ) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
-    let source_file =
-        source_file.map(|p| std::fs::canonicalize(&p).unwrap_or(p));
+    let source_file = source_file.map(|p| std::fs::canonicalize(&p).unwrap_or(p));
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
     for val in vals {
@@ -2140,10 +2139,7 @@ pub fn compile_program_with_spans_and_source(
 
 /// Extract the set of source lines that have bytecode spans (valid breakpoint locations).
 /// Includes spans from the main chunk and all sub-functions.
-pub fn valid_breakpoint_lines(
-    closure: &Closure,
-    functions: &[Rc<Function>],
-) -> Vec<u32> {
+pub fn valid_breakpoint_lines(closure: &Closure, functions: &[Rc<Function>]) -> Vec<u32> {
     let mut lines = std::collections::BTreeSet::new();
     for (_, s) in &closure.func.chunk.spans {
         lines.insert(s.line as u32);
@@ -2372,6 +2368,8 @@ mod tests {
         let items = result.as_list().expect("Expected list");
         assert_eq!(items.len(), 3);
         assert_eq!(items[0], Value::int(1));
+        assert_eq!(items[1], Value::int(2));
+        assert_eq!(items[2], Value::int(3));
     }
 
     #[test]
@@ -2379,6 +2377,9 @@ mod tests {
         let result = eval("[1 2 3]").unwrap();
         let items = result.as_vector().expect("Expected vector");
         assert_eq!(items.len(), 3);
+        assert_eq!(items[0], Value::int(1));
+        assert_eq!(items[1], Value::int(2));
+        assert_eq!(items[2], Value::int(3));
     }
 
     #[test]
@@ -2896,9 +2897,7 @@ mod tests {
         debug.step_mode = StepMode::StepInto; // stop on entry first
 
         // Start: should stop on entry
-        let result = vm
-            .start_cooperative(closure, &ctx, &mut debug)
-            .unwrap();
+        let result = vm.start_cooperative(closure, &ctx, &mut debug).unwrap();
         assert!(
             matches!(result, VmExecResult::Stopped(_)),
             "should stop on entry"
@@ -2984,24 +2983,15 @@ mod tests {
 
         // First run: define x
         eval_str("(define x 42)", &globals, &ctx).unwrap();
-        assert_eq!(
-            eval_str("x", &globals, &ctx).unwrap(),
-            Value::int(42)
-        );
+        assert_eq!(eval_str("x", &globals, &ctx).unwrap(), Value::int(42));
 
         // Second run (simulating replay): redefine x with same value
         eval_str("(define x 42)", &globals, &ctx).unwrap();
-        assert_eq!(
-            eval_str("x", &globals, &ctx).unwrap(),
-            Value::int(42)
-        );
+        assert_eq!(eval_str("x", &globals, &ctx).unwrap(), Value::int(42));
 
         // Third run: redefine with different value (replay after mutation)
         eval_str("(define x 99)", &globals, &ctx).unwrap();
-        assert_eq!(
-            eval_str("x", &globals, &ctx).unwrap(),
-            Value::int(99)
-        );
+        assert_eq!(eval_str("x", &globals, &ctx).unwrap(), Value::int(99));
     }
 
     #[test]

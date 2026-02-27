@@ -1824,9 +1824,11 @@ mod tests {
         assert!(result.starts_with("(define (factorial n)"));
         // Body should be indented 2 spaces
         let lines: Vec<&str> = result.lines().collect();
-        if lines.len() > 1 {
-            assert!(lines[1].starts_with("  "));
-        }
+        assert!(
+            lines.len() > 1,
+            "narrow width should force multi-line output"
+        );
+        assert!(lines[1].starts_with("  "));
     }
 
     #[test]
@@ -1840,9 +1842,11 @@ mod tests {
         let result = fmt_narrow("(lambda (x y) (+ x y) (* x y))");
         let lines: Vec<&str> = result.lines().collect();
         assert!(lines[0].contains("lambda"));
-        if lines.len() > 1 {
-            assert!(lines[1].starts_with("  "));
-        }
+        assert!(
+            lines.len() > 1,
+            "narrow width should force multi-line output"
+        );
+        assert!(lines[1].starts_with("  "));
     }
 
     // 6. Let with binding indentation
@@ -1860,9 +1864,11 @@ mod tests {
         let lines: Vec<&str> = result.lines().collect();
         assert!(lines[0].starts_with("(cond"));
         // Clauses indented 2 from opening paren
-        if lines.len() > 1 {
-            assert!(lines[1].starts_with("  "));
-        }
+        assert!(
+            lines.len() > 1,
+            "narrow width should force multi-line output"
+        );
+        assert!(lines[1].starts_with("  "));
     }
 
     // 8. Map formatting
@@ -1981,9 +1987,11 @@ mod tests {
         let result = fmt_narrow(input);
         let lines: Vec<&str> = result.lines().collect();
         assert!(lines[0].starts_with("(-> some-value"));
-        if lines.len() > 1 {
-            assert!(lines[1].starts_with("  "));
-        }
+        assert!(
+            lines.len() > 1,
+            "narrow width should force multi-line output"
+        );
+        assert!(lines[1].starts_with("  "));
     }
 
     // Edge cases

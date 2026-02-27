@@ -1563,7 +1563,10 @@ mod tests {
         let src = "(fn ({:name n}) n)";
         let (tree, _) = build_scope(src);
         let n = tree.resolve_at("n", 1, 17);
-        assert!(n.is_some(), "n should be bound via explicit map destructuring");
+        assert!(
+            n.is_some(),
+            "n should be bound via explicit map destructuring"
+        );
         assert!(!n.unwrap().is_top_level);
     }
 
