@@ -1977,13 +1977,14 @@ fn run_fmt(
                     println!(
                         "{}",
                         serde_json::json!({
+                            "file": file,
                             "formatted": false,
                             "error": format!("Error reading {file}: {e}")
                         })
                     );
-                    std::process::exit(1);
+                } else {
+                    eprintln!("Error reading {file}: {e}");
                 }
-                eprintln!("Error reading {file}: {e}");
                 errors += 1;
                 continue;
             }
@@ -1996,13 +1997,14 @@ fn run_fmt(
                     println!(
                         "{}",
                         serde_json::json!({
+                            "file": file,
                             "formatted": false,
                             "error": format!("Error formatting {file}: {e}")
                         })
                     );
-                    std::process::exit(1);
+                } else {
+                    eprintln!("Error formatting {file}: {e}");
                 }
-                eprintln!("Error formatting {file}: {e}");
                 errors += 1;
                 continue;
             }
@@ -2012,11 +2014,12 @@ fn run_fmt(
             println!(
                 "{}",
                 serde_json::json!({
+                    "file": file,
                     "formatted": true,
                     "source": formatted
                 })
             );
-            return;
+            continue;
         }
 
         checked += 1;
