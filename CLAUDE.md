@@ -28,24 +28,30 @@ Integration tests are in `crates/sema/tests/integration_test.rs`. Dual-eval test
 
 ## Architecture
 
-Cargo workspace with 8 crates. Dependency flow (arrows = "depends on"):
+Cargo workspace with 11 crates. Dependency flow (arrows = "depends on"):
 
 ```
 sema-core  ←  sema-reader  ←  sema-vm  ←  sema-eval  ←  sema (binary)
-    ↑                                         ↑
-    ├── sema-stdlib ──────────────────────────┘
-    ├── sema-llm ─────────────────────────────┘
+    ↑                            ↑            ↑
+    ├── sema-stdlib ─────────────┼────────────┘
+    ├── sema-llm ────────────────┼────────────┘
+    ├── sema-lsp (language server)             │
+    ├── sema-dap (debug adapter)───────────────┘
+    ├── sema-fmt (formatter)
     └── sema-wasm (browser playground)
 ```
 
 - **sema-core** — NaN-boxed `Value(u64)` struct, `Env` (Rc + RefCell + hashbrown::HashMap), `SemaError`, `EvalContext`, thread-local VFS
 - **sema-reader** — Lexer + parser producing `Value` AST. Handles regex literals (`#"..."`), f-strings (`f"...${expr}..."`), short lambdas (`#(...)`)
-- **sema-vm** — Bytecode compiler (lowering → optimization → resolution → compilation) and stack-based VM with intrinsic opcodes
+- **sema-vm** — Bytecode compiler (lowering → optimization → resolution → compilation), stack-based VM with intrinsic opcodes, debug hooks for DAP
 - **sema-eval** — Trampoline-based tree-walking evaluator, special forms, module system, destructuring/pattern matching, prelude macros
 - **sema-stdlib** — Native functions across many modules registered into `Env`
 - **sema-llm** — LLM provider trait + Anthropic/OpenAI/Gemini/Ollama clients (tokio `block_on` for sync)
+- **sema-lsp** — Language Server Protocol (tower-lsp). Single-threaded backend via mpsc channel. Completions, hover, go-to-definition, references, rename, semantic tokens, folding ranges, inlay hints, document highlight, code lens, workspace scanning.
+- **sema-dap** — Debug Adapter Protocol server. Breakpoints, stepping, stack traces, variable inspection via VM debug hooks.
+- **sema-fmt** — Code formatter for Sema source files.
 - **sema-wasm** — WASM bindings for browser playground at sema.run
-- **sema** — Binary: CLI (clap) + REPL (rustyline) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + integration tests
+- **sema** — Binary: CLI (clap) + REPL (rustyline) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + `sema lsp` + `sema dap` + `sema fmt` + integration tests
 
 **Critical**: `sema-stdlib` and `sema-llm` depend on `sema-core` but NOT on `sema-eval` (avoids circular deps). Stdlib calls eval via thread-local callbacks registered by sema-eval.
 
