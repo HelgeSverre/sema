@@ -188,7 +188,8 @@ impl DebugState {
         }
 
         if let Some(f) = file {
-            if self.breakpoints.contains_key(&(f.clone(), line)) {
+            let canonical = std::fs::canonicalize(f).unwrap_or_else(|_| f.clone());
+            if self.breakpoints.contains_key(&(canonical, line)) {
                 return true;
             }
         }
@@ -212,7 +213,8 @@ impl DebugState {
 
     /// Set breakpoints for a file, replacing any existing ones for that file.
     pub fn set_breakpoints(&mut self, file: &PathBuf, lines: &[u32]) -> Vec<u32> {
-        self.breakpoints.retain(|(f, _), _| f != file);
+        let file = std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
+        self.breakpoints.retain(|(f, _), _| f != &file);
 
         lines
             .iter()

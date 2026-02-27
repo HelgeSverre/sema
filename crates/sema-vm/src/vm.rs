@@ -397,7 +397,7 @@ impl VM {
                         // span window (e.g., loop back-edge). Resync via binary search.
                         // Clear resume_skip so breakpoints re-trigger on new iterations.
                         let spans = &self.frames[fi].closure.func.chunk.spans;
-                        if op_pc < spans[next_span_idx - 1].0 {
+                        if op_pc <= spans[next_span_idx - 1].0 {
                             dbg.resume_skip = false;
                             match spans.binary_search_by_key(&op_pc, |(p, _)| *p) {
                                 Ok(i) => {

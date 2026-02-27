@@ -196,7 +196,9 @@ async fn handle_request(
                     lines: lines.clone(),
                     reply: reply_tx,
                 });
-                reply_rx.recv().unwrap_or_default()
+                tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
+                    .await
+                    .unwrap_or_default()
             } else {
                 // Pre-launch — send via backend
                 let (reply_tx, mut reply_rx) = tokio_mpsc::channel(1);
@@ -249,7 +251,9 @@ async fn handle_request(
             let frames = if let Some(ref tx) = dbg_cmd_tx {
                 let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
                 let _ = tx.send(DebugCommand::GetStackTrace { reply: reply_tx });
-                reply_rx.recv().unwrap_or_default()
+                tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
+                    .await
+                    .unwrap_or_default()
             } else {
                 Vec::new()
             };
@@ -299,7 +303,9 @@ async fn handle_request(
                     frame_id,
                     reply: reply_tx,
                 });
-                reply_rx.recv().unwrap_or_default()
+                tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
+                    .await
+                    .unwrap_or_default()
             } else {
                 Vec::new()
             };
@@ -335,7 +341,9 @@ async fn handle_request(
                     reference,
                     reply: reply_tx,
                 });
-                reply_rx.recv().unwrap_or_default()
+                tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
+                    .await
+                    .unwrap_or_default()
             } else {
                 Vec::new()
             };
