@@ -39,6 +39,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: 'file', language: 'sema' }],
         outputChannel,
+        initializationOptions: {
+            semaPath: semaPath,
+        },
     };
 
     client = new LanguageClient('sema', 'Sema Language Server', serverOptions, clientOptions);

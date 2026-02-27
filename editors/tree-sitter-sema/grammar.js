@@ -9,7 +9,7 @@
 //   rest:  start | ascii digit | - / .
 // Note: `-` and `.` appear in both sets; digits only in rest.
 const SYMBOL_START = /[a-zA-Z\u00C0-\u024F+\-*\/!?<>=_&%^~.]/;
-const SYMBOL_CHAR = /[a-zA-Z\u00C0-\u024F+\-*\/!?<>=_&%^~.0-9]/;
+const SYMBOL_CHAR = /[a-zA-Z\u00C0-\u024F+\-*\/!?<>=_&%^~.#0-9]/;
 
 module.exports = grammar({
   name: 'sema',

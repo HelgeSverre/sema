@@ -19,3 +19,7 @@ async def test_server_capabilities(client: LanguageClient):
     assert caps.document_symbol_provider is not None
     assert caps.code_lens_provider is not None
     assert caps.signature_help_provider is not None
+    assert caps.document_highlight_provider is not None
+    assert caps.inlay_hint_provider is not None
+    assert caps.semantic_tokens_provider is not None
+    assert caps.folding_range_provider is not None

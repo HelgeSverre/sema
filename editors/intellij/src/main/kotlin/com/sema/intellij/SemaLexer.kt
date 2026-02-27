@@ -8,10 +8,10 @@ class SemaLexer : LexerBase() {
     private val SPECIAL_FORMS = setOf(
         "and", "begin", "case", "cond", "define", "define-record-type",
         "defmacro", "defmethod", "defmulti", "defun", "defn", "def",
-        "delay", "do", "eval", "fn", "force", "if", "if-let",
+        "catch", "delay", "do", "eval", "fn", "force", "if",
         "lambda", "let", "let*", "letrec", "macroexpand", "match",
-        "or", "quasiquote", "quote", "set!", "throw", "try", "catch",
-        "unless", "when", "when-let", "while", "progn",
+        "or", "quasiquote", "quote", "set!", "throw", "try",
+        "unless", "when", "while", "progn",
         "export", "import", "load", "module",
         "defagent", "deftool", "message", "prompt"
     )
