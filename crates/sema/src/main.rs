@@ -374,6 +374,10 @@ enum Commands {
         /// Align consecutive similar forms (defines, cond clauses, let bindings)
         #[arg(long)]
         align: bool,
+
+        /// Output result as JSON (useful for editor integrations)
+        #[arg(long)]
+        json: bool,
     },
     /// Start the Language Server Protocol server
     Lsp,
@@ -620,6 +624,7 @@ fn main() {
                 width,
                 indent,
                 align,
+                json,
             } => {
                 let config = find_config().unwrap_or_default();
                 let effective_width = width.unwrap_or(config.fmt.width);
@@ -632,6 +637,7 @@ fn main() {
                     effective_width,
                     effective_indent,
                     effective_align,
+                    json,
                 );
             }
             Commands::Lsp => {
@@ -1865,7 +1871,57 @@ fn run_fmt(
     width: usize,
     indent: usize,
     align: bool,
+    json: bool,
 ) {
+    // Handle stdin ("-")
+    if patterns.len() == 1 && patterns[0] == "-" {
+        let mut source = String::new();
+        if let Err(e) = std::io::Read::read_to_string(&mut std::io::stdin(), &mut source) {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "formatted": false,
+                        "error": format!("Error reading stdin: {e}")
+                    })
+                );
+            } else {
+                eprintln!("Error reading stdin: {e}");
+            }
+            std::process::exit(1);
+        }
+        match sema_fmt::format_source_opts(&source, width, indent, align) {
+            Ok(formatted) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "formatted": true,
+                            "source": formatted
+                        })
+                    );
+                } else {
+                    print!("{formatted}");
+                }
+            }
+            Err(e) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "formatted": false,
+                            "error": format!("{e}")
+                        })
+                    );
+                } else {
+                    eprintln!("Error formatting stdin: {e}");
+                }
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     // Determine which files to format
     let files = if patterns.is_empty() {
         // Default: all .sema files in current directory recursively
@@ -1917,6 +1973,16 @@ fn run_fmt(
         let source = match std::fs::read_to_string(file) {
             Ok(s) => s,
             Err(e) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "formatted": false,
+                            "error": format!("Error reading {file}: {e}")
+                        })
+                    );
+                    std::process::exit(1);
+                }
                 eprintln!("Error reading {file}: {e}");
                 errors += 1;
                 continue;
@@ -1926,11 +1992,32 @@ fn run_fmt(
         let formatted = match sema_fmt::format_source_opts(&source, width, indent, align) {
             Ok(f) => f,
             Err(e) => {
+                if json {
+                    println!(
+                        "{}",
+                        serde_json::json!({
+                            "formatted": false,
+                            "error": format!("Error formatting {file}: {e}")
+                        })
+                    );
+                    std::process::exit(1);
+                }
                 eprintln!("Error formatting {file}: {e}");
                 errors += 1;
                 continue;
             }
         };
+
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "formatted": true,
+                    "source": formatted
+                })
+            );
+            return;
+        }
 
         checked += 1;
 

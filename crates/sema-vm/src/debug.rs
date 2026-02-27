@@ -188,8 +188,7 @@ impl DebugState {
         }
 
         if let Some(f) = file {
-            let canonical = std::fs::canonicalize(f).unwrap_or_else(|_| f.clone());
-            if self.breakpoints.contains_key(&(canonical, line)) {
+            if self.breakpoints.contains_key(&(f.clone(), line)) {
                 return true;
             }
         }

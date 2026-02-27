@@ -2099,6 +2099,8 @@ pub fn compile_program_with_spans_and_source(
     span_map: &sema_core::SpanMap,
     source_file: Option<std::path::PathBuf>,
 ) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
+    let source_file =
+        source_file.map(|p| std::fs::canonicalize(&p).unwrap_or(p));
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
     for val in vals {

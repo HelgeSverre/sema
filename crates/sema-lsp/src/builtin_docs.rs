@@ -72,8 +72,8 @@ pub fn build_builtin_docs() -> HashMap<String, String> {
     // Special forms documentation (not in stdlib docs)
     let special_forms: &[(&str, &str)] = &[
         ("define", "Define a variable or function.\n\n```sema\n(define x 42)\n(define (square x) (* x x))\n```"),
-        ("defun", "Define a named function.\n\n```sema\n(defun greet (name) (string-append \"Hello, \" name))\n```"),
-        ("defn", "Alias for `defun`. Define a named function.\n\n```sema\n(defn add (a b) (+ a b))\n```"),
+        ("defun", "Define a named function.\n\nSyntax: `(defun name (params...) body...)`\n\n```sema\n(defun greet (name) (string-append \"Hello, \" name))\n```"),
+        ("defn", "Define a named function (alias for `defun`).\n\nSyntax: `(defn name (params...) body...)`\n\n```sema\n(defn add (a b) (+ a b))\n(defn greet (name) (string-append \"Hello, \" name))\n```"),
         ("defmacro", "Define a macro.\n\n```sema\n(defmacro unless (test body) `(if (not ,test) ,body))\n```"),
         ("lambda", "Create an anonymous function.\n\n```sema\n(lambda (x y) (+ x y))\n```"),
         ("fn", "Alias for `lambda`. Create an anonymous function.\n\n```sema\n(fn (x) (* x x))\n```"),
@@ -105,6 +105,13 @@ pub fn build_builtin_docs() -> HashMap<String, String> {
         ("defagent", "Define an LLM agent.\n\n```sema\n(defagent my-agent\n  :model \"claude-sonnet\"\n  :system \"You are helpful.\")\n```"),
         ("deftool", "Define a tool for an LLM agent.\n\n```sema\n(deftool get-weather (location)\n  \"Get weather for a location\"\n  (http/get (format \"https://api.weather.com/~a\" location)))\n```"),
         ("prompt", "Send a prompt to an LLM.\n\n```sema\n(prompt \"Explain recursion in one sentence\")\n```"),
+        ("for", "Iterate with bindings.\n\n```sema\n(for ((x (range 5)))\n  (println x))\n```"),
+        ("for/list", "Collect iteration results into a list.\n\n```sema\n(for/list ((x (range 5)))\n  (* x x))  ; => (0 1 4 9 16)\n```"),
+        ("for/map", "Collect iteration results into a map.\n\n```sema\n(for/map ((x '(1 2 3)))\n  (values x (* x x)))  ; => {1 1, 2 4, 3 9}\n```"),
+        ("for/filter", "Filter iteration results into a list.\n\n```sema\n(for/filter ((x (range 10)))\n  (even? x))  ; => (0 2 4 6 8)\n```"),
+        ("for/fold", "Fold over iteration with an accumulator.\n\n```sema\n(for/fold ((sum 0))\n  ((x (range 5)))\n  (+ sum x))  ; => 10\n```"),
+        ("with-budget", "Limit LLM token budget for enclosed operations.\n\n```sema\n(with-budget 1000\n  (prompt \"Be brief.\"))\n```"),
+        ("def", "Alias for `define`. Define a variable.\n\n```sema\n(def x 42)\n```"),
     ];
 
     for (name, doc) in special_forms {
