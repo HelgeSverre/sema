@@ -72,11 +72,7 @@ fn span_contains_span(outer: &Span, inner: &Span) -> bool {
 }
 
 /// Find the span of a symbol name within a parent span, using symbol_spans.
-fn find_symbol_span(
-    name: &str,
-    within: &Span,
-    symbol_spans: &[(String, Span)],
-) -> Option<Span> {
+fn find_symbol_span(name: &str, within: &Span, symbol_spans: &[(String, Span)]) -> Option<Span> {
     symbol_spans
         .iter()
         .find(|(n, s)| n == name && span_contains_span(within, s))
@@ -87,11 +83,7 @@ fn find_symbol_span(
 
 impl ScopeTree {
     /// Build a scope tree from a parsed AST.
-    pub fn build(
-        ast: &[Value],
-        span_map: &SpanMap,
-        symbol_spans: &[(String, Span)],
-    ) -> Self {
+    pub fn build(ast: &[Value], span_map: &SpanMap, symbol_spans: &[(String, Span)]) -> Self {
         let mut tree = ScopeTree { scopes: Vec::new() };
 
         // Create the implicit top-level scope spanning the entire file.
@@ -146,10 +138,9 @@ impl ScopeTree {
                         let form_span = expr_span(expr, span_map);
                         if let Some(fs) = &form_span {
                             if let Some(ns) = find_symbol_span(&name, fs, symbol_spans) {
-                                self.scopes[parent_scope].bindings.push(Binding {
-                                    name,
-                                    def_span: ns,
-                                });
+                                self.scopes[parent_scope]
+                                    .bindings
+                                    .push(Binding { name, def_span: ns });
                             }
                         }
                     }
@@ -211,10 +202,9 @@ impl ScopeTree {
         if let Some(name) = items[1].as_symbol() {
             // (define x val) — simple binding at parent scope
             if let Some(ns) = find_symbol_span(&name, &form_span, symbol_spans) {
-                self.scopes[parent_scope].bindings.push(Binding {
-                    name,
-                    def_span: ns,
-                });
+                self.scopes[parent_scope]
+                    .bindings
+                    .push(Binding { name, def_span: ns });
             }
             // Recurse into the value expression
             if items.len() > 2 {
@@ -343,10 +333,9 @@ impl ScopeTree {
         if let Some(name) = items[1].as_symbol() {
             // Bind name at parent scope
             if let Some(ns) = find_symbol_span(&name, &form_span, symbol_spans) {
-                self.scopes[parent_scope].bindings.push(Binding {
-                    name,
-                    def_span: ns,
-                });
+                self.scopes[parent_scope]
+                    .bindings
+                    .push(Binding { name, def_span: ns });
             }
 
             // Create child scope for body with params
@@ -400,9 +389,7 @@ impl ScopeTree {
         });
 
         // Bind parameters (from list or vector)
-        let params: Option<&[Value]> = items[1]
-            .as_list()
-            .or_else(|| items[1].as_vector());
+        let params: Option<&[Value]> = items[1].as_list().or_else(|| items[1].as_vector());
         if let Some(params) = params {
             for param in params {
                 self.collect_param_binding(
@@ -515,7 +502,65 @@ impl ScopeTree {
     }
 
     /// `(let* ((x 1) (y x)) body...)`
+    ///
+    /// Each binding's init expression sees only the *previous* bindings.
+    /// We model this by creating a nested scope per binding.
     fn walk_let_star(
+        &mut self,
+        items: &[Value],
+        expr: &Value,
+        parent_scope: usize,
+        span_map: &SpanMap,
+        symbol_spans: &[(String, Span)],
+    ) {
+        if items.len() < 2 {
+            return;
+        }
+        let form_span = match expr_span(expr, span_map) {
+            Some(s) => s,
+            None => return,
+        };
+
+        let mut current_scope = parent_scope;
+
+        if let Some(bindings) = items[1].as_list() {
+            for binding in bindings {
+                if let Some(pair) = binding.as_list() {
+                    if pair.len() >= 2 {
+                        // Init expression is evaluated in the *current* scope
+                        // (before this binding is added).
+                        self.walk_expr(&pair[1], current_scope, span_map, symbol_spans);
+
+                        // Create a new nested scope for this binding.
+                        let new_scope_idx = self.scopes.len();
+                        self.scopes.push(Scope {
+                            parent: Some(current_scope),
+                            span: form_span,
+                            bindings: Vec::new(),
+                        });
+                        self.collect_param_binding(
+                            &pair[0],
+                            new_scope_idx,
+                            &form_span,
+                            span_map,
+                            symbol_spans,
+                        );
+                        current_scope = new_scope_idx;
+                    }
+                }
+            }
+        }
+
+        for item in &items[2..] {
+            self.walk_expr(item, current_scope, span_map, symbol_spans);
+        }
+    }
+
+    /// `(letrec ((x ...) (y ...)) body...)`
+    ///
+    /// All bindings are visible to all init expressions and the body
+    /// (supports mutual recursion).
+    fn walk_letrec(
         &mut self,
         items: &[Value],
         expr: &Value,
@@ -538,13 +583,11 @@ impl ScopeTree {
             bindings: Vec::new(),
         });
 
-        // In let*, each init can see previous bindings — for static analysis
-        // purposes we put all bindings in the same scope (close enough).
+        // First pass: collect ALL binding names into the scope.
         if let Some(bindings) = items[1].as_list() {
             for binding in bindings {
                 if let Some(pair) = binding.as_list() {
                     if pair.len() >= 2 {
-                        self.walk_expr(&pair[1], body_scope_idx, span_map, symbol_spans);
                         self.collect_param_binding(
                             &pair[0],
                             body_scope_idx,
@@ -555,25 +598,20 @@ impl ScopeTree {
                     }
                 }
             }
+
+            // Second pass: walk init expressions with all bindings visible.
+            for binding in bindings {
+                if let Some(pair) = binding.as_list() {
+                    if pair.len() >= 2 {
+                        self.walk_expr(&pair[1], body_scope_idx, span_map, symbol_spans);
+                    }
+                }
+            }
         }
 
         for item in &items[2..] {
             self.walk_expr(item, body_scope_idx, span_map, symbol_spans);
         }
-    }
-
-    /// `(letrec ((x ...) (y ...)) body...)`
-    fn walk_letrec(
-        &mut self,
-        items: &[Value],
-        expr: &Value,
-        parent_scope: usize,
-        span_map: &SpanMap,
-        symbol_spans: &[(String, Span)],
-    ) {
-        // letrec is similar to let* for our purposes — all bindings visible
-        // to each other and to the body.
-        self.walk_let_star(items, expr, parent_scope, span_map, symbol_spans);
     }
 
     /// `(match val (pattern body)...)`
@@ -654,10 +692,9 @@ impl ScopeTree {
                     if parts.len() >= 2 {
                         if let Some(name) = parts[0].as_symbol() {
                             if let Some(ns) = find_symbol_span(&name, &form_span, symbol_spans) {
-                                self.scopes[body_scope_idx].bindings.push(Binding {
-                                    name,
-                                    def_span: ns,
-                                });
+                                self.scopes[body_scope_idx]
+                                    .bindings
+                                    .push(Binding { name, def_span: ns });
                             }
                         }
                         // Init exprs in outer scope
@@ -698,8 +735,7 @@ impl ScopeTree {
                         if head == "catch" {
                             // (catch var handler...)
                             if let Some(var_name) = clause[1].as_symbol() {
-                                let catch_span = expr_span(item, span_map)
-                                    .or(form_span);
+                                let catch_span = expr_span(item, span_map).or(form_span);
                                 if let Some(cs) = catch_span {
                                     let catch_scope_idx = self.scopes.len();
                                     self.scopes.push(Scope {
@@ -707,8 +743,7 @@ impl ScopeTree {
                                         span: cs,
                                         bindings: Vec::new(),
                                     });
-                                    if let Some(ns) =
-                                        find_symbol_span(&var_name, &cs, symbol_spans)
+                                    if let Some(ns) = find_symbol_span(&var_name, &cs, symbol_spans)
                                     {
                                         self.scopes[catch_scope_idx].bindings.push(Binding {
                                             name: var_name,
@@ -798,10 +833,9 @@ impl ScopeTree {
                 return;
             }
             if let Some(ns) = find_symbol_span(&name, enclosing_span, symbol_spans) {
-                self.scopes[scope_idx].bindings.push(Binding {
-                    name,
-                    def_span: ns,
-                });
+                self.scopes[scope_idx]
+                    .bindings
+                    .push(Binding { name, def_span: ns });
             }
         } else if let Some(items) = param.as_vector() {
             // Vector destructuring: [a b c]
@@ -813,8 +847,36 @@ impl ScopeTree {
             for item in items {
                 self.collect_param_binding(item, scope_idx, enclosing_span, span_map, symbol_spans);
             }
+        } else if let Some(map) = param.as_map_ref() {
+            // Map destructuring: {:keys [a b c]} or {:name name, :age age}
+            let keys_kw = Value::keyword("keys");
+            for (k, v) in map.iter() {
+                if *k == keys_kw {
+                    // {:keys [a b c]} — each symbol in the vector/list is a binding
+                    let syms = v.as_vector().or_else(|| v.as_list());
+                    if let Some(syms) = syms {
+                        for sym in syms {
+                            self.collect_param_binding(
+                                sym,
+                                scope_idx,
+                                enclosing_span,
+                                span_map,
+                                symbol_spans,
+                            );
+                        }
+                    }
+                } else {
+                    // Explicit key-pattern pair: the value is a sub-pattern
+                    self.collect_param_binding(
+                        v,
+                        scope_idx,
+                        enclosing_span,
+                        span_map,
+                        symbol_spans,
+                    );
+                }
+            }
         }
-        // Maps and other patterns: skip for now (complex destructuring)
     }
 
     /// Collect symbol bindings from a match pattern.
@@ -832,10 +894,9 @@ impl ScopeTree {
             // literals like `_`, `true`, `false`, `nil`.
             if name != "_" && name != "true" && name != "false" && name != "nil" {
                 if let Some(ns) = find_symbol_span(&name, enclosing_span, symbol_spans) {
-                    self.scopes[scope_idx].bindings.push(Binding {
-                        name,
-                        def_span: ns,
-                    });
+                    self.scopes[scope_idx]
+                        .bindings
+                        .push(Binding { name, def_span: ns });
                 }
             }
         } else if let Some(items) = pattern.as_list() {
@@ -875,6 +936,33 @@ impl ScopeTree {
                     span_map,
                     symbol_spans,
                 );
+            }
+        } else if let Some(map) = pattern.as_map_ref() {
+            // Map destructuring in match: {:keys [a b c]} or {:key pattern}
+            let keys_kw = Value::keyword("keys");
+            for (k, v) in map.iter() {
+                if *k == keys_kw {
+                    let syms = v.as_vector().or_else(|| v.as_list());
+                    if let Some(syms) = syms {
+                        for sym in syms {
+                            self.collect_pattern_bindings(
+                                sym,
+                                scope_idx,
+                                enclosing_span,
+                                span_map,
+                                symbol_spans,
+                            );
+                        }
+                    }
+                } else {
+                    self.collect_pattern_bindings(
+                        v,
+                        scope_idx,
+                        enclosing_span,
+                        span_map,
+                        symbol_spans,
+                    );
+                }
             }
         }
     }
@@ -1000,8 +1088,7 @@ mod tests {
 
     /// Helper: parse source, build scope tree, return it with symbol_spans.
     fn build_scope(src: &str) -> (ScopeTree, Vec<(String, Span)>) {
-        let (ast, span_map, symbol_spans) =
-            sema_reader::read_many_with_symbol_spans(src).unwrap();
+        let (ast, span_map, symbol_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
         let tree = ScopeTree::build(&ast, &span_map, &symbol_spans);
         (tree, symbol_spans)
     }
@@ -1069,10 +1156,18 @@ mod tests {
 
         let refs = tree.find_scope_aware_references("x", 2, 11, &sym_spans);
         // Should include the param definition and the body usage, but NOT the top-level define
-        assert!(refs.len() >= 2, "expected at least 2 refs, got {}", refs.len());
+        assert!(
+            refs.len() >= 2,
+            "expected at least 2 refs, got {}",
+            refs.len()
+        );
         // None of the refs should be on line 1 (the top-level define)
         for r in &refs {
-            assert_eq!(r.line, 2, "expected all refs on line 2, got line {}", r.line);
+            assert_eq!(
+                r.line, 2,
+                "expected all refs on line 2, got line {}",
+                r.line
+            );
         }
     }
 
@@ -1122,8 +1217,11 @@ mod tests {
 
         let x = tree.resolve_at("x", 1, 9).unwrap();
         let y = tree.resolve_at("y", 1, 15).unwrap();
-        // Both should be in the same let* scope
-        assert_eq!(x.scope_idx, y.scope_idx);
+        // Each let* binding creates a nested scope: y's scope is a child of x's scope
+        assert_ne!(x.scope_idx, y.scope_idx);
+        // The x referenced in y's init `(y x)` should resolve to the same def as x's binding
+        let x_in_y_init = tree.resolve_at("x", 1, 18).unwrap();
+        assert_eq!(x.def_span, x_in_y_init.def_span);
     }
 
     #[test]
@@ -1224,8 +1322,16 @@ mod tests {
         // At the inner position (+ a b), both `a` and `b` should be visible
         let inner_bindings = tree.visible_bindings_at(1, 28);
         let inner_names: Vec<&str> = inner_bindings.iter().map(|(n, _)| n.as_str()).collect();
-        assert!(inner_names.contains(&"a"), "inner should see 'a', got {:?}", inner_names);
-        assert!(inner_names.contains(&"b"), "inner should see 'b', got {:?}", inner_names);
+        assert!(
+            inner_names.contains(&"a"),
+            "inner should see 'a', got {:?}",
+            inner_names
+        );
+        assert!(
+            inner_names.contains(&"b"),
+            "inner should see 'b', got {:?}",
+            inner_names
+        );
 
         // Use a multi-line version to test outer-only position
         let src2 = "(define z 0)\n(let ((a 1))\n  (let ((b 2))\n    (+ a b)))";
@@ -1256,5 +1362,216 @@ mod tests {
             "shadowed x should appear only once, got {:?}",
             x_bindings
         );
+    }
+
+    // ── try/catch scoping ────────────────────────────────────────
+
+    #[test]
+    fn try_catch_binds_error_var() {
+        let src = "(try (/ 1 0) (catch e (println e)))";
+        let (tree, _) = build_scope(src);
+        // 'e' should be locally scoped inside the catch clause
+        assert!(tree.is_locally_scoped("e", 1, 31));
+    }
+
+    #[test]
+    fn try_catch_error_var_not_visible_outside() {
+        let src = "(try (/ 1 0) (catch e (println e)))\n(+ 1 e)";
+        let (tree, _) = build_scope(src);
+        // 'e' on line 2 should NOT resolve (not in catch scope)
+        assert!(!tree.is_locally_scoped("e", 2, 6));
+    }
+
+    // ── for-loop scoping ─────────────────────────────────────────
+
+    #[test]
+    fn for_binds_loop_variable() {
+        let src = "(for ((x (list 1 2 3))) (println x))";
+        let (tree, _) = build_scope(src);
+        // 'x' should be locally scoped inside the for body
+        assert!(tree.is_locally_scoped("x", 1, 34));
+    }
+
+    #[test]
+    fn for_list_binds_variable() {
+        let src = "(for/list ((x (range 10))) (* x x))";
+        let (tree, _) = build_scope(src);
+        assert!(tree.is_locally_scoped("x", 1, 30));
+    }
+
+    #[test]
+    fn for_variable_not_visible_outside() {
+        let src = "(for ((x (list 1 2))) x)\n(+ 1 x)";
+        let (tree, _) = build_scope(src);
+        assert!(!tree.is_locally_scoped("x", 2, 6));
+    }
+
+    // ── do-loop scoping ──────────────────────────────────────────
+
+    #[test]
+    fn do_binds_iteration_vars() {
+        let src = "(do ((i 0 (+ i 1))) ((= i 10) i) (println i))";
+        let (tree, _) = build_scope(src);
+        // 'i' should be locally scoped in the body
+        assert!(tree.is_locally_scoped("i", 1, 44));
+    }
+
+    // ── match scoping ────────────────────────────────────────────
+
+    #[test]
+    fn match_binds_pattern_variables() {
+        let src = "(match x (y (+ y 1)))";
+        let (tree, _) = build_scope(src);
+        // 'y' should be locally scoped in the match clause body
+        assert!(tree.is_locally_scoped("y", 1, 16));
+    }
+
+    #[test]
+    fn match_wildcard_not_bound() {
+        let src = "(match x (_ 42))";
+        let (tree, _) = build_scope(src);
+        // '_' should NOT be bound
+        assert!(!tree.is_locally_scoped("_", 1, 11));
+    }
+
+    #[test]
+    fn match_cons_pattern_binds_parts() {
+        let src = "(match lst ((cons h t) (+ h t)))";
+        let (tree, _) = build_scope(src);
+        assert!(tree.is_locally_scoped("h", 1, 25));
+        assert!(tree.is_locally_scoped("t", 1, 27));
+    }
+
+    #[test]
+    fn match_clauses_have_separate_scopes() {
+        let src = "(match x (a (+ a 1)) (b (* b 2)))";
+        let (tree, _) = build_scope(src);
+        let a_resolved = tree.resolve_at("a", 1, 15).unwrap();
+        let b_resolved = tree.resolve_at("b", 1, 29).unwrap();
+        // Each clause has its own scope
+        assert_ne!(a_resolved.scope_idx, b_resolved.scope_idx);
+    }
+
+    // ── defagent/deftool scoping ─────────────────────────────────
+
+    #[test]
+    fn defagent_name_is_top_level() {
+        let src = "(defagent my-agent :model \"claude\")";
+        let (tree, _) = build_scope(src);
+        let resolved = tree.resolve_at("my-agent", 1, 12);
+        assert!(resolved.is_some());
+        assert!(resolved.unwrap().is_top_level);
+    }
+
+    #[test]
+    fn deftool_name_is_top_level() {
+        let src = "(deftool weather (loc) \"Get weather\" loc)";
+        let (tree, _) = build_scope(src);
+        let resolved = tree.resolve_at("weather", 1, 10);
+        assert!(resolved.is_some());
+        assert!(resolved.unwrap().is_top_level);
+    }
+
+    // ── fn (lambda alias) scoping ────────────────────────────────
+
+    #[test]
+    fn fn_params_scoped() {
+        let src = "(fn (x y) (+ x y))";
+        let (tree, _) = build_scope(src);
+        assert!(tree.is_locally_scoped("x", 1, 15));
+        assert!(tree.is_locally_scoped("y", 1, 17));
+    }
+
+    // ── visible_bindings_at edge cases ───────────────────────────
+
+    #[test]
+    fn visible_bindings_at_lambda_params() {
+        let src = "(lambda (a b) (+ a b))";
+        let (tree, _) = build_scope(src);
+        let bindings = tree.visible_bindings_at(1, 16);
+        let names: Vec<&str> = bindings.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"a"), "should see 'a', got {names:?}");
+        assert!(names.contains(&"b"), "should see 'b', got {names:?}");
+    }
+
+    #[test]
+    fn visible_bindings_empty_for_top_level() {
+        let src = "(define x 42)";
+        let (tree, _) = build_scope(src);
+        // Top-level has no local bindings
+        let bindings = tree.visible_bindings_at(1, 1);
+        assert!(bindings.is_empty());
+    }
+
+    // ── scope-aware references edge cases ────────────────────────
+
+    #[test]
+    fn references_include_definition_site() {
+        let src = "(defun f (x) (+ x 1))";
+        let (tree, sym_spans) = build_scope(src);
+        // References for 'x' at the body usage
+        let refs = tree.find_scope_aware_references("x", 1, 18, &sym_spans);
+        // Should include both the param definition and the body usage
+        assert!(refs.len() >= 2, "expected >= 2 refs, got {}", refs.len());
+    }
+
+    #[test]
+    fn references_nested_scopes_independent() {
+        // Two lambdas with the same param name — refs in one should not leak to other
+        let src = "(lambda (x) x)\n(lambda (x) x)";
+        let (tree, sym_spans) = build_scope(src);
+        let refs_first = tree.find_scope_aware_references("x", 1, 13, &sym_spans);
+        let refs_second = tree.find_scope_aware_references("x", 2, 13, &sym_spans);
+        // Each should only contain refs from its own scope
+        for r in &refs_first {
+            assert_eq!(r.line, 1, "first lambda refs should be on line 1");
+        }
+        for r in &refs_second {
+            assert_eq!(r.line, 2, "second lambda refs should be on line 2");
+        }
+    }
+
+    // ── def alias ────────────────────────────────────────────────
+
+    #[test]
+    fn def_alias_resolves() {
+        let src = "(def y 99)";
+        let (tree, _) = build_scope(src);
+        let resolved = tree.resolve_at("y", 1, 6);
+        assert!(resolved.is_some());
+        assert!(resolved.unwrap().is_top_level);
+    }
+
+    // ── map destructuring ────────────────────────────────────────
+
+    #[test]
+    fn map_destructuring_keys_shorthand() {
+        // {:keys [a b]} — both a and b should be bound in the lambda scope
+        let src = "(fn ({:keys [a b]}) (+ a b))";
+        let (tree, _) = build_scope(src);
+        let a = tree.resolve_at("a", 1, 24);
+        let b = tree.resolve_at("b", 1, 26);
+        assert!(a.is_some(), "a should be bound via :keys destructuring");
+        assert!(b.is_some(), "b should be bound via :keys destructuring");
+        assert!(!a.unwrap().is_top_level);
+        assert!(!b.unwrap().is_top_level);
+    }
+
+    #[test]
+    fn map_destructuring_explicit_pairs() {
+        // {:name n} — n should be bound in the lambda scope
+        let src = "(fn ({:name n}) n)";
+        let (tree, _) = build_scope(src);
+        let n = tree.resolve_at("n", 1, 17);
+        assert!(n.is_some(), "n should be bound via explicit map destructuring");
+        assert!(!n.unwrap().is_top_level);
+    }
+
+    #[test]
+    fn map_destructuring_in_let() {
+        let src = "(let (({:keys [x]} (hash-map :x 1))) x)";
+        let (tree, _) = build_scope(src);
+        let x = tree.resolve_at("x", 1, 38);
+        assert!(x.is_some(), "x should be bound via :keys in let");
     }
 }
