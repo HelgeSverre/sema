@@ -154,10 +154,11 @@ fn test_map_data_structure() {
 
 #[test]
 fn test_json() {
-    assert_eq!(
-        eval("(json/encode {:name \"test\" :val 42})"),
-        Value::string("{\"name\":\"test\",\"val\":42}")
-    );
+    // Compare JSON structurally to avoid depending on key order
+    let result = eval(r#"(json/encode {:name "test" :val 42})"#);
+    let result_json: serde_json::Value = serde_json::from_str(result.as_str().unwrap()).unwrap();
+    let expected = serde_json::json!({"name": "test", "val": 42});
+    assert_eq!(result_json, expected);
     assert_eq!(
         eval("(get (json/decode \"{\\\"x\\\": 10}\") :x)"),
         Value::int(10)
@@ -328,21 +329,15 @@ fn test_defagent() {
 #[test]
 fn test_load_special_form() {
     // Write a temp file and load it
-    let dir = unique_temp_dir("load");
-    let path = dir.join("load.sema");
-    let lp = lisp_path(&path);
-    eval(&format!(
-        r#"(file/write "{lp}" "(define loaded-value 42)")"#
-    ));
-    let result = eval(&format!(
+    eval(r#"(file/write "/tmp/sema-test-load.sema" "(define loaded-value 42)")"#);
+    let result = eval(
         r#"
         (begin
-          (load "{lp}")
+          (load "/tmp/sema-test-load.sema")
           loaded-value)
     "#,
-    ));
+    );
     assert_eq!(result, Value::int(42));
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -587,96 +582,82 @@ fn lisp_path(path: &std::path::Path) -> String {
 #[test]
 fn test_module_import() {
     // Write a module file
-    let dir = unique_temp_dir("module");
-    let path = dir.join("module.sema");
-    let lp = lisp_path(&path);
-    eval(&format!(
-        r#"(file/write "{lp}" "(module math (export add square) (define (add a b) (+ a b)) (define (square x) (* x x)) (define internal 42))")"#
-    ));
+    eval(
+        r#"(file/write "/tmp/sema-test-module.sema" "(module math (export add square) (define (add a b) (+ a b)) (define (square x) (* x x)) (define internal 42))")"#,
+    );
     // Import and use
     assert_eq!(
-        eval(&format!(
+        eval(
             r#"
             (begin
-              (import "{lp}")
+              (import "/tmp/sema-test-module.sema")
               (add 3 4))
         "#
-        )),
+        ),
         Value::int(7)
     );
     assert_eq!(
-        eval(&format!(
+        eval(
             r#"
             (begin
-              (import "{lp}")
+              (import "/tmp/sema-test-module.sema")
               (square 5))
         "#
-        )),
+        ),
         Value::int(25)
     );
     // internal should NOT be exported
-    let err = eval_err(&format!(
+    let err = eval_err(
         r#"
         (begin
-          (import "{lp}")
+          (import "/tmp/sema-test-module.sema")
           internal)
-    "#
-    ));
+    "#,
+    );
     assert!(matches!(err.inner(), SemaError::Unbound(_)));
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn test_selective_import() {
-    let dir = unique_temp_dir("sel");
-    let path = dir.join("sel.sema");
-    let lp = lisp_path(&path);
-    eval(&format!(
-        r#"(file/write "{lp}" "(module m (export foo bar) (define (foo) 1) (define (bar) 2))")"#
-    ));
+    eval(
+        r#"(file/write "/tmp/sema-test-sel.sema" "(module m (export foo bar) (define (foo) 1) (define (bar) 2))")"#,
+    );
     assert_eq!(
-        eval(&format!(
+        eval(
             r#"
             (begin
-              (import "{lp}" foo)
+              (import "/tmp/sema-test-sel.sema" foo)
               (foo))
         "#
-        )),
+        ),
         Value::int(1)
     );
     // bar should not be imported
-    let err = eval_err(&format!(
+    let err = eval_err(
         r#"
         (begin
-          (import "{lp}" foo)
+          (import "/tmp/sema-test-sel.sema" foo)
           (bar))
-    "#
-    ));
+    "#,
+    );
     assert!(matches!(err.inner(), SemaError::Unbound(_)));
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn test_module_cache() {
-    let dir = unique_temp_dir("cache");
-    let path = dir.join("cache.sema");
-    let lp = lisp_path(&path);
-    eval(&format!(
-        r#"(file/write "{lp}" "(module c (export val) (define val 99))")"#
-    ));
+    eval(r#"(file/write "/tmp/sema-test-cache.sema" "(module c (export val) (define val 99))")"#);
     // Import twice — should work fine (cached)
     assert_eq!(
-        eval(&format!(
+        eval(
             r#"
             (begin
-              (import "{lp}")
-              (import "{lp}")
+              (import "/tmp/sema-test-cache.sema")
+              (import "/tmp/sema-test-cache.sema")
               val)
         "#
-        )),
+        ),
         Value::int(99)
     );
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -904,8 +885,9 @@ fn test_macroexpand() {
 
 #[test]
 fn test_file_operations() {
-    let dir = unique_temp_dir("fileops");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-fileops";
+    // Clean up from previous runs
+    let _ = std::fs::remove_dir_all(dir);
 
     eval(&format!(r#"(file/mkdir "{dir}/sub")"#));
     assert_eq!(
@@ -1032,24 +1014,44 @@ fn test_http_get_wrong_arity() {
 
 #[test]
 fn test_http_post_wrong_arity() {
-    let _err = eval_err(r#"(http/post "https://httpbin.org/post")"#);
+    let err = eval_err(r#"(http/post "https://httpbin.org/post")"#);
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("arity") || msg.contains("expects") || msg.contains("argument"),
+        "expected arity-related error, got: {err}"
+    );
 }
 
 // Unknown method → error (http.rs line 31)
 #[test]
 fn test_http_request_unknown_method() {
-    let _err = eval_err(r#"(http/request "BOGUS" "https://httpbin.org/get")"#);
+    let err = eval_err(r#"(http/request "BOGUS" "https://httpbin.org/get")"#);
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("method") || msg.contains("bogus") || msg.contains("unsupported"),
+        "expected method-related error, got: {err}"
+    );
 }
 
 // Non-string URL → type error (http.rs line 111, 122, etc.)
 #[test]
 fn test_http_get_non_string_url() {
-    let _err = eval_err(r#"(http/get 42)"#);
+    let err = eval_err(r#"(http/get 42)"#);
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("type") || msg.contains("string") || msg.contains("expected"),
+        "expected type-related error, got: {err}"
+    );
 }
 
 #[test]
 fn test_http_post_non_string_url() {
-    let _err = eval_err(r#"(http/post 42 "body")"#);
+    let err = eval_err(r#"(http/post 42 "body")"#);
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("type") || msg.contains("string") || msg.contains("expected"),
+        "expected type-related error, got: {err}"
+    );
 }
 
 #[test]
@@ -1070,12 +1072,22 @@ fn test_http_post_too_many_args() {
 
 #[test]
 fn test_http_put_wrong_arity() {
-    let _err = eval_err(r#"(http/put "url")"#);
+    let err = eval_err(r#"(http/put "url")"#);
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("arity") || msg.contains("expects") || msg.contains("argument"),
+        "expected arity-related error, got: {err}"
+    );
 }
 
 #[test]
 fn test_http_delete_wrong_arity() {
-    let _err = eval_err(r#"(http/delete)"#);
+    let err = eval_err(r#"(http/delete)"#);
+    let msg = err.to_string().to_lowercase();
+    assert!(
+        msg.contains("arity") || msg.contains("expects") || msg.contains("argument"),
+        "expected arity-related error, got: {err}"
+    );
 }
 
 #[test]
@@ -2160,10 +2172,12 @@ fn test_math_exp_log() {
     } else {
         panic!("expected float");
     }
-    // log10(100) = 2
-    assert_eq!(eval("(math/log10 100)"), Value::float(2.0));
+    // log10(100) = 2 (use approximate comparison for transcendental functions)
+    let v = eval("(math/log10 100)").as_float().unwrap();
+    assert!((v - 2.0).abs() < 1e-10, "log10(100) = {v}");
     // log2(8) = 3
-    assert_eq!(eval("(math/log2 8)"), Value::float(3.0));
+    let v = eval("(math/log2 8)").as_float().unwrap();
+    assert!((v - 3.0).abs() < 1e-10, "log2(8) = {v}");
 }
 
 #[test]
@@ -2259,8 +2273,9 @@ fn test_sys_env_all() {
 
 #[test]
 fn test_file_is_file() {
-    let dir = unique_temp_dir("isfile");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-isfile";
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).unwrap();
     std::fs::write(format!("{dir}/a.txt"), "hello").unwrap();
 
     assert_eq!(
@@ -2282,8 +2297,9 @@ fn test_file_is_file() {
 #[test]
 fn test_file_is_symlink() {
     // Non-symlink file should return false
-    let dir = unique_temp_dir("symlink");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-symlink";
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).unwrap();
     std::fs::write(format!("{dir}/a.txt"), "hello").unwrap();
 
     assert_eq!(
@@ -2370,7 +2386,8 @@ fn test_time_format() {
 fn test_time_parse() {
     let result = eval(r#"(time/parse "2024-01-15 12:30:00" "%Y-%m-%d %H:%M:%S")"#);
     if let Some(f) = result.as_float() {
-        assert!(f > 1_705_000_000.0 && f < 1_706_000_000.0);
+        // Widened range to accommodate any timezone (+/- 14 hours = ~50400s)
+        assert!(f > 1_704_900_000.0 && f < 1_706_100_000.0);
     } else {
         panic!("expected float, got {result}");
     }
@@ -2587,6 +2604,7 @@ fn test_env_var() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_shell_command() {
     let result = eval(r#"(shell "echo" "hello")"#);
     if let Some(m) = result.as_map_rc() {
@@ -2681,8 +2699,9 @@ fn test_read_many() {
 
 #[test]
 fn test_file_append_standalone() {
-    let dir = unique_temp_dir("append");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-append";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
 
     eval(&format!(r#"(file/write "{dir}/a.txt" "hello")"#));
     eval(&format!(r#"(file/append "{dir}/a.txt" " world")"#));
@@ -2704,8 +2723,9 @@ fn test_file_append_standalone() {
 
 #[test]
 fn test_file_delete_standalone() {
-    let dir = unique_temp_dir("delete");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-delete";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
 
     eval(&format!(r#"(file/write "{dir}/del.txt" "bye")"#));
     assert_eq!(
@@ -2727,8 +2747,9 @@ fn test_file_delete_standalone() {
 
 #[test]
 fn test_file_rename_standalone() {
-    let dir = unique_temp_dir("rename");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-rename";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
 
     eval(&format!(r#"(file/write "{dir}/old.txt" "content")"#));
     eval(&format!(r#"(file/rename "{dir}/old.txt" "{dir}/new.txt")"#));
@@ -2750,8 +2771,9 @@ fn test_file_rename_standalone() {
 
 #[test]
 fn test_file_list_standalone() {
-    let dir = unique_temp_dir("list");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-list";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
 
     eval(&format!(r#"(file/write "{dir}/a.txt" "a")"#));
     eval(&format!(r#"(file/write "{dir}/b.txt" "b")"#));
@@ -2772,8 +2794,8 @@ fn test_file_list_standalone() {
 
 #[test]
 fn test_file_mkdir_standalone() {
-    let dir = unique_temp_dir("mkdir");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-mkdir";
+    let _ = std::fs::remove_dir_all(dir);
 
     // Recursive mkdir
     eval(&format!(r#"(file/mkdir "{dir}/a/b/c")"#));
@@ -2795,8 +2817,9 @@ fn test_file_mkdir_standalone() {
 
 #[test]
 fn test_file_is_directory_standalone() {
-    let dir = unique_temp_dir("isdir");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-isdir";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
     eval(&format!(r#"(file/write "{dir}/f.txt" "file")"#));
 
     assert_eq!(
@@ -2817,8 +2840,9 @@ fn test_file_is_directory_standalone() {
 
 #[test]
 fn test_file_info_standalone() {
-    let dir = unique_temp_dir("info");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-info";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
     eval(&format!(r#"(file/write "{dir}/test.txt" "hello")"#));
 
     // File info
@@ -2848,8 +2872,9 @@ fn test_file_info_standalone() {
 
 #[test]
 fn test_file_read_lines() {
-    let dir = unique_temp_dir("readlines");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-readlines";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
 
     eval(&format!(
         r#"(file/write "{dir}/lines.txt" "alpha\nbeta\ngamma")"#
@@ -2879,8 +2904,9 @@ fn test_file_read_lines() {
 
 #[test]
 fn test_file_write_lines() {
-    let dir = unique_temp_dir("writelines");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-writelines";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
 
     eval(&format!(
         r#"(file/write-lines "{dir}/out.txt" (list "line1" "line2" "line3"))"#
@@ -3077,8 +3103,9 @@ fn test_file_fold_lines() {
 
 #[test]
 fn test_file_copy() {
-    let dir = unique_temp_dir("copy");
-    let dir = dir.to_string_lossy().to_string();
+    let dir = "/tmp/sema-test-copy";
+    let _ = std::fs::remove_dir_all(dir);
+    eval(&format!(r#"(file/mkdir "{dir}")"#));
 
     eval(&format!(r#"(file/write "{dir}/src.txt" "original")"#));
     eval(&format!(r#"(file/copy "{dir}/src.txt" "{dir}/dest.txt")"#));
@@ -3164,7 +3191,10 @@ fn test_path_absolute_extended() {
     // path/absolute on an existing path returns a string
     let result = eval(r#"(path/absolute ".")"#);
     if let Some(s) = result.as_str() {
+        #[cfg(unix)]
         assert!(s.starts_with('/'));
+        #[cfg(windows)]
+        assert!(s.contains(":\\") || s.contains(":/"));
     } else {
         panic!("path/absolute should return a string");
     }
@@ -3219,6 +3249,7 @@ fn test_string_number_predicate() {
 
 #[test]
 fn test_map_map_keys() {
+    // Note: output order relies on BTreeMap sorted iteration
     // Transform keyword keys using keyword->string
     assert_eq!(
         eval_to_string(r#"(map/map-keys keyword->string {:a 1 :b 2})"#),
@@ -3228,6 +3259,7 @@ fn test_map_map_keys() {
 
 #[test]
 fn test_map_from_entries() {
+    // Note: output order relies on BTreeMap sorted iteration
     assert_eq!(
         eval_to_string(r#"(map/from-entries (list (list :a 1) (list :b 2)))"#),
         "{:a 1 :b 2}"
@@ -3394,6 +3426,7 @@ fn test_interpose() {
 
 #[test]
 fn test_frequencies() {
+    // Note: output order relies on BTreeMap sorted iteration
     // basic counting with keywords (BTreeMap = deterministic order)
     assert_eq!(eval_to_string("(frequencies '(:a :b :a))"), "{:a 2 :b 1}");
     // all unique
@@ -3520,14 +3553,17 @@ fn test_time_diff_errors() {
 
 #[test]
 fn test_sys_set_env() {
+    let var_name = format!("SEMA_TEST_VAR_{}", std::process::id());
     assert_eq!(
-        eval(r#"(sys/set-env "SEMA_TEST_VAR_12345" "hello")"#),
+        eval(&format!(r#"(sys/set-env "{var_name}" "hello")"#)),
         Value::nil()
     );
     assert_eq!(
-        eval(r#"(env "SEMA_TEST_VAR_12345")"#),
+        eval(&format!(r#"(env "{var_name}")"#)),
         Value::string("hello")
     );
+    // Clean up
+    std::env::remove_var(&var_name);
 }
 
 #[test]
@@ -4228,19 +4264,15 @@ fn test_stack_trace_in_try_catch() {
 #[test]
 fn test_stack_trace_loaded_file() {
     // Write a file with a function that errors
-    let dir = unique_temp_dir("trace");
-    let path = dir.join("trace.sema");
-    let lp = lisp_path(&path);
-    eval(&format!(
-        r#"(file/write "{lp}"
-             "(define (bad-fn x) (+ x \"oops\"))")"#
-    ));
-    let err = eval_err(&format!(r#"(load "{lp}") (bad-fn 1)"#));
+    eval(
+        r#"(file/write "/tmp/sema-test-trace.sema"
+             "(define (bad-fn x) (+ x \"oops\"))")"#,
+    );
+    let err = eval_err(r#"(load "/tmp/sema-test-trace.sema") (bad-fn 1)"#);
     let trace = err.stack_trace().expect("should have stack trace");
     let names: Vec<&str> = trace.0.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names[0], "+");
     assert_eq!(names[1], "bad-fn");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -5531,6 +5563,7 @@ fn test_sys_os() {
 }
 
 #[test]
+#[cfg(unix)]
 fn test_sys_which() {
     // "sh" should exist on any unix system
     let result = eval(r#"(sys/which "sh")"#);
@@ -5836,7 +5869,7 @@ fn test_term_spinner_update() {
 #[test]
 fn test_deftool_lambda_param_order_not_alphabetical() {
     // Params :path/:content — alphabetically content < path, but lambda declares (path content).
-    // Verify tool name and description are stored correctly.
+    // Verify the tool definition is created with correct metadata.
     assert_eq!(
         eval(
             r#"(begin
@@ -5863,6 +5896,7 @@ fn test_deftool_lambda_param_order_not_alphabetical() {
     );
     // Param keys are BTreeMap-sorted (alphabetical) — this is the root cause
     // of the ordering bug that json_args_to_sema fixes
+    // Note: output order relies on BTreeMap sorted iteration
     assert_eq!(
         eval_to_string(
             r#"(begin
@@ -5926,6 +5960,7 @@ fn test_deftool_three_params_ordering() {
         Value::string("multi-tool")
     );
     // BTreeMap sorts: a_first < b_second < c_third — opposite of declaration order
+    // Note: output order relies on BTreeMap sorted iteration
     assert_eq!(
         eval_to_string(
             r#"(begin
@@ -7014,8 +7049,11 @@ fn test_file_glob_no_matches() {
 #[test]
 fn test_file_glob_returns_list_of_strings() {
     let interp = Interpreter::new();
+    let manifest = env!("CARGO_MANIFEST_DIR").replace('\\', "/");
     let result = interp
-        .eval_str(r#"(string? (car (file/glob "Cargo.*")))"#)
+        .eval_str(&format!(
+            r#"(string? (car (file/glob "{manifest}/Cargo.*")))"#
+        ))
         .unwrap();
     assert_eq!(result, Value::bool(true));
 }
@@ -7150,23 +7188,19 @@ fn test_base64_encode_bytes_empty() {
 
 #[test]
 fn test_file_read_bytes() {
-    let dir = unique_temp_dir("readbytes");
-    let path = dir.join("bytes.txt");
-    let lp = lisp_path(&path);
     let interp = Interpreter::new();
     let result = interp
-        .eval_str(&format!(
+        .eval_str(
             r#"(begin
-                (file/write "{lp}" "ABC")
-                (define bv (file/read-bytes "{lp}"))
+                (file/write "/tmp/sema-test-bytes.txt" "ABC")
+                (define bv (file/read-bytes "/tmp/sema-test-bytes.txt"))
                 (list (bytevector-length bv)
                       (bytevector-u8-ref bv 0)
                       (bytevector-u8-ref bv 1)
-                      (bytevector-u8-ref bv 2)))"#
-        ))
+                      (bytevector-u8-ref bv 2)))"#,
+        )
         .unwrap();
     assert_eq!(result.to_string(), "(3 65 66 67)");
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -7178,19 +7212,15 @@ fn test_file_read_bytes_not_found() {
 
 #[test]
 fn test_file_write_bytes() {
-    let dir = unique_temp_dir("writebytes");
-    let path = dir.join("write-bytes.bin");
-    let lp = lisp_path(&path);
     let interp = Interpreter::new();
     let result = interp
-        .eval_str(&format!(
+        .eval_str(
             r#"(begin
-                (file/write-bytes "{lp}" (bytevector 72 101 108 108 111))
-                (file/read "{lp}"))"#
-        ))
+                (file/write-bytes "/tmp/sema-test-write-bytes.bin" (bytevector 72 101 108 108 111))
+                (file/read "/tmp/sema-test-write-bytes.bin"))"#,
+        )
         .unwrap();
     assert_eq!(result, Value::string("Hello"));
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -7477,6 +7507,7 @@ fn test_tap() {
 
 #[test]
 fn test_map_sort_keys() {
+    // Note: output order relies on BTreeMap sorted iteration
     // BTreeMap is already sorted, so this is a no-op for regular maps
     assert_eq!(
         eval_to_string("(map/entries (map/sort-keys (hash-map :b 2 :a 1 :c 3)))"),
@@ -7493,6 +7524,7 @@ fn test_map_sort_keys() {
 
 #[test]
 fn test_map_except() {
+    // Note: output order relies on BTreeMap sorted iteration
     assert_eq!(
         eval_to_string("(map/entries (map/except (hash-map :a 1 :b 2 :c 3) (list :b)))"),
         "((:a 1) (:c 3))"

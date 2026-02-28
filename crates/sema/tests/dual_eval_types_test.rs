@@ -94,7 +94,8 @@ dual_eval_tests! {
     emb_ref: "(embedding/ref (embedding/list->embedding '(10.5 20.5 30.5)) 1)" => Value::float(20.5),
     emb_roundtrip: "(length (embedding/->list (embedding/list->embedding '(1.0 2.0 3.0))))" => Value::int(3),
     emb_int_coerce: "(embedding/ref (embedding/list->embedding '(42)) 0)" => Value::float(42.0),
-    emb_similarity: "(llm/similarity (embedding/list->embedding '(1.0 0.0 0.0)) (embedding/list->embedding '(1.0 0.0 0.0)))" => Value::float(1.0),
+    // Approximate check: cosine similarity of identical vectors should be ~1.0 but exact f64 == 1.0 is fragile
+    emb_similarity: "(let ((e (embedding/list->embedding '(1.0 0.0 0.0)))) (> (llm/similarity e e) 0.99))" => Value::bool(true),
     emb_orthogonal: "(llm/similarity (embedding/list->embedding '(1.0 0.0)) (embedding/list->embedding '(0.0 1.0)))" => Value::float(0.0),
 }
 

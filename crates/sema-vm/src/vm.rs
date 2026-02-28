@@ -2421,6 +2421,10 @@ mod tests {
 
     #[test]
     fn test_vm_try_catch_native_error_message() {
+        // First verify error type to ensure we caught the right kind of error
+        let type_result = eval("(try (/ 1 0) (catch e (:type e)))").unwrap();
+        assert_eq!(type_result, Value::keyword("eval"));
+        // Then verify the message as secondary validation
         let result = eval("(try (/ 1 0) (catch e (:message e)))").unwrap();
         let s = result.as_str().expect("Expected string");
         assert!(s.contains("division by zero"), "got: {s}");

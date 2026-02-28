@@ -425,6 +425,7 @@ mod tests {
     }
 
     // 2. StackTrace Display — file+span, file only, span only, neither
+    //    Intentionally testing the Display format; string assertions are appropriate here.
     #[test]
     fn stack_trace_display() {
         let trace = StackTrace(vec![
@@ -456,24 +457,50 @@ mod tests {
         assert!(s.contains("at qux\n"));
     }
 
-    // 3. SemaError::eval() constructor and Display
+    // 3. SemaError::eval() constructor — verify variant/fields AND display
     #[test]
     fn eval_error() {
         let e = SemaError::eval("something broke");
+        // Structural check: correct variant with expected message
+        assert!(
+            matches!(&e, SemaError::Eval(msg) if msg == "something broke"),
+            "expected Eval variant with message 'something broke', got {e:?}"
+        );
+        // Display check (intentionally testing Display format)
         assert_eq!(e.to_string(), "Eval error: something broke");
     }
 
-    // 4. SemaError::type_error() constructor and Display
+    // 4. SemaError::type_error() constructor — verify variant/fields AND display
     #[test]
     fn type_error() {
         let e = SemaError::type_error("string", "integer");
+        // Structural check: correct variant with expected fields
+        assert!(
+            matches!(
+                &e,
+                SemaError::Type { expected, got, got_value }
+                if expected == "string" && got == "integer" && got_value.is_none()
+            ),
+            "expected Type variant with expected='string', got='integer', got_value=None, got {e:?}"
+        );
+        // Display check (intentionally testing Display format)
         assert_eq!(e.to_string(), "Type error: expected string, got integer");
     }
 
-    // 5. SemaError::arity() constructor and Display
+    // 5. SemaError::arity() constructor — verify variant/fields AND display
     #[test]
     fn arity_error() {
         let e = SemaError::arity("my-fn", "2", 5);
+        // Structural check: correct variant with expected fields
+        assert!(
+            matches!(
+                &e,
+                SemaError::Arity { name, expected, got }
+                if name == "my-fn" && expected == "2" && *got == 5
+            ),
+            "expected Arity variant with name='my-fn', expected='2', got=5, got {e:?}"
+        );
+        // Display check (intentionally testing Display format)
         assert_eq!(e.to_string(), "Arity error: my-fn expects 2 args, got 5");
     }
 
@@ -665,18 +692,39 @@ mod tests {
         assert!(veteran_hint("count").is_none());
     }
 
+    // type_error_with_value constructor — verify variant/fields AND display
     #[test]
     fn type_error_with_value_display() {
         let e = SemaError::type_error_with_value("string", "integer", &Value::int(42));
+        // Structural check: correct variant with got_value populated
+        assert!(
+            matches!(
+                &e,
+                SemaError::Type { expected, got, got_value }
+                if expected == "string" && got == "integer" && got_value.as_deref() == Some("42")
+            ),
+            "expected Type variant with expected='string', got='integer', got_value=Some(\"42\"), got {e:?}"
+        );
+        // Display check (intentionally testing Display format)
         assert_eq!(
             e.to_string(),
             "Type error: expected string, got integer (42)"
         );
     }
 
+    // type_error without value — verify got_value is None AND display
     #[test]
     fn type_error_without_value_display() {
         let e = SemaError::type_error("string", "integer");
+        // Structural check: got_value should be None
+        assert!(
+            matches!(
+                &e,
+                SemaError::Type { got_value, .. } if got_value.is_none()
+            ),
+            "expected Type variant with got_value=None, got {e:?}"
+        );
+        // Display check (intentionally testing Display format)
         assert_eq!(e.to_string(), "Type error: expected string, got integer");
     }
 }

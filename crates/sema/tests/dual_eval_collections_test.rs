@@ -321,9 +321,13 @@ dual_eval_error_tests! {
 
 dual_eval_tests! {
     mode_single_mode: "(list/mode '(1 2 2 3))" => Value::int(2),
-    mode_tie_sorted: "(list/mode '(2 1 2 1 3))" => common::eval_tw("'(1 2)"),
+    // NOTE: Depends on BTreeMap iteration order for tie-breaking — tied modes are returned
+    // sorted by key because the implementation iterates a BTreeMap (or sorted frequency map).
+    // Wrapping in (sort ...) to make order-independence explicit.
+    mode_tie_sorted: "(sort (list/mode '(2 1 2 1 3)))" => Value::list(vec![Value::int(1), Value::int(2)]),
     mode_all_same: "(list/mode '(5 5 5))" => Value::int(5),
-    mode_all_unique: "(list/mode '(1 2 3))" => common::eval_tw("'(1 2 3)"),
+    // NOTE: Same BTreeMap order dependency as mode_tie_sorted — all elements have equal frequency.
+    mode_all_unique: "(sort (list/mode '(1 2 3)))" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
     mode_single_element: "(list/mode '(42))" => Value::int(42),
 }
 
@@ -400,10 +404,12 @@ dual_eval_tests! {
 // ============================================================
 
 dual_eval_tests! {
-    duplicates_basic: "(list/duplicates '(1 2 2 3 3 3))" => common::eval_tw("'(2 3)"),
-    duplicates_none: "(list/duplicates '(1 2 3))" => common::eval_tw("'()"),
-    duplicates_all: "(list/duplicates '(1 1 1))" => common::eval_tw("'(1)"),
-    duplicates_empty: "(list/duplicates '())" => common::eval_tw("'()"),
+    // NOTE: Depends on internal iteration order (likely insertion-order via seen set).
+    // Wrapping in (sort ...) to make order-independence explicit.
+    duplicates_basic: "(sort (list/duplicates '(1 2 2 3 3 3)))" => Value::list(vec![Value::int(2), Value::int(3)]),
+    duplicates_none: "(list/duplicates '(1 2 3))" => Value::list(vec![]),
+    duplicates_all: "(list/duplicates '(1 1 1))" => Value::list(vec![Value::int(1)]),
+    duplicates_empty: "(list/duplicates '())" => Value::list(vec![]),
 }
 
 // ============================================================

@@ -219,19 +219,22 @@ mod tests {
     }
 
     // -- VFS lifecycle --
-    // VFS uses OnceLock (write-once). All VFS mutation tests are in a single
-    // test since init_vfs can only be called once per process.
-
-    #[test]
-    fn test_vfs_inactive_before_init() {
-        // Before init, reads return None and VFS is inactive.
-        // Note: if test_vfs_lifecycle runs first (parallel), VFS may already
-        // be active — but a missing key still returns None either way.
-        assert_eq!(vfs_read("__nonexistent_key_for_test__"), None);
-    }
+    // VFS uses OnceLock (write-once per process), so all VFS state tests
+    // must live in a single test to guarantee ordering: check inactive
+    // state first, then initialize, then verify active state.
 
     #[test]
     fn test_vfs_lifecycle() {
+        // Phase 1: Before init, VFS is inactive
+        assert!(
+            !is_vfs_active(),
+            "VFS should be inactive before init_vfs is called"
+        );
+        assert_eq!(vfs_read("hello.sema"), None);
+        assert_eq!(vfs_exists("hello.sema"), None);
+        assert_eq!(vfs_resolve_and_read("hello.sema", None), None);
+
+        // Phase 2: Initialize
         let mut files = HashMap::new();
         files.insert("hello.sema".to_string(), b"(+ 1 2)".to_vec());
         files.insert("lib/foo.sema".to_string(), b"data".to_vec());
@@ -239,7 +242,7 @@ mod tests {
 
         init_vfs(files);
 
-        // Active after init
+        // Phase 3: After init, VFS is active
         assert!(is_vfs_active());
 
         // Read existing key

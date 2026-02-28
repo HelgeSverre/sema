@@ -101,18 +101,156 @@ pub enum Op {
 }
 
 impl Op {
-    /// Convert a raw byte to an Op. Valid because the enum is `#[repr(u8)]` with
-    /// dense variants from 0 through `CallGlobal`. If new variants are added with
-    /// gaps, this must be updated.
+    /// Convert a raw byte to an Op using a safe match.
+    ///
+    /// Adding a new variant to `Op` without adding it here will cause a
+    /// compile-time error because of the `#[deny(unreachable_patterns)]` on
+    /// the const-assertion match at the bottom of this block.
     pub fn from_u8(byte: u8) -> Option<Op> {
-        if byte <= Op::ContainsQ as u8 {
-            // SAFETY: Op is #[repr(u8)] with dense, contiguous variants 0..=CallGlobal.
-            Some(unsafe { std::mem::transmute::<u8, Op>(byte) })
-        } else {
-            None
+        match byte {
+            0 => Some(Op::Const),
+            1 => Some(Op::Nil),
+            2 => Some(Op::True),
+            3 => Some(Op::False),
+            4 => Some(Op::Pop),
+            5 => Some(Op::Dup),
+            6 => Some(Op::LoadLocal),
+            7 => Some(Op::StoreLocal),
+            8 => Some(Op::LoadUpvalue),
+            9 => Some(Op::StoreUpvalue),
+            10 => Some(Op::LoadGlobal),
+            11 => Some(Op::StoreGlobal),
+            12 => Some(Op::DefineGlobal),
+            13 => Some(Op::Jump),
+            14 => Some(Op::JumpIfFalse),
+            15 => Some(Op::JumpIfTrue),
+            16 => Some(Op::Call),
+            17 => Some(Op::TailCall),
+            18 => Some(Op::Return),
+            19 => Some(Op::MakeClosure),
+            20 => Some(Op::CallNative),
+            21 => Some(Op::MakeList),
+            22 => Some(Op::MakeVector),
+            23 => Some(Op::MakeMap),
+            24 => Some(Op::MakeHashMap),
+            25 => Some(Op::Throw),
+            26 => Some(Op::Add),
+            27 => Some(Op::Sub),
+            28 => Some(Op::Mul),
+            29 => Some(Op::Div),
+            30 => Some(Op::Negate),
+            31 => Some(Op::Not),
+            32 => Some(Op::Eq),
+            33 => Some(Op::Lt),
+            34 => Some(Op::Gt),
+            35 => Some(Op::Le),
+            36 => Some(Op::Ge),
+            37 => Some(Op::AddInt),
+            38 => Some(Op::SubInt),
+            39 => Some(Op::MulInt),
+            40 => Some(Op::LtInt),
+            41 => Some(Op::EqInt),
+            42 => Some(Op::LoadLocal0),
+            43 => Some(Op::LoadLocal1),
+            44 => Some(Op::LoadLocal2),
+            45 => Some(Op::LoadLocal3),
+            46 => Some(Op::StoreLocal0),
+            47 => Some(Op::StoreLocal1),
+            48 => Some(Op::StoreLocal2),
+            49 => Some(Op::StoreLocal3),
+            50 => Some(Op::CallGlobal),
+            51 => Some(Op::Car),
+            52 => Some(Op::Cdr),
+            53 => Some(Op::Cons),
+            54 => Some(Op::IsNull),
+            55 => Some(Op::IsPair),
+            56 => Some(Op::IsList),
+            57 => Some(Op::IsNumber),
+            58 => Some(Op::IsString),
+            59 => Some(Op::IsSymbol),
+            60 => Some(Op::Length),
+            61 => Some(Op::Append),
+            62 => Some(Op::Get),
+            63 => Some(Op::ContainsQ),
+            _ => None,
         }
     }
 }
+
+// Compile-time assertion: every `Op` variant is covered by `from_u8`.
+// If a new variant is added to the enum, this match will fail to compile
+// because the new variant won't have a corresponding arm.
+const _: () = {
+    #[deny(unreachable_patterns)]
+    fn _assert_all_ops_covered(op: Op) {
+        match op {
+            Op::Const => {}
+            Op::Nil => {}
+            Op::True => {}
+            Op::False => {}
+            Op::Pop => {}
+            Op::Dup => {}
+            Op::LoadLocal => {}
+            Op::StoreLocal => {}
+            Op::LoadUpvalue => {}
+            Op::StoreUpvalue => {}
+            Op::LoadGlobal => {}
+            Op::StoreGlobal => {}
+            Op::DefineGlobal => {}
+            Op::Jump => {}
+            Op::JumpIfFalse => {}
+            Op::JumpIfTrue => {}
+            Op::Call => {}
+            Op::TailCall => {}
+            Op::Return => {}
+            Op::MakeClosure => {}
+            Op::CallNative => {}
+            Op::MakeList => {}
+            Op::MakeVector => {}
+            Op::MakeMap => {}
+            Op::MakeHashMap => {}
+            Op::Throw => {}
+            Op::Add => {}
+            Op::Sub => {}
+            Op::Mul => {}
+            Op::Div => {}
+            Op::Negate => {}
+            Op::Not => {}
+            Op::Eq => {}
+            Op::Lt => {}
+            Op::Gt => {}
+            Op::Le => {}
+            Op::Ge => {}
+            Op::AddInt => {}
+            Op::SubInt => {}
+            Op::MulInt => {}
+            Op::LtInt => {}
+            Op::EqInt => {}
+            Op::LoadLocal0 => {}
+            Op::LoadLocal1 => {}
+            Op::LoadLocal2 => {}
+            Op::LoadLocal3 => {}
+            Op::StoreLocal0 => {}
+            Op::StoreLocal1 => {}
+            Op::StoreLocal2 => {}
+            Op::StoreLocal3 => {}
+            Op::CallGlobal => {}
+            Op::Car => {}
+            Op::Cdr => {}
+            Op::Cons => {}
+            Op::IsNull => {}
+            Op::IsPair => {}
+            Op::IsList => {}
+            Op::IsNumber => {}
+            Op::IsString => {}
+            Op::IsSymbol => {}
+            Op::Length => {}
+            Op::Append => {}
+            Op::Get => {}
+            Op::ContainsQ => {}
+        }
+    }
+};
 
 /// Opcode constants for use in match patterns (avoids `Op::from_u8` overhead).
 pub mod op {

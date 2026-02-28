@@ -12,6 +12,9 @@ fn sema_binary() -> String {
         .unwrap()
         .to_path_buf();
     path.push("sema");
+    if cfg!(windows) {
+        path.set_extension("exe");
+    }
     path.to_string_lossy().to_string()
 }
 
@@ -49,7 +52,6 @@ fn read_dap_timeout(
     reader: &mut BufReader<impl Read>,
     timeout: Duration,
 ) -> Option<serde_json::Value> {
-    // Use a simple polling approach: set a deadline, read in a loop
     let deadline = std::time::Instant::now() + timeout;
 
     let mut header = String::new();
@@ -85,7 +87,6 @@ fn read_dap(reader: &mut BufReader<impl Read>) -> Option<serde_json::Value> {
 }
 
 /// Wait for a specific DAP event, skipping unrelated messages.
-/// Returns true if the event was found within the limit.
 fn wait_for_event(
     reader: &mut BufReader<impl Read>,
     event_name: &str,

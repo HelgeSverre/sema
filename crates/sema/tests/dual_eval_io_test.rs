@@ -38,6 +38,11 @@ dual_eval_tests! {
     sys_args: "(list? (sys/args))" => Value::bool(true),
     sys_env_all: "(map? (sys/env-all))" => Value::bool(true),
     sys_elapsed: "(>= (sys/elapsed) 0)" => Value::bool(true),
+}
+
+// Unix-only: sys/which assumes `sh` exists on PATH
+#[cfg(unix)]
+dual_eval_tests! {
     sys_which_test: r#"(string? (sys/which "sh"))"# => Value::bool(true),
 }
 
@@ -77,13 +82,19 @@ dual_eval_tests! {
     file_is_dir: r#"(file/is-directory? (sys/temp-dir))"# => Value::bool(true),
     file_read_lines: r#"(begin (define p (string-append (sys/temp-dir) "/sema-de-rl-" (uuid/v4))) (file/write p "a\nb\nc") (let ((r (length (file/read-lines p)))) (file/delete p) r))"# => Value::int(3),
     file_info_is_map: r#"(begin (define p (string-append (sys/temp-dir) "/sema-de-fi-" (uuid/v4))) (file/write p "x") (let ((r (map? (file/info p)))) (file/delete p) r))"# => Value::bool(true),
+}
+
+// Unix-only: file_mkdir cleanup uses `rm -rf` via shell
+#[cfg(unix)]
+dual_eval_tests! {
     file_mkdir: r#"(begin (define p (string-append (sys/temp-dir) "/sema-de-md-" (uuid/v4))) (file/mkdir p) (let ((r (file/is-directory? p))) (shell (string-append "rm -rf " p)) r))"# => Value::bool(true),
 }
 
 // ============================================================
-// Shell command — dual eval
+// Shell command — dual eval (Unix-only: `echo` is a shell builtin on Windows)
 // ============================================================
 
+#[cfg(unix)]
 dual_eval_tests! {
     shell_echo: r#"(map? (shell "echo hello"))"# => Value::bool(true),
 }

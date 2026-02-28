@@ -1176,7 +1176,8 @@ mod tests {
         let mut ops = Vec::new();
         let mut pc = 0;
         while pc < code.len() {
-            let op = unsafe { std::mem::transmute::<u8, Op>(code[pc]) };
+            let op = Op::from_u8(code[pc])
+                .unwrap_or_else(|| panic!("invalid opcode byte {} at pc={}", code[pc], pc));
             ops.push(op);
             pc += 1;
             // Skip operands based on opcode

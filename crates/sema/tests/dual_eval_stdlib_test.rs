@@ -35,6 +35,9 @@ dual_eval_tests! {
     term_green: r#"(term/green "ok")"# => Value::string("\x1b[32mok\x1b[0m"),
     term_cyan: r#"(term/cyan "info")"# => Value::string("\x1b[36minfo\x1b[0m"),
     term_gray: r#"(term/gray "muted")"# => Value::string("\x1b[90mmuted\x1b[0m"),
+    // NOTE: This test depends on the exact order of ANSI SGR codes (bold=1, red=31 => "1;31").
+    // If the implementation reorders style attributes, this will break. ANSI ordering IS
+    // significant for some terminals, so we intentionally test the exact byte sequence.
     term_style_compound: r#"(term/style "text" :bold :red)"# => Value::string("\x1b[1;31mtext\x1b[0m"),
     term_style_plain: r#"(term/style "plain")"# => Value::string("plain"),
     term_strip: r#"(term/strip (term/bold "hello"))"# => Value::string("hello"),
