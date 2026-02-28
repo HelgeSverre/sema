@@ -1,5 +1,29 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **LSP refactor** — split helpers and scope analysis out of monolithic `lib.rs` into `helpers.rs` and `scope.rs`; added special form documentation for hover.
+- **Formatter** — added `--json` output mode with NDJSON multi-file support and `file` field.
+- **VM** — optimized debug hook hot path; replaced `unsafe transmute` in `Op::from_u8()` with safe match + compile-time exhaustiveness check.
+
+### Fixed
+
+- **Test suite hardening** — comprehensive audit and fix of fragile tests across the entire codebase:
+  - Migrated 20 tests from hardcoded `/tmp` paths to unique temp directories
+  - Added read timeouts and `wait_for_event()` helper to DAP integration tests
+  - Combined racing VFS `OnceLock` tests into single sequential test
+  - Replaced exact float equality with epsilon comparisons for transcendental functions
+  - Added structural `matches!` assertions on error variants alongside display checks
+  - Fixed deftool tests to verify tool metadata instead of unrelated lambda calls
+  - Used `CARGO_MANIFEST_DIR` for CWD-independent glob tests
+  - Widened timezone-sensitive timestamp ranges
+  - Added `#[cfg(unix)]` guards on Unix-specific tests (shell, which, path separators)
+  - Replaced eval-tw oracle with hand-constructed `Value::list()` in foundational dual-eval tests
+  - Wrapped order-dependent collection tests in `sort` for BTreeMap independence
+  - Documented 10 test fragility categories in `docs/bugs/`
+
 ## 1.12.0
 
 ### Added
