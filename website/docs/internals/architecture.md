@@ -2,7 +2,7 @@
 
 Sema is a Lisp with first-class LLM primitives, implemented in Rust. The primary execution path is a tree-walking interpreter — the evaluator walks the AST directly via a trampoline loop for tail-call optimization. A [bytecode VM](./bytecode-vm.md) is available as an opt-in execution path (via `--vm`) for faster execution of compute-heavy workloads. The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
 
-The entire implementation is ~70k lines of Rust spread across 9 crates, each with a clear responsibility and strict dependency ordering.
+The entire implementation is ~70k lines of Rust spread across 11 crates, each with a clear responsibility and strict dependency ordering.
 
 ## Crate Map
 
@@ -63,6 +63,8 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-eval**   | Evaluation                      | Trampoline-based evaluator, special forms, module system, call stack + span table                                                         |
 | **sema-stdlib** | Standard library                | Native functions across a comprehensive standard library                                                                                  |
 | **sema-llm**    | LLM integration                 | `LlmProvider` trait, native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, embedding providers, cost tracking     |
+| **sema-lsp**    | Language Server              | LSP via tower-lsp: completions, hover, go-to-definition, references, rename, semantic tokens, diagnostics                                  |
+| **sema-dap**    | Debug Adapter                | DAP server: breakpoints, stepping, stack traces, variable inspection via VM debug hooks                                                    |
 | **sema-fmt**    | Formatter                       | Code formatter for `.sema` files (`sema fmt`)                                                                                             |
 | **sema-wasm**  | WASM bindings             | Browser playground bindings, JS interop via `wasm-bindgen`                                                                                |
 | **sema**        | Binary                          | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API                                                                              |

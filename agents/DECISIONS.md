@@ -464,5 +464,5 @@ crates/sema/src/
 - `(let loop ((n init) ...) body...)` lowered to `(letrec ((loop (lambda (n ...) body...))) (loop init ...))`
 - Eliminates `compile_named_let` in the compiler — reuses existing `compile_letrec` + `compile_lambda` paths
 - Fixed two classes of bugs: self-reference slot corruption (Bug 1) and missing upvalue/func_id support (Bug 3)
-- The `NamedLet` variant still exists in `CoreExpr` but is never produced by the lowering pass
+- The `NamedLet` variant, `resolve_named_let`, and `compile_named_let` have been fully removed from the codebase
 - Tail position flag propagated correctly to the initial `(loop init ...)` call

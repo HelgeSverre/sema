@@ -18,7 +18,7 @@ Sema includes a persistent, JSON-backed key-value store for storing structured d
 
 **Flushing** — Every `kv/set` and `kv/delete` rewrites the entire backing file immediately. `kv/close` also flushes. There is no separate manual flush — persistence is automatic.
 
-**JSON format** — The backing file is pretty-printed JSON, so you can inspect or edit it with any text editor. If an existing file contains malformed JSON, `kv/open` silently starts with an empty store.
+**JSON format** — The backing file is pretty-printed JSON, so you can inspect or edit it with any text editor. If an existing file contains malformed JSON, `kv/open` raises an error.
 
 **Supported value types:**
 

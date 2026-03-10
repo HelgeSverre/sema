@@ -8,4 +8,4 @@ Minor improvements and tech debt items deferred for later sweeps.
 
 ## Build System (`sema build`)
 
-- **`file/read-lines` line ending handling** — VFS-served files with `\r\n` line endings will retain `\r` in split results. Consistent with the `fs::read_to_string` fallback but worth normalizing. (Identified in PR #14 review, severity: low)
+- ~~**`file/read-lines` line ending handling**~~ — RESOLVED. Changed from `split('\n')` to `.lines()` which handles both `\n` and `\r\n` line endings correctly.

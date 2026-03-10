@@ -7,6 +7,9 @@
 - **LSP refactor** — split helpers and scope analysis out of monolithic `lib.rs` into `helpers.rs` and `scope.rs`; added special form documentation for hover.
 - **Formatter** — added `--json` output mode with NDJSON multi-file support and `file` field.
 - **VM** — optimized debug hook hot path; replaced `unsafe transmute` in `Op::from_u8()` with safe match + compile-time exhaustiveness check.
+- **VM** — removed dead `NamedLet` variant, `resolve_named_let`, and `compile_named_let` (desugared to `letrec+lambda` in lowering since Decision #52; code was unreachable).
+- **file/read-lines** — switched from `split('\n')` to `.lines()`, correctly handling `\r\n` line endings. Empty files now return an empty list instead of a single-element list containing `""`.
+- **kv/open** — malformed JSON in an existing backing file now raises an IO error instead of silently falling back to an empty store.
 
 ### Fixed
 
@@ -23,6 +26,7 @@
   - Replaced eval-tw oracle with hand-constructed `Value::list()` in foundational dual-eval tests
   - Wrapped order-dependent collection tests in `sort` for BTreeMap independence
   - Documented 10 test fragility categories in `docs/bugs/`
+- **Test error assertions** — replaced ~40 fragile `.contains("expects")`/`.contains("Type error")` string assertions with structural `SemaError::Arity`/`SemaError::Type` variant matching via new `assert_arity_error()`/`assert_type_error()` helpers.
 
 ## 1.12.0
 
