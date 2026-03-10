@@ -462,7 +462,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 std::fs::read_to_string(path)
                     .map_err(|e| SemaError::Io(format!("file/read-lines {path}: {e}")))?
             };
-            let lines: Vec<Value> = content.split('\n').map(Value::string).collect();
+            let lines: Vec<Value> = content.lines().map(Value::string).collect();
             Ok(Value::list(lines))
         },
     );

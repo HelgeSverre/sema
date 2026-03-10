@@ -30,10 +30,8 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             let data = if std::path::Path::new(path).exists() {
                 let content = std::fs::read_to_string(path)
                     .map_err(|e| SemaError::Io(format!("kv/open: {e}")))?;
-                // TODO: consider returning an error (or at least a warning) instead of
-                // silently falling back to an empty store when the file contains malformed JSON.
                 serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&content)
-                    .unwrap_or_default()
+                    .map_err(|e| SemaError::Io(format!("kv/open: malformed JSON in {path}: {e}")))?
             } else {
                 serde_json::Map::new()
             };
