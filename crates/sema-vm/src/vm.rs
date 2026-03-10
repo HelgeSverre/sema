@@ -50,7 +50,10 @@ struct CallFrame {
 }
 
 /// Number of entries in the direct-mapped global cache (must be power of 2).
-const GLOBAL_CACHE_SIZE: usize = 16;
+const GLOBAL_CACHE_SIZE: usize = 256;
+
+/// Maximum number of call frames before raising a stack overflow error.
+const MAX_FRAMES: usize = 2048;
 
 /// The bytecode virtual machine.
 pub struct VM {
@@ -693,10 +696,15 @@ impl VM {
                             "CallNative invalid native_id {native_id}"
                         );
 
+                        // Borrow args directly from stack (no Vec allocation).
+                        // Rc::clone is cheap; it avoids holding &self.native_fns
+                        // and &self.stack simultaneously.
+                        let native = self.native_fns[native_id].clone();
                         let args_start = self.stack.len() - argc;
-                        let args: Vec<Value> = self.stack.drain(args_start..).collect();
-                        match (self.native_fns[native_id].func)(ctx, &args) {
-                            Ok(result) => self.stack.push(result),
+                        let result = (native.func)(ctx, &self.stack[args_start..]);
+                        self.stack.truncate(args_start);
+                        match result {
+                            Ok(val) => self.stack.push(val),
                             Err(err) => {
                                 handle_err!(self, fi, pc, err, saved_pc, 'dispatch);
                             }
@@ -1345,13 +1353,12 @@ impl VM {
                 }
                 return self.call_vm_closure(closure, argc);
             }
-            // Regular native fn — need Rc for the call
+            // Regular native fn — borrow args directly from stack (no Vec allocation)
             let func_rc = self.stack[func_idx].as_native_fn_rc().unwrap();
             let args_start = func_idx + 1;
-            let args: Vec<Value> = self.stack.drain(args_start..).collect();
+            let result = (func_rc.func)(ctx, &self.stack[args_start..]);
             self.stack.truncate(func_idx);
-            let result = (func_rc.func)(ctx, &args)?;
-            self.stack.push(result);
+            result.map(|val| self.stack.push(val))?;
             Ok(())
         } else if let Some(kw) = self.stack[func_idx].as_keyword_spur() {
             // Keyword as function: (kw map) -> map[kw]
@@ -1371,12 +1378,14 @@ impl VM {
             self.stack.push(result);
             Ok(())
         } else {
-            // Lambda or other callable — clone once and use call_callback
+            // Lambda or other callable — borrow args directly from stack.
+            // Safety: call_callback dispatches to the tree-walking evaluator,
+            // which has its own environment and does not mutate the VM's stack.
             let func_val = self.stack[func_idx].clone();
             let args_start = func_idx + 1;
-            let args: Vec<Value> = self.stack.drain(args_start..).collect();
+            let result = sema_core::call_callback(ctx, &func_val, &self.stack[args_start..]);
             self.stack.truncate(func_idx);
-            let result = sema_core::call_callback(ctx, &func_val, &args)?;
+            let result = result?;
             self.stack.push(result);
             Ok(())
         }
@@ -1424,9 +1433,9 @@ impl VM {
         if func_val.raw_tag() == Some(TAG_NATIVE_FN) {
             let func_rc = func_val.as_native_fn_rc().unwrap();
             let args_start = self.stack.len() - argc;
-            let args: Vec<Value> = self.stack.drain(args_start..).collect();
-            let result = (func_rc.func)(ctx, &args)?;
-            self.stack.push(result);
+            let result = (func_rc.func)(ctx, &self.stack[args_start..]);
+            self.stack.truncate(args_start);
+            result.map(|val| self.stack.push(val))?;
             Ok(())
         } else if let Some(kw) = func_val.as_keyword_spur() {
             if argc != 1 {
@@ -1444,9 +1453,12 @@ impl VM {
             self.stack.push(result);
             Ok(())
         } else {
+            // Safety: call_callback dispatches to the tree-walking evaluator,
+            // which does not mutate the VM's stack.
             let args_start = self.stack.len() - argc;
-            let args: Vec<Value> = self.stack.drain(args_start..).collect();
-            let result = sema_core::call_callback(ctx, &func_val, &args)?;
+            let result = sema_core::call_callback(ctx, &func_val, &self.stack[args_start..]);
+            self.stack.truncate(args_start);
+            let result = result?;
             self.stack.push(result);
             Ok(())
         }
@@ -1460,6 +1472,11 @@ impl VM {
         closure: Rc<Closure>,
         argc: usize,
     ) -> Result<(), SemaError> {
+        if self.frames.len() >= MAX_FRAMES {
+            return Err(SemaError::eval(
+                "stack overflow: maximum call depth exceeded",
+            ));
+        }
         let func = &closure.func;
         let arity = func.arity as usize;
         let has_rest = func.has_rest;
@@ -1514,6 +1531,11 @@ impl VM {
     /// Caller must set `self.functions` before calling this.
     /// Takes ownership of the Rc to avoid an extra clone.
     fn call_vm_closure(&mut self, closure: Rc<Closure>, argc: usize) -> Result<(), SemaError> {
+        if self.frames.len() >= MAX_FRAMES {
+            return Err(SemaError::eval(
+                "stack overflow: maximum call depth exceeded",
+            ));
+        }
         let func = &closure.func;
         let arity = func.arity as usize;
         let has_rest = func.has_rest;
@@ -3112,5 +3134,397 @@ mod tests {
             Value::float(1.5),
             "Op::Div 3/2 should return 1.5, not 1"
         );
+    }
+
+    // ---- CallNative tests ----
+    // These exercise the CallNative opcode path by compiling with known_natives.
+
+    /// Make a test env with non-intrinsic native functions for CallNative testing.
+    /// Arithmetic (+, -, *, /) are lowered as intrinsic opcodes and never go
+    /// through CallNative, so we need other native functions.
+    fn make_call_native_env() -> Rc<Env> {
+        let env = make_test_env(); // keep arithmetic for general use
+                                   // Add non-intrinsic natives that WILL go through CallNative
+        env.set(
+            intern("identity"),
+            Value::native_fn(NativeFn::simple("identity", |args| Ok(args[0].clone()))),
+        );
+        env.set(
+            intern("add1"),
+            Value::native_fn(NativeFn::simple("add1", |args| {
+                Ok(Value::int(args[0].as_int().unwrap() + 1))
+            })),
+        );
+        env.set(
+            intern("explode"),
+            Value::native_fn(NativeFn::simple("explode", |_args| {
+                Err(SemaError::eval("boom"))
+            })),
+        );
+        env.set(
+            intern("type-explode"),
+            Value::native_fn(NativeFn::simple("type-explode", |_args| {
+                Err(SemaError::type_error("number", "string"))
+            })),
+        );
+        env
+    }
+
+    fn eval_str_with_call_native(
+        input: &str,
+        globals: &Rc<Env>,
+        ctx: &EvalContext,
+    ) -> Result<Value, SemaError> {
+        let vals = sema_reader::read_many(input)
+            .map_err(|e| SemaError::eval(format!("parse error: {e}")))?;
+        // Collect all native function names from the env
+        let known: std::collections::HashSet<_> = globals
+            .all_names()
+            .into_iter()
+            .filter(|&spur| globals.get(spur).is_some_and(|v| v.is_native_fn()))
+            .collect();
+        let prog = compile_program(&vals, Some(known))?;
+        let mut vm = VM::new(globals.clone(), prog.functions, &prog.native_table)?;
+        vm.execute(prog.closure, ctx)
+    }
+
+    #[test]
+    fn test_call_native_basic() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        // identity and add1 should go through CallNative path
+        assert_eq!(
+            eval_str_with_call_native("(identity 42)", &globals, &ctx).unwrap(),
+            Value::int(42)
+        );
+        assert_eq!(
+            eval_str_with_call_native("(add1 9)", &globals, &ctx).unwrap(),
+            Value::int(10)
+        );
+    }
+
+    #[test]
+    fn test_call_native_nested() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        // Nested: (add1 (add1 (identity 5))) = 7
+        assert_eq!(
+            eval_str_with_call_native("(add1 (add1 (identity 5)))", &globals, &ctx).unwrap(),
+            Value::int(7)
+        );
+    }
+
+    #[test]
+    fn test_call_native_in_if() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        assert_eq!(
+            eval_str_with_call_native("(if #t (add1 10) (add1 20))", &globals, &ctx).unwrap(),
+            Value::int(11)
+        );
+        assert_eq!(
+            eval_str_with_call_native("(if #f (add1 10) (add1 20))", &globals, &ctx).unwrap(),
+            Value::int(21)
+        );
+    }
+
+    #[test]
+    fn test_call_native_error_caught_by_try() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        let result =
+            eval_str_with_call_native("(try (explode) (catch e \"caught\"))", &globals, &ctx)
+                .unwrap();
+        assert_eq!(result, Value::string("caught"));
+    }
+
+    #[test]
+    fn test_call_native_error_message() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        let result =
+            eval_str_with_call_native("(try (explode) (catch e (:message e)))", &globals, &ctx)
+                .unwrap();
+        assert_eq!(result, Value::string("boom"));
+    }
+
+    #[test]
+    fn test_call_native_type_error() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        let result =
+            eval_str_with_call_native("(try (type-explode) (catch e (:type e)))", &globals, &ctx)
+                .unwrap();
+        assert_eq!(result, Value::keyword("type-error"));
+    }
+
+    #[test]
+    fn test_call_native_inside_closure() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        // Native call inside a user-defined function
+        let result =
+            eval_str_with_call_native("(define (inc x) (add1 x)) (inc 41)", &globals, &ctx)
+                .unwrap();
+        assert_eq!(result, Value::int(42));
+    }
+
+    #[test]
+    fn test_call_native_shadowed_not_emitted() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        // Redefine identity to always return 999; the redefined version should be called
+        let result =
+            eval_str_with_call_native("(define (identity x) 999) (identity 1)", &globals, &ctx)
+                .unwrap();
+        assert_eq!(result, Value::int(999));
+    }
+
+    #[test]
+    fn test_call_native_list_constructor() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        let result = eval_str_with_call_native("(list 1 2 3)", &globals, &ctx).unwrap();
+        assert!(result.is_list());
+        let items: Vec<Value> = result.as_list().unwrap().iter().cloned().collect();
+        assert_eq!(items, vec![Value::int(1), Value::int(2), Value::int(3)]);
+    }
+
+    #[test]
+    fn test_call_native_unknown_native_at_vm_creation() {
+        // If native_table references a name not in globals, VM::new should error
+        let globals = Rc::new(Env::new()); // empty env
+        let bogus_spur = intern("nonexistent-fn");
+        match VM::new(globals, vec![], &[bogus_spur]) {
+            Err(e) => assert!(
+                e.to_string().contains("not found"),
+                "expected 'not found' error, got: {e}"
+            ),
+            Ok(_) => panic!("expected error for unknown native"),
+        }
+    }
+
+    #[test]
+    fn test_call_native_non_native_value_at_vm_creation() {
+        // If native_table references a name that's not a NativeFn, VM::new should error
+        let globals = Rc::new(Env::new());
+        let spur = intern("not-a-fn");
+        globals.set(spur, Value::int(42)); // not a native fn
+        match VM::new(globals, vec![], &[spur]) {
+            Err(e) => assert!(
+                e.to_string().contains("not a native function"),
+                "expected 'not a native function' error, got: {e}"
+            ),
+            Ok(_) => panic!("expected error for non-native value"),
+        }
+    }
+
+    #[test]
+    fn test_call_native_matches_call_global_results() {
+        // Verify CallNative and CallGlobal produce identical results for non-intrinsic natives.
+        // Note: +, -, *, / are lowered as intrinsic opcodes, so they never go through
+        // either CallGlobal or CallNative — we test functions that actually use these paths.
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        let expressions = &[
+            "(identity 42)",
+            "(add1 0)",
+            "(add1 99)",
+            "(not #f)",
+            "(not #t)",
+            "(list 1 2 3)",
+            "(identity (add1 5))",
+        ];
+        for expr in expressions {
+            // Via CallGlobal (no known_natives)
+            let vals = sema_reader::read_many(expr).unwrap();
+            let prog_global = compile_program(&vals, None).unwrap();
+            let mut vm_global = VM::new(globals.clone(), prog_global.functions, &[]).unwrap();
+            let via_global = vm_global.execute(prog_global.closure, &ctx).unwrap();
+
+            // Via CallNative (with known_natives)
+            let via_native = eval_str_with_call_native(expr, &globals, &ctx).unwrap();
+
+            assert_eq!(
+                via_global, via_native,
+                "CallGlobal vs CallNative mismatch for: {expr}"
+            );
+        }
+    }
+
+    // ---- Stack overflow tests ----
+
+    #[test]
+    fn test_vm_stack_overflow_gives_clean_error() {
+        // Non-tail recursion: (+ 1 (f)) prevents TCO, so frames grow unbounded
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str("(define (f) (+ 1 (f))) (f)", &globals, &ctx);
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("stack overflow"),
+            "expected stack overflow error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_vm_stack_overflow_caught_by_try() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str(
+            "(define (f) (+ 1 (f))) (try (f) (catch e \"caught\"))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::string("caught"));
+    }
+
+    #[test]
+    fn test_vm_stack_overflow_mutual_recursion() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str(
+            "(define (a n) (b n)) (define (b n) (+ 1 (a n))) (try (a 0) (catch e \"caught\"))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::string("caught"));
+    }
+
+    #[test]
+    fn test_vm_deep_but_finite_recursion_ok() {
+        // 1000 frames should be well within the 2048 limit
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str(
+            "(define (f n) (if (= n 0) 0 (+ 1 (f (- n 1))))) (f 1000)",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::int(1000));
+    }
+
+    // ---- Native call error + stack integrity tests ----
+
+    #[test]
+    fn test_call_native_error_preserves_stack_for_subsequent_ops() {
+        // After a caught native error, subsequent operations should work correctly
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        let result =
+            eval_str_with_call_native("(+ (try (explode) (catch e 10)) (add1 4))", &globals, &ctx)
+                .unwrap();
+        assert_eq!(result, Value::int(15));
+    }
+
+    #[test]
+    fn test_call_native_multiple_errors_in_sequence() {
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        // Chain caught errors: (+ (+ caught1 caught2) caught3)
+        let result = eval_str_with_call_native(
+            "(+ (+ (try (explode) (catch e 1)) (try (explode) (catch e 2))) (try (type-explode) (catch e 3)))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::int(6));
+    }
+
+    #[test]
+    fn test_call_native_error_in_nested_call() {
+        // Error from a native inside a user function, caught at outer level
+        let globals = make_call_native_env();
+        let ctx = EvalContext::new();
+        let result = eval_str_with_call_native(
+            "(define (f) (add1 (explode))) (try (f) (catch e \"caught\"))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::string("caught"));
+    }
+
+    // ---- Named-let TCO edge cases ----
+
+    #[test]
+    fn test_named_let_in_non_tail_position() {
+        // Named-let as argument to + (non-tail context).
+        // The recursive call inside the lambda body should still get TCO.
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str(
+            "(+ 1 (let loop ((n 10000) (acc 0)) (if (= n 0) acc (loop (- n 1) (+ acc 1)))))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::int(10001));
+    }
+
+    #[test]
+    fn test_named_let_nested() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str(
+            "(let outer ((i 3) (total 0))
+               (if (= i 0) total
+                 (let inner ((j i) (sum 0))
+                   (if (= j 0)
+                     (outer (- i 1) (+ total sum))
+                     (inner (- j 1) (+ sum j))))))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        // i=3: inner sums 3+2+1=6; i=2: inner sums 2+1=3; i=1: inner sums 1=1; total=10
+        assert_eq!(result, Value::int(10));
+    }
+
+    #[test]
+    fn test_named_let_zero_iterations() {
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let result = eval_str(
+            "(let loop ((n 0) (acc 42)) (if (= n 0) acc (loop (- n 1) acc)))",
+            &globals,
+            &ctx,
+        )
+        .unwrap();
+        assert_eq!(result, Value::int(42));
+    }
+
+    // ---- Global cache tests ----
+
+    #[test]
+    fn test_global_cache_invalidation_on_redefine() {
+        // Redefining a global should invalidate the cache
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        eval_str("(define x 1)", &globals, &ctx).unwrap();
+        assert_eq!(eval_str("x", &globals, &ctx).unwrap(), Value::int(1));
+        eval_str("(define x 2)", &globals, &ctx).unwrap();
+        assert_eq!(eval_str("x", &globals, &ctx).unwrap(), Value::int(2));
+    }
+
+    #[test]
+    fn test_global_cache_many_globals() {
+        // Test with more globals than cache slots to exercise eviction
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        // Define 300 globals (more than 256 cache slots)
+        let mut defs = String::new();
+        for i in 0..300 {
+            defs.push_str(&format!("(define g{i} {i}) "));
+        }
+        eval_str(&defs, &globals, &ctx).unwrap();
+        // Read them all back — some will cache-miss due to eviction
+        for i in 0..300 {
+            let result = eval_str(&format!("g{i}"), &globals, &ctx).unwrap();
+            assert_eq!(result, Value::int(i), "g{i} should be {i}");
+        }
     }
 }

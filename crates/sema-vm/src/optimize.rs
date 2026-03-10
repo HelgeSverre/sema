@@ -70,22 +70,7 @@ pub fn optimize(expr: CoreExpr) -> CoreExpr {
             let body = body.into_iter().map(optimize).collect();
             CoreExpr::Letrec { bindings, body }
         }
-        CoreExpr::NamedLet {
-            name,
-            bindings,
-            body,
-        } => {
-            let bindings = bindings
-                .into_iter()
-                .map(|(s, e)| (s, optimize(e)))
-                .collect();
-            let body = body.into_iter().map(optimize).collect();
-            CoreExpr::NamedLet {
-                name,
-                bindings,
-                body,
-            }
-        }
+        // CoreExpr::NamedLet removed — desugared to Letrec+Lambda in lowering
         CoreExpr::Lambda(mut def) => {
             def.body = def.body.into_iter().map(optimize).collect();
             CoreExpr::Lambda(def)

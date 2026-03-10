@@ -1397,4 +1397,59 @@ mod tests {
             .join();
         result.unwrap();
     }
+
+    // ---- Tests verifying the returned local count from resolve_with_locals ----
+
+    #[test]
+    fn test_resolve_top_level_no_locals() {
+        // A bare literal or global reference needs 0 top-level locals
+        let core = lower_str("42");
+        let (_, n_locals) = resolve_with_locals(&core).unwrap();
+        assert_eq!(n_locals, 0, "bare literal should need 0 locals");
+    }
+
+    #[test]
+    fn test_resolve_top_level_let_locals() {
+        // (let ((x 1) (y 2)) (+ x y)) needs 2 top-level locals
+        let core = lower_str("(let ((x 1) (y 2)) (+ x y))");
+        let (_, n_locals) = resolve_with_locals(&core).unwrap();
+        assert_eq!(n_locals, 2, "let with 2 bindings should need 2 locals");
+    }
+
+    #[test]
+    fn test_resolve_top_level_nested_let_locals() {
+        // Nested lets: outer has 1, inner adds 1. Slots can be reused
+        // so it depends on the implementation — just verify it's >= 1
+        let core = lower_str("(let ((x 1)) (let ((y 2)) (+ x y)))");
+        let (_, n_locals) = resolve_with_locals(&core).unwrap();
+        assert!(
+            n_locals >= 2,
+            "nested let should need at least 2 locals, got {n_locals}"
+        );
+    }
+
+    #[test]
+    fn test_resolve_top_level_define_local() {
+        // Top-level define creates a local slot
+        let core = lower_str("(define x 42)");
+        let (_, n_locals) = resolve_with_locals(&core).unwrap();
+        // define at top level is DefineGlobal which uses 0 locals
+        // (the slot is in the global env, not in local slots)
+        assert_eq!(
+            n_locals, 0,
+            "top-level define should use 0 local slots (it's global)"
+        );
+    }
+
+    #[test]
+    fn test_resolve_lambda_does_not_add_top_level_locals() {
+        // A lambda definition doesn't allocate top-level locals
+        // (it has its own scope)
+        let core = lower_str("(fn (a b c) (+ a b c))");
+        let (_, n_locals) = resolve_with_locals(&core).unwrap();
+        assert_eq!(
+            n_locals, 0,
+            "lambda params should not count as top-level locals"
+        );
+    }
 }

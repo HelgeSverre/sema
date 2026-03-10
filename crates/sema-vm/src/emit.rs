@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sema_core::{Span, Value};
 
 use crate::chunk::Chunk;
@@ -6,12 +8,15 @@ use crate::opcodes::Op;
 /// Builder for constructing bytecode chunks.
 pub struct Emitter {
     chunk: Chunk,
+    /// Reverse index for constant pool deduplication: Value → pool index.
+    const_dedup: HashMap<Value, u16>,
 }
 
 impl Emitter {
     pub fn new() -> Self {
         Emitter {
             chunk: Chunk::new(),
+            const_dedup: HashMap::new(),
         }
     }
 
@@ -34,14 +39,13 @@ impl Emitter {
     /// Add a constant to the pool, deduplicating by value equality.
     /// Returns the u16 index into the constant pool.
     pub fn add_const(&mut self, val: Value) -> u16 {
-        for (i, existing) in self.chunk.consts.iter().enumerate() {
-            if *existing == val {
-                return i as u16;
-            }
+        if let Some(&idx) = self.const_dedup.get(&val) {
+            return idx;
         }
-        let idx = self.chunk.consts.len();
+        let idx = self.chunk.consts.len() as u16;
+        self.const_dedup.insert(val.clone(), idx);
         self.chunk.consts.push(val);
-        idx as u16
+        idx
     }
 
     /// Emit `Op::Const` followed by the u16 constant index.
@@ -136,6 +140,74 @@ mod tests {
         let idx2 = e.add_const(Value::int(42));
         assert_eq!(idx1, idx2);
         assert_eq!(e.into_chunk().consts.len(), 1);
+    }
+
+    #[test]
+    fn test_const_dedup_strings() {
+        let mut e = Emitter::new();
+        let idx1 = e.add_const(Value::string("hello"));
+        let idx2 = e.add_const(Value::string("hello"));
+        let idx3 = e.add_const(Value::string("world"));
+        assert_eq!(idx1, idx2, "same string should dedup");
+        assert_ne!(idx1, idx3, "different strings should not dedup");
+        assert_eq!(e.into_chunk().consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_dedup_floats() {
+        let mut e = Emitter::new();
+        let idx1 = e.add_const(Value::float(3.14));
+        let idx2 = e.add_const(Value::float(3.14));
+        let idx3 = e.add_const(Value::float(2.72));
+        assert_eq!(idx1, idx2, "same float should dedup");
+        assert_ne!(idx1, idx3, "different floats should not dedup");
+        assert_eq!(e.into_chunk().consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_dedup_neg_zero_vs_pos_zero() {
+        let mut e = Emitter::new();
+        let idx1 = e.add_const(Value::float(0.0));
+        let idx2 = e.add_const(Value::float(-0.0));
+        // -0.0 and +0.0 have different bit patterns; both approaches keep them separate
+        assert_ne!(idx1, idx2, "-0.0 and +0.0 should not dedup");
+        assert_eq!(e.into_chunk().consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_dedup_nan() {
+        let mut e = Emitter::new();
+        let idx1 = e.add_const(Value::float(f64::NAN));
+        let idx2 = e.add_const(Value::float(f64::NAN));
+        // NaN != NaN per IEEE 754, so each NaN gets its own pool entry.
+        // HashMap::get uses Eq, and NaN != NaN, so no dedup occurs.
+        assert_ne!(idx1, idx2, "NaN should not dedup with itself");
+        assert_eq!(e.into_chunk().consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_dedup_keywords() {
+        let mut e = Emitter::new();
+        let idx1 = e.add_const(Value::keyword("name"));
+        let idx2 = e.add_const(Value::keyword("name"));
+        let idx3 = e.add_const(Value::keyword("age"));
+        assert_eq!(idx1, idx2, "same keyword should dedup");
+        assert_ne!(idx1, idx3, "different keywords should not dedup");
+        assert_eq!(e.into_chunk().consts.len(), 2);
+    }
+
+    #[test]
+    fn test_const_dedup_mixed_types_no_collision() {
+        let mut e = Emitter::new();
+        let idx_int = e.add_const(Value::int(1));
+        let idx_float = e.add_const(Value::float(1.0));
+        let idx_str = e.add_const(Value::string("1"));
+        let idx_bool = e.add_const(Value::bool(true));
+        // All different types, should not dedup
+        assert_ne!(idx_int, idx_float);
+        assert_ne!(idx_int, idx_str);
+        assert_ne!(idx_int, idx_bool);
+        assert_eq!(e.into_chunk().consts.len(), 4);
     }
 
     #[test]

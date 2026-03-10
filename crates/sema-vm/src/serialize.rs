@@ -857,8 +857,13 @@ fn validate_chunk_bytecode(
 ) -> Result<(), SemaError> {
     let code = &chunk.code;
     let n_locals = chunk.n_locals as usize;
+
+    // First pass: collect valid instruction boundaries and validate operand indices
+    let mut valid_pcs = std::collections::HashSet::new();
+    let mut jump_targets: Vec<(usize, isize)> = Vec::new(); // (source_pc, target_pc)
     let mut pc = 0;
     while pc < code.len() {
+        valid_pcs.insert(pc);
         let (op, next) = advance_pc(code, pc)?;
         match op {
             Op::Const => {
@@ -894,10 +899,34 @@ fn validate_chunk_bytecode(
                     )));
                 }
             }
+            Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => {
+                let offset =
+                    i32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]]);
+                // Jump offset is relative to the end of the instruction (next)
+                let target = next as isize + offset as isize;
+                jump_targets.push((pc, target));
+            }
             _ => {}
         }
         pc = next;
     }
+    // code.len() is also valid (end-of-code, reachable by forward jumps)
+    valid_pcs.insert(code.len());
+
+    // Second pass: validate all jump targets land on instruction boundaries
+    for (source_pc, target) in jump_targets {
+        if target < 0 || target as usize > code.len() {
+            return Err(SemaError::eval(format!(
+                "in {label}: jump at pc {source_pc} targets out-of-bounds pc {target}",
+            )));
+        }
+        if !valid_pcs.contains(&(target as usize)) {
+            return Err(SemaError::eval(format!(
+                "in {label}: jump at pc {source_pc} targets non-instruction boundary pc {target}",
+            )));
+        }
+    }
+
     Ok(())
 }
 
@@ -1045,7 +1074,7 @@ pub fn deserialize_from_bytes(bytes: &[u8]) -> Result<CompileResult, SemaError> 
         )));
     }
 
-    let result = CompileResult { chunk, functions };
+    let result = CompileResult::new(chunk, functions);
     validate_bytecode(&result)?;
     Ok(result)
 }
@@ -1622,10 +1651,7 @@ mod tests {
         e.emit_const(Value::int(42));
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
-        let result = CompileResult {
-            chunk,
-            functions: vec![],
-        };
+        let result = CompileResult::new(chunk, vec![]);
 
         let bytes = serialize_to_bytes(&result, 0).unwrap();
         assert_eq!(&bytes[0..4], b"\x00SEM");
@@ -1662,10 +1688,7 @@ mod tests {
             source_file: None,
         };
 
-        let result = CompileResult {
-            chunk,
-            functions: vec![func],
-        };
+        let result = CompileResult::new(chunk, vec![func]);
 
         let bytes = serialize_to_bytes(&result, 0xDEAD_BEEF).unwrap();
         let result2 = deserialize_from_bytes(&bytes).unwrap();
@@ -1746,10 +1769,7 @@ mod tests {
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
 
-        let result = CompileResult {
-            chunk,
-            functions: vec![],
-        };
+        let result = CompileResult::new(chunk, vec![]);
 
         let bytes = serialize_to_bytes(&result, 0).unwrap();
         let result2 = deserialize_from_bytes(&bytes).unwrap();
@@ -1936,10 +1956,7 @@ mod tests {
         e.emit_const(Value::int(1));
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
-        let result = CompileResult {
-            chunk,
-            functions: vec![],
-        };
+        let result = CompileResult::new(chunk, vec![]);
         let bytes = serialize_to_bytes(&result, 0).unwrap();
 
         // Roundtrip should work on valid data
@@ -2149,10 +2166,7 @@ mod tests {
             exception_table: vec![],
         };
 
-        let result = CompileResult {
-            chunk,
-            functions: vec![],
-        };
+        let result = CompileResult::new(chunk, vec![]);
         let bytes = serialize_to_bytes(&result, 0).unwrap();
         let deser = deserialize_from_bytes(&bytes);
         assert!(deser.is_err(), "should reject out-of-bounds const index");
@@ -2169,10 +2183,7 @@ mod tests {
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
 
-        let result = CompileResult {
-            chunk,
-            functions: vec![],
-        };
+        let result = CompileResult::new(chunk, vec![]);
         let bytes = serialize_to_bytes(&result, 0).unwrap();
         let deser = deserialize_from_bytes(&bytes);
         assert!(

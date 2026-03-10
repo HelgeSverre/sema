@@ -61,12 +61,7 @@ pub enum CoreExpr {
         bindings: Vec<(Spur, CoreExpr)>,
         body: Vec<CoreExpr>,
     },
-    /// Named let (loop construct)
-    NamedLet {
-        name: Spur,
-        bindings: Vec<(Spur, CoreExpr)>,
-        body: Vec<CoreExpr>,
-    },
+    // NamedLet removed — desugared to Letrec+Lambda in lowering (Decision #52)
     /// Do loop
     Do(DoLoop),
     /// Try/catch
@@ -208,11 +203,7 @@ pub enum ResolvedExpr {
         bindings: Vec<(VarRef, ResolvedExpr)>,
         body: Vec<ResolvedExpr>,
     },
-    NamedLet {
-        name: VarRef,
-        bindings: Vec<(VarRef, ResolvedExpr)>,
-        body: Vec<ResolvedExpr>,
-    },
+    // NamedLet removed — desugared to Letrec+Lambda in lowering (Decision #52)
     Do(ResolvedDoLoop),
     Try {
         body: Vec<ResolvedExpr>,

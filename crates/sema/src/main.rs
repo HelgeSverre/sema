@@ -1860,7 +1860,7 @@ fn run_bytecode_bytes(
         upvalues: Vec::new(),
     });
 
-    let mut vm = sema_vm::VM::new(interpreter.global_env.clone(), functions);
+    let mut vm = sema_vm::VM::new(interpreter.global_env.clone(), functions, &[])?;
     vm.execute(closure, &interpreter.ctx)
 }
 

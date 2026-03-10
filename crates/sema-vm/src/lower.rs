@@ -642,7 +642,9 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             let init = lower_expr(&pair[1], false)?;
             bindings.push((name, init));
         }
-        let body = lower_body(&args[2..], tail)?;
+        // The body goes into a lambda, so it's always in tail position
+        // (the last expression in a lambda body is a tail call).
+        let body = lower_body(&args[2..], true)?;
         let (params, inits): (Vec<Spur>, Vec<CoreExpr>) = bindings.into_iter().unzip();
         return Ok(CoreExpr::Letrec {
             bindings: vec![(
@@ -2104,5 +2106,101 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("depth"), "expected depth error, got: {err}");
+    }
+
+    // ---- SpanMap tests (span_map=Some path) ----
+
+    #[test]
+    fn test_lower_with_span_map_attaches_spans() {
+        let input = "(f 1 2)";
+        let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
+        let core = lower(&vals[0], Some(&span_map)).unwrap();
+        // With a span_map, list expressions get wrapped in Spanned
+        match &core {
+            CoreExpr::Spanned(span, inner) => {
+                assert_eq!(span.line, 1);
+                assert_eq!(span.col, 1);
+                match inner.as_ref() {
+                    CoreExpr::Call { func, args, .. } => {
+                        assert!(matches!(**func, CoreExpr::Var(_)));
+                        assert_eq!(args.len(), 2);
+                    }
+                    other => panic!("expected Call inside Spanned, got {other:?}"),
+                }
+            }
+            other => panic!("expected Spanned(Call) for (f 1 2), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_lower_with_span_map_vs_without() {
+        // Without span_map: bare If. With span_map: Spanned wrapping If.
+        let input = "(if #t 1 2)";
+        let val = parse(input);
+        let without_spans = lower(&val, None).unwrap();
+        assert!(
+            matches!(&without_spans, CoreExpr::If { .. }),
+            "without spans should be bare If"
+        );
+
+        let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
+        let with_spans = lower(&vals[0], Some(&span_map)).unwrap();
+        assert!(
+            matches!(&with_spans, CoreExpr::Spanned(_, inner) if matches!(inner.as_ref(), CoreExpr::If { .. })),
+            "with spans should be Spanned(If)"
+        );
+    }
+
+    #[test]
+    fn test_lower_with_span_map_cleans_up_thread_local() {
+        let input = "(+ 1 2)";
+        let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
+        let _core = lower(&vals[0], Some(&span_map)).unwrap();
+
+        // After lower returns, SPAN_MAP should be cleared
+        SPAN_MAP.with(|cell| {
+            assert!(
+                cell.borrow().is_none(),
+                "SPAN_MAP should be None after lower() returns"
+            );
+        });
+    }
+
+    #[test]
+    fn test_lower_with_span_map_cleans_up_on_error() {
+        // Force an error during lowering with a span_map set
+        let mut expr = Value::list(vec![Value::symbol("+"), Value::int(1), Value::int(1)]);
+        for _ in 0..600 {
+            expr = Value::list(vec![Value::symbol("begin"), expr]);
+        }
+        // Build a trivial span_map (we just need Some, doesn't need real entries)
+        let span_map = SpanMap::default();
+        let result = lower(&expr, Some(&span_map));
+        assert!(result.is_err());
+
+        // SPAN_MAP should still be cleaned up even after error
+        SPAN_MAP.with(|cell| {
+            assert!(
+                cell.borrow().is_none(),
+                "SPAN_MAP should be None after lower() errors"
+            );
+        });
+    }
+
+    #[test]
+    fn test_lower_with_span_map_lambda() {
+        let input = "(fn (x) (+ x 1))";
+        let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
+        let core = lower(&vals[0], Some(&span_map)).unwrap();
+        // Lambda gets wrapped in Spanned when span_map is provided
+        match &core {
+            CoreExpr::Spanned(_, inner) => {
+                assert!(
+                    matches!(inner.as_ref(), CoreExpr::Lambda(_)),
+                    "expected Lambda inside Spanned, got {inner:?}"
+                );
+            }
+            other => panic!("expected Spanned(Lambda), got {other:?}"),
+        }
     }
 }
