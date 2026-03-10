@@ -40,7 +40,7 @@ fn eval_roundtrip(input: &str) -> Value {
         }),
         upvalues: Vec::new(),
     });
-    let mut vm = VM::new(interp.global_env.clone(), functions);
+    let mut vm = VM::new(interp.global_env.clone(), functions, &[]).unwrap();
     vm.execute(closure, &interp.ctx).unwrap_or_else(|e| {
         panic!("VM execution of deserialized program failed for `{input}`: {e}")
     })
@@ -193,4 +193,23 @@ fn roundtrip_vector_and_list_constants() {
         "(begin (define v [1 2 3]) (define l '(4 5 6)) (+ (nth v 1) (nth l 1)))",
         Value::int(7),
     );
+}
+
+// ============================================================
+// 13. Roundtrip WITHOUT CallNative — design invariant
+// ============================================================
+
+/// `compile_to_bytecode` passes `None` for known_natives, so CallNative opcodes
+/// are never emitted in serialized bytecode. The native_table is not part of the
+/// bytecode format. This test verifies that programs using native functions still
+/// work correctly through serialization via the CallGlobal path.
+#[test]
+fn roundtrip_native_functions_use_call_global() {
+    // These all call native functions — in serialized form they use CallGlobal,
+    // not CallNative, because known_natives is None during compile_to_bytecode.
+    assert_roundtrip("(string-append \"hello\" \" world\")");
+    assert_roundtrip("(length '(1 2 3))");
+    assert_roundtrip("(not #f)");
+    assert_roundtrip("(null? '())");
+    assert_roundtrip("(begin (define xs '(1 2 3)) (map (fn (x) (* x 2)) xs))");
 }

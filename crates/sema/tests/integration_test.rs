@@ -1,6 +1,24 @@
 use sema_core::{SemaError, Value};
 use sema_eval::Interpreter;
 
+/// Assert that evaluating `input` produces an error whose inner variant matches `SemaError::Arity`.
+fn assert_arity_error(input: &str) {
+    let err = eval_err(input);
+    assert!(
+        matches!(err.inner(), SemaError::Arity { .. }),
+        "expected Arity error for `{input}`, got: {err}"
+    );
+}
+
+/// Assert that evaluating `input` produces an error whose inner variant matches `SemaError::Type`.
+fn assert_type_error(input: &str) {
+    let err = eval_err(input);
+    assert!(
+        matches!(err.inner(), SemaError::Type { .. }),
+        "expected Type error for `{input}`, got: {err}"
+    );
+}
+
 fn eval(input: &str) -> Value {
     let interp = Interpreter::new();
     interp
@@ -1009,85 +1027,59 @@ fn test_regex_split() {
 
 #[test]
 fn test_http_get_wrong_arity() {
-    let _err = eval_err(r#"(http/get)"#);
+    assert_arity_error(r#"(http/get)"#);
 }
 
 #[test]
 fn test_http_post_wrong_arity() {
-    let err = eval_err(r#"(http/post "https://httpbin.org/post")"#);
-    let msg = err.to_string().to_lowercase();
-    assert!(
-        msg.contains("arity") || msg.contains("expects") || msg.contains("argument"),
-        "expected arity-related error, got: {err}"
-    );
+    assert_arity_error(r#"(http/post "https://httpbin.org/post")"#);
 }
 
 // Unknown method → error (http.rs line 31)
 #[test]
 fn test_http_request_unknown_method() {
     let err = eval_err(r#"(http/request "BOGUS" "https://httpbin.org/get")"#);
-    let msg = err.to_string().to_lowercase();
     assert!(
-        msg.contains("method") || msg.contains("bogus") || msg.contains("unsupported"),
-        "expected method-related error, got: {err}"
+        matches!(err.inner(), SemaError::Eval(_)),
+        "expected Eval error for unknown method, got: {err}"
     );
 }
 
-// Non-string URL → type error (http.rs line 111, 122, etc.)
+// Non-string URL → type error
 #[test]
 fn test_http_get_non_string_url() {
-    let err = eval_err(r#"(http/get 42)"#);
-    let msg = err.to_string().to_lowercase();
-    assert!(
-        msg.contains("type") || msg.contains("string") || msg.contains("expected"),
-        "expected type-related error, got: {err}"
-    );
+    assert_type_error(r#"(http/get 42)"#);
 }
 
 #[test]
 fn test_http_post_non_string_url() {
-    let err = eval_err(r#"(http/post 42 "body")"#);
-    let msg = err.to_string().to_lowercase();
-    assert!(
-        msg.contains("type") || msg.contains("string") || msg.contains("expected"),
-        "expected type-related error, got: {err}"
-    );
+    assert_type_error(r#"(http/post 42 "body")"#);
 }
 
 #[test]
 fn test_http_request_non_string_method() {
-    let _err = eval_err(r#"(http/request 42 "https://httpbin.org/get")"#);
+    assert_type_error(r#"(http/request 42 "https://httpbin.org/get")"#);
 }
 
 // Too many args (upper arity bounds)
 #[test]
 fn test_http_get_too_many_args() {
-    let _err = eval_err(r#"(http/get "url" {} "extra")"#);
+    assert_arity_error(r#"(http/get "url" {} "extra")"#);
 }
 
 #[test]
 fn test_http_post_too_many_args() {
-    let _err = eval_err(r#"(http/post "url" "body" {} "extra")"#);
+    assert_arity_error(r#"(http/post "url" "body" {} "extra")"#);
 }
 
 #[test]
 fn test_http_put_wrong_arity() {
-    let err = eval_err(r#"(http/put "url")"#);
-    let msg = err.to_string().to_lowercase();
-    assert!(
-        msg.contains("arity") || msg.contains("expects") || msg.contains("argument"),
-        "expected arity-related error, got: {err}"
-    );
+    assert_arity_error(r#"(http/put "url")"#);
 }
 
 #[test]
 fn test_http_delete_wrong_arity() {
-    let err = eval_err(r#"(http/delete)"#);
-    let msg = err.to_string().to_lowercase();
-    assert!(
-        msg.contains("arity") || msg.contains("expects") || msg.contains("argument"),
-        "expected arity-related error, got: {err}"
-    );
+    assert_arity_error(r#"(http/delete)"#);
 }
 
 #[test]
@@ -1473,10 +1465,10 @@ fn test_chained_comparison() {
 
 #[test]
 fn test_arity_errors() {
-    assert!(eval_err("(car)").to_string().contains("expects"));
-    assert!(eval_err("(car 1 2)").to_string().contains("expects"));
-    assert!(eval_err("(not)").to_string().contains("expects"));
-    assert!(eval_err("(string-length)").to_string().contains("expects"));
+    assert_arity_error("(car)");
+    assert_arity_error("(car 1 2)");
+    assert_arity_error("(not)");
+    assert_arity_error("(string-length)");
 }
 
 #[test]
@@ -2125,13 +2117,13 @@ fn test_math_quotient_remainder() {
     assert_eq!(eval("(math/quotient -13 4)"), Value::int(-3));
     assert_eq!(eval("(math/remainder 13 4)"), Value::int(1));
     assert_eq!(eval("(math/remainder -13 4)"), Value::int(-1));
-    // Division by zero
-    assert!(eval_err("(math/quotient 5 0)")
-        .to_string()
-        .contains("division by zero"));
-    assert!(eval_err("(math/remainder 5 0)")
-        .to_string()
-        .contains("division by zero"));
+    // Division by zero → Eval error
+    assert!(
+        matches!(eval_err("(math/quotient 5 0)").inner(), SemaError::Eval(msg) if msg.contains("division by zero"))
+    );
+    assert!(
+        matches!(eval_err("(math/remainder 5 0)").inner(), SemaError::Eval(msg) if msg.contains("division by zero"))
+    );
 }
 
 #[test]
@@ -2889,12 +2881,11 @@ fn test_file_read_lines() {
         panic!("file/read-lines should return a list");
     }
 
-    // Empty file
+    // Empty file → empty list (no lines)
     eval(&format!(r#"(file/write "{dir}/empty.txt" "")"#));
     let empty = eval(&format!(r#"(file/read-lines "{dir}/empty.txt")"#));
     if let Some(items) = empty.as_list() {
-        assert_eq!(items.len(), 1); // split("") gives [""]
-        assert_eq!(items[0], Value::string(""));
+        assert_eq!(items.len(), 0);
     } else {
         panic!("expected list");
     }
@@ -2998,21 +2989,14 @@ fn test_file_for_each_line() {
     }
 
     // Arity errors
-    assert!(
-        eval_err(&format!(r#"(file/for-each-line "{dir}/data.txt")"#))
-            .to_string()
-            .contains("expects")
-    );
-    assert!(eval_err(r#"(file/for-each-line)"#)
-        .to_string()
-        .contains("expects"));
+    assert_arity_error(&format!(r#"(file/for-each-line "{dir}/data.txt")"#));
+    assert_arity_error(r#"(file/for-each-line)"#);
 
-    // Non-existent file
-    assert!(
-        eval_err(r#"(file/for-each-line "/tmp/nonexistent-sema.txt" (fn (l) l))"#)
-            .to_string()
-            .contains("file/for-each-line")
-    );
+    // Non-existent file → IO error
+    assert!(matches!(
+        eval_err(r#"(file/for-each-line "/tmp/nonexistent-sema.txt" (fn (l) l))"#).inner(),
+        SemaError::Io(_)
+    ));
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -3084,19 +3068,14 @@ fn test_file_fold_lines() {
     }
 
     // Arity errors
-    assert!(eval_err(r#"(file/fold-lines "f" (fn (a b) a))"#)
-        .to_string()
-        .contains("expects"));
-    assert!(eval_err(r#"(file/fold-lines)"#)
-        .to_string()
-        .contains("expects"));
+    assert_arity_error(r#"(file/fold-lines "f" (fn (a b) a))"#);
+    assert_arity_error(r#"(file/fold-lines)"#);
 
-    // Non-existent file
-    assert!(
-        eval_err(r#"(file/fold-lines "/tmp/nonexistent-sema.txt" (fn (a l) a) 0)"#)
-            .to_string()
-            .contains("file/fold-lines")
-    );
+    // Non-existent file → IO error
+    assert!(matches!(
+        eval_err(r#"(file/fold-lines "/tmp/nonexistent-sema.txt" (fn (a l) a) 0)"#).inner(),
+        SemaError::Io(_)
+    ));
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -3497,10 +3476,8 @@ fn test_hash_md5() {
 
 #[test]
 fn test_hash_md5_errors() {
-    let err = eval_err(r#"(hash/md5)"#);
-    assert!(err.to_string().contains("hash/md5"));
-    let err = eval_err(r#"(hash/md5 1)"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_arity_error(r#"(hash/md5)"#);
+    assert_type_error(r#"(hash/md5 1)"#);
 }
 
 #[test]
@@ -3515,10 +3492,8 @@ fn test_hash_hmac_sha256() {
 
 #[test]
 fn test_hash_hmac_sha256_errors() {
-    let err = eval_err(r#"(hash/hmac-sha256 "key")"#);
-    assert!(err.to_string().contains("hash/hmac-sha256"));
-    let err = eval_err(r#"(hash/hmac-sha256 1 "msg")"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_arity_error(r#"(hash/hmac-sha256 "key")"#);
+    assert_type_error(r#"(hash/hmac-sha256 1 "msg")"#);
 }
 
 // Datetime: time/add, time/diff
@@ -3531,10 +3506,8 @@ fn test_time_add() {
 
 #[test]
 fn test_time_add_errors() {
-    let err = eval_err(r#"(time/add 1000)"#);
-    assert!(err.to_string().contains("time/add"));
-    let err = eval_err(r#"(time/add "x" 1)"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_arity_error(r#"(time/add 1000)"#);
+    assert_type_error(r#"(time/add "x" 1)"#);
 }
 
 #[test]
@@ -3545,8 +3518,7 @@ fn test_time_diff() {
 
 #[test]
 fn test_time_diff_errors() {
-    let err = eval_err(r#"(time/diff 1000)"#);
-    assert!(err.to_string().contains("time/diff"));
+    assert_arity_error(r#"(time/diff 1000)"#);
 }
 
 // System: sys/set-env
@@ -3568,10 +3540,8 @@ fn test_sys_set_env() {
 
 #[test]
 fn test_sys_set_env_errors() {
-    let err = eval_err(r#"(sys/set-env "X")"#);
-    assert!(err.to_string().contains("sys/set-env"));
-    let err = eval_err(r#"(sys/set-env 1 "val")"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_arity_error(r#"(sys/set-env "X")"#);
+    assert_type_error(r#"(sys/set-env 1 "val")"#);
 }
 
 // LLM Data Types: Prompts, Messages, Conversations, Tools, Agents
@@ -4126,44 +4096,37 @@ fn test_prompt_append_preserves_order() {
 
 #[test]
 fn test_message_role_error_on_non_message() {
-    let err = eval_err(r#"(message/role 42)"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_type_error(r#"(message/role 42)"#);
 }
 
 #[test]
 fn test_message_content_error_on_non_message() {
-    let err = eval_err(r#"(message/content "not a msg")"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_type_error(r#"(message/content "not a msg")"#);
 }
 
 #[test]
 fn test_prompt_messages_error_on_non_prompt() {
-    let err = eval_err(r#"(prompt/messages 42)"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_type_error(r#"(prompt/messages 42)"#);
 }
 
 #[test]
 fn test_conversation_messages_error_on_non_conversation() {
-    let err = eval_err(r#"(conversation/messages 42)"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_type_error(r#"(conversation/messages 42)"#);
 }
 
 #[test]
 fn test_tool_name_error_on_non_tool() {
-    let err = eval_err(r#"(tool/name 42)"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_type_error(r#"(tool/name 42)"#);
 }
 
 #[test]
 fn test_agent_name_error_on_non_agent() {
-    let err = eval_err(r#"(agent/name "not an agent")"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_type_error(r#"(agent/name "not an agent")"#);
 }
 
 #[test]
 fn test_conversation_add_message_error_on_non_conversation() {
-    let err = eval_err(r#"(conversation/add-message 42 :user "hi")"#);
-    assert!(err.to_string().contains("Type error"));
+    assert_type_error(r#"(conversation/add-message 42 :user "hi")"#);
 }
 
 #[test]
@@ -8867,39 +8830,23 @@ fn test_context_stacks_independent() {
 
 #[test]
 fn test_context_arity_errors() {
-    assert!(eval_err("(context/set :x)").to_string().contains("expects"));
-    assert!(eval_err("(context/set :x 1 2)")
-        .to_string()
-        .contains("expects"));
-    assert!(eval_err("(context/get)").to_string().contains("expects"));
-    assert!(eval_err("(context/get :a :b)")
-        .to_string()
-        .contains("expects"));
-    assert!(eval_err("(context/has?)").to_string().contains("expects"));
-    assert!(eval_err("(context/remove)").to_string().contains("expects"));
-    assert!(eval_err("(context/all :x)").to_string().contains("expects"));
-    assert!(eval_err("(context/pull)").to_string().contains("expects"));
-    assert!(eval_err("(context/push :x)")
-        .to_string()
-        .contains("expects"));
-    assert!(eval_err("(context/stack)").to_string().contains("expects"));
-    assert!(eval_err("(context/pop)").to_string().contains("expects"));
-    assert!(eval_err("(context/merge)").to_string().contains("expects"));
-    assert!(eval_err("(context/clear :x)")
-        .to_string()
-        .contains("expects"));
-    assert!(eval_err("(context/with {:a 1})")
-        .to_string()
-        .contains("expects"));
-    assert!(eval_err("(context/set-hidden :x)")
-        .to_string()
-        .contains("expects"));
-    assert!(eval_err("(context/get-hidden)")
-        .to_string()
-        .contains("expects"));
-    assert!(eval_err("(context/has-hidden?)")
-        .to_string()
-        .contains("expects"));
+    assert_arity_error("(context/set :x)");
+    assert_arity_error("(context/set :x 1 2)");
+    assert_arity_error("(context/get)");
+    assert_arity_error("(context/get :a :b)");
+    assert_arity_error("(context/has?)");
+    assert_arity_error("(context/remove)");
+    assert_arity_error("(context/all :x)");
+    assert_arity_error("(context/pull)");
+    assert_arity_error("(context/push :x)");
+    assert_arity_error("(context/stack)");
+    assert_arity_error("(context/pop)");
+    assert_arity_error("(context/merge)");
+    assert_arity_error("(context/clear :x)");
+    assert_arity_error("(context/with {:a 1})");
+    assert_arity_error("(context/set-hidden :x)");
+    assert_arity_error("(context/get-hidden)");
+    assert_arity_error("(context/has-hidden?)");
 }
 
 // --- Type error tests ---
