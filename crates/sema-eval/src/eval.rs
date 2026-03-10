@@ -1,9 +1,10 @@
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use sema_core::{
     intern, resolve, CallFrame, Env, EvalContext, Lambda, Macro, MultiMethod, NativeFn, SemaError,
-    Span, Thunk, Value, ValueView,
+    Span, Spur, Thunk, Value, ValueView,
 };
 
 use crate::special_forms;
@@ -50,6 +51,15 @@ impl Drop for CallStackGuard<'_> {
     fn drop(&mut self) {
         self.ctx.truncate_call_stack(self.entry_depth);
     }
+}
+
+/// Collect the names of all native functions in an environment.
+/// Used to tell the bytecode compiler which globals can use CallNative.
+fn collect_native_names(env: &Env) -> HashSet<Spur> {
+    env.all_names()
+        .into_iter()
+        .filter(|&spur| env.get(spur).is_some_and(|v| v.is_native_fn()))
+        .collect()
 }
 
 /// The interpreter holds the global environment and state.
@@ -136,17 +146,10 @@ impl Interpreter {
             expanded.push(exp);
         }
 
-        let (closure, functions) = sema_vm::compile_program(&expanded)?;
-        let mut vm = sema_vm::VM::new(self.global_env.clone(), functions);
-        vm.execute(closure, &self.ctx)
-    }
-
-    /// Compile a pre-parsed Value AST to bytecode and execute via the VM.
-    pub fn eval_compiled(&self, expr: &Value) -> EvalResult {
-        let expanded = self.expand_for_vm(expr)?;
-        let (closure, functions) = sema_vm::compile_program(std::slice::from_ref(&expanded))?;
-        let mut vm = sema_vm::VM::new(self.global_env.clone(), functions);
-        vm.execute(closure, &self.ctx)
+        let known_natives = collect_native_names(&self.global_env);
+        let prog = sema_vm::compile_program(&expanded, Some(known_natives))?;
+        let mut vm = sema_vm::VM::new(self.global_env.clone(), prog.functions, &prog.native_table)?;
+        vm.execute(prog.closure, &self.ctx)
     }
 
     /// Compile source code to bytecode without executing.
@@ -167,11 +170,11 @@ impl Interpreter {
             expanded.push(Value::nil());
         }
 
-        let (closure, functions) = sema_vm::compile_program(&expanded)?;
-        Ok(sema_vm::CompileResult {
-            chunk: closure.func.chunk.clone(),
-            functions: functions.iter().map(|f| (**f).clone()).collect(),
-        })
+        let prog = sema_vm::compile_program(&expanded, None)?;
+        Ok(sema_vm::CompileResult::new(
+            prog.closure.func.chunk.clone(),
+            prog.functions.iter().map(|f| (**f).clone()).collect(),
+        ))
     }
 
     /// Pre-process a top-level expression for VM compilation.

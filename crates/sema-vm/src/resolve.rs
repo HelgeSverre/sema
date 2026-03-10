@@ -9,12 +9,7 @@ use crate::core_expr::{
 /// Resolve all variable references in a CoreExpr tree.
 /// Top-level expressions have no enclosing function scope, so all
 /// variables that aren't in explicit let/define bindings become globals.
-pub fn resolve(expr: &CoreExpr) -> Result<ResolvedExpr, SemaError> {
-    let (resolved, _) = resolve_with_locals(expr)?;
-    Ok(resolved)
-}
-
-/// Resolve variables and also return the number of top-level local slots needed.
+/// Returns the resolved expression and the number of top-level local slots needed.
 pub fn resolve_with_locals(expr: &CoreExpr) -> Result<(ResolvedExpr, u16), SemaError> {
     let mut resolver = Resolver::new();
     let resolved = resolve_expr(expr, &mut resolver)?;
@@ -284,11 +279,7 @@ fn resolve_expr_inner(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr,
         CoreExpr::Let { bindings, body } => resolve_let(bindings, body, r),
         CoreExpr::LetStar { bindings, body } => resolve_let_star(bindings, body, r),
         CoreExpr::Letrec { bindings, body } => resolve_letrec(bindings, body, r),
-        CoreExpr::NamedLet {
-            name,
-            bindings,
-            body,
-        } => resolve_named_let(*name, bindings, body, r),
+        // CoreExpr::NamedLet removed — desugared to Letrec+Lambda in lowering
         CoreExpr::Do(do_loop) => resolve_do(do_loop, r),
 
         CoreExpr::Try {
@@ -546,50 +537,6 @@ fn resolve_letrec(
     })
 }
 
-fn resolve_named_let(
-    name: Spur,
-    bindings: &[(Spur, CoreExpr)],
-    body: &[CoreExpr],
-    r: &mut Resolver,
-) -> Result<ResolvedExpr, SemaError> {
-    // Evaluate inits in outer scope
-    let mut inits = Vec::with_capacity(bindings.len());
-    for (_, init_expr) in bindings {
-        inits.push(resolve_expr(init_expr, r)?);
-    }
-
-    r.push_block();
-    // Define binding variables first so they get slots 0..n
-    // (the compiler creates a function where args map to these slots)
-    let mut resolved_bindings = Vec::with_capacity(bindings.len());
-    for (bname, _) in bindings {
-        let slot = r.define_local(*bname);
-        resolved_bindings.push((
-            VarRef {
-                name: *bname,
-                resolution: VarResolution::Local { slot },
-            },
-            inits.remove(0),
-        ));
-    }
-
-    // Define the loop name after binding variables
-    let loop_slot = r.define_local(name);
-    let name_ref = VarRef {
-        name,
-        resolution: VarResolution::Local { slot: loop_slot },
-    };
-
-    let resolved_body = resolve_exprs(body, r)?;
-    r.pop_block();
-
-    Ok(ResolvedExpr::NamedLet {
-        name: name_ref,
-        bindings: resolved_bindings,
-        body: resolved_body,
-    })
-}
-
 fn resolve_do(do_loop: &DoLoop, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
     // Evaluate all inits in the outer scope
     let mut inits = Vec::with_capacity(do_loop.vars.len());
@@ -673,12 +620,13 @@ mod tests {
 
     fn lower_str(input: &str) -> CoreExpr {
         let val = sema_reader::read(input).unwrap();
-        lower(&val).unwrap()
+        lower(&val, None).unwrap()
     }
 
     fn resolve_str(input: &str) -> ResolvedExpr {
         let core = lower_str(input);
-        resolve(&core).unwrap()
+        let (resolved, _) = resolve_with_locals(&core).unwrap();
+        resolved
     }
 
     #[test]
@@ -1437,7 +1385,7 @@ mod tests {
                 for _ in 0..300 {
                     expr = CoreExpr::Begin(vec![expr]);
                 }
-                let result = resolve(&expr);
+                let result = resolve_with_locals(&expr);
                 assert!(result.is_err());
                 let err = result.unwrap_err().to_string();
                 assert!(

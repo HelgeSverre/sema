@@ -1636,7 +1636,7 @@ fn test_vm_compiler_depth_limit() {
         expr = Value::list(vec![Value::symbol("begin"), expr]);
     }
     // Run through the VM compilation pipeline directly
-    let result = sema_vm::vm::compile_program(&[expr]);
+    let result = sema_vm::vm::compile_program(&[expr], None);
     assert!(result.is_err());
     let err = result.unwrap_err().to_string();
     assert!(err.contains("depth"), "expected depth error, got: {err}");

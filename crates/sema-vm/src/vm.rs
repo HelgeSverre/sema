@@ -3,8 +3,8 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use sema_core::{
-    resolve as resolve_spur, Env, EvalContext, SemaError, Spur, Value, NAN_INT_SMALL_PATTERN,
-    NAN_PAYLOAD_BITS, NAN_PAYLOAD_MASK, NAN_TAG_MASK, TAG_NATIVE_FN,
+    resolve as resolve_spur, Env, EvalContext, NativeFn, SemaError, Spur, Value,
+    NAN_INT_SMALL_PATTERN, NAN_PAYLOAD_BITS, NAN_PAYLOAD_MASK, NAN_TAG_MASK, TAG_NATIVE_FN,
 };
 
 use crate::chunk::Function;
@@ -60,17 +60,52 @@ pub struct VM {
     functions: Rc<Vec<Rc<Function>>>,
     /// Direct-mapped cache for global lookups: (spur_bits, env_version, value)
     global_cache: [(u32, u64, Value); GLOBAL_CACHE_SIZE],
+    /// Resolved native function table: native_id → (NativeFn Rc, name).
+    /// Populated at VM creation from the compiler's native_table + global env.
+    native_fns: Vec<Rc<NativeFn>>,
 }
 
 impl VM {
-    pub fn new(globals: Rc<Env>, functions: Vec<Rc<Function>>) -> Self {
-        VM {
+    /// Create a new VM. If `native_spurs` is non-empty, each entry is resolved
+    /// from `globals` to build a direct-dispatch table for CallNative opcodes.
+    pub fn new(
+        globals: Rc<Env>,
+        functions: Vec<Rc<Function>>,
+        native_spurs: &[Spur],
+    ) -> Result<Self, SemaError> {
+        let native_fns = Self::resolve_native_table(&globals, native_spurs)?;
+        Ok(VM {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
             globals,
             functions: Rc::new(functions),
             global_cache: std::array::from_fn(|_| (u32::MAX, u64::MAX, Value::nil())),
+            native_fns,
+        })
+    }
+
+    /// Resolve a native_id → Spur table into a Vec<Rc<NativeFn>> by looking up the global env.
+    fn resolve_native_table(
+        globals: &Env,
+        native_spurs: &[Spur],
+    ) -> Result<Vec<Rc<NativeFn>>, SemaError> {
+        let mut table = Vec::with_capacity(native_spurs.len());
+        for &spur in native_spurs {
+            let val = globals.get(spur).ok_or_else(|| {
+                SemaError::eval(format!(
+                    "CallNative: native function '{}' not found in global env",
+                    resolve_spur(spur)
+                ))
+            })?;
+            let native_rc = val.as_native_fn_rc().ok_or_else(|| {
+                SemaError::eval(format!(
+                    "CallNative: '{}' is not a native function",
+                    resolve_spur(spur)
+                ))
+            })?;
+            table.push(native_rc);
         }
+        Ok(table)
     }
 
     fn new_with_rc_functions(globals: Rc<Env>, functions: Rc<Vec<Rc<Function>>>) -> Self {
@@ -80,6 +115,7 @@ impl VM {
             globals,
             functions,
             global_cache: std::array::from_fn(|_| (u32::MAX, u64::MAX, Value::nil())),
+            native_fns: Vec::new(),
         }
     }
 
@@ -645,10 +681,27 @@ impl VM {
                     }
 
                     op::CALL_NATIVE => {
-                        let _native_id = read_u16!(code, pc);
-                        let _argc = read_u16!(code, pc);
+                        let native_id = read_u16!(code, pc) as usize;
+                        let argc = read_u16!(code, pc) as usize;
                         self.frames[fi].pc = pc;
-                        return Err(SemaError::eval("VM: CallNative not yet implemented"));
+                        let saved_pc = pc - op::SIZE_CALL_NATIVE;
+
+                        // Direct dispatch: index into pre-resolved native function table.
+                        // No env lookup, no cache — resolved at VM creation.
+                        debug_assert!(
+                            native_id < self.native_fns.len(),
+                            "CallNative invalid native_id {native_id}"
+                        );
+
+                        let args_start = self.stack.len() - argc;
+                        let args: Vec<Value> = self.stack.drain(args_start..).collect();
+                        match (self.native_fns[native_id].func)(ctx, &args) {
+                            Ok(result) => self.stack.push(result),
+                            Err(err) => {
+                                handle_err!(self, fi, pc, err, saved_pc, 'dispatch);
+                            }
+                        }
+                        continue 'dispatch;
                     }
 
                     // --- Data constructors ---
@@ -2085,16 +2138,8 @@ fn vm_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
     }
 }
 
-/// Compile a sequence of Value ASTs through the full pipeline and produce
-/// the entry closure + function table ready for VM execution.
+/// Compile Value ASTs with span/source info for debug support (DAP breakpoints).
 pub fn compile_program_with_spans(
-    vals: &[Value],
-    span_map: &sema_core::SpanMap,
-) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
-    compile_program_with_spans_and_source(vals, span_map, None)
-}
-
-pub fn compile_program_with_spans_and_source(
     vals: &[Value],
     span_map: &sema_core::SpanMap,
     source_file: Option<std::path::PathBuf>,
@@ -2103,13 +2148,13 @@ pub fn compile_program_with_spans_and_source(
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
     for val in vals {
-        let core = crate::lower::lower_with_spans(val, span_map)?;
+        let core = crate::lower::lower(val, Some(span_map))?;
         let core = crate::optimize::optimize(core);
         let (res, n) = crate::resolve::resolve_with_locals(&core)?;
         total_locals = total_locals.max(n);
         resolved.push(res);
     }
-    let result = crate::compiler::compile_many_with_locals(&resolved, total_locals)?;
+    let result = crate::compiler::compile(&resolved, total_locals, None)?;
 
     let functions: Vec<Rc<Function>> = result
         .functions
@@ -2184,17 +2229,31 @@ pub fn snap_breakpoint_line(requested: u32, valid_lines: &[u32]) -> Option<u32> 
     }
 }
 
-pub fn compile_program(vals: &[Value]) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
+/// Result of compiling a program, ready for VM execution.
+#[derive(Debug)]
+pub struct CompiledProgram {
+    pub closure: Rc<Closure>,
+    pub functions: Vec<Rc<Function>>,
+    pub native_table: Vec<Spur>,
+}
+
+/// Compile a sequence of Value ASTs through the full pipeline.
+/// If `known_natives` is provided, global calls to those names emit CallNative
+/// for direct dispatch without env lookup at runtime.
+pub fn compile_program(
+    vals: &[Value],
+    known_natives: Option<std::collections::HashSet<Spur>>,
+) -> Result<CompiledProgram, SemaError> {
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
     for val in vals {
-        let core = crate::lower::lower(val)?;
+        let core = crate::lower::lower(val, None)?;
         let core = crate::optimize::optimize(core);
         let (res, n) = crate::resolve::resolve_with_locals(&core)?;
         total_locals = total_locals.max(n);
         resolved.push(res);
     }
-    let result = crate::compiler::compile_many_with_locals(&resolved, total_locals)?;
+    let result = crate::compiler::compile(&resolved, total_locals, known_natives)?;
 
     let functions: Vec<Rc<Function>> = result.functions.into_iter().map(Rc::new).collect();
     let closure = Rc::new(Closure {
@@ -2210,22 +2269,26 @@ pub fn compile_program(vals: &[Value]) -> Result<(Rc<Closure>, Vec<Rc<Function>>
         upvalues: Vec::new(),
     });
 
-    Ok((closure, functions))
-}
-
-/// Convenience: compile and run a string expression in the VM.
-pub fn eval_str(input: &str, globals: &Rc<Env>, ctx: &EvalContext) -> Result<Value, SemaError> {
-    let vals =
-        sema_reader::read_many(input).map_err(|e| SemaError::eval(format!("parse error: {e}")))?;
-    let (closure, functions) = compile_program(&vals)?;
-    let mut vm = VM::new(globals.clone(), functions);
-    vm.execute(closure, ctx)
+    Ok(CompiledProgram {
+        closure,
+        functions,
+        native_table: result.native_table,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use sema_core::{intern, NativeFn};
+
+    /// Convenience: compile and run a string expression in the VM.
+    fn eval_str(input: &str, globals: &Rc<Env>, ctx: &EvalContext) -> Result<Value, SemaError> {
+        let vals = sema_reader::read_many(input)
+            .map_err(|e| SemaError::eval(format!("parse error: {e}")))?;
+        let prog = compile_program(&vals, None)?;
+        let mut vm = VM::new(globals.clone(), prog.functions, &[])?;
+        vm.execute(prog.closure, ctx)
+    }
 
     fn make_test_env() -> Rc<Env> {
         let env = Rc::new(Env::new());
@@ -2793,7 +2856,7 @@ mod tests {
             func,
             upvalues: vec![],
         });
-        let mut vm = VM::new(globals, vec![]);
+        let mut vm = VM::new(globals, vec![], &[]).unwrap();
         let result = vm.execute(closure, &ctx).unwrap();
         assert_eq!(
             result,
@@ -2812,7 +2875,7 @@ mod tests {
 
         let input = "(+ 1 2)\n(+ 3 4)";
         let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
-        let (closure, functions) = compile_program_with_spans(&vals, &span_map).unwrap();
+        let (closure, functions) = compile_program_with_spans(&vals, &span_map, None).unwrap();
 
         let (event_tx, event_rx) = mpsc::channel();
         let (cmd_tx, cmd_rx) = mpsc::channel();
@@ -2823,7 +2886,7 @@ mod tests {
         cmd_tx.send(DebugCommand::Continue).unwrap();
         cmd_tx.send(DebugCommand::Continue).unwrap();
 
-        let mut vm = VM::new(globals, functions);
+        let mut vm = VM::new(globals, functions, &[]).unwrap();
         let result = vm.execute_debug(closure, &ctx, &mut debug_state).unwrap();
         assert_eq!(result, Value::int(7));
 
@@ -2866,7 +2929,7 @@ mod tests {
             func,
             upvalues: vec![],
         });
-        let mut vm = VM::new(globals, vec![]);
+        let mut vm = VM::new(globals, vec![], &[]).unwrap();
         let result = vm.execute(closure, &ctx);
         assert!(
             result.is_err(),
@@ -2890,10 +2953,9 @@ mod tests {
         let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
         let source_file = PathBuf::from("<test>");
         let (closure, functions) =
-            compile_program_with_spans_and_source(&vals, &span_map, Some(source_file.clone()))
-                .unwrap();
+            compile_program_with_spans(&vals, &span_map, Some(source_file.clone())).unwrap();
 
-        let mut vm = VM::new(globals, functions);
+        let mut vm = VM::new(globals, functions, &[]).unwrap();
         let mut debug = DebugState::new_headless();
 
         // Set breakpoint on line 1 (the only line)
@@ -2929,7 +2991,7 @@ mod tests {
         // Verify that valid_breakpoint_lines correctly extracts lines with spans
         let code = "(+ 1 2)\n\n; comment\n(+ 3 4)";
         let (vals, span_map) = sema_reader::read_many_with_spans(code).unwrap();
-        let (closure, functions) = compile_program_with_spans(&vals, &span_map).unwrap();
+        let (closure, functions) = compile_program_with_spans(&vals, &span_map, None).unwrap();
         let lines = valid_breakpoint_lines(&closure, &functions);
 
         assert!(lines.contains(&1), "line 1 (expr) should be valid");
@@ -2964,7 +3026,7 @@ mod tests {
         // A breakpoint on a bare literal line should snap to the nearest line with spans.
         let code = "\"hello\"\n42\n(+ 1 2)";
         let (vals, span_map) = sema_reader::read_many_with_spans(code).unwrap();
-        let (closure, functions) = compile_program_with_spans(&vals, &span_map).unwrap();
+        let (closure, functions) = compile_program_with_spans(&vals, &span_map, None).unwrap();
         let valid = valid_breakpoint_lines(&closure, &functions);
 
         // Lines 1 and 2 are bare literals — no spans
@@ -3002,7 +3064,7 @@ mod tests {
     fn test_spans_in_compiled_chunks() {
         let input = "(+ 1 2)\n(+ 3 4)";
         let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
-        let (closure, _functions) = compile_program_with_spans(&vals, &span_map).unwrap();
+        let (closure, _functions) = compile_program_with_spans(&vals, &span_map, None).unwrap();
         assert!(
             !closure.func.chunk.spans.is_empty(),
             "spans should be populated"
@@ -3043,7 +3105,7 @@ mod tests {
             func,
             upvalues: vec![],
         });
-        let mut vm = VM::new(globals, vec![]);
+        let mut vm = VM::new(globals, vec![], &[]).unwrap();
         let result = vm.execute(closure, &ctx).unwrap();
         assert_eq!(
             result,

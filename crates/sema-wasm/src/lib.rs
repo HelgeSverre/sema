@@ -1952,7 +1952,7 @@ impl WasmInterpreter {
         // Compile with spans and source file for breakpoint matching
         let source_file = std::path::PathBuf::from("<playground>");
         let span_map = self.inner.ctx.span_table.borrow().clone();
-        let (closure, functions) = match sema_vm::compile_program_with_spans_and_source(
+        let (closure, functions) = match sema_vm::compile_program_with_spans(
             &expanded,
             &span_map,
             Some(source_file.clone()),
@@ -1970,7 +1970,10 @@ impl WasmInterpreter {
             .filter_map(|&line| sema_vm::snap_breakpoint_line(line, &valid_lines))
             .collect();
 
-        let mut vm = sema_vm::VM::new(self.inner.global_env.clone(), functions);
+        let mut vm = match sema_vm::VM::new(self.inner.global_env.clone(), functions, &[]) {
+            Ok(vm) => vm,
+            Err(e) => return JsValue::from_str(&format!("VM init error: {e}")),
+        };
         let mut debug = sema_vm::DebugState::new_headless();
 
         // Set snapped breakpoints
@@ -2171,14 +2174,11 @@ impl WasmInterpreter {
 
         let source_file = std::path::PathBuf::from("<playground>");
         let span_map = self.inner.ctx.span_table.borrow().clone();
-        let (closure, functions) = match sema_vm::compile_program_with_spans_and_source(
-            &expanded,
-            &span_map,
-            Some(source_file),
-        ) {
-            Ok(r) => r,
-            Err(_) => return result,
-        };
+        let (closure, functions) =
+            match sema_vm::compile_program_with_spans(&expanded, &span_map, Some(source_file)) {
+                Ok(r) => r,
+                Err(_) => return result,
+            };
 
         for line in sema_vm::valid_breakpoint_lines(&closure, &functions) {
             result.push(&JsValue::from_f64(line as f64));

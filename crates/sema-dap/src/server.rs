@@ -498,22 +498,21 @@ fn backend_thread(
                     }
                 };
 
-                let (compiled_closure, functions) =
-                    match sema_vm::compile_program_with_spans_and_source(
-                        &vals,
-                        &span_map,
-                        Some(program.clone()),
-                    ) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            let _ = event_tx.blocking_send(DebugEvent::Output {
-                                category: "stderr".to_string(),
-                                output: format!("Compile error: {e}\n"),
-                            });
-                            let _ = event_tx.blocking_send(DebugEvent::Terminated);
-                            continue;
-                        }
-                    };
+                let (compiled_closure, functions) = match sema_vm::compile_program_with_spans(
+                    &vals,
+                    &span_map,
+                    Some(program.clone()),
+                ) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        let _ = event_tx.blocking_send(DebugEvent::Output {
+                            category: "stderr".to_string(),
+                            output: format!("Compile error: {e}\n"),
+                        });
+                        let _ = event_tx.blocking_send(DebugEvent::Terminated);
+                        continue;
+                    }
+                };
 
                 // Set up the interpreter environment (provides stdlib, LLM, prelude)
                 let interpreter = sema_eval::Interpreter::new();
@@ -534,7 +533,18 @@ fn backend_thread(
                 }
 
                 closure = Some(compiled_closure.clone());
-                let new_vm = sema_vm::VM::new(interpreter.global_env.clone(), functions);
+                let new_vm = match sema_vm::VM::new(interpreter.global_env.clone(), functions, &[])
+                {
+                    Ok(vm) => vm,
+                    Err(e) => {
+                        let _ = event_tx.blocking_send(DebugEvent::Output {
+                            category: "stderr".to_string(),
+                            output: format!("VM init error: {e}\n"),
+                        });
+                        let _ = event_tx.blocking_send(DebugEvent::Terminated);
+                        continue;
+                    }
+                };
 
                 // Forward debug events from std_mpsc to tokio_mpsc in a separate thread
                 let event_tx_fwd = event_tx.clone();

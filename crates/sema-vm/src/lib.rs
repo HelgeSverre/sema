@@ -13,9 +13,7 @@ pub mod serialize;
 pub mod vm;
 
 pub use chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
-pub use compiler::{
-    compile, compile_many, compile_many_with_locals, compile_with_locals, CompileResult,
-};
+pub use compiler::{compile, CompileResult};
 pub use core_expr::{
     CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry, ResolvedExpr, ResolvedLambda, VarRef,
     VarResolution,
@@ -26,12 +24,12 @@ pub use debug::{
 };
 pub use disasm::disassemble;
 pub use emit::Emitter;
-pub use lower::{lower, lower_with_spans};
+pub use lower::lower;
 pub use opcodes::Op;
 pub use optimize::optimize as optimize_expr;
-pub use resolve::{resolve, resolve_with_locals};
+pub use resolve::resolve_with_locals;
 pub use serialize::{deserialize_from_bytes, is_bytecode_file, serialize_to_bytes};
 pub use vm::{
-    compile_program, compile_program_with_spans, compile_program_with_spans_and_source,
-    snap_breakpoint_line, valid_breakpoint_lines, Closure, UpvalueCell, VM,
+    compile_program, compile_program_with_spans, snap_breakpoint_line, valid_breakpoint_lines,
+    Closure, CompiledProgram, UpvalueCell, VM,
 };

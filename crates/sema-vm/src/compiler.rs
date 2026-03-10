@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use sema_core::{intern, resolve as resolve_spur, SemaError, Spur, Value};
 
 use crate::chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
@@ -13,38 +15,53 @@ pub struct CompileResult {
     pub chunk: Chunk,
     /// All compiled function templates (referenced by MakeClosure func_id).
     pub functions: Vec<Function>,
+    /// Native function table: maps native_id (index) to global name Spur.
+    /// Used by CallNative opcode for direct dispatch without env lookup.
+    /// Empty when no known_natives were provided to the compiler.
+    pub native_table: Vec<Spur>,
+}
+
+impl CompileResult {
+    pub fn new(chunk: Chunk, functions: Vec<Function>) -> Self {
+        CompileResult {
+            chunk,
+            functions,
+            native_table: Vec::new(),
+        }
+    }
 }
 
 /// Maximum recursion depth for the compiler.
 /// This prevents native stack overflow from deeply nested expressions.
 const MAX_COMPILE_DEPTH: usize = 256;
 
-/// Compile a resolved expression tree into bytecode.
-pub fn compile(expr: &ResolvedExpr) -> Result<CompileResult, SemaError> {
-    compile_with_locals(expr, 0)
-}
-
-/// Compile a resolved expression tree into bytecode with a known top-level local count.
-pub fn compile_with_locals(expr: &ResolvedExpr, n_locals: u16) -> Result<CompileResult, SemaError> {
-    let mut compiler = Compiler::new();
-    compiler.n_locals = n_locals;
-    compiler.compile_expr(expr)?;
-    compiler.emit.emit_op(Op::Return);
-    let (chunk, functions) = compiler.finish();
-    Ok(CompileResult { chunk, functions })
-}
-
-/// Compile multiple top-level expressions into a single chunk.
-pub fn compile_many(exprs: &[ResolvedExpr]) -> Result<CompileResult, SemaError> {
-    compile_many_with_locals(exprs, 0)
-}
-
-/// Compile multiple top-level expressions with a known top-level local count.
-pub fn compile_many_with_locals(
+/// Compile resolved expressions into bytecode.
+///
+/// - `n_locals`: pre-allocated top-level local slots (from resolver)
+/// - `known_natives`: if provided, global calls to these names emit CallNative
+///   for direct dispatch without env lookup at runtime
+pub fn compile(
     exprs: &[ResolvedExpr],
     n_locals: u16,
+    known_natives: Option<HashSet<Spur>>,
 ) -> Result<CompileResult, SemaError> {
-    let mut compiler = Compiler::new();
+    let mut compiler = match known_natives {
+        Some(mut natives) => {
+            // Remove any names that are (re)defined in this program —
+            // user defines shadow the native, so CallNative would dispatch wrong.
+            for expr in exprs {
+                collect_defines(expr, &mut |spur| {
+                    natives.remove(&spur);
+                });
+            }
+            if natives.is_empty() {
+                Compiler::new()
+            } else {
+                Compiler::with_known_natives(natives)
+            }
+        }
+        None => Compiler::new(),
+    };
     compiler.n_locals = n_locals;
     for (i, expr) in exprs.iter().enumerate() {
         compiler.compile_expr(expr)?;
@@ -56,8 +73,26 @@ pub fn compile_many_with_locals(
         compiler.emit.emit_op(Op::Nil);
     }
     compiler.emit.emit_op(Op::Return);
-    let (chunk, functions) = compiler.finish();
-    Ok(CompileResult { chunk, functions })
+    let (chunk, functions, native_table) = compiler.finish();
+    Ok(CompileResult {
+        chunk,
+        functions,
+        native_table,
+    })
+}
+
+/// Walk resolved expressions and call `f` for every globally-defined name.
+/// Used to exclude user-defined names from the CallNative optimization.
+fn collect_defines(expr: &ResolvedExpr, f: &mut impl FnMut(Spur)) {
+    match expr {
+        ResolvedExpr::Define(spur, _) => f(*spur),
+        ResolvedExpr::Begin(exprs) => {
+            for e in exprs {
+                collect_defines(e, f);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Walk bytecode and add `offset` to all MakeClosure func_id operands.
@@ -123,6 +158,12 @@ struct Compiler {
     /// Current operand stack depth above locals (for exception handler stack restore).
     stack_height: u16,
     depth: usize,
+    /// Set of global names known to be native functions (for CallNative optimization).
+    known_natives: Option<HashSet<Spur>>,
+    /// Native function table: maps native_id (index) → Spur. Built during compilation.
+    native_table: Vec<Spur>,
+    /// Reverse lookup: Spur → native_id for deduplication.
+    native_id_map: hashbrown::HashMap<Spur, u16>,
 }
 
 impl Compiler {
@@ -134,14 +175,34 @@ impl Compiler {
             n_locals: 0,
             stack_height: 0,
             depth: 0,
+            known_natives: None,
+            native_table: Vec::new(),
+            native_id_map: hashbrown::HashMap::new(),
         }
     }
 
-    fn finish(self) -> (Chunk, Vec<Function>) {
+    fn with_known_natives(known_natives: HashSet<Spur>) -> Self {
+        let mut c = Self::new();
+        c.known_natives = Some(known_natives);
+        c
+    }
+
+    fn finish(self) -> (Chunk, Vec<Function>, Vec<Spur>) {
         let mut chunk = self.emit.into_chunk();
         chunk.n_locals = self.n_locals;
         chunk.exception_table = self.exception_entries;
-        (chunk, self.functions)
+        (chunk, self.functions, self.native_table)
+    }
+
+    /// Get or allocate a native_id for a given Spur.
+    fn get_native_id(&mut self, spur: Spur) -> u16 {
+        if let Some(&id) = self.native_id_map.get(&spur) {
+            return id;
+        }
+        let id = self.native_table.len() as u16;
+        self.native_table.push(spur);
+        self.native_id_map.insert(spur, id);
+        id
     }
 
     fn compile_expr(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
@@ -172,11 +233,7 @@ impl Compiler {
             ResolvedExpr::Let { bindings, body } => self.compile_let(bindings, body),
             ResolvedExpr::LetStar { bindings, body } => self.compile_let_star(bindings, body),
             ResolvedExpr::Letrec { bindings, body } => self.compile_letrec(bindings, body),
-            ResolvedExpr::NamedLet {
-                name,
-                bindings,
-                body,
-            } => self.compile_named_let(name, bindings, body),
+            // ResolvedExpr::NamedLet removed — desugared to Letrec+Lambda in lowering
             ResolvedExpr::Do(do_loop) => self.compile_do(do_loop),
             ResolvedExpr::Try {
                 body,
@@ -393,7 +450,7 @@ impl Compiler {
         inner.emit.emit_op(Op::Return);
 
         let func_id = self.functions.len() as u16;
-        let (mut chunk, mut child_functions) = inner.finish();
+        let (mut chunk, mut child_functions, _inner_natives) = inner.finish();
 
         // The inner compiler assigned func_ids starting from 0, but child functions
         // will be placed starting at func_id + 1 in our functions vec.
@@ -516,8 +573,8 @@ impl Compiler {
             }
         }
 
-        // Fused CALL_GLOBAL for non-tail calls to global functions.
-        // Tail calls can't use this because CALL_GLOBAL pushes a new frame
+        // Fused CALL_GLOBAL / CALL_NATIVE for non-tail calls to global functions.
+        // Tail calls can't use this because these opcodes push a new frame
         // (tail calls need to reuse the current frame).
         if !tail {
             if let ResolvedExpr::Var(vr) = func {
@@ -528,10 +585,23 @@ impl Compiler {
                         self.stack_height += 1;
                     }
                     let argc = args.len() as u16;
-                    self.emit.emit_op(Op::CallGlobal);
-                    self.emit.emit_u32(spur_to_u32(spur));
-                    self.emit.emit_u16(argc);
-                    // CALL_GLOBAL pops argc args, pushes 1 result
+
+                    // If this global is a known native function, emit CallNative
+                    // for direct dispatch (no env lookup at runtime).
+                    if self
+                        .known_natives
+                        .as_ref()
+                        .is_some_and(|s| s.contains(&spur))
+                    {
+                        let native_id = self.get_native_id(spur);
+                        self.emit.emit_op(Op::CallNative);
+                        self.emit.emit_u16(native_id);
+                        self.emit.emit_u16(argc);
+                    } else {
+                        self.emit.emit_op(Op::CallGlobal);
+                        self.emit.emit_u32(spur_to_u32(spur));
+                        self.emit.emit_u16(argc);
+                    }
                     self.stack_height -= argc;
                     return Ok(());
                 }
@@ -609,87 +679,7 @@ impl Compiler {
         self.compile_begin(body)
     }
 
-    fn compile_named_let(
-        &mut self,
-        name: &VarRef,
-        bindings: &[(VarRef, ResolvedExpr)],
-        body: &[ResolvedExpr],
-    ) -> Result<(), SemaError> {
-        // Named let is compiled as a local recursive function.
-        // The loop variable `name` is bound to a lambda that takes the binding params.
-        // 1. Create the lambda for the loop body
-        // 2. Bind it to `name`
-        // 3. Call it with initial values
-
-        // Build a synthetic ResolvedLambda for the loop body
-        let params: Vec<Spur> = bindings.iter().map(|(vr, _)| vr.name).collect();
-
-        // Compile the lambda body into a separate function
-        let mut inner = Compiler::new();
-        // The lambda needs locals for its params + the loop name
-        // The resolver has already set up the slots
-        let max_slot = bindings
-            .iter()
-            .map(|(vr, _)| match vr.resolution {
-                VarResolution::Local { slot } => slot + 1,
-                _ => 0,
-            })
-            .max()
-            .unwrap_or(0);
-        let name_slot = match name.resolution {
-            VarResolution::Local { slot } => slot + 1,
-            _ => 0,
-        };
-        inner.n_locals = max_slot.max(name_slot);
-
-        // Compile body
-        if body.is_empty() {
-            inner.emit.emit_op(Op::Nil);
-        } else {
-            for (i, expr) in body.iter().enumerate() {
-                inner.compile_expr(expr)?;
-                if i < body.len() - 1 {
-                    inner.emit.emit_op(Op::Pop);
-                }
-            }
-        }
-        inner.emit.emit_op(Op::Return);
-
-        let func_id = self.functions.len() as u16;
-        let (chunk, child_functions) = inner.finish();
-
-        let func = Function {
-            name: Some(name.name),
-            chunk,
-            upvalue_descs: Vec::new(),
-            arity: params.len() as u16,
-            has_rest: false,
-            local_names: Vec::new(),
-            source_file: None,
-        };
-        self.functions.push(func);
-        self.functions.extend(child_functions);
-
-        // Emit MakeClosure for the loop function
-        self.emit.emit_op(Op::MakeClosure);
-        self.emit.emit_u16(func_id);
-        // TODO: named-let doesn't support capturing outer variables yet
-        self.emit.emit_u16(0);
-
-        // Store the closure in the loop name's slot
-        self.compile_var_store(name);
-
-        // Now call it with the initial binding values
-        self.compile_var_load(name)?;
-        for (_, init) in bindings {
-            self.compile_expr(init)?;
-        }
-        let argc = bindings.len() as u16;
-        self.emit.emit_op(Op::Call);
-        self.emit.emit_u16(argc);
-
-        Ok(())
-    }
+    // compile_named_let removed — named-let is desugared to letrec+lambda in lowering (Decision #52).
 
     // --- Do loop ---
 
@@ -1151,23 +1141,24 @@ fn spur_to_u32(spur: Spur) -> u32 {
 mod tests {
     use super::*;
     use crate::lower::lower;
-    use crate::resolve::resolve;
+    use crate::resolve::resolve_with_locals;
 
     fn compile_str(input: &str) -> CompileResult {
         let val = sema_reader::read(input).unwrap();
-        let core = lower(&val).unwrap();
-        let resolved = resolve(&core).unwrap();
-        compile(&resolved).unwrap()
+        let core = lower(&val, None).unwrap();
+        let (resolved, _) = resolve_with_locals(&core).unwrap();
+        compile(&[resolved], 0, None).unwrap()
     }
 
     fn compile_many_str(input: &str) -> CompileResult {
         let vals = sema_reader::read_many(input).unwrap();
         let mut resolved = Vec::new();
         for val in &vals {
-            let core = lower(val).unwrap();
-            resolved.push(resolve(&core).unwrap());
+            let core = lower(val, None).unwrap();
+            let (res, _) = resolve_with_locals(&core).unwrap();
+            resolved.push(res);
         }
-        compile_many(&resolved).unwrap()
+        compile(&resolved, 0, None).unwrap()
     }
 
     /// Extract just the opcode bytes from a chunk, skipping operands.
@@ -1743,7 +1734,7 @@ mod tests {
 
     #[test]
     fn test_compile_many_empty() {
-        let result = compile_many(&[]).unwrap();
+        let result = compile(&[], 0, None).unwrap();
         let ops = extract_ops(&result.chunk);
         assert_eq!(ops, vec![Op::Nil, Op::Return]);
     }
@@ -1813,7 +1804,7 @@ mod tests {
         for _ in 0..300 {
             expr = ResolvedExpr::Begin(vec![expr]);
         }
-        let result = compile(&expr);
+        let result = compile(&[expr], 0, None);
         let err = result.err().expect("expected compilation to fail");
         let msg = err.to_string();
         assert!(

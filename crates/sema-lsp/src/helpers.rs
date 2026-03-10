@@ -152,7 +152,7 @@ pub fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
 /// Run the VM compilation pipeline on parsed expressions to catch
 /// deeper errors (unbound variables, arity mismatches, invalid forms).
 pub fn compile_diagnostics(exprs: &[sema_core::Value]) -> Vec<Diagnostic> {
-    match sema_vm::compile_program(exprs) {
+    match sema_vm::compile_program(exprs, None) {
         Ok(_) => vec![],
         Err(err) => vec![error_diagnostic(&err, DiagnosticSeverity::WARNING)],
     }

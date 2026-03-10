@@ -16,26 +16,26 @@ thread_local! {
 }
 
 /// Lower a Value AST into CoreExpr IR.
-pub fn lower(expr: &Value) -> Result<CoreExpr, SemaError> {
-    lower_expr(expr, false)
-}
-
-/// Lower a Value AST into CoreExpr IR, attaching source spans from the SpanMap.
-pub fn lower_with_spans(expr: &Value, span_map: &SpanMap) -> Result<CoreExpr, SemaError> {
-    SPAN_MAP.with(|sm| {
-        *sm.borrow_mut() = Some(span_map.clone());
-    });
-    // Guard ensures SPAN_MAP is cleared even on panic
-    struct SpanMapGuard;
-    impl Drop for SpanMapGuard {
-        fn drop(&mut self) {
-            SPAN_MAP.with(|sm| {
-                *sm.borrow_mut() = None;
-            });
+/// If `span_map` is provided, attaches source spans for debug support.
+pub fn lower(expr: &Value, span_map: Option<&SpanMap>) -> Result<CoreExpr, SemaError> {
+    if let Some(sm) = span_map {
+        SPAN_MAP.with(|cell| {
+            *cell.borrow_mut() = Some(sm.clone());
+        });
+        // Guard ensures SPAN_MAP is cleared even on panic
+        struct SpanMapGuard;
+        impl Drop for SpanMapGuard {
+            fn drop(&mut self) {
+                SPAN_MAP.with(|cell| {
+                    *cell.borrow_mut() = None;
+                });
+            }
         }
+        let _guard = SpanMapGuard;
+        lower_expr(expr, false)
+    } else {
+        lower_expr(expr, false)
     }
-    let _guard = SpanMapGuard;
-    lower_expr(expr, false)
 }
 
 /// Look up the span for a list Value using its Rc pointer identity.
@@ -1555,7 +1555,7 @@ mod tests {
     }
 
     fn lower_str(input: &str) -> CoreExpr {
-        lower(&parse(input)).unwrap()
+        lower(&parse(input), None).unwrap()
     }
 
     #[test]
@@ -2100,7 +2100,7 @@ mod tests {
         for _ in 0..600 {
             expr = Value::list(vec![Value::symbol("begin"), expr]);
         }
-        let result = lower(&expr);
+        let result = lower(&expr, None);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("depth"), "expected depth error, got: {err}");
