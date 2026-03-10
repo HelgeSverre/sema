@@ -96,7 +96,7 @@ The compiler (`compiler.rs`) transforms `ResolvedExpr` into bytecode `Chunk`s. T
 | `force`                                                   | `__vm-force`                                                 |
 | `prompt`, `message`, `deftool`, `defagent`, `macroexpand` | Corresponding `__vm-*` delegates                             |
 
-**Public API**: `compile()`, `compile_many()`, `compile_with_locals()`, `compile_many_with_locals()` — all return `CompileResult { chunk, functions }`.
+**Public API**: `compile(exprs, n_locals, known_natives)` returns `CompileResult { chunk, functions, native_table }`. When `known_natives` is provided, calls to those globals emit `CallNative` for direct dispatch.
 
 ### Compiler Optimizations
 
@@ -123,7 +123,7 @@ CallFrame { closure: Rc<Closure>, pc: usize, base: usize, open_upvalues: Vec<Opt
 - **Upvalue cells**: `UpvalueCell` with `Rc<RefCell<Value>>` for shared mutable state — `StoreLocal` syncs to open upvalue cells, `LoadLocal` reads from cells when present.
 - **Exception handling**: `Throw` opcode triggers handler search via the chunk's exception table. Stack is restored to saved depth, error value pushed, PC jumps to handler.
 
-**Entry points**: `VM::execute()` takes a closure and `EvalContext`. `eval_str()` is a convenience that parses, compiles, and runs. `compile_program()` is the shared pipeline: `Value AST → lower → resolve → compile → (Closure, Vec<Function>)`.
+**Entry points**: `VM::execute()` takes a closure and `EvalContext`. `compile_program()` is the pipeline for normal compilation: `Value AST → lower → optimize → resolve → compile → CompiledProgram`. `compile_program_with_spans()` adds span/source-file support for debug (DAP breakpoints).
 
 ### VM Optimizations
 
@@ -179,7 +179,7 @@ The VM uses a stack-based instruction set with variable-length encoding. Each op
 | `TailCall`    | u16 argc                         | Tail call (reuse frame for TCO)       |
 | `Return`      | —                                | Return top of stack                   |
 | `MakeClosure` | u16 func_id, u16 n_upvalues, ... | Create closure from function template |
-| `CallNative`  | u16 native_id, u16 argc          | Direct native function call           |
+| `CallNative`  | u16 native_id, u16 argc          | Direct native function call (no env lookup) |
 | `CallGlobal`  | u32 spur, u16 argc               | Fused global lookup + call            |
 
 ### Data Constructors
@@ -223,7 +223,7 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 
 | File           | Purpose                                                           |
 | -------------- | ----------------------------------------------------------------- |
-| `opcodes.rs`   | `Op` enum — 66 bytecode opcodes                                   |
+| `opcodes.rs`   | `Op` enum — 64 bytecode opcodes                                   |
 | `chunk.rs`     | `Chunk` (bytecode + constants + spans), `Function`, `UpvalueDesc` |
 | `emit.rs`      | `Emitter` — bytecode builder with jump backpatching               |
 | `disasm.rs`    | Human-readable bytecode disassembler                              |
@@ -237,12 +237,8 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 
 ## Current Limitations
 
-- VM closures create a fresh VM per call (no true TCO across closure boundaries)
-- `try`/`catch` doesn't catch runtime errors from native functions (e.g., division by zero)
-- `try`/`catch` error value format may differ from tree-walker
-- `define-record-type` bindings not visible to subsequent compiled code
 - The compiler emits inline opcodes for common builtins (`+`, `-`, `*`, `/`, `<`, `>`, `<=`, `>=`, `=`, `not`, `car`/`first`, `cdr`/`rest`, `cons`, `null?`, `pair?`, `list?`, `number?`, `string?`, `symbol?`, `length`) via intrinsic recognition. If a user redefines these globals, the intrinsic will still fire (these are treated as non-rebindable primitives).
-- `CallNative` opcode is defined but not yet used (no native function registry)
+- `CallNative` optimization requires passing `known_natives` at compile time (done automatically by `eval_str_compiled`); without it, all global calls use `CallGlobal`
 
 ## CLI Usage
 

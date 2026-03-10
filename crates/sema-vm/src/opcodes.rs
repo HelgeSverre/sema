@@ -39,7 +39,7 @@ pub enum Op {
     // Closures
     MakeClosure, // u16 func_id, u16 n_upvalues, then n * (u16 is_local, u16 idx)
 
-    // Native function calls (fast path)
+    // Native function call fast path — direct dispatch without env lookup
     CallNative, // u16 native_id, u16 argc
 
     // Data constructors
@@ -329,4 +329,6 @@ pub mod op {
     pub const SIZE_OP_U32: usize = 5;
     /// Size of CALL_GLOBAL: 1 + u32 spur + u16 argc = 7
     pub const SIZE_CALL_GLOBAL: usize = 7;
+    /// Size of CALL_NATIVE: 1 + u16 native_id + u16 argc = 5
+    pub const SIZE_CALL_NATIVE: usize = 5;
 }

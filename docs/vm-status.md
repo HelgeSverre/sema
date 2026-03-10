@@ -1,16 +1,14 @@
 # Bytecode VM Status
 
-> Last updated: 2026-02-24 (v1.11.0)
+> Last updated: 2026-03-10 (v1.12.0+)
 
 ## Current State
 
 The bytecode VM (`sema-vm` crate) is opt-in via `--vm` CLI flag. All known bugs are **fixed**. The VM is mature and passes all dual-eval tests — both backends produce identical results for all pure-computation features.
 
-- **sema-vm unit tests:** 261 passing
-- **VM integration tests:** 142 passing
-- **Dual-eval tests:** 1,057 test cases × 2 backends = 2,114 individual tests
-- **Examples:** 54/54 passing via `--vm`
-- **Total project tests:** 3,700+ passing, 0 failures
+- **sema-vm unit tests:** 269 passing
+- **Dual-eval tests:** 812 test cases × 2 backends across 9 test files
+- **Total project tests:** 4,300+ passing, 0 failures
 
 ## Architecture
 
@@ -34,7 +32,7 @@ Source → Reader → Macro Expand → Lower (CoreExpr) → Optimize → Resolve
 
 ## Opcodes
 
-46 opcodes across 7 categories:
+64 opcodes across 8 categories:
 
 - **Stack/constants:** Const, Nil, True, False, Pop, Dup
 - **Variables:** LoadLocal(0-3), StoreLocal(0-3), LoadUpvalue, StoreUpvalue, LoadGlobal, StoreGlobal, DefineGlobal
@@ -47,13 +45,13 @@ Source → Reader → Macro Expand → Lower (CoreExpr) → Optimize → Resolve
 
 ## Resolved Bugs
 
-All 7 known bugs are fixed:
+All 8 known bugs are fixed:
 
 | Bug                                                     | Problem                                                                                                            | Fix                                                                                             |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
 | **1. Self-ref injection corrupting locals**             | `make_closure` wrote a NativeFn self-reference into a local slot for all named functions, not just named-let loops | Desugar named-let to `letrec` + `lambda` in `lower.rs`, eliminating self-ref injection entirely |
 | **2. Missing arity checking**                           | NativeFn wrapper silently filled missing args with Nil and ignored extras                                          | Added strict arity validation in both the NativeFn fallback wrapper and `call_vm_closure`       |
-| **3. compile_named_let missing func_id patch/upvalues** | Named-let didn't patch child func_ids or support upvalues                                                          | Same named-let desugaring as Bug 1 — `compile_named_let` is no longer needed                    |
+| **3. compile_named_let missing func_id patch/upvalues** | Named-let didn't patch child func_ids or support upvalues                                                          | Same named-let desugaring as Bug 1 — `compile_named_let` and `NamedLet` variants fully removed  |
 | **4. Fresh VM per closure → stack overflow**            | Each closure call created `VM::new()` + `vm.run()`, exhausting the Rust stack after ~200-500 calls                 | Same-VM execution via opaque payload in NativeFn (see Architecture above)                       |
 | **5. Recursive inner define**                           | `(define (f) (define (g) (g)) (g))` failed — resolver resolved lambda body before defining local slot              | Fixed in resolver: allocate local slot before resolving RHS                                     |
 | **6. delay/force not capturing lexical vars**           | `(define (f a) (delay a))` failed — delay passed raw AST, tree-walker couldn't see VM locals                       | Fixed: delay now lowers to zero-arg lambda thunk that captures lexical environment              |
