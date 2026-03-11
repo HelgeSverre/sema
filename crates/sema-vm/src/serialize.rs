@@ -404,9 +404,10 @@ pub fn serialize_chunk(
         buf.extend_from_slice(&end_col.to_le_bytes());
     }
 
-    // max_stack, n_locals
+    // max_stack, n_locals, n_global_cache_slots
     buf.extend_from_slice(&chunk.max_stack.to_le_bytes());
     buf.extend_from_slice(&chunk.n_locals.to_le_bytes());
+    buf.extend_from_slice(&chunk.n_global_cache_slots.to_le_bytes());
 
     // exception table
     let n_exceptions = checked_u16(chunk.exception_table.len(), "exception table size")?;
@@ -467,9 +468,10 @@ pub fn deserialize_chunk(
         spans.push((pc, Span::new(line, col, end_line, end_col)));
     }
 
-    // max_stack, n_locals
+    // max_stack, n_locals, n_global_cache_slots
     let max_stack = read_u16_le(buf, cursor)?;
     let n_locals = read_u16_le(buf, cursor)?;
+    let n_global_cache_slots = read_u16_le(buf, cursor)?;
 
     // exception table
     let n_exceptions = read_u16_le(buf, cursor)? as usize;
@@ -496,6 +498,7 @@ pub fn deserialize_chunk(
         max_stack,
         n_locals,
         exception_table,
+        n_global_cache_slots,
     })
 }
 
@@ -631,6 +634,7 @@ pub fn deserialize_function(
         has_rest,
         local_names,
         source_file: None,
+        cache_offset: 0,
     })
 }
 
@@ -657,10 +661,11 @@ fn advance_pc(code: &[u8], pc: usize) -> Result<(Op, usize), SemaError> {
         )));
     };
     let next = match op {
-        Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => pc + 5, // op + u32
-        Op::CallGlobal => pc + 7,                                      // op + u32 + u16
-        Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => pc + 5,         // op + i32
-        Op::CallNative => pc + 5,                                      // op + u16 + u16
+        Op::StoreGlobal | Op::DefineGlobal => pc + 5, // op + u32
+        Op::LoadGlobal => pc + 7,                     // op + u32 + u16 cache_slot
+        Op::CallGlobal => pc + 9,                     // op + u32 + u16 + u16 cache_slot
+        Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => pc + 5, // op + i32
+        Op::CallNative => pc + 5,                     // op + u16 + u16
         Op::MakeClosure => {
             if pc + 5 > code.len() {
                 return Err(SemaError::eval(format!(
@@ -755,7 +760,7 @@ pub fn remap_indices_to_spurs(code: &mut [u8], remap: &[Spur]) -> Result<(), Sem
 // ── File format constants ─────────────────────────────────────────
 
 const MAGIC: [u8; 4] = [0x00, b'S', b'E', b'M'];
-const FORMAT_VERSION: u16 = 1;
+const FORMAT_VERSION: u16 = 2;
 const SECTION_STRING_TABLE: u16 = 0x01;
 const SECTION_FUNCTION_TABLE: u16 = 0x02;
 const SECTION_MAIN_CHUNK: u16 = 0x03;
@@ -1500,6 +1505,7 @@ mod tests {
         let mut e = Emitter::new();
         e.emit_op(Op::LoadGlobal);
         e.emit_u32(spur_to_u32(spur));
+        e.emit_u16(0); // cache_slot
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
 
@@ -1533,6 +1539,7 @@ mod tests {
         let mut e = Emitter::new();
         e.emit_op(Op::LoadGlobal);
         e.emit_u32(spur_to_u32(spur_a));
+        e.emit_u16(0); // cache_slot
         e.emit_op(Op::DefineGlobal);
         e.emit_u32(spur_to_u32(spur_b));
         e.emit_op(Op::Return);
@@ -1557,10 +1564,10 @@ mod tests {
         assert_eq!(sema_core::resolve(u32_to_spur(bits_a)), "alpha");
 
         let bits_b = u32::from_le_bytes([
-            chunk2.code[6],
-            chunk2.code[7],
             chunk2.code[8],
             chunk2.code[9],
+            chunk2.code[10],
+            chunk2.code[11],
         ]);
         assert_eq!(sema_core::resolve(u32_to_spur(bits_b)), "beta");
     }
@@ -1585,6 +1592,7 @@ mod tests {
             has_rest: true,
             local_names: vec![(0, intern("x")), (1, intern("y"))],
             source_file: None,
+            cache_offset: 0,
         };
 
         let mut buf = Vec::new();
@@ -1623,6 +1631,7 @@ mod tests {
             has_rest: false,
             local_names: vec![],
             source_file: None,
+            cache_offset: 0,
         };
 
         let mut buf = Vec::new();
@@ -1686,6 +1695,7 @@ mod tests {
             has_rest: false,
             local_names: vec![(0, intern("x"))],
             source_file: None,
+            cache_offset: 0,
         };
 
         let result = CompileResult::new(chunk, vec![func]);
@@ -1761,9 +1771,11 @@ mod tests {
         // (println my-var) — load both globals
         e.emit_op(Op::LoadGlobal);
         e.emit_u32(spur_to_u32(spur_print));
+        e.emit_u16(0); // cache_slot
         e.emit_op(Op::LoadGlobal);
         e.emit_u32(spur_to_u32(spur_x));
-        // symbol and keyword in constant pool
+        e.emit_u16(1); // cache_slot
+                       // symbol and keyword in constant pool
         e.emit_const(Value::symbol("test-sym"));
         e.emit_const(Value::keyword("test-kw"));
         e.emit_op(Op::Return);
@@ -1848,7 +1860,7 @@ mod tests {
         // Valid header but n_sections=0 → missing all required sections
         let mut bytes = vec![0u8; 24];
         bytes[0..4].copy_from_slice(&[0x00, b'S', b'E', b'M']);
-        bytes[4..6].copy_from_slice(&1u16.to_le_bytes()); // format version 1
+        bytes[4..6].copy_from_slice(&2u16.to_le_bytes()); // format version 2
         bytes[14..16].copy_from_slice(&0u16.to_le_bytes()); // 0 sections
         let result = deserialize_from_bytes(&bytes);
         match &result {
@@ -2043,7 +2055,7 @@ mod tests {
         let mut bad_bytes = Vec::new();
         // Header
         bad_bytes.extend_from_slice(&[0x00, b'S', b'E', b'M']); // magic
-        bad_bytes.extend_from_slice(&1u16.to_le_bytes()); // format version
+        bad_bytes.extend_from_slice(&2u16.to_le_bytes()); // format version
         bad_bytes.extend_from_slice(&0u16.to_le_bytes()); // flags
         bad_bytes.extend_from_slice(&0u16.to_le_bytes()); // sema_major
         bad_bytes.extend_from_slice(&0u16.to_le_bytes()); // sema_minor
@@ -2077,6 +2089,7 @@ mod tests {
         chunk_data.extend_from_slice(&0u32.to_le_bytes()); // n_spans = 0
         chunk_data.extend_from_slice(&0u16.to_le_bytes()); // max_stack
         chunk_data.extend_from_slice(&0u16.to_le_bytes()); // n_locals
+        chunk_data.extend_from_slice(&0u16.to_le_bytes()); // n_global_cache_slots
         chunk_data.extend_from_slice(&0u16.to_le_bytes()); // n_exceptions
         bad_bytes.extend_from_slice(&0x03u16.to_le_bytes());
         bad_bytes.extend_from_slice(&(chunk_data.len() as u32).to_le_bytes());
@@ -2119,7 +2132,7 @@ mod tests {
 
         let mut out = Vec::new();
         out.extend_from_slice(&[0x00, b'S', b'E', b'M']);
-        out.extend_from_slice(&1u16.to_le_bytes());
+        out.extend_from_slice(&2u16.to_le_bytes()); // format version 2
         out.extend_from_slice(&0u16.to_le_bytes());
         out.extend_from_slice(&0u16.to_le_bytes());
         out.extend_from_slice(&0u16.to_le_bytes());
@@ -2164,6 +2177,7 @@ mod tests {
             max_stack: 1,
             n_locals: 0,
             exception_table: vec![],
+            n_global_cache_slots: 0,
         };
 
         let result = CompileResult::new(chunk, vec![]);

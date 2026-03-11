@@ -325,10 +325,12 @@ pub mod op {
     pub const SIZE_OP: usize = 1;
     /// Size of an instruction with a u16 operand (e.g., CALL, LOAD_LOCAL): 1 + 2 = 3
     pub const SIZE_OP_U16: usize = 3;
-    /// Size of an instruction with a u32 operand (e.g., LOAD_GLOBAL): 1 + 4 = 5
+    /// Size of an instruction with a u32 operand (e.g., STORE_GLOBAL, DEFINE_GLOBAL): 1 + 4 = 5
     pub const SIZE_OP_U32: usize = 5;
-    /// Size of CALL_GLOBAL: 1 + u32 spur + u16 argc = 7
-    pub const SIZE_CALL_GLOBAL: usize = 7;
+    /// Size of LOAD_GLOBAL: 1 + u32 spur + u16 cache_slot = 7
+    pub const SIZE_LOAD_GLOBAL: usize = 7;
+    /// Size of CALL_GLOBAL: 1 + u32 spur + u16 argc + u16 cache_slot = 9
+    pub const SIZE_CALL_GLOBAL: usize = 9;
     /// Size of CALL_NATIVE: 1 + u16 native_id + u16 argc = 5
     pub const SIZE_CALL_NATIVE: usize = 5;
 }

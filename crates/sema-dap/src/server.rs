@@ -498,7 +498,7 @@ fn backend_thread(
                     }
                 };
 
-                let (compiled_closure, functions) = match sema_vm::compile_program_with_spans(
+                let prog = match sema_vm::compile_program_with_spans(
                     &vals,
                     &span_map,
                     Some(program.clone()),
@@ -532,9 +532,13 @@ fn backend_thread(
                     ds.set_breakpoints(&file, &lines);
                 }
 
-                closure = Some(compiled_closure.clone());
-                let new_vm = match sema_vm::VM::new(interpreter.global_env.clone(), functions, &[])
-                {
+                closure = Some(prog.closure.clone());
+                let new_vm = match sema_vm::VM::new(
+                    interpreter.global_env.clone(),
+                    prog.functions,
+                    &[],
+                    prog.main_cache_slots,
+                ) {
                     Ok(vm) => vm,
                     Err(e) => {
                         let _ = event_tx.blocking_send(DebugEvent::Output {

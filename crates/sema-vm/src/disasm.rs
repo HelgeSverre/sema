@@ -130,7 +130,21 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
                 pc += 3;
             }
 
-            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => {
+            Op::LoadGlobal => {
+                let spur_bits = read_u32(code, pc + 1);
+                let cache_slot = read_u16(code, pc + 5);
+                let spur = unsafe { std::mem::transmute::<u32, lasso::Spur>(spur_bits) };
+                let name_str = resolve(spur);
+                writeln!(
+                    out,
+                    "{pc:04}  {:<16} {spur_bits:<4} cache={cache_slot} ; {name_str}",
+                    op_name(op)
+                )
+                .unwrap();
+                pc += 7;
+            }
+
+            Op::StoreGlobal | Op::DefineGlobal => {
                 let spur_bits = read_u32(code, pc + 1);
                 let spur = unsafe { std::mem::transmute::<u32, lasso::Spur>(spur_bits) };
                 let name_str = resolve(spur);
@@ -195,15 +209,16 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
             Op::CallGlobal => {
                 let spur_bits = read_u32(code, pc + 1);
                 let argc = read_u16(code, pc + 5);
+                let cache_slot = read_u16(code, pc + 7);
                 let spur = unsafe { std::mem::transmute::<u32, lasso::Spur>(spur_bits) };
                 let name_str = resolve(spur);
                 writeln!(
                     out,
-                    "{pc:04}  {:<16} {spur_bits:<4} argc={argc} ; {name_str}",
+                    "{pc:04}  {:<16} {spur_bits:<4} argc={argc} cache={cache_slot} ; {name_str}",
                     op_name(op)
                 )
                 .unwrap();
-                pc += 7;
+                pc += 9;
             }
 
             Op::MakeList | Op::MakeVector | Op::MakeMap | Op::MakeHashMap => {
@@ -306,6 +321,7 @@ mod tests {
         let mut e = Emitter::new();
         e.emit_op(Op::LoadGlobal);
         e.emit_u32(bits);
+        e.emit_u16(0); // cache_slot
         e.emit_op(Op::DefineGlobal);
         e.emit_u32(bits);
         e.emit_op(Op::StoreGlobal);
@@ -356,6 +372,7 @@ mod tests {
         e.emit_op(Op::CallGlobal);
         e.emit_u32(bits);
         e.emit_u16(1); // argc
+        e.emit_u16(0); // cache_slot
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
         let output = disassemble(&chunk, Some("call_global"));

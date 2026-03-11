@@ -131,11 +131,14 @@ fn patch_closure_func_ids(chunk: &mut Chunk, offset: u16) {
             Op::CallNative => {
                 pc += 1 + 2 + 2; // op + u16 native_id + u16 argc
             }
-            Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => {
+            Op::StoreGlobal | Op::DefineGlobal => {
                 pc += 1 + 4; // op + u32
             }
+            Op::LoadGlobal => {
+                pc += 1 + 4 + 2; // op + u32 spur + u16 cache_slot
+            }
             Op::CallGlobal => {
-                pc += 1 + 4 + 2; // op + u32 spur + u16 argc
+                pc += 1 + 4 + 2 + 2; // op + u32 spur + u16 argc + u16 cache_slot
             }
             Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => {
                 pc += 1 + 4; // op + i32
@@ -162,6 +165,8 @@ struct Compiler {
     native_table: Vec<Spur>,
     /// Reverse lookup: Spur → native_id for deduplication.
     native_id_map: hashbrown::HashMap<Spur, u16>,
+    /// Next inline cache slot to allocate for LoadGlobal/CallGlobal instructions.
+    next_cache_slot: u16,
 }
 
 impl Compiler {
@@ -176,6 +181,7 @@ impl Compiler {
             known_natives: None,
             native_table: Vec::new(),
             native_id_map: hashbrown::HashMap::new(),
+            next_cache_slot: 0,
         }
     }
 
@@ -189,7 +195,32 @@ impl Compiler {
         let mut chunk = self.emit.into_chunk();
         chunk.n_locals = self.n_locals;
         chunk.exception_table = self.exception_entries;
+        chunk.n_global_cache_slots = self.next_cache_slot;
         (chunk, self.functions, self.native_table)
+    }
+
+    /// Allocate a cache slot and return its index.
+    fn alloc_cache_slot(&mut self) -> u16 {
+        let slot = self.next_cache_slot;
+        self.next_cache_slot = self.next_cache_slot.wrapping_add(1);
+        slot
+    }
+
+    /// Emit a LoadGlobal instruction with an inline cache slot.
+    fn emit_load_global(&mut self, spur: Spur) {
+        let cache_slot = self.alloc_cache_slot();
+        self.emit.emit_op(Op::LoadGlobal);
+        self.emit.emit_u32(spur_to_u32(spur));
+        self.emit.emit_u16(cache_slot);
+    }
+
+    /// Emit a CallGlobal instruction with an inline cache slot.
+    fn emit_call_global(&mut self, spur: Spur, argc: u16) {
+        let cache_slot = self.alloc_cache_slot();
+        self.emit.emit_op(Op::CallGlobal);
+        self.emit.emit_u32(spur_to_u32(spur));
+        self.emit.emit_u16(argc);
+        self.emit.emit_u16(cache_slot);
     }
 
     /// Get or allocate a native_id for a given Spur.
@@ -325,8 +356,7 @@ impl Compiler {
                 self.emit.emit_u16(index);
             }
             VarResolution::Global { spur } => {
-                self.emit.emit_op(Op::LoadGlobal);
-                self.emit.emit_u32(spur_to_u32(spur));
+                self.emit_load_global(spur);
             }
         }
         Ok(())
@@ -469,6 +499,7 @@ impl Compiler {
             has_rest: def.rest.is_some(),
             local_names: Vec::new(),
             source_file: None,
+            cache_offset: 0,
         };
         self.functions.push(func);
         self.functions.extend(child_functions);
@@ -596,9 +627,7 @@ impl Compiler {
                         self.emit.emit_u16(native_id);
                         self.emit.emit_u16(argc);
                     } else {
-                        self.emit.emit_op(Op::CallGlobal);
-                        self.emit.emit_u32(spur_to_u32(spur));
-                        self.emit.emit_u16(argc);
+                        self.emit_call_global(spur, argc);
                     }
                     self.stack_height -= argc;
                     return Ok(());
@@ -944,8 +973,7 @@ impl Compiler {
         // Defmacro at compile time — emit as a call to __vm-defmacro
         // For now, compile the body as a lambda and register it
         let param_vals: Vec<Value> = params.iter().map(|s| Value::symbol_from_spur(*s)).collect();
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-defmacro")));
+        self.emit_load_global(intern("__vm-defmacro"));
         self.emit.emit_const(Value::symbol_from_spur(name));
         self.emit.emit_const(Value::list(param_vals));
         if let Some(r) = rest {
@@ -970,9 +998,7 @@ impl Compiler {
     ) -> Result<(), SemaError> {
         // Emit as a call to __vm-define-record-type with all info as constants
         // Function must be pushed first (before args) to match VM calling convention
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit
-            .emit_u32(spur_to_u32(intern("__vm-define-record-type")));
+        self.emit_load_global(intern("__vm-define-record-type"));
         self.emit.emit_const(Value::symbol_from_spur(type_name));
         self.emit.emit_const(Value::symbol_from_spur(ctor_name));
         self.emit.emit_const(Value::symbol_from_spur(pred_name));
@@ -998,8 +1024,7 @@ impl Compiler {
 
     fn compile_prompt(&mut self, entries: &[PromptEntry<VarRef>]) -> Result<(), SemaError> {
         // Function must be pushed first (before args) to match VM calling convention
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-prompt")));
+        self.emit_load_global(intern("__vm-prompt"));
         // Compile each prompt entry and build a list
         for entry in entries {
             match entry {
@@ -1031,8 +1056,7 @@ impl Compiler {
         role: &ResolvedExpr,
         parts: &[ResolvedExpr],
     ) -> Result<(), SemaError> {
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-message")));
+        self.emit_load_global(intern("__vm-message"));
         self.compile_expr(role)?;
         for part in parts {
             self.compile_expr(part)?;
@@ -1051,8 +1075,7 @@ impl Compiler {
         parameters: &ResolvedExpr,
         handler: &ResolvedExpr,
     ) -> Result<(), SemaError> {
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-deftool")));
+        self.emit_load_global(intern("__vm-deftool"));
         self.emit.emit_const(Value::symbol_from_spur(name));
         self.compile_expr(description)?;
         self.compile_expr(parameters)?;
@@ -1063,8 +1086,7 @@ impl Compiler {
     }
 
     fn compile_defagent(&mut self, name: Spur, options: &ResolvedExpr) -> Result<(), SemaError> {
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-defagent")));
+        self.emit_load_global(intern("__vm-defagent"));
         self.emit.emit_const(Value::symbol_from_spur(name));
         self.compile_expr(options)?;
         self.emit.emit_op(Op::Call);
@@ -1076,8 +1098,7 @@ impl Compiler {
         // Delay wraps expr in a zero-arg lambda (thunk)
         // The resolver already handles this if lowered as a lambda,
         // but if it comes through as Delay, compile as a call to __vm-delay
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-delay")));
+        self.emit_load_global(intern("__vm-delay"));
         self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
@@ -1085,8 +1106,7 @@ impl Compiler {
     }
 
     fn compile_force(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-force")));
+        self.emit_load_global(intern("__vm-force"));
         self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
@@ -1094,8 +1114,7 @@ impl Compiler {
     }
 
     fn compile_macroexpand(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern("__vm-macroexpand")));
+        self.emit_load_global(intern("__vm-macroexpand"));
         self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
@@ -1105,8 +1124,7 @@ impl Compiler {
     // --- Helper: emit a call to a well-known runtime function ---
 
     fn emit_runtime_call(&mut self, name: &str, args: &[&ResolvedExpr]) -> Result<(), SemaError> {
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern(name)));
+        self.emit_load_global(intern(name));
         for arg in args {
             self.compile_expr(arg)?;
         }
@@ -1121,8 +1139,7 @@ impl Compiler {
         arg1: &ResolvedExpr,
         arg2: &Value,
     ) -> Result<(), SemaError> {
-        self.emit.emit_op(Op::LoadGlobal);
-        self.emit.emit_u32(spur_to_u32(intern(name)));
+        self.emit_load_global(intern(name));
         self.compile_expr(arg1)?;
         self.emit.emit_const(arg2.clone());
         self.emit.emit_op(Op::Call);
@@ -1182,8 +1199,9 @@ mod tests {
                 | Op::MakeVector
                 | Op::MakeMap
                 | Op::MakeHashMap => pc += 2,
-                Op::LoadGlobal | Op::StoreGlobal | Op::DefineGlobal => pc += 4,
-                Op::CallGlobal => pc += 6, // u32 spur + u16 argc
+                Op::StoreGlobal | Op::DefineGlobal => pc += 4,
+                Op::LoadGlobal => pc += 6, // u32 spur + u16 cache_slot
+                Op::CallGlobal => pc += 8, // u32 spur + u16 argc + u16 cache_slot
                 Op::Jump | Op::JumpIfFalse | Op::JumpIfTrue => pc += 4,
                 Op::CallNative => pc += 4,
                 Op::MakeClosure => {

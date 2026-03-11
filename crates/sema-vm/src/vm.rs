@@ -47,10 +47,9 @@ struct CallFrame {
     /// Maps local slot → shared UpvalueCell. Created lazily when a local is captured.
     /// `None` means no locals have been captured yet (avoids heap allocation).
     open_upvalues: Option<Vec<Option<Rc<UpvalueCell>>>>,
+    /// Base offset into VM::inline_cache for this function's cache slots.
+    cache_base: usize,
 }
-
-/// Number of entries in the direct-mapped global cache (must be power of 2).
-const GLOBAL_CACHE_SIZE: usize = 256;
 
 /// Maximum number of call frames before raising a stack overflow error.
 const MAX_FRAMES: usize = 2048;
@@ -61,8 +60,9 @@ pub struct VM {
     frames: Vec<CallFrame>,
     globals: Rc<Env>,
     functions: Rc<Vec<Rc<Function>>>,
-    /// Direct-mapped cache for global lookups: (spur_bits, env_version, value)
-    global_cache: [(u32, u64, Value); GLOBAL_CACHE_SIZE],
+    /// Per-instruction inline cache for global lookups: (spur_bits, env_version, value).
+    /// spur_bits distinguishes globals sharing the same slot (cross-VM closures).
+    inline_cache: Vec<(u32, u64, Value)>,
     /// Resolved native function table: native_id → (NativeFn Rc, name).
     /// Populated at VM creation from the compiler's native_table + global env.
     native_fns: Vec<Rc<NativeFn>>,
@@ -73,16 +73,25 @@ impl VM {
     /// from `globals` to build a direct-dispatch table for CallNative opcodes.
     pub fn new(
         globals: Rc<Env>,
-        functions: Vec<Rc<Function>>,
+        mut functions: Vec<Rc<Function>>,
         native_spurs: &[Spur],
+        main_cache_slots: u16,
     ) -> Result<Self, SemaError> {
         let native_fns = Self::resolve_native_table(&globals, native_spurs)?;
+        // Assign cache_offset to each function and compute total cache size.
+        // Main closure's cache_offset is 0; child functions start after it.
+        let mut total_cache_slots: usize = main_cache_slots as usize;
+        for func_rc in &mut functions {
+            let func = Rc::make_mut(func_rc);
+            func.cache_offset = total_cache_slots;
+            total_cache_slots += func.chunk.n_global_cache_slots as usize;
+        }
         Ok(VM {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
             globals,
             functions: Rc::new(functions),
-            global_cache: std::array::from_fn(|_| (u32::MAX, u64::MAX, Value::nil())),
+            inline_cache: vec![(u32::MAX, 0, Value::nil()); total_cache_slots],
             native_fns,
         })
     }
@@ -111,23 +120,38 @@ impl VM {
         Ok(table)
     }
 
+    /// Ensure the inline_cache has enough slots for a function's cache needs.
+    fn ensure_cache_space(&mut self, func: &Function) {
+        let needed = func.cache_offset + func.chunk.n_global_cache_slots as usize;
+        if needed > self.inline_cache.len() {
+            self.inline_cache
+                .resize(needed, (u32::MAX, 0, Value::nil()));
+        }
+    }
+
     fn new_with_rc_functions(globals: Rc<Env>, functions: Rc<Vec<Rc<Function>>>) -> Self {
+        let total_cache_slots: usize = functions
+            .iter()
+            .map(|f| f.chunk.n_global_cache_slots as usize)
+            .sum();
         VM {
             stack: Vec::with_capacity(256),
             frames: Vec::with_capacity(64),
             globals,
             functions,
-            global_cache: std::array::from_fn(|_| (u32::MAX, u64::MAX, Value::nil())),
+            inline_cache: vec![(u32::MAX, 0, Value::nil()); total_cache_slots],
             native_fns: Vec::new(),
         }
     }
 
     pub fn execute(&mut self, closure: Rc<Closure>, ctx: &EvalContext) -> Result<Value, SemaError> {
+        self.ensure_cache_space(&closure.func);
         let base = self.stack.len();
         // Reserve space for locals
         let n_locals = closure.func.chunk.n_locals as usize;
         self.stack.resize(base + n_locals, Value::nil());
         self.frames.push(CallFrame {
+            cache_base: closure.func.cache_offset,
             closure,
             pc: 0,
             base,
@@ -142,10 +166,12 @@ impl VM {
         ctx: &EvalContext,
         debug: &mut crate::debug::DebugState,
     ) -> Result<Value, SemaError> {
+        self.ensure_cache_space(&closure.func);
         let base = self.stack.len();
         let n_locals = closure.func.chunk.n_locals as usize;
         self.stack.resize(base + n_locals, Value::nil());
         self.frames.push(CallFrame {
+            cache_base: closure.func.cache_offset,
             closure,
             pc: 0,
             base,
@@ -232,10 +258,12 @@ impl VM {
         ctx: &EvalContext,
         debug: &mut crate::debug::DebugState,
     ) -> Result<crate::debug::VmExecResult, SemaError> {
+        self.ensure_cache_space(&closure.func);
         let base = self.stack.len();
         let n_locals = closure.func.chunk.n_locals as usize;
         self.stack.resize(base + n_locals, Value::nil());
         self.frames.push(CallFrame {
+            cache_base: closure.func.cache_offset,
             closure,
             pc: 0,
             base,
@@ -582,21 +610,22 @@ impl VM {
                     // --- Globals ---
                     op::LOAD_GLOBAL => {
                         let bits = read_u32!(code, pc);
+                        let cache_slot = read_u16!(code, pc) as usize;
+                        let cache_idx = self.frames[fi].cache_base + cache_slot;
                         let version = self.globals.version.get();
-                        let slot = (bits as usize) & (GLOBAL_CACHE_SIZE - 1);
-                        let entry = &self.global_cache[slot];
+                        let entry = &self.inline_cache[cache_idx];
                         if entry.0 == bits && entry.1 == version {
                             self.stack.push(entry.2.clone());
                         } else {
                             let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
                             match self.globals.get(spur) {
                                 Some(val) => {
-                                    self.global_cache[slot] = (bits, version, val.clone());
+                                    self.inline_cache[cache_idx] = (bits, version, val.clone());
                                     self.stack.push(val);
                                 }
                                 None => {
                                     let err = SemaError::Unbound(resolve_spur(spur));
-                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP_U32, 'dispatch);
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_LOAD_GLOBAL, 'dispatch);
                                 }
                             }
                         }
@@ -1050,20 +1079,21 @@ impl VM {
                     op::CALL_GLOBAL => {
                         let bits = read_u32!(code, pc);
                         let argc = read_u16!(code, pc) as usize;
+                        let cache_slot = read_u16!(code, pc) as usize;
                         self.frames[fi].pc = pc;
                         let saved_pc = pc - op::SIZE_CALL_GLOBAL;
 
-                        // Look up the global (with cache)
+                        // Look up the global (with inline cache)
+                        let cache_idx = self.frames[fi].cache_base + cache_slot;
                         let version = self.globals.version.get();
-                        let slot = (bits as usize) & (GLOBAL_CACHE_SIZE - 1);
-                        let entry = &self.global_cache[slot];
+                        let entry = &self.inline_cache[cache_idx];
                         let func_val = if entry.0 == bits && entry.1 == version {
                             entry.2.clone()
                         } else {
                             let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
                             match self.globals.get(spur) {
                                 Some(val) => {
-                                    self.global_cache[slot] = (bits, version, val.clone());
+                                    self.inline_cache[cache_idx] = (bits, version, val.clone());
                                     val
                                 }
                                 None => {
@@ -1477,6 +1507,7 @@ impl VM {
                 "stack overflow: maximum call depth exceeded",
             ));
         }
+        self.ensure_cache_space(&closure.func);
         let func = &closure.func;
         let arity = func.arity as usize;
         let has_rest = func.has_rest;
@@ -1518,6 +1549,7 @@ impl VM {
         self.stack.resize(base + n_locals, Value::nil());
 
         self.frames.push(CallFrame {
+            cache_base: closure.func.cache_offset,
             closure,
             pc: 0,
             base,
@@ -1536,6 +1568,7 @@ impl VM {
                 "stack overflow: maximum call depth exceeded",
             ));
         }
+        self.ensure_cache_space(&closure.func);
         let func = &closure.func;
         let arity = func.arity as usize;
         let has_rest = func.has_rest;
@@ -1575,6 +1608,7 @@ impl VM {
 
         // Push frame
         self.frames.push(CallFrame {
+            cache_base: closure.func.cache_offset,
             closure,
             pc: 0,
             base,
@@ -1624,8 +1658,12 @@ impl VM {
         // Resize to exact local count (pads with nil or truncates excess)
         self.stack.resize(base + n_locals, Value::nil());
 
+        // Ensure inline cache has space for the target function
+        self.ensure_cache_space(&closure.func);
+
         // Replace current frame (reuse slot)
         let frame = self.frames.last_mut().unwrap();
+        frame.cache_base = closure.func.cache_offset;
         frame.closure = closure;
         frame.pc = 0;
         // base stays the same
@@ -1774,7 +1812,9 @@ impl VM {
                     }
                 }
 
+                vm.ensure_cache_space(&closure_for_fallback.func);
                 vm.frames.push(CallFrame {
+                    cache_base: closure_for_fallback.func.cache_offset,
                     closure: closure_for_fallback.clone(),
                     pc: 0,
                     base: 0,
@@ -2165,7 +2205,7 @@ pub fn compile_program_with_spans(
     vals: &[Value],
     span_map: &sema_core::SpanMap,
     source_file: Option<std::path::PathBuf>,
-) -> Result<(Rc<Closure>, Vec<Rc<Function>>), SemaError> {
+) -> Result<CompiledProgram, SemaError> {
     let source_file = source_file.map(|p| std::fs::canonicalize(&p).unwrap_or(p));
     let mut resolved = Vec::new();
     let mut total_locals: u16 = 0;
@@ -2188,6 +2228,7 @@ pub fn compile_program_with_spans(
             Rc::new(f)
         })
         .collect();
+    let main_cache_slots = result.chunk.n_global_cache_slots;
     let closure = Rc::new(Closure {
         func: Rc::new(Function {
             name: None,
@@ -2197,11 +2238,17 @@ pub fn compile_program_with_spans(
             has_rest: false,
             local_names: Vec::new(),
             source_file,
+            cache_offset: 0,
         }),
         upvalues: Vec::new(),
     });
 
-    Ok((closure, functions))
+    Ok(CompiledProgram {
+        closure,
+        functions,
+        native_table: Vec::new(),
+        main_cache_slots,
+    })
 }
 
 /// Extract the set of source lines that have bytecode spans (valid breakpoint locations).
@@ -2257,6 +2304,8 @@ pub struct CompiledProgram {
     pub closure: Rc<Closure>,
     pub functions: Vec<Rc<Function>>,
     pub native_table: Vec<Spur>,
+    /// Number of inline cache slots used by the main (top-level) chunk.
+    pub main_cache_slots: u16,
 }
 
 /// Compile a sequence of Value ASTs through the full pipeline.
@@ -2278,6 +2327,7 @@ pub fn compile_program(
     let result = crate::compiler::compile(&resolved, total_locals, known_natives)?;
 
     let functions: Vec<Rc<Function>> = result.functions.into_iter().map(Rc::new).collect();
+    let main_cache_slots = result.chunk.n_global_cache_slots;
     let closure = Rc::new(Closure {
         func: Rc::new(Function {
             name: None,
@@ -2287,6 +2337,7 @@ pub fn compile_program(
             has_rest: false,
             local_names: Vec::new(),
             source_file: None,
+            cache_offset: 0,
         }),
         upvalues: Vec::new(),
     });
@@ -2295,6 +2346,7 @@ pub fn compile_program(
         closure,
         functions,
         native_table: result.native_table,
+        main_cache_slots,
     })
 }
 
@@ -2308,7 +2360,7 @@ mod tests {
         let vals = sema_reader::read_many(input)
             .map_err(|e| SemaError::eval(format!("parse error: {e}")))?;
         let prog = compile_program(&vals, None)?;
-        let mut vm = VM::new(globals.clone(), prog.functions, &[])?;
+        let mut vm = VM::new(globals.clone(), prog.functions, &[], prog.main_cache_slots)?;
         vm.execute(prog.closure, ctx)
     }
 
@@ -2873,12 +2925,13 @@ mod tests {
             has_rest: false,
             local_names: vec![],
             source_file: None,
+            cache_offset: 0,
         });
         let closure = Rc::new(Closure {
             func,
             upvalues: vec![],
         });
-        let mut vm = VM::new(globals, vec![], &[]).unwrap();
+        let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx).unwrap();
         assert_eq!(
             result,
@@ -2897,7 +2950,7 @@ mod tests {
 
         let input = "(+ 1 2)\n(+ 3 4)";
         let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
-        let (closure, functions) = compile_program_with_spans(&vals, &span_map, None).unwrap();
+        let prog = compile_program_with_spans(&vals, &span_map, None).unwrap();
 
         let (event_tx, event_rx) = mpsc::channel();
         let (cmd_tx, cmd_rx) = mpsc::channel();
@@ -2908,8 +2961,10 @@ mod tests {
         cmd_tx.send(DebugCommand::Continue).unwrap();
         cmd_tx.send(DebugCommand::Continue).unwrap();
 
-        let mut vm = VM::new(globals, functions, &[]).unwrap();
-        let result = vm.execute_debug(closure, &ctx, &mut debug_state).unwrap();
+        let mut vm = VM::new(globals, prog.functions, &[], prog.main_cache_slots).unwrap();
+        let result = vm
+            .execute_debug(prog.closure, &ctx, &mut debug_state)
+            .unwrap();
         assert_eq!(result, Value::int(7));
 
         // Should have received at least one Stopped event
@@ -2946,12 +3001,13 @@ mod tests {
             has_rest: false,
             local_names: vec![],
             source_file: None,
+            cache_offset: 0,
         });
         let closure = Rc::new(Closure {
             func,
             upvalues: vec![],
         });
-        let mut vm = VM::new(globals, vec![], &[]).unwrap();
+        let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx);
         assert!(
             result.is_err(),
@@ -2974,10 +3030,9 @@ mod tests {
         let input = "(let loop ((i 0)) (if (< i 5) (loop (+ i 1)) i))";
         let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
         let source_file = PathBuf::from("<test>");
-        let (closure, functions) =
-            compile_program_with_spans(&vals, &span_map, Some(source_file.clone())).unwrap();
+        let prog = compile_program_with_spans(&vals, &span_map, Some(source_file.clone())).unwrap();
 
-        let mut vm = VM::new(globals, functions, &[]).unwrap();
+        let mut vm = VM::new(globals, prog.functions, &[], prog.main_cache_slots).unwrap();
         let mut debug = DebugState::new_headless();
 
         // Set breakpoint on line 1 (the only line)
@@ -2985,7 +3040,9 @@ mod tests {
         debug.step_mode = StepMode::StepInto; // stop on entry first
 
         // Start: should stop on entry
-        let result = vm.start_cooperative(closure, &ctx, &mut debug).unwrap();
+        let result = vm
+            .start_cooperative(prog.closure, &ctx, &mut debug)
+            .unwrap();
         assert!(
             matches!(result, VmExecResult::Stopped(_)),
             "should stop on entry"
@@ -3013,8 +3070,8 @@ mod tests {
         // Verify that valid_breakpoint_lines correctly extracts lines with spans
         let code = "(+ 1 2)\n\n; comment\n(+ 3 4)";
         let (vals, span_map) = sema_reader::read_many_with_spans(code).unwrap();
-        let (closure, functions) = compile_program_with_spans(&vals, &span_map, None).unwrap();
-        let lines = valid_breakpoint_lines(&closure, &functions);
+        let prog = compile_program_with_spans(&vals, &span_map, None).unwrap();
+        let lines = valid_breakpoint_lines(&prog.closure, &prog.functions);
 
         assert!(lines.contains(&1), "line 1 (expr) should be valid");
         assert!(!lines.contains(&2), "line 2 (empty) should not be valid");
@@ -3048,8 +3105,8 @@ mod tests {
         // A breakpoint on a bare literal line should snap to the nearest line with spans.
         let code = "\"hello\"\n42\n(+ 1 2)";
         let (vals, span_map) = sema_reader::read_many_with_spans(code).unwrap();
-        let (closure, functions) = compile_program_with_spans(&vals, &span_map, None).unwrap();
-        let valid = valid_breakpoint_lines(&closure, &functions);
+        let prog = compile_program_with_spans(&vals, &span_map, None).unwrap();
+        let valid = valid_breakpoint_lines(&prog.closure, &prog.functions);
 
         // Lines 1 and 2 are bare literals — no spans
         assert!(!valid.contains(&1), "bare string should lack span");
@@ -3086,13 +3143,14 @@ mod tests {
     fn test_spans_in_compiled_chunks() {
         let input = "(+ 1 2)\n(+ 3 4)";
         let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
-        let (closure, _functions) = compile_program_with_spans(&vals, &span_map, None).unwrap();
+        let prog = compile_program_with_spans(&vals, &span_map, None).unwrap();
         assert!(
-            !closure.func.chunk.spans.is_empty(),
+            !prog.closure.func.chunk.spans.is_empty(),
             "spans should be populated"
         );
         // Verify spans have correct line numbers
-        let lines: Vec<u32> = closure
+        let lines: Vec<u32> = prog
+            .closure
             .func
             .chunk
             .spans
@@ -3122,12 +3180,13 @@ mod tests {
             has_rest: false,
             local_names: vec![],
             source_file: None,
+            cache_offset: 0,
         });
         let closure = Rc::new(Closure {
             func,
             upvalues: vec![],
         });
-        let mut vm = VM::new(globals, vec![], &[]).unwrap();
+        let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx).unwrap();
         assert_eq!(
             result,
@@ -3184,7 +3243,12 @@ mod tests {
             .filter(|&spur| globals.get(spur).is_some_and(|v| v.is_native_fn()))
             .collect();
         let prog = compile_program(&vals, Some(known))?;
-        let mut vm = VM::new(globals.clone(), prog.functions, &prog.native_table)?;
+        let mut vm = VM::new(
+            globals.clone(),
+            prog.functions,
+            &prog.native_table,
+            prog.main_cache_slots,
+        )?;
         vm.execute(prog.closure, ctx)
     }
 
@@ -3295,7 +3359,7 @@ mod tests {
         // If native_table references a name not in globals, VM::new should error
         let globals = Rc::new(Env::new()); // empty env
         let bogus_spur = intern("nonexistent-fn");
-        match VM::new(globals, vec![], &[bogus_spur]) {
+        match VM::new(globals, vec![], &[bogus_spur], 0) {
             Err(e) => assert!(
                 e.to_string().contains("not found"),
                 "expected 'not found' error, got: {e}"
@@ -3310,7 +3374,7 @@ mod tests {
         let globals = Rc::new(Env::new());
         let spur = intern("not-a-fn");
         globals.set(spur, Value::int(42)); // not a native fn
-        match VM::new(globals, vec![], &[spur]) {
+        match VM::new(globals, vec![], &[spur], 0) {
             Err(e) => assert!(
                 e.to_string().contains("not a native function"),
                 "expected 'not a native function' error, got: {e}"
@@ -3339,7 +3403,13 @@ mod tests {
             // Via CallGlobal (no known_natives)
             let vals = sema_reader::read_many(expr).unwrap();
             let prog_global = compile_program(&vals, None).unwrap();
-            let mut vm_global = VM::new(globals.clone(), prog_global.functions, &[]).unwrap();
+            let mut vm_global = VM::new(
+                globals.clone(),
+                prog_global.functions,
+                &[],
+                prog_global.main_cache_slots,
+            )
+            .unwrap();
             let via_global = vm_global.execute(prog_global.closure, &ctx).unwrap();
 
             // Via CallNative (with known_natives)

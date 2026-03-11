@@ -1847,6 +1847,7 @@ fn run_bytecode_bytes(
 
     let functions: Vec<std::rc::Rc<sema_vm::Function>> =
         result.functions.into_iter().map(std::rc::Rc::new).collect();
+    let main_cache_slots = result.chunk.n_global_cache_slots;
     let closure = std::rc::Rc::new(sema_vm::Closure {
         func: std::rc::Rc::new(sema_vm::Function {
             name: None,
@@ -1856,11 +1857,17 @@ fn run_bytecode_bytes(
             has_rest: false,
             local_names: Vec::new(),
             source_file: None,
+            cache_offset: 0,
         }),
         upvalues: Vec::new(),
     });
 
-    let mut vm = sema_vm::VM::new(interpreter.global_env.clone(), functions, &[])?;
+    let mut vm = sema_vm::VM::new(
+        interpreter.global_env.clone(),
+        functions,
+        &[],
+        main_cache_slots,
+    )?;
     vm.execute(closure, &interpreter.ctx)
 }
 

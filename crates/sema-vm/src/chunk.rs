@@ -11,6 +11,8 @@ pub struct Chunk {
     pub max_stack: u16,
     pub n_locals: u16,
     pub exception_table: Vec<ExceptionEntry>,
+    /// Number of per-instruction inline cache slots for global lookups.
+    pub n_global_cache_slots: u16,
 }
 
 impl Chunk {
@@ -22,6 +24,7 @@ impl Chunk {
             max_stack: 0,
             n_locals: 0,
             exception_table: Vec::new(),
+            n_global_cache_slots: 0,
         }
     }
 }
@@ -51,6 +54,9 @@ pub struct Function {
     pub has_rest: bool,
     pub local_names: Vec<(u16, Spur)>,
     pub source_file: Option<PathBuf>,
+    /// Offset into the VM's inline_cache Vec where this function's cache slots begin.
+    /// Assigned at VM creation time; not serialized.
+    pub cache_offset: usize,
 }
 
 /// Describes how an upvalue is captured relative to the immediately enclosing function.

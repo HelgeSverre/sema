@@ -28,6 +28,7 @@ fn eval_roundtrip(input: &str) -> Value {
 
     // 4. Execute the deserialized program
     let functions: Vec<Rc<Function>> = deserialized.functions.into_iter().map(Rc::new).collect();
+    let main_cache_slots = deserialized.chunk.n_global_cache_slots;
     let closure = Rc::new(Closure {
         func: Rc::new(Function {
             name: None,
@@ -37,10 +38,11 @@ fn eval_roundtrip(input: &str) -> Value {
             has_rest: false,
             local_names: Vec::new(),
             source_file: None,
+            cache_offset: 0,
         }),
         upvalues: Vec::new(),
     });
-    let mut vm = VM::new(interp.global_env.clone(), functions, &[]).unwrap();
+    let mut vm = VM::new(interp.global_env.clone(), functions, &[], main_cache_slots).unwrap();
     vm.execute(closure, &interp.ctx).unwrap_or_else(|e| {
         panic!("VM execution of deserialized program failed for `{input}`: {e}")
     })

@@ -148,7 +148,12 @@ impl Interpreter {
 
         let known_natives = collect_native_names(&self.global_env);
         let prog = sema_vm::compile_program(&expanded, Some(known_natives))?;
-        let mut vm = sema_vm::VM::new(self.global_env.clone(), prog.functions, &prog.native_table)?;
+        let mut vm = sema_vm::VM::new(
+            self.global_env.clone(),
+            prog.functions,
+            &prog.native_table,
+            prog.main_cache_slots,
+        )?;
         vm.execute(prog.closure, &self.ctx)
     }
 

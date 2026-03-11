@@ -1952,7 +1952,7 @@ impl WasmInterpreter {
         // Compile with spans and source file for breakpoint matching
         let source_file = std::path::PathBuf::from("<playground>");
         let span_map = self.inner.ctx.span_table.borrow().clone();
-        let (closure, functions) = match sema_vm::compile_program_with_spans(
+        let prog = match sema_vm::compile_program_with_spans(
             &expanded,
             &span_map,
             Some(source_file.clone()),
@@ -1962,7 +1962,7 @@ impl WasmInterpreter {
         };
 
         // Extract valid breakpoint lines from compiled spans
-        let valid_lines = sema_vm::valid_breakpoint_lines(&closure, &functions);
+        let valid_lines = sema_vm::valid_breakpoint_lines(&prog.closure, &prog.functions);
 
         // Snap requested breakpoints to valid lines
         let snapped_bp_lines: Vec<u32> = bp_lines
@@ -1970,7 +1970,12 @@ impl WasmInterpreter {
             .filter_map(|&line| sema_vm::snap_breakpoint_line(line, &valid_lines))
             .collect();
 
-        let mut vm = match sema_vm::VM::new(self.inner.global_env.clone(), functions, &[]) {
+        let mut vm = match sema_vm::VM::new(
+            self.inner.global_env.clone(),
+            prog.functions,
+            &[],
+            prog.main_cache_slots,
+        ) {
             Ok(vm) => vm,
             Err(e) => return JsValue::from_str(&format!("VM init error: {e}")),
         };
@@ -2000,7 +2005,7 @@ impl WasmInterpreter {
             result
         };
 
-        match vm.start_cooperative(closure, &self.inner.ctx, &mut debug) {
+        match vm.start_cooperative(prog.closure, &self.inner.ctx, &mut debug) {
             Ok(sema_vm::VmExecResult::Stopped(info)) => {
                 let result = attach_bp_info(self.debug_stopped_result(&info));
                 DEBUG_SESSION.with(|s| {
@@ -2174,13 +2179,13 @@ impl WasmInterpreter {
 
         let source_file = std::path::PathBuf::from("<playground>");
         let span_map = self.inner.ctx.span_table.borrow().clone();
-        let (closure, functions) =
+        let prog =
             match sema_vm::compile_program_with_spans(&expanded, &span_map, Some(source_file)) {
                 Ok(r) => r,
                 Err(_) => return result,
             };
 
-        for line in sema_vm::valid_breakpoint_lines(&closure, &functions) {
+        for line in sema_vm::valid_breakpoint_lines(&prog.closure, &prog.functions) {
             result.push(&JsValue::from_f64(line as f64));
         }
         result
