@@ -84,11 +84,7 @@ pub struct VM {
 }
 
 /// Close all open upvalues in the given open_upvalues vec, reading from the stack.
-fn close_open_upvalues(
-    open: &mut [Option<Rc<UpvalueCell>>],
-    stack: &[Value],
-    base: usize,
-) {
+fn close_open_upvalues(open: &mut [Option<Rc<UpvalueCell>>], stack: &[Value], base: usize) {
     for (slot, maybe_cell) in open.iter_mut().enumerate() {
         if let Some(cell) = maybe_cell {
             let mut state = cell.state.borrow_mut();
@@ -644,7 +640,8 @@ impl VM {
                         let idx = read_u16!(code, pc) as usize;
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         {
-                            let mut state = self.frames[fi].closure.upvalues[idx].state.borrow_mut();
+                            let mut state =
+                                self.frames[fi].closure.upvalues[idx].state.borrow_mut();
                             match &mut *state {
                                 UpvalueState::Closed(v) => *v = val,
                                 UpvalueState::Open { frame_base, slot } => {

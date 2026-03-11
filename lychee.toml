@@ -5,8 +5,8 @@
 exclude = [
   "^https://crates\\.io/api/",
   "^https://sema\\.run",
-  "^https://localhost",
-  "^https://127\\.0\\.0\\.1",
+  "^https?://localhost",
+  "^https?://127\\.0\\.0\\.1",
   "^https://dev\\.azure\\.com",
   # GitHub badge redirects (releases/latest always 302s to the actual tag)
   "^https://github\\.com/.*/releases/latest$",
@@ -17,9 +17,12 @@ exclude = [
   "^https://infoscience\\.epfl\\.ch",
   # npmjs.com returns 403 to link checkers
   "^https://www\\.npmjs\\.com",
-  # Root-relative VitePress links in CHANGELOG (valid on deployed site, unresolvable locally)
-  "^/docs/",
+  # Root-relative VitePress links — resolved via `base` below, then excluded as sema-lang.com
+  "^https://sema-lang\\.com/docs/",
 ]
+
+# Resolve root-relative links (e.g. /docs/lsp.html) against the deployed site
+base = "https://sema-lang.com"
 
 # Treat these as OK
 accept = [200, 429]

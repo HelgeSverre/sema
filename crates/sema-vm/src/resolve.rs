@@ -277,7 +277,10 @@ fn resolve_expr_inner(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr,
                 // This allows recursive internal defines (the lambda body can reference
                 // its own name via upvalue capture).
                 // If already pre-registered by Begin's forward-scan, reuse that slot.
-                let slot = r.current().find_local(*spur).unwrap_or_else(|| r.define_local(*spur));
+                let slot = r
+                    .current()
+                    .find_local(*spur)
+                    .unwrap_or_else(|| r.define_local(*spur));
                 let val = resolve_expr(expr, r)?;
                 Ok(ResolvedExpr::Set(
                     VarRef {
@@ -1499,7 +1502,10 @@ mod tests {
         match expr {
             ResolvedExpr::Lambda(def) => {
                 // a=slot 0, b=slot 1, both pre-registered
-                assert!(def.n_locals >= 2, "should have at least 2 locals for a and b");
+                assert!(
+                    def.n_locals >= 2,
+                    "should have at least 2 locals for a and b"
+                );
                 // First body expr: set a = lambda that calls b
                 match &def.body[0] {
                     ResolvedExpr::Set(vr, val) => {
@@ -1508,7 +1514,10 @@ mod tests {
                         match val.as_ref() {
                             ResolvedExpr::Lambda(inner) => {
                                 // b is captured as upvalue from parent scope
-                                assert!(!inner.upvalues.is_empty(), "inner lambda should capture b");
+                                assert!(
+                                    !inner.upvalues.is_empty(),
+                                    "inner lambda should capture b"
+                                );
                             }
                             other => panic!("expected Lambda for a's body, got {other:?}"),
                         }
