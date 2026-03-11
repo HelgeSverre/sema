@@ -83,6 +83,42 @@ pub struct VM {
     native_fns: Vec<Rc<NativeFn>>,
 }
 
+/// Close all open upvalues in the given open_upvalues vec, reading from the stack.
+fn close_open_upvalues(
+    open: &[Option<Rc<UpvalueCell>>],
+    stack: &[Value],
+    base: usize,
+) {
+    for (slot, maybe_cell) in open.iter().enumerate() {
+        if let Some(cell) = maybe_cell {
+            let mut state = cell.state.borrow_mut();
+            if matches!(&*state, UpvalueState::Open { .. }) {
+                *state = UpvalueState::Closed(stack[base + slot].clone());
+            }
+        }
+    }
+}
+
+/// Close open upvalues above a given slot threshold AND clear the entries.
+fn close_open_upvalues_above(
+    open: &mut [Option<Rc<UpvalueCell>>],
+    stack: &[Value],
+    base: usize,
+    min_slot: usize,
+) {
+    for (slot, maybe_cell) in open.iter_mut().enumerate() {
+        if slot >= min_slot {
+            if let Some(cell) = maybe_cell {
+                let mut state = cell.state.borrow_mut();
+                if matches!(&*state, UpvalueState::Open { .. }) {
+                    *state = UpvalueState::Closed(stack[base + slot].clone());
+                }
+            }
+            *maybe_cell = None;
+        }
+    }
+}
+
 impl VM {
     /// Create a new VM. If `native_spurs` is non-empty, each entry is resolved
     /// from `globals` to build a direct-dispatch table for CallNative opcodes.
@@ -737,6 +773,11 @@ impl VM {
                         } else {
                             Value::nil()
                         };
+                        // Close open upvalues before popping
+                        if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
+                            let base = self.frames.last().unwrap().base;
+                            close_open_upvalues(open, &self.stack, base);
+                        }
                         let frame = self.frames.pop().unwrap();
                         self.stack.truncate(frame.base);
                         if self.frames.is_empty() {
@@ -1733,6 +1774,11 @@ impl VM {
         let func_idx = self.stack.len() - 1 - argc;
         let base = self.frames.last().unwrap().base;
 
+        // Close open upvalues before overwriting stack slots
+        if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
+            close_open_upvalues(open, &self.stack, base);
+        }
+
         // Copy args into base slots (args are above base, no overlap issues)
         Self::copy_args_to_locals(&mut self.stack, base, func_idx + 1, arity, argc, has_rest);
 
@@ -1933,8 +1979,12 @@ impl VM {
             }
 
             if let Some(entry) = found {
-                // Restore stack to handler state
+                // Close open upvalues above the handler's stack depth
                 let base = frame.base;
+                if let Some(ref mut open) = self.frames.last_mut().unwrap().open_upvalues {
+                    close_open_upvalues_above(open, &self.stack, base, entry.stack_depth as usize);
+                }
+                // Restore stack to handler state
                 self.stack.truncate(base + entry.stack_depth as usize);
 
                 // Push error value as a map matching the tree-walker's error_to_value format
@@ -1947,6 +1997,11 @@ impl VM {
                 return Ok(ExceptionAction::Handled);
             }
 
+            // Close all open upvalues before popping this frame
+            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
+                let base = self.frames.last().unwrap().base;
+                close_open_upvalues(open, &self.stack, base);
+            }
             // No handler in this frame, pop it and try parent
             let frame = self.frames.pop().unwrap();
             self.stack.truncate(frame.base);
