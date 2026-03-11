@@ -807,6 +807,11 @@ impl VM {
                             "CallNative invalid native_id {native_id}"
                         );
 
+                        // Close open upvalues before non-VM call (native may invoke VM closures via callback)
+                        if let Some(ref open) = self.frames[fi].open_upvalues {
+                            close_open_upvalues(open, &self.stack, base);
+                        }
+
                         // Borrow args directly from stack (no Vec allocation).
                         // Rc::clone is cheap; it avoids holding &self.native_fns
                         // and &self.stack simultaneously.
@@ -1505,6 +1510,10 @@ impl VM {
                 }
                 return self.call_vm_closure(closure, argc);
             }
+            // Close open upvalues before non-VM call (native may invoke VM closures via callback)
+            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
+                close_open_upvalues(open, &self.stack, self.frames.last().unwrap().base);
+            }
             // Regular native fn — borrow args directly from stack (no Vec allocation)
             let func_rc = self.stack[func_idx].as_native_fn_rc().unwrap();
             let args_start = func_idx + 1;
@@ -1530,6 +1539,10 @@ impl VM {
             self.stack.push(result);
             Ok(())
         } else {
+            // Close open upvalues before non-VM call (callback may invoke VM closures)
+            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
+                close_open_upvalues(open, &self.stack, self.frames.last().unwrap().base);
+            }
             // Lambda or other callable — borrow args directly from stack.
             // Safety: call_callback dispatches to the tree-walking evaluator,
             // which has its own environment and does not mutate the VM's stack.
@@ -1583,6 +1596,10 @@ impl VM {
         ctx: &EvalContext,
     ) -> Result<(), SemaError> {
         if func_val.raw_tag() == Some(TAG_NATIVE_FN) {
+            // Close open upvalues before non-VM call (native may invoke VM closures via callback)
+            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
+                close_open_upvalues(open, &self.stack, self.frames.last().unwrap().base);
+            }
             let func_rc = func_val.as_native_fn_rc().unwrap();
             let args_start = self.stack.len() - argc;
             let result = (func_rc.func)(ctx, &self.stack[args_start..]);
@@ -1605,6 +1622,10 @@ impl VM {
             self.stack.push(result);
             Ok(())
         } else {
+            // Close open upvalues before non-VM call (callback may invoke VM closures)
+            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
+                close_open_upvalues(open, &self.stack, self.frames.last().unwrap().base);
+            }
             // Safety: call_callback dispatches to the tree-walking evaluator,
             // which does not mutate the VM's stack.
             let args_start = self.stack.len() - argc;
