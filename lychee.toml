@@ -17,12 +17,10 @@ exclude = [
   "^https://infoscience\\.epfl\\.ch",
   # npmjs.com returns 403 to link checkers
   "^https://www\\.npmjs\\.com",
-  # Root-relative VitePress links — resolved via `base` below, then excluded as sema-lang.com
-  "^https://sema-lang\\.com/docs/",
 ]
 
-# Resolve root-relative links (e.g. /docs/lsp.html) against the deployed site
-base_url = "https://sema-lang.com"
+# Resolve root-relative links (e.g. /docs/lsp.html) against the website directory
+root_dir = "website"
 
 # Treat these as OK
 accept = [200, 429]
@@ -48,4 +46,5 @@ exclude_path = [
   "website/node_modules",
   "benchmarks/1brc/sema-src",
   ".git",
+  ".worktrees",
 ]

@@ -1760,6 +1760,8 @@ mod tests {
 
         // Init a repo and create a branch
         run_git(Some(&tmp), &["init"]).unwrap();
+        run_git(Some(&tmp), &["config", "user.email", "test@test.com"]).unwrap();
+        run_git(Some(&tmp), &["config", "user.name", "Test"]).unwrap();
         run_git(Some(&tmp), &["checkout", "-b", "main"]).unwrap();
         std::fs::write(tmp.join("file.txt"), "hello").unwrap();
         run_git(Some(&tmp), &["add", "."]).unwrap();
