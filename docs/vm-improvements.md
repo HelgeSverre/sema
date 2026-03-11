@@ -16,37 +16,11 @@ codebase.
 - **Named-let TCO bug fix** — `lower.rs` named-let body was using outer `tail` flag instead of `true`, preventing TCO for recursive named-let calls
 - **Unify CoreExpr/ResolvedExpr** — single generic `Expr<V>` with `type CoreExpr = Expr<Spur>`, `type ResolvedExpr = Expr<VarRef>`. Halved the surface area for new constructs.
 - **Per-instruction inline cache for globals** — each `LoadGlobal`/`CallGlobal` gets a dedicated cache slot, eliminating hash collisions. Cache entries are `(spur_bits, version, value)` for cross-VM safety. Bytecode format v2.
+- **Lua-style open upvalues** — upvalues hold a stack index instead of an eagerly-copied value. Closed at frame exit (Return, TailCall, exception unwind) and before non-VM calls. Eliminated `has_open_upvalues` branch and dual-write from 10 LoadLocal/StoreLocal opcodes.
 
 ---
 
 ## Remaining
-
-### 7. Switch to Lua-style open upvalues
-
-**Files:** `crates/sema-vm/src/vm.rs`, `crates/sema-vm/src/chunk.rs`
-
-Current model: upvalues are closed eagerly at capture time. Every `StoreLocal`
-to a captured variable must write to both the stack slot and the `Rc<RefCell>`
-upvalue cell (dual-write). This logic is duplicated across 8 specialized store
-opcodes.
-
-Lua's model: open upvalues hold an index into the parent's stack. They share
-the stack slot directly — no dual write needed. When the parent frame exits,
-open upvalues are "closed" by copying the stack value into the upvalue object.
-
-Benefits:
-- Eliminates the `has_open_upvalues` branch on every local load/store
-- Eliminates dual-write fragility
-- Simpler to add new specialized store opcodes
-
-Costs:
-- Need a linked list (or vec) of open upvalues per frame
-- Need a `CloseUpvalues` opcode or implicit close at frame exit
-- Significant refactor of `make_closure`, `LoadLocal`, `StoreLocal`, frame teardown
-
-- **Effort:** 2-3 days
-- **Impact:** Medium — correctness/maintainability improvement, minor perf win
-- **Risk:** High — touching the upvalue model affects closure semantics everywhere
 
 ### 10. Cycle collector or tracing GC
 
@@ -83,7 +57,7 @@ Already listed in `docs/vm-status.md` deferred work as "Tracing GC."
 | 4 | Native call: borrow not drain     | 2-4 hrs   | High     | Medium | Done        |
 | 5 | Bytecode jump target validation   | 3-4 hrs   | Medium   | Low    | Done        |
 | 6 | Document TCO limitations          | 1 hr      | Low      | None   | Won't fix   |
-| 7 | Lua-style open upvalues           | 2-3 days  | Medium   | High   | Deferred    |
+| 7 | Lua-style open upvalues           | 2-3 days  | Medium   | High   | Done        |
 | 8 | Unify CoreExpr/ResolvedExpr       | 1-2 days  | Medium   | Medium | Done        |
 | 9 | Per-instruction inline cache      | 2-3 days  | High     | Medium | Done        |
 | 10| Cycle collector / tracing GC      | 1-4 weeks | Critical | High   | Open        |
