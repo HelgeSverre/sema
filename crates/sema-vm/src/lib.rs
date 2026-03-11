@@ -30,5 +30,5 @@ pub use resolve::resolve_with_locals;
 pub use serialize::{deserialize_from_bytes, is_bytecode_file, serialize_to_bytes};
 pub use vm::{
     compile_program, compile_program_with_spans, snap_breakpoint_line, valid_breakpoint_lines,
-    Closure, CompiledProgram, UpvalueCell, VM,
+    Closure, CompiledProgram, UpvalueCell, UpvalueState, VM,
 };
