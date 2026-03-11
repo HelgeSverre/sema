@@ -85,17 +85,18 @@ pub struct VM {
 
 /// Close all open upvalues in the given open_upvalues vec, reading from the stack.
 fn close_open_upvalues(
-    open: &[Option<Rc<UpvalueCell>>],
+    open: &mut [Option<Rc<UpvalueCell>>],
     stack: &[Value],
     base: usize,
 ) {
-    for (slot, maybe_cell) in open.iter().enumerate() {
+    for (slot, maybe_cell) in open.iter_mut().enumerate() {
         if let Some(cell) = maybe_cell {
             let mut state = cell.state.borrow_mut();
             if matches!(&*state, UpvalueState::Open { .. }) {
                 *state = UpvalueState::Closed(stack[base + slot].clone());
             }
         }
+        *maybe_cell = None;
     }
 }
 
@@ -743,8 +744,8 @@ impl VM {
                             Value::nil()
                         };
                         // Close open upvalues before popping
-                        if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
-                            let base = self.frames.last().unwrap().base;
+                        let base = self.frames.last().unwrap().base;
+                        if let Some(ref mut open) = self.frames.last_mut().unwrap().open_upvalues {
                             close_open_upvalues(open, &self.stack, base);
                         }
                         let frame = self.frames.pop().unwrap();
@@ -777,7 +778,7 @@ impl VM {
                         );
 
                         // Close open upvalues before non-VM call (native may invoke VM closures via callback)
-                        if let Some(ref open) = self.frames[fi].open_upvalues {
+                        if let Some(ref mut open) = self.frames[fi].open_upvalues {
                             close_open_upvalues(open, &self.stack, base);
                         }
 
@@ -1360,8 +1361,9 @@ impl VM {
                 return self.call_vm_closure(closure, argc);
             }
             // Close open upvalues before non-VM call (native may invoke VM closures via callback)
-            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
-                close_open_upvalues(open, &self.stack, self.frames.last().unwrap().base);
+            let caller_base = self.frames.last().unwrap().base;
+            if let Some(ref mut open) = self.frames.last_mut().unwrap().open_upvalues {
+                close_open_upvalues(open, &self.stack, caller_base);
             }
             // Regular native fn — borrow args directly from stack (no Vec allocation)
             let func_rc = self.stack[func_idx].as_native_fn_rc().unwrap();
@@ -1389,8 +1391,9 @@ impl VM {
             Ok(())
         } else {
             // Close open upvalues before non-VM call (callback may invoke VM closures)
-            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
-                close_open_upvalues(open, &self.stack, self.frames.last().unwrap().base);
+            let caller_base = self.frames.last().unwrap().base;
+            if let Some(ref mut open) = self.frames.last_mut().unwrap().open_upvalues {
+                close_open_upvalues(open, &self.stack, caller_base);
             }
             // Lambda or other callable — borrow args directly from stack.
             // Safety: call_callback dispatches to the tree-walking evaluator,
@@ -1446,8 +1449,9 @@ impl VM {
     ) -> Result<(), SemaError> {
         if func_val.raw_tag() == Some(TAG_NATIVE_FN) {
             // Close open upvalues before non-VM call (native may invoke VM closures via callback)
-            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
-                close_open_upvalues(open, &self.stack, self.frames.last().unwrap().base);
+            let caller_base = self.frames.last().unwrap().base;
+            if let Some(ref mut open) = self.frames.last_mut().unwrap().open_upvalues {
+                close_open_upvalues(open, &self.stack, caller_base);
             }
             let func_rc = func_val.as_native_fn_rc().unwrap();
             let args_start = self.stack.len() - argc;
@@ -1472,8 +1476,9 @@ impl VM {
             Ok(())
         } else {
             // Close open upvalues before non-VM call (callback may invoke VM closures)
-            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
-                close_open_upvalues(open, &self.stack, self.frames.last().unwrap().base);
+            let caller_base = self.frames.last().unwrap().base;
+            if let Some(ref mut open) = self.frames.last_mut().unwrap().open_upvalues {
+                close_open_upvalues(open, &self.stack, caller_base);
             }
             // Safety: call_callback dispatches to the tree-walking evaluator,
             // which does not mutate the VM's stack.
@@ -1645,7 +1650,7 @@ impl VM {
         let base = self.frames.last().unwrap().base;
 
         // Close open upvalues before overwriting stack slots
-        if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
+        if let Some(ref mut open) = self.frames.last_mut().unwrap().open_upvalues {
             close_open_upvalues(open, &self.stack, base);
         }
 
@@ -1868,8 +1873,8 @@ impl VM {
             }
 
             // Close all open upvalues before popping this frame
-            if let Some(ref open) = self.frames.last().unwrap().open_upvalues {
-                let base = self.frames.last().unwrap().base;
+            let base = self.frames.last().unwrap().base;
+            if let Some(ref mut open) = self.frames.last_mut().unwrap().open_upvalues {
                 close_open_upvalues(open, &self.stack, base);
             }
             // No handler in this frame, pop it and try parent
