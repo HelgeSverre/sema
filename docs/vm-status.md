@@ -24,6 +24,8 @@ Source → Reader → Macro Expand → Lower (Expr<Spur>) → Optimize → Resol
 
 **NativeFn fallback:** Closures passed to stdlib higher-order functions (map, filter, etc.) still go through the NativeFn wrapper interface, which creates a short-lived VM. This ensures interop with `sema-stdlib` which depends on `sema-core`, not `sema-vm`.
 
+**Open upvalues (Lua-style):** Upvalue cells hold a stack index (`Open { frame_base, slot }`) instead of an eagerly-copied value. LoadLocal/StoreLocal are unconditional stack access — no dual-write to upvalue cells needed. Cells are closed (value copied from stack into cell) at frame exit (Return, TailCall, exception unwind) and before non-VM calls (to protect against the NativeFn fallback creating a fresh VM that can't resolve Open cells). After closing, entries in `open_upvalues` are cleared to prevent stale cell reuse when slots are reused across scopes.
+
 **Dependency flow:** `sema-core ← sema-reader ← sema-vm ← sema-eval`. The VM crate cannot depend on sema-eval.
 
 **NaN-boxed values:** All values are 8-byte NaN-boxed `u64`. Small ints (±17.5 trillion), symbols, keywords, chars, bools, and nil are unboxed immediates — no heap allocation. The VM benefits from smaller stack slots and better cache locality (8–12% speedup over the pre-NaN-boxing VM).
@@ -47,7 +49,7 @@ Source → Reader → Macro Expand → Lower (Expr<Spur>) → Optimize → Resol
 
 ## Resolved Bugs
 
-All 8 known bugs are fixed:
+All 10 known bugs are fixed:
 
 | Bug                                                     | Problem                                                                                                            | Fix                                                                                             |
 | ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
@@ -59,6 +61,8 @@ All 8 known bugs are fixed:
 | **6. delay/force not capturing lexical vars**           | `(define (f a) (delay a))` failed — delay passed raw AST, tree-walker couldn't see VM locals                       | Fixed: delay now lowers to zero-arg lambda thunk that captures lexical environment              |
 | **7. `__vm-import` selective import**                   | Selective names list pushed as single element instead of spreading individual symbols                              | Fixed: spread symbols individually in the reconstructed import form                             |
 | **8. `and` optimizer returning `#f` for falsy values**  | `fold_and` in optimizer replaced constant falsy values (nil) with `#f` instead of preserving the original value    | Fixed: return the actual falsy constant, matching tree-walker semantics                         |
+| **9. Inner define forward references**                  | `(define (a) (b)) (define (b) 42)` inside function bodies failed — resolver didn't pre-scan for define names       | Fixed: `resolve_body()` pre-registers all inner define names before resolving expressions       |
+| **10. Stale upvalue cell reuse on slot reuse**           | Named-lets reusing the same slot after a native call got a Closed cell containing the old closure's value           | Fixed: `close_open_upvalues` clears entries after closing, preventing stale cell reuse          |
 
 ## Performance
 

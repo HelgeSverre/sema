@@ -10,12 +10,15 @@
 - **VM** — removed dead `NamedLet` variant, `resolve_named_let`, and `compile_named_let` (desugared to `letrec+lambda` in lowering since Decision #52; code was unreachable).
 - **VM** — unified `CoreExpr` and `ResolvedExpr` into a single generic `Expr<V>` type, halving the surface area for new language constructs.
 - **VM** — per-instruction inline cache for `LoadGlobal`/`CallGlobal`, replacing the 256-slot direct-mapped hash cache. Each instruction gets a dedicated cache slot, eliminating hash collisions. Bytecode format bumped to v2.
+- **VM** — Lua-style open upvalues: upvalue cells hold a stack index instead of an eagerly-copied value, closed at frame exit (Return, TailCall, exception unwind) and before non-VM calls. Eliminates the `has_open_upvalues` branch and dual-write pattern from 10 LoadLocal/StoreLocal opcodes.
 - **VM** — `compile_program_with_spans` now returns `CompiledProgram` struct (was a tuple).
 - **file/read-lines** — switched from `split('\n')` to `.lines()`, correctly handling `\r\n` line endings. Empty files now return an empty list instead of a single-element list containing `""`.
 - **kv/open** — malformed JSON in an existing backing file now raises an IO error instead of silently falling back to an empty store.
 
 ### Fixed
 
+- **VM** — inner define forward references now work correctly (R5RS `letrec*` semantics). Functions like `(define (a) (b)) (define (b) 42)` inside a function body can forward-reference each other. This fixes the nqueens benchmark which was broken on the VM.
+- **VM** — fixed stale upvalue cell reuse when local slots are reused across named-let scopes with intervening native calls. `close_open_upvalues` now clears entries after closing, preventing `make_closure` from reusing Closed cells containing old variable values.
 - **Test suite hardening** — comprehensive audit and fix of fragile tests across the entire codebase:
   - Migrated 20 tests from hardcoded `/tmp` paths to unique temp directories
   - Added read timeouts and `wait_for_event()` helper to DAP integration tests
