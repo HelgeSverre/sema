@@ -250,3 +250,69 @@ dual_eval_tests! {
 dual_eval_error_tests! {
     while_bad_arity: "(while #t)",
 }
+
+// ============================================================
+// Open Upvalue Close Semantics
+// ============================================================
+
+dual_eval_tests! {
+    upvalue_close_on_return: "(begin
+    (define (make-getter)
+      (define n 42)
+      (lambda () n))
+    ((make-getter)))" => Value::int(42),
+    upvalue_shared_cell: "(begin
+    (define (make-shared)
+      (define n 0)
+      (define inc (lambda () (set! n (+ n 1))))
+      (define get (lambda () n))
+      (list inc get))
+    (define p (make-shared))
+    ((first p))
+    ((first p))
+    ((car (cdr p))))" => Value::int(2),
+    upvalue_late_mutation: "(begin
+    (define (make-late)
+      (define n 0)
+      (define f (lambda () n))
+      (set! n 42)
+      f)
+    ((make-late)))" => Value::int(42),
+    upvalue_multi_level_close: "(begin
+    (define (outer)
+      (define x 1)
+      (define (middle)
+        (lambda () x))
+      (set! x 99)
+      (middle))
+    ((outer)))" => Value::int(99),
+    upvalue_tail_call_closes: "(begin
+    (define captured #f)
+    (define (setup)
+      (define x 10)
+      (set! captured (lambda () x))
+      (set! x 20)
+      :done)
+    (setup)
+    (captured))" => Value::int(20),
+    upvalue_exception_closes: r#"(begin
+    (define escaped #f)
+    (try
+      (begin
+        (define x 0)
+        (set! escaped (lambda () x))
+        (set! x 99)
+        (throw "boom"))
+      (catch e (escaped))))"# => Value::int(99),
+    upvalue_closure_via_hof: "(begin
+    (define (test)
+      (define n 42)
+      (map (lambda (x) n) (list 1 2 3)))
+    (test))" => Value::list(vec![Value::int(42), Value::int(42), Value::int(42)]),
+    upvalue_mutable_via_hof: "(begin
+    (define (test)
+      (define n 0)
+      (define inc (lambda (x) (set! n (+ n 1)) n))
+      (map inc (list 1 2 3)))
+    (test))" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
+}
