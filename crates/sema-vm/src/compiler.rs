@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use sema_core::{intern, resolve as resolve_spur, SemaError, Spur, Value};
 
 use crate::chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
-use crate::core_expr::{
-    ResolvedDoLoop, ResolvedExpr, ResolvedLambda, ResolvedPromptEntry, VarRef, VarResolution,
-};
+use crate::core_expr::{DoLoop, LambdaDef, PromptEntry, ResolvedExpr, VarRef, VarResolution};
 use crate::emit::Emitter;
 use crate::opcodes::Op;
 
@@ -431,7 +429,7 @@ impl Compiler {
 
     // --- Lambda ---
 
-    fn compile_lambda(&mut self, def: &ResolvedLambda) -> Result<(), SemaError> {
+    fn compile_lambda(&mut self, def: &LambdaDef<VarRef>) -> Result<(), SemaError> {
         // Compile the lambda body into a separate function
         let mut inner = Compiler::new();
         inner.n_locals = def.n_locals;
@@ -683,7 +681,7 @@ impl Compiler {
 
     // --- Do loop ---
 
-    fn compile_do(&mut self, do_loop: &ResolvedDoLoop) -> Result<(), SemaError> {
+    fn compile_do(&mut self, do_loop: &DoLoop<VarRef>) -> Result<(), SemaError> {
         // 1. Compile init expressions and store to vars
         for var in &do_loop.vars {
             self.compile_expr(&var.init)?;
@@ -998,14 +996,14 @@ impl Compiler {
         Ok(())
     }
 
-    fn compile_prompt(&mut self, entries: &[ResolvedPromptEntry]) -> Result<(), SemaError> {
+    fn compile_prompt(&mut self, entries: &[PromptEntry<VarRef>]) -> Result<(), SemaError> {
         // Function must be pushed first (before args) to match VM calling convention
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(intern("__vm-prompt")));
         // Compile each prompt entry and build a list
         for entry in entries {
             match entry {
-                ResolvedPromptEntry::RoleContent { role, parts } => {
+                PromptEntry::RoleContent { role, parts } => {
                     self.emit.emit_const(Value::string(role));
                     for part in parts {
                         self.compile_expr(part)?;
@@ -1016,7 +1014,7 @@ impl Compiler {
                     self.emit.emit_op(Op::MakeList);
                     self.emit.emit_u16(2);
                 }
-                ResolvedPromptEntry::Expr(expr) => {
+                PromptEntry::Expr(expr) => {
                     self.compile_expr(expr)?;
                 }
             }

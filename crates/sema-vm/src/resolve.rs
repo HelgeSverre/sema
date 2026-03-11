@@ -2,8 +2,7 @@ use sema_core::{SemaError, Spur};
 
 use crate::chunk::UpvalueDesc;
 use crate::core_expr::{
-    CoreExpr, DoLoop, LambdaDef, PromptEntry, ResolvedDoLoop, ResolvedDoVar, ResolvedExpr,
-    ResolvedLambda, ResolvedPromptEntry, VarRef, VarResolution,
+    CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry, ResolvedExpr, VarRef, VarResolution,
 };
 
 /// Resolve all variable references in a CoreExpr tree.
@@ -409,19 +408,19 @@ fn resolve_exprs(exprs: &[CoreExpr], r: &mut Resolver) -> Result<Vec<ResolvedExp
 }
 
 fn resolve_prompt_entry(
-    entry: &PromptEntry,
+    entry: &PromptEntry<Spur>,
     r: &mut Resolver,
-) -> Result<ResolvedPromptEntry, SemaError> {
+) -> Result<PromptEntry<VarRef>, SemaError> {
     match entry {
-        PromptEntry::RoleContent { role, parts } => Ok(ResolvedPromptEntry::RoleContent {
+        PromptEntry::RoleContent { role, parts } => Ok(PromptEntry::RoleContent {
             role: role.clone(),
             parts: resolve_exprs(parts, r)?,
         }),
-        PromptEntry::Expr(expr) => Ok(ResolvedPromptEntry::Expr(resolve_expr(expr, r)?)),
+        PromptEntry::Expr(expr) => Ok(PromptEntry::Expr(resolve_expr(expr, r)?)),
     }
 }
 
-fn resolve_lambda(def: &LambdaDef, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
+fn resolve_lambda(def: &LambdaDef<Spur>, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
     r.push_function();
 
     // Define params as locals
@@ -435,7 +434,7 @@ fn resolve_lambda(def: &LambdaDef, r: &mut Resolver) -> Result<ResolvedExpr, Sem
     let body = resolve_exprs(&def.body, r)?;
     let fn_scope = r.pop_function();
 
-    Ok(ResolvedExpr::Lambda(ResolvedLambda {
+    Ok(ResolvedExpr::Lambda(LambdaDef {
         name: def.name,
         params: def.params.clone(),
         rest: def.rest,
@@ -537,7 +536,7 @@ fn resolve_letrec(
     })
 }
 
-fn resolve_do(do_loop: &DoLoop, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
+fn resolve_do(do_loop: &DoLoop<Spur>, r: &mut Resolver) -> Result<ResolvedExpr, SemaError> {
     // Evaluate all inits in the outer scope
     let mut inits = Vec::with_capacity(do_loop.vars.len());
     for var in &do_loop.vars {
@@ -570,7 +569,7 @@ fn resolve_do(do_loop: &DoLoop, r: &mut Resolver) -> Result<ResolvedExpr, SemaEr
             Some(s) => Some(resolve_expr(s, r)?),
             None => None,
         };
-        final_vars.push(ResolvedDoVar {
+        final_vars.push(DoVar {
             name: var_ref,
             init,
             step: resolved_step,
@@ -579,7 +578,7 @@ fn resolve_do(do_loop: &DoLoop, r: &mut Resolver) -> Result<ResolvedExpr, SemaEr
 
     r.pop_block();
 
-    Ok(ResolvedExpr::Do(ResolvedDoLoop {
+    Ok(ResolvedExpr::Do(DoLoop {
         vars: final_vars,
         test: Box::new(test),
         result,

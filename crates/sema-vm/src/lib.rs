@@ -15,8 +15,7 @@ pub mod vm;
 pub use chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
 pub use compiler::{compile, CompileResult};
 pub use core_expr::{
-    CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry, ResolvedExpr, ResolvedLambda, VarRef,
-    VarResolution,
+    CoreExpr, DoLoop, DoVar, Expr, LambdaDef, PromptEntry, ResolvedExpr, VarRef, VarResolution,
 };
 pub use debug::{
     decode_scope_ref, scope_locals_ref, scope_upvalues_ref, DebugCommand, DebugEvent, DebugState,

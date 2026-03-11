@@ -496,6 +496,8 @@ fn lower_define(args: &[Value]) -> Result<CoreExpr, SemaError> {
                     params,
                     rest,
                     body,
+                    upvalues: vec![],
+                    n_locals: 0,
                 })),
             ))
         }
@@ -535,6 +537,8 @@ fn lower_defun(args: &[Value]) -> Result<CoreExpr, SemaError> {
             params,
             rest,
             body,
+            upvalues: vec![],
+            n_locals: 0,
         })),
     ))
 }
@@ -604,6 +608,8 @@ fn lower_lambda(args: &[Value], name: Option<Spur>) -> Result<CoreExpr, SemaErro
             params: temp_spurs,
             rest: rest_spur,
             body,
+            upvalues: vec![],
+            n_locals: 0,
         }))
     } else {
         // Fast path: all params are symbols
@@ -615,6 +621,8 @@ fn lower_lambda(args: &[Value], name: Option<Spur>) -> Result<CoreExpr, SemaErro
             params,
             rest,
             body,
+            upvalues: vec![],
+            n_locals: 0,
         }))
     }
 }
@@ -654,6 +662,8 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
                     params,
                     rest: None,
                     body,
+                    upvalues: vec![],
+                    n_locals: 0,
                 }),
             )],
             body: vec![CoreExpr::Call {
@@ -1488,6 +1498,8 @@ fn lower_delay(args: &[Value]) -> Result<CoreExpr, SemaError> {
         params: vec![],
         rest: None,
         body: vec![body],
+        upvalues: vec![],
+        n_locals: 0,
     });
     Ok(CoreExpr::Call {
         func: Box::new(CoreExpr::Var(intern("__vm-delay"))),
