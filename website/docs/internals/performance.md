@@ -21,6 +21,25 @@ All benchmarks were run on Apple Silicon (M-series), processing the 1BRC dataset
 
 > **VM compute benchmarks** (Feb 2026, post-stdlib intrinsics): TAK 1,248ms, upvalue-counter 450ms, deriv 887ms. The deriv benchmark — dominated by `car`/`cdr`/`cons`/`pair?` — improved 22% from stdlib intrinsic opcodes. The 1BRC numbers above are I/O-bound and less affected by VM compute optimizations.
 
+## Per-Instruction Inline Cache (Mar 2026)
+
+The VM's global variable lookup was originally served by a 256-slot direct-mapped cache. Each `LoadGlobal`/`CallGlobal` hashed the variable name to a slot, leading to collisions on hot paths where multiple globals mapped to the same slot.
+
+The per-instruction inline cache assigns a **dedicated cache slot to each `LoadGlobal`/`CallGlobal` instruction** at compile time. Cache entries are `(spur_bits, env_version, value)` tuples — the spur_bits guard provides cross-VM closure safety, and the env version counter invalidates stale entries on any global mutation.
+
+**Impact** (Apple Silicon, release build, hyperfine --warmup 2 --runs 5):
+
+| Benchmark          | Before (direct-mapped) | After (per-instruction) | Speedup    |
+| ------------------ | ---------------------: | ----------------------: | ---------- |
+| higher-order-fold  | 6,116 ms               | 2,617 ms                | **2.34×**  |
+| deriv              | 2,356 ms               | 1,449 ms                | **1.63×**  |
+| closure-storm      | 1,302 ms               | 1,145 ms                | **1.14×**  |
+| tak                | 1,728 ms               | 1,749 ms                | ~1.0×      |
+| mandelbrot         | 311 ms                 | 313 ms                  | ~1.0×      |
+| upvalue-counter    | 574 ms                 | 575 ms                  | ~1.0×      |
+
+The biggest wins are on **global-call-heavy** workloads: `higher-order-fold` calls stdlib HOFs (`map`, `filter`, `foldl`) in a tight loop — each call requires a global lookup. `deriv` similarly uses many global functions for symbolic differentiation. Benchmarks dominated by local computation (tak, mandelbrot, upvalue-counter) show no change, as expected.
+
 ## Micro-Benchmark Suite (Feb 2026)
 
 All benchmarks run on Apple Silicon (M-series), 10 runs + 3 warmup, via `scripts/bench.sh`.
@@ -28,7 +47,7 @@ All benchmarks run on Apple Silicon (M-series), 10 runs + 3 warmup, via `scripts
 | Benchmark          | Tree-walker    | Bytecode VM    | VM speedup |
 | ------------------ | -------------- | -------------- | ---------- |
 | tak                | 21,222 ms      | 1,248 ms       | 17.0×      |
-| nqueens            | 20,735 ms      | 3.7 ms ¹       | ~5,600×    |
+| nqueens            | 20,735 ms      | 2,028 ms ¹     | 10.2×      |
 | deriv              | 3,473 ms       | 887 ms         | 3.9×       |
 | upvalue-counter    | 5,762 ms       | 450 ms         | 12.8×      |
 | closure-storm      | 2,373 ms       | 1,041 ms       | 2.3×       |
@@ -39,7 +58,7 @@ All benchmarks run on Apple Silicon (M-series), 10 runs + 3 warmup, via `scripts
 | mandelbrot         | 2,223 ms       | 212 ms         | 10.5×      |
 | throw-catch        | 2,195 ms       | 197 ms         | 11.2×      |
 
-¹ nqueens VM completes below hyperfine's calibration threshold; result is approximate.
+¹ nqueens was previously broken on the VM due to a forward-reference bug in inner defines (fixed Mar 2026). The VM result above now reflects correct execution.
 
 The VM achieves **2–17× speedups** across the board, with the largest gains on recursion-heavy benchmarks (tak, nqueens, bench-features, upvalue-counter) where call overhead dominates. Closure-heavy and string benchmarks show more modest ~2–3× gains.
 
@@ -306,6 +325,10 @@ The compiler pattern-matches `(if (not expr) then else)` and emits the condition
 ### Fused CallGlobal
 
 Non-tail calls to global functions use a single `CallGlobal` instruction that combines `LoadGlobal + Call`, using `call_vm_closure_direct` to set up the call frame without needing the function value on the stack.
+
+### Per-Instruction Inline Cache
+
+Each `LoadGlobal`/`CallGlobal` instruction gets a dedicated cache slot at compile time, eliminating hash collisions. See the [inline cache section](#per-instruction-inline-cache-mar-2026) above for benchmark results.
 
 ### Specialized Local Access
 
