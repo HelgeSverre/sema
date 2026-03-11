@@ -75,6 +75,73 @@ dual_eval_tests! {
     closure_counter: "(begin (define (make-counter) (let ((n 0)) (lambda () (set! n (+ n 1)) n))) (define c (make-counter)) (c) (c) (c))" => Value::int(3),
     nested_closure: "(begin (define (f x) (lambda (y) (lambda (z) (+ x y z)))) (((f 1) 2) 3))" => Value::int(6),
     internal_define: "(begin (define (foo x) (define y 10) (+ x y)) (foo 5))" => Value::int(15),
+    // Inner define forward references (letrec* semantics)
+    inner_define_forward_ref: "(begin (define (outer) (define (a) (b)) (define (b) 42) (a)) (outer))" => Value::int(42),
+    inner_define_mutual_recursion: "(begin
+        (define (outer n)
+          (define (even? x) (if (= x 0) #t (odd? (- x 1))))
+          (define (odd? x) (if (= x 0) #f (even? (- x 1))))
+          (even? n))
+        (outer 10))" => Value::bool(true),
+    inner_define_three_way_forward: "(begin
+        (define (outer)
+          (define (a) (b))
+          (define (b) (c))
+          (define (c) 99)
+          (a))
+        (outer))" => Value::int(99),
+    inner_define_value_and_fn: "(begin
+        (define (outer x)
+          (define scale 10)
+          (define (helper y) (* y scale))
+          (helper x))
+        (outer 5))" => Value::int(50),
+    inner_define_fn_refs_later_value: "(begin
+        (define (outer)
+          (define (f) factor)
+          (define factor 7)
+          (f))
+        (outer))" => Value::int(7),
+    inner_define_nqueens_pattern: "(begin
+        (define (solve n)
+          (define (try-it x) (if (ok? x) x 0))
+          (define (ok? x) (> x 0))
+          (try-it n))
+        (solve 5))" => Value::int(5),
+    inner_define_with_closure_capture: "(begin
+        (define (outer n)
+          (define (inc x) (+ x step))
+          (define step 3)
+          (inc n))
+        (outer 10))" => Value::int(13),
+    inner_define_nested_bodies: "(begin
+        (define (outer)
+          (define (mid)
+            (define (a) (b))
+            (define (b) 42)
+            (a))
+          (mid))
+        (outer))" => Value::int(42),
+    inner_define_in_let_body: "(begin
+        (define (outer)
+          (let ((x 1))
+            (define (a) (+ x (b)))
+            (define (b) 42)
+            (a)))
+        (outer))" => Value::int(43),
+    inner_define_in_let_star_body: "(begin
+        (define (outer)
+          (let* ((x 1) (y 2))
+            (define (a) (+ x y (b)))
+            (define (b) 10)
+            (a)))
+        (outer))" => Value::int(13),
+    inner_define_in_letrec_body: "(begin
+        (define (outer)
+          (letrec ((f (lambda (n) (if (= n 0) (g) (f (- n 1))))))
+            (define (g) 99)
+            (f 3)))
+        (outer))" => Value::int(99),
     rest_params: "(begin (define (sum . args) (foldl + 0 args)) (sum 1 2 3 4 5))" => Value::int(15),
     higher_order: "(begin (define (compose f g) (lambda (x) (f (g x)))) ((compose (lambda (x) (* x 2)) (lambda (x) (+ x 1))) 5))" => Value::int(12),
 }

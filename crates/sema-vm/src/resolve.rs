@@ -232,7 +232,20 @@ fn resolve_expr_inner(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr,
             else_: Box::new(resolve_expr(else_, r)?),
         }),
 
-        CoreExpr::Begin(exprs) => Ok(ResolvedExpr::Begin(resolve_exprs(exprs, r)?)),
+        CoreExpr::Begin(exprs) => {
+            // Inside a function, pre-register all inner define names so they can
+            // reference each other (letrec* semantics / R5RS internal defines).
+            if !(r.current().is_top_level && r.current().blocks.len() == 1) {
+                for expr in exprs {
+                    if let CoreExpr::Define(spur, _) = expr {
+                        if r.current().find_local(*spur).is_none() {
+                            r.define_local(*spur);
+                        }
+                    }
+                }
+            }
+            Ok(ResolvedExpr::Begin(resolve_exprs(exprs, r)?))
+        }
 
         CoreExpr::Set(spur, expr) => {
             let val = resolve_expr(expr, r)?;
@@ -263,7 +276,8 @@ fn resolve_expr_inner(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr,
                 // Inside a function or block: create a local binding BEFORE resolving RHS.
                 // This allows recursive internal defines (the lambda body can reference
                 // its own name via upvalue capture).
-                let slot = r.define_local(*spur);
+                // If already pre-registered by Begin's forward-scan, reuse that slot.
+                let slot = r.current().find_local(*spur).unwrap_or_else(|| r.define_local(*spur));
                 let val = resolve_expr(expr, r)?;
                 Ok(ResolvedExpr::Set(
                     VarRef {
@@ -317,7 +331,7 @@ fn resolve_expr_inner(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr,
             if let Some(rest_param) = rest {
                 r.define_local(*rest_param);
             }
-            let resolved_body = resolve_exprs(body, r)?;
+            let resolved_body = resolve_body(body, r)?;
             let _fn_scope = r.pop_function();
             Ok(ResolvedExpr::Defmacro {
                 name: *name,
@@ -348,7 +362,7 @@ fn resolve_expr_inner(expr: &CoreExpr, r: &mut Resolver) -> Result<ResolvedExpr,
         } => Ok(ResolvedExpr::Module {
             name: *name,
             exports: exports.clone(),
-            body: resolve_exprs(body, r)?,
+            body: resolve_body(body, r)?,
         }),
 
         CoreExpr::Import { path, selective } => Ok(ResolvedExpr::Import {
@@ -407,6 +421,21 @@ fn resolve_exprs(exprs: &[CoreExpr], r: &mut Resolver) -> Result<Vec<ResolvedExp
     exprs.iter().map(|e| resolve_expr(e, r)).collect()
 }
 
+/// Resolve a body (lambda, let, letrec, etc.) with R5RS internal define semantics:
+/// pre-register all inner define names so they can forward-reference each other.
+fn resolve_body(exprs: &[CoreExpr], r: &mut Resolver) -> Result<Vec<ResolvedExpr>, SemaError> {
+    if !(r.current().is_top_level && r.current().blocks.len() == 1) {
+        for expr in exprs {
+            if let CoreExpr::Define(spur, _) = expr {
+                if r.current().find_local(*spur).is_none() {
+                    r.define_local(*spur);
+                }
+            }
+        }
+    }
+    resolve_exprs(exprs, r)
+}
+
 fn resolve_prompt_entry(
     entry: &PromptEntry<Spur>,
     r: &mut Resolver,
@@ -431,7 +460,7 @@ fn resolve_lambda(def: &LambdaDef<Spur>, r: &mut Resolver) -> Result<ResolvedExp
         r.define_local(rest);
     }
 
-    let body = resolve_exprs(&def.body, r)?;
+    let body = resolve_body(&def.body, r)?;
     let fn_scope = r.pop_function();
 
     Ok(ResolvedExpr::Lambda(LambdaDef {
@@ -469,7 +498,7 @@ fn resolve_let(
         ));
     }
 
-    let resolved_body = resolve_exprs(body, r)?;
+    let resolved_body = resolve_body(body, r)?;
     r.pop_block();
 
     Ok(ResolvedExpr::Let {
@@ -497,7 +526,7 @@ fn resolve_let_star(
             init,
         ));
     }
-    let resolved_body = resolve_exprs(body, r)?;
+    let resolved_body = resolve_body(body, r)?;
     r.pop_block();
 
     Ok(ResolvedExpr::LetStar {
@@ -512,7 +541,7 @@ fn resolve_letrec(
     r: &mut Resolver,
 ) -> Result<ResolvedExpr, SemaError> {
     r.push_block();
-    // Define all names first (they can reference each other)
+    // Define all binding names first (they can reference each other)
     let mut var_refs = Vec::with_capacity(bindings.len());
     for (name, _) in bindings {
         let slot = r.define_local(*name);
@@ -521,13 +550,22 @@ fn resolve_letrec(
             resolution: VarResolution::Local { slot },
         });
     }
+    // Also pre-register body defines so letrec inits can reference them
+    // (R5RS: internal defines in letrec body are visible to init expressions)
+    for expr in body {
+        if let CoreExpr::Define(spur, _) = expr {
+            if r.current().find_local(*spur).is_none() {
+                r.define_local(*spur);
+            }
+        }
+    }
     // Then resolve inits (all names are in scope)
     let mut resolved_bindings = Vec::with_capacity(bindings.len());
     for (i, (_, init_expr)) in bindings.iter().enumerate() {
         let init = resolve_expr(init_expr, r)?;
         resolved_bindings.push((var_refs[i], init));
     }
-    let resolved_body = resolve_exprs(body, r)?;
+    let resolved_body = resolve_body(body, r)?;
     r.pop_block();
 
     Ok(ResolvedExpr::Letrec {
@@ -560,7 +598,7 @@ fn resolve_do(do_loop: &DoLoop<Spur>, r: &mut Resolver) -> Result<ResolvedExpr, 
 
     let test = resolve_expr(&do_loop.test, r)?;
     let result = resolve_exprs(&do_loop.result, r)?;
-    let body = resolve_exprs(&do_loop.body, r)?;
+    let body = resolve_body(&do_loop.body, r)?;
 
     // Resolve step expressions (they can reference loop variables)
     let mut final_vars = Vec::with_capacity(resolved_vars.len());
@@ -592,7 +630,7 @@ fn resolve_try(
     handler: &[CoreExpr],
     r: &mut Resolver,
 ) -> Result<ResolvedExpr, SemaError> {
-    let resolved_body = resolve_exprs(body, r)?;
+    let resolved_body = resolve_body(body, r)?;
 
     r.push_block();
     let slot = r.define_local(catch_var);
@@ -600,7 +638,7 @@ fn resolve_try(
         name: catch_var,
         resolution: VarResolution::Local { slot },
     };
-    let resolved_handler = resolve_exprs(handler, r)?;
+    let resolved_handler = resolve_body(handler, r)?;
     r.pop_block();
 
     Ok(ResolvedExpr::Try {
@@ -1450,5 +1488,73 @@ mod tests {
             n_locals, 0,
             "lambda params should not count as top-level locals"
         );
+    }
+
+    #[test]
+    fn test_resolve_inner_define_forward_reference() {
+        // (lambda () (define (a) (b)) (define (b) 42) (a))
+        // 'a' references 'b' which is defined after 'a' — forward reference.
+        // Both should resolve as locals, not globals.
+        let expr = resolve_str("(lambda () (define (a) (b)) (define (b) 42) (a))");
+        match expr {
+            ResolvedExpr::Lambda(def) => {
+                // a=slot 0, b=slot 1, both pre-registered
+                assert!(def.n_locals >= 2, "should have at least 2 locals for a and b");
+                // First body expr: set a = lambda that calls b
+                match &def.body[0] {
+                    ResolvedExpr::Set(vr, val) => {
+                        assert_eq!(vr.resolution, VarResolution::Local { slot: 0 });
+                        // The lambda body calls b — b should be an upvalue (captured from parent)
+                        match val.as_ref() {
+                            ResolvedExpr::Lambda(inner) => {
+                                // b is captured as upvalue from parent scope
+                                assert!(!inner.upvalues.is_empty(), "inner lambda should capture b");
+                            }
+                            other => panic!("expected Lambda for a's body, got {other:?}"),
+                        }
+                    }
+                    other => panic!("expected Set for define a, got {other:?}"),
+                }
+                // Second body expr: set b = 42
+                match &def.body[1] {
+                    ResolvedExpr::Set(vr, _) => {
+                        assert_eq!(vr.resolution, VarResolution::Local { slot: 1 });
+                    }
+                    other => panic!("expected Set for define b, got {other:?}"),
+                }
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_resolve_inner_define_mutual_recursion() {
+        // Mutually recursive inner defines — both reference each other
+        let expr = resolve_str(
+            "(lambda (n)
+               (define (even? x) (if (= x 0) #t (odd? (- x 1))))
+               (define (odd? x) (if (= x 0) #f (even? (- x 1))))
+               (even? n))",
+        );
+        match expr {
+            ResolvedExpr::Lambda(def) => {
+                // n=0, even?=1, odd?=2
+                assert!(def.n_locals >= 3);
+                // even? and odd? should both be locals (not globals)
+                match &def.body[0] {
+                    ResolvedExpr::Set(vr, _) => {
+                        assert!(matches!(vr.resolution, VarResolution::Local { .. }));
+                    }
+                    other => panic!("expected Set for even?, got {other:?}"),
+                }
+                match &def.body[1] {
+                    ResolvedExpr::Set(vr, _) => {
+                        assert!(matches!(vr.resolution, VarResolution::Local { .. }));
+                    }
+                    other => panic!("expected Set for odd?, got {other:?}"),
+                }
+            }
+            other => panic!("expected Lambda, got {other:?}"),
+        }
     }
 }
