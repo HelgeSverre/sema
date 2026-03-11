@@ -424,7 +424,6 @@ impl VM {
             let consts: *const [Value] = frame.closure.func.chunk.consts.as_slice();
             let base = frame.base;
             let mut pc = frame.pc;
-            let has_open_upvalues = frame.open_upvalues.is_some();
             let code_len = frame.closure.func.chunk.code.len();
 
             // Cache the next span boundary to avoid binary_search per instruction
@@ -618,42 +617,12 @@ impl VM {
                     // --- Locals ---
                     op::LOAD_LOCAL => {
                         let slot = read_u16!(code, pc) as usize;
-                        let val = if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.get(slot) {
-                                    match &*cell.state.borrow() {
-                                        UpvalueState::Closed(v) => v.clone(),
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot].clone()
-                                        }
-                                    }
-                                } else {
-                                    self.stack[base + slot].clone()
-                                }
-                            } else {
-                                unreachable!()
-                            }
-                        } else {
-                            self.stack[base + slot].clone()
-                        };
-                        self.stack.push(val);
+                        self.stack.push(self.stack[base + slot].clone());
                     }
                     op::STORE_LOCAL => {
                         let slot = read_u16!(code, pc) as usize;
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        self.stack[base + slot] = val.clone();
-                        if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.get(slot) {
-                                    match &mut *cell.state.borrow_mut() {
-                                        UpvalueState::Closed(v) => *v = val,
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot] = val;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        self.stack[base + slot] = val;
                     }
 
                     // --- Upvalues ---
@@ -1097,88 +1066,16 @@ impl VM {
                     }
 
                     op::LOAD_LOCAL0 => {
-                        let val = if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.first() {
-                                    match &*cell.state.borrow() {
-                                        UpvalueState::Closed(v) => v.clone(),
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot].clone()
-                                        }
-                                    }
-                                } else {
-                                    self.stack[base].clone()
-                                }
-                            } else {
-                                unreachable!()
-                            }
-                        } else {
-                            self.stack[base].clone()
-                        };
-                        self.stack.push(val);
+                        self.stack.push(self.stack[base].clone());
                     }
                     op::LOAD_LOCAL1 => {
-                        let val = if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.get(1) {
-                                    match &*cell.state.borrow() {
-                                        UpvalueState::Closed(v) => v.clone(),
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot].clone()
-                                        }
-                                    }
-                                } else {
-                                    self.stack[base + 1].clone()
-                                }
-                            } else {
-                                unreachable!()
-                            }
-                        } else {
-                            self.stack[base + 1].clone()
-                        };
-                        self.stack.push(val);
+                        self.stack.push(self.stack[base + 1].clone());
                     }
                     op::LOAD_LOCAL2 => {
-                        let val = if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.get(2) {
-                                    match &*cell.state.borrow() {
-                                        UpvalueState::Closed(v) => v.clone(),
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot].clone()
-                                        }
-                                    }
-                                } else {
-                                    self.stack[base + 2].clone()
-                                }
-                            } else {
-                                unreachable!()
-                            }
-                        } else {
-                            self.stack[base + 2].clone()
-                        };
-                        self.stack.push(val);
+                        self.stack.push(self.stack[base + 2].clone());
                     }
                     op::LOAD_LOCAL3 => {
-                        let val = if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.get(3) {
-                                    match &*cell.state.borrow() {
-                                        UpvalueState::Closed(v) => v.clone(),
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot].clone()
-                                        }
-                                    }
-                                } else {
-                                    self.stack[base + 3].clone()
-                                }
-                            } else {
-                                unreachable!()
-                            }
-                        } else {
-                            self.stack[base + 3].clone()
-                        };
-                        self.stack.push(val);
+                        self.stack.push(self.stack[base + 3].clone());
                     }
 
                     // Fused LOAD_GLOBAL + CALL: look up global, call without
@@ -1253,67 +1150,19 @@ impl VM {
 
                     op::STORE_LOCAL0 => {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        self.stack[base] = val.clone();
-                        if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.first() {
-                                    match &mut *cell.state.borrow_mut() {
-                                        UpvalueState::Closed(v) => *v = val,
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot] = val;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        self.stack[base] = val;
                     }
                     op::STORE_LOCAL1 => {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        self.stack[base + 1] = val.clone();
-                        if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.get(1) {
-                                    match &mut *cell.state.borrow_mut() {
-                                        UpvalueState::Closed(v) => *v = val,
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot] = val;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        self.stack[base + 1] = val;
                     }
                     op::STORE_LOCAL2 => {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        self.stack[base + 2] = val.clone();
-                        if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.get(2) {
-                                    match &mut *cell.state.borrow_mut() {
-                                        UpvalueState::Closed(v) => *v = val,
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot] = val;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        self.stack[base + 2] = val;
                     }
                     op::STORE_LOCAL3 => {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        self.stack[base + 3] = val.clone();
-                        if has_open_upvalues {
-                            if let Some(ref open) = self.frames[fi].open_upvalues {
-                                if let Some(Some(cell)) = open.get(3) {
-                                    match &mut *cell.state.borrow_mut() {
-                                        UpvalueState::Closed(v) => *v = val,
-                                        UpvalueState::Open { frame_base, slot } => {
-                                            self.stack[*frame_base + *slot] = val;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        self.stack[base + 3] = val;
                     }
 
                     // --- Inline stdlib intrinsics ---
@@ -1885,8 +1734,8 @@ impl VM {
                 let cell = if let Some(existing) = &open[*idx] {
                     existing.clone()
                 } else {
-                    let val = self.stack[base + *idx].clone();
-                    let cell = Rc::new(UpvalueCell::new_closed(val));
+                    // Create an OPEN cell pointing to the stack slot
+                    let cell = Rc::new(UpvalueCell::new_open(base, *idx));
                     open[*idx] = Some(cell.clone());
                     cell
                 };
@@ -2077,20 +1926,7 @@ impl VM {
         let mut vars = Vec::new();
         for &(slot, spur) in &func.local_names {
             let idx = frame.base + slot as usize;
-            let val = if let Some(ref open) = frame.open_upvalues {
-                if let Some(Some(cell)) = open.get(slot as usize) {
-                    match &*cell.state.borrow() {
-                        UpvalueState::Closed(v) => v.clone(),
-                        UpvalueState::Open { frame_base, slot } => {
-                            self.stack[*frame_base + *slot].clone()
-                        }
-                    }
-                } else {
-                    self.stack.get(idx).cloned().unwrap_or(Value::nil())
-                }
-            } else {
-                self.stack.get(idx).cloned().unwrap_or(Value::nil())
-            };
+            let val = self.stack.get(idx).cloned().unwrap_or(Value::nil());
             vars.push(crate::debug::DapVariable {
                 name: sema_core::resolve(spur),
                 value: sema_core::pretty_print(&val, 80),
