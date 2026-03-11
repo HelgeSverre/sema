@@ -8,6 +8,9 @@
 - **Formatter** — added `--json` output mode with NDJSON multi-file support and `file` field.
 - **VM** — optimized debug hook hot path; replaced `unsafe transmute` in `Op::from_u8()` with safe match + compile-time exhaustiveness check.
 - **VM** — removed dead `NamedLet` variant, `resolve_named_let`, and `compile_named_let` (desugared to `letrec+lambda` in lowering since Decision #52; code was unreachable).
+- **VM** — unified `CoreExpr` and `ResolvedExpr` into a single generic `Expr<V>` type, halving the surface area for new language constructs.
+- **VM** — per-instruction inline cache for `LoadGlobal`/`CallGlobal`, replacing the 256-slot direct-mapped hash cache. Each instruction gets a dedicated cache slot, eliminating hash collisions. Bytecode format bumped to v2.
+- **VM** — `compile_program_with_spans` now returns `CompiledProgram` struct (was a tuple).
 - **file/read-lines** — switched from `split('\n')` to `.lines()`, correctly handling `\r\n` line endings. Empty files now return an empty list instead of a single-element list containing `""`.
 - **kv/open** — malformed JSON in an existing backing file now raises an IO error instead of silently falling back to an empty store.
 

@@ -1,19 +1,19 @@
 # Bytecode VM Status
 
-> Last updated: 2026-03-10 (v1.12.0+)
+> Last updated: 2026-03-11 (v1.12.0+)
 
 ## Current State
 
 The bytecode VM (`sema-vm` crate) is opt-in via `--vm` CLI flag. All known bugs are **fixed**. The VM is mature and passes all dual-eval tests — both backends produce identical results for all pure-computation features.
 
-- **sema-vm unit tests:** 269 passing
+- **sema-vm unit tests:** 309 passing
 - **Dual-eval tests:** 812 test cases × 2 backends across 9 test files
 - **Total project tests:** 4,300+ passing, 0 failures
 
 ## Architecture
 
 ```
-Source → Reader → Macro Expand → Lower (CoreExpr) → Optimize → Resolve (slots) → Compile (bytecode) → VM Execute
+Source → Reader → Macro Expand → Lower (Expr<Spur>) → Optimize → Resolve (Expr<VarRef>) → Compile (bytecode) → VM Execute
                   ↑ tree-walker                                                                         ↑
                   └── defmacro evaluated here                                                           |
                       before compilation                                           VM closures: same-VM CallFrame push
@@ -42,6 +42,8 @@ Source → Reader → Macro Expand → Lower (CoreExpr) → Optimize → Resolve
 - **Arithmetic (int fast-path):** AddInt, SubInt, MulInt, LtInt, EqInt — operate directly on NaN-boxed bits, no Clone/Drop
 - **Data constructors:** MakeList, MakeVector, MakeMap, MakeHashMap
 - **Intrinsic stdlib ops:** Car, Cdr, Cons, IsNull, IsPair, IsList, IsNumber, IsString, IsSymbol, Length, Append, Get, ContainsQ
+
+**Per-instruction inline cache:** `LoadGlobal` (7 bytes: op + u32 spur + u16 cache_slot) and `CallGlobal` (9 bytes: op + u32 spur + u16 argc + u16 cache_slot) each get a dedicated cache slot in a side array. On hit (matching spur + env version), global access is a single array index — no HashMap lookup. Cache entries store `(spur_bits, version, value)` to guard against cross-VM closure slot collisions. Bytecode format version 2.
 
 ## Resolved Bugs
 
