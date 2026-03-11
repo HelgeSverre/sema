@@ -261,7 +261,8 @@ fn download_runtime(
             .unwrap_or_default();
         if unsafe { libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) } == 0 {
             let stat = unsafe { stat.assume_init() };
-            let avail = stat.f_bavail as u64 * stat.f_frsize;
+            #[allow(clippy::unnecessary_cast)]
+            let avail = stat.f_bavail as u64 * stat.f_frsize as u64;
             if avail < 200 * 1024 * 1024 {
                 eprintln!(
                     "  Warning: only {}MB free on disk — download may fail",

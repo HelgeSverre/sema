@@ -22,7 +22,7 @@ exclude = [
 ]
 
 # Resolve root-relative links (e.g. /docs/lsp.html) against the deployed site
-base = "https://sema-lang.com"
+base_url = "https://sema-lang.com"
 
 # Treat these as OK
 accept = [200, 429]
