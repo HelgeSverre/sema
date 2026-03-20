@@ -37,10 +37,15 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let idx = args[1]
+        let idx_signed = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        if idx_signed < 0 {
+            return Err(SemaError::eval(format!(
+                "string-ref: index {idx_signed} must be non-negative"
+            )));
+        }
+        let idx = idx_signed as usize;
         s.chars()
             .nth(idx)
             .map(Value::char)
@@ -52,16 +57,26 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let start = args[1]
+        let start_signed = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        if start_signed < 0 {
+            return Err(SemaError::eval(format!(
+                "substring: start index {start_signed} must be non-negative"
+            )));
+        }
+        let start = start_signed as usize;
         let char_count = s.chars().count();
         let end = if args.len() == 3 {
-            args[2]
+            let end_signed = args[2]
                 .as_int()
-                .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?
-                as usize
+                .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?;
+            if end_signed < 0 {
+                return Err(SemaError::eval(format!(
+                    "substring: end index {end_signed} must be non-negative"
+                )));
+            }
+            end_signed as usize
         } else {
             char_count
         };
@@ -1042,7 +1057,7 @@ pub fn register(env: &sema_core::Env) {
                 current.push(ch);
                 prev_was_upper = true;
                 prev_was_sep = false;
-            } else if ch.is_lowercase() && prev_was_upper && current.len() > 1 {
+            } else if ch.is_lowercase() && prev_was_upper && current.chars().count() > 1 {
                 // Transition from uppercase run to lowercase: split before last uppercase
                 let last = current.pop().unwrap();
                 if !current.is_empty() {

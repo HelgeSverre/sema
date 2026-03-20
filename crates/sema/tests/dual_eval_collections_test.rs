@@ -567,3 +567,16 @@ dual_eval_tests! {
     shuffle_empty: "(length (list/shuffle '()))" => Value::int(0),
     pick_is_number: "(number? (list/pick '(1 2 3)))" => Value::bool(true),
 }
+
+// ============================================================
+// String error cases — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_error_tests! {
+    str_ref_negative: r#"(string-ref "hello" -1)"#,
+    str_ref_oob: r#"(string-ref "hello" 10)"#,
+    substring_negative_start: r#"(substring "hello" -1 3)"#,
+    substring_negative_end: r#"(substring "hello" 0 -1)"#,
+    substring_start_gt_end: r#"(substring "hello" 3 1)"#,
+    substring_oob: r#"(substring "hello" 0 10)"#,
+}

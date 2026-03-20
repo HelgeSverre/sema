@@ -1500,7 +1500,7 @@ impl Ord for Value {
             (ValueView::Nil, ValueView::Nil) => Ordering::Equal,
             (ValueView::Bool(a), ValueView::Bool(b)) => a.cmp(&b),
             (ValueView::Int(a), ValueView::Int(b)) => a.cmp(&b),
-            (ValueView::Float(a), ValueView::Float(b)) => a.to_bits().cmp(&b.to_bits()),
+            (ValueView::Float(a), ValueView::Float(b)) => a.total_cmp(&b),
             (ValueView::String(a), ValueView::String(b)) => a.cmp(&b),
             (ValueView::Symbol(a), ValueView::Symbol(b)) => compare_spurs(a, b),
             (ValueView::Keyword(a), ValueView::Keyword(b)) => compare_spurs(a, b),
