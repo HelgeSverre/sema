@@ -1281,3 +1281,176 @@ fn test_sse_content_type() {
     child.kill().ok();
     child.wait().ok();
 }
+
+// ---------------------------------------------------------------------------
+// Error resilience & concurrency integration tests (require network)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore] // requires network
+fn test_server_survives_handler_panic() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (http/router
+                [[:get "/crash" (fn (req) (error "kaboom"))]
+                 [:get "/ok" (fn (req) (http/ok "alive"))]])
+              {:port 19904})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+
+    // Crash the handler
+    let resp = client.get("http://127.0.0.1:19904/crash")
+        .timeout(Duration::from_secs(5)).send().unwrap();
+    assert_eq!(resp.status(), 500);
+
+    // Server should still be alive
+    let resp = client.get("http://127.0.0.1:19904/ok")
+        .timeout(Duration::from_secs(5)).send().unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().unwrap();
+    assert_eq!(body, "alive");
+
+    // Crash again
+    let resp = client.get("http://127.0.0.1:19904/crash")
+        .timeout(Duration::from_secs(5)).send().unwrap();
+    assert_eq!(resp.status(), 500);
+
+    // Still alive
+    let resp = client.get("http://127.0.0.1:19904/ok")
+        .timeout(Duration::from_secs(5)).send().unwrap();
+    assert_eq!(resp.status(), 200);
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_server_concurrent_requests() {
+    use std::process::{Command, Stdio};
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (fn (req) (http/ok (:path req)))
+              {:port 19905})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let success_count = Arc::new(AtomicUsize::new(0));
+    let threads: Vec<_> = (0..10).map(|i| {
+        let count = success_count.clone();
+        std::thread::spawn(move || {
+            let client = reqwest::blocking::Client::new();
+            let resp = client
+                .get(&format!("http://127.0.0.1:19905/req/{i}"))
+                .timeout(Duration::from_secs(10))
+                .send();
+            if let Ok(r) = resp {
+                if r.status() == 200 {
+                    count.fetch_add(1, Ordering::SeqCst);
+                }
+            }
+        })
+    }).collect();
+
+    for t in threads {
+        t.join().unwrap();
+    }
+
+    let successes = success_count.load(Ordering::SeqCst);
+    assert!(successes >= 8, "at least 8/10 concurrent requests should succeed, got {successes}");
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_server_large_json_body() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (fn (req) (http/ok (string-length (or (:body req) ""))))
+              {:port 19906})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+    let large_body = "x".repeat(100_000);
+    let resp = client
+        .post("http://127.0.0.1:19906/data")
+        .body(large_body)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .expect("POST large body");
+
+    assert_eq!(resp.status(), 200);
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_server_custom_response_headers() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (fn (req) {:status 200
+                         :headers {"x-custom" "hello"
+                                   "x-request-id" "abc-123"}
+                         :body "ok"})
+              {:port 19907})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client.get("http://127.0.0.1:19907/test")
+        .timeout(Duration::from_secs(5)).send().unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(resp.headers().get("x-custom").unwrap().to_str().unwrap(), "hello");
+    assert_eq!(resp.headers().get("x-request-id").unwrap().to_str().unwrap(), "abc-123");
+
+    child.kill().ok();
+    child.wait().ok();
+}
