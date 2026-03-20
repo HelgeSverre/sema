@@ -1198,3 +1198,86 @@ fn test_websocket_close_from_server() {
     child.kill().ok();
     child.wait().ok();
 }
+
+// ---------------------------------------------------------------------------
+// SSE streaming integration tests (require network)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore] // requires network
+fn test_sse_multiple_events() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (http/router
+                [[:get "/events"
+                  (fn (req)
+                    (http/stream (fn (send)
+                      (send "event1")
+                      (send "event2")
+                      (send "event3"))))]])
+              {:port 19902})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get("http://127.0.0.1:19902/events")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("GET /events");
+
+    let body = resp.text().unwrap();
+    assert!(body.contains("event1"), "should contain event1: {body}");
+    assert!(body.contains("event2"), "should contain event2: {body}");
+    assert!(body.contains("event3"), "should contain event3: {body}");
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_sse_content_type() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (http/router
+                [[:get "/sse"
+                  (fn (req)
+                    (http/stream (fn (send) (send "data"))))]])
+              {:port 19903})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client
+        .get("http://127.0.0.1:19903/sse")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("GET /sse");
+
+    let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+    assert!(ct.contains("text/event-stream"), "SSE should have event-stream content-type: {ct}");
+
+    child.kill().ok();
+    child.wait().ok();
+}
