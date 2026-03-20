@@ -1112,3 +1112,89 @@ fn test_http_stream_no_args() {
 fn test_http_websocket_no_args() {
     let _ = eval_err(r#"(http/websocket)"#);
 }
+
+// ---------------------------------------------------------------------------
+// WebSocket multi-message integration tests (require network)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore] // requires network
+fn test_websocket_multi_message() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (http/router
+                [[:ws "/chat" (fn (conn)
+                  (let loop ()
+                    (let ((msg ((:recv conn))))
+                      (when msg
+                        ((:send conn) (string-append "re:" msg))
+                        (loop)))))]])
+              {:port 19900})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let (mut ws, _) = tungstenite::connect("ws://127.0.0.1:19900/chat").expect("WS connect");
+
+    // Send multiple messages and verify each echo
+    for i in 0..5 {
+        let msg = format!("msg{i}");
+        ws.send(tungstenite::Message::Text(msg.clone().into())).unwrap();
+        let reply = ws.read().unwrap();
+        assert_eq!(reply.into_text().unwrap(), format!("re:{msg}"));
+    }
+
+    ws.close(None).ok();
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_websocket_close_from_server() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (http/serve
+              (http/router
+                [[:ws "/once" (fn (conn)
+                  (let ((msg ((:recv conn))))
+                    (when msg
+                      ((:send conn) "goodbye")
+                      ((:close conn)))))]])
+              {:port 19901})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let (mut ws, _) = tungstenite::connect("ws://127.0.0.1:19901/once").expect("WS connect");
+    ws.send(tungstenite::Message::Text("hi".into())).unwrap();
+    let reply = ws.read().unwrap();
+    assert_eq!(reply.into_text().unwrap(), "goodbye");
+
+    // Next read should indicate closure
+    let next = ws.read();
+    assert!(
+        next.is_err() || matches!(next.as_ref().unwrap(), tungstenite::Message::Close(_)),
+        "should get close or error after server closes: {next:?}"
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
