@@ -77,12 +77,12 @@ On each retry, the validation errors are fed back to the LLM to improve the next
 Classify text into one of a set of categories. Returns the matching keyword.
 
 ```sema
-(llm/classify [:positive :negative :neutral]
+(llm/classify (list :positive :negative :neutral)
               "This product is amazing!")
 ; => :positive
 ```
 
-Pass a vector of keyword labels and the text to classify. The LLM picks the best-matching label.
+Pass a list of keyword labels and the text to classify. The LLM picks the best-matching label.
 
 ## Vision Extraction
 
@@ -137,8 +137,8 @@ You can combine image messages with regular messages:
 
 ```sema
 (llm/chat
-  [(message :system "You are a helpful image analyst.")
-   (message/with-image :user "Describe this chart." (file/read-bytes "chart.png"))])
+  (list (message :system "You are a helpful image analyst.")
+        (message/with-image :user "Describe this chart." (file/read-bytes "chart.png"))))
 ```
 
 ### Provider Support

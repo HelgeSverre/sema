@@ -13,12 +13,12 @@
 (println "\n=== Test 2: llm/chat ===")
 (define reply
   (llm/chat
-    [(message
-       :system
-       "Reply with exactly the word YES")
-     (message
-       :user
-       "Do you understand?")]
+    (list (message
+            :system
+            "Reply with exactly the word YES")
+          (message
+            :user
+            "Do you understand?"))
     {:max-tokens 10}))
 (println reply)
 
@@ -44,7 +44,7 @@
 ;; 5. Classification
 (println "\n=== Test 5: llm/classify ===")
 (define sentiment
-  (llm/classify [:positive :negative :neutral] "I absolutely love this!"))
+  (llm/classify (list :positive :negative :neutral) "I absolutely love this!"))
 (println sentiment)
 
 ;; 6. Conversation
@@ -77,13 +77,13 @@
 
 (define tool-result
   (llm/chat
-    [(message
-       :system
-       "You are a helpful assistant. Use the calculator tool to answer math questions. After getting the result, tell the user.")
-     (message
-       :user
-       "What is 137 * 42?")]
-    {:tools [calculator]
+    (list (message
+            :system
+            "You are a helpful assistant. Use the calculator tool to answer math questions. After getting the result, tell the user.")
+          (message
+            :user
+            "What is 137 * 42?"))
+    {:tools (list calculator)
      :max-tokens 200}))
 (println tool-result)
 

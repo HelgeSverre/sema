@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.2
+
+### Fixed
+
+- **LLM functions now accept both lists and vectors** — `llm/chat`, `llm/classify`, `llm/batch`, `llm/embed`, `llm/pmap`, `llm/similarity`, `llm/token-count`, `llm/with-fallback`, and tool parameter extraction all now accept vectors `[...]` in addition to lists `(list ...)`. Previously, passing a vector (e.g., `[(message :user "hi")]`) to `llm/chat` would fail with `"expected list of messages or prompt, got vector"`. Added `Value::as_seq()` helper that matches both list and vector types.
+- **Docs and examples updated** — all LLM examples in the website, README, and example files now use canonical `(list ...)` syntax.
+
 ## 1.12.1
 
 ### Added

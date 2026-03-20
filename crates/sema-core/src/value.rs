@@ -1033,6 +1033,11 @@ impl Value {
         }
     }
 
+    /// Returns the contents as a slice if this is a list OR a vector.
+    pub fn as_seq(&self) -> Option<&[Value]> {
+        self.as_list().or_else(|| self.as_vector())
+    }
+
     pub fn as_vector(&self) -> Option<&[Value]> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_VECTOR {
             Some(unsafe { self.borrow_ref::<Vec<Value>>() })

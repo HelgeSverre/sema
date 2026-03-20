@@ -115,9 +115,9 @@ Set custom pricing for a model (overrides both dynamic and built-in pricing). Co
 Send multiple prompts concurrently and collect all results.
 
 ```sema
-(llm/batch ["Translate 'hello' to French"
-            "Translate 'hello' to Spanish"
-            "Translate 'hello' to German"])
+(llm/batch (list "Translate 'hello' to French"
+                 "Translate 'hello' to Spanish"
+                 "Translate 'hello' to German"))
 ```
 
 ### `llm/pmap`

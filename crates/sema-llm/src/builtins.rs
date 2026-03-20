@@ -526,7 +526,7 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
             };
 
             let tool_calls = if let Some(tcs_val) = map.get(&Value::keyword("tool-calls")) {
-                if let Some(tcs) = tcs_val.as_list() {
+                if let Some(tcs) = tcs_val.as_seq() {
                     tcs.iter()
                         .filter_map(|tc| {
                             let tc_map = tc.as_map_rc()?;
@@ -1210,7 +1210,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     max_tokens = get_opt_u32(&opts, "max-tokens");
                     temperature = get_opt_f64(&opts, "temperature");
                     system = get_opt_string(&opts, "system");
-                    if let Some(t) = opts.get(&Value::keyword("tools")).and_then(|v| v.as_list()) {
+                    if let Some(t) = opts.get(&Value::keyword("tools")).and_then(|v| v.as_seq()) {
                         tools = t.to_vec();
                     }
                     if let Some(mode) = opts.get(&Value::keyword("tool-mode")) {
@@ -1281,7 +1281,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 .iter()
                 .map(|m| ChatMessage::new(m.role.to_string(), m.content.clone()))
                 .collect()
-        } else if args[0].as_list().is_some() {
+        } else if args[0].as_seq().is_some() {
             extract_messages(&args[0])?
         } else {
             return Err(SemaError::type_error(
@@ -1556,7 +1556,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             return Err(SemaError::arity("llm/classify", "2-3", args.len()));
         }
         let categories = args[0]
-            .as_list()
+            .as_seq()
             .map(|l| l.to_vec())
             .ok_or_else(|| SemaError::type_error("list or vector", args[0].type_name()))?;
         let text = args[1]
@@ -1968,7 +1968,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         }
         let func = &args[0];
         let items = args[1]
-            .as_list()
+            .as_seq()
             .map(|l| l.to_vec())
             .ok_or_else(|| SemaError::type_error("list or vector", args[1].type_name()))?;
 
@@ -2041,7 +2041,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             return Err(SemaError::arity("llm/batch", "1-2", args.len()));
         }
         let prompts = args[0]
-            .as_list()
+            .as_seq()
             .map(|l| l.to_vec())
             .ok_or_else(|| SemaError::type_error("list or vector", args[0].type_name()))?;
 
@@ -2208,7 +2208,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
         let (texts, single) = if let Some(s) = args[0].as_str() {
             (vec![s.to_string()], true)
-        } else if let Some(l) = args[0].as_list() {
+        } else if let Some(l) = args[0].as_seq() {
             let texts: Vec<String> = l
                 .iter()
                 .map(|v| {
@@ -2265,8 +2265,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
 
         let a_is_bv = args[0].as_bytevector().is_some();
         let b_is_bv = args[1].as_bytevector().is_some();
-        let a_is_list = args[0].as_list().is_some();
-        let b_is_list = args[1].as_list().is_some();
+        let a_is_list = args[0].as_seq().is_some();
+        let b_is_list = args[1].as_seq().is_some();
 
         if a_is_bv && b_is_bv {
             let ba = args[0].as_bytevector().unwrap();
@@ -2413,8 +2413,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             ));
         }
         let items = args[0]
-            .as_list()
-            .ok_or_else(|| SemaError::type_error("list", args[0].type_name()))?;
+            .as_seq()
+            .ok_or_else(|| SemaError::type_error("list or vector", args[0].type_name()))?;
         let mut bytes = Vec::with_capacity(items.len() * 8);
         for (i, item) in items.iter().enumerate() {
             let f = item.as_float().ok_or_else(|| {
@@ -3164,8 +3164,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             return Err(SemaError::arity("llm/with-fallback", "2", args.len()));
         }
         let providers = args[0]
-            .as_list()
-            .ok_or_else(|| SemaError::type_error("list", args[0].type_name()))?;
+            .as_seq()
+            .ok_or_else(|| SemaError::type_error("list or vector", args[0].type_name()))?;
         let body_fn = &args[1];
         if body_fn.as_lambda_rc().is_none() && body_fn.as_native_fn_rc().is_none() {
             return Err(SemaError::type_error("function", body_fn.type_name()));
@@ -3212,7 +3212,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
         }
         let char_count = if let Some(s) = args[0].as_str() {
             s.len()
-        } else if let Some(list) = args[0].as_list() {
+        } else if let Some(list) = args[0].as_seq() {
             list.iter()
                 .map(|v| {
                     v.as_str()
@@ -3625,7 +3625,7 @@ fn require_matching_bytevectors<'a>(
 
 fn extract_float_vec(val: &Value) -> Result<Vec<f64>, SemaError> {
     let items = val
-        .as_list()
+        .as_seq()
         .ok_or_else(|| SemaError::type_error("list of numbers", val.type_name()))?;
     items
         .iter()
@@ -3681,7 +3681,7 @@ fn message_to_chat_message(m: &Message) -> ChatMessage {
 }
 
 fn extract_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError> {
-    if let Some(items) = val.as_list() {
+    if let Some(items) = val.as_seq() {
         let mut messages = Vec::new();
         for item in items.iter() {
             let m = item
@@ -3774,7 +3774,7 @@ fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
                             "string" => val.as_str().is_some(),
                             "number" => val.as_float().is_some(),
                             "boolean" | "bool" => val.as_bool().is_some(),
-                            "list" | "array" => val.as_list().is_some(),
+                            "list" | "array" => val.as_seq().is_some(),
                             _ => true,
                         };
                         if !ok {
@@ -4045,7 +4045,7 @@ fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
                     prop_obj.insert("description".to_string(), serde_json::Value::String(desc));
                 }
                 if let Some(e) = inner.get(&Value::keyword("enum")) {
-                    if let Some(items) = e.as_list() {
+                    if let Some(items) = e.as_seq() {
                         let vals: Vec<serde_json::Value> = items
                             .iter()
                             .map(|v| {
@@ -4090,7 +4090,7 @@ fn sema_list_to_chat_messages(val: &Value) -> Result<Vec<ChatMessage>, SemaError
         return Ok(Vec::new());
     }
     let items = val
-        .as_list()
+        .as_seq()
         .ok_or_else(|| SemaError::type_error("list of message maps", val.type_name()))?;
     let mut messages = Vec::with_capacity(items.len());
     for item in items.iter() {
@@ -4252,7 +4252,7 @@ fn execute_tool_call(
     if let Some(s) = result.as_str() {
         return Ok(s.to_string());
     }
-    if result.as_map_rc().is_some() || result.as_list().is_some() {
+    if result.as_map_rc().is_some() || result.as_seq().is_some() {
         // JSON-encode complex results
         let json = sema_core::value_to_json_lossy(&result);
         Ok(serde_json::to_string(&json).unwrap_or_else(|_| result.to_string()))

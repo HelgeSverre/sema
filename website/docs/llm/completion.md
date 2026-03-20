@@ -49,8 +49,8 @@ Send a list of messages and get a response. Supports system, user, and assistant
 
 ```sema
 (llm/chat
-  [(message :system "You are a helpful assistant.")
-   (message :user "What is Lisp? One sentence.")]
+  (list (message :system "You are a helpful assistant.")
+        (message :user "What is Lisp? One sentence."))
   {:max-tokens 100})
 ```
 
@@ -69,8 +69,8 @@ Combine with regular messages:
 
 ```sema
 (llm/chat
-  [(message :system "You are an image analyst.")
-   (message/with-image :user "What text is in this image?" (file/read-bytes "doc.png"))])
+  (list (message :system "You are an image analyst.")
+        (message/with-image :user "What text is in this image?" (file/read-bytes "doc.png"))))
 ```
 
 The image must be a bytevector. Media type (PNG, JPEG, GIF, WebP, PDF) is detected automatically from magic bytes. See [Vision Extraction](./extraction.md#vision-extraction) for structured data extraction from images.

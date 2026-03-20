@@ -29,8 +29,8 @@ Pass tools to `llm/chat` — the LLM will call them automatically when needed.
 
 ```sema
 (llm/chat
-  [(message :user "What is the capital of Norway?")]
-  {:tools [lookup-capital] :max-tokens 100})
+  (list (message :user "What is the capital of Norway?"))
+  {:tools (list lookup-capital) :max-tokens 100})
 ```
 
 ### Inspecting Tools

@@ -17,12 +17,12 @@
 (println "\n--- 2. Chat ---")
 (println
   (llm/chat
-    [(message
-       :system
-       "You are a helpful assistant. Be very concise.")
-     (message
-       :user
-       "What is Lisp? One sentence.")]
+    (list (message
+            :system
+            "You are a helpful assistant. Be very concise.")
+          (message
+            :user
+            "What is Lisp? One sentence."))
     {:max-tokens 100}))
 
 ;; --- 3. Prompts as Data ---
@@ -47,7 +47,7 @@
 ;; --- 5. Classification ---
 (println "\n--- 5. Classification ---")
 (println
-  (llm/classify [:positive :negative :neutral]
+  (llm/classify (list :positive :negative :neutral)
     "This product is amazing and I love it!"))
 
 ;; --- 6. Persistent Conversation ---
@@ -71,8 +71,8 @@
       (else                  (format "Unknown capital for ~a" country)))))
 
 (println
-  (llm/chat [(message :user "What is the capital of Norway?")]
-    {:tools [lookup-capital]
+  (llm/chat (list (message :user "What is the capital of Norway?"))
+    {:tools (list lookup-capital)
      :max-tokens 100}))
 
 ;; --- 8. Agent ---
@@ -85,7 +85,7 @@
 
 (defagent weather-bot
   {:system "You are a weather assistant. Be concise. Use tools."
-   :tools [get-weather]
+   :tools (list get-weather)
    :max-turns 3})
 
 (println (agent/run weather-bot "Weather in Tokyo?"))

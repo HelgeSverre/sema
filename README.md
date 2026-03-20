@@ -66,7 +66,7 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
 ;; => {:amount 4.5 :date "2025-01-15" :vendor "Blue Bottle"}
 
 ;; Classification
-(llm/classify [:positive :negative :neutral] "This product is amazing!")
+(llm/classify (list :positive :negative :neutral) "This product is amazing!")
 ;; => :positive
 
 ;; Multi-turn conversations as immutable data
@@ -79,9 +79,9 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
 (llm/stream "Tell me a story" {:max-tokens 500})
 
 ;; Batch — all prompts sent concurrently
-(llm/batch ["Translate 'hello' to French"
-            "Translate 'hello' to Spanish"
-            "Translate 'hello' to German"])
+(llm/batch (list "Translate 'hello' to French"
+                 "Translate 'hello' to Spanish"
+                 "Translate 'hello' to German"))
 
 ;; Vision — extract structured data from images
 (llm/extract-from-image
@@ -91,7 +91,7 @@ A coding agent with file tools, safety checks, and budget tracking — in ~40 li
 
 ;; Multi-modal chat — send images in messages
 (define img (file/read-bytes "photo.jpg"))
-(llm/chat [(message/with-image :user "Describe this image." img)])
+(llm/chat (list (message/with-image :user "Describe this image." img)))
 
 ;; Cost tracking
 (llm/set-budget 1.00)

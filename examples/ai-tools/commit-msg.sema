@@ -21,16 +21,16 @@
 ;; Generate the commit message
 (define msg
   (llm/chat
-    [(message
-       :system
-       "You are a git commit message generator. Write a concise conventional commit message for the given diff. Follow the format: type(scope): description
+    (list (message
+            :system
+            "You are a git commit message generator. Write a concise conventional commit message for the given diff. Follow the format: type(scope): description
 
 Where type is one of: feat, fix, refactor, docs, test, chore, style, perf, build, ci
 Keep the first line under 72 characters. Add a blank line and brief body only if the change is complex.
 Output ONLY the commit message, nothing else.")
-     (message
-       :user
-       (string/append "Generate a commit message for this diff:\n\n" diff))]
+          (message
+            :user
+            (string/append "Generate a commit message for this diff:\n\n" diff)))
     {:max-tokens 200}))
 
 (define msg (string/trim msg))

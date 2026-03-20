@@ -416,21 +416,13 @@ fn test_router_trailing_slash_normalized() {
 
 #[test]
 fn test_router_root_path() {
-    let result = router_eval(
-        r#"[[:get "/" (fn (req) (http/ok "root"))]]"#,
-        "get",
-        "/",
-    );
+    let result = router_eval(r#"[[:get "/" (fn (req) (http/ok "root"))]]"#, "get", "/");
     assert_eq!(get_status(&result), 200);
 }
 
 #[test]
 fn test_router_empty_path() {
-    let result = router_eval(
-        r#"[[:get "/" (fn (req) (http/ok "root"))]]"#,
-        "get",
-        "",
-    );
+    let result = router_eval(r#"[[:get "/" (fn (req) (http/ok "root"))]]"#, "get", "");
     // Empty path should match "/" or 404
     let status = get_status(&result);
     assert!(status == 200 || status == 404);
@@ -580,13 +572,11 @@ fn test_router_handler_receives_path() {
 #[test]
 fn test_router_handler_error_returns_err() {
     // When a handler calls (error ...), the router propagates the error
-    let _err = eval_err(
-        &format!(
-            r#"(let ((router (http/router [[:get "/crash" (fn (req) (error "boom"))]])))
+    let _err = eval_err(&format!(
+        r#"(let ((router (http/router [[:get "/crash" (fn (req) (error "boom"))]])))
               (router {}))"#,
-            make_request("get", "/crash")
-        ),
-    );
+        make_request("get", "/crash")
+    ));
 }
 
 #[test]
@@ -1074,21 +1064,13 @@ fn test_http_file_nonexistent_error() {
 #[test]
 fn test_router_invalid_method() {
     // Invalid method keyword: router constructs fine, but the method never matches
-    let result = router_eval(
-        r#"[[:banana "/x" (fn (req) (http/ok "x"))]]"#,
-        "get",
-        "/x",
-    );
+    let result = router_eval(r#"[[:banana "/x" (fn (req) (http/ok "x"))]]"#, "get", "/x");
     assert_eq!(get_status(&result), 404);
 }
 
 #[test]
 fn test_router_empty_pattern() {
-    let result = router_eval(
-        r#"[[:get "" (fn (req) (http/ok "empty"))]]"#,
-        "get",
-        "/",
-    );
+    let result = router_eval(r#"[[:get "" (fn (req) (http/ok "empty"))]]"#, "get", "/");
     // Empty pattern should match "/" or 404 — just shouldn't crash
     let _ = get_status(&result);
 }
@@ -1135,7 +1117,8 @@ fn test_websocket_multi_message() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (http/router
                 [[:ws "/chat" (fn (conn)
@@ -1145,7 +1128,8 @@ fn test_websocket_multi_message() {
                         ((:send conn) (string-append "re:" msg))
                         (loop)))))]])
               {:port 19900})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1158,7 +1142,8 @@ fn test_websocket_multi_message() {
     // Send multiple messages and verify each echo
     for i in 0..5 {
         let msg = format!("msg{i}");
-        ws.send(tungstenite::Message::Text(msg.clone().into())).unwrap();
+        ws.send(tungstenite::Message::Text(msg.clone().into()))
+            .unwrap();
         let reply = ws.read().unwrap();
         assert_eq!(reply.into_text().unwrap(), format!("re:{msg}"));
     }
@@ -1176,7 +1161,8 @@ fn test_websocket_close_from_server() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (http/router
                 [[:ws "/once" (fn (conn)
@@ -1185,7 +1171,8 @@ fn test_websocket_close_from_server() {
                       ((:send conn) "goodbye")
                       ((:close conn)))))]])
               {:port 19901})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1221,7 +1208,8 @@ fn test_sse_multiple_events() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (http/router
                 [[:get "/events"
@@ -1231,7 +1219,8 @@ fn test_sse_multiple_events() {
                       (send "event2")
                       (send "event3"))))]])
               {:port 19902})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1263,14 +1252,16 @@ fn test_sse_content_type() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (http/router
                 [[:get "/sse"
                   (fn (req)
                     (http/stream (fn (send) (send "data"))))]])
               {:port 19903})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1285,8 +1276,16 @@ fn test_sse_content_type() {
         .send()
         .expect("GET /sse");
 
-    let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
-    assert!(ct.contains("text/event-stream"), "SSE should have event-stream content-type: {ct}");
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap();
+    assert!(
+        ct.contains("text/event-stream"),
+        "SSE should have event-stream content-type: {ct}"
+    );
 
     child.kill().ok();
     child.wait().ok();
@@ -1304,13 +1303,15 @@ fn test_server_survives_handler_panic() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (http/router
                 [[:get "/crash" (fn (req) (error "kaboom"))]
                  [:get "/ok" (fn (req) (http/ok "alive"))]])
               {:port 19904})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1321,25 +1322,37 @@ fn test_server_survives_handler_panic() {
     let client = reqwest::blocking::Client::new();
 
     // Crash the handler
-    let resp = client.get("http://127.0.0.1:19904/crash")
-        .timeout(Duration::from_secs(5)).send().unwrap();
+    let resp = client
+        .get("http://127.0.0.1:19904/crash")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .unwrap();
     assert_eq!(resp.status(), 500);
 
     // Server should still be alive
-    let resp = client.get("http://127.0.0.1:19904/ok")
-        .timeout(Duration::from_secs(5)).send().unwrap();
+    let resp = client
+        .get("http://127.0.0.1:19904/ok")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().unwrap();
     assert_eq!(body, "alive");
 
     // Crash again
-    let resp = client.get("http://127.0.0.1:19904/crash")
-        .timeout(Duration::from_secs(5)).send().unwrap();
+    let resp = client
+        .get("http://127.0.0.1:19904/crash")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .unwrap();
     assert_eq!(resp.status(), 500);
 
     // Still alive
-    let resp = client.get("http://127.0.0.1:19904/ok")
-        .timeout(Duration::from_secs(5)).send().unwrap();
+    let resp = client
+        .get("http://127.0.0.1:19904/ok")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     child.kill().ok();
@@ -1350,16 +1363,21 @@ fn test_server_survives_handler_panic() {
 #[ignore] // requires network
 fn test_server_concurrent_requests() {
     use std::process::{Command, Stdio};
-    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
     use std::time::Duration;
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (fn (req) (http/ok (:path req)))
               {:port 19905})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1368,28 +1386,33 @@ fn test_server_concurrent_requests() {
     std::thread::sleep(Duration::from_millis(1500));
 
     let success_count = Arc::new(AtomicUsize::new(0));
-    let threads: Vec<_> = (0..10).map(|i| {
-        let count = success_count.clone();
-        std::thread::spawn(move || {
-            let client = reqwest::blocking::Client::new();
-            let resp = client
-                .get(&format!("http://127.0.0.1:19905/req/{i}"))
-                .timeout(Duration::from_secs(10))
-                .send();
-            if let Ok(r) = resp {
-                if r.status() == 200 {
-                    count.fetch_add(1, Ordering::SeqCst);
+    let threads: Vec<_> = (0..10)
+        .map(|i| {
+            let count = success_count.clone();
+            std::thread::spawn(move || {
+                let client = reqwest::blocking::Client::new();
+                let resp = client
+                    .get(&format!("http://127.0.0.1:19905/req/{i}"))
+                    .timeout(Duration::from_secs(10))
+                    .send();
+                if let Ok(r) = resp {
+                    if r.status() == 200 {
+                        count.fetch_add(1, Ordering::SeqCst);
+                    }
                 }
-            }
+            })
         })
-    }).collect();
+        .collect();
 
     for t in threads {
         t.join().unwrap();
     }
 
     let successes = success_count.load(Ordering::SeqCst);
-    assert!(successes >= 8, "at least 8/10 concurrent requests should succeed, got {successes}");
+    assert!(
+        successes >= 8,
+        "at least 8/10 concurrent requests should succeed, got {successes}"
+    );
 
     child.kill().ok();
     child.wait().ok();
@@ -1403,11 +1426,13 @@ fn test_server_large_json_body() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (fn (req) (http/ok (string-length (or (:body req) ""))))
               {:port 19906})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1438,14 +1463,16 @@ fn test_server_custom_response_headers() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (http/serve
               (fn (req) {:status 200
                          :headers {"x-custom" "hello"
                                    "x-request-id" "abc-123"}
                          :body "ok"})
               {:port 19907})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1454,12 +1481,25 @@ fn test_server_custom_response_headers() {
     std::thread::sleep(Duration::from_millis(1500));
 
     let client = reqwest::blocking::Client::new();
-    let resp = client.get("http://127.0.0.1:19907/test")
-        .timeout(Duration::from_secs(5)).send().unwrap();
+    let resp = client
+        .get("http://127.0.0.1:19907/test")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .unwrap();
 
     assert_eq!(resp.status(), 200);
-    assert_eq!(resp.headers().get("x-custom").unwrap().to_str().unwrap(), "hello");
-    assert_eq!(resp.headers().get("x-request-id").unwrap().to_str().unwrap(), "abc-123");
+    assert_eq!(
+        resp.headers().get("x-custom").unwrap().to_str().unwrap(),
+        "hello"
+    );
+    assert_eq!(
+        resp.headers()
+            .get("x-request-id")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "abc-123"
+    );
 
     child.kill().ok();
     child.wait().ok();
@@ -1477,7 +1517,8 @@ fn test_middleware_cors() {
 
     let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
         .arg("-e")
-        .arg(r#"
+        .arg(
+            r#"
             (define (cors-wrap handler)
               (fn (req)
                 (let ((resp (handler req)))
@@ -1491,7 +1532,8 @@ fn test_middleware_cors() {
                 (http/router
                   [[:get "/api" (fn (req) (http/ok {:data 42}))]]))
               {:port 19908})
-        "#)
+        "#,
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -1500,12 +1542,19 @@ fn test_middleware_cors() {
     std::thread::sleep(Duration::from_millis(1500));
 
     let client = reqwest::blocking::Client::new();
-    let resp = client.get("http://127.0.0.1:19908/api")
-        .timeout(Duration::from_secs(5)).send().unwrap();
+    let resp = client
+        .get("http://127.0.0.1:19908/api")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .unwrap();
 
     assert_eq!(resp.status(), 200);
     assert_eq!(
-        resp.headers().get("access-control-allow-origin").unwrap().to_str().unwrap(),
+        resp.headers()
+            .get("access-control-allow-origin")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "*"
     );
 
@@ -1540,8 +1589,11 @@ fn test_middleware_logging() {
     std::thread::sleep(Duration::from_millis(1500));
 
     let client = reqwest::blocking::Client::new();
-    let resp = client.get("http://127.0.0.1:19909/test")
-        .timeout(Duration::from_secs(5)).send().unwrap();
+    let resp = client
+        .get("http://127.0.0.1:19909/test")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .unwrap();
     assert_eq!(resp.status(), 200);
 
     child.kill().ok();

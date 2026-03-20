@@ -103,8 +103,8 @@ sema> (:name person)
 
 ;; Structured chat with message history
 (llm/chat
-  [(message :system "You are a helpful assistant.")
-   (message :user "What is Lisp? One sentence.")]
+  (list (message :system "You are a helpful assistant.")
+        (message :user "What is Lisp? One sentence."))
   {:max-tokens 100})
 ```
 

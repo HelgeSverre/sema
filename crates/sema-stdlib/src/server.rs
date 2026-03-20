@@ -243,11 +243,15 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let prefix = prefix.trim_end_matches('/');
         let mut result = Vec::with_capacity(routes.len());
         for route in routes {
-            let items = route
-                .as_vector_rc()
-                .ok_or_else(|| SemaError::eval("route/prefix: each route must be a vector [method pattern handler]"))?;
+            let items = route.as_vector_rc().ok_or_else(|| {
+                SemaError::eval(
+                    "route/prefix: each route must be a vector [method pattern handler]",
+                )
+            })?;
             if items.len() < 3 {
-                return Err(SemaError::eval("route/prefix: each route must have at least 3 elements"));
+                return Err(SemaError::eval(
+                    "route/prefix: each route must have at least 3 elements",
+                ));
             }
             let method = items[0].clone();
             let pattern_str = items[1]
@@ -288,7 +292,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
 
             // Build a native fn that extracts params from JSON body and calls the tool handler
             let route_handler = Value::native_fn(sema_core::NativeFn::with_ctx(
-                &format!("tools->routes/{}", tool_name),
+                format!("tools->routes/{}", tool_name),
                 move |ctx, req_args| {
                     check_arity!(req_args, "tool-route-handler", 1);
                     let req = &req_args[0];
@@ -328,23 +332,14 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             let tool_name_clone = tool_name.clone();
             let tool_desc = tool.description.clone();
             let schema_handler = Value::native_fn(sema_core::NativeFn::simple(
-                &format!("tools->routes/{}/schema", tool_name_clone),
+                format!("tools->routes/{}/schema", tool_name_clone),
                 move |_args| {
                     let schema_json = value_to_json_lossy_string(&schema_clone)
                         .unwrap_or_else(|_| "{}".to_string());
                     let mut body_map = BTreeMap::new();
-                    body_map.insert(
-                        Value::string("name"),
-                        Value::string(&tool_name_clone),
-                    );
-                    body_map.insert(
-                        Value::string("description"),
-                        Value::string(&tool_desc),
-                    );
-                    body_map.insert(
-                        Value::string("parameters"),
-                        Value::string(&schema_json),
-                    );
+                    body_map.insert(Value::string("name"), Value::string(&tool_name_clone));
+                    body_map.insert(Value::string("description"), Value::string(&tool_desc));
+                    body_map.insert(Value::string("parameters"), Value::string(&schema_json));
                     let body = value_to_json_lossy_string(&Value::map(body_map))
                         .unwrap_or_else(|_| "{}".to_string());
                     let mut headers = BTreeMap::new();

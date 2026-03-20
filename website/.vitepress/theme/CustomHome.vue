@@ -70,8 +70,8 @@
 
 <span class="c">;; Chat with roles</span>
 <span class="p">(</span><span class="b">llm/chat</span>
-  <span class="p">[</span><span class="p">(</span><span class="b">message</span> <span class="kw">:system</span> <span class="s">"You are helpful."</span><span class="p">)</span>
-   <span class="p">(</span><span class="b">message</span> <span class="kw">:user</span> <span class="s">"What is Lisp?"</span><span class="p">)]</span>
+  <span class="p">(</span><span class="b">list</span> <span class="p">(</span><span class="b">message</span> <span class="kw">:system</span> <span class="s">"You are helpful."</span><span class="p">)</span>
+        <span class="p">(</span><span class="b">message</span> <span class="kw">:user</span> <span class="s">"What is Lisp?"</span><span class="p">))</span>
   <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">100</span><span class="p">})</span>
 
 <span class="c">;; Structured extraction</span>
@@ -82,7 +82,7 @@
 <span class="c">; =&gt; {:amount 4.5 :vendor "Blue Bottle"}</span>
 
 <span class="c">;; Classification</span>
-<span class="p">(</span><span class="b">llm/classify</span> <span class="p">[</span><span class="kw">:positive</span> <span class="kw">:negative</span> <span class="kw">:neutral</span><span class="p">]</span>
+<span class="p">(</span><span class="b">llm/classify</span> <span class="p">(</span><span class="b">list</span> <span class="kw">:positive</span> <span class="kw">:negative</span> <span class="kw">:neutral</span><span class="p">)</span>
   <span class="s">"This product is amazing!"</span><span class="p">)</span>
 <span class="c">; =&gt; :positive</span></code></pre>
   </div>
@@ -118,13 +118,13 @@
 
 <span class="c">;; Use tools in chat</span>
 <span class="p">(</span><span class="b">llm/chat</span>
-  <span class="p">[</span><span class="p">(</span><span class="b">message</span> <span class="kw">:user</span> <span class="s">"Capital of Norway?"</span><span class="p">)]</span>
-  <span class="p">{</span><span class="kw">:tools</span> <span class="p">[</span>lookup-capital<span class="p">]})</span>
+  <span class="p">(</span><span class="b">list</span> <span class="p">(</span><span class="b">message</span> <span class="kw">:user</span> <span class="s">"Capital of Norway?"</span><span class="p">))</span>
+  <span class="p">{</span><span class="kw">:tools</span> <span class="p">(</span><span class="b">list</span> lookup-capital<span class="p">)})</span>
 
 <span class="c">;; Agent with multi-turn loop</span>
 <span class="p">(</span><span class="k">defagent</span> geography-bot
   <span class="p">{</span><span class="kw">:system</span> <span class="s">"You answer geography questions."</span>
-   <span class="kw">:tools</span>  <span class="p">[</span>lookup-capital<span class="p">]</span>
+   <span class="kw">:tools</span>  <span class="p">(</span><span class="b">list</span> lookup-capital<span class="p">)</span>
    <span class="kw">:max-turns</span> <span class="n">3</span><span class="p">})</span>
 <span class="p">(</span><span class="b">agent/run</span> geography-bot <span class="s">"Capital of France?"</span><span class="p">)</span></code></pre>
   </div>
@@ -244,8 +244,8 @@
 <span class="c">;; Vision in conversations</span>
 <span class="p">(</span><span class="k">define</span> img <span class="p">(</span><span class="b">file/read-bytes</span> <span class="s">"screenshot.png"</span><span class="p">))</span>
 <span class="p">(</span><span class="b">llm/chat</span>
-  <span class="p">[</span><span class="p">(</span><span class="b">message/with-image</span> <span class="kw">:user</span>
-     <span class="s">"What error is shown?"</span> img<span class="p">)]</span>
+  <span class="p">(</span><span class="b">list</span> <span class="p">(</span><span class="b">message/with-image</span> <span class="kw">:user</span>
+     <span class="s">"What error is shown?"</span> img<span class="p">))</span>
   <span class="p">{</span><span class="kw">:max-tokens</span> <span class="n">200</span><span class="p">})</span></code></pre>
   </div>
 </section>
