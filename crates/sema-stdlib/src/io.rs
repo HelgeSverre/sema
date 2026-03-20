@@ -17,6 +17,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 None => print!("{arg}"),
             }
         }
+        let _ = std::io::stdout().flush();
         Ok(Value::nil())
     });
 
@@ -27,6 +28,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             }
             print!("{arg}");
         }
+        let _ = std::io::stdout().flush();
         Ok(Value::nil())
     });
 
