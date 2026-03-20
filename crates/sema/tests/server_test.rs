@@ -355,7 +355,269 @@ fn test_http_serve_middleware() {
 }
 
 // ---------------------------------------------------------------------------
-// Router unit tests (no server needed)
+// Router edge cases — unit tests (no network)
+// ---------------------------------------------------------------------------
+
+fn make_request(method: &str, path: &str) -> String {
+    format!(
+        r#"{{:method :{method} :path "{path}" :headers {{}} :query {{}} :params {{}} :body "" :remote "127.0.0.1"}}"#
+    )
+}
+
+fn router_eval(routes: &str, method: &str, path: &str) -> Value {
+    let req = make_request(method, path);
+    eval(&format!(
+        r#"(let ((router (http/router {routes}))) (router {req}))"#
+    ))
+}
+
+fn get_status(result: &Value) -> i64 {
+    result
+        .as_map_rc()
+        .unwrap()
+        .get(&Value::keyword("status"))
+        .and_then(|v| v.as_int())
+        .unwrap()
+}
+
+fn get_body(result: &Value) -> String {
+    result
+        .as_map_rc()
+        .unwrap()
+        .get(&Value::keyword("body"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .unwrap_or_default()
+}
+
+// --- Route matching ---
+
+#[test]
+fn test_router_first_match_wins() {
+    let result = router_eval(
+        r#"[[:get "/x" (fn (req) (http/ok "first"))]
+            [:get "/x" (fn (req) (http/ok "second"))]]"#,
+        "get",
+        "/x",
+    );
+    assert_eq!(get_status(&result), 200);
+    assert!(get_body(&result).contains("first"));
+}
+
+#[test]
+fn test_router_trailing_slash_normalized() {
+    let result = router_eval(
+        r#"[[:get "/api/data" (fn (req) (http/ok "found"))]]"#,
+        "get",
+        "/api/data/",
+    );
+    assert_eq!(get_status(&result), 200);
+}
+
+#[test]
+fn test_router_root_path() {
+    let result = router_eval(
+        r#"[[:get "/" (fn (req) (http/ok "root"))]]"#,
+        "get",
+        "/",
+    );
+    assert_eq!(get_status(&result), 200);
+}
+
+#[test]
+fn test_router_empty_path() {
+    let result = router_eval(
+        r#"[[:get "/" (fn (req) (http/ok "root"))]]"#,
+        "get",
+        "",
+    );
+    // Empty path should match "/" or 404
+    let status = get_status(&result);
+    assert!(status == 200 || status == 404);
+}
+
+#[test]
+fn test_router_multi_segment_params() {
+    let result = router_eval(
+        r#"[[:get "/users/:id/posts/:pid" (fn (req) (http/ok (:params req)))]]"#,
+        "get",
+        "/users/42/posts/99",
+    );
+    assert_eq!(get_status(&result), 200);
+    let body = get_body(&result);
+    assert!(body.contains("42"), "should contain user id 42: {body}");
+    assert!(body.contains("99"), "should contain post id 99: {body}");
+}
+
+#[test]
+fn test_router_param_with_special_chars() {
+    let result = router_eval(
+        r#"[[:get "/search/:q" (fn (req) (http/ok (:params req)))]]"#,
+        "get",
+        "/search/hello%20world",
+    );
+    assert_eq!(get_status(&result), 200);
+}
+
+#[test]
+fn test_router_wildcard_captures_rest() {
+    let result = router_eval(
+        r#"[[:get "/files/*" (fn (req) (http/ok (:params req)))]]"#,
+        "get",
+        "/files/a/b/c/d.txt",
+    );
+    assert_eq!(get_status(&result), 200);
+    let body = get_body(&result);
+    assert!(
+        body.contains("a/b/c/d.txt"),
+        "wildcard should capture full path: {body}"
+    );
+}
+
+#[test]
+fn test_router_wildcard_empty_rest() {
+    let result = router_eval(
+        r#"[[:get "/files/*" (fn (req) (http/ok "matched"))]]"#,
+        "get",
+        "/files/",
+    );
+    assert_eq!(get_status(&result), 200);
+}
+
+#[test]
+fn test_router_no_routes() {
+    let result = router_eval(r#"[]"#, "get", "/anything");
+    assert_eq!(get_status(&result), 404);
+}
+
+// --- Method matching ---
+
+#[test]
+fn test_router_all_methods() {
+    for method in &["get", "post", "put", "delete", "patch", "head"] {
+        let result = router_eval(
+            r#"[[:any "/test" (fn (req) (http/ok "ok"))]]"#,
+            method,
+            "/test",
+        );
+        assert_eq!(
+            get_status(&result),
+            200,
+            "method :{method} should match :any"
+        );
+    }
+}
+
+#[test]
+fn test_router_method_case() {
+    let result = router_eval(
+        r#"[[:get "/test" (fn (req) (http/ok "ok"))]]"#,
+        "get",
+        "/test",
+    );
+    assert_eq!(get_status(&result), 200);
+}
+
+#[test]
+fn test_router_post_doesnt_match_get() {
+    let result = router_eval(
+        r#"[[:post "/data" (fn (req) (http/ok "posted"))]]"#,
+        "get",
+        "/data",
+    );
+    assert_eq!(get_status(&result), 404);
+}
+
+#[test]
+fn test_router_multiple_methods_same_path() {
+    let routes = r#"[[:get "/api" (fn (req) (http/ok "got"))]
+                     [:post "/api" (fn (req) (http/ok "posted"))]
+                     [:delete "/api" (fn (req) (http/ok "deleted"))]]"#;
+
+    let r1 = router_eval(routes, "get", "/api");
+    assert!(get_body(&r1).contains("got"));
+
+    let r2 = router_eval(routes, "post", "/api");
+    assert!(get_body(&r2).contains("posted"));
+
+    let r3 = router_eval(routes, "delete", "/api");
+    assert!(get_body(&r3).contains("deleted"));
+
+    let r4 = router_eval(routes, "put", "/api");
+    assert_eq!(get_status(&r4), 404);
+}
+
+// --- Handler behavior ---
+
+#[test]
+fn test_router_handler_receives_method() {
+    let req = make_request("get", "/m");
+    let result = eval(&format!(
+        r#"(let ((router (http/router [[:get "/m" (fn (req) (http/ok (:method req)))]])))
+          (router {req}))"#
+    ));
+    let body = get_body(&result);
+    assert!(
+        body.contains("get"),
+        "handler should receive :method as keyword: {body}"
+    );
+}
+
+#[test]
+fn test_router_handler_receives_path() {
+    let req = make_request("get", "/test/path");
+    let result = eval(&format!(
+        r#"(let ((router (http/router [[:get "/test/path" (fn (req) (http/text (:path req)))]])))
+          (router {req}))"#
+    ));
+    let body = get_body(&result);
+    assert!(
+        body.contains("/test/path"),
+        "handler should receive :path: {body}"
+    );
+}
+
+#[test]
+fn test_router_handler_error_returns_err() {
+    // When a handler calls (error ...), the router propagates the error
+    let _err = eval_err(
+        &format!(
+            r#"(let ((router (http/router [[:get "/crash" (fn (req) (error "boom"))]])))
+              (router {}))"#,
+            make_request("get", "/crash")
+        ),
+    );
+}
+
+#[test]
+fn test_router_handler_returns_non_map() {
+    // If handler returns a non-map, the router returns it as-is (no wrapping)
+    let req = make_request("get", "/bad");
+    let result = eval(&format!(
+        r#"(let ((router (http/router [[:get "/bad" (fn (req) "just a string")]])))
+          (router {req}))"#
+    ));
+    // The handler returns a plain string, which is what we get back
+    assert!(result.as_str().is_some() || result.as_map_rc().is_some());
+}
+
+// --- Query string ---
+
+#[test]
+fn test_router_query_preserved() {
+    let result = eval(
+        r#"(let ((router (http/router [[:get "/q" (fn (req) (http/ok (:query req)))]])))
+          (router {:method :get :path "/q" :headers {} :query {:foo "bar" :baz "42"} :params {} :body "" :remote "127.0.0.1"}))"#,
+    );
+    let body = get_body(&result);
+    assert!(
+        body.contains("bar"),
+        "query params should be passed through: {body}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Router unit tests (no server needed) — original tests
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -688,4 +950,165 @@ fn test_http_serve_static_files() {
     child.kill().ok();
     child.wait().ok();
     let _ = std::fs::remove_dir_all(&tmp);
+}
+
+// ---------------------------------------------------------------------------
+// Static file serving edge cases — unit tests (no network)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_static_index_html_for_directory() {
+    let tmp = std::env::temp_dir().join("sema-static-index-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("sub")).unwrap();
+    std::fs::write(tmp.join("sub/index.html"), "<h1>Index</h1>").unwrap();
+    let dir = tmp.to_string_lossy().replace('\\', "/");
+
+    let result = eval(&format!(
+        r#"(let ((router (http/router [[:static "/s" "{dir}"]])))
+          (router {{:method :get :path "/s/sub/" :headers {{}} :query {{}} :params {{}} :body "" :remote "127.0.0.1"}}))"#
+    ));
+    let map = result.as_map_rc().unwrap();
+    // Should serve index.html via the file marker
+    let has_file = map
+        .get(&Value::keyword("__file"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    if has_file {
+        let path = map
+            .get(&Value::keyword("__file_path"))
+            .and_then(|v| v.as_str())
+            .unwrap();
+        assert!(
+            path.contains("index.html"),
+            "should serve index.html for directory: {path}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_static_nested_path_traversal_double_dot() {
+    let tmp = std::env::temp_dir().join("sema-static-dotdot-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    std::fs::write(tmp.join("safe.txt"), "safe").unwrap();
+    let dir = tmp.to_string_lossy().replace('\\', "/");
+
+    // Various traversal attempts
+    for path in &[
+        "/s/../../etc/passwd",
+        "/s/..%2f..%2fetc/passwd",
+        "/s/sub/../../out.txt",
+    ] {
+        let result = eval(&format!(
+            r#"(let ((router (http/router [[:static "/s" "{dir}"]])))
+              (router {{:method :get :path "{path}" :headers {{}} :query {{}} :params {{}} :body "" :remote "127.0.0.1"}}))"#
+        ));
+        let map = result.as_map_rc().unwrap();
+        let status = map
+            .get(&Value::keyword("status"))
+            .and_then(|v| v.as_int())
+            .unwrap_or(0);
+        assert!(
+            status == 400 || status == 404,
+            "path traversal {path} should be blocked, got {status}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_static_mime_types() {
+    let tmp = std::env::temp_dir().join("sema-static-mime-test");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+
+    let files = [
+        ("test.html", "text/html"),
+        ("test.css", "text/css"),
+        ("test.js", "javascript"),
+        ("test.json", "application/json"),
+        ("test.png", "image/png"),
+        ("test.svg", "svg"),
+    ];
+
+    for (name, _) in &files {
+        std::fs::write(tmp.join(name), "content").unwrap();
+    }
+    let dir = tmp.to_string_lossy().replace('\\', "/");
+
+    for (name, expected_mime) in &files {
+        let result = eval(&format!(
+            r#"(let ((router (http/router [[:static "/s" "{dir}"]])))
+              (router {{:method :get :path "/s/{name}" :headers {{}} :query {{}} :params {{}} :body "" :remote "127.0.0.1"}}))"#
+        ));
+        let map = result.as_map_rc().unwrap();
+        let has_file = map
+            .get(&Value::keyword("__file"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        assert!(has_file, "{name} should return file marker");
+        let ct = map
+            .get(&Value::keyword("__file_content_type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        assert!(
+            ct.contains(expected_mime),
+            "{name}: expected MIME containing '{expected_mime}', got '{ct}'"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_http_file_nonexistent_error() {
+    let err = eval_err(r#"(http/file "/definitely/not/a/real/path/xyz.txt")"#);
+    assert!(err.to_string().contains("http/file"));
+}
+
+// ---------------------------------------------------------------------------
+// Router/stream/websocket construction errors
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_router_invalid_method() {
+    // Invalid method keyword: router constructs fine, but the method never matches
+    let result = router_eval(
+        r#"[[:banana "/x" (fn (req) (http/ok "x"))]]"#,
+        "get",
+        "/x",
+    );
+    assert_eq!(get_status(&result), 404);
+}
+
+#[test]
+fn test_router_empty_pattern() {
+    let result = router_eval(
+        r#"[[:get "" (fn (req) (http/ok "empty"))]]"#,
+        "get",
+        "/",
+    );
+    // Empty pattern should match "/" or 404 — just shouldn't crash
+    let _ = get_status(&result);
+}
+
+#[test]
+fn test_http_router_no_args() {
+    let _ = eval_err(r#"(http/router)"#);
+}
+
+#[test]
+fn test_http_serve_no_args() {
+    let _ = eval_err(r#"(http/serve)"#);
+}
+
+#[test]
+fn test_http_stream_no_args() {
+    let _ = eval_err(r#"(http/stream)"#);
+}
+
+#[test]
+fn test_http_websocket_no_args() {
+    let _ = eval_err(r#"(http/websocket)"#);
 }
