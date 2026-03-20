@@ -2,8 +2,17 @@
 
 ## Unreleased
 
+### Added
+
+- **ELIZA chatbot example** — `examples/eliza.sema`, a faithful reimplementation of Weizenbaum's 1966 chatbot with keyword priorities, wildcard pattern matching, pronoun reflection, and response cycling.
+
 ### Changed
 
+- **Datetime dual-eval tests** — 78 tests covering `time/parse`, `time/format`, `time/date-parts`, `time/add`, `time/diff`, `time/now` with edge cases: leap year (Feb 29), century leap year (2000), midnight rollover, year boundary, pre-epoch timestamps, and error cases (invalid format, non-leap Feb 29).
+- **Float edge-case tests** — dual-eval tests for `-0.0` equality, `eq?`, `equal?`, `zero?`, collection membership.
+- **Shadowed-builtin tests** — 27 dual-eval tests covering all 10 foldable operators shadowed via `let`, `let*`, `letrec`, `lambda`, `define`, `do`, plus nested scopes, scope exit, and higher-order usage.
+- **String error tests** — dual-eval error tests for negative/OOB indices in `string-ref` and `substring`.
+- **Unicode string tests** — `string/index-of` and `string/last-index-of` tests with multi-byte characters (café, emoji).
 - **LSP refactor** — split helpers and scope analysis out of monolithic `lib.rs` into `helpers.rs` and `scope.rs`; added special form documentation for hover.
 - **Formatter** — added `--json` output mode with NDJSON multi-file support and `file` field.
 - **VM** — optimized debug hook hot path; replaced `unsafe transmute` in `Op::from_u8()` with safe match + compile-time exhaustiveness check.
@@ -17,8 +26,20 @@
 
 ### Fixed
 
+- **VM** — optimizer now correctly skips constant folding when builtins (`+`, `-`, `*`, `/`, `<`, `>`, `=`, `not`, etc.) are shadowed by local bindings. Previously `(let ((+ *)) (+ 3 4))` would be miscompiled to `7` instead of `12`. The fix tracks shadowed names through all binding forms (`let`, `let*`, `letrec`, `lambda`, `do`, `try/catch`) during optimization.
+- **VM** — compiler no longer emits intrinsic opcodes (`Op::AddInt`, etc.) for builtins that are redefined via top-level `define`. Previously `(begin (define + *) (+ 3 4))` would ignore the redefinition and use the hardwired addition opcode.
+- **VM** — `Op::Negate` and `fold_unary_op` now use `wrapping_neg()` instead of bare `-n`, matching the stdlib's behavior and avoiding panics in debug builds on `i64::MIN`.
+- **VM** — `vm_div` and optimizer division now use exact integer arithmetic (`x % y == 0` → `x / y`) instead of casting through `f64`, avoiding precision loss for integers above 2^53.
+- **string/index-of**, **string/last-index-of** — fixed byte-offset vs character-offset bug; now correctly returns character indices for multi-byte strings (e.g., `(string/index-of "café world" "world")` now returns `5`, not `7`).
+- **string-ref** / **substring** — negative indices now raise clear error messages (e.g., "index -1 must be non-negative") instead of silently wrapping via `as usize` and giving misleading "out of bounds" errors.
+- **Equality** — `Value::PartialEq` for floats now uses IEEE 754 equality (`a == b`) instead of bit comparison. `-0.0` and `0.0` compare as equal via `equal?` and `eq?`, and `Value::Hash` normalizes `-0.0` so equal values hash identically.
+- **Float ordering** — `Value::Ord` now uses `f64::total_cmp()` instead of `to_bits().cmp()`, fixing incorrect ordering of negative floats (previously all negatives sorted after all positives).
+- **split_identifier_words** — uses `chars().count()` instead of byte `len()` for word boundary detection, fixing potential incorrect splits with multi-byte uppercase characters.
+- **Docs** — `string/index-of` docs corrected from "byte index" to "character index"; `string/last-index-of` docs corrected from "-1" to "nil" for not-found return value.
+- **CI** — fixed lychee link checker config, broken doc link, and git test identity issues.
 - **VM** — inner define forward references now work correctly (R5RS `letrec*` semantics). Functions like `(define (a) (b)) (define (b) 42)` inside a function body can forward-reference each other. This fixes the nqueens benchmark which was broken on the VM.
 - **VM** — fixed stale upvalue cell reuse when local slots are reused across named-let scopes with intervening native calls. `close_open_upvalues` now clears entries after closing, preventing `make_closure` from reusing Closed cells containing old variable values.
+- **I/O** — `display` and `print` now flush stdout immediately, fixing missing prompts before `read-line` in interactive programs.
 - **Test suite hardening** — comprehensive audit and fix of fragile tests across the entire codebase:
   - Migrated 20 tests from hardcoded `/tmp` paths to unique temp directories
   - Added read timeouts and `wait_for_event()` helper to DAP integration tests
