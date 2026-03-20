@@ -183,3 +183,90 @@ dual_eval_tests! {
     log_info: r#"(log/info "hello")"# => Value::nil(),
     log_warn: r#"(log/warn "caution")"# => Value::nil(),
 }
+
+// ============================================================
+// Datetime — dual eval (tree-walker + VM)
+// ============================================================
+
+// All tests use fixed timestamps via time/parse to avoid flakiness.
+// Unix timestamp 1704067200 = 2024-01-01 00:00:00 UTC
+
+dual_eval_tests! {
+    // time/parse — basic parsing
+    time_parse_basic: r#"(time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S")"# => Value::float(1704067200.0),
+    time_parse_epoch: r#"(time/parse "1970-01-01 00:00:00" "%Y-%m-%d %H:%M:%S")"# => Value::float(0.0),
+
+    // time/format — basic formatting
+    time_format_date: r#"(time/format 1704067200.0 "%Y-%m-%d")"# => Value::string("2024-01-01"),
+    time_format_time: r#"(time/format 1704067200.0 "%H:%M:%S")"# => Value::string("00:00:00"),
+    time_format_full: r#"(time/format 1704067200.0 "%Y-%m-%d %H:%M:%S")"# => Value::string("2024-01-01 00:00:00"),
+    time_format_epoch: r#"(time/format 0.0 "%Y-%m-%d")"# => Value::string("1970-01-01"),
+
+    // time/parse → time/format roundtrip
+    time_roundtrip: r#"(time/format (time/parse "2024-06-15 14:30:00" "%Y-%m-%d %H:%M:%S") "%Y-%m-%d %H:%M:%S")"# => Value::string("2024-06-15 14:30:00"),
+
+    // time/date-parts — basic extraction
+    time_parts_year: r#"(get (time/date-parts 1704067200.0) :year)"# => Value::int(2024),
+    time_parts_month: r#"(get (time/date-parts 1704067200.0) :month)"# => Value::int(1),
+    time_parts_day: r#"(get (time/date-parts 1704067200.0) :day)"# => Value::int(1),
+    time_parts_hour: r#"(get (time/date-parts 1704067200.0) :hour)"# => Value::int(0),
+    time_parts_minute: r#"(get (time/date-parts 1704067200.0) :minute)"# => Value::int(0),
+    time_parts_second: r#"(get (time/date-parts 1704067200.0) :second)"# => Value::int(0),
+    time_parts_weekday: r#"(get (time/date-parts 1704067200.0) :weekday)"# => Value::string("Monday"),
+
+    // time/add — basic addition
+    time_add_one_second: r#"(time/format (time/add (time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S") 1) "%Y-%m-%d %H:%M:%S")"# => Value::string("2024-01-01 00:00:01"),
+    time_add_one_hour: r#"(time/format (time/add (time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S") 3600) "%Y-%m-%d %H:%M:%S")"# => Value::string("2024-01-01 01:00:00"),
+    time_add_one_day: r#"(time/format (time/add (time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S") 86400) "%Y-%m-%d %H:%M:%S")"# => Value::string("2024-01-02 00:00:00"),
+    time_add_negative: r#"(time/format (time/add (time/parse "2024-01-02 00:00:00" "%Y-%m-%d %H:%M:%S") -86400) "%Y-%m-%d %H:%M:%S")"# => Value::string("2024-01-01 00:00:00"),
+
+    // time/diff — difference between timestamps
+    time_diff_basic: r#"(time/diff (time/parse "2024-01-02 00:00:00" "%Y-%m-%d %H:%M:%S") (time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S"))"# => Value::float(86400.0),
+    time_diff_negative: r#"(time/diff (time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S") (time/parse "2024-01-02 00:00:00" "%Y-%m-%d %H:%M:%S"))"# => Value::float(-86400.0),
+    time_diff_zero: r#"(time/diff (time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S") (time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S"))"# => Value::float(0.0),
+
+    // === Edge cases ===
+
+    // Leap year: Feb 29 exists in 2024
+    time_leap_year_feb29: r#"(get (time/date-parts (time/parse "2024-02-29 12:00:00" "%Y-%m-%d %H:%M:%S")) :day)"# => Value::int(29),
+    time_leap_year_feb29_weekday: r#"(get (time/date-parts (time/parse "2024-02-29 00:00:00" "%Y-%m-%d %H:%M:%S")) :weekday)"# => Value::string("Thursday"),
+
+    // Midnight boundary: 1 second before midnight → next day
+    time_midnight_rollover: r#"(time/format (time/add (time/parse "2024-02-29 23:59:59" "%Y-%m-%d %H:%M:%S") 1) "%Y-%m-%d %H:%M:%S")"# => Value::string("2024-03-01 00:00:00"),
+    // Non-leap year: Feb 28 → Mar 1 on rollover
+    time_non_leap_feb28_rollover: r#"(time/format (time/add (time/parse "2023-02-28 23:59:59" "%Y-%m-%d %H:%M:%S") 1) "%Y-%m-%d %H:%M:%S")"# => Value::string("2023-03-01 00:00:00"),
+
+    // Year boundary: Dec 31 23:59:59 → Jan 1
+    time_year_boundary: r#"(time/format (time/add (time/parse "2024-12-31 23:59:59" "%Y-%m-%d %H:%M:%S") 1) "%Y-%m-%d %H:%M:%S")"# => Value::string("2025-01-01 00:00:00"),
+
+    // Negative timestamps (before Unix epoch)
+    time_before_epoch: r#"(time/format (time/parse "1969-12-31 23:59:59" "%Y-%m-%d %H:%M:%S") "%Y-%m-%d")"# => Value::string("1969-12-31"),
+    time_before_epoch_parts: r#"(get (time/date-parts (time/parse "1969-07-20 20:17:00" "%Y-%m-%d %H:%M:%S")) :year)"# => Value::int(1969),
+
+    // DST-insensitive (UTC only, but test midday/midnight distinction)
+    time_midday: r#"(get (time/date-parts (time/parse "2024-03-10 12:00:00" "%Y-%m-%d %H:%M:%S")) :hour)"# => Value::int(12),
+    time_end_of_day: r#"(get (time/date-parts (time/parse "2024-06-15 23:59:59" "%Y-%m-%d %H:%M:%S")) :second)"# => Value::int(59),
+
+    // Century leap year: 2000 is leap, 1900 is not
+    time_century_leap_2000: r#"(get (time/date-parts (time/parse "2000-02-29 00:00:00" "%Y-%m-%d %H:%M:%S")) :day)"# => Value::int(29),
+
+    // Large time addition (365 days)
+    time_add_year: r#"(time/format (time/add (time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S") 31622400) "%Y-%m-%d %H:%M:%S")"# => Value::string("2025-01-01 00:00:00"),
+}
+
+// time/now — can only check it returns a reasonable positive float
+dual_eval_tests! {
+    time_now_positive: "(> (time/now) 0)" => Value::bool(true),
+    time_now_is_float: "(float? (time/now))" => Value::bool(true),
+    // time/now should be after 2024-01-01 (1704067200)
+    time_now_recent: "(> (time/now) 1704067200)" => Value::bool(true),
+}
+
+// time/parse error cases
+dual_eval_error_tests! {
+    time_parse_invalid_format: r#"(time/parse "not-a-date" "%Y-%m-%d")"#,
+    time_parse_wrong_type: r#"(time/parse 42 "%Y-%m-%d")"#,
+    time_format_wrong_type: r#"(time/format "not-a-number" "%Y-%m-%d")"#,
+    // Non-leap year Feb 29 should fail
+    time_non_leap_feb29: r#"(time/parse "2023-02-29 00:00:00" "%Y-%m-%d %H:%M:%S")"#,
+}

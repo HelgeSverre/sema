@@ -140,3 +140,20 @@ dual_eval_tests! {
 dual_eval_error_tests! {
     err_emb_oob: "(embedding/ref (embedding/list->embedding '(1.0 2.0)) 5)",
 }
+
+// ============================================================
+// Float edge cases — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // -0.0 vs +0.0 equality (IEEE 754: they are equal)
+    neg_zero_equals_pos_zero: "(= -0.0 0.0)" => Value::bool(true),
+    neg_zero_equal_fn: "(equal? -0.0 0.0)" => Value::bool(true),
+    neg_zero_arithmetic: "(= (* -1.0 0.0) 0.0)" => Value::bool(true),
+    neg_zero_negate: "(= (- 0.0) 0.0)" => Value::bool(true),
+    neg_zero_is_zero: "(zero? -0.0)" => Value::bool(true),
+    neg_zero_eq_identity: "(eq? -0.0 0.0)" => Value::bool(true),
+
+    // -0.0 in collections — lookup must work since equal? says equal
+    neg_zero_in_list: "(member -0.0 '(1.0 0.0 2.0))" => common::eval_tw("'(0.0 2.0)"),
+}

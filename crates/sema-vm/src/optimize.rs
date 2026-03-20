@@ -220,13 +220,10 @@ fn fold_binary_op(name: &str, a: &Value, b: &Value) -> Option<Value> {
         "/" => {
             if bi == 0 {
                 None
+            } else if ai % bi == 0 {
+                Some(Value::int(ai / bi))
             } else {
-                let result = ai as f64 / bi as f64;
-                if result.fract() == 0.0 {
-                    Some(Value::int(result as i64))
-                } else {
-                    Some(Value::float(result))
-                }
+                Some(Value::float(ai as f64 / bi as f64))
             }
         }
         "<" => Some(Value::bool(ai < bi)),

@@ -1388,7 +1388,7 @@ impl PartialEq for Value {
             (ValueView::Nil, ValueView::Nil) => true,
             (ValueView::Bool(a), ValueView::Bool(b)) => a == b,
             (ValueView::Int(a), ValueView::Int(b)) => a == b,
-            (ValueView::Float(a), ValueView::Float(b)) => a.to_bits() == b.to_bits(),
+            (ValueView::Float(a), ValueView::Float(b)) => a == b,
             (ValueView::String(a), ValueView::String(b)) => a == b,
             (ValueView::Symbol(a), ValueView::Symbol(b)) => a == b,
             (ValueView::Keyword(a), ValueView::Keyword(b)) => a == b,
@@ -1424,7 +1424,9 @@ impl Hash for Value {
             }
             ValueView::Float(f) => {
                 3u8.hash(state);
-                f.to_bits().hash(state);
+                // Normalize -0.0 to +0.0 so equal values hash identically
+                let bits = if f == 0.0 { 0u64 } else { f.to_bits() };
+                bits.hash(state);
             }
             ValueView::String(s) => {
                 4u8.hash(state);

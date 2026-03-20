@@ -119,7 +119,7 @@ Replace all occurrences of a substring.
 
 ### `string/index-of`
 
-Return the byte index of the first occurrence of a substring, or `nil` if not found.
+Return the character index of the first occurrence of a substring, or `nil` if not found.
 
 ```sema
 (string/index-of "hello" "ll")   ; => 2
@@ -128,11 +128,11 @@ Return the byte index of the first occurrence of a substring, or `nil` if not fo
 
 ### `string/last-index-of`
 
-Find the last occurrence of a substring. Returns the index or -1 if not found.
+Find the last occurrence of a substring. Returns the character index or `nil` if not found.
 
 ```sema
 (string/last-index-of "abcabc" "abc")   ; => 3
-(string/last-index-of "hello" "xyz")    ; => -1
+(string/last-index-of "hello" "xyz")    ; => nil
 ```
 
 ### `string/chars`

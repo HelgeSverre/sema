@@ -169,9 +169,9 @@ mod tests {
         let mut e = Emitter::new();
         let idx1 = e.add_const(Value::float(0.0));
         let idx2 = e.add_const(Value::float(-0.0));
-        // -0.0 and +0.0 have different bit patterns; both approaches keep them separate
-        assert_ne!(idx1, idx2, "-0.0 and +0.0 should not dedup");
-        assert_eq!(e.into_chunk().consts.len(), 2);
+        // -0.0 and +0.0 are equal per IEEE 754, so they dedup to the same constant
+        assert_eq!(idx1, idx2, "-0.0 and +0.0 should dedup (equal per IEEE 754)");
+        assert_eq!(e.into_chunk().consts.len(), 1);
     }
 
     #[test]

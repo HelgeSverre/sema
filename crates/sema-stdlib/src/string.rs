@@ -323,7 +323,10 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         match s.find(sub) {
-            Some(idx) => Ok(Value::int(idx as i64)),
+            Some(byte_idx) => {
+                let char_idx = s[..byte_idx].chars().count();
+                Ok(Value::int(char_idx as i64))
+            }
             None => Ok(Value::nil()),
         }
     });
@@ -435,7 +438,10 @@ pub fn register(env: &sema_core::Env) {
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         match s.rfind(sub) {
-            Some(idx) => Ok(Value::int(idx as i64)),
+            Some(byte_idx) => {
+                let char_idx = s[..byte_idx].chars().count();
+                Ok(Value::int(char_idx as i64))
+            }
             None => Ok(Value::nil()),
         }
     });
