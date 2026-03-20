@@ -1,8 +1,12 @@
 use std::collections::BTreeMap;
 
-use sema_core::{check_arity, SemaError, Value};
+use sema_core::{check_arity, value_to_json_lossy, SemaError, Value};
 
 use crate::register_fn;
+
+fn value_to_json_lossy_string(val: &Value) -> Result<String, String> {
+    serde_json::to_string(&value_to_json_lossy(val)).map_err(|e| e.to_string())
+}
 
 // --- Raw types for cross-thread communication (Value is !Send due to Rc) ---
 
@@ -220,6 +224,154 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         map.insert(Value::keyword("__websocket"), Value::bool(true));
         map.insert(Value::keyword("__ws_handler"), args[0].clone());
         Ok(Value::map(map))
+    });
+
+    // (route/prefix "/api" routes) — prepend prefix to all route patterns
+    register_fn(env, "route/prefix", |args| {
+        check_arity!(args, "route/prefix", 2);
+        let prefix = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?
+            .to_string();
+        let routes: Vec<Value> = if let Some(items) = args[1].as_list() {
+            items.to_vec()
+        } else if let Some(items) = args[1].as_vector_rc() {
+            items.to_vec()
+        } else {
+            return Err(SemaError::type_error("list or vector", args[1].type_name()));
+        };
+        let prefix = prefix.trim_end_matches('/');
+        let mut result = Vec::with_capacity(routes.len());
+        for route in routes {
+            let items = route
+                .as_vector_rc()
+                .ok_or_else(|| SemaError::eval("route/prefix: each route must be a vector [method pattern handler]"))?;
+            if items.len() < 3 {
+                return Err(SemaError::eval("route/prefix: each route must have at least 3 elements"));
+            }
+            let method = items[0].clone();
+            let pattern_str = items[1]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", items[1].type_name()))?;
+            let new_pattern = if method.as_keyword().as_deref() == Some("static") {
+                // For static routes, prefix is the first arg, dir is second — keep dir unchanged
+                Value::string(&format!("{}{}", prefix, pattern_str))
+            } else {
+                Value::string(&format!("{}{}", prefix, pattern_str))
+            };
+            let mut new_items = vec![method, new_pattern];
+            new_items.extend(items[2..].iter().cloned());
+            result.push(Value::vector(new_items));
+        }
+        Ok(Value::list(result))
+    });
+
+    // (tools->routes tools) — generate POST routes from tool definitions
+    register_fn(env, "tools->routes", |args| {
+        check_arity!(args, "tools->routes", 1);
+        let tools: Vec<Value> = if let Some(items) = args[0].as_list() {
+            items.to_vec()
+        } else if let Some(items) = args[0].as_vector_rc() {
+            items.to_vec()
+        } else {
+            return Err(SemaError::type_error("list or vector", args[0].type_name()));
+        };
+        let mut routes = Vec::with_capacity(tools.len());
+        for tool_val in &tools {
+            let tool = tool_val
+                .as_tool_def_rc()
+                .ok_or_else(|| SemaError::type_error("tool", tool_val.type_name()))?;
+            let path = format!("/tools/{}", tool.name);
+            let handler = tool.handler.clone();
+            let param_schema = tool.parameters.clone();
+            let tool_name = tool.name.clone();
+
+            // Build a native fn that extracts params from JSON body and calls the tool handler
+            let route_handler = Value::native_fn(sema_core::NativeFn::with_ctx(
+                &format!("tools->routes/{}", tool_name),
+                move |ctx, req_args| {
+                    check_arity!(req_args, "tool-route-handler", 1);
+                    let req = &req_args[0];
+                    // Extract JSON body or use empty map
+                    let json_body = req
+                        .as_map_rc()
+                        .and_then(|m| m.get(&Value::keyword("json")).cloned())
+                        .unwrap_or_else(Value::nil);
+
+                    // Call the tool handler with the params
+                    let tool_args = if json_body.is_nil() {
+                        vec![Value::map(BTreeMap::new())]
+                    } else {
+                        vec![json_body]
+                    };
+                    let result = sema_core::call_callback(ctx, &handler, &tool_args)?;
+
+                    // Wrap result in http/ok-style response
+                    let body = value_to_json_lossy_string(&result)
+                        .unwrap_or_else(|_| format!("{}", result));
+                    let mut headers = BTreeMap::new();
+                    headers.insert(
+                        Value::string("content-type"),
+                        Value::string("application/json"),
+                    );
+                    let mut resp = BTreeMap::new();
+                    resp.insert(Value::keyword("status"), Value::int(200));
+                    resp.insert(Value::keyword("headers"), Value::map(headers));
+                    resp.insert(Value::keyword("body"), Value::string(&body));
+                    Ok(Value::map(resp))
+                },
+            ));
+
+            // Also create a schema endpoint
+            let schema_path = format!("/tools/{}/schema", tool_name);
+            let schema_clone = param_schema.clone();
+            let tool_name_clone = tool_name.clone();
+            let tool_desc = tool.description.clone();
+            let schema_handler = Value::native_fn(sema_core::NativeFn::simple(
+                &format!("tools->routes/{}/schema", tool_name_clone),
+                move |_args| {
+                    let schema_json = value_to_json_lossy_string(&schema_clone)
+                        .unwrap_or_else(|_| "{}".to_string());
+                    let mut body_map = BTreeMap::new();
+                    body_map.insert(
+                        Value::string("name"),
+                        Value::string(&tool_name_clone),
+                    );
+                    body_map.insert(
+                        Value::string("description"),
+                        Value::string(&tool_desc),
+                    );
+                    body_map.insert(
+                        Value::string("parameters"),
+                        Value::string(&schema_json),
+                    );
+                    let body = value_to_json_lossy_string(&Value::map(body_map))
+                        .unwrap_or_else(|_| "{}".to_string());
+                    let mut headers = BTreeMap::new();
+                    headers.insert(
+                        Value::string("content-type"),
+                        Value::string("application/json"),
+                    );
+                    let mut resp = BTreeMap::new();
+                    resp.insert(Value::keyword("status"), Value::int(200));
+                    resp.insert(Value::keyword("headers"), Value::map(headers));
+                    resp.insert(Value::keyword("body"), Value::string(&body));
+                    Ok(Value::map(resp))
+                },
+            ));
+
+            routes.push(Value::vector(vec![
+                Value::keyword("post"),
+                Value::string(&path),
+                route_handler,
+            ]));
+            routes.push(Value::vector(vec![
+                Value::keyword("get"),
+                Value::string(&schema_path),
+                schema_handler,
+            ]));
+        }
+        Ok(Value::list(routes))
     });
 
     register_router(env);
