@@ -1454,3 +1454,86 @@ fn test_server_custom_response_headers() {
     child.kill().ok();
     child.wait().ok();
 }
+
+// ---------------------------------------------------------------------------
+// Middleware pattern integration tests (require network)
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore] // requires network
+fn test_middleware_cors() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (define (cors-wrap handler)
+              (fn (req)
+                (let ((resp (handler req)))
+                  (assoc resp :headers
+                    (merge (or (get resp :headers) {})
+                           {"access-control-allow-origin" "*"
+                            "access-control-allow-methods" "GET, POST"})))))
+
+            (http/serve
+              (cors-wrap
+                (http/router
+                  [[:get "/api" (fn (req) (http/ok {:data 42}))]]))
+              {:port 19908})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client.get("http://127.0.0.1:19908/api")
+        .timeout(Duration::from_secs(5)).send().unwrap();
+
+    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.headers().get("access-control-allow-origin").unwrap().to_str().unwrap(),
+        "*"
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+#[test]
+#[ignore] // requires network
+fn test_middleware_logging() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"
+            (define (log-wrap handler)
+              (fn (req)
+                (let ((resp (handler req)))
+                  (display (string-append (:method req) " " (:path req) " -> " (number->string (get resp :status))))
+                  resp)))
+
+            (http/serve
+              (log-wrap (fn (req) (http/ok "logged")))
+              {:port 19909})
+        "#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+    let resp = client.get("http://127.0.0.1:19909/test")
+        .timeout(Duration::from_secs(5)).send().unwrap();
+    assert_eq!(resp.status(), 200);
+
+    child.kill().ok();
+    child.wait().ok();
+}
