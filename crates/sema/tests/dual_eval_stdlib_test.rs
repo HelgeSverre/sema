@@ -270,3 +270,63 @@ dual_eval_error_tests! {
     // Non-leap year Feb 29 should fail
     time_non_leap_feb29: r#"(time/parse "2023-02-29 00:00:00" "%Y-%m-%d %H:%M:%S")"#,
 }
+
+// ============================================================
+// HTTP response helpers — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // http/ok
+    http_ok_string_status: r#"(get (http/ok "hi") :status)"# => Value::int(200),
+    http_ok_map_status: r#"(get (http/ok {:a 1}) :status)"# => Value::int(200),
+    http_ok_list_status: r#"(get (http/ok '(1 2 3)) :status)"# => Value::int(200),
+    http_ok_nil_status: r#"(get (http/ok nil) :status)"# => Value::int(200),
+    http_ok_int_status: r#"(get (http/ok 42) :status)"# => Value::int(200),
+    http_ok_has_body: r#"(string? (get (http/ok "test") :body))"# => Value::bool(true),
+    http_ok_content_type: r#"(get (get (http/ok "x") :headers) "content-type")"# => Value::string("application/json"),
+
+    // http/created
+    http_created_status: r#"(get (http/created {:id 1}) :status)"# => Value::int(201),
+    http_created_content_type: r#"(get (get (http/created "x") :headers) "content-type")"# => Value::string("application/json"),
+
+    // http/no-content
+    http_no_content_status: r#"(get (http/no-content) :status)"# => Value::int(204),
+    http_no_content_empty_body: r#"(get (http/no-content) :body)"# => Value::string(""),
+
+    // http/not-found
+    http_not_found_status: r#"(get (http/not-found "gone") :status)"# => Value::int(404),
+
+    // http/error
+    http_error_custom: r#"(get (http/error 422 "bad") :status)"# => Value::int(422),
+    http_error_500: r#"(get (http/error 500 "oops") :status)"# => Value::int(500),
+    http_error_418: r#"(get (http/error 418 "teapot") :status)"# => Value::int(418),
+
+    // http/redirect
+    http_redirect_status: r#"(get (http/redirect "/login") :status)"# => Value::int(302),
+    http_redirect_location: r#"(get (get (http/redirect "/login") :headers) "location")"# => Value::string("/login"),
+    http_redirect_absolute: r#"(get (get (http/redirect "https://example.com") :headers) "location")"# => Value::string("https://example.com"),
+
+    // http/html
+    http_html_status: r#"(get (http/html "<p>hi</p>") :status)"# => Value::int(200),
+    http_html_content_type: r#"(get (get (http/html "<p>hi</p>") :headers) "content-type")"# => Value::string("text/html"),
+    http_html_body: r#"(get (http/html "<h1>Hello</h1>") :body)"# => Value::string("<h1>Hello</h1>"),
+
+    // http/text
+    http_text_status: r#"(get (http/text "plain") :status)"# => Value::int(200),
+    http_text_content_type: r#"(get (get (http/text "plain") :headers) "content-type")"# => Value::string("text/plain"),
+    http_text_body: r#"(get (http/text "hello world") :body)"# => Value::string("hello world"),
+}
+
+dual_eval_error_tests! {
+    http_ok_no_args: "(http/ok)",
+    http_ok_too_many: r#"(http/ok "a" "b")"#,
+    http_created_no_args: "(http/created)",
+    http_not_found_no_args: "(http/not-found)",
+    http_redirect_no_args: "(http/redirect)",
+    http_redirect_non_string: "(http/redirect 123)",
+    http_error_one_arg: r#"(http/error 422)"#,
+    http_error_non_int_status: r#"(http/error "nope" "body")"#,
+    http_html_non_string: "(http/html 123)",
+    http_text_non_string: "(http/text 123)",
+    http_no_content_extra: r#"(http/no-content "extra")"#,
+}
