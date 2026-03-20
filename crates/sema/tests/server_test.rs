@@ -1113,6 +1113,16 @@ fn test_http_websocket_no_args() {
     let _ = eval_err(r#"(http/websocket)"#);
 }
 
+#[test]
+fn test_http_stream_non_function() {
+    let _ = eval_err(r#"(http/stream 42)"#);
+}
+
+#[test]
+fn test_http_websocket_non_function() {
+    let _ = eval_err(r#"(http/websocket 42)"#);
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket multi-message integration tests (require network)
 // ---------------------------------------------------------------------------

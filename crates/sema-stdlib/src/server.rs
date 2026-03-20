@@ -202,6 +202,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
 
     register_fn(env, "http/stream", |args| {
         check_arity!(args, "http/stream", 1);
+        if args[0].as_native_fn_ref().is_none() && args[0].as_lambda_rc().is_none() {
+            return Err(SemaError::type_error("function", args[0].type_name()));
+        }
         let mut map = BTreeMap::new();
         map.insert(Value::keyword("__stream"), Value::bool(true));
         map.insert(Value::keyword("__stream_handler"), args[0].clone());
@@ -210,6 +213,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
 
     register_fn(env, "http/websocket", |args| {
         check_arity!(args, "http/websocket", 1);
+        if args[0].as_native_fn_ref().is_none() && args[0].as_lambda_rc().is_none() {
+            return Err(SemaError::type_error("function", args[0].type_name()));
+        }
         let mut map = BTreeMap::new();
         map.insert(Value::keyword("__websocket"), Value::bool(true));
         map.insert(Value::keyword("__ws_handler"), args[0].clone());
