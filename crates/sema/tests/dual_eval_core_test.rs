@@ -383,8 +383,64 @@ dual_eval_tests! {
       (map inc (list 1 2 3)))
     (test))" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
 
-    // Shadowed builtin: optimizer must not fold when + is locally rebound
+    // ==========================================================
+    // Shadowed builtins: optimizer must not constant-fold when
+    // arithmetic operators are rebound by local bindings
+    // ==========================================================
+
+    // Basic shadowing via let for each foldable operator
     shadow_plus: "(let ((+ *)) (+ 3 4))" => Value::int(12),
     shadow_minus: "(let ((- +)) (- 3 4))" => Value::int(7),
-    shadow_nested: "(let ((+ *)) (let ((x (+ 2 3))) x))" => Value::int(6),
+    shadow_mul: "(let ((* +)) (* 3 4))" => Value::int(7),
+    shadow_div: "(let ((/ -)) (/ 10 3))" => Value::int(7),
+    shadow_lt: "(let ((< >)) (< 1 2))" => Value::bool(false),
+    shadow_gt: "(let ((> <)) (> 5 3))" => Value::bool(false),
+    shadow_le: "(let ((<= >=)) (<= 1 2))" => Value::bool(false),
+    shadow_ge: "(let ((>= <=)) (>= 5 3))" => Value::bool(false),
+    shadow_eq: r#"(let ((= (lambda (a b) (string-append (number->string a) (number->string b))))) (= 1 2))"# => Value::string("12"),
+    shadow_not: "(let ((not (lambda (x) 42))) (not #f))" => Value::int(42),
+    shadow_unary_minus: "(let ((- (lambda (x) (* x 2)))) (- 5))" => Value::int(10),
+
+    // Shadowing via let* (sequential bindings)
+    shadow_let_star: "(let* ((+ *) (x (+ 3 4))) x)" => Value::int(12),
+
+    // Shadowing via letrec
+    shadow_letrec: "(letrec ((+ (lambda (a b) (* a b)))) (+ 3 4))" => Value::int(12),
+
+    // Shadowing via lambda parameter
+    shadow_lambda_param: "((lambda (+ -) (+ 10 3)) * /)" => Value::int(30),
+    shadow_lambda_param_unary: "((lambda (-) (- 5)) (lambda (x) (* x 10)))" => Value::int(50),
+
+    // Shadowing via define inside begin
+    shadow_define: "(begin (define + *) (+ 3 4))" => Value::int(12),
+
+    // Nested scopes: inner shadow, outer unshadowed
+    shadow_nested_inner: "(+ 3 (let ((+ *)) (+ 2 5)) )" => Value::int(13),
+    shadow_nested_outer_ok: "(let ((x (+ 3 4))) (let ((+ *)) (+ x 2)))" => Value::int(14),
+
+    // Shadow only in scope — unshadowed after let exits
+    shadow_scope_exit: "(begin (define r1 (let ((+ *)) (+ 3 4))) (define r2 (+ 3 4)) (list r1 r2))" => Value::list(vec![Value::int(12), Value::int(7)]),
+
+    // Deeply nested shadow
+    shadow_deep: "(let ((+ *)) (let ((y 2)) (let ((z 3)) (+ y z))))" => Value::int(6),
+
+    // Shadow with non-constant args (optimizer shouldn't fold anyway, but make sure
+    // the shadowed version is called at runtime)
+    shadow_non_const: "(let ((+ *)) (define a 3) (define b 4) (+ a b))" => Value::int(12),
+
+    // Shadow in do loop step expression
+    shadow_do_step: "(let ((+ *))
+      (do ((i 1 (+ i 2)))
+          ((> i 10) i)))" => Value::int(16),
+
+    // Shadow comparison in cond test
+    shadow_cond: "(let ((< >)) (cond ((< 1 2) :wrong) (#t :right)))" => Value::keyword("right"),
+
+    // Shadow with higher-order: pass shadowed op as argument
+    shadow_higher_order: "(let ((+ *)) (map (lambda (x) (+ x 2)) '(3 4 5)))" => Value::list(vec![Value::int(6), Value::int(8), Value::int(10)]),
+
+    // Ensure non-shadowed still folds correctly (regression guard)
+    no_shadow_still_folds: "(+ 100 200)" => Value::int(300),
+    no_shadow_still_folds_nested: "(let ((x 1)) (+ 100 200))" => Value::int(300),
+    no_shadow_unrelated_binding: "(let ((y 99)) (+ 3 4))" => Value::int(7),
 }

@@ -51,7 +51,29 @@ fn optimize_inner(expr: CoreExpr, shadowed: &[String]) -> CoreExpr {
             fold_or(exprs)
         }
         CoreExpr::Begin(exprs) => {
-            let exprs: Vec<_> = exprs.into_iter().map(|e| optimize_inner(e, shadowed)).collect();
+            // Scan for define of foldable names — these shadow builtins at top level
+            let define_names: Vec<String> = exprs
+                .iter()
+                .filter_map(|e| {
+                    let inner = match e {
+                        CoreExpr::Spanned(_, inner) => inner.as_ref(),
+                        other => other,
+                    };
+                    if let CoreExpr::Define(spur, _) = inner {
+                        let name = resolve_spur(*spur);
+                        if FOLDABLE_NAMES.contains(&name.as_str()) {
+                            return Some(name);
+                        }
+                    }
+                    None
+                })
+                .collect();
+            let inner_shadowed = if define_names.is_empty() {
+                shadowed.to_vec()
+            } else {
+                extend_shadowed(shadowed, &define_names)
+            };
+            let exprs: Vec<_> = exprs.into_iter().map(|e| optimize_inner(e, &inner_shadowed)).collect();
             fold_begin(exprs)
         }
         CoreExpr::Let { bindings, body } => {
@@ -343,4 +365,32 @@ fn fold_begin(exprs: Vec<CoreExpr>) -> CoreExpr {
 
 fn is_pure_const(e: &CoreExpr) -> bool {
     matches!(e, CoreExpr::Const(_) | CoreExpr::Quote(_))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lower_str(input: &str) -> CoreExpr {
+        let val = sema_reader::read(input).unwrap();
+        crate::lower::lower(&val, None).unwrap()
+    }
+
+    #[test]
+    fn test_shadow_define_in_begin() {
+        let core = lower_str("(begin (define + *) (+ 3 4))");
+        let optimized = optimize(core);
+        // The (+ 3 4) should NOT be folded to 7 because + is redefined
+        match &optimized {
+            CoreExpr::Begin(exprs) => {
+                // The last expression should still be a Call, not a Const
+                let last = exprs.last().unwrap();
+                assert!(
+                    !matches!(last, CoreExpr::Const(_)),
+                    "optimizer incorrectly folded (+ 3 4) when + is shadowed by define: {last:?}"
+                );
+            }
+            other => panic!("expected Begin, got {other:?}"),
+        }
+    }
 }

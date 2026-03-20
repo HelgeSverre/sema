@@ -60,6 +60,12 @@ pub fn compile(
         }
         None => Compiler::new(),
     };
+    // Collect all names defined in this program — intrinsics must not fire for these.
+    for expr in exprs {
+        collect_defines(expr, &mut |spur| {
+            compiler.redefined_globals.insert(spur);
+        });
+    }
     compiler.n_locals = n_locals;
     for (i, expr) in exprs.iter().enumerate() {
         compiler.compile_expr(expr)?;
@@ -167,6 +173,9 @@ struct Compiler {
     native_id_map: hashbrown::HashMap<Spur, u16>,
     /// Next inline cache slot to allocate for LoadGlobal/CallGlobal instructions.
     next_cache_slot: u16,
+    /// Global names that are (re)defined in this program — intrinsics must not
+    /// be emitted for these since the user may have changed the binding.
+    redefined_globals: HashSet<Spur>,
 }
 
 impl Compiler {
@@ -182,6 +191,7 @@ impl Compiler {
             native_table: Vec::new(),
             native_id_map: hashbrown::HashMap::new(),
             next_cache_slot: 0,
+            redefined_globals: HashSet::new(),
         }
     }
 
@@ -536,6 +546,10 @@ impl Compiler {
         spur: Spur,
         args: &[ResolvedExpr],
     ) -> Result<bool, SemaError> {
+        // Don't emit intrinsic opcodes for names that are (re)defined in this program
+        if self.redefined_globals.contains(&spur) {
+            return Ok(false);
+        }
         let name = resolve_spur(spur);
         let argc = args.len();
 
