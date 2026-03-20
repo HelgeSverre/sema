@@ -5,14 +5,21 @@
 ### Added
 
 - **ELIZA chatbot example** — `examples/eliza.sema`, a faithful reimplementation of Weizenbaum's 1966 chatbot with keyword priorities, wildcard pattern matching, pronoun reflection, and response cycling.
-
-### Changed
-
-- **Datetime dual-eval tests** — 78 tests covering `time/parse`, `time/format`, `time/date-parts`, `time/add`, `time/diff`, `time/now` with edge cases: leap year (Feb 29), century leap year (2000), midnight rollover, year boundary, pre-epoch timestamps, and error cases (invalid format, non-leap Feb 29).
-- **Float edge-case tests** — dual-eval tests for `-0.0` equality, `eq?`, `equal?`, `zero?`, collection membership.
-- **Shadowed-builtin tests** — 27 dual-eval tests covering all 10 foldable operators shadowed via `let`, `let*`, `letrec`, `lambda`, `define`, `do`, plus nested scopes, scope exit, and higher-order usage.
-- **String error tests** — dual-eval error tests for negative/OOB indices in `string-ref` and `substring`.
-- **Unicode string tests** — `string/index-of` and `string/last-index-of` tests with multi-byte characters (café, emoji).
+- **ELIZA web interface** — `examples/eliza-web.sema`, a self-contained retro CRT-styled web UI for the ELIZA chatbot using `http/serve` with `POST /chat` endpoint.
+- **HTTP server test suite** — ~110 new tests across dual-eval, unit, and integration tiers:
+  - 70 dual-eval tests for response helpers (`http/ok`, `http/created`, `http/redirect`, `http/html`, `http/text`, etc.)
+  - 27 router unit tests (matching, params, wildcards, trailing slashes, method dispatch, handler errors)
+  - WebSocket integration tests (multi-message echo, server-initiated close)
+  - SSE streaming tests (multiple events, content-type verification)
+  - Error resilience tests (handler panic recovery, concurrent requests, large bodies, custom headers)
+  - Middleware pattern tests (CORS wrapper, logging wrapper)
+  - Construction error tests for `http/router`, `http/stream`, `http/websocket`
+- **Correctness test suite** — ~140 new tests across the core language:
+  - 78 datetime dual-eval tests (leap year, midnight rollover, epoch, century leap, error cases)
+  - 27 shadowed-builtin tests (all foldable operators across `let`, `let*`, `letrec`, `lambda`, `define`, `do`)
+  - Float edge-case tests (`-0.0` equality, `eq?`, `equal?`, `zero?`, collection membership)
+  - Unicode string tests (`string/index-of`, `string/last-index-of` with multi-byte characters)
+  - String error tests (negative/OOB indices for `string-ref` and `substring`)
 - **LSP refactor** — split helpers and scope analysis out of monolithic `lib.rs` into `helpers.rs` and `scope.rs`; added special form documentation for hover.
 - **Formatter** — added `--json` output mode with NDJSON multi-file support and `file` field.
 - **VM** — optimized debug hook hot path; replaced `unsafe transmute` in `Op::from_u8()` with safe match + compile-time exhaustiveness check.
@@ -35,6 +42,7 @@
 - **Equality** — `Value::PartialEq` for floats now uses IEEE 754 equality (`a == b`) instead of bit comparison. `-0.0` and `0.0` compare as equal via `equal?` and `eq?`, and `Value::Hash` normalizes `-0.0` so equal values hash identically.
 - **Float ordering** — `Value::Ord` now uses `f64::total_cmp()` instead of `to_bits().cmp()`, fixing incorrect ordering of negative floats (previously all negatives sorted after all positives).
 - **split_identifier_words** — uses `chars().count()` instead of byte `len()` for word boundary detection, fixing potential incorrect splits with multi-byte uppercase characters.
+- **http/stream**, **http/websocket** — now validate that the argument is a function at construction time. Previously `(http/stream 42)` silently accepted non-functions, only failing later when the server tried to call them.
 - **Docs** — `string/index-of` docs corrected from "byte index" to "character index"; `string/last-index-of` docs corrected from "-1" to "nil" for not-found return value.
 - **CI** — fixed lychee link checker config, broken doc link, and git test identity issues.
 - **VM** — inner define forward references now work correctly (R5RS `letrec*` semantics). Functions like `(define (a) (b)) (define (b) 42)` inside a function body can forward-reference each other. This fixes the nqueens benchmark which was broken on the VM.
