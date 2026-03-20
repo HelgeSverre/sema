@@ -10,17 +10,25 @@ use sema_core::{resolve as resolve_spur, Value};
 
 use crate::core_expr::{CoreExpr, PromptEntry};
 
+/// Names that constant folding can fold. If any of these are shadowed
+/// by a local binding, folding must be suppressed.
+const FOLDABLE_NAMES: &[&str] = &["+", "-", "*", "/", "<", ">", "<=", ">=", "=", "not"];
+
 pub fn optimize(expr: CoreExpr) -> CoreExpr {
+    optimize_inner(expr, &Vec::new())
+}
+
+fn optimize_inner(expr: CoreExpr, shadowed: &[String]) -> CoreExpr {
     match expr {
         CoreExpr::Call { func, args, tail } => {
-            let func = Box::new(optimize(*func));
-            let args: Vec<_> = args.into_iter().map(optimize).collect();
-            try_fold_call(*func, args, tail)
+            let func = Box::new(optimize_inner(*func, shadowed));
+            let args: Vec<_> = args.into_iter().map(|a| optimize_inner(a, shadowed)).collect();
+            try_fold_call(*func, args, tail, shadowed)
         }
         CoreExpr::If { test, then, else_ } => {
-            let test = optimize(*test);
-            let then = optimize(*then);
-            let else_ = optimize(*else_);
+            let test = optimize_inner(*test, shadowed);
+            let then = optimize_inner(*then, shadowed);
+            let else_ = optimize_inner(*else_, shadowed);
             if let CoreExpr::Const(ref v) = test {
                 if v.is_truthy() {
                     return then;
@@ -35,61 +43,79 @@ pub fn optimize(expr: CoreExpr) -> CoreExpr {
             }
         }
         CoreExpr::And(exprs) => {
-            let exprs: Vec<_> = exprs.into_iter().map(optimize).collect();
+            let exprs: Vec<_> = exprs.into_iter().map(|e| optimize_inner(e, shadowed)).collect();
             fold_and(exprs)
         }
         CoreExpr::Or(exprs) => {
-            let exprs: Vec<_> = exprs.into_iter().map(optimize).collect();
+            let exprs: Vec<_> = exprs.into_iter().map(|e| optimize_inner(e, shadowed)).collect();
             fold_or(exprs)
         }
         CoreExpr::Begin(exprs) => {
-            let exprs: Vec<_> = exprs.into_iter().map(optimize).collect();
+            let exprs: Vec<_> = exprs.into_iter().map(|e| optimize_inner(e, shadowed)).collect();
             fold_begin(exprs)
         }
         CoreExpr::Let { bindings, body } => {
+            let binding_names: Vec<String> = bindings
+                .iter()
+                .map(|(s, _)| resolve_spur(*s))
+                .collect();
             let bindings = bindings
                 .into_iter()
-                .map(|(s, e)| (s, optimize(e)))
+                .map(|(s, e)| (s, optimize_inner(e, shadowed)))
                 .collect();
-            let body = body.into_iter().map(optimize).collect();
+            let new_shadowed = extend_shadowed(shadowed, &binding_names);
+            let body = body.into_iter().map(|e| optimize_inner(e, &new_shadowed)).collect();
             CoreExpr::Let { bindings, body }
         }
         CoreExpr::LetStar { bindings, body } => {
+            let binding_names: Vec<String> = bindings
+                .iter()
+                .map(|(s, _)| resolve_spur(*s))
+                .collect();
+            let new_shadowed = extend_shadowed(shadowed, &binding_names);
             let bindings = bindings
                 .into_iter()
-                .map(|(s, e)| (s, optimize(e)))
+                .map(|(s, e)| (s, optimize_inner(e, &new_shadowed)))
                 .collect();
-            let body = body.into_iter().map(optimize).collect();
+            let body = body.into_iter().map(|e| optimize_inner(e, &new_shadowed)).collect();
             CoreExpr::LetStar { bindings, body }
         }
         CoreExpr::Letrec { bindings, body } => {
+            let binding_names: Vec<String> = bindings
+                .iter()
+                .map(|(s, _)| resolve_spur(*s))
+                .collect();
+            let new_shadowed = extend_shadowed(shadowed, &binding_names);
             let bindings = bindings
                 .into_iter()
-                .map(|(s, e)| (s, optimize(e)))
+                .map(|(s, e)| (s, optimize_inner(e, &new_shadowed)))
                 .collect();
-            let body = body.into_iter().map(optimize).collect();
+            let body = body.into_iter().map(|e| optimize_inner(e, &new_shadowed)).collect();
             CoreExpr::Letrec { bindings, body }
         }
-        // CoreExpr::NamedLet removed — desugared to Letrec+Lambda in lowering
         CoreExpr::Lambda(mut def) => {
-            def.body = def.body.into_iter().map(optimize).collect();
+            let param_names: Vec<String> = def.params.iter().map(|s| resolve_spur(*s)).collect();
+            let new_shadowed = extend_shadowed(shadowed, &param_names);
+            def.body = def.body.into_iter().map(|e| optimize_inner(e, &new_shadowed)).collect();
             CoreExpr::Lambda(def)
         }
-        CoreExpr::Define(spur, expr) => CoreExpr::Define(spur, Box::new(optimize(*expr))),
-        CoreExpr::Set(spur, expr) => CoreExpr::Set(spur, Box::new(optimize(*expr))),
+        CoreExpr::Define(spur, expr) => CoreExpr::Define(spur, Box::new(optimize_inner(*expr, shadowed))),
+        CoreExpr::Set(spur, expr) => CoreExpr::Set(spur, Box::new(optimize_inner(*expr, shadowed))),
         CoreExpr::Do(mut d) => {
+            let var_names: Vec<String> = d.vars.iter().map(|v| resolve_spur(v.name)).collect();
+            let new_shadowed = extend_shadowed(shadowed, &var_names);
             d.vars = d
                 .vars
                 .into_iter()
                 .map(|mut v| {
-                    v.init = optimize(v.init);
-                    v.step = v.step.map(optimize);
+                    v.init = optimize_inner(v.init, shadowed);
+                    v.step = v.step.map(|s| optimize_inner(s, &new_shadowed));
                     v
                 })
                 .collect();
-            d.test = Box::new(optimize(*d.test));
-            d.result = d.result.into_iter().map(optimize).collect();
-            d.body = d.body.into_iter().map(optimize).collect();
+            d.test = Box::new(optimize_inner(*d.test, &new_shadowed));
+            d.result = d.result.into_iter().map(|e| optimize_inner(e, &new_shadowed)).collect();
+            d.body = d.body.into_iter().map(|e| optimize_inner(e, &new_shadowed)).collect();
             CoreExpr::Do(d)
         }
         CoreExpr::Try {
@@ -97,21 +123,23 @@ pub fn optimize(expr: CoreExpr) -> CoreExpr {
             catch_var,
             handler,
         } => {
-            let body = body.into_iter().map(optimize).collect();
-            let handler = handler.into_iter().map(optimize).collect();
+            let body = body.into_iter().map(|e| optimize_inner(e, shadowed)).collect();
+            let catch_names = vec![resolve_spur(catch_var)];
+            let new_shadowed = extend_shadowed(shadowed, &catch_names);
+            let handler = handler.into_iter().map(|e| optimize_inner(e, &new_shadowed)).collect();
             CoreExpr::Try {
                 body,
                 catch_var,
                 handler,
             }
         }
-        CoreExpr::Throw(e) => CoreExpr::Throw(Box::new(optimize(*e))),
-        CoreExpr::MakeList(es) => CoreExpr::MakeList(es.into_iter().map(optimize).collect()),
-        CoreExpr::MakeVector(es) => CoreExpr::MakeVector(es.into_iter().map(optimize).collect()),
+        CoreExpr::Throw(e) => CoreExpr::Throw(Box::new(optimize_inner(*e, shadowed))),
+        CoreExpr::MakeList(es) => CoreExpr::MakeList(es.into_iter().map(|e| optimize_inner(e, shadowed)).collect()),
+        CoreExpr::MakeVector(es) => CoreExpr::MakeVector(es.into_iter().map(|e| optimize_inner(e, shadowed)).collect()),
         CoreExpr::MakeMap(pairs) => CoreExpr::MakeMap(
             pairs
                 .into_iter()
-                .map(|(k, v)| (optimize(k), optimize(v)))
+                .map(|(k, v)| (optimize_inner(k, shadowed), optimize_inner(v, shadowed)))
                 .collect(),
         ),
         CoreExpr::Defmacro {
@@ -120,7 +148,7 @@ pub fn optimize(expr: CoreExpr) -> CoreExpr {
             rest,
             body,
         } => {
-            let body = body.into_iter().map(optimize).collect();
+            let body = body.into_iter().map(|e| optimize_inner(e, shadowed)).collect();
             CoreExpr::Defmacro {
                 name,
                 params,
@@ -133,7 +161,7 @@ pub fn optimize(expr: CoreExpr) -> CoreExpr {
             exports,
             body,
         } => {
-            let body = body.into_iter().map(optimize).collect();
+            let body = body.into_iter().map(|e| optimize_inner(e, shadowed)).collect();
             CoreExpr::Module {
                 name,
                 exports,
@@ -141,26 +169,26 @@ pub fn optimize(expr: CoreExpr) -> CoreExpr {
             }
         }
         CoreExpr::Import { path, selective } => CoreExpr::Import {
-            path: Box::new(optimize(*path)),
+            path: Box::new(optimize_inner(*path, shadowed)),
             selective,
         },
-        CoreExpr::Load(e) => CoreExpr::Load(Box::new(optimize(*e))),
-        CoreExpr::Eval(e) => CoreExpr::Eval(Box::new(optimize(*e))),
+        CoreExpr::Load(e) => CoreExpr::Load(Box::new(optimize_inner(*e, shadowed))),
+        CoreExpr::Eval(e) => CoreExpr::Eval(Box::new(optimize_inner(*e, shadowed))),
         CoreExpr::Prompt(entries) => CoreExpr::Prompt(
             entries
                 .into_iter()
                 .map(|entry| match entry {
                     PromptEntry::RoleContent { role, parts } => PromptEntry::RoleContent {
                         role,
-                        parts: parts.into_iter().map(optimize).collect(),
+                        parts: parts.into_iter().map(|e| optimize_inner(e, shadowed)).collect(),
                     },
-                    PromptEntry::Expr(e) => PromptEntry::Expr(optimize(e)),
+                    PromptEntry::Expr(e) => PromptEntry::Expr(optimize_inner(e, shadowed)),
                 })
                 .collect(),
         ),
         CoreExpr::Message { role, parts } => CoreExpr::Message {
-            role: Box::new(optimize(*role)),
-            parts: parts.into_iter().map(optimize).collect(),
+            role: Box::new(optimize_inner(*role, shadowed)),
+            parts: parts.into_iter().map(|e| optimize_inner(e, shadowed)).collect(),
         },
         CoreExpr::Deftool {
             name,
@@ -169,36 +197,49 @@ pub fn optimize(expr: CoreExpr) -> CoreExpr {
             handler,
         } => CoreExpr::Deftool {
             name,
-            description: Box::new(optimize(*description)),
-            parameters: Box::new(optimize(*parameters)),
-            handler: Box::new(optimize(*handler)),
+            description: Box::new(optimize_inner(*description, shadowed)),
+            parameters: Box::new(optimize_inner(*parameters, shadowed)),
+            handler: Box::new(optimize_inner(*handler, shadowed)),
         },
         CoreExpr::Defagent { name, options } => CoreExpr::Defagent {
             name,
-            options: Box::new(optimize(*options)),
+            options: Box::new(optimize_inner(*options, shadowed)),
         },
-        CoreExpr::Delay(e) => CoreExpr::Delay(Box::new(optimize(*e))),
-        CoreExpr::Force(e) => CoreExpr::Force(Box::new(optimize(*e))),
-        CoreExpr::Macroexpand(e) => CoreExpr::Macroexpand(Box::new(optimize(*e))),
-        CoreExpr::Spanned(span, inner) => CoreExpr::Spanned(span, Box::new(optimize(*inner))),
+        CoreExpr::Delay(e) => CoreExpr::Delay(Box::new(optimize_inner(*e, shadowed))),
+        CoreExpr::Force(e) => CoreExpr::Force(Box::new(optimize_inner(*e, shadowed))),
+        CoreExpr::Macroexpand(e) => CoreExpr::Macroexpand(Box::new(optimize_inner(*e, shadowed))),
+        CoreExpr::Spanned(span, inner) => CoreExpr::Spanned(span, Box::new(optimize_inner(*inner, shadowed))),
         // Pass through: Const, Var, Quote, DefineRecordType
         other => other,
     }
 }
 
-fn try_fold_call(func: CoreExpr, args: Vec<CoreExpr>, tail: bool) -> CoreExpr {
+/// Build a new shadowed list, adding only names that are in FOLDABLE_NAMES.
+fn extend_shadowed(current: &[String], names: &[String]) -> Vec<String> {
+    let mut result = current.to_vec();
+    for name in names {
+        if FOLDABLE_NAMES.contains(&name.as_str()) && !result.contains(name) {
+            result.push(name.clone());
+        }
+    }
+    result
+}
+
+fn try_fold_call(func: CoreExpr, args: Vec<CoreExpr>, tail: bool, shadowed: &[String]) -> CoreExpr {
     if let CoreExpr::Var(spur) = &func {
         let name = resolve_spur(*spur);
-        if args.len() == 2 {
-            if let (CoreExpr::Const(ref a), CoreExpr::Const(ref b)) = (&args[0], &args[1]) {
-                if let Some(result) = fold_binary_op(&name, a, b) {
-                    return CoreExpr::Const(result);
+        if !shadowed.iter().any(|s| s == &name) {
+            if args.len() == 2 {
+                if let (CoreExpr::Const(ref a), CoreExpr::Const(ref b)) = (&args[0], &args[1]) {
+                    if let Some(result) = fold_binary_op(&name, a, b) {
+                        return CoreExpr::Const(result);
+                    }
                 }
-            }
-        } else if args.len() == 1 {
-            if let CoreExpr::Const(ref a) = args[0] {
-                if let Some(result) = fold_unary_op(&name, a) {
-                    return CoreExpr::Const(result);
+            } else if args.len() == 1 {
+                if let CoreExpr::Const(ref a) = args[0] {
+                    if let Some(result) = fold_unary_op(&name, a) {
+                        return CoreExpr::Const(result);
+                    }
                 }
             }
         }
@@ -240,7 +281,7 @@ fn fold_unary_op(name: &str, a: &Value) -> Option<Value> {
         "not" => Some(Value::bool(!a.is_truthy())),
         "-" => {
             let i = a.as_int()?;
-            Some(Value::int(-i))
+            Some(Value::int(i.wrapping_neg()))
         }
         _ => None,
     }

@@ -872,7 +872,7 @@ impl VM {
                     op::NEGATE => {
                         let a = unsafe { pop_unchecked(&mut self.stack) };
                         if let Some(n) = a.as_int() {
-                            self.stack.push(Value::int(-n));
+                            self.stack.push(Value::int(n.wrapping_neg()));
                         } else if let Some(f) = a.as_float() {
                             self.stack.push(Value::float(-f));
                         } else {
@@ -2159,11 +2159,10 @@ fn vm_div(a: &Value, b: &Value) -> Result<Value, SemaError> {
     match (a.view(), b.view()) {
         (ValueView::Int(_), ValueView::Int(0)) => Err(SemaError::eval("division by zero")),
         (ValueView::Int(x), ValueView::Int(y)) => {
-            let result = x as f64 / y as f64;
-            if result.fract() == 0.0 {
-                Ok(Value::int(result as i64))
+            if x % y == 0 {
+                Ok(Value::int(x / y))
             } else {
-                Ok(Value::float(result))
+                Ok(Value::float(x as f64 / y as f64))
             }
         }
         (ValueView::Float(x), ValueView::Float(y)) => Ok(Value::float(x / y)),

@@ -382,4 +382,9 @@ dual_eval_tests! {
       (define inc (lambda (x) (set! n (+ n 1)) n))
       (map inc (list 1 2 3)))
     (test))" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
+
+    // Shadowed builtin: optimizer must not fold when + is locally rebound
+    shadow_plus: "(let ((+ *)) (+ 3 4))" => Value::int(12),
+    shadow_minus: "(let ((- +)) (- 3 4))" => Value::int(7),
+    shadow_nested: "(let ((+ *)) (let ((x (+ 2 3))) x))" => Value::int(6),
 }
