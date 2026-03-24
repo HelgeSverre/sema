@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.3
+
+### Added
+
+- **Custom validation predicates for `llm/extract`** — field specs now support `:validate` with a predicate function that runs after type checking. Failed predicates trigger the existing retry/re-ask loop with actionable error context. Example: `{:amount {:type :number :validate #(> % 0)}}`.
+- **Optional fields in `llm/extract` schemas** — field specs with `:optional #t` no longer trigger "missing key" errors when absent from the LLM response. Example: `{:bio {:type :string :optional #t}}`.
+- **Custom validation error messages** — field specs support `:message` for human-readable error text used in re-ask prompts. Example: `{:age {:type :number :validate #(>= % 0) :message "age must be non-negative"}}`.
+
 ## 1.12.2
 
 ### Fixed

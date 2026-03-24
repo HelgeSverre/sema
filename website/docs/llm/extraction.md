@@ -21,7 +21,7 @@ Extract structured data from text according to a schema. The schema defines the 
 ; => {:amount 4.5 :date "2025-01-15" :vendor "Blue Bottle"}
 ```
 
-The schema map specifies field names as keys and type descriptors as values. Supported types include `:string`, `:number`, and `:boolean`.
+The schema map specifies field names as keys and type descriptors as values. Supported types include `:string`, `:number`, `:boolean`, and `:list`/`:array`.
 
 ### Options
 
@@ -34,41 +34,77 @@ The schema map specifies field names as keys and type descriptors as values. Sup
 | Option      | Type    | Default | Description                                        |
 | ----------- | ------- | ------- | -------------------------------------------------- |
 | `:model`    | string  | —       | Override the default model                         |
-| `:validate` | boolean | `false` | Validate response against the schema               |
-| `:retries`  | integer | `0`     | Retry on validation failure (requires `:validate`) |
+| `:validate` | boolean | `#t`    | Validate response against the schema               |
+| `:retries`  | integer | `2`     | Max retry attempts on validation failure           |
+| `:reask?`   | boolean | `#t`    | Feed validation errors back to the LLM on retry    |
 
 ### Schema Validation
 
-With `:validate true`, the extracted result is checked against the schema:
+By default, the extracted result is validated against the schema:
 
-- All schema keys must be present in the result
+- All required schema keys must be present in the result
 - Types must match: `:string` → string, `:number` → integer or float, `:boolean` → boolean, `:list`/`:array` → list or vector
 
 ```sema
-;; Strict extraction with validation
 (llm/extract
   {:name {:type :string}
    :age  {:type :number}}
-  "Alice is 30 years old"
-  {:validate true})
+  "Alice is 30 years old")
 ; => {:age 30 :name "Alice"}
 ```
 
 If validation fails, an error is raised with details about which fields didn't match.
 
+### Optional Fields
+
+Mark fields as optional with `:optional #t`. Missing optional fields won't trigger validation errors:
+
+```sema
+(llm/extract
+  {:name     {:type :string}
+   :nickname {:type :string :optional #t}}
+  "Her name is Ada Lovelace.")
+; => {:name "Ada Lovelace"}
+;; No error even though :nickname is missing
+```
+
+### Custom Validation Predicates
+
+Use `:validate` on individual field specs to run a custom predicate after type checking. If the predicate returns falsy, the field fails validation and triggers a retry:
+
+```sema
+(llm/extract
+  {:amount {:type :number :validate #(> % 0)}
+   :vendor {:type :string :validate #(> (string/length %) 0)}}
+  "Invoice from Acme Corp for $42.50")
+; => {:amount 42.5 :vendor "Acme Corp"}
+```
+
+Add `:message` to provide a human-readable error description. This message is fed back to the LLM in re-ask prompts, helping it correct its response:
+
+```sema
+(llm/extract
+  {:age {:type :number
+         :validate #(and (>= % 0) (<= % 150))
+         :message "age must be between 0 and 150"}}
+  "She is 30 years old.")
+; => {:age 30}
+```
+
+Without `:message`, the default error text includes the field value: `"custom validation failed for value -5"`.
+
 ### Retry on Mismatch
 
-Combine `:validate` with `:retries` to automatically re-send the request when the LLM returns data that doesn't match the schema:
+Validation failures automatically trigger retries (up to `:retries`, default 2). On each retry, the validation errors are fed back to the LLM to improve the next attempt. After exhausting retries, the final validation error is raised.
 
 ```sema
 (llm/extract
   {:items {:type :list}
-   :total {:type :number}}
-  "3 apples, 2 oranges, total 5 items"
-  {:validate true :retries 2})
+   :total {:type :number :validate pos?}}
+  "3 apples, 2 oranges, total 5 items")
 ```
 
-On each retry, the validation errors are fed back to the LLM to improve the next attempt. After exhausting retries, the final validation error is raised.
+Disable automatic retries with `{:retries 0}` or disable validation entirely with `{:validate #f}`.
 
 ## Classification
 
