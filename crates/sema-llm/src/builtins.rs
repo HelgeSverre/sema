@@ -3758,13 +3758,25 @@ fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
             .or_else(|| key.as_str().map(|s| s.to_string()))
             .unwrap_or_else(|| key.to_string());
 
+        // Check if field is optional (only applies to map-style field specs)
+        let is_optional = if let Some(spec) = field_spec.as_map_rc() {
+            spec.get(&Value::keyword("optional"))
+                .map(|v| v.is_truthy())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
         let result_val = result_map.get(key);
         match result_val {
             None => {
-                errors.push(format!("missing key: {key_name}"));
+                if !is_optional {
+                    errors.push(format!("missing key: {key_name}"));
+                }
             }
             Some(val) => {
                 if let Some(spec) = field_spec.as_map_rc() {
+                    // Type checking
                     if let Some(type_val) = spec.get(&Value::keyword("type")) {
                         let type_name = type_val
                             .as_keyword()
@@ -3782,6 +3794,29 @@ fn validate_extraction(result: &Value, schema: &Value) -> Result<(), String> {
                                 "key {key_name}: expected {type_name}, got {}",
                                 val.type_name()
                             ));
+                            continue; // skip :validate if type check failed
+                        }
+                    }
+
+                    // Custom predicate validation via :validate
+                    if let Some(validate_fn) = spec.get(&Value::keyword("validate")) {
+                        let custom_msg = spec
+                            .get(&Value::keyword("message"))
+                            .and_then(|v| v.as_str().map(|s| s.to_string()));
+
+                        match sema_core::with_stdlib_ctx(|ctx| {
+                            sema_core::call_callback(ctx, validate_fn, std::slice::from_ref(val))
+                        }) {
+                            Ok(v) if v.is_truthy() => {} // validation passed
+                            Ok(_) => {
+                                let msg = custom_msg.unwrap_or_else(|| {
+                                    format!("custom validation failed for value {}", val)
+                                });
+                                errors.push(format!("key {key_name}: {msg}"));
+                            }
+                            Err(e) => {
+                                errors.push(format!("key {key_name}: validation error: {e}"));
+                            }
                         }
                     }
                 }

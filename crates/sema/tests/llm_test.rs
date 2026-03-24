@@ -52,6 +52,56 @@ fn test_llm_extract_from_image_invalid_path() {
     assert!(result.is_err());
 }
 
+// === llm/extract with :validate and :optional (requires API key) ===
+
+#[test]
+#[ignore] // requires ANTHROPIC_API_KEY or OPENAI_API_KEY
+fn test_llm_extract_with_validate_pass() {
+    let result = eval_with_llm(
+        r#"(llm/extract
+            {:amount {:type :number :validate #(> % 0)}
+             :currency {:type :string}}
+            "The total is $42.50 USD")"#,
+    );
+    let s = format!("{}", result);
+    assert!(s.contains("42"), "expected amount ~42, got: {s}");
+}
+
+#[test]
+#[ignore] // requires ANTHROPIC_API_KEY or OPENAI_API_KEY
+fn test_llm_extract_with_optional_field() {
+    let result = eval_with_llm(
+        r#"(llm/extract
+            {:name {:type :string}
+             :nickname {:type :string :optional #t}}
+            "The person's name is Ada Lovelace.")"#,
+    );
+    let s = format!("{}", result);
+    assert!(
+        s.contains("Ada") || s.contains("Lovelace"),
+        "expected name containing Ada/Lovelace, got: {s}"
+    );
+}
+
+#[test]
+#[ignore] // requires ANTHROPIC_API_KEY or OPENAI_API_KEY
+fn test_llm_extract_with_validate_and_message() {
+    let result = eval_with_llm(
+        r#"(llm/extract
+            {:age {:type :number
+                   :validate #(and (>= % 0) (<= % 150))
+                   :message "age must be between 0 and 150"}}
+            "She is 30 years old.")"#,
+    );
+    let m = result.as_map_rc().expect("expected map result");
+    let age = m.get(&Value::keyword("age")).expect("expected :age key");
+    let age_f = age.as_float().expect("expected number");
+    assert!(
+        (25.0..=35.0).contains(&age_f),
+        "expected age ~30, got: {age_f}"
+    );
+}
+
 // === llm/extract-from-image with bytevector (requires API key) ===
 
 #[test]
