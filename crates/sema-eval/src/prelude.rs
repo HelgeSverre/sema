@@ -62,4 +62,17 @@ pub const PRELUDE: &str = r#"
         (expr (cadr binding)))
     `(let ((,var ,expr))
        (if (nil? ,var) ,else ,then))))
+
+;; with-stream: bind stream, execute body, auto-close on exit (even on error)
+;; (with-stream (s (stream/open-input "f.txt")) (stream/read-all s))
+(defmacro with-stream (binding . body)
+  (let ((var (car binding))
+        (expr (cadr binding)))
+    `(let ((,var ,expr))
+       (let ((res# (try (begin ,@body)
+                     (catch e#
+                       (stream/close ,var)
+                       (throw e#)))))
+         (stream/close ,var)
+         res#))))
 "#;

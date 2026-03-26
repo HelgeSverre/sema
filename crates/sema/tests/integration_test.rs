@@ -13307,3 +13307,195 @@ fn test_eval_virtual_path_does_not_crash() {
     assert_eq!(json["ok"], true);
     assert_eq!(json["value"], "3");
 }
+
+// ── Stream integration tests ─────────────────────────────────────
+
+#[test]
+fn test_stream_file_roundtrip() {
+    let dir = std::env::temp_dir().join("sema-stream-roundtrip");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("roundtrip.txt");
+    let path_str = path.display();
+
+    // Write via stream
+    eval(&format!(
+        r#"(let ((s (stream/open-output "{path_str}")))
+             (stream/write-string s "hello streams")
+             (stream/close s))"#
+    ));
+
+    // Read back via stream
+    assert_eq!(
+        eval(&format!(
+            r#"(let ((s (stream/open-input "{path_str}")))
+                 (let ((data (stream/read-all s)))
+                   (stream/close s)
+                   (utf8->string data)))"#
+        )),
+        Value::string("hello streams")
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_stream_file_read_line() {
+    let dir = std::env::temp_dir().join("sema-stream-readline");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("lines.txt");
+    std::fs::write(&path, "line1\nline2\nline3\n").unwrap();
+    let path_str = path.display();
+
+    assert_eq!(
+        eval(&format!(
+            r#"(let ((s (stream/open-input "{path_str}")))
+                 (let ((a (stream/read-line s))
+                       (b (stream/read-line s))
+                       (c (stream/read-line s)))
+                   (stream/close s)
+                   (list a b c)))"#
+        )),
+        Value::list(vec![
+            Value::string("line1"),
+            Value::string("line2"),
+            Value::string("line3"),
+        ])
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_stream_file_read_line_crlf() {
+    let dir = std::env::temp_dir().join("sema-stream-crlf");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("crlf.txt");
+    std::fs::write(&path, "a\r\nb\r\n").unwrap();
+    let path_str = path.display();
+
+    assert_eq!(
+        eval(&format!(
+            r#"(let ((s (stream/open-input "{path_str}")))
+                 (let ((a (stream/read-line s)))
+                   (stream/close s)
+                   a))"#
+        )),
+        Value::string("a")
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_stream_copy() {
+    let dir = std::env::temp_dir().join("sema-stream-copy");
+    let _ = std::fs::create_dir_all(&dir);
+    let src = dir.join("copy-src.txt");
+    let dst = dir.join("copy-dst.txt");
+    std::fs::write(&src, "copy me").unwrap();
+    let src_str = src.display();
+    let dst_str = dst.display();
+
+    eval(&format!(
+        r#"(let ((in (stream/open-input "{src_str}"))
+                 (out (stream/open-output "{dst_str}")))
+             (stream/copy in out)
+             (stream/close in)
+             (stream/close out))"#
+    ));
+
+    assert_eq!(std::fs::read_to_string(&dst).unwrap(), "copy me");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_stream_stdio_are_streams() {
+    assert_eq!(eval("(stream? *stdout*)"), Value::bool(true));
+    assert_eq!(eval("(stream? *stderr*)"), Value::bool(true));
+    assert_eq!(eval("(stream? *stdin*)"), Value::bool(true));
+    assert_eq!(eval("(stream/type *stdout*)"), Value::string("stdout"));
+    assert_eq!(eval("(stream/type *stdin*)"), Value::string("stdin"));
+    assert_eq!(eval("(stream/writable? *stdout*)"), Value::bool(true));
+    assert_eq!(eval("(stream/readable? *stdout*)"), Value::bool(false));
+    assert_eq!(eval("(stream/readable? *stdin*)"), Value::bool(true));
+}
+
+#[test]
+fn test_stream_read_closed_file() {
+    let dir = std::env::temp_dir().join("sema-stream-closed");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("closed.txt");
+    std::fs::write(&path, "data").unwrap();
+    let path_str = path.display();
+
+    let interp = Interpreter::new();
+    let result = interp.eval_str(&format!(
+        r#"(let ((s (stream/open-input "{path_str}")))
+             (stream/close s)
+             (stream/read s 1))"#
+    ));
+    assert!(result.is_err(), "reading closed stream should error");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_stream_write_string_to_file() {
+    let dir = std::env::temp_dir().join("sema-stream-writestr");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("write-string.txt");
+    let path_str = path.display();
+
+    eval(&format!(
+        r#"(let ((s (stream/open-output "{path_str}")))
+             (stream/write-string s "hello ")
+             (stream/write-string s "world")
+             (stream/close s))"#
+    ));
+
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "hello world");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_with_stream_file() {
+    let dir = std::env::temp_dir().join("sema-stream-withmacro");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("with.txt");
+    std::fs::write(&path, "via macro").unwrap();
+    let path_str = path.display();
+
+    assert_eq!(
+        eval(&format!(
+            r#"(with-stream (s (stream/open-input "{path_str}"))
+                 (utf8->string (stream/read-all s)))"#
+        )),
+        Value::string("via macro")
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_with_stream_error_cleanup() {
+    // with-stream should close the stream even when the body throws
+    let dir = std::env::temp_dir().join("sema-stream-errcleanup");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("err.txt");
+    std::fs::write(&path, "data").unwrap();
+    let path_str = path.display();
+
+    let interp = Interpreter::new();
+    // The body throws, but with-stream should still close the stream
+    let result = interp.eval_str(&format!(
+        r#"(try
+             (with-stream (s (stream/open-input "{path_str}"))
+               (throw "oops"))
+             (catch e "caught"))"#
+    ));
+    assert_eq!(result.unwrap(), Value::string("caught"));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

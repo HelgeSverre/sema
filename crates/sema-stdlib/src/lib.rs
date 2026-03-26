@@ -66,6 +66,8 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     text::register(env);
     stream::register(env);
     #[cfg(not(target_arch = "wasm32"))]
+    stream::register_io(env, sandbox);
+    #[cfg(not(target_arch = "wasm32"))]
     kv::register(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]
     pdf::register(env, sandbox);

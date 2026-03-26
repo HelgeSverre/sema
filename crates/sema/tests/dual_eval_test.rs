@@ -807,6 +807,11 @@ dual_eval_tests! {
     stream_sequential_reads: r#"(let ((s (stream/from-string "abc"))) (stream/read-byte s) (stream/read-byte s))"# => Value::int(98),
     stream_to_string: r#"(let ((s (stream/byte-buffer))) (stream/write s (string->utf8 "ok")) (stream/to-string s))"# => Value::string("ok"),
     stream_identity_eq: r#"(let ((s (stream/byte-buffer))) (eq? s s))"# => Value::bool(true),
+
+    // --- with-stream macro ---
+    with_stream_basic: r#"(with-stream (s (stream/from-string "hello")) (utf8->string (stream/read-all s)))"# => Value::string("hello"),
+    with_stream_returns_body: r#"(with-stream (s (stream/byte-buffer)) (stream/write s (bytevector 1 2 3)) 42)"# => Value::int(42),
+    with_stream_closes: r#"(let ((outer nil)) (with-stream (s (stream/from-string "x")) (set! outer s)) (stream? outer))"# => Value::bool(true),
 }
 
 dual_eval_error_tests! {
