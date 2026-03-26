@@ -527,6 +527,16 @@ These features must be confirmed or added to Sema before implementing the hardwa
 | — | macros | 5 | with-i2c, with-spi, with-uart, with-neo, with-oled, with-pins |
 | | **Total** | **75 functions + 6 macros** | |
 
+## Advanced Features
+
+Three advanced design ideas that play to Lisp's strengths in ways Arduino/MicroPython can't match. These are detailed separately below, after the sanity check section.
+
+1. **PIO as a Lisp DSL** — Express RP2350 PIO programs as Sema s-expressions, assembled to machine code. Programs are data, manipulable by macros.
+2. **Reactive Event Model** — Espruino-style declarative programming: register event handlers, runtime sleeps automatically between events. No user main loop.
+3. **Unified Stream Abstraction** — A single `stream/read` / `stream/write` protocol across files, UART, I2C, SPI, TCP, and in-memory buffers. Works on both desktop and Pico.
+
+---
+
 ## Known Issues from Sanity Check
 
 1. **NeoPixels depend on PIO internally.** The `neo/` implementation uses a PIO state machine under the hood even though PIO user API is Tier 4. This is intentional — PIO is used as an implementation detail, not exposed.
@@ -535,3 +545,456 @@ These features must be confirmed or added to Sema before implementing the hardwa
 4. **`finally` support in try/catch** — if missing, `with-*` macros use dual-path release pattern.
 5. **OLED framebuffer costs 1KB** — acceptable on 520KB RP2350, tight on 264KB RP2040.
 6. **Timer alarms are limited** (4 on RP2040, more on RP2350). `irq/timer` must document the limit and error on exhaustion.
+7. **`try`/`catch` has no `finally` clause** (confirmed). `with-*` macros use dual-path release: catch rethrows after cleanup, success path also calls cleanup.
+
+---
+
+## Advanced Feature 1: PIO as a Lisp DSL
+
+The RP2350 has 3 PIO blocks, each with 4 state machines and 32 instruction slots. PIO programs are tiny (9 instructions) but timing-critical — they run independently at up to 150MHz. The DSL expresses PIO programs as Sema lists, assembled to 16-bit machine code.
+
+### Design Principles
+
+- **Instructions are functions returning data (maps).** A PIO program is a plain Sema list. The assembler is a separate function that walks the list and emits bytevectors.
+- **Labels are symbols** in the instruction list, stripped by the assembler and resolved to addresses.
+- **Side-set and delay are composable wrappers** (`pio/side`, `pio/delay`) that attach metadata to any instruction via `assoc`. Most instructions don't use them, so the common case stays clean.
+- **Programs are data.** You can `map`, `filter`, `concat` PIO programs. Macros can generate instruction sequences.
+
+### Instruction Set
+
+```scheme
+;; JMP — conditional jump
+(pio/jmp 'loop)                    ; always
+(pio/jmp :!x 'done)               ; if x == 0
+(pio/jmp :x-- 'loop)              ; decrement x, jump if was non-zero
+(pio/jmp :pin 'high)              ; if input pin is high
+
+;; WAIT — block until condition
+(pio/wait 1 :gpio 15)             ; wait for GPIO 15 high
+(pio/wait 0 :pin 0)               ; wait for mapped pin 0 low
+(pio/wait 1 :irq 4)               ; wait for IRQ 4
+
+;; IN/OUT — shift data between pins and shift registers
+(pio/in :pins 8)                   ; shift 8 bits from pins into ISR
+(pio/out :pins 1)                  ; shift 1 bit from OSR to pins
+(pio/out :x 32)                    ; load full OSR into X register
+
+;; PUSH/PULL — FIFO interaction
+(pio/push)                         ; ISR → RX FIFO (blocks if full)
+(pio/push :no-block)               ; non-blocking
+(pio/pull)                         ; TX FIFO → OSR (blocks if empty)
+(pio/pull :ifempty)                ; only pull if OSR is empty
+
+;; MOV — move/copy between registers
+(pio/mov :x :y)                    ; x = y
+(pio/mov :x :!y)                   ; x = ~y (bitwise invert)
+(pio/mov :x :y::reverse)           ; x = bit-reverse(y)
+
+;; IRQ — set/clear/wait interrupt flags
+(pio/irq :set 0)                   ; set IRQ 0
+(pio/irq :wait 2)                  ; set IRQ 2 and wait for clear
+(pio/irq :clear 3)                 ; clear IRQ 3
+
+;; SET — immediate value to pins/registers (0-31)
+(pio/set :pins 1)                  ; output pins = 1
+(pio/set :x 31)                    ; x = 31
+
+;; NOP
+(pio/nop)                          ; alias for (pio/mov :y :y)
+```
+
+### Side-Set and Delay (Composable Wrappers)
+
+```scheme
+;; Without (common case — clean)
+(pio/set :pins 1)
+
+;; With side-set
+(pio/side 1 (pio/set :pins 0))
+
+;; With delay
+(pio/delay 3 (pio/nop))
+
+;; Both compose in any order
+(pio/side 1 (pio/delay 3 (pio/set :pins 0)))
+```
+
+Both just `assoc` keys (`:side-set`, `:delay`) onto the instruction map.
+
+### Labels and Wrap Points
+
+```scheme
+(pio/program
+  :wrap-target                      ; hardware loop start (keyword marker)
+  'bitloop                          ; label (symbol, resolved by assembler)
+  (pio/out :x 1)
+  (pio/jmp :!x 'zero)              ; forward reference — works via 2-pass assembly
+  (pio/jmp 'bitloop)
+  'zero
+  (pio/nop)
+  :wrap)                            ; hardware loop end
+```
+
+**Labels** are symbols — first-class in Lisp, trivially distinguishable from instruction maps. **Wrap points** are keywords (`:wrap-target`, `:wrap`) — structural markers, not jump targets.
+
+### Program Configuration (Separate from Instructions)
+
+```scheme
+(def ws2812-config
+  (pio/config
+    :clock-div   1.0
+    :side-set    {:base 16 :count 1}
+    :out-pins    {:base 16 :count 1}
+    :shift-out   {:direction :left :autopull true :threshold 24}
+    :fifo-join   :tx))
+```
+
+Same program can run with different pin mappings — config is orthogonal to logic.
+
+### Assembly and State Machine Control
+
+```scheme
+;; Assemble: list → bytevector of 16-bit instructions
+(def bytecode (pio/assemble ws2812-program :config ws2812-config))
+
+;; Load into PIO block, init state machine
+(def offset (pio/load! 0 bytecode))
+(pio/sm-init! 0 0 offset ws2812-config)
+(pio/sm-start! 0 0)
+
+;; Data transfer via FIFO
+(pio/sm-put! 0 0 0x00FF00)        ; send green pixel
+(def val (pio/sm-get! 0 0))       ; read from RX FIFO
+
+;; Cleanup
+(pio/sm-stop! 0 0)
+(pio/sm-unclaim! 0 0)
+```
+
+### WS2812 NeoPixel Driver — Complete Example
+
+```scheme
+(def ws2812-program
+  (list
+    'bitloop
+    (pio/out :x 1)
+    (pio/side 0 (pio/delay 2 (pio/jmp :!x 'do-zero)))
+    (pio/side 1 (pio/delay 1 (pio/jmp 'bitloop)))
+    'do-zero
+    (pio/side 1 (pio/delay 1 (pio/nop)))
+    :wrap))
+
+;; Assemble and run
+(def code (pio/assemble ws2812-program :config ws2812-config))
+(def offset (pio/load! 0 code))
+(pio/sm-init! 0 0 offset ws2812-config)
+(pio/sm-start! 0 0)
+
+;; Send pixels
+(for-each (fn [color] (pio/sm-put! 0 0 color))
+  (list 0x00FF00 0xFF0000 0x0000FF))
+```
+
+### Macro Opportunities
+
+Since PIO programs are data, Sema macros can generate them:
+
+```scheme
+;; Generate a bit-banged waveform from timing pairs
+(defmacro pio/bitbang (pin . phases)
+  `(list :wrap-target
+     ,@(map (fn (phase) `(pio/delay ,(second phase)
+                           (pio/set :pins ,(first phase))))
+            phases)
+     :wrap))
+
+;; Usage: blink at PIO speed
+(def blink (pio/bitbang 25 (1 31) (0 31)))
+
+;; Generate SPI from polarity/phase spec
+(defmacro pio/defspi (name opts)
+  ;; ... generates PIO program from :cpol :cpha :bits spec
+  )
+```
+
+This is the killer feature: **a Lisp macro system generating real-time hardware programs.** Arduino/MicroPython can't do this — their PIO programs are static text, not manipulable data.
+
+### Assembler Implementation
+
+`pio/assemble` runs as a normal Sema function (or at macro-expand time via `pio/defprogram`):
+
+1. **Pass 1:** Scan list for symbols → build label address map. Strip labels and wrap markers.
+2. **Pass 2:** Encode each instruction map to 16-bit word. Resolve jump targets from label map.
+3. **Validate:** Check instruction count ≤ 32, all values fit bit fields, all labels referenced exist.
+4. **Return:** `{:instructions <bytevector> :wrap-target N :wrap M :length N :labels {...}}`
+
+On the Pico, assembly happens at load-time (when the `.semac` module is evaluated). For production, a `pio/defprogram` macro could pre-assemble at compile time.
+
+---
+
+## Advanced Feature 2: Reactive Event Model
+
+Replace the imperative `irq/poll` main loop with a declarative event registration model inspired by Espruino. Programs declare what should happen in response to events; the runtime manages sleeping and waking.
+
+### The `on` / `run` Pattern
+
+```scheme
+;; Register event handlers (pure declarations)
+(on (gpio/edge 15 :falling)
+  (fn [e] (gpio/toggle 25))
+  {:debounce 50})
+
+(on (every 1000)
+  (fn [_] (println (adc/read-temp))))
+
+(on (uart/rx serial)
+  (fn [data] (uart/write serial data)))
+
+;; Enter event loop — runtime sleeps (WFI) between events
+(run)
+```
+
+**No user main loop.** The `(run)` function is the event loop. Between events, the RP2350 enters WFI (wait for interrupt), saving ~60% power.
+
+### Why Explicit `(run)` Not Implicit
+
+Sema is a Lisp — explicitness and composability are valued. The event loop is an explicit function call, not hidden magic. Reasons:
+
+1. One-shot programs work naturally (no special-casing "no handlers registered")
+2. Setup code can run between handler registration and `(run)`
+3. `(run)` is composable — can be conditional, inside a function, etc.
+4. A safety warning fires if handlers exist but `(run)` was never called
+
+### Event Sources
+
+Event source constructors return opaque descriptors. `on` is the single registration point.
+
+```scheme
+(gpio/edge pin edge)     ;; GPIO pin change
+(every interval-ms)      ;; periodic timer
+(after delay-ms)         ;; one-shot timer
+(uart/rx port)           ;; UART data available
+(pio/fifo-rx sm)         ;; PIO FIFO not empty (future)
+```
+
+### Control Flow
+
+```scheme
+(def h (on (every 1000) callback))  ;; returns handle
+(cancel h)                           ;; remove handler
+(stop)                               ;; exit (run) from inside a callback
+(run-for 5000)                       ;; run for 5 seconds then return
+```
+
+### Execution Model
+
+- **No preemption.** Callbacks run to completion before the next event is dispatched (like JavaScript's event loop).
+- **Priority:** GPIO edges > UART RX > one-shot timers > periodic timers. Events drained in priority order from the SPSC queue.
+- **Watchdog safety:** Hardware watchdog fed before each callback dispatch. If a callback hangs, the chip resets.
+
+### Error Handling in Callbacks
+
+```scheme
+;; Default: log error to USB-CDC, continue event loop
+(on (every 1000) (fn [_] (/ 1 0)))
+;; prints: "Error in callback [timer:0]: division by zero"
+
+;; Custom error handler
+(on-error (fn [source err]
+  (println (str "FAULT: " (error/message err)))
+  (gpio/write error-led :high)))
+
+;; Fatal mode: stop on first error
+(on-error (fn [_ _] (stop)))
+```
+
+Rationale: On an embedded device, crashing the event loop bricks the device. Log-and-continue is the safe default. `on-error` gives full control.
+
+### Implementation: No Evaluator Changes Needed
+
+`(run)` is a NativeFn that loops:
+
+```rust
+fn native_run(ctx: &EvalContext, _args: &[Value]) -> Result<Value, SemaError> {
+    loop {
+        if stop_flag.get() { break; }
+        while let Some(event) = EVENT_QUEUE.dequeue() {
+            if let Some(cb) = registry.lookup(event.source) {
+                match call_callback(ctx, &cb, &[event.to_value()]) {
+                    Ok(_) => {},
+                    Err(e) => handle_callback_error(ctx, e),
+                }
+            }
+        }
+        cortex_m::asm::wfi();  // sleep until next interrupt
+    }
+    Ok(Value::keyword("ok"))
+}
+```
+
+Uses existing `call_callback` → VM dispatch loop → return. No new Trampoline variant, no changes to vm.rs or eval.rs.
+
+### Complete Example: Multi-Event Program
+
+```scheme
+(gpio/init 25 :output)
+(gpio/init 15 :input :pull-up)
+(def serial (uart/init 0 0 1 115200))
+(def press-count (atom 0))
+
+(on (gpio/edge 15 :falling) (fn [e]
+  (swap! press-count inc)
+  (gpio/toggle 25))
+  {:debounce 50})
+
+(on (every 10000) (fn [_]
+  (uart/write serial
+    (str "presses=" @press-count
+         " temp=" (adc/read-temp) "\r\n"))))
+
+(on (uart/rx serial) (fn [data]
+  (def cmd (string/trim (bytes->string data)))
+  (when (= cmd "stop") (stop))))
+
+(run)
+```
+
+Handles GPIO, timers, and UART simultaneously. Zero explicit loops. Automatic power management.
+
+---
+
+## Advanced Feature 3: Unified Stream Abstraction
+
+A protocol where the same `stream/read` / `stream/write` works on files, UART, I2C, SPI, TCP, and in-memory buffers. Works on both desktop Sema and Pico.
+
+### Core Protocol (7 Functions)
+
+```scheme
+(stream/read s n)           ;; read up to n bytes → bytevector
+(stream/write s bv)         ;; write bytevector → int (bytes written)
+(stream/read-byte s)        ;; read one byte → int or nil at EOF
+(stream/write-byte s b)     ;; write one byte (0-255)
+(stream/available? s)       ;; data ready? → bool
+(stream/close s)            ;; release resource
+(stream/flush s)            ;; flush output buffer
+```
+
+Plus predicates: `stream?`, `stream/readable?`, `stream/writable?`.
+
+### Implementation: New Value Tag
+
+```rust
+const TAG_STREAM: u64 = 25;  // next available after TAG_MULTIMETHOD = 24
+```
+
+Backed by a Rust trait:
+
+```rust
+// sema-core/src/stream.rs
+pub trait SemaStream: fmt::Debug {
+    fn read(&self, buf: &mut [u8]) -> Result<usize, SemaError>;
+    fn write(&self, data: &[u8]) -> Result<usize, SemaError>;
+    fn available(&self) -> Result<bool, SemaError> { Ok(false) }
+    fn flush(&self) -> Result<(), SemaError> { Ok(()) }
+    fn close(&self) -> Result<(), SemaError> { Ok(()) }
+    fn stream_type(&self) -> &'static str;
+}
+```
+
+Dispatch is in Rust (trait vtable call), not Sema-land multimethods. This keeps it fast and Pico-viable.
+
+**Fat pointer solution:** `dyn SemaStream` is a fat pointer (16 bytes) but NaN-boxing only fits thin pointers. Solved by double-boxing: `Rc<StreamBox>` where `StreamBox(RefCell<Box<dyn SemaStream>>)` is a concrete Sized type with a thin pointer.
+
+### Desktop Streams
+
+```scheme
+(stream/open-input "data.txt")    ;; → readable file stream
+(stream/open-output "out.txt")    ;; → writable file stream
+(stream/from-string "hello")      ;; → readable stream from string
+(stream/from-bytes bv)            ;; → readable stream from bytevector
+(stream/byte-buffer)              ;; → writable buffer, extract later
+(stream/tcp-connect "host" 80)    ;; → bidirectional TCP stream
+```
+
+Global streams: `*stdin*`, `*stdout*`, `*stderr*`.
+
+### Pico Streams
+
+```scheme
+(stream/uart-open 0 0 1 115200)  ;; → bidirectional UART stream
+(stream/i2c-open bus 0x48)       ;; → I2C device stream
+(stream/spi-open bus cs-pin)     ;; → SPI device stream
+```
+
+USB-CDC serial becomes `*stdin*`/`*stdout*` on Pico — code that reads from `*stdin*` works on both platforms.
+
+### Resource Management
+
+```scheme
+(with-stream [s (stream/open-input "data.txt")]
+  (stream/read s 1024))
+;; s closed here, even on error
+```
+
+### Composable Wrappers
+
+```scheme
+(stream/buffered s 4096)          ;; add buffering (configurable size)
+(stream/tee s1 s2)                ;; writes go to both
+```
+
+### Backward Compatibility
+
+- `file/read` and `file/write` remain as-is (convenience functions)
+- `println` gains optional stream argument: `(println "hello" serial-port)`
+- `read-line` gains optional stream: `(read-line s)`
+- Existing code unchanged; streams are additive
+
+### Migration Path for Pico with-* Macros
+
+```scheme
+;; Phase 1 (current plan): with-i2c binds a raw bus handle
+(with-i2c [bus 0 0 1 :fast]
+  (i2c/write bus 0x48 data))
+
+;; Phase 2 (future): with-i2c can bind a stream
+(with-stream [s (stream/i2c-open bus 0x48)]
+  (stream/write s data))
+```
+
+Both APIs coexist. The stream version is optional but enables portable code.
+
+### R7RS Alignment
+
+| R7RS | Sema | Notes |
+|------|------|-------|
+| `open-input-file` | `stream/open-input` | Same semantics |
+| `read-u8` | `stream/read-byte` | Returns int, not char |
+| `write-bytevector` | `stream/write` | Takes bytevector |
+| `port?` | `stream?` | Type predicate |
+| `close-port` | `stream/close` | Any direction |
+| `call-with-port` | `with-stream` macro | Macro instead of HOF |
+
+Text vs binary distinction skipped — Sema streams are always byte-oriented. Text operations layer on top via UTF-8.
+
+### Sema Platform Support Confirmed
+
+- **Multi-methods (`defmulti`/`defmethod`):** Exist but not needed — dispatch is in Rust via trait vtable.
+- **Records (`define-record-type`):** Exist, could be used for stream metadata.
+- **NaN-box tag space:** 39 slots remain (25 of 64 used). TAG_STREAM = 25 fits easily.
+- **`try`/`catch`:** Exists. **No `finally`** — `with-stream` macro uses dual-path cleanup.
+- **Bytevectors:** Exist (`sema-stdlib/src/bytevector.rs`) — natural data type for stream I/O.
+- **Context stacks:** Exist — could track open streams for leak detection.
+
+### Incremental Implementation
+
+| Phase | Work | Scope |
+|-------|------|-------|
+| 1 | `SemaStream` trait + TAG_STREAM + `ByteBufferStream` | sema-core |
+| 2 | `FileStream` + `stream/open-*` + `*stdin*`/`*stdout*` | sema-stdlib |
+| 3 | `stream/from-string`, `stream/from-bytes`, `with-stream` macro | sema-stdlib + prelude |
+| 4 | `TcpStream` (gated on `Caps::NETWORK`) | sema-stdlib |
+| 5 | `BufferedStream`, `stream/tee` | sema-stdlib |
+| 6 | Pico streams (`UartStream`, `I2cStream`, `SpiStream`) | sema-pico (future) |
+
+Phases 1-3 are useful on desktop Sema immediately and don't require the Pico port.
