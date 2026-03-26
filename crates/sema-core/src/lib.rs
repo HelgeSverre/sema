@@ -20,6 +20,7 @@ pub use sandbox::{Caps, Sandbox};
 pub use value::{
     compare_spurs, intern, interner_stats, next_gensym, pretty_print, resolve, with_resolved,
     Agent, Conversation, Env, ImageAttachment, Lambda, Macro, Message, MultiMethod, NativeFn,
-    Prompt, Record, Role, Thunk, ToolDefinition, Value, ValueView, NAN_INT_SIGN_BIT,
-    NAN_INT_SMALL_PATTERN, NAN_PAYLOAD_BITS, NAN_PAYLOAD_MASK, NAN_TAG_MASK, TAG_NATIVE_FN,
+    Prompt, Record, Role, SemaStream, StreamBox, Thunk, ToolDefinition, Value, ValueView,
+    NAN_INT_SIGN_BIT, NAN_INT_SMALL_PATTERN, NAN_PAYLOAD_BITS, NAN_PAYLOAD_MASK, NAN_TAG_MASK,
+    TAG_NATIVE_FN,
 };

@@ -270,6 +270,109 @@ impl fmt::Debug for MultiMethod {
     }
 }
 
+/// Trait for stream implementations (files, buffers, serial ports, etc.).
+/// All methods take `&self` — interior mutability is handled by the implementation.
+pub trait SemaStream: fmt::Debug {
+    fn read(&self, buf: &mut [u8]) -> Result<usize, SemaError>;
+    fn write(&self, data: &[u8]) -> Result<usize, SemaError>;
+    fn available(&self) -> Result<bool, SemaError> {
+        Ok(false)
+    }
+    fn flush(&self) -> Result<(), SemaError> {
+        Ok(())
+    }
+    fn close(&self) -> Result<(), SemaError> {
+        Ok(())
+    }
+    fn is_readable(&self) -> bool {
+        true
+    }
+    fn is_writable(&self) -> bool {
+        true
+    }
+    fn stream_type(&self) -> &'static str;
+    fn as_any(&self) -> &dyn std::any::Any;
+}
+
+/// Sized wrapper around `dyn SemaStream` for NaN-boxing (thin pointer via Rc<StreamBox>).
+/// Tracks closed state centrally so all impls get close-guarding for free.
+pub struct StreamBox {
+    inner: RefCell<Box<dyn SemaStream>>,
+    closed: Cell<bool>,
+}
+
+impl StreamBox {
+    pub fn new(s: impl SemaStream + 'static) -> Self {
+        StreamBox {
+            inner: RefCell::new(Box::new(s)),
+            closed: Cell::new(false),
+        }
+    }
+
+    pub fn read(&self, buf: &mut [u8]) -> Result<usize, SemaError> {
+        if self.closed.get() {
+            return Err(SemaError::eval("stream/read: stream is closed"));
+        }
+        self.inner.borrow().read(buf)
+    }
+
+    pub fn write(&self, data: &[u8]) -> Result<usize, SemaError> {
+        if self.closed.get() {
+            return Err(SemaError::eval("stream/write: stream is closed"));
+        }
+        self.inner.borrow().write(data)
+    }
+
+    pub fn flush(&self) -> Result<(), SemaError> {
+        if self.closed.get() {
+            return Err(SemaError::eval("stream/flush: stream is closed"));
+        }
+        self.inner.borrow().flush()
+    }
+
+    pub fn close(&self) -> Result<(), SemaError> {
+        if self.closed.get() {
+            return Ok(()); // double-close is a no-op
+        }
+        self.inner.borrow().close()?;
+        self.closed.set(true);
+        Ok(())
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.closed.get()
+    }
+
+    pub fn is_readable(&self) -> bool {
+        !self.closed.get() && self.inner.borrow().is_readable()
+    }
+
+    pub fn is_writable(&self) -> bool {
+        !self.closed.get() && self.inner.borrow().is_writable()
+    }
+
+    pub fn available(&self) -> Result<bool, SemaError> {
+        if self.closed.get() {
+            return Ok(false);
+        }
+        self.inner.borrow().available()
+    }
+
+    pub fn stream_type(&self) -> &'static str {
+        self.inner.borrow().stream_type()
+    }
+
+    pub fn borrow_inner(&self) -> std::cell::Ref<'_, Box<dyn SemaStream>> {
+        self.inner.borrow()
+    }
+}
+
+impl fmt::Debug for StreamBox {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<stream:{}>", self.stream_type())
+    }
+}
+
 impl Clone for MultiMethod {
     fn clone(&self) -> Self {
         MultiMethod {
@@ -332,6 +435,7 @@ const TAG_THUNK: u64 = 21;
 const TAG_RECORD: u64 = 22;
 const TAG_BYTEVECTOR: u64 = 23;
 const TAG_MULTIMETHOD: u64 = 24;
+const TAG_STREAM: u64 = 25;
 
 /// Small-int range: [-2^44, 2^44 - 1] = [-17_592_186_044_416, +17_592_186_044_415]
 const SMALL_INT_MIN: i64 = -(1i64 << 44);
@@ -422,6 +526,7 @@ pub enum ValueView {
     Record(Rc<Record>),
     Bytevector(Rc<Vec<u8>>),
     MultiMethod(Rc<MultiMethod>),
+    Stream(Rc<StreamBox>),
 }
 
 // ── The NaN-boxed Value type ──────────────────────────────────────
@@ -660,6 +765,14 @@ impl Value {
     pub fn multimethod_from_rc(rc: Rc<MultiMethod>) -> Value {
         Value::from_rc_ptr(TAG_MULTIMETHOD, rc)
     }
+
+    pub fn stream(s: impl SemaStream + 'static) -> Value {
+        Value::from_rc_ptr(TAG_STREAM, Rc::new(StreamBox::new(s)))
+    }
+
+    pub fn stream_from_rc(rc: Rc<StreamBox>) -> Value {
+        Value::from_rc_ptr(TAG_STREAM, rc)
+    }
 }
 
 // Const-compatible boxed encoding (no function calls)
@@ -793,6 +906,7 @@ impl Value {
             TAG_RECORD => ValueView::Record(unsafe { self.get_rc::<Record>() }),
             TAG_BYTEVECTOR => ValueView::Bytevector(unsafe { self.get_rc::<Vec<u8>>() }),
             TAG_MULTIMETHOD => ValueView::MultiMethod(unsafe { self.get_rc::<MultiMethod>() }),
+            TAG_STREAM => ValueView::Stream(unsafe { self.get_rc::<StreamBox>() }),
             _ => unreachable!("invalid NaN-boxed tag: {}", tag),
         }
     }
@@ -827,6 +941,7 @@ impl Value {
             TAG_RECORD => "record",
             TAG_BYTEVECTOR => "bytevector",
             TAG_MULTIMETHOD => "multimethod",
+            TAG_STREAM => "stream",
             _ => "unknown",
         }
     }
@@ -1223,6 +1338,22 @@ impl Value {
         }
     }
 
+    pub fn as_stream(&self) -> Option<&StreamBox> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_STREAM {
+            Some(unsafe { self.borrow_ref::<StreamBox>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_stream_rc(&self) -> Option<Rc<StreamBox>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_STREAM {
+            Some(unsafe { self.get_rc::<StreamBox>() })
+        } else {
+            None
+        }
+    }
+
     pub fn as_prompt_rc(&self) -> Option<Rc<Prompt>> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_PROMPT {
             Some(unsafe { self.get_rc::<Prompt>() })
@@ -1314,6 +1445,7 @@ impl Clone for Value {
                         TAG_RECORD => Rc::increment_strong_count(ptr as *const Record),
                         TAG_BYTEVECTOR => Rc::increment_strong_count(ptr as *const Vec<u8>),
                         TAG_MULTIMETHOD => Rc::increment_strong_count(ptr as *const MultiMethod),
+                        TAG_STREAM => Rc::increment_strong_count(ptr as *const StreamBox),
                         _ => unreachable!("invalid heap tag in clone: {}", tag),
                     }
                 }
@@ -1361,6 +1493,7 @@ impl Drop for Value {
                         TAG_RECORD => drop(Rc::from_raw(ptr as *const Record)),
                         TAG_BYTEVECTOR => drop(Rc::from_raw(ptr as *const Vec<u8>)),
                         TAG_MULTIMETHOD => drop(Rc::from_raw(ptr as *const MultiMethod)),
+                        TAG_STREAM => drop(Rc::from_raw(ptr as *const StreamBox)),
                         _ => {} // unreachable, but don't panic in drop
                     }
                 }
@@ -1406,6 +1539,7 @@ impl PartialEq for Value {
                 a.type_tag == b.type_tag && a.fields == b.fields
             }
             (ValueView::Bytevector(a), ValueView::Bytevector(b)) => a == b,
+            (ValueView::Stream(a), ValueView::Stream(b)) => Rc::ptr_eq(&a, &b),
             _ => false,
         }
     }
@@ -1466,6 +1600,10 @@ impl Hash for Value {
                 11u8.hash(state);
                 bv.hash(state);
             }
+            ValueView::Stream(s) => {
+                25u8.hash(state);
+                (Rc::as_ptr(&s) as usize).hash(state);
+            }
             _ => {}
         }
     }
@@ -1498,7 +1636,8 @@ impl Ord for Value {
                 ValueView::HashMap(_) => 11,
                 ValueView::Record(_) => 12,
                 ValueView::Bytevector(_) => 13,
-                _ => 14,
+                ValueView::Stream(_) => 14,
+                _ => 15,
             }
         }
         match (self.view(), other.view()) {
@@ -1643,6 +1782,7 @@ impl fmt::Display for Value {
                 write!(f, ")")
             }
             ValueView::MultiMethod(m) => with_resolved(m.name, |n| write!(f, "<multimethod {n}>")),
+            ValueView::Stream(s) => write!(f, "<stream:{}>", s.stream_type()),
         }
     }
 }
@@ -1800,6 +1940,7 @@ impl fmt::Debug for Value {
             ValueView::Record(r) => write!(f, "{r:?}"),
             ValueView::Bytevector(bv) => write!(f, "Bytevector({bv:?})"),
             ValueView::MultiMethod(m) => write!(f, "{m:?}"),
+            ValueView::Stream(s) => write!(f, "Stream({:?})", s.stream_type()),
         }
     }
 }

@@ -774,6 +774,39 @@ dual_eval_tests! {
     bytevector_to_list_alias: r#"(length (bytevector/to-list (bytevector 1 2 3)))"# => Value::int(3),
     string_to_utf8_alias: r#"(bytevector/length (string/to-utf8 "hi"))"# => Value::int(2),
     utf8_to_string_alias: r#"(utf8/to-string (string/to-utf8 "hello"))"# => Value::string("hello"),
+
+    // --- streams ---
+    stream_byte_buffer_is_stream: r#"(stream? (stream/byte-buffer))"# => Value::bool(true),
+    stream_from_string_is_stream: r#"(stream? (stream/from-string "hello"))"# => Value::bool(true),
+    stream_int_is_not_stream: r#"(stream? 42)"# => Value::bool(false),
+    stream_nil_is_not_stream: r#"(stream? nil)"# => Value::bool(false),
+    stream_type_name: r#"(type (stream/byte-buffer))"# => Value::keyword("stream"),
+    stream_from_string_read: r#"(utf8->string (stream/read (stream/from-string "hello") 5))"# => Value::string("hello"),
+    stream_from_string_read_partial: r#"(bytevector-length (stream/read (stream/from-string "hi") 10))"# => Value::int(2),
+    stream_from_string_read_zero: r#"(bytevector-length (stream/read (stream/from-string "hi") 0))"# => Value::int(0),
+    stream_from_string_read_byte: r#"(stream/read-byte (stream/from-string "A"))"# => Value::int(65),
+    stream_from_string_read_byte_eof: r#"(let ((s (stream/from-string ""))) (stream/read-byte s))"# => Value::nil(),
+    stream_byte_buffer_write_read: r#"(let ((s (stream/byte-buffer))) (stream/write s (string->utf8 "hi")) (bytevector-length (stream/to-bytes s)))"# => Value::int(2),
+    stream_byte_buffer_roundtrip: r#"(let ((s (stream/byte-buffer))) (stream/write s (string->utf8 "hello")) (utf8->string (stream/to-bytes s)))"# => Value::string("hello"),
+    stream_write_byte: r#"(let ((s (stream/byte-buffer))) (stream/write-byte s 65) (stream/write-byte s 66) (utf8->string (stream/to-bytes s)))"# => Value::string("AB"),
+    stream_write_returns_count: r#"(let ((s (stream/byte-buffer))) (stream/write s (bytevector 1 2 3)))"# => Value::int(3),
+    stream_readable_true: r#"(stream/readable? (stream/from-string "x"))"# => Value::bool(true),
+    stream_writable_false: r#"(stream/writable? (stream/from-string "x"))"# => Value::bool(false),
+    stream_writable_true: r#"(stream/writable? (stream/byte-buffer))"# => Value::bool(true),
+    stream_readable_buffer: r#"(stream/readable? (stream/byte-buffer))"# => Value::bool(true),
+    stream_available_true: r#"(stream/available? (stream/from-string "x"))"# => Value::bool(true),
+    stream_available_false: r#"(stream/available? (stream/from-string ""))"# => Value::bool(false),
+    stream_close_returns_nil: r#"(stream/close (stream/from-string "x"))"# => Value::nil(),
+    stream_double_close_ok: r#"(let ((s (stream/from-string "x"))) (stream/close s) (stream/close s))"# => Value::nil(),
+    stream_type_byte_buffer: r#"(stream/type (stream/byte-buffer))"# => Value::string("byte-buffer"),
+    stream_type_string: r#"(stream/type (stream/from-string "x"))"# => Value::string("string"),
+    stream_from_bytes_read: r#"(stream/read-byte (stream/from-bytes (bytevector 42)))"# => Value::int(42),
+    stream_from_bytes_eof: r#"(let ((s (stream/from-bytes (bytevector)))) (stream/read-byte s))"# => Value::nil(),
+    stream_flush_noop: r#"(stream/flush (stream/byte-buffer))"# => Value::nil(),
+    stream_write_byte_nil: r#"(stream/write-byte (stream/byte-buffer) 0)"# => Value::nil(),
+    stream_sequential_reads: r#"(let ((s (stream/from-string "abc"))) (stream/read-byte s) (stream/read-byte s))"# => Value::int(98),
+    stream_to_string: r#"(let ((s (stream/byte-buffer))) (stream/write s (string->utf8 "ok")) (stream/to-string s))"# => Value::string("ok"),
+    stream_identity_eq: r#"(let ((s (stream/byte-buffer))) (eq? s s))"# => Value::bool(true),
 }
 
 dual_eval_error_tests! {
@@ -788,4 +821,19 @@ dual_eval_error_tests! {
 
     // Nested destructure on nil value (key missing → nil, can't destructure nil as vector)
     destructure_err_nested_nil: "(let (({:a [x y]} {})) x)",
+
+    // --- stream errors ---
+    stream_read_wrong_type: "(stream/read 42 5)",
+    stream_write_wrong_type: "(stream/write 42 (bytevector 1))",
+    stream_write_to_readonly: r#"(stream/write (stream/from-string "x") (bytevector 1))"#,
+    stream_read_closed: r#"(let ((s (stream/from-string "hi"))) (stream/close s) (stream/read s 1))"#,
+    stream_write_closed: r#"(let ((s (stream/byte-buffer))) (stream/close s) (stream/write s (bytevector 1)))"#,
+    stream_read_byte_wrong_type: "(stream/read-byte 42)",
+    stream_write_byte_range: "(let ((s (stream/byte-buffer))) (stream/write-byte s 256))",
+    stream_write_byte_negative: "(let ((s (stream/byte-buffer))) (stream/write-byte s -1))",
+    stream_to_bytes_wrong_stream: r#"(stream/to-bytes (stream/from-string "x"))"#,
+    stream_to_string_wrong_stream: r#"(stream/to-string (stream/from-string "x"))"#,
+    stream_read_negative_count: "(stream/read (stream/from-string \"x\") -1)",
+    stream_from_string_wrong_type: "(stream/from-string 42)",
+    stream_from_bytes_wrong_type: "(stream/from-bytes 42)",
 }

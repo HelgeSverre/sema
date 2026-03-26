@@ -24,6 +24,7 @@ mod predicates;
 mod regex_ops;
 #[cfg(not(target_arch = "wasm32"))]
 mod server;
+mod stream;
 mod string;
 #[cfg(not(target_arch = "wasm32"))]
 mod system;
@@ -63,6 +64,7 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     #[cfg(not(target_arch = "wasm32"))]
     terminal::register(env);
     text::register(env);
+    stream::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     kv::register(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]
