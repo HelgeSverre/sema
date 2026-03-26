@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.13.0
+
+### Added
+
+- **Unified stream abstraction** — new first-class `stream` value type with a portable byte-oriented I/O protocol. The same `stream/read` and `stream/write` work across files, in-memory buffers, strings, and standard I/O.
+  - **In-memory streams**: `stream/byte-buffer` (read/write buffer), `stream/from-string` (read-only string), `stream/from-bytes` (read-only bytevector)
+  - **File streams**: `stream/open-input` (buffered file reader), `stream/open-output` (buffered file writer) — sandbox-gated
+  - **Standard I/O**: `*stdin*`, `*stdout*`, `*stderr*` global stream values
+  - **Reading**: `stream/read` (n bytes → bytevector), `stream/read-byte` (one byte or nil), `stream/read-line` (line → string or nil, handles `\r\n`), `stream/read-all` (entire stream → bytevector)
+  - **Writing**: `stream/write` (bytevector), `stream/write-byte` (single byte), `stream/write-string` (string as UTF-8)
+  - **Control**: `stream/close`, `stream/flush`, `stream/copy` (pipe between streams)
+  - **Introspection**: `stream?`, `stream/readable?`, `stream/writable?`, `stream/available?`, `stream/type`
+  - **Extraction**: `stream/to-bytes`, `stream/to-string` (extract byte-buffer contents)
+  - **`with-stream` macro** — auto-closes on exit, even on error: `(with-stream (s (stream/open-input "f.txt")) (stream/read-all s))`
+  - Backed by a Rust `SemaStream` trait with vtable dispatch — extensible for embedded targets (UART, I2C, SPI)
+
 ## 1.12.3
 
 ### Added

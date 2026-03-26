@@ -212,6 +212,20 @@ Sema's stdlib follows consistent naming patterns:
 | `bytevector/to-list`, `list/to-bytevector`                         | List conversion   |
 | `utf8/to-string`, `string/to-utf8`                                 | String conversion |
 
+### [Streams](./streams)
+
+| Function                                                              | Description              |
+| --------------------------------------------------------------------- | ------------------------ |
+| `stream/from-string`, `stream/from-bytes`, `stream/byte-buffer`       | In-memory streams        |
+| `stream/open-input`, `stream/open-output`                             | File streams             |
+| `stream/read`, `stream/read-byte`, `stream/read-line`, `stream/read-all` | Reading                  |
+| `stream/write`, `stream/write-byte`, `stream/write-string`            | Writing                  |
+| `stream/close`, `stream/flush`, `stream/copy`                         | Control                  |
+| `stream?`, `stream/readable?`, `stream/writable?`, `stream/available?` | Predicates               |
+| `stream/type`, `stream/to-bytes`, `stream/to-string`                  | Introspection & extraction |
+| `*stdin*`, `*stdout*`, `*stderr*`                                     | Standard I/O globals     |
+| `with-stream`                                                         | Resource management macro |
+
 ### [Records](./records)
 
 | Function             | Description          |
