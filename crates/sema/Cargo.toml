@@ -52,6 +52,7 @@ libc = "0.2"
 
 [dev-dependencies]
 paste = "1"
+pio = "0.3"
 reqwest.workspace = true
 serde_json.workspace = true
 serial_test = "3"
