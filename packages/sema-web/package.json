@@ -1,0 +1,51 @@
+{
+  "name": "@sema-lang/sema-web",
+  "version": "1.9.0",
+  "description": "Sema as an embedded web scripting language — DOM bindings, store API, and <script type=\"text/sema\"> support",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@sema-lang/sema": "^1.9.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/HelgeSverre/sema",
+    "directory": "packages/sema-web"
+  },
+  "homepage": "https://sema-lang.com",
+  "keywords": [
+    "sema",
+    "lisp",
+    "web",
+    "dom",
+    "scripting",
+    "wasm",
+    "webassembly",
+    "embedded",
+    "scripting-engine",
+    "reactive"
+  ],
+  "author": {
+    "name": "Helge Sverre",
+    "url": "https://helgesver.re"
+  }
+}
