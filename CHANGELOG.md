@@ -2,6 +2,10 @@
 
 ## 1.13.0
 
+### Removed
+
+- **Link checker CI workflow** — removed the lychee-based `links.yml` GitHub Actions workflow and `lychee.toml` config. The workflow failed on every run due to external sites (npmjs, academic publishers, cargo-dist docs) returning 403 to bot user-agents, producing only false positives.
+
 ### Added
 
 - **Unified stream abstraction** — new first-class `stream` value type with a portable byte-oriented I/O protocol. The same `stream/read` and `stream/write` work across files, in-memory buffers, strings, and standard I/O.
