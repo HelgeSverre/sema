@@ -15,6 +15,7 @@
   - **Extraction**: `stream/to-bytes`, `stream/to-string` (extract byte-buffer contents)
   - **`with-stream` macro** — auto-closes on exit, even on error: `(with-stream (s (stream/open-input "f.txt")) (stream/read-all s))`
   - Backed by a Rust `SemaStream` trait with vtable dispatch — extensible for embedded targets (UART, I2C, SPI)
+- **PIO assembler** — Lisp DSL for RP2040/RP2350 Programmable I/O. PIO programs are expressed as lists of instruction maps, assembled to 16-bit machine code bytevectors via `pio/assemble`. All 9 PIO instructions supported: `pio/jmp`, `pio/wait`, `pio/in`, `pio/out`, `pio/push`, `pio/pull`, `pio/mov`, `pio/irq`, `pio/set`, plus `pio/nop`, `pio/side` (side-set), and `pio/delay` (cycle delay). Labels are symbols, wrap points are keywords (`:wrap-target`, `:wrap`). Programs are data — macros can generate hardware programs.
 
 ## 1.12.3
 

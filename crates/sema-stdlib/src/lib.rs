@@ -20,6 +20,7 @@ mod math;
 mod meta;
 #[cfg(not(target_arch = "wasm32"))]
 mod pdf;
+mod pio;
 mod predicates;
 mod regex_ops;
 #[cfg(not(target_arch = "wasm32"))]
@@ -65,6 +66,7 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     terminal::register(env);
     text::register(env);
     stream::register(env);
+    pio::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     stream::register_io(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]

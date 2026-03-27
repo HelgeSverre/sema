@@ -812,6 +812,92 @@ dual_eval_tests! {
     with_stream_basic: r#"(with-stream (s (stream/from-string "hello")) (utf8->string (stream/read-all s)))"# => Value::string("hello"),
     with_stream_returns_body: r#"(with-stream (s (stream/byte-buffer)) (stream/write s (bytevector 1 2 3)) 42)"# => Value::int(42),
     with_stream_closes: r#"(let ((outer nil)) (with-stream (s (stream/from-string "x")) (set! outer s)) (stream? outer))"# => Value::bool(true),
+
+    // --- PIO instruction builders ---
+    pio_nop_op: r#"(get (pio/nop) :op)"# => Value::keyword("mov"),
+    pio_nop_dest: r#"(get (pio/nop) :dest)"# => Value::keyword("y"),
+    pio_nop_source: r#"(get (pio/nop) :source)"# => Value::keyword("y"),
+    pio_jmp_target: r#"(get (pio/jmp 'foo) :target)"# => Value::symbol("foo"),
+    pio_jmp_default_cond: r#"(get (pio/jmp 'foo) :cond)"# => Value::keyword("always"),
+    pio_jmp_with_cond: r#"(get (pio/jmp :!x 'bar) :cond)"# => Value::keyword("!x"),
+    pio_set_value: r#"(get (pio/set :pins 1) :value)"# => Value::int(1),
+    pio_set_dest: r#"(get (pio/set :x 31) :dest)"# => Value::keyword("x"),
+    pio_out_bits: r#"(get (pio/out :x 32) :bits)"# => Value::int(32),
+    pio_in_source: r#"(get (pio/in :pins 8) :source)"# => Value::keyword("pins"),
+    pio_push_defaults: r#"(get (pio/push) :block)"# => Value::bool(true),
+    pio_pull_ifempty: r#"(get (pio/pull :ifempty) :ifempty)"# => Value::bool(true),
+    pio_mov_dest: r#"(get (pio/mov :x :y) :dest)"# => Value::keyword("x"),
+    pio_mov_invert: r#"(get (pio/mov :x :!y) :source)"# => Value::keyword("!y"),
+    pio_mov_reverse: r#"(get (pio/mov :x :y :reverse) :mov-op)"# => Value::keyword("reverse"),
+    pio_irq_mode: r#"(get (pio/irq :wait 3) :mode)"# => Value::keyword("wait"),
+    pio_wait_polarity: r#"(get (pio/wait 1 :gpio 5) :polarity)"# => Value::int(1),
+    pio_side_wraps: r#"(get (pio/side 1 (pio/nop)) :side-set)"# => Value::int(1),
+    pio_delay_wraps: r#"(get (pio/delay 7 (pio/nop)) :delay)"# => Value::int(7),
+    pio_side_delay_compose: r#"(get (pio/side 1 (pio/delay 3 (pio/nop))) :side-set)"# => Value::int(1),
+    pio_delay_side_compose: r#"(get (pio/delay 3 (pio/side 1 (pio/nop))) :delay)"# => Value::int(3),
+
+    // --- PIO assembly: single instructions ---
+    pio_asm_nop: r#"(get (pio/assemble (list (pio/nop))) :instructions)"# =>
+        Value::bytevector(vec![0x42, 0xA0]),
+    pio_asm_set_pins_1: r#"(get (pio/assemble (list (pio/set :pins 1))) :instructions)"# =>
+        Value::bytevector(vec![0x01, 0xE0]),
+    pio_asm_set_x_31: r#"(get (pio/assemble (list (pio/set :x 31))) :instructions)"# =>
+        Value::bytevector(vec![0x3F, 0xE0]),
+    pio_asm_out_pins_1: r#"(get (pio/assemble (list (pio/out :pins 1))) :instructions)"# =>
+        Value::bytevector(vec![0x01, 0x60]),
+    pio_asm_out_x_32: r#"(get (pio/assemble (list (pio/out :x 32))) :instructions)"# =>
+        Value::bytevector(vec![0x20, 0x60]),
+    pio_asm_in_pins_8: r#"(get (pio/assemble (list (pio/in :pins 8))) :instructions)"# =>
+        Value::bytevector(vec![0x08, 0x40]),
+    pio_asm_push_block: r#"(get (pio/assemble (list (pio/push))) :instructions)"# =>
+        Value::bytevector(vec![0x00, 0x80]),
+    pio_asm_pull_block: r#"(get (pio/assemble (list (pio/pull))) :instructions)"# =>
+        Value::bytevector(vec![0x10, 0x80]),
+    pio_asm_mov_x_y: r#"(get (pio/assemble (list (pio/mov :x :y))) :instructions)"# =>
+        Value::bytevector(vec![0x22, 0xA0]),
+    pio_asm_mov_x_invert_y: r#"(get (pio/assemble (list (pio/mov :x :!y))) :instructions)"# =>
+        Value::bytevector(vec![0x2A, 0xA0]),
+    pio_asm_wait_gpio_15: r#"(get (pio/assemble (list (pio/wait 1 :gpio 15))) :instructions)"# =>
+        Value::bytevector(vec![0x8F, 0x20]),
+    pio_asm_irq_set_0: r#"(get (pio/assemble (list (pio/irq :set 0))) :instructions)"# =>
+        Value::bytevector(vec![0x00, 0xC0]),
+    pio_asm_set_with_delay: r#"(get (pio/assemble (list (pio/delay 3 (pio/set :pins 1)))) :instructions)"# =>
+        Value::bytevector(vec![0x01, 0xE3]),
+    pio_asm_nop_delay_31: r#"(get (pio/assemble (list (pio/delay 31 (pio/nop)))) :instructions)"# =>
+        Value::bytevector(vec![0x42, 0xBF]),
+
+    // --- PIO assembly: labels ---
+    pio_asm_jmp_backward: r#"(get (pio/assemble (list 'loop (pio/nop) (pio/jmp 'loop))) :instructions)"# =>
+        Value::bytevector(vec![0x42, 0xA0, 0x00, 0x00]),
+    pio_asm_jmp_forward: r#"(get (pio/assemble (list (pio/jmp 'end) (pio/nop) 'end (pio/nop))) :instructions)"# =>
+        Value::bytevector(vec![0x02, 0x00, 0x42, 0xA0, 0x42, 0xA0]),
+    pio_asm_jmp_cond_label: r#"(get (pio/assemble (list 'x (pio/jmp :!x 'x))) :instructions)"# =>
+        Value::bytevector(vec![0x20, 0x00]),
+    pio_asm_length: r#"(get (pio/assemble (list (pio/nop) (pio/nop) (pio/nop))) :length)"# =>
+        Value::int(3),
+
+    // --- PIO assembly: wrap points ---
+    pio_asm_wrap_target: r#"(get (pio/assemble (list (pio/nop) :wrap-target (pio/nop) (pio/nop) :wrap)) :wrap-target)"# =>
+        Value::int(1),
+    pio_asm_wrap: r#"(get (pio/assemble (list (pio/nop) :wrap-target (pio/nop) (pio/nop) :wrap)) :wrap)"# =>
+        Value::int(2),
+    pio_asm_default_wrap_target: r#"(get (pio/assemble (list (pio/nop))) :wrap-target)"# =>
+        Value::int(0),
+    pio_asm_default_wrap: r#"(get (pio/assemble (list (pio/nop) (pio/nop))) :wrap)"# =>
+        Value::int(1),
+
+    // --- PIO assembly: side-set config ---
+    pio_asm_side_set_config: r#"(get (pio/assemble (list (pio/side 1 (pio/set :pins 0))) {:side-set-bits 1}) :instructions)"# =>
+        Value::bytevector(vec![0x00, 0xF0]),
+
+    // --- PIO assembly: real programs ---
+    pio_asm_blink: r#"(get (pio/assemble (list
+        :wrap-target
+        (pio/set :pins 1)
+        (pio/delay 31 (pio/nop))
+        (pio/set :pins 0)
+        (pio/delay 31 (pio/nop))
+        :wrap)) :length)"# => Value::int(4),
 }
 
 dual_eval_error_tests! {
@@ -841,4 +927,23 @@ dual_eval_error_tests! {
     stream_read_negative_count: "(stream/read (stream/from-string \"x\") -1)",
     stream_from_string_wrong_type: "(stream/from-string 42)",
     stream_from_bytes_wrong_type: "(stream/from-bytes 42)",
+
+    // --- PIO errors ---
+    pio_err_undefined_label: r#"(pio/assemble (list (pio/jmp 'nowhere)))"#,
+    pio_err_duplicate_label: r#"(pio/assemble (list 'x (pio/nop) 'x (pio/nop)))"#,
+    pio_err_set_value_too_large: "(pio/set :pins 32)",
+    pio_err_set_invalid_dest: "(pio/set :foo 1)",
+    pio_err_jmp_target_not_symbol: "(pio/jmp 42)",
+    pio_err_delay_too_large: "(pio/delay 32 (pio/nop))",
+    pio_err_invalid_jmp_cond: "(pio/jmp :bogus 'x)",
+    pio_err_bit_count_zero: "(pio/in :pins 0)",
+    pio_err_bit_count_33: "(pio/out :pins 33)",
+    pio_err_invalid_in_source: "(pio/in :foo 8)",
+    pio_err_invalid_out_dest: "(pio/out :foo 8)",
+    pio_err_invalid_mov_dest: "(pio/mov :foo :y)",
+    pio_err_invalid_mov_source: "(pio/mov :x :foo)",
+    pio_err_irq_index_too_large: "(pio/irq :set 8)",
+    pio_err_wait_polarity: "(pio/wait 2 :gpio 0)",
+    pio_err_set_negative: "(pio/set :pins -1)",
+    pio_err_pull_bad_option: "(pio/pull :bogus)",
 }
