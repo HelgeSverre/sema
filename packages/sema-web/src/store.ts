@@ -35,7 +35,7 @@ export function registerStoreBindings(interp: SemaInterpreterLike): void {
     const val = localStorage.getItem(key);
     if (val === null) return null;
     try {
-      return JSON.stringify(JSON.parse(val));
+      return JSON.parse(val);
     } catch {
       return val;
     }
@@ -76,7 +76,7 @@ export function registerStoreBindings(interp: SemaInterpreterLike): void {
     const val = sessionStorage.getItem(key);
     if (val === null) return null;
     try {
-      return JSON.stringify(JSON.parse(val));
+      return JSON.parse(val);
     } catch {
       return val;
     }
