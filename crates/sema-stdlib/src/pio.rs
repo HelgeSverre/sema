@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 use sema_core::{check_arity, SemaError, Value};
 
@@ -201,10 +201,7 @@ fn make_instr(op: &str, fields: &[(&str, Value)]) -> Value {
 
 // ── Opcode encoders (instruction map → 8-bit arg field) ─────────
 
-fn encode_jmp(
-    map: &BTreeMap<Value, Value>,
-    labels: &std::collections::HashMap<String, u8>,
-) -> Result<u8, SemaError> {
+fn encode_jmp(map: &BTreeMap<Value, Value>, labels: &HashMap<String, u8>) -> Result<u8, SemaError> {
     let cond_kw = get_keyword_field(map, "cond")?;
     let cond = jmp_cond(&cond_kw)?;
     let target = get_symbol_field(map, "target")?;
@@ -314,14 +311,16 @@ fn encode_set(map: &BTreeMap<Value, Value>) -> Result<u8, SemaError> {
 
 fn encode_instruction(
     map: &BTreeMap<Value, Value>,
-    labels: &std::collections::HashMap<String, u8>,
+    labels: &HashMap<String, u8>,
     delay_bits: u8,
     side_set_bits: u8,
+    side_set_opt: bool,
 ) -> Result<u16, SemaError> {
     let op = get_keyword_field(map, "op")?;
 
     let delay = get_optional_int_field(map, "delay")?.unwrap_or(0);
-    let side_set = get_optional_int_field(map, "side-set")?.unwrap_or(0);
+    let side_set_val = get_optional_int_field(map, "side-set")?;
+    let side_set = side_set_val.unwrap_or(0);
 
     let max_delay = (1u16 << delay_bits) - 1;
     if delay < 0 || delay > max_delay as i64 {
@@ -338,8 +337,15 @@ fn encode_instruction(
         }
     }
 
-    let delay_sideset_field =
-        ((side_set as u8) << delay_bits) | (delay as u8 & ((1u8 << delay_bits) - 1));
+    // Build the 5-bit delay/side-set field:
+    // Without opt: [side_set_value (N bits)] [delay (5-N bits)]
+    // With opt:    [enable (1 bit)] [side_set_value (N bits)] [delay (5-N-1 bits)]
+    let delay_sideset_field = if side_set_opt {
+        let enable = if side_set_val.is_some() { 1u8 } else { 0u8 };
+        (enable << 4) | ((side_set as u8) << delay_bits) | (delay as u8 & ((1u8 << delay_bits) - 1))
+    } else {
+        ((side_set as u8) << delay_bits) | (delay as u8 & ((1u8 << delay_bits) - 1))
+    };
 
     let opcode: u16 = match op.as_str() {
         "jmp" => 0b000,
@@ -381,7 +387,7 @@ fn assemble(args: &[Value]) -> Result<Value, SemaError> {
         .ok_or_else(|| SemaError::type_error("list", args[0].type_name()))?;
 
     // Parse config
-    let (side_set_bits, _side_set_opt) = if args.len() == 2 {
+    let (side_set_bits, side_set_opt) = if args.len() == 2 {
         let cfg = args[1]
             .as_map_ref()
             .ok_or_else(|| SemaError::type_error("map", args[1].type_name()))?;
@@ -392,15 +398,23 @@ fn assemble(args: &[Value]) -> Result<Value, SemaError> {
             )));
         }
         let sso = get_optional_bool_field(cfg, "side-set-opt")?.unwrap_or(false);
+        let total = ssb as u8 + sso as u8;
+        if total > 5 {
+            return Err(SemaError::eval(format!(
+                "pio/assemble: side-set-bits ({ssb}) + opt bit exceeds 5"
+            )));
+        }
         (ssb as u8, sso)
     } else {
         (0u8, false)
     };
 
-    let delay_bits = 5 - side_set_bits;
+    // side-set-opt steals one bit for the enable flag
+    let side_set_total = side_set_bits + side_set_opt as u8;
+    let delay_bits = 5 - side_set_total;
 
     // Pass 1: collect labels and wrap points
-    let mut labels = std::collections::HashMap::new();
+    let mut labels = HashMap::new();
     let mut wrap_target: Option<u8> = None;
     let mut wrap: Option<u8> = None;
     let mut addr: u8 = 0;
@@ -462,7 +476,7 @@ fn assemble(args: &[Value]) -> Result<Value, SemaError> {
             continue;
         }
         let map = item.as_map_ref().unwrap();
-        let word = encode_instruction(map, &labels, delay_bits, side_set_bits)?;
+        let word = encode_instruction(map, &labels, delay_bits, side_set_bits, side_set_opt)?;
         words.push(word);
     }
 

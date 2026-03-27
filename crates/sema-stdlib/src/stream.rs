@@ -112,6 +112,22 @@ fn expect_stream(
         .map_err(|e| e.with_hint(format!("{fname} expects a stream as argument {}", idx + 1)))
 }
 
+/// Downcast a borrowed stream inner to ByteBufferStream.
+fn expect_byte_buffer<'a>(
+    inner: &'a std::cell::Ref<'_, Box<dyn sema_core::SemaStream>>,
+    stream_type: &str,
+    fname: &str,
+) -> Result<&'a ByteBufferStream, SemaError> {
+    inner
+        .as_any()
+        .downcast_ref::<ByteBufferStream>()
+        .ok_or_else(|| {
+            SemaError::eval(format!(
+                "{fname}: expected byte-buffer stream, got {stream_type} stream"
+            ))
+        })
+}
+
 // ── Registration ─────────────────────────────────────────────────
 
 pub fn register(env: &sema_core::Env) {
@@ -249,14 +265,9 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "stream/to-bytes", |args| {
         check_arity!(args, "stream/to-bytes", 1);
         let s = expect_stream(args, "stream/to-bytes", 0)?;
+        let stype = s.stream_type(); // get before borrowing inner
         let inner = s.borrow_inner();
-        let any = inner.as_any();
-        let buf = any.downcast_ref::<ByteBufferStream>().ok_or_else(|| {
-            SemaError::eval(format!(
-                "stream/to-bytes: expected byte-buffer stream, got {} stream",
-                s.stream_type()
-            ))
-        })?;
+        let buf = expect_byte_buffer(&inner, stype, "stream/to-bytes")?;
         let bytes = buf.buf.borrow().clone();
         Ok(Value::bytevector(bytes))
     });
@@ -264,14 +275,9 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "stream/to-string", |args| {
         check_arity!(args, "stream/to-string", 1);
         let s = expect_stream(args, "stream/to-string", 0)?;
+        let stype = s.stream_type(); // get before borrowing inner
         let inner = s.borrow_inner();
-        let any = inner.as_any();
-        let buf = any.downcast_ref::<ByteBufferStream>().ok_or_else(|| {
-            SemaError::eval(format!(
-                "stream/to-string: expected byte-buffer stream, got {} stream",
-                s.stream_type()
-            ))
-        })?;
+        let buf = expect_byte_buffer(&inner, stype, "stream/to-string")?;
         let bytes = buf.buf.borrow().clone();
         let text = std::str::from_utf8(&bytes)
             .map_err(|e| SemaError::eval(format!("stream/to-string: invalid UTF-8: {e}")))?;
