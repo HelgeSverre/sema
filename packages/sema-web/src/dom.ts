@@ -9,6 +9,7 @@
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
+  evalStr(code: string): { value: string | null; output: string[]; error: string | null };
 }
 
 /**
@@ -224,6 +225,11 @@ export function registerDomBindings(interp: SemaInterpreterLike): void {
   const listeners = new Map<string, EventListener>();
 
   interp.registerFunction("dom/on!", (id: number, event: string, callbackName: string) => {
+    // Validate callback name is a valid Sema identifier (prevents code injection)
+    if (!/^[a-zA-Z_][a-zA-Z0-9_/\-?!*><=+.]*$/.test(callbackName)) {
+      throw new Error(`Invalid callback name: ${callbackName}`);
+    }
+
     const el = getElement(id);
     const key = `${id}:${event}:${callbackName}`;
 
@@ -233,7 +239,7 @@ export function registerDomBindings(interp: SemaInterpreterLike): void {
       try {
         interp.registerFunction("__dom-current-event", () => evHandle);
         // The callback is a Sema function name — invoke it with the event handle
-        (interp as any).evalStr(`(${callbackName} (__dom-current-event))`);
+        interp.evalStr(`(${callbackName} (__dom-current-event))`);
       } catch (_e) {
         // Silently ignore eval errors in event handlers to avoid breaking the page
       }
