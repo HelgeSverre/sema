@@ -808,6 +808,28 @@ dual_eval_tests! {
     stream_to_string: r#"(let ((s (stream/byte-buffer))) (stream/write s (string->utf8 "ok")) (stream/to-string s))"# => Value::string("ok"),
     stream_identity_eq: r#"(let ((s (stream/byte-buffer))) (eq? s s))"# => Value::bool(true),
 
+    // stream/read-line on in-memory streams
+    stream_read_line_basic: r#"(stream/read-line (stream/from-string "hello\nworld"))"# => Value::string("hello"),
+    stream_read_line_second: r#"(let ((s (stream/from-string "a\nb"))) (stream/read-line s) (stream/read-line s))"# => Value::string("b"),
+    stream_read_line_no_newline: r#"(stream/read-line (stream/from-string "abc"))"# => Value::string("abc"),
+    stream_read_line_empty: r#"(stream/read-line (stream/from-string ""))"# => Value::nil(),
+    stream_read_line_crlf: r#"(stream/read-line (stream/from-string "hello\r\nworld"))"# => Value::string("hello"),
+    stream_read_line_only_newline: r#"(stream/read-line (stream/from-string "\n"))"# => Value::string(""),
+
+    // with-stream actually closes
+    with_stream_read_after_close: r#"(let ((outer nil))
+        (with-stream (s (stream/from-string "x")) (set! outer s))
+        (try (stream/read outer 1) (catch e :closed)))"# => Value::keyword("closed"),
+
+    // stream/flush on closed stream errors
+    stream_flush_closed_errors: r#"(try (let ((s (stream/byte-buffer))) (stream/close s) (stream/flush s)) (catch e :error))"# => Value::keyword("error"),
+
+    // stream/read-all on closed stream errors
+    stream_read_all_closed: r#"(try (let ((s (stream/from-string "x"))) (stream/close s) (stream/read-all s)) (catch e :error))"# => Value::keyword("error"),
+
+    // zero-length write returns 0
+    stream_write_empty: r#"(stream/write (stream/byte-buffer) (bytevector))"# => Value::int(0),
+
     // --- with-stream macro ---
     with_stream_basic: r#"(with-stream (s (stream/from-string "hello")) (utf8->string (stream/read-all s)))"# => Value::string("hello"),
     with_stream_returns_body: r#"(with-stream (s (stream/byte-buffer)) (stream/write s (bytevector 1 2 3)) 42)"# => Value::int(42),
@@ -850,9 +872,9 @@ dual_eval_tests! {
     pio_asm_in_pins_8: r#"(get (pio/assemble (list (pio/in :pins 8))) :instructions)"# =>
         Value::bytevector(vec![0x08, 0x40]),
     pio_asm_push_block: r#"(get (pio/assemble (list (pio/push))) :instructions)"# =>
-        Value::bytevector(vec![0x00, 0x80]),
+        Value::bytevector(vec![0x20, 0x80]),
     pio_asm_pull_block: r#"(get (pio/assemble (list (pio/pull))) :instructions)"# =>
-        Value::bytevector(vec![0x10, 0x80]),
+        Value::bytevector(vec![0xA0, 0x80]),
     pio_asm_mov_x_y: r#"(get (pio/assemble (list (pio/mov :x :y))) :instructions)"# =>
         Value::bytevector(vec![0x22, 0xA0]),
     pio_asm_mov_x_invert_y: r#"(get (pio/assemble (list (pio/mov :x :!y))) :instructions)"# =>
@@ -890,6 +912,30 @@ dual_eval_tests! {
     pio_asm_side_set_config: r#"(get (pio/assemble (list (pio/side 1 (pio/set :pins 0))) {:side-set-bits 1}) :instructions)"# =>
         Value::bytevector(vec![0x00, 0xF0]),
 
+    // --- PIO assembly: additional instruction variants ---
+    pio_asm_push_iffull: r#"(get (pio/assemble (list (pio/push :iffull))) :instructions)"# =>
+        Value::bytevector(vec![0x60, 0x80]),  // bit7=0,iffull=1,block=1: 0b0_1_1_00000=0x60
+    pio_asm_push_noblock: r#"(get (pio/assemble (list (pio/push :no-block))) :instructions)"# =>
+        Value::bytevector(vec![0x00, 0x80]),  // bit7=0,iffull=0,block=0: 0x00
+    pio_asm_pull_ifempty_noblock: r#"(get (pio/assemble (list (pio/pull :ifempty :no-block))) :instructions)"# =>
+        Value::bytevector(vec![0xC0, 0x80]),  // bit7=1,ifempty=1,block=0: 0b1_1_0_00000=0xC0
+    pio_asm_mov_reverse: r#"(get (pio/assemble (list (pio/mov :x :y :reverse))) :instructions)"# =>
+        Value::bytevector(vec![0x32, 0xA0]),  // dest=x=1,op=reverse=2,src=y=2: (1<<5)|(2<<3)|2=0x32
+    pio_asm_irq_wait_rel: r#"(get (pio/assemble (list (pio/irq :wait 0 :rel))) :instructions)"# =>
+        Value::bytevector(vec![0x30, 0xC0]),  // mode=wait=0b01,rel=1,index=0: (1<<5)|(1<<4)|0=0x30
+    pio_asm_irq_clear: r#"(get (pio/assemble (list (pio/irq :clear 3))) :instructions)"# =>
+        Value::bytevector(vec![0x43, 0xC0]),  // mode=clear=0b10,rel=0,index=3: (2<<5)|3=0x43
+    pio_asm_wait_irq_rel: r#"(get (pio/assemble (list (pio/wait 1 :irq 2 :rel))) :instructions)"# =>
+        Value::bytevector(vec![0xD2, 0x20]),  // pol=1,src=irq=2,rel|idx=0x10|2=0x12: (1<<7)|(2<<5)|0x12=0xD2
+    pio_asm_jmp_x_dec: r#"(get (pio/assemble (list 'x (pio/jmp :x-- 'x))) :instructions)"# =>
+        Value::bytevector(vec![0x40, 0x00]),  // cond=x--=2,addr=0: (2<<5)|0=0x40
+    pio_asm_jmp_y_dec: r#"(get (pio/assemble (list 'y (pio/jmp :y-- 'y))) :instructions)"# =>
+        Value::bytevector(vec![0x80, 0x00]),  // cond=y--=4,addr=0: (4<<5)|0=0x80
+    pio_asm_jmp_osre: r#"(get (pio/assemble (list 'x (pio/jmp :!osre 'x))) :instructions)"# =>
+        Value::bytevector(vec![0xE0, 0x00]),  // cond=!osre=7,addr=0: (7<<5)|0=0xE0
+    pio_asm_in_osr_32: r#"(get (pio/assemble (list (pio/in :osr 32))) :instructions)"# =>
+        Value::bytevector(vec![0xE0, 0x40]),  // src=osr=7,bits=32->0: (7<<5)|0=0xE0
+
     // --- PIO assembly: real programs ---
     pio_asm_blink: r#"(get (pio/assemble (list
         :wrap-target
@@ -898,6 +944,15 @@ dual_eval_tests! {
         (pio/set :pins 0)
         (pio/delay 31 (pio/nop))
         :wrap)) :length)"# => Value::int(4),
+
+    // --- PIO assembly: reference test vector (hello.pio from pico-examples) ---
+    // hello.pio: pull block (0x80A0), out pins 1 (0x6001), jmp 0 (0x0000)
+    pio_asm_hello_reference: r#"(get (pio/assemble (list
+        'start
+        (pio/pull)
+        (pio/out :pins 1)
+        (pio/jmp 'start))) :instructions)"# =>
+        Value::bytevector(vec![0xA0, 0x80, 0x01, 0x60, 0x00, 0x00]),
 }
 
 dual_eval_error_tests! {
@@ -946,4 +1001,8 @@ dual_eval_error_tests! {
     pio_err_wait_polarity: "(pio/wait 2 :gpio 0)",
     pio_err_set_negative: "(pio/set :pins -1)",
     pio_err_pull_bad_option: "(pio/pull :bogus)",
+    pio_err_push_bad_option: "(pio/push :bogus)",
+    pio_err_mov_bad_operation: "(pio/mov :x :y :bogus)",
+    pio_err_irq_bad_mode: "(pio/irq :bogus 0)",
+    pio_err_wait_bad_source: "(pio/wait 1 :bogus 0)",
 }

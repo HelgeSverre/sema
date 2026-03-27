@@ -244,17 +244,15 @@ fn encode_out(map: &BTreeMap<Value, Value>) -> Result<u8, SemaError> {
 fn encode_push(map: &BTreeMap<Value, Value>) -> Result<u8, SemaError> {
     let iffull = get_optional_bool_field(map, "iffull")?.unwrap_or(false);
     let block = get_optional_bool_field(map, "block")?.unwrap_or(true);
-    let no_block_bit = if block { 0u8 } else { 1u8 };
-    // bit 5 = 0 for PUSH
-    Ok(((iffull as u8) << 6) | (no_block_bit << 5))
+    // RP2040 datasheet: bit 7=0 (PUSH), bit 6=IfFull, bit 5=Block (1=stall)
+    Ok(((iffull as u8) << 6) | ((block as u8) << 5))
 }
 
 fn encode_pull(map: &BTreeMap<Value, Value>) -> Result<u8, SemaError> {
     let ifempty = get_optional_bool_field(map, "ifempty")?.unwrap_or(false);
     let block = get_optional_bool_field(map, "block")?.unwrap_or(true);
-    let no_block_bit = if block { 0u8 } else { 1u8 };
-    // bit 5 = 1 for PULL (bit 7 in the full instruction = bit 5 here in the arg field)
-    Ok(((ifempty as u8) << 6) | (no_block_bit << 5) | (1 << 4))
+    // RP2040 datasheet: bit 7=1 (PULL), bit 6=IfEmpty, bit 5=Block (1=stall)
+    Ok(0x80 | ((ifempty as u8) << 6) | ((block as u8) << 5))
 }
 
 fn encode_mov(map: &BTreeMap<Value, Value>) -> Result<u8, SemaError> {
