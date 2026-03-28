@@ -7,6 +7,8 @@
  * @module
  */
 
+import { storeHandle, getElement, getNode, getEvent } from "./handles.js";
+
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
   evalStr(code: string): { value: string | null; output: string[]; error: string | null };
@@ -44,43 +46,6 @@ interface SemaInterpreterLike {
  * - `dom/get-id` — get element by id
  */
 export function registerDomBindings(interp: SemaInterpreterLike): void {
-  // --- Element handles ---
-  // We store DOM elements in a WeakRef-friendly handle map so Sema
-  // can reference them by numeric ID. This avoids passing raw objects
-  // through the JSON serialization boundary.
-  const handles = new Map<number, Element | Text | Event>();
-  let nextHandle = 1;
-
-  function storeHandle(el: Element | Text | Event | null): number | null {
-    if (el == null) return null;
-    const id = nextHandle++;
-    handles.set(id, el);
-    return id;
-  }
-
-  function getElement(id: number): Element {
-    const el = handles.get(id);
-    if (!el || !(el instanceof Element)) {
-      throw new Error(`Invalid element handle: ${id}`);
-    }
-    return el;
-  }
-
-  function getNode(id: number): Element | Text {
-    const el = handles.get(id);
-    if (!el || (!(el instanceof Element) && !(el instanceof Text))) {
-      throw new Error(`Invalid node handle: ${id}`);
-    }
-    return el;
-  }
-
-  function getEvent(id: number): Event {
-    const ev = handles.get(id);
-    if (!ev || !(ev instanceof Event)) {
-      throw new Error(`Invalid event handle: ${id}`);
-    }
-    return ev;
-  }
 
   // --- Query ---
 
