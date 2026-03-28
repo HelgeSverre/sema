@@ -11,10 +11,10 @@ export default defineConfig({
   },
   webServer: {
     command:
-      'DATABASE_URL=sqlite://e2e-test.db?mode=rwc BLOB_DIR=e2e-blobs BASE_URL=http://localhost:3111 PORT=3111 cargo run --manifest-path ../Cargo.toml',
+      'DATABASE_URL=sqlite://e2e/e2e-test.db?mode=rwc BLOB_DIR=e2e/e2e-blobs BASE_URL=http://localhost:3111 PORT=3111 cargo run',
     port: 3111,
     reuseExistingServer: true,
     timeout: 120_000, // cargo build can take a while
-    cwd: __dirname,
+    cwd: `${__dirname}/..`, // run from pkg/ so static files and templates resolve correctly
   },
 });
