@@ -52,18 +52,24 @@ create_token() {
 
 publish() {
   local token="$1" name="$2" ver="$3" desc="$4"
-  local boundary="----seedboundary"
+  local boundary="seedboundary"
+  local tmpfile
+  tmpfile=$(mktemp)
   local meta="{\"description\":\"$desc\"}"
-  local tarball="fake-tarball-for-$name-$ver"
-  local body=""
-  body+="--$boundary\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n$meta\r\n"
-  body+="--$boundary\r\nContent-Disposition: form-data; name=\"tarball\"; filename=\"pkg.tar.gz\"\r\nContent-Type: application/gzip\r\n\r\n$tarball\r\n"
-  body+="--$boundary--\r\n"
+
+  # Build multipart body in a temp file to avoid printf/shell escaping issues
+  {
+    printf -- "--%s\r\nContent-Disposition: form-data; name=\"metadata\"\r\n\r\n%s\r\n" "$boundary" "$meta"
+    printf -- "--%s\r\nContent-Disposition: form-data; name=\"tarball\"; filename=\"pkg.tar.gz\"\r\nContent-Type: application/gzip\r\n\r\nfake-tarball-%s-%s\r\n" "$boundary" "$name" "$ver"
+    printf -- "--%s--\r\n" "$boundary"
+  } > "$tmpfile"
 
   curl -sf -X PUT "$BASE/api/v1/packages/$name/$ver" \
     -H "Authorization: Bearer $token" \
     -H "Content-Type: multipart/form-data; boundary=$boundary" \
-    --data-binary "$(printf "$body")" > /dev/null
+    --data-binary "@$tmpfile" > /dev/null
+
+  rm -f "$tmpfile"
 }
 
 submit_report() {
