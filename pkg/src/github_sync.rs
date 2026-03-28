@@ -1,27 +1,27 @@
-use crate::{crypto, db::Db};
-use sqlx::Row;
+use sea_orm::*;
+
+use crate::{crypto, db::Db, entity::{github_sync_log, oauth_connection, package_version}};
 
 /// Fetch the decrypted GitHub access token for a user.
 pub async fn get_github_token(db: &Db, user_id: i64, token_key: &str) -> Option<String> {
-    let row = sqlx::query(
-        "SELECT access_token_enc FROM oauth_connections WHERE user_id = ? AND provider = 'github' AND revoked_at IS NULL"
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
-    .ok()??;
+    let row = oauth_connection::Entity::find()
+        .filter(oauth_connection::Column::UserId.eq(user_id))
+        .filter(oauth_connection::Column::Provider.eq("github"))
+        .filter(oauth_connection::Column::RevokedAt.is_null())
+        .one(db)
+        .await
+        .ok()??;
 
-    let enc: Vec<u8> = row.get("access_token_enc");
-    crypto::decrypt(&enc, token_key)
+    crypto::decrypt(&row.access_token_enc, token_key)
 }
 
 /// Mark a user's GitHub connection as revoked (e.g. after a 401).
 pub async fn mark_token_revoked(db: &Db, user_id: i64) {
-    let _ = sqlx::query(
-        "UPDATE oauth_connections SET revoked_at = datetime('now') WHERE user_id = ? AND provider = 'github'"
-    )
-    .bind(user_id)
-    .execute(db)
+    let _ = db.execute(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "UPDATE oauth_connections SET revoked_at = datetime('now') WHERE user_id = ? AND provider = 'github'",
+        [user_id.into()],
+    ))
     .await;
 }
 
@@ -156,16 +156,13 @@ pub async fn sync_tag(
 ) -> Result<bool, String> {
     let version_str = version.to_string();
 
-    let exists = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM package_versions WHERE package_id = ? AND version = ?"
-    )
-    .bind(package_id)
-    .bind(&version_str)
-    .fetch_one(db)
-    .await
-    .ok()
-    .map(|r| r.get::<i32, _>("cnt"))
-    .unwrap_or(0);
+    // Check if version already exists
+    let exists = package_version::Entity::find()
+        .filter(package_version::Column::PackageId.eq(package_id))
+        .filter(package_version::Column::Version.eq(&version_str))
+        .count(db)
+        .await
+        .unwrap_or(0);
 
     if exists > 0 {
         return Ok(false);
@@ -173,25 +170,26 @@ pub async fn sync_tag(
 
     let tarball_url = format!("https://api.github.com/repos/{owner}/{repo}/tarball/{tag_name}");
 
-    sqlx::query(
-        "INSERT INTO package_versions (package_id, version, checksum_sha256, blob_key, size_bytes, sema_version_req, tarball_url) VALUES (?, ?, '', '', 0, ?, ?)"
-    )
-    .bind(package_id)
-    .bind(&version_str)
-    .bind(sema_version_req)
-    .bind(&tarball_url)
-    .execute(db)
-    .await
-    .map_err(|e| format!("Failed to insert version: {e}"))?;
+    let version_model = package_version::ActiveModel {
+        package_id: Set(package_id),
+        version: Set(version_str),
+        checksum_sha256: Set(String::new()),
+        blob_key: Set(String::new()),
+        size_bytes: Set(0),
+        sema_version_req: Set(sema_version_req.map(String::from)),
+        tarball_url: Set(Some(tarball_url)),
+        ..Default::default()
+    };
 
-    sqlx::query(
-        "INSERT INTO github_sync_log (package_id, tag, status) VALUES (?, ?, 'ok')"
-    )
-    .bind(package_id)
-    .bind(tag_name)
-    .execute(db)
-    .await
-    .ok();
+    version_model.insert(db).await.map_err(|e| format!("Failed to insert version: {e}"))?;
+
+    let log_model = github_sync_log::ActiveModel {
+        package_id: Set(package_id),
+        tag: Set(tag_name.to_string()),
+        status: Set("ok".into()),
+        ..Default::default()
+    };
+    let _ = log_model.insert(db).await;
 
     Ok(true)
 }

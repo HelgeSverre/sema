@@ -3,7 +3,9 @@ use axum::http::{Request, Response, StatusCode};
 use axum::Router;
 use http_body_util::BodyExt;
 use serde_json::Value;
-use sqlx::Row;
+use sea_orm::*;
+use sea_orm::prelude::Expr;
+use sema_pkg::entity::user;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -186,9 +188,10 @@ pub async fn publish_package(
 
 /// Promote a user to admin via direct DB access.
 pub async fn make_admin(state: &Arc<AppState>, username: &str) {
-    sqlx::query("UPDATE users SET is_admin = 1 WHERE username = ?")
-        .bind(username)
-        .execute(&state.db)
+    user::Entity::update_many()
+        .col_expr(user::Column::IsAdmin, Expr::value(1i32))
+        .filter(user::Column::Username.eq(username))
+        .exec(&state.db)
         .await
         .unwrap();
 }
@@ -283,10 +286,11 @@ pub async fn delete_json_with_session(
 
 /// Get a user's ID from the database.
 pub async fn get_user_id(state: &Arc<AppState>, username: &str) -> i64 {
-    sqlx::query("SELECT id FROM users WHERE username = ?")
-        .bind(username)
-        .fetch_one(&state.db)
+    user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .one(&state.db)
         .await
         .unwrap()
-        .get("id")
+        .unwrap()
+        .id
 }

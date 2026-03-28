@@ -4,10 +4,14 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use sea_orm::sea_query::Expr;
+use sea_orm::*;
 use serde::Deserialize;
-use sqlx::Row;
 use std::sync::Arc;
 
+use crate::entity::{
+    api_token, owner, package, package_version, report, session, user,
+};
 use crate::{audit, auth::AdminUser, AppState};
 
 // ── Dashboard ──
@@ -16,34 +20,42 @@ pub async fn stats(
     State(state): State<Arc<AppState>>,
     AdminUser(_user): AdminUser,
 ) -> impl IntoResponse {
-    let total_users: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM users")
-        .fetch_one(&state.db)
+    let total_users = user::Entity::find()
+        .count(&state.db)
         .await
-        .map(|r| r.get("cnt"))
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
 
-    let total_packages: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM packages")
-        .fetch_one(&state.db)
+    let total_packages = package::Entity::find()
+        .count(&state.db)
         .await
-        .map(|r| r.get("cnt"))
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
 
-    let banned_users: i64 =
-        sqlx::query("SELECT COUNT(*) as cnt FROM users WHERE banned_at IS NOT NULL")
-            .fetch_one(&state.db)
-            .await
-            .map(|r| r.get("cnt"))
-            .unwrap_or(0);
+    let banned_users = user::Entity::find()
+        .filter(user::Column::BannedAt.is_not_null())
+        .count(&state.db)
+        .await
+        .unwrap_or(0) as i64;
 
-    let open_reports: i64 =
-        sqlx::query("SELECT COUNT(*) as cnt FROM reports WHERE status = 'open'")
-            .fetch_one(&state.db)
-            .await
-            .map(|r| r.get("cnt"))
-            .unwrap_or(0);
+    let open_reports = report::Entity::find()
+        .filter(report::Column::Status.eq("open"))
+        .count(&state.db)
+        .await
+        .unwrap_or(0) as i64;
 
-    let total_downloads: i64 = sqlx::query("SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE download_date >= date('now', '-30 days')")
-        .fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+    let total_downloads: i64 = {
+        let result = state
+            .db
+            .query_one(Statement::from_sql_and_values(
+                state.db.get_database_backend(),
+                r#"SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE download_date >= date('now', '-30 days')"#,
+                [],
+            ))
+            .await;
+        match result {
+            Ok(Some(row)) => row.try_get_by_index::<i64>(0).unwrap_or(0),
+            _ => 0,
+        }
+    };
 
     Json(serde_json::json!({
         "total_users": total_users,
@@ -74,13 +86,13 @@ pub async fn list_users(
     let offset = (page - 1) * per_page;
 
     let mut where_clauses: Vec<String> = vec!["1=1".to_string()];
-    let mut binds: Vec<String> = Vec::new();
+    let mut binds: Vec<Value> = Vec::new();
 
     if let Some(ref q) = params.q {
         let pattern = format!("%{q}%");
         where_clauses.push("(u.username LIKE ? OR u.email LIKE ?)".to_string());
-        binds.push(pattern.clone());
-        binds.push(pattern);
+        binds.push(pattern.clone().into());
+        binds.push(pattern.into());
     }
 
     match params.status.as_deref() {
@@ -94,15 +106,18 @@ pub async fn list_users(
 
     // Get total count
     let count_sql = format!("SELECT COUNT(*) as cnt FROM users u WHERE {where_sql}");
-    let mut count_query = sqlx::query(&count_sql);
-    for b in &binds {
-        count_query = count_query.bind(b);
-    }
-    let total: i64 = count_query
-        .fetch_one(&state.db)
-        .await
-        .map(|r| r.get("cnt"))
-        .unwrap_or(0);
+    let count_result = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            &count_sql,
+            binds.clone(),
+        ))
+        .await;
+    let total: i64 = match count_result {
+        Ok(Some(row)) => row.try_get_by_index::<i64>(0).unwrap_or(0),
+        _ => 0,
+    };
 
     let sql = format!(
         r#"SELECT u.id, u.username, u.email, u.is_admin, u.github_id,
@@ -117,30 +132,36 @@ pub async fn list_users(
            LIMIT ? OFFSET ?"#
     );
 
-    let mut query = sqlx::query(&sql);
-    for b in &binds {
-        query = query.bind(b);
-    }
-    query = query.bind(per_page).bind(offset);
+    let mut all_binds = binds;
+    all_binds.push(per_page.into());
+    all_binds.push(offset.into());
 
-    let rows = query.fetch_all(&state.db).await.unwrap_or_default();
+    let rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            &sql,
+            all_binds,
+        ))
+        .await
+        .unwrap_or_default();
 
     let users: Vec<serde_json::Value> = rows
         .iter()
         .map(|r| {
-            let banned_at: Option<String> = r.get("banned_at");
-            let github_id: Option<i64> = r.get("github_id");
+            let banned_at: Option<String> = r.try_get_by("banned_at").unwrap_or(None);
+            let github_id: Option<i64> = r.try_get_by("github_id").unwrap_or(None);
             serde_json::json!({
-                "id": r.get::<i64, _>("id"),
-                "username": r.get::<String, _>("username"),
-                "email": r.get::<String, _>("email"),
-                "is_admin": r.get::<i32, _>("is_admin") != 0,
+                "id": r.try_get_by::<i64, _>("id").unwrap_or(0),
+                "username": r.try_get_by::<String, _>("username").unwrap_or_default(),
+                "email": r.try_get_by::<String, _>("email").unwrap_or_default(),
+                "is_admin": r.try_get_by::<i32, _>("is_admin").unwrap_or(0) != 0,
                 "github_id": github_id,
-                "github_login": r.get::<Option<String>, _>("provider_login"),
-                "package_count": r.get::<i64, _>("package_count"),
-                "token_count": r.get::<i64, _>("token_count"),
+                "github_login": r.try_get_by::<Option<String>, _>("provider_login").unwrap_or(None),
+                "package_count": r.try_get_by::<i64, _>("package_count").unwrap_or(0),
+                "token_count": r.try_get_by::<i64, _>("token_count").unwrap_or(0),
                 "banned": banned_at.is_some(),
-                "created_at": r.get::<String, _>("created_at"),
+                "created_at": r.try_get_by::<String, _>("created_at").unwrap_or_default(),
             })
         })
         .collect();
@@ -158,16 +179,12 @@ pub async fn get_user(
     AdminUser(_admin): AdminUser,
     Path(user_id): Path<i64>,
 ) -> impl IntoResponse {
-    let row = sqlx::query(
-        r#"SELECT id, username, email, is_admin, github_id, banned_at, created_at
-           FROM users WHERE id = ?"#,
-    )
-    .bind(user_id)
-    .fetch_optional(&state.db)
-    .await;
+    let user_model = user::Entity::find_by_id(user_id)
+        .one(&state.db)
+        .await;
 
-    let row = match row {
-        Ok(Some(r)) => r,
+    let user_model = match user_model {
+        Ok(Some(u)) => u,
         _ => {
             return (
                 StatusCode::NOT_FOUND,
@@ -177,43 +194,47 @@ pub async fn get_user(
         }
     };
 
-    let banned_at: Option<String> = row.get("banned_at");
-    let github_id: Option<i64> = row.get("github_id");
+    // Get package names via join query
+    let packages = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            r#"SELECT p.name FROM packages p
+               JOIN owners o ON o.package_id = p.id
+               WHERE o.user_id = ?
+               ORDER BY p.name"#,
+            [user_id.into()],
+        ))
+        .await
+        .unwrap_or_default();
 
-    let packages = sqlx::query(
-        r#"SELECT p.name FROM packages p
-           JOIN owners o ON o.package_id = p.id
-           WHERE o.user_id = ?
-           ORDER BY p.name"#,
-    )
-    .bind(user_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let package_names: Vec<String> = packages
+        .iter()
+        .map(|r| r.try_get_by::<String, _>("name").unwrap_or_default())
+        .collect();
 
-    let package_names: Vec<String> = packages.iter().map(|r| r.get("name")).collect();
+    let token_count = api_token::Entity::find()
+        .filter(api_token::Column::UserId.eq(user_id))
+        .filter(api_token::Column::RevokedAt.is_null())
+        .count(&state.db)
+        .await
+        .unwrap_or(0) as i64;
 
-    let token_count: i64 = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM api_tokens WHERE user_id = ? AND revoked_at IS NULL",
-    )
-    .bind(user_id)
-    .fetch_one(&state.db)
-    .await
-    .map(|r| r.get("cnt"))
-    .unwrap_or(0);
-
-    let pkg_count: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM owners WHERE user_id = ?")
-        .bind(user_id).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+    let pkg_count = owner::Entity::find()
+        .filter(owner::Column::UserId.eq(user_id))
+        .count(&state.db)
+        .await
+        .unwrap_or(0) as i64;
 
     Json(serde_json::json!({
         "user": {
-            "id": row.get::<i64, _>("id"),
-            "username": row.get::<String, _>("username"),
-            "email": row.get::<String, _>("email"),
-            "is_admin": row.get::<i32, _>("is_admin") != 0,
-            "github_id": github_id,
-            "banned": banned_at.is_some(),
-            "created_at": row.get::<String, _>("created_at"),
+            "id": user_model.id,
+            "username": user_model.username,
+            "email": user_model.email,
+            "is_admin": user_model.is_admin != 0,
+            "github_id": user_model.github_id,
+            "banned": user_model.banned_at.is_some(),
+            "created_at": user_model.created_at,
         },
         "packages": package_names,
         "package_count": pkg_count,
@@ -244,13 +265,12 @@ pub async fn ban_user(
     let reason = body.and_then(|b| b.0.reason);
 
     // Verify user exists
-    let user_row = sqlx::query("SELECT username FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.db)
+    let user_model = user::Entity::find_by_id(user_id)
+        .one(&state.db)
         .await;
 
-    let username: String = match user_row {
-        Ok(Some(r)) => r.get("username"),
+    let username = match user_model {
+        Ok(Some(u)) => u.username,
         _ => {
             return (
                 StatusCode::NOT_FOUND,
@@ -261,23 +281,27 @@ pub async fn ban_user(
     };
 
     // Ban the user
-    let _ = sqlx::query("UPDATE users SET banned_at = datetime('now') WHERE id = ?")
-        .bind(user_id)
-        .execute(&state.db)
+    let _ = user::Entity::update_many()
+        .col_expr(user::Column::BannedAt, Expr::cust("datetime('now')"))
+        .filter(user::Column::Id.eq(user_id))
+        .exec(&state.db)
         .await;
 
     // Revoke all active tokens
-    let _ = sqlx::query(
-        "UPDATE api_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL",
-    )
-    .bind(user_id)
-    .execute(&state.db)
-    .await;
+    let _ = api_token::Entity::update_many()
+        .col_expr(
+            api_token::Column::RevokedAt,
+            Expr::cust("datetime('now')"),
+        )
+        .filter(api_token::Column::UserId.eq(user_id))
+        .filter(api_token::Column::RevokedAt.is_null())
+        .exec(&state.db)
+        .await;
 
     // Delete all sessions
-    let _ = sqlx::query("DELETE FROM sessions WHERE user_id = ?")
-        .bind(user_id)
-        .execute(&state.db)
+    let _ = session::Entity::delete_many()
+        .filter(session::Column::UserId.eq(user_id))
+        .exec(&state.db)
         .await;
 
     let detail = reason.as_deref().unwrap_or("no reason given");
@@ -299,13 +323,12 @@ pub async fn unban_user(
     AdminUser(admin): AdminUser,
     Path(user_id): Path<i64>,
 ) -> impl IntoResponse {
-    let user_row = sqlx::query("SELECT username FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.db)
+    let user_model = user::Entity::find_by_id(user_id)
+        .one(&state.db)
         .await;
 
-    let username: String = match user_row {
-        Ok(Some(r)) => r.get("username"),
+    let username = match user_model {
+        Ok(Some(u)) => u.username,
         _ => {
             return (
                 StatusCode::NOT_FOUND,
@@ -315,9 +338,10 @@ pub async fn unban_user(
         }
     };
 
-    let _ = sqlx::query("UPDATE users SET banned_at = NULL WHERE id = ?")
-        .bind(user_id)
-        .execute(&state.db)
+    let _ = user::Entity::update_many()
+        .col_expr(user::Column::BannedAt, Expr::value(Value::String(None)))
+        .filter(user::Column::Id.eq(user_id))
+        .exec(&state.db)
         .await;
 
     audit::log(
@@ -338,13 +362,12 @@ pub async fn revoke_user_tokens(
     AdminUser(admin): AdminUser,
     Path(user_id): Path<i64>,
 ) -> impl IntoResponse {
-    let user_row = sqlx::query("SELECT username FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.db)
+    let user_model = user::Entity::find_by_id(user_id)
+        .one(&state.db)
         .await;
 
-    let username: String = match user_row {
-        Ok(Some(r)) => r.get("username"),
+    let username = match user_model {
+        Ok(Some(u)) => u.username,
         _ => {
             return (
                 StatusCode::NOT_FOUND,
@@ -354,14 +377,17 @@ pub async fn revoke_user_tokens(
         }
     };
 
-    let result = sqlx::query(
-        "UPDATE api_tokens SET revoked_at = datetime('now') WHERE user_id = ? AND revoked_at IS NULL",
-    )
-    .bind(user_id)
-    .execute(&state.db)
-    .await;
+    let result = api_token::Entity::update_many()
+        .col_expr(
+            api_token::Column::RevokedAt,
+            Expr::cust("datetime('now')"),
+        )
+        .filter(api_token::Column::UserId.eq(user_id))
+        .filter(api_token::Column::RevokedAt.is_null())
+        .exec(&state.db)
+        .await;
 
-    let count = result.map(|r| r.rows_affected()).unwrap_or(0);
+    let count = result.map(|r| r.rows_affected).unwrap_or(0);
 
     audit::log(
         &state.db,
@@ -395,13 +421,12 @@ pub async fn set_user_role(
             .into_response();
     }
 
-    let user_row = sqlx::query("SELECT username FROM users WHERE id = ?")
-        .bind(user_id)
-        .fetch_optional(&state.db)
+    let user_model = user::Entity::find_by_id(user_id)
+        .one(&state.db)
         .await;
 
-    let username: String = match user_row {
-        Ok(Some(r)) => r.get("username"),
+    let username = match user_model {
+        Ok(Some(u)) => u.username,
         _ => {
             return (
                 StatusCode::NOT_FOUND,
@@ -412,10 +437,10 @@ pub async fn set_user_role(
     };
 
     let admin_val: i32 = if body.is_admin { 1 } else { 0 };
-    let _ = sqlx::query("UPDATE users SET is_admin = ? WHERE id = ?")
-        .bind(admin_val)
-        .bind(user_id)
-        .execute(&state.db)
+    let _ = user::Entity::update_many()
+        .col_expr(user::Column::IsAdmin, Expr::value(admin_val))
+        .filter(user::Column::Id.eq(user_id))
+        .exec(&state.db)
         .await;
 
     let role_str = if body.is_admin { "admin" } else { "user" };
@@ -453,17 +478,17 @@ pub async fn list_packages(
     let offset = (page - 1) * per_page;
 
     let mut where_clauses: Vec<String> = vec!["1=1".to_string()];
-    let mut binds: Vec<String> = Vec::new();
+    let mut binds: Vec<Value> = Vec::new();
 
     if let Some(ref q) = params.q {
         let pattern = format!("%{q}%");
         where_clauses.push("p.name LIKE ?".to_string());
-        binds.push(pattern);
+        binds.push(pattern.into());
     }
 
     if let Some(ref source) = params.source {
         where_clauses.push("p.source = ?".to_string());
-        binds.push(source.clone());
+        binds.push(source.clone().into());
     }
 
     if params.reported == Some(true) {
@@ -477,15 +502,18 @@ pub async fn list_packages(
 
     // Get total count
     let count_sql = format!("SELECT COUNT(*) as cnt FROM packages p WHERE {where_sql}");
-    let mut count_query = sqlx::query(&count_sql);
-    for b in &binds {
-        count_query = count_query.bind(b);
-    }
-    let total: i64 = count_query
-        .fetch_one(&state.db)
-        .await
-        .map(|r| r.get("cnt"))
-        .unwrap_or(0);
+    let count_result = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            &count_sql,
+            binds.clone(),
+        ))
+        .await;
+    let total: i64 = match count_result {
+        Ok(Some(row)) => row.try_get_by_index::<i64>(0).unwrap_or(0),
+        _ => 0,
+    };
 
     let sql = format!(
         r#"SELECT p.name, p.description, p.source, p.created_at,
@@ -500,27 +528,33 @@ pub async fn list_packages(
            LIMIT ? OFFSET ?"#
     );
 
-    let mut query = sqlx::query(&sql);
-    for b in &binds {
-        query = query.bind(b);
-    }
-    query = query.bind(per_page).bind(offset);
+    let mut all_binds = binds;
+    all_binds.push(per_page.into());
+    all_binds.push(offset.into());
 
-    let rows = query.fetch_all(&state.db).await.unwrap_or_default();
+    let rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            &sql,
+            all_binds,
+        ))
+        .await
+        .unwrap_or_default();
 
     let packages: Vec<serde_json::Value> = rows
         .iter()
         .map(|r| {
             serde_json::json!({
-                "name": r.get::<String, _>("name"),
-                "description": r.get::<String, _>("description"),
-                "latest_version": r.get::<Option<String>, _>("latest_version"),
-                "version_count": r.get::<i64, _>("version_count"),
-                "source": r.get::<String, _>("source"),
-                "owner": r.get::<Option<String>, _>("owner"),
-                "downloads": r.get::<i64, _>("downloads"),
-                "reported": r.get::<i32, _>("reported") != 0,
-                "created_at": r.get::<String, _>("created_at"),
+                "name": r.try_get_by::<String, _>("name").unwrap_or_default(),
+                "description": r.try_get_by::<String, _>("description").unwrap_or_default(),
+                "latest_version": r.try_get_by::<Option<String>, _>("latest_version").unwrap_or(None),
+                "version_count": r.try_get_by::<i64, _>("version_count").unwrap_or(0),
+                "source": r.try_get_by::<String, _>("source").unwrap_or_default(),
+                "owner": r.try_get_by::<Option<String>, _>("owner").unwrap_or(None),
+                "downloads": r.try_get_by::<i64, _>("downloads").unwrap_or(0),
+                "reported": r.try_get_by::<i32, _>("reported").unwrap_or(0) != 0,
+                "created_at": r.try_get_by::<String, _>("created_at").unwrap_or_default(),
             })
         })
         .collect();
@@ -538,12 +572,10 @@ pub async fn get_package(
     AdminUser(_user): AdminUser,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let pkg = sqlx::query(
-        "SELECT id, name, description, repository_url, source, github_repo, created_at FROM packages WHERE name = ?",
-    )
-    .bind(&name)
-    .fetch_optional(&state.db)
-    .await;
+    let pkg = package::Entity::find()
+        .filter(package::Column::Name.eq(&name))
+        .one(&state.db)
+        .await;
 
     let pkg = match pkg {
         Ok(Some(p)) => p,
@@ -556,62 +588,76 @@ pub async fn get_package(
         }
     };
 
-    let pkg_id: i64 = pkg.get("id");
+    let pkg_id = pkg.id;
 
-    let versions = sqlx::query(
-        r#"SELECT version, checksum_sha256, size_bytes, yanked, sema_version_req, published_at
-           FROM package_versions WHERE package_id = ?
-           ORDER BY published_at DESC"#,
-    )
-    .bind(pkg_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let versions = package_version::Entity::find()
+        .filter(package_version::Column::PackageId.eq(pkg_id))
+        .order_by_desc(package_version::Column::PublishedAt)
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
 
     let version_list: Vec<serde_json::Value> = versions
         .iter()
-        .map(|r| {
+        .map(|v| {
             serde_json::json!({
-                "version": r.get::<String, _>("version"),
-                "checksum_sha256": r.get::<String, _>("checksum_sha256"),
-                "size_bytes": r.get::<i64, _>("size_bytes"),
-                "yanked": r.get::<i32, _>("yanked") != 0,
-                "sema_version_req": r.get::<Option<String>, _>("sema_version_req"),
-                "published_at": r.get::<String, _>("published_at"),
+                "version": v.version,
+                "checksum_sha256": v.checksum_sha256,
+                "size_bytes": v.size_bytes,
+                "yanked": v.yanked != 0,
+                "sema_version_req": v.sema_version_req,
+                "published_at": v.published_at,
             })
         })
         .collect();
 
-    let owner_rows = sqlx::query(
-        "SELECT u.username FROM users u JOIN owners o ON o.user_id = u.id WHERE o.package_id = ?",
-    )
-    .bind(pkg_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    // Get owners via join query
+    let owner_rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            "SELECT u.username FROM users u JOIN owners o ON o.user_id = u.id WHERE o.package_id = ?",
+            [pkg_id.into()],
+        ))
+        .await
+        .unwrap_or_default();
 
-    let owners: Vec<String> = owner_rows.iter().map(|r| r.get("username")).collect();
+    let owners: Vec<String> = owner_rows
+        .iter()
+        .map(|r| r.try_get_by::<String, _>("username").unwrap_or_default())
+        .collect();
 
-    let open_reports: i64 = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM reports WHERE target_type = 'package' AND target_name = ? AND status = 'open'",
-    )
-    .bind(&name)
-    .fetch_one(&state.db)
-    .await
-    .map(|r| r.get("cnt"))
-    .unwrap_or(0);
+    let open_reports = report::Entity::find()
+        .filter(report::Column::TargetType.eq("package"))
+        .filter(report::Column::TargetName.eq(&name))
+        .filter(report::Column::Status.eq("open"))
+        .count(&state.db)
+        .await
+        .unwrap_or(0) as i64;
 
-    let dl_count: i64 = sqlx::query("SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = ?")
-        .bind(&name).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+    let dl_count: i64 = {
+        let result = state
+            .db
+            .query_one(Statement::from_sql_and_values(
+                state.db.get_database_backend(),
+                "SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = ?",
+                [name.clone().into()],
+            ))
+            .await;
+        match result {
+            Ok(Some(row)) => row.try_get_by_index::<i64>(0).unwrap_or(0),
+            _ => 0,
+        }
+    };
 
     Json(serde_json::json!({
         "package": {
-            "name": pkg.get::<String, _>("name"),
-            "description": pkg.get::<String, _>("description"),
-            "repository_url": pkg.get::<Option<String>, _>("repository_url"),
-            "source": pkg.get::<String, _>("source"),
-            "github_repo": pkg.get::<Option<String>, _>("github_repo"),
-            "created_at": pkg.get::<String, _>("created_at"),
+            "name": pkg.name,
+            "description": pkg.description,
+            "repository_url": pkg.repository_url,
+            "source": pkg.source,
+            "github_repo": pkg.github_repo,
+            "created_at": pkg.created_at,
         },
         "versions": version_list,
         "owners": owners,
@@ -626,12 +672,15 @@ pub async fn yank_all_versions(
     AdminUser(admin): AdminUser,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let result = sqlx::query(
-        "UPDATE package_versions SET yanked = 1 WHERE package_id = (SELECT id FROM packages WHERE name = ?)",
-    )
-    .bind(&name)
-    .execute(&state.db)
-    .await;
+    // Use raw SQL for the subquery-based update
+    let result = state
+        .db
+        .execute(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            "UPDATE package_versions SET yanked = 1 WHERE package_id = (SELECT id FROM packages WHERE name = ?)",
+            [name.clone().into()],
+        ))
+        .await;
 
     let count = result.map(|r| r.rows_affected()).unwrap_or(0);
 
@@ -661,13 +710,13 @@ pub async fn remove_package(
     AdminUser(admin): AdminUser,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let pkg = sqlx::query("SELECT id FROM packages WHERE name = ?")
-        .bind(&name)
-        .fetch_optional(&state.db)
+    let pkg = package::Entity::find()
+        .filter(package::Column::Name.eq(&name))
+        .one(&state.db)
         .await;
 
-    let pkg_id: i64 = match pkg {
-        Ok(Some(r)) => r.get("id"),
+    let pkg_id = match pkg {
+        Ok(Some(p)) => p.id,
         _ => {
             return (
                 StatusCode::NOT_FOUND,
@@ -677,36 +726,38 @@ pub async fn remove_package(
         }
     };
 
-    // Delete dependencies via version_id join
-    let _ = sqlx::query(
-        "DELETE FROM dependencies WHERE version_id IN (SELECT id FROM package_versions WHERE package_id = ?)",
-    )
-    .bind(pkg_id)
-    .execute(&state.db)
-    .await;
+    // Delete dependencies via version_id join (raw SQL for subquery)
+    let _ = state
+        .db
+        .execute(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            "DELETE FROM dependencies WHERE version_id IN (SELECT id FROM package_versions WHERE package_id = ?)",
+            [pkg_id.into()],
+        ))
+        .await;
 
     // Delete versions
-    let _ = sqlx::query("DELETE FROM package_versions WHERE package_id = ?")
-        .bind(pkg_id)
-        .execute(&state.db)
+    let _ = package_version::Entity::delete_many()
+        .filter(package_version::Column::PackageId.eq(pkg_id))
+        .exec(&state.db)
         .await;
 
     // Delete owners
-    let _ = sqlx::query("DELETE FROM owners WHERE package_id = ?")
-        .bind(pkg_id)
-        .execute(&state.db)
+    let _ = owner::Entity::delete_many()
+        .filter(owner::Column::PackageId.eq(pkg_id))
+        .exec(&state.db)
         .await;
 
     // Delete the package
-    let _ = sqlx::query("DELETE FROM packages WHERE id = ?")
-        .bind(pkg_id)
-        .execute(&state.db)
+    let _ = package::Entity::delete_by_id(pkg_id)
+        .exec(&state.db)
         .await;
 
     // Clean up any reports targeting this package
-    let _ = sqlx::query("DELETE FROM reports WHERE target_type = 'package' AND target_name = ?")
-        .bind(&name)
-        .execute(&state.db)
+    let _ = report::Entity::delete_many()
+        .filter(report::Column::TargetType.eq("package"))
+        .filter(report::Column::TargetName.eq(&name))
+        .exec(&state.db)
         .await;
 
     audit::log(
@@ -733,13 +784,13 @@ pub async fn transfer_ownership(
     Path(name): Path<String>,
     Json(body): Json<TransferRequest>,
 ) -> impl IntoResponse {
-    let pkg = sqlx::query("SELECT id FROM packages WHERE name = ?")
-        .bind(&name)
-        .fetch_optional(&state.db)
+    let pkg = package::Entity::find()
+        .filter(package::Column::Name.eq(&name))
+        .one(&state.db)
         .await;
 
-    let pkg_id: i64 = match pkg {
-        Ok(Some(r)) => r.get("id"),
+    let pkg_id = match pkg {
+        Ok(Some(p)) => p.id,
         _ => {
             return (
                 StatusCode::NOT_FOUND,
@@ -749,13 +800,13 @@ pub async fn transfer_ownership(
         }
     };
 
-    let target_user = sqlx::query("SELECT id FROM users WHERE username = ?")
-        .bind(&body.to_username)
-        .fetch_optional(&state.db)
+    let target_user = user::Entity::find()
+        .filter(user::Column::Username.eq(&body.to_username))
+        .one(&state.db)
         .await;
 
-    let target_id: i64 = match target_user {
-        Ok(Some(r)) => r.get("id"),
+    let target_id = match target_user {
+        Ok(Some(u)) => u.id,
         _ => {
             return (
                 StatusCode::NOT_FOUND,
@@ -766,17 +817,17 @@ pub async fn transfer_ownership(
     };
 
     // Remove existing owners
-    let _ = sqlx::query("DELETE FROM owners WHERE package_id = ?")
-        .bind(pkg_id)
-        .execute(&state.db)
+    let _ = owner::Entity::delete_many()
+        .filter(owner::Column::PackageId.eq(pkg_id))
+        .exec(&state.db)
         .await;
 
     // Insert new owner
-    let _ = sqlx::query("INSERT INTO owners (package_id, user_id) VALUES (?, ?)")
-        .bind(pkg_id)
-        .bind(target_id)
-        .execute(&state.db)
-        .await;
+    let new_owner = owner::ActiveModel {
+        package_id: Set(pkg_id),
+        user_id: Set(target_id),
+    };
+    let _ = owner::Entity::insert(new_owner).exec(&state.db).await;
 
     audit::log(
         &state.db,
@@ -811,34 +862,37 @@ pub async fn list_audit(
     let offset = (page - 1) * per_page;
 
     let mut where_clauses: Vec<String> = vec!["1=1".to_string()];
-    let mut binds: Vec<String> = Vec::new();
+    let mut binds: Vec<Value> = Vec::new();
 
     if let Some(ref action) = params.action {
         where_clauses.push("action = ?".to_string());
-        binds.push(action.clone());
+        binds.push(action.clone().into());
     }
 
     if let Some(ref q) = params.q {
         let pattern = format!("%{q}%");
         where_clauses.push("(actor LIKE ? OR target_name LIKE ? OR detail LIKE ?)".to_string());
-        binds.push(pattern.clone());
-        binds.push(pattern.clone());
-        binds.push(pattern);
+        binds.push(pattern.clone().into());
+        binds.push(pattern.clone().into());
+        binds.push(pattern.into());
     }
 
     let where_sql = where_clauses.join(" AND ");
 
     // Get total count
     let count_sql = format!("SELECT COUNT(*) as cnt FROM audit_log WHERE {where_sql}");
-    let mut count_query = sqlx::query(&count_sql);
-    for b in &binds {
-        count_query = count_query.bind(b);
-    }
-    let total: i64 = count_query
-        .fetch_one(&state.db)
-        .await
-        .map(|r| r.get("cnt"))
-        .unwrap_or(0);
+    let count_result = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            &count_sql,
+            binds.clone(),
+        ))
+        .await;
+    let total: i64 = match count_result {
+        Ok(Some(row)) => row.try_get_by_index::<i64>(0).unwrap_or(0),
+        _ => 0,
+    };
 
     // Get entries
     let sql = format!(
@@ -848,25 +902,32 @@ pub async fn list_audit(
            ORDER BY created_at DESC
            LIMIT ? OFFSET ?"#
     );
-    let mut query = sqlx::query(&sql);
-    for b in &binds {
-        query = query.bind(b);
-    }
-    query = query.bind(per_page).bind(offset);
 
-    let rows = query.fetch_all(&state.db).await.unwrap_or_default();
+    let mut all_binds = binds;
+    all_binds.push(per_page.into());
+    all_binds.push(offset.into());
+
+    let rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            &sql,
+            all_binds,
+        ))
+        .await
+        .unwrap_or_default();
 
     let entries: Vec<serde_json::Value> = rows
         .iter()
         .map(|r| {
             serde_json::json!({
-                "id": r.get::<i64, _>("id"),
-                "actor": r.get::<String, _>("actor"),
-                "action": r.get::<String, _>("action"),
-                "target_type": r.get::<Option<String>, _>("target_type"),
-                "target_name": r.get::<Option<String>, _>("target_name"),
-                "detail": r.get::<Option<String>, _>("detail"),
-                "created_at": r.get::<String, _>("created_at"),
+                "id": r.try_get_by::<i64, _>("id").unwrap_or(0),
+                "actor": r.try_get_by::<String, _>("actor").unwrap_or_default(),
+                "action": r.try_get_by::<String, _>("action").unwrap_or_default(),
+                "target_type": r.try_get_by::<Option<String>, _>("target_type").unwrap_or(None),
+                "target_name": r.try_get_by::<Option<String>, _>("target_name").unwrap_or(None),
+                "detail": r.try_get_by::<Option<String>, _>("detail").unwrap_or(None),
+                "created_at": r.try_get_by::<String, _>("created_at").unwrap_or_default(),
             })
         })
         .collect();
@@ -900,41 +961,41 @@ pub async fn list_reports(
     let status = params.status.unwrap_or_else(|| "open".to_string());
 
     // Get total count
-    let total: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM reports WHERE status = ?")
-        .bind(&status)
-        .fetch_one(&state.db)
+    let total = report::Entity::find()
+        .filter(report::Column::Status.eq(&status))
+        .count(&state.db)
         .await
-        .map(|r| r.get("cnt"))
-        .unwrap_or(0);
+        .unwrap_or(0) as i64;
 
-    let rows = sqlx::query(
-        r#"SELECT r.id, u.username as reporter, r.target_type, r.target_name,
-              r.report_type, r.reason, r.status, r.created_at
-           FROM reports r
-           LEFT JOIN users u ON u.id = r.reporter_id
-           WHERE r.status = ?
-           ORDER BY r.created_at DESC
-           LIMIT ? OFFSET ?"#,
-    )
-    .bind(&status)
-    .bind(per_page)
-    .bind(offset)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    // Use raw SQL for the LEFT JOIN with users
+    let rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            r#"SELECT r.id, u.username as reporter, r.target_type, r.target_name,
+                  r.report_type, r.reason, r.status, r.created_at
+               FROM reports r
+               LEFT JOIN users u ON u.id = r.reporter_id
+               WHERE r.status = ?
+               ORDER BY r.created_at DESC
+               LIMIT ? OFFSET ?"#,
+            [status.into(), per_page.into(), offset.into()],
+        ))
+        .await
+        .unwrap_or_default();
 
     let reports: Vec<serde_json::Value> = rows
         .iter()
         .map(|r| {
             serde_json::json!({
-                "id": r.get::<i64, _>("id"),
-                "reporter": r.get::<Option<String>, _>("reporter").unwrap_or_else(|| "[deleted]".to_string()),
-                "target_type": r.get::<String, _>("target_type"),
-                "target_name": r.get::<String, _>("target_name"),
-                "report_type": r.get::<String, _>("report_type"),
-                "reason": r.get::<String, _>("reason"),
-                "status": r.get::<String, _>("status"),
-                "created_at": r.get::<String, _>("created_at"),
+                "id": r.try_get_by::<i64, _>("id").unwrap_or(0),
+                "reporter": r.try_get_by::<Option<String>, _>("reporter").unwrap_or(None).unwrap_or_else(|| "[deleted]".to_string()),
+                "target_type": r.try_get_by::<String, _>("target_type").unwrap_or_default(),
+                "target_name": r.try_get_by::<String, _>("target_name").unwrap_or_default(),
+                "report_type": r.try_get_by::<String, _>("report_type").unwrap_or_default(),
+                "reason": r.try_get_by::<String, _>("reason").unwrap_or_default(),
+                "status": r.try_get_by::<String, _>("status").unwrap_or_default(),
+                "created_at": r.try_get_by::<String, _>("created_at").unwrap_or_default(),
             })
         })
         .collect();
@@ -952,13 +1013,14 @@ pub async fn action_report(
     AdminUser(admin): AdminUser,
     Path(report_id): Path<i64>,
 ) -> impl IntoResponse {
-    let result = sqlx::query(
-        "UPDATE reports SET status = 'actioned', resolved_by = ?, resolved_at = datetime('now') WHERE id = ? AND status = 'open'",
-    )
-    .bind(admin.id)
-    .bind(report_id)
-    .execute(&state.db)
-    .await;
+    let result = state
+        .db
+        .execute(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            "UPDATE reports SET status = 'actioned', resolved_by = ?, resolved_at = datetime('now') WHERE id = ? AND status = 'open'",
+            [admin.id.into(), report_id.into()],
+        ))
+        .await;
 
     match result {
         Ok(r) if r.rows_affected() > 0 => {
@@ -987,13 +1049,14 @@ pub async fn dismiss_report(
     AdminUser(admin): AdminUser,
     Path(report_id): Path<i64>,
 ) -> impl IntoResponse {
-    let result = sqlx::query(
-        "UPDATE reports SET status = 'dismissed', resolved_by = ?, resolved_at = datetime('now') WHERE id = ? AND status = 'open'",
-    )
-    .bind(admin.id)
-    .bind(report_id)
-    .execute(&state.db)
-    .await;
+    let result = state
+        .db
+        .execute(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            "UPDATE reports SET status = 'dismissed', resolved_by = ?, resolved_at = datetime('now') WHERE id = ? AND status = 'open'",
+            [admin.id.into(), report_id.into()],
+        ))
+        .await;
 
     match result {
         Ok(r) if r.rows_affected() > 0 => {
@@ -1069,16 +1132,20 @@ pub async fn submit_report(
             .into_response();
     }
 
-    let result = sqlx::query(
-        "INSERT INTO reports (reporter_id, target_type, target_name, report_type, reason) VALUES (?, ?, ?, ?, ?)",
-    )
-    .bind(user.id)
-    .bind(&body.target_type)
-    .bind(&body.target_name)
-    .bind(&body.report_type)
-    .bind(&body.reason)
-    .execute(&state.db)
-    .await;
+    let new_report = report::ActiveModel {
+        id: NotSet,
+        reporter_id: Set(user.id),
+        target_type: Set(body.target_type),
+        target_name: Set(body.target_name),
+        report_type: Set(body.report_type),
+        reason: Set(body.reason),
+        status: Set("open".to_string()),
+        resolved_by: Set(None),
+        resolved_at: Set(None),
+        created_at: NotSet,
+    };
+
+    let result = report::Entity::insert(new_report).exec(&state.db).await;
 
     match result {
         Ok(_) => (

@@ -5,6 +5,7 @@ pub mod blob;
 pub mod config;
 pub mod crypto;
 pub mod db;
+pub mod entity;
 pub mod github;
 pub mod github_sync;
 pub mod web;

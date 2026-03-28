@@ -4,11 +4,15 @@ use axum::{
     http::{header, StatusCode},
     response::{Html, IntoResponse, Redirect},
 };
+use sea_orm::*;
 use serde::Deserialize;
-use sqlx::Row;
 use std::sync::Arc;
 
-use crate::{auth::get_session_user, AppState};
+use crate::{
+    auth::get_session_user,
+    entity::{api_token, dependency, oauth_connection, package, package_version, user},
+    AppState,
+};
 
 fn render<T: Template>(tmpl: T) -> impl IntoResponse {
     match tmpl.render() {
@@ -168,29 +172,29 @@ pub async fn index(
 ) -> impl IntoResponse {
     let si = get_session_info(&state, &headers).await;
 
-    let total_row = sqlx::query("SELECT COUNT(*) as cnt FROM packages")
-        .fetch_one(&state.db)
+    let total_packages = package::Entity::find()
+        .count(&state.db)
         .await
-        .ok();
-    let total_packages: i64 = total_row.map(|r| r.get("cnt")).unwrap_or(0);
+        .unwrap_or(0) as i64;
 
-    let rows = sqlx::query(
+    let rows = state.db.query_all(Statement::from_sql_and_values(
+        state.db.get_database_backend(),
         r#"SELECT p.name, p.description, pv.version, pv.published_at
            FROM packages p
            JOIN package_versions pv ON pv.package_id = p.id
            WHERE pv.id = (SELECT MAX(pv2.id) FROM package_versions pv2 WHERE pv2.package_id = p.id)
            ORDER BY pv.published_at DESC
-           LIMIT 10"#,
-    )
-    .fetch_all(&state.db)
+           LIMIT ?"#,
+        [10i64.into()],
+    ))
     .await
     .unwrap_or_default();
 
     let recent = rows.iter().map(|r| PackageSummary {
-        name: r.get("name"),
-        description: r.get("description"),
-        latest_version: r.get("version"),
-        published_at: r.get("published_at"),
+        name: r.try_get("", "name").unwrap_or_default(),
+        description: r.try_get("", "description").unwrap_or_default(),
+        latest_version: r.try_get("", "version").unwrap_or_default(),
+        published_at: r.try_get("", "published_at").unwrap_or_default(),
     }).collect();
 
     render(IndexTemplate { username: si.username, is_admin: si.is_admin, total_packages, recent })
@@ -214,7 +218,8 @@ pub async fn search(
     let offset = (page - 1) * per_page;
     let pattern = format!("%{}%", query);
 
-    let rows = sqlx::query(
+    let rows = state.db.query_all(Statement::from_sql_and_values(
+        state.db.get_database_backend(),
         r#"SELECT p.name, p.description,
            COALESCE((SELECT pv.version FROM package_versions pv WHERE pv.package_id = p.id ORDER BY pv.id DESC LIMIT 1), '') as latest_version,
            COALESCE((SELECT pv.published_at FROM package_versions pv WHERE pv.package_id = p.id ORDER BY pv.id DESC LIMIT 1), p.created_at) as published_at
@@ -222,31 +227,27 @@ pub async fn search(
            WHERE p.name LIKE ? OR p.description LIKE ?
            ORDER BY p.name
            LIMIT ? OFFSET ?"#,
-    )
-    .bind(&pattern)
-    .bind(&pattern)
-    .bind(per_page)
-    .bind(offset)
-    .fetch_all(&state.db)
+        [pattern.clone().into(), pattern.clone().into(), per_page.into(), offset.into()],
+    ))
     .await
     .unwrap_or_default();
 
     let packages = rows.iter().map(|r| PackageSummary {
-        name: r.get("name"),
-        description: r.get("description"),
-        latest_version: r.get("latest_version"),
-        published_at: r.get("published_at"),
+        name: r.try_get("", "name").unwrap_or_default(),
+        description: r.try_get("", "description").unwrap_or_default(),
+        latest_version: r.try_get("", "latest_version").unwrap_or_default(),
+        published_at: r.try_get("", "published_at").unwrap_or_default(),
     }).collect();
 
-    let total_row = sqlx::query(
+    let total_row = state.db.query_one(Statement::from_sql_and_values(
+        state.db.get_database_backend(),
         "SELECT COUNT(*) as cnt FROM packages WHERE name LIKE ? OR description LIKE ?",
-    )
-    .bind(&pattern)
-    .bind(&pattern)
-    .fetch_one(&state.db)
+        [pattern.clone().into(), pattern.into()],
+    ))
     .await
-    .ok();
-    let total: i64 = total_row.map(|r| r.get("cnt")).unwrap_or(0);
+    .ok()
+    .flatten();
+    let total: i64 = total_row.and_then(|r| r.try_get("", "cnt").ok()).unwrap_or(0);
 
     render(SearchTemplate { username: si.username, is_admin: si.is_admin, query, packages, total, page, per_page })
 }
@@ -258,9 +259,9 @@ pub async fn package_detail(
 ) -> impl IntoResponse {
     let si = get_session_info(&state, &headers).await;
 
-    let pkg = sqlx::query("SELECT id, name, description, repository_url, source, github_repo FROM packages WHERE name = ?")
-        .bind(&name)
-        .fetch_optional(&state.db)
+    let pkg = package::Entity::find()
+        .filter(package::Column::Name.eq(&name))
+        .one(&state.db)
         .await
         .ok()
         .flatten();
@@ -270,69 +271,61 @@ pub async fn package_detail(
         None => return (StatusCode::NOT_FOUND, Html("Package not found".to_string())).into_response(),
     };
 
-    let pkg_id: i64 = pkg.get("id");
-    let description: String = pkg.get("description");
-    let repository_url: Option<String> = pkg.get("repository_url");
-    let source: String = pkg.get("source");
-    let github_repo: Option<String> = pkg.get("github_repo");
+    let pkg_id = pkg.id;
+    let description = pkg.description.clone();
+    let repository_url = pkg.repository_url.clone();
+    let source = pkg.source.clone();
+    let github_repo = pkg.github_repo.clone();
 
-    let version_rows = sqlx::query(
-        "SELECT version, published_at, yanked, size_bytes, checksum_sha256, sema_version_req FROM package_versions WHERE package_id = ? ORDER BY id DESC",
-    )
-    .bind(pkg_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let version_models = package_version::Entity::find()
+        .filter(package_version::Column::PackageId.eq(pkg_id))
+        .order_by_desc(package_version::Column::Id)
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
 
-    let versions: Vec<VersionInfo> = version_rows.iter().map(|r| VersionInfo {
-        version: r.get("version"),
-        published_at: r.get("published_at"),
-        yanked: r.get::<i32, _>("yanked") != 0,
-        size_bytes: r.get("size_bytes"),
-        checksum_sha256: r.get("checksum_sha256"),
-        sema_version_req: r.get("sema_version_req"),
+    let versions: Vec<VersionInfo> = version_models.iter().map(|v| VersionInfo {
+        version: v.version.clone(),
+        published_at: v.published_at.clone(),
+        yanked: v.yanked != 0,
+        size_bytes: v.size_bytes,
+        checksum_sha256: v.checksum_sha256.clone(),
+        sema_version_req: v.sema_version_req.clone(),
     }).collect();
 
     // Get deps for latest version
-    let deps = if let Some(v) = version_rows.first() {
-        // We need the version id - get it
-        let latest_ver: String = v.get("version");
-        let vid_row = sqlx::query("SELECT id FROM package_versions WHERE package_id = ? AND version = ?")
-            .bind(pkg_id)
-            .bind(&latest_ver)
-            .fetch_optional(&state.db)
+    let deps = if let Some(latest) = version_models.first() {
+        let dep_models = dependency::Entity::find()
+            .filter(dependency::Column::VersionId.eq(latest.id))
+            .all(&state.db)
             .await
-            .ok()
-            .flatten();
-        if let Some(vid_row) = vid_row {
-            let vid: i64 = vid_row.get("id");
-            let dep_rows = sqlx::query("SELECT dependency_name, version_req FROM dependencies WHERE version_id = ?")
-                .bind(vid)
-                .fetch_all(&state.db)
-                .await
-                .unwrap_or_default();
-            dep_rows.iter().map(|r| DepInfo {
-                dependency_name: r.get("dependency_name"),
-                version_req: r.get("version_req"),
-            }).collect()
-        } else {
-            vec![]
-        }
+            .unwrap_or_default();
+        dep_models.iter().map(|d| DepInfo {
+            dependency_name: d.dependency_name.clone(),
+            version_req: d.version_req.clone(),
+        }).collect()
     } else {
         vec![]
     };
 
-    let owner_rows = sqlx::query(
+    let owner_rows = state.db.query_all(Statement::from_sql_and_values(
+        state.db.get_database_backend(),
         "SELECT u.username FROM users u JOIN owners o ON o.user_id = u.id WHERE o.package_id = ?",
-    )
-    .bind(pkg_id)
-    .fetch_all(&state.db)
+        [pkg_id.into()],
+    ))
     .await
     .unwrap_or_default();
-    let owners: Vec<String> = owner_rows.iter().map(|r| r.get("username")).collect();
+    let owners: Vec<String> = owner_rows.iter().map(|r| r.try_get("", "username").unwrap_or_default()).collect();
 
-    let total_downloads: i64 = sqlx::query("SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = ?")
-        .bind(&name).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+    let total_row = state.db.query_one(Statement::from_sql_and_values(
+        state.db.get_database_backend(),
+        "SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = ?",
+        [name.clone().into()],
+    ))
+    .await
+    .ok()
+    .flatten();
+    let total_downloads: i64 = total_row.and_then(|r| r.try_get("", "cnt").ok()).unwrap_or(0);
 
     render(PackageTemplate { username: si.username, is_admin: si.is_admin, name, description, repository_url, source, github_repo, owners, versions, deps, total_downloads }).into_response()
 }
@@ -368,17 +361,17 @@ pub async fn link_page(
         None => return Redirect::to("/login").into_response(),
     };
 
-    let github_row = sqlx::query(
-        "SELECT provider_login FROM oauth_connections WHERE user_id = ? AND provider = 'github' AND revoked_at IS NULL"
-    )
-    .bind(user.id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let github_row = oauth_connection::Entity::find()
+        .filter(oauth_connection::Column::UserId.eq(user.id))
+        .filter(oauth_connection::Column::Provider.eq("github"))
+        .filter(oauth_connection::Column::RevokedAt.is_null())
+        .one(&state.db)
+        .await
+        .ok()
+        .flatten();
 
     let github_connected = github_row.is_some();
-    let github_login = github_row.map(|r| r.get::<String, _>("provider_login"));
+    let github_login = github_row.and_then(|r| r.provider_login);
 
     render(LinkTemplate {
         username: Some(user.username),
@@ -408,20 +401,20 @@ pub async fn account(
     };
 
     // Get user details
-    let user_row = sqlx::query("SELECT email, homepage FROM users WHERE id = ?")
-        .bind(user.id)
-        .fetch_optional(&state.db)
+    let user_model = user::Entity::find_by_id(user.id)
+        .one(&state.db)
         .await
         .ok()
         .flatten();
 
-    let (user_email, user_homepage) = match user_row {
-        Some(r) => (r.get::<String, _>("email"), r.get::<Option<String>, _>("homepage")),
+    let (user_email, user_homepage) = match user_model {
+        Some(u) => (u.email, u.homepage),
         None => (String::new(), None),
     };
 
-    // Get user's packages
-    let pkg_rows = sqlx::query(
+    // Get user's packages (JOIN query)
+    let pkg_rows = state.db.query_all(Statement::from_sql_and_values(
+        state.db.get_database_backend(),
         r#"SELECT p.name, p.description,
            COALESCE((SELECT pv.version FROM package_versions pv WHERE pv.package_id = p.id ORDER BY pv.id DESC LIMIT 1), '') as latest_version,
            COALESCE((SELECT pv.published_at FROM package_versions pv WHERE pv.package_id = p.id ORDER BY pv.id DESC LIMIT 1), p.created_at) as published_at
@@ -429,47 +422,46 @@ pub async fn account(
            JOIN owners o ON o.package_id = p.id
            WHERE o.user_id = ?
            ORDER BY p.name"#,
-    )
-    .bind(user.id)
-    .fetch_all(&state.db)
+        [user.id.into()],
+    ))
     .await
     .unwrap_or_default();
 
     let packages = pkg_rows.iter().map(|r| PackageSummary {
-        name: r.get("name"),
-        description: r.get("description"),
-        latest_version: r.get("latest_version"),
-        published_at: r.get("published_at"),
+        name: r.try_get("", "name").unwrap_or_default(),
+        description: r.try_get("", "description").unwrap_or_default(),
+        latest_version: r.try_get("", "latest_version").unwrap_or_default(),
+        published_at: r.try_get("", "published_at").unwrap_or_default(),
     }).collect();
 
     // Get tokens
-    let token_rows = sqlx::query(
-        "SELECT id, name, created_at, last_used_at FROM api_tokens WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at DESC",
-    )
-    .bind(user.id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let token_models = api_token::Entity::find()
+        .filter(api_token::Column::UserId.eq(user.id))
+        .filter(api_token::Column::RevokedAt.is_null())
+        .order_by_desc(api_token::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
 
-    let tokens = token_rows.iter().map(|r| TokenInfo {
-        id: r.get("id"),
-        name: r.get("name"),
-        created_at: r.get("created_at"),
-        last_used_at: r.get("last_used_at"),
+    let tokens = token_models.iter().map(|t| TokenInfo {
+        id: t.id,
+        name: t.name.clone(),
+        created_at: t.created_at.clone(),
+        last_used_at: t.last_used_at.clone(),
     }).collect();
 
     // Get GitHub connection status
-    let github_row = sqlx::query(
-        "SELECT provider_login FROM oauth_connections WHERE user_id = ? AND provider = 'github' AND revoked_at IS NULL"
-    )
-    .bind(user.id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let github_row = oauth_connection::Entity::find()
+        .filter(oauth_connection::Column::UserId.eq(user.id))
+        .filter(oauth_connection::Column::Provider.eq("github"))
+        .filter(oauth_connection::Column::RevokedAt.is_null())
+        .one(&state.db)
+        .await
+        .ok()
+        .flatten();
 
     let github_connected = github_row.is_some();
-    let github_login = github_row.map(|r| r.get::<String, _>("provider_login"));
+    let github_login = github_row.and_then(|r| r.provider_login);
 
     render(AccountTemplate {
         username: Some(user.username.clone()),

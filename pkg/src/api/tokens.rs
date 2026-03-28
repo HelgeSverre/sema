@@ -4,12 +4,14 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use sea_orm::*;
+use sea_orm::prelude::Expr;
 use serde::Deserialize;
-use sqlx::Row;
 use std::sync::Arc;
 
 use crate::{
     auth::{generate_token, hash_token, AuthUser},
+    entity::api_token,
     AppState,
 };
 
@@ -26,21 +28,21 @@ pub async fn create(
     let token = generate_token();
     let token_hash = hash_token(&token);
 
-    let result = sqlx::query(
-        "INSERT INTO api_tokens (user_id, name, token_hash) VALUES (?, ?, ?)",
-    )
-    .bind(user.id)
-    .bind(&body.name)
-    .bind(&token_hash)
-    .execute(&state.db)
-    .await;
+    let new_token = api_token::ActiveModel {
+        user_id: Set(user.id),
+        name: Set(body.name.clone()),
+        token_hash: Set(token_hash),
+        ..Default::default()
+    };
+
+    let result = new_token.insert(&state.db).await;
 
     match result {
-        Ok(r) => (
+        Ok(model) => (
             StatusCode::CREATED,
             Json(serde_json::json!({
                 "token": token,
-                "id": r.last_insert_rowid(),
+                "id": model.id,
                 "name": body.name,
             })),
         )
@@ -57,26 +59,23 @@ pub async fn list(
     State(state): State<Arc<AppState>>,
     AuthUser(user): AuthUser,
 ) -> impl IntoResponse {
-    let rows = sqlx::query(
-        r#"SELECT id, name, scopes, created_at, last_used_at
-           FROM api_tokens
-           WHERE user_id = ? AND revoked_at IS NULL
-           ORDER BY created_at DESC"#,
-    )
-    .bind(user.id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let rows = api_token::Entity::find()
+        .filter(api_token::Column::UserId.eq(user.id))
+        .filter(api_token::Column::RevokedAt.is_null())
+        .order_by_desc(api_token::Column::CreatedAt)
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
 
     let tokens: Vec<serde_json::Value> = rows
         .iter()
         .map(|r| {
             serde_json::json!({
-                "id": r.get::<i64, _>("id"),
-                "name": r.get::<String, _>("name"),
-                "scopes": r.get::<String, _>("scopes"),
-                "created_at": r.get::<String, _>("created_at"),
-                "last_used_at": r.get::<Option<String>, _>("last_used_at"),
+                "id": r.id,
+                "name": r.name,
+                "scopes": r.scopes,
+                "created_at": r.created_at,
+                "last_used_at": r.last_used_at,
             })
         })
         .collect();
@@ -89,16 +88,16 @@ pub async fn revoke(
     AuthUser(user): AuthUser,
     Path(token_id): Path<i64>,
 ) -> impl IntoResponse {
-    let result = sqlx::query(
-        "UPDATE api_tokens SET revoked_at = datetime('now') WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
-    )
-    .bind(token_id)
-    .bind(user.id)
-    .execute(&state.db)
-    .await;
+    let result = api_token::Entity::update_many()
+        .col_expr(api_token::Column::RevokedAt, Expr::cust("datetime('now')"))
+        .filter(api_token::Column::Id.eq(token_id))
+        .filter(api_token::Column::UserId.eq(user.id))
+        .filter(api_token::Column::RevokedAt.is_null())
+        .exec(&state.db)
+        .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
+        Ok(r) if r.rows_affected > 0 => {
             (StatusCode::OK, Json(serde_json::json!({"ok": true}))).into_response()
         }
         _ => (

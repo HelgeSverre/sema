@@ -4,12 +4,13 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use sea_orm::*;
 use serde::Deserialize;
-use sqlx::Row;
 use std::sync::Arc;
 
 use crate::{
     auth::{create_session, hash_password, validate_email, validate_password, validate_username, verify_password},
+    entity::user,
     AppState,
 };
 
@@ -53,18 +54,18 @@ pub async fn register(
 
     let password_hash = hash_password(&body.password);
 
-    let result = sqlx::query(
-        "INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)",
-    )
-    .bind(&username)
-    .bind(&email)
-    .bind(&password_hash)
-    .execute(&state.db)
-    .await;
+    let new_user = user::ActiveModel {
+        username: Set(username.clone()),
+        email: Set(email),
+        password_hash: Set(Some(password_hash)),
+        ..Default::default()
+    };
+
+    let result = new_user.insert(&state.db).await;
 
     match result {
-        Ok(r) => {
-            let user_id = r.last_insert_rowid();
+        Ok(model) => {
+            let user_id = model.id;
             let session_id = create_session(&state.db, user_id).await;
             crate::audit::log(&state.db, &username, "register", Some("user"), Some(&username), None).await;
             (
@@ -85,13 +86,15 @@ pub async fn login(
     Json(body): Json<LoginRequest>,
 ) -> impl IntoResponse {
     let login_input = body.username.to_lowercase();
-    let row = sqlx::query(
-        "SELECT id, username, password_hash FROM users WHERE username = ? OR email = ?",
-    )
-    .bind(&login_input)
-    .bind(&login_input)
-    .fetch_optional(&state.db)
-    .await;
+
+    let row = user::Entity::find()
+        .filter(
+            Condition::any()
+                .add(user::Column::Username.eq(&login_input))
+                .add(user::Column::Email.eq(&login_input))
+        )
+        .one(&state.db)
+        .await;
 
     let row = match row {
         Ok(Some(r)) => r,
@@ -104,11 +107,7 @@ pub async fn login(
         }
     };
 
-    let id: i64 = row.get("id");
-    let username: String = row.get("username");
-    let password_hash: Option<String> = row.get("password_hash");
-
-    let hash = match &password_hash {
+    let hash = match &row.password_hash {
         Some(h) => h,
         None => {
             return (
@@ -127,11 +126,11 @@ pub async fn login(
             .into_response();
     }
 
-    let session_id = create_session(&state.db, id).await;
+    let session_id = create_session(&state.db, row.id).await;
     (
         StatusCode::OK,
         [(header::SET_COOKIE, session_cookie(&session_id))],
-        Json(serde_json::json!({"ok": true, "username": username})),
+        Json(serde_json::json!({"ok": true, "username": row.username})),
     )
         .into_response()
 }
