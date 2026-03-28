@@ -155,10 +155,23 @@ export function registerLlmBindings(
       headers["Authorization"] = `Bearer ${opts.token}`;
     }
 
+    // Strip colon prefixes from Sema keyword keys (":role" → "role")
+    function stripColonKeys(obj: any): any {
+      if (Array.isArray(obj)) return obj.map(stripColonKeys);
+      if (obj && typeof obj === "object") {
+        const out: Record<string, any> = {};
+        for (const [k, v] of Object.entries(obj)) {
+          out[k.startsWith(":") ? k.slice(1) : k] = stripColonKeys(v);
+        }
+        return out;
+      }
+      return obj;
+    }
+
     // Build the request body — messages + any per-call options
     const body = JSON.stringify({
-      messages: messages,
-      ...(streamOpts && typeof streamOpts === "object" ? streamOpts : {}),
+      messages: stripColonKeys(messages),
+      ...stripColonKeys(streamOpts && typeof streamOpts === "object" ? streamOpts : {}),
       stream: true,
     });
 
@@ -196,11 +209,16 @@ export function registerLlmBindings(
               }
               try {
                 const parsed = JSON.parse(data);
+                // Anthropic sends message_stop instead of [DONE]
+                if (parsed.type === "message_stop") {
+                  s.value = { text: accumulated, done: true, error: null };
+                  return;
+                }
                 // Extract content — supports OpenAI, Anthropic, and generic formats
                 const content =
-                  parsed.choices?.[0]?.delta?.content ||
-                  parsed.delta?.text ||
-                  parsed.content ||
+                  parsed.choices?.[0]?.delta?.content ||  // OpenAI
+                  parsed.delta?.text ||                    // Anthropic content_block_delta
+                  parsed.content ||                        // Generic
                   "";
                 if (content) {
                   accumulated += content;
