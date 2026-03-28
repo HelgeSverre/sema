@@ -690,3 +690,1002 @@ fn test_blob_path() {
     let path = sema_pkg::blob::blob_path("/data/blobs", "abcdef.tar.gz");
     assert_eq!(path.to_str().unwrap(), "/data/blobs/ab/abcdef.tar.gz");
 }
+
+// ── Security Tests ──
+
+#[tokio::test]
+async fn test_security_non_admin_cannot_access_any_admin_endpoint() {
+    let (app, _state, _dir) = test_app_with_state().await;
+    let session = register_user(app.clone(), "user1", "user1@example.com").await;
+
+    // GET endpoints
+    for uri in [
+        "/api/v1/admin/stats",
+        "/api/v1/admin/users",
+        "/api/v1/admin/users/1",
+        "/api/v1/admin/packages",
+        "/api/v1/admin/packages/x",
+        "/api/v1/admin/audit",
+        "/api/v1/admin/reports",
+    ] {
+        let res = get_with_session(app.clone(), uri, &session).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN, "GET {uri} should be 403 for non-admin");
+    }
+
+    // POST endpoints with empty body
+    for uri in [
+        "/api/v1/admin/users/1/ban",
+        "/api/v1/admin/users/1/unban",
+        "/api/v1/admin/users/1/revoke-tokens",
+        "/api/v1/admin/packages/x/yank-all",
+        "/api/v1/admin/reports/1/action",
+        "/api/v1/admin/reports/1/dismiss",
+    ] {
+        let res = post_empty_with_session(app.clone(), uri, &session).await;
+        assert_eq!(res.status(), StatusCode::FORBIDDEN, "POST {uri} should be 403 for non-admin");
+    }
+
+    // PUT with JSON body
+    let res = put_json_with_session(
+        app.clone(),
+        "/api/v1/admin/users/1/role",
+        serde_json::json!({"is_admin": true}),
+        &session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN, "PUT /api/v1/admin/users/1/role should be 403");
+
+    // DELETE endpoint
+    let res = delete_with_session(app.clone(), "/api/v1/admin/packages/x", &session).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN, "DELETE /api/v1/admin/packages/x should be 403");
+
+    // POST with JSON body
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/admin/packages/x/transfer",
+        serde_json::json!({"to_username": "x"}),
+        &session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN, "POST /api/v1/admin/packages/x/transfer should be 403");
+}
+
+#[tokio::test]
+async fn test_security_unauthenticated_cannot_access_admin_endpoints() {
+    let (app, _dir) = test_app().await;
+
+    // GET endpoints
+    for uri in [
+        "/api/v1/admin/stats",
+        "/api/v1/admin/users",
+        "/api/v1/admin/users/1",
+        "/api/v1/admin/packages",
+        "/api/v1/admin/packages/x",
+        "/api/v1/admin/audit",
+        "/api/v1/admin/reports",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "GET {uri} should be 401 unauthenticated");
+    }
+
+    // POST endpoints
+    for uri in [
+        "/api/v1/admin/users/1/ban",
+        "/api/v1/admin/users/1/unban",
+        "/api/v1/admin/users/1/revoke-tokens",
+        "/api/v1/admin/packages/x/yank-all",
+        "/api/v1/admin/reports/1/action",
+        "/api/v1/admin/reports/1/dismiss",
+    ] {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "POST {uri} should be 401 unauthenticated");
+    }
+
+    // PUT with JSON body
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/admin/users/1/role")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({"is_admin": true})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "PUT /api/v1/admin/users/1/role should be 401");
+
+    // DELETE endpoint
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/api/v1/admin/packages/x")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "DELETE /api/v1/admin/packages/x should be 401");
+
+    // POST with JSON body
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/admin/packages/x/transfer")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_string(&serde_json::json!({"to_username": "x"})).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "POST /api/v1/admin/packages/x/transfer should be 401");
+}
+
+#[tokio::test]
+async fn test_security_banned_user_cannot_access_endpoints() {
+    let (app, state, _dir) = test_app_with_state().await;
+
+    // Register admin and victim
+    let admin_session = register_admin(app.clone(), &state, "admin1", "admin1@example.com").await;
+    let victim_session = register_user(app.clone(), "victim", "victim@example.com").await;
+
+    // Create an API token for victim before ban
+    let victim_token = create_api_token(app.clone(), &victim_session, "my-token").await;
+
+    // Get victim's user ID and ban them
+    let victim_id = get_user_id(&state, "victim").await;
+    let res = post_empty_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/ban"),
+        &admin_session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Banned user's session should be rejected
+    let res = get_with_session(app.clone(), "/api/v1/tokens", &victim_session).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "banned user session: GET /api/v1/tokens should be 401");
+
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "some-pkg",
+            "report_type": "malware",
+            "reason": "suspicious"
+        }),
+        &victim_session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "banned user session: POST /api/v1/reports should be 401");
+
+    // Banned user's API token should be rejected for publish
+    let res = publish_package(app.clone(), &victim_token, "x", "1.0.0", b"fake-tarball").await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED, "banned user token: PUT publish should be 401");
+}
+
+#[tokio::test]
+async fn test_admin_cannot_ban_self() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session = register_admin(app.clone(), &state, "admin1", "admin1@example.com").await;
+    let admin_id = get_user_id(&state, "admin1").await;
+
+    let res = post_empty_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{admin_id}/ban"),
+        &admin_session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body = body_json(res).await;
+    assert_eq!(body["error"], "Cannot ban yourself");
+}
+
+#[tokio::test]
+async fn test_admin_cannot_change_own_role() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session = register_admin(app.clone(), &state, "admin1", "admin1@example.com").await;
+    let admin_id = get_user_id(&state, "admin1").await;
+
+    let res = put_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{admin_id}/role"),
+        serde_json::json!({"is_admin": false}),
+        &admin_session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let body = body_json(res).await;
+    assert_eq!(body["error"], "Cannot change your own admin role");
+}
+
+#[tokio::test]
+async fn test_submit_report_validates_input() {
+    let (app, _state, _dir) = test_app_with_state().await;
+    let session = register_user(app.clone(), "reporter", "reporter@example.com").await;
+
+    // Invalid target_type
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "invalid",
+            "target_name": "some-pkg",
+            "report_type": "malware",
+            "reason": "suspicious"
+        }),
+        &session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST, "invalid target_type should be 400");
+
+    // Invalid report_type
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "some-pkg",
+            "report_type": "unknown",
+            "reason": "suspicious"
+        }),
+        &session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST, "invalid report_type should be 400");
+
+    // Empty reason
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "some-pkg",
+            "report_type": "malware",
+            "reason": ""
+        }),
+        &session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST, "empty reason should be 400");
+
+    // Empty target_name
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "",
+            "report_type": "malware",
+            "reason": "suspicious"
+        }),
+        &session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST, "empty target_name should be 400");
+
+    // Very long reason (3000 chars)
+    let long_reason = "a".repeat(3000);
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "some-pkg",
+            "report_type": "malware",
+            "reason": long_reason
+        }),
+        &session,
+    ).await;
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST, "very long reason should be 400");
+}
+
+#[tokio::test]
+async fn test_submit_report_unauthenticated() {
+    let (app, _dir) = test_app().await;
+
+    let res = post_json(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "some-pkg",
+            "report_type": "malware",
+            "reason": "suspicious"
+        }),
+    ).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_web_admin_page_requires_admin() {
+    let (app, _state, _dir) = test_app_with_state().await;
+    let session = register_user(app.clone(), "user1", "user1@example.com").await;
+
+    let res = get_with_session(app.clone(), "/admin", &session).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_web_admin_page_redirects_unauthenticated() {
+    let (app, _dir) = test_app().await;
+
+    let res = app
+        .clone()
+        .oneshot(Request::builder().uri("/admin").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    // Should redirect to /login
+    assert!(
+        res.status() == StatusCode::SEE_OTHER || res.status() == StatusCode::FOUND
+            || res.status() == StatusCode::TEMPORARY_REDIRECT,
+        "GET /admin unauthenticated should redirect, got {}",
+        res.status()
+    );
+    let location = res.headers().get("location").expect("should have location header");
+    assert!(
+        location.to_str().unwrap().contains("/login"),
+        "redirect should point to /login"
+    );
+}
+
+#[tokio::test]
+async fn test_web_admin_page_loads_for_admin() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session = register_admin(app.clone(), &state, "admin1", "admin1@example.com").await;
+
+    let res = get_with_session(app.clone(), "/admin", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let html = body_string(res).await;
+    assert!(html.contains("Admin"), "admin page should contain 'Admin'");
+}
+
+// ── Admin Happy-Path Tests ──
+
+#[tokio::test]
+async fn test_admin_stats() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "stats-admin", "stats-admin@test.com").await;
+    let user_session = register_user(app.clone(), "stats-user", "stats-user@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "stats-token").await;
+    publish_package(app.clone(), &token, "stats-pkg", "1.0.0", b"data").await;
+
+    let res = get_with_session(app.clone(), "/api/v1/admin/stats", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["total_users"], 2);
+    assert_eq!(body["total_packages"], 1);
+    assert_eq!(body["banned_users"], 0);
+    assert_eq!(body["open_reports"], 0);
+}
+
+#[tokio::test]
+async fn test_admin_list_users() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "lu-admin", "lu-admin@test.com").await;
+    register_user(app.clone(), "lu-alice", "lu-alice@test.com").await;
+    register_user(app.clone(), "lu-bob", "lu-bob@test.com").await;
+
+    let res = get_with_session(app.clone(), "/api/v1/admin/users", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let users = body["users"].as_array().unwrap();
+    assert_eq!(users.len(), 3);
+    for user in users {
+        assert!(user["username"].as_str().is_some());
+        assert!(user["email"].as_str().is_some());
+        assert!(user.get("is_admin").is_some());
+        assert!(user.get("package_count").is_some());
+        assert!(user.get("banned").is_some());
+        assert!(user["created_at"].as_str().is_some());
+    }
+}
+
+#[tokio::test]
+async fn test_admin_list_users_search() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "lus-admin", "lus-admin@test.com").await;
+    register_user(app.clone(), "lus-alice", "lus-alice@test.com").await;
+    register_user(app.clone(), "lus-bob", "lus-bob@test.com").await;
+
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/users?q=alice", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let users = body["users"].as_array().unwrap();
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0]["username"], "lus-alice");
+}
+
+#[tokio::test]
+async fn test_admin_get_user() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "gu-admin", "gu-admin@test.com").await;
+    let alice_session = register_user(app.clone(), "gu-alice", "gu-alice@test.com").await;
+    let alice_token = create_api_token(app.clone(), &alice_session, "gu-token").await;
+    publish_package(app.clone(), &alice_token, "gu-pkg", "1.0.0", b"data").await;
+
+    let alice_id = get_user_id(&state, "gu-alice").await;
+    let res = get_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{alice_id}"),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["user"]["username"], "gu-alice");
+    assert_eq!(body["user"]["email"], "gu-alice@test.com");
+    assert!(body["packages"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("gu-pkg")));
+    assert_eq!(body["active_token_count"], 1);
+}
+
+#[tokio::test]
+async fn test_admin_get_user_not_found() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "gunf-admin", "gunf-admin@test.com").await;
+
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/users/99999", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_ban_user() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "ban-admin", "ban-admin@test.com").await;
+    let victim_session =
+        register_user(app.clone(), "ban-victim", "ban-victim@test.com").await;
+    let victim_token = create_api_token(app.clone(), &victim_session, "ban-token").await;
+
+    let victim_id = get_user_id(&state, "ban-victim").await;
+
+    // Ban the user
+    let res = post_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/ban"),
+        serde_json::json!({"reason": "spam"}),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["ok"], true);
+
+    // Victim's session should be invalidated (401)
+    let res = get_with_session(app.clone(), "/api/v1/tokens", &victim_session).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    // Victim's token should be revoked (401 on publish)
+    let res =
+        publish_package(app.clone(), &victim_token, "ban-pkg", "1.0.0", b"data").await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_admin_unban_user() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "unban-admin", "unban-admin@test.com").await;
+    register_user(app.clone(), "unban-victim", "unban-victim@test.com").await;
+
+    let victim_id = get_user_id(&state, "unban-victim").await;
+
+    // Ban
+    post_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/ban"),
+        serde_json::json!({"reason": "test"}),
+        &admin_session,
+    )
+    .await;
+
+    // Unban
+    let res = post_empty_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/unban"),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["ok"], true);
+
+    // Victim can log in again and access authenticated endpoints
+    let login_res = post_json(
+        app.clone(),
+        "/api/v1/auth/login",
+        serde_json::json!({"username": "unban-victim", "password": "password123"}),
+    )
+    .await;
+    assert_eq!(login_res.status(), StatusCode::OK);
+    let new_session = login_res
+        .headers()
+        .get("set-cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .strip_prefix("session=")
+        .unwrap()
+        .to_string();
+
+    let res = get_with_session(app.clone(), "/api/v1/tokens", &new_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_admin_revoke_tokens() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "rt-admin", "rt-admin@test.com").await;
+    let victim_session =
+        register_user(app.clone(), "rt-victim", "rt-victim@test.com").await;
+    let token1 = create_api_token(app.clone(), &victim_session, "rt-tok1").await;
+    let token2 = create_api_token(app.clone(), &victim_session, "rt-tok2").await;
+
+    let victim_id = get_user_id(&state, "rt-victim").await;
+
+    let res = post_empty_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/revoke-tokens"),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["revoked"], 2);
+
+    // Both tokens should be unusable
+    let res =
+        publish_package(app.clone(), &token1, "rt-pkg1", "1.0.0", b"data").await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    let res =
+        publish_package(app.clone(), &token2, "rt-pkg2", "1.0.0", b"data").await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_admin_set_role() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "sr-admin", "sr-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "sr-user1", "sr-user1@test.com").await;
+
+    let user_id = get_user_id(&state, "sr-user1").await;
+
+    // Promote to admin
+    let res = put_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{user_id}/role"),
+        serde_json::json!({"is_admin": true}),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // User1 can now access admin stats
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/stats", &user_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Demote back to regular user
+    let res = put_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{user_id}/role"),
+        serde_json::json!({"is_admin": false}),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // User1 should get 403 on admin endpoints
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/stats", &user_session).await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_admin_list_packages() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "lp-admin", "lp-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "lp-user", "lp-user@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "lp-token").await;
+    publish_package(app.clone(), &token, "lp-alpha", "1.0.0", b"data").await;
+    publish_package(app.clone(), &token, "lp-beta", "0.1.0", b"data").await;
+
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/packages", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let packages = body["packages"].as_array().unwrap();
+    assert_eq!(packages.len(), 2);
+    for pkg in packages {
+        assert!(pkg["name"].as_str().is_some());
+        assert!(pkg["description"].as_str().is_some());
+        assert!(pkg.get("latest_version").is_some());
+        assert!(pkg.get("version_count").is_some());
+        assert!(pkg["created_at"].as_str().is_some());
+    }
+}
+
+#[tokio::test]
+async fn test_admin_list_packages_search() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "lps-admin", "lps-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "lps-user", "lps-user@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "lps-token").await;
+    publish_package(app.clone(), &token, "lps-foo-bar", "1.0.0", b"data").await;
+    publish_package(app.clone(), &token, "lps-baz-qux", "1.0.0", b"data").await;
+
+    let res = get_with_session(
+        app.clone(),
+        "/api/v1/admin/packages?q=foo",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let packages = body["packages"].as_array().unwrap();
+    assert_eq!(packages.len(), 1);
+    assert_eq!(packages[0]["name"], "lps-foo-bar");
+}
+
+#[tokio::test]
+async fn test_admin_yank_all() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "ya-admin", "ya-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "ya-user", "ya-user@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "ya-token").await;
+    publish_package(app.clone(), &token, "ya-pkg", "1.0.0", b"data1").await;
+    publish_package(app.clone(), &token, "ya-pkg", "2.0.0", b"data2").await;
+    publish_package(app.clone(), &token, "ya-pkg", "3.0.0", b"data3").await;
+
+    let res = post_empty_with_session(
+        app.clone(),
+        "/api/v1/admin/packages/ya-pkg/yank-all",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["ok"], true);
+    assert_eq!(body["yanked"], 3);
+
+    // Downloading any version should return 404
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/packages/ya-pkg/1.0.0/download")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_remove_package() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "rp-admin", "rp-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "rp-user", "rp-user@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "rp-token").await;
+    publish_package(app.clone(), &token, "rp-pkg", "1.0.0", b"data").await;
+
+    let res = delete_with_session(
+        app.clone(),
+        "/api/v1/admin/packages/rp-pkg",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["ok"], true);
+
+    // Package should no longer exist
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/packages/rp-pkg")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_transfer_ownership() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "to-admin", "to-admin@test.com").await;
+    let owner_session =
+        register_user(app.clone(), "to-owner1", "to-owner1@test.com").await;
+    let owner_token = create_api_token(app.clone(), &owner_session, "to-tok1").await;
+    let new_owner_session =
+        register_user(app.clone(), "to-newowner", "to-newowner@test.com").await;
+    let new_owner_token =
+        create_api_token(app.clone(), &new_owner_session, "to-tok2").await;
+
+    publish_package(app.clone(), &owner_token, "to-pkg", "1.0.0", b"data").await;
+
+    // Transfer ownership
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/admin/packages/to-pkg/transfer",
+        serde_json::json!({"to_username": "to-newowner"}),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(body["ok"], true);
+
+    // New owner can publish a new version
+    let res = publish_package(
+        app.clone(),
+        &new_owner_token,
+        "to-pkg",
+        "2.0.0",
+        b"data2",
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    // Original owner cannot publish
+    let res =
+        publish_package(app.clone(), &owner_token, "to-pkg", "3.0.0", b"data3").await;
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_admin_audit_log() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "al-admin", "al-admin@test.com").await;
+    let victim_session =
+        register_user(app.clone(), "al-victim", "al-victim@test.com").await;
+    let token = create_api_token(app.clone(), &victim_session, "al-token").await;
+    publish_package(app.clone(), &token, "al-pkg", "1.0.0", b"data").await;
+
+    let victim_id = get_user_id(&state, "al-victim").await;
+
+    // Ban the user (generates audit entry)
+    post_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/ban"),
+        serde_json::json!({"reason": "audit test"}),
+        &admin_session,
+    )
+    .await;
+
+    // Check audit log
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/audit", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let entries = body["entries"].as_array().unwrap();
+    assert!(!entries.is_empty());
+    let actions: Vec<&str> = entries
+        .iter()
+        .map(|e| e["action"].as_str().unwrap())
+        .collect();
+    assert!(actions.contains(&"ban_user"));
+}
+
+#[tokio::test]
+async fn test_admin_audit_filter() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "af-admin", "af-admin@test.com").await;
+    register_user(app.clone(), "af-victim", "af-victim@test.com").await;
+
+    let victim_id = get_user_id(&state, "af-victim").await;
+
+    // Ban (generates ban_user audit entry)
+    post_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/ban"),
+        serde_json::json!({"reason": "filter test"}),
+        &admin_session,
+    )
+    .await;
+
+    // Unban (generates unban_user audit entry)
+    post_empty_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/unban"),
+        &admin_session,
+    )
+    .await;
+
+    // Filter by ban_user action
+    let res = get_with_session(
+        app.clone(),
+        "/api/v1/admin/audit?action=ban_user",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let entries = body["entries"].as_array().unwrap();
+    assert!(!entries.is_empty());
+    for entry in entries {
+        assert_eq!(entry["action"], "ban_user");
+    }
+}
+
+#[tokio::test]
+async fn test_admin_reports_lifecycle() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "rl-admin", "rl-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "rl-reporter", "rl-reporter@test.com").await;
+
+    // User submits a report
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "suspicious-pkg",
+            "report_type": "spam",
+            "reason": "This package is spam"
+        }),
+        &user_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    // Admin lists reports and sees it
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/reports", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let reports = body["reports"].as_array().unwrap();
+    assert_eq!(reports.len(), 1);
+    let report_id = reports[0]["id"].as_i64().unwrap();
+    assert_eq!(reports[0]["status"], "open");
+
+    // Admin dismisses the report
+    let res = post_empty_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/reports/{report_id}/dismiss"),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Open reports list should be empty now
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/reports", &admin_session).await;
+    let body = body_json(res).await;
+    assert_eq!(body["reports"].as_array().unwrap().len(), 0);
+
+    // Submit another report
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "user",
+            "target_name": "bad-actor",
+            "report_type": "abuse",
+            "reason": "Abusive behavior"
+        }),
+        &user_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    // Admin actions the second report
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/reports", &admin_session).await;
+    let body = body_json(res).await;
+    let reports = body["reports"].as_array().unwrap();
+    assert_eq!(reports.len(), 1);
+    let report_id2 = reports[0]["id"].as_i64().unwrap();
+
+    let res = post_empty_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/reports/{report_id2}/action"),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // No more open reports
+    let res =
+        get_with_session(app.clone(), "/api/v1/admin/reports", &admin_session).await;
+    let body = body_json(res).await;
+    assert_eq!(body["reports"].as_array().unwrap().len(), 0);
+}
+
+#[tokio::test]
+async fn test_admin_list_users_filter_banned() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "fb-admin", "fb-admin@test.com").await;
+    register_user(app.clone(), "fb-good", "fb-good@test.com").await;
+    register_user(app.clone(), "fb-bad", "fb-bad@test.com").await;
+
+    let bad_id = get_user_id(&state, "fb-bad").await;
+
+    // Ban one user
+    post_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{bad_id}/ban"),
+        serde_json::json!({"reason": "test"}),
+        &admin_session,
+    )
+    .await;
+
+    // Filter banned
+    let res = get_with_session(
+        app.clone(),
+        "/api/v1/admin/users?status=banned",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let users = body["users"].as_array().unwrap();
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0]["username"], "fb-bad");
+
+    // Filter active -- should exclude banned user
+    let res = get_with_session(
+        app.clone(),
+        "/api/v1/admin/users?status=active",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let users = body["users"].as_array().unwrap();
+    assert_eq!(users.len(), 2);
+    let usernames: Vec<&str> = users
+        .iter()
+        .map(|u| u["username"].as_str().unwrap())
+        .collect();
+    assert!(!usernames.contains(&"fb-bad"));
+}

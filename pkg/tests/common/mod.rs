@@ -3,6 +3,7 @@ use axum::http::{Request, Response, StatusCode};
 use axum::Router;
 use http_body_util::BodyExt;
 use serde_json::Value;
+use sqlx::Row;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -181,4 +182,111 @@ pub async fn publish_package(
     )
     .await
     .unwrap()
+}
+
+/// Promote a user to admin via direct DB access.
+pub async fn make_admin(state: &Arc<AppState>, username: &str) {
+    sqlx::query("UPDATE users SET is_admin = 1 WHERE username = ?")
+        .bind(username)
+        .execute(&state.db)
+        .await
+        .unwrap();
+}
+
+/// Register a user and make them admin. Returns session string.
+pub async fn register_admin(
+    app: Router,
+    state: &Arc<AppState>,
+    username: &str,
+    email: &str,
+) -> String {
+    let session = register_user(app, username, email).await;
+    make_admin(state, username).await;
+    session
+}
+
+/// Send a POST with empty body and session cookie.
+pub async fn post_empty_with_session(
+    app: Router,
+    uri: &str,
+    session: &str,
+) -> Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("cookie", format!("session={session}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Send a PUT with JSON body and session cookie.
+pub async fn put_json_with_session(
+    app: Router,
+    uri: &str,
+    body: Value,
+    session: &str,
+) -> Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("PUT")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header("cookie", format!("session={session}"))
+            .body(Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Send a DELETE with session cookie.
+pub async fn delete_with_session(
+    app: Router,
+    uri: &str,
+    session: &str,
+) -> Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header("cookie", format!("session={session}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Send a DELETE with JSON body and session cookie.
+pub async fn delete_json_with_session(
+    app: Router,
+    uri: &str,
+    body: Value,
+    session: &str,
+) -> Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header("cookie", format!("session={session}"))
+            .body(Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Get a user's ID from the database.
+pub async fn get_user_id(state: &Arc<AppState>, username: &str) -> i64 {
+    sqlx::query("SELECT id FROM users WHERE username = ?")
+        .bind(username)
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
+        .get("id")
 }
