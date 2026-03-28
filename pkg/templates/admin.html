@@ -76,8 +76,6 @@
 .admin-main {
   flex: 1;
   padding: 1.5rem 2rem;
-  overflow-y: auto;
-  max-height: calc(100vh - 48px);
 }
 
 .page-title {
@@ -581,6 +579,15 @@
       <template x-if="users.length === 0">
         <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No users found.</div>
       </template>
+      <div style="display:flex; justify-content:center; align-items:center; gap:0.75rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border);"
+           x-show="userTotal > perPage">
+        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
+                @click="userPage--; loadUsers()" :disabled="userPage <= 1">← Prev</button>
+        <span style="font-size:0.65rem; color:var(--text-dim);"
+              x-text="userPage + ' / ' + Math.ceil(userTotal / perPage)"></span>
+        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
+                @click="userPage++; loadUsers()" :disabled="userPage >= Math.ceil(userTotal / perPage)">Next →</button>
+      </div>
     </div>
 
     <!-- Packages -->
@@ -637,6 +644,15 @@
       <template x-if="packages.length === 0">
         <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No packages found.</div>
       </template>
+      <div style="display:flex; justify-content:center; align-items:center; gap:0.75rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border);"
+           x-show="pkgTotal > perPage">
+        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
+                @click="pkgPage--; loadPackages()" :disabled="pkgPage <= 1">← Prev</button>
+        <span style="font-size:0.65rem; color:var(--text-dim);"
+              x-text="pkgPage + ' / ' + Math.ceil(pkgTotal / perPage)"></span>
+        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
+                @click="pkgPage++; loadPackages()" :disabled="pkgPage >= Math.ceil(pkgTotal / perPage)">Next →</button>
+      </div>
     </div>
 
     <!-- Audit Log -->
@@ -666,6 +682,15 @@
         <template x-if="auditLog.length === 0">
           <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No audit entries found.</div>
         </template>
+      </div>
+      <div style="display:flex; justify-content:center; align-items:center; gap:0.75rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border);"
+           x-show="auditTotal > perPage">
+        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
+                @click="auditPage--; loadAudit()" :disabled="auditPage <= 1">← Prev</button>
+        <span style="font-size:0.65rem; color:var(--text-dim);"
+              x-text="auditPage + ' / ' + Math.ceil(auditTotal / perPage)"></span>
+        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
+                @click="auditPage++; loadAudit()" :disabled="auditPage >= Math.ceil(auditTotal / perPage)">Next →</button>
       </div>
     </div>
 
@@ -699,6 +724,15 @@
         <template x-if="reports.length === 0">
           <div style="color:var(--text-dim); font-size:0.72rem; padding:2rem 0; text-align:center; font-style:italic;">No open reports.</div>
         </template>
+      </div>
+      <div style="display:flex; justify-content:center; align-items:center; gap:0.75rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border);"
+           x-show="reportTotal > perPage">
+        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
+                @click="reportPage--; loadReports()" :disabled="reportPage <= 1">← Prev</button>
+        <span style="font-size:0.65rem; color:var(--text-dim);"
+              x-text="reportPage + ' / ' + Math.ceil(reportTotal / perPage)"></span>
+        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
+                @click="reportPage++; loadReports()" :disabled="reportPage >= Math.ceil(reportTotal / perPage)">Next →</button>
       </div>
     </div>
 
@@ -955,10 +989,14 @@ function adminPanel() {
 
     async loadReports() {
       try {
-        const res = await fetch('/api/v1/admin/reports');
+        const params = new URLSearchParams();
+        params.set('page', this.reportPage);
+        params.set('per_page', this.perPage);
+        const res = await fetch('/api/v1/admin/reports?' + params);
         if (res.ok) {
           const data = await res.json();
           this.reports = data.reports || [];
+          this.reportTotal = data.total || 0;
           this._loaded.reports = true;
         }
       } catch (e) {
