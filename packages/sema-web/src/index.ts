@@ -37,6 +37,9 @@ import { SemaInterpreter } from "@sema-lang/sema";
 import type { InterpreterOptions } from "@sema-lang/sema";
 import { registerDomBindings } from "./dom.js";
 import { registerStoreBindings } from "./store.js";
+import { registerReactiveBindings } from "./reactive.js";
+import { registerHiccupBindings } from "./hiccup.js";
+import { registerComponentBindings } from "./component.js";
 import { loadScripts } from "./loader.js";
 import type { LoaderOptions } from "./loader.js";
 
@@ -59,6 +62,27 @@ export interface SemaWebOptions extends InterpreterOptions {
    * Default: `true`.
    */
   store?: boolean;
+
+  /**
+   * Whether to register reactive atom bindings (`atom/*` namespace
+   * plus `atom`, `deref`, `reset!`, `swap!` convenience functions).
+   * Default: `true`.
+   */
+  reactive?: boolean;
+
+  /**
+   * Whether to register hiccup rendering bindings (`hiccup/*` namespace).
+   * Default: `true`.
+   */
+  hiccup?: boolean;
+
+  /**
+   * Whether to register component/mount bindings (`component/*` namespace
+   * plus `mount!` convenience function).
+   * Automatically enables `reactive` and `hiccup` if they are not explicitly disabled.
+   * Default: `true`.
+   */
+  components?: boolean;
 
   /**
    * Options for the script loader.
@@ -126,6 +150,23 @@ export class SemaWeb {
 
     if (opts?.console !== false) {
       registerConsoleBindings(interp);
+    }
+
+    // Reactive bindings (atoms, dependency tracking)
+    // Auto-enabled if components are enabled
+    if (opts?.reactive !== false || opts?.components !== false) {
+      registerReactiveBindings(interp);
+    }
+
+    // Hiccup rendering (declarative DOM from vectors/maps)
+    // Auto-enabled if components are enabled
+    if (opts?.hiccup !== false || opts?.components !== false) {
+      registerHiccupBindings(interp);
+    }
+
+    // Component system (mount!/unmount! with reactive re-rendering)
+    if (opts?.components !== false) {
+      registerComponentBindings(interp);
     }
 
     // Auto-discover and evaluate <script type="text/sema"> tags
@@ -263,4 +304,7 @@ function registerConsoleBindings(interp: SemaInterpreter): void {
 export type { LoaderOptions } from "./loader.js";
 export { registerDomBindings } from "./dom.js";
 export { registerStoreBindings } from "./store.js";
+export { registerReactiveBindings } from "./reactive.js";
+export { registerHiccupBindings, renderHiccup } from "./hiccup.js";
+export { registerComponentBindings } from "./component.js";
 export { loadScripts } from "./loader.js";

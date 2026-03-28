@@ -169,6 +169,92 @@ Reference external Sema files with the `src` attribute:
 (console/time-end "label")
 ```
 
+### Reactive Atoms
+
+Atoms are mutable reference cells with change notification — the foundation of reactive rendering.
+
+```sema
+;; Create an atom
+(define count (atom 0))
+
+;; Read value (tracks dependency in reactive context)
+(deref count)                ;; → 0
+
+;; Set value directly
+(reset! count 42)
+
+;; Update by applying a function to current value
+(swap! count (lambda (n) (+ n 1)))
+```
+
+Low-level `atom/*` functions are also available: `atom/create`, `atom/deref`, `atom/reset!`, `atom/add-watch`, `atom/remove-watch`.
+
+### Hiccup — Declarative DOM
+
+Describe UI as data using vectors and maps (the hiccup convention):
+
+```sema
+;; Hiccup format: [:tag {:attr "value"} ...children]
+
+[:div {:class "card"}
+  [:h1 "Hello"]
+  [:p {:style "color: blue"} "World"]
+  [:button {:on-click "handle-click"} "Click me"]]
+```
+
+**Attributes:**
+- `class` — sets className
+- `style` — CSS string or property map: `{:color "red" :font-size "14px"}`
+- `on-*` — event handlers (value is a Sema function name): `{:on-click "my-handler"}`
+- `value`, `checked`, `disabled` — form element properties
+- All other attributes use `setAttribute`
+
+**Standalone rendering:**
+
+```sema
+;; Render hiccup to an element handle
+(define el (hiccup/render [:div {:class "box"} "hello"]))
+(dom/append-child! (dom/query "#app") el)
+
+;; Render directly into a target element
+(hiccup/render-into! "#app" [:h1 "Hello from Sema!"])
+```
+
+### Components — Reactive Rendering
+
+Define a component as a function returning hiccup, then mount it to a DOM element.
+The component **automatically re-renders** when atoms it reads via `deref` change.
+
+```sema
+;; State
+(define count (atom 0))
+
+;; Event handlers
+(define (increment ev)
+  (swap! count (lambda (n) (+ n 1))))
+
+;; Component: a function that returns hiccup
+(define (counter-view)
+  [:div
+    [:h1 (deref count)]
+    [:button {:on-click "increment"} "+"]])
+
+;; Mount to DOM — re-renders when count changes
+(mount! "#app" "counter-view")
+```
+
+**How it works:**
+1. `mount!` calls the component function
+2. During the call, it tracks which atoms are read via `deref`
+3. It renders the returned hiccup to DOM
+4. When any tracked atom changes, the component re-renders automatically
+5. Multiple atom changes in the same tick are batched (one re-render per frame)
+
+**Component functions:**
+- `(mount! selector fn-name)` — mount a component to a CSS selector
+- `(component/unmount! selector)` — remove a mounted component
+- `(component/force-render! selector)` — force re-render
+
 ## Configuration
 
 ```js
@@ -185,6 +271,16 @@ const web = await SemaWeb.create({
   // Register console/* functions (default: true)
   console: true,
 
+  // Register reactive atom bindings (default: true)
+  reactive: true,
+
+  // Register hiccup rendering bindings (default: true)
+  hiccup: true,
+
+  // Register component/mount system (default: true)
+  // Automatically enables reactive + hiccup
+  components: true,
+
   // Custom WASM URL (for CDN deployment)
   wasmUrl: "https://cdn.example.com/sema_wasm_bg.wasm",
 
@@ -194,6 +290,8 @@ const web = await SemaWeb.create({
 ```
 
 ## Example: Interactive Counter
+
+### Imperative style (dom/* only)
 
 ```sema
 ;; counter.sema — A simple click counter
@@ -240,6 +338,38 @@ const web = await SemaWeb.create({
 (dom/on! dec-btn "click" "on-decrement")
 ```
 
+### Reactive style (atoms + hiccup + mount!)
+
+```sema
+;; counter-reactive.sema — Reactive counter with automatic re-rendering
+
+;; State
+(define count (atom 0))
+
+;; Event handlers
+(define (handle-increment ev)
+  (swap! count (lambda (n) (+ n 1))))
+
+(define (handle-decrement ev)
+  (swap! count (lambda (n) (- n 1))))
+
+(define (handle-reset ev)
+  (reset! count 0))
+
+;; Component — returns hiccup, re-renders when atoms change
+(define (counter-view)
+  [:div {:class "counter"}
+    [:h2 "Sema Reactive Counter"]
+    [:div {:class "display"} (deref count)]
+    [:div {:class "buttons"}
+      [:button {:on-click "handle-decrement"} "−"]
+      [:button {:on-click "handle-reset"} "Reset"]
+      [:button {:on-click "handle-increment"} "+"]]])
+
+;; Mount — binds view to DOM, auto-re-renders on state change
+(mount! "#app" "counter-view")
+```
+
 ## Architecture
 
 ```
@@ -247,7 +377,7 @@ const web = await SemaWeb.create({
 │  HTML Page                              │
 │                                         │
 │  <script type="text/sema">              │
-│    (dom/set-text! ...)                  │
+│    (mount! "#app" "my-view")            │
 │  </script>                              │
 │                                         │
 ├─────────────────────────────────────────┤
@@ -255,6 +385,10 @@ const web = await SemaWeb.create({
 │  ┌──────────┬──────────┬──────────────┐ │
 │  │ dom/*    │ store/*  │ console/*    │ │
 │  │ bindings │ bindings │ bindings     │ │
+│  └──────────┴──────────┴──────────────┘ │
+│  ┌──────────┬──────────┬──────────────┐ │
+│  │ atom/*   │ hiccup/* │ component/*  │ │
+│  │ reactive │ render   │ mount!       │ │
 │  └──────────┴──────────┴──────────────┘ │
 │  ┌────────────────────────────────────┐ │
 │  │ Script loader (<script> discovery) │ │
