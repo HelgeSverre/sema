@@ -31,6 +31,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/login", get(web::login))
         .route("/account", get(web::account))
         .route("/link", get(web::link_page))
+        .route("/admin", get(web::admin_page))
         // GitHub OAuth
         .route("/auth/github", get(github::start))
         .route("/auth/github/callback", get(github::callback))

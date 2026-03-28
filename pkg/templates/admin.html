@@ -1,0 +1,1058 @@
+{% extends "base.html" %}
+{% block title %}Admin — Sema Pkg{% endblock %}
+{% block head %}
+<style>
+/* ── Admin Badge ── */
+.admin-badge {
+  font-size: 0.55rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(200, 85, 85, 0.12);
+  color: var(--error);
+  border: 1px solid var(--error-border);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* ── Layout ── */
+.admin-layout {
+  display: flex;
+  flex: 1;
+}
+
+.sidebar {
+  width: 200px;
+  border-right: 1px solid var(--border);
+  padding: 1rem 0;
+  flex-shrink: 0;
+}
+
+.sidebar-section {
+  margin-bottom: 1.5rem;
+}
+
+.sidebar-label {
+  font-size: 0.55rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0 1rem;
+  margin-bottom: 0.4rem;
+}
+
+.sidebar-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 1rem;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  text-decoration: none;
+}
+.sidebar-link:hover { color: var(--text); background: var(--gold-glow); opacity: 1; }
+.sidebar-link.active { color: var(--gold); background: var(--gold-glow); }
+
+.sidebar-link svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+.sidebar-link.active svg { opacity: 0.8; }
+
+.sidebar-count {
+  margin-left: auto;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+/* ── Main ── */
+.admin-main {
+  flex: 1;
+  padding: 1.5rem 2rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 48px);
+}
+
+.page-title {
+  font-family: var(--serif);
+  font-size: 1.4rem;
+  font-weight: 300;
+  color: var(--text-bright);
+  margin-bottom: 0.25rem;
+}
+
+.page-desc {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-bottom: 1.5rem;
+}
+
+/* ── Stats ── */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.stat-card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 1rem 1.2rem;
+}
+
+.stat-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.3rem;
+}
+
+.stat-value {
+  font-size: 1.6rem;
+  font-weight: 500;
+  color: var(--text-bright);
+  line-height: 1.2;
+}
+
+.stat-sub {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  margin-top: 0.15rem;
+}
+
+.stat-value.danger { color: var(--error); }
+.stat-value.success { color: var(--success); }
+
+/* ── Toolbar ── */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.toolbar-search {
+  flex: 1;
+  max-width: 20rem;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 0.45rem 0.75rem;
+  background: var(--bg-raised);
+  color: var(--text-bright);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  outline: none;
+}
+.toolbar-search::placeholder { color: var(--text-dim); }
+.toolbar-search:focus { border-color: var(--gold-dim); }
+
+.toolbar-filter {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  padding: 0.45rem 0.7rem;
+  background: var(--bg-raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  appearance: none;
+  outline: none;
+}
+
+/* ── Table ── */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th {
+  text-align: left;
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-weight: normal;
+}
+
+.admin-table td {
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+
+.admin-table tr:hover td { background: var(--gold-glow); }
+
+.admin-table .col-actions { text-align: right; white-space: nowrap; }
+
+/* ── Status badges ── */
+.status {
+  font-size: 0.58rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  display: inline-block;
+  letter-spacing: 0.04em;
+}
+
+.status-active {
+  background: var(--success-dim);
+  color: var(--success);
+  border: 1px solid var(--success-border);
+}
+
+.status-banned {
+  background: var(--error-dim);
+  color: var(--error);
+  border: 1px solid var(--error-border);
+}
+
+.status-yanked {
+  background: var(--warn-dim);
+  color: var(--warn);
+  border: 1px solid var(--warn-border);
+}
+
+.status-github {
+  background: rgba(255,255,255,0.04);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+
+/* ── Action buttons ── */
+.action-btn {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid;
+  background: transparent;
+  transition: background 0.15s, border-color 0.15s;
+  margin-left: 0.3rem;
+}
+
+.action-btn-danger {
+  color: var(--error);
+  border-color: var(--error-border);
+}
+.action-btn-danger:hover { background: var(--error-dim); border-color: var(--error); }
+
+.action-btn-warn {
+  color: var(--warn);
+  border-color: var(--warn-border);
+}
+.action-btn-warn:hover { background: var(--warn-dim); border-color: var(--warn); }
+
+.action-btn-success {
+  color: var(--success);
+  border-color: var(--success-border);
+}
+.action-btn-success:hover { background: var(--success-dim); border-color: var(--success); }
+
+.action-btn-ghost {
+  color: var(--text-dim);
+  border-color: var(--border);
+}
+.action-btn-ghost:hover { color: var(--text); border-color: var(--text-dim); }
+
+/* ── Detail drawer ── */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 100;
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 420px;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  z-index: 101;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drawer-header {
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.drawer-title {
+  font-size: 0.9rem;
+  color: var(--text-bright);
+}
+
+.drawer-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0.2rem;
+}
+.drawer-close:hover { color: var(--text); }
+
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+.drawer-section {
+  margin-bottom: 1.5rem;
+}
+
+.drawer-section-title {
+  font-size: 0.6rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 0.5rem;
+}
+
+.drawer-field {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 0.35rem 0;
+  font-size: 0.72rem;
+}
+
+.drawer-field-label { color: var(--text-dim); }
+.drawer-field-value { color: var(--text-bright); text-align: right; }
+
+.drawer-actions {
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+/* ── Audit log ── */
+.audit-entry {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+  align-items: baseline;
+}
+
+.audit-time {
+  color: var(--text-dim);
+  flex-shrink: 0;
+  width: 100px;
+  font-size: 0.65rem;
+}
+
+.audit-actor {
+  color: var(--gold);
+  flex-shrink: 0;
+  width: 90px;
+}
+
+.audit-action {
+  color: var(--text);
+  flex: 1;
+}
+
+.audit-action strong { color: var(--text-bright); font-weight: 500; }
+
+/* ── Confirm dialog ── */
+.confirm-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.5rem;
+  z-index: 200;
+  min-width: 320px;
+  max-width: 400px;
+}
+
+.confirm-title {
+  font-size: 0.9rem;
+  color: var(--text-bright);
+  margin-bottom: 0.5rem;
+}
+
+.confirm-body {
+  font-size: 0.75rem;
+  color: var(--text);
+  margin-bottom: 1.25rem;
+  line-height: 1.5;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+/* ── Toast ── */
+.toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  padding: 0.6rem 1rem;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  z-index: 300;
+  animation: slideUp 0.2s ease-out;
+}
+
+.toast-success {
+  background: var(--success-dim);
+  color: var(--success);
+  border: 1px solid var(--success-border);
+}
+
+.toast-error {
+  background: var(--error-dim);
+  color: var(--error);
+  border: 1px solid var(--error-border);
+}
+
+@keyframes slideUp {
+  from { transform: translateY(10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="admin-layout" x-data="adminPanel()">
+
+  <!-- Sidebar -->
+  <nav class="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">Overview</div>
+      <div class="sidebar-link" :class="tab === 'dashboard' && 'active'" @click="switchTab('dashboard')">
+        <svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+        Dashboard
+      </div>
+      <div class="sidebar-link" :class="tab === 'audit' && 'active'" @click="switchTab('audit')">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v1H2V3zm0 3h12v1H2V6zm0 3h9v1H2V9zm0 3h7v1H2v-1z"/></svg>
+        Audit Log
+        <span class="sidebar-count" x-text="auditLog.length || ''"></span>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Manage</div>
+      <div class="sidebar-link" :class="tab === 'users' && 'active'" @click="switchTab('users')">
+        <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3 2.5-5 6-5s6 2 6 5H2z"/></svg>
+        Users
+        <span class="sidebar-count" x-text="stats.total_users || ''"></span>
+      </div>
+      <div class="sidebar-link" :class="tab === 'packages' && 'active'" @click="switchTab('packages')">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1L1 4.5v7L8 15l7-3.5v-7L8 1zM8 8L2 5l6-3 6 3-6 3z"/></svg>
+        Packages
+        <span class="sidebar-count" x-text="stats.total_packages || ''"></span>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">System</div>
+      <div class="sidebar-link" :class="tab === 'reports' && 'active'" @click="switchTab('reports')">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a7 7 0 100 14A7 7 0 008 1zm-.5 4h1v4h-1V5zm0 5h1v1h-1v-1z"/></svg>
+        Reports
+        <span class="sidebar-count" style="color:var(--error);" x-text="stats.open_reports || ''"></span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <main class="admin-main">
+
+    <!-- Dashboard -->
+    <div x-show="tab === 'dashboard'" x-cloak>
+      <h1 class="page-title">Dashboard</h1>
+      <p class="page-desc">Registry overview and recent activity</p>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">Total Users</div>
+          <div class="stat-value" x-text="stats.total_users"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Packages</div>
+          <div class="stat-value" x-text="stats.total_packages"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Banned Users</div>
+          <div class="stat-value danger" x-text="stats.banned_users"></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Open Reports</div>
+          <div class="stat-value" :class="stats.open_reports > 0 ? 'danger' : ''" x-text="stats.open_reports"></div>
+        </div>
+      </div>
+
+      <div style="font-size:0.6rem; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-dim); margin-bottom:0.75rem;">Recent Activity</div>
+      <div>
+        <template x-for="entry in auditLog.slice(0, 8)" :key="entry.id">
+          <div class="audit-entry">
+            <span class="audit-time" x-text="entry.time"></span>
+            <span class="audit-actor" x-text="entry.actor"></span>
+            <span class="audit-action" x-html="entry.action"></span>
+          </div>
+        </template>
+        <template x-if="auditLog.length === 0">
+          <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No recent activity.</div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Users -->
+    <div x-show="tab === 'users'" x-cloak>
+      <h1 class="page-title">Users</h1>
+      <p class="page-desc">Manage registered accounts</p>
+
+      <div class="toolbar">
+        <input type="text" class="toolbar-search" placeholder="Search users by name or email..." x-model="userSearch" @input.debounce.300ms="loadUsers()">
+        <select class="toolbar-filter" x-model="userFilter" @change="loadUsers()">
+          <option value="all">All users</option>
+          <option value="active">Active</option>
+          <option value="banned">Banned</option>
+        </select>
+      </div>
+
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Email</th>
+            <th>Packages</th>
+            <th>GitHub</th>
+            <th>Status</th>
+            <th>Joined</th>
+            <th class="col-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="user in users" :key="user.id">
+            <tr>
+              <td style="color:var(--gold);" x-text="user.username"></td>
+              <td style="color:var(--text-dim);" x-text="user.email"></td>
+              <td x-text="user.package_count"></td>
+              <td>
+                <template x-if="user.github_username"><span class="status status-github" x-text="user.github_username"></span></template>
+                <template x-if="!user.github_username"><span style="color:var(--text-dim);">&mdash;</span></template>
+              </td>
+              <td>
+                <span class="status" :class="user.banned ? 'status-banned' : 'status-active'" x-text="user.banned ? 'Banned' : 'Active'"></span>
+              </td>
+              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="user.created_at"></td>
+              <td class="col-actions">
+                <button class="action-btn action-btn-ghost" @click="openUserDrawer(user)">View</button>
+                <template x-if="!user.banned">
+                  <button class="action-btn action-btn-danger" @click="confirmAction('ban', user)">Ban</button>
+                </template>
+                <template x-if="user.banned">
+                  <button class="action-btn action-btn-success" @click="confirmAction('unban', user)">Unban</button>
+                </template>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <template x-if="users.length === 0">
+        <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No users found.</div>
+      </template>
+    </div>
+
+    <!-- Packages -->
+    <div x-show="tab === 'packages'" x-cloak>
+      <h1 class="page-title">Packages</h1>
+      <p class="page-desc">Manage published packages and versions</p>
+
+      <div class="toolbar">
+        <input type="text" class="toolbar-search" placeholder="Search packages..." x-model="pkgSearch" @input.debounce.300ms="loadPackages()">
+        <select class="toolbar-filter" x-model="pkgFilter" @change="loadPackages()">
+          <option value="all">All packages</option>
+          <option value="upload">Upload-sourced</option>
+          <option value="github">GitHub-linked</option>
+          <option value="reported">Reported</option>
+        </select>
+      </div>
+
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Versions</th>
+            <th>Source</th>
+            <th>Owner</th>
+            <th>Downloads</th>
+            <th>Updated</th>
+            <th class="col-actions">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="pkg in packages" :key="pkg.name">
+            <tr>
+              <td>
+                <span style="color:var(--gold);" x-text="pkg.name"></span>
+                <span style="font-size:0.6rem; color:var(--text-dim); margin-left:0.3rem;" x-text="pkg.latest_version ? ('v' + pkg.latest_version) : ''"></span>
+                <template x-if="pkg.reported">
+                  <span class="status" style="margin-left:0.3rem; background:var(--error-dim); color:var(--error); border:1px solid var(--error-border);">Reported</span>
+                </template>
+              </td>
+              <td x-text="pkg.version_count"></td>
+              <td><span class="status" :class="pkg.source === 'github' ? 'status-github' : 'status-active'" x-text="pkg.source"></span></td>
+              <td style="color:var(--text-dim);" x-text="pkg.owner"></td>
+              <td style="color:var(--text-dim);" x-text="(pkg.downloads || 0).toLocaleString()"></td>
+              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="pkg.updated_at"></td>
+              <td class="col-actions">
+                <button class="action-btn action-btn-ghost" @click="openPkgDrawer(pkg)">View</button>
+                <button class="action-btn action-btn-warn" @click="confirmAction('yank-all', pkg)">Yank All</button>
+                <button class="action-btn action-btn-danger" @click="confirmAction('remove', pkg)">Remove</button>
+              </td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <template x-if="packages.length === 0">
+        <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No packages found.</div>
+      </template>
+    </div>
+
+    <!-- Audit Log -->
+    <div x-show="tab === 'audit'" x-cloak>
+      <h1 class="page-title">Audit Log</h1>
+      <p class="page-desc">All administrative and system actions</p>
+
+      <div class="toolbar">
+        <input type="text" class="toolbar-search" placeholder="Filter events..." x-model="auditSearch" @input.debounce.300ms="loadAudit()">
+        <select class="toolbar-filter" x-model="auditFilter" @change="loadAudit()">
+          <option value="all">All events</option>
+          <option value="admin">Admin actions</option>
+          <option value="publish">Publishes</option>
+          <option value="ban">Bans/unbans</option>
+          <option value="webhook">Webhooks</option>
+        </select>
+      </div>
+
+      <div>
+        <template x-for="entry in auditLog" :key="entry.id">
+          <div class="audit-entry">
+            <span class="audit-time" x-text="entry.time"></span>
+            <span class="audit-actor" x-text="entry.actor"></span>
+            <span class="audit-action" x-html="entry.action"></span>
+          </div>
+        </template>
+        <template x-if="auditLog.length === 0">
+          <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No audit entries found.</div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Reports -->
+    <div x-show="tab === 'reports'" x-cloak>
+      <h1 class="page-title">Reports</h1>
+      <p class="page-desc">User-submitted reports requiring review</p>
+
+      <div style="display:flex; flex-direction:column; gap:0;">
+        <template x-for="(report, index) in reports" :key="report.id">
+          <div style="padding:0.85rem 1rem; border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:1rem;" :style="index === 0 ? 'border-top:1px solid var(--border)' : ''">
+            <div style="flex:1;">
+              <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
+                <span class="status" :class="report.type === 'spam' ? 'status-banned' : 'status-yanked'" x-text="report.type"></span>
+                <span style="font-size:0.78rem; color:var(--text-bright);" x-text="report.target"></span>
+              </div>
+              <div style="font-size:0.72rem; color:var(--text);" x-text="report.reason"></div>
+              <div style="font-size:0.6rem; color:var(--text-dim); margin-top:0.2rem;">
+                Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span x-text="report.time"></span>
+              </div>
+            </div>
+            <div style="display:flex; gap:0.3rem; flex-shrink:0;">
+              <button class="action-btn action-btn-danger" @click="confirmAction('remove', report)">Act</button>
+              <button class="action-btn action-btn-ghost" @click="dismissReport(report)">Dismiss</button>
+            </div>
+          </div>
+        </template>
+        <template x-if="reports.length === 0">
+          <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No open reports.</div>
+        </template>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- User Detail Drawer -->
+  <template x-if="userDrawer">
+    <div>
+      <div class="drawer-overlay" @click="userDrawer = null"></div>
+      <div class="drawer">
+        <div class="drawer-header">
+          <span class="drawer-title" x-text="userDrawer.username"></span>
+          <button class="drawer-close" @click="userDrawer = null">&times;</button>
+        </div>
+        <div class="drawer-body">
+          <div class="drawer-section">
+            <div class="drawer-section-title">Account</div>
+            <div class="drawer-field"><span class="drawer-field-label">Email</span><span class="drawer-field-value" x-text="userDrawer.email"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Joined</span><span class="drawer-field-value" x-text="userDrawer.created_at"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">GitHub</span><span class="drawer-field-value" x-text="userDrawer.github_username || 'Not connected'"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Status</span><span class="drawer-field-value"><span class="status" :class="userDrawer.banned ? 'status-banned' : 'status-active'" x-text="userDrawer.banned ? 'Banned' : 'Active'"></span></span></div>
+          </div>
+          <div class="drawer-section">
+            <div class="drawer-section-title">Packages (<span x-text="userDrawer.package_count"></span>)</div>
+            <template x-for="p in userDrawer.packages || []" :key="p">
+              <div style="padding:0.3rem 0; font-size:0.72rem;"><a :href="'/packages/' + p" style="color:var(--gold);" x-text="p"></a></div>
+            </template>
+          </div>
+          <div class="drawer-section">
+            <div class="drawer-section-title">Tokens</div>
+            <div style="font-size:0.72rem; color:var(--text-dim);" x-text="(userDrawer.token_count || 0) + ' active token(s)'"></div>
+          </div>
+        </div>
+        <div class="drawer-actions">
+          <template x-if="!userDrawer.banned">
+            <button class="action-btn action-btn-danger" style="padding:0.4rem 0.8rem;" @click="confirmAction('ban', userDrawer)">Ban User</button>
+          </template>
+          <template x-if="userDrawer.banned">
+            <button class="action-btn action-btn-success" style="padding:0.4rem 0.8rem;" @click="confirmAction('unban', userDrawer)">Unban User</button>
+          </template>
+          <button class="action-btn action-btn-warn" style="padding:0.4rem 0.8rem;" @click="revokeTokens(userDrawer)">Revoke All Tokens</button>
+          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;">Transfer Packages</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Package Detail Drawer -->
+  <template x-if="pkgDrawer">
+    <div>
+      <div class="drawer-overlay" @click="pkgDrawer = null"></div>
+      <div class="drawer">
+        <div class="drawer-header">
+          <span class="drawer-title" x-text="pkgDrawer.name"></span>
+          <button class="drawer-close" @click="pkgDrawer = null">&times;</button>
+        </div>
+        <div class="drawer-body">
+          <div class="drawer-section">
+            <div class="drawer-section-title">Details</div>
+            <div class="drawer-field"><span class="drawer-field-label">Source</span><span class="drawer-field-value" x-text="pkgDrawer.source"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Owner</span><span class="drawer-field-value" style="color:var(--gold);" x-text="pkgDrawer.owner"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Latest</span><span class="drawer-field-value" x-text="pkgDrawer.latest_version ? ('v' + pkgDrawer.latest_version) : 'N/A'"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Versions</span><span class="drawer-field-value" x-text="pkgDrawer.version_count"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Downloads</span><span class="drawer-field-value" x-text="(pkgDrawer.downloads || 0).toLocaleString()"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Description</span><span class="drawer-field-value" x-text="pkgDrawer.description"></span></div>
+          </div>
+          <div class="drawer-section" x-show="pkgDrawer.versions && pkgDrawer.versions.length">
+            <div class="drawer-section-title">Version History</div>
+            <template x-for="v in pkgDrawer.versions || []" :key="v.version">
+              <div style="display:flex; justify-content:space-between; padding:0.3rem 0; font-size:0.72rem;">
+                <span>
+                  <span style="color:var(--text-bright);" x-text="v.version"></span>
+                  <template x-if="v.yanked"><span class="status status-yanked" style="margin-left:0.3rem;">yanked</span></template>
+                </span>
+                <span style="color:var(--text-dim);" x-text="v.created_at"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div class="drawer-actions">
+          <button class="action-btn action-btn-warn" style="padding:0.4rem 0.8rem;" @click="confirmAction('yank-all', pkgDrawer)">Yank All Versions</button>
+          <button class="action-btn action-btn-danger" style="padding:0.4rem 0.8rem;" @click="confirmAction('remove', pkgDrawer)">Remove Package</button>
+          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;">Transfer Ownership</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Confirm Dialog -->
+  <template x-if="confirm">
+    <div>
+      <div class="drawer-overlay" @click="confirm = null" style="z-index:199;"></div>
+      <div class="confirm-dialog">
+        <div class="confirm-title" x-text="confirm.title"></div>
+        <div class="confirm-body" x-html="confirm.body"></div>
+        <div class="confirm-actions">
+          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;" @click="confirm = null">Cancel</button>
+          <button class="action-btn" :class="confirm.btnClass" style="padding:0.4rem 0.8rem;" @click="executeAction()" x-text="confirm.btnText"></button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Toast -->
+  <div x-show="toast" x-transition class="toast" :class="toastType === 'success' ? 'toast-success' : 'toast-error'" x-text="toast" x-cloak></div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function adminPanel() {
+  return {
+    tab: 'dashboard',
+    userSearch: '',
+    userFilter: 'all',
+    pkgSearch: '',
+    pkgFilter: 'all',
+    auditSearch: '',
+    auditFilter: 'all',
+    userDrawer: null,
+    pkgDrawer: null,
+    confirm: null,
+    toast: '',
+    toastType: 'success',
+
+    stats: { total_users: 0, total_packages: 0, banned_users: 0, open_reports: 0 },
+    users: [],
+    packages: [],
+    auditLog: [],
+    reports: [],
+
+    // Track which tabs have been loaded to avoid redundant fetches
+    _loaded: { users: false, packages: false, audit: false, reports: false },
+
+    async init() {
+      await Promise.all([
+        this.loadStats(),
+        this.loadAudit(),
+        this.loadReports(),
+      ]);
+    },
+
+    async switchTab(name) {
+      this.tab = name;
+      if (name === 'dashboard') {
+        await Promise.all([this.loadStats(), this.loadAudit()]);
+      } else if (name === 'users') {
+        if (!this._loaded.users) await this.loadUsers();
+      } else if (name === 'packages') {
+        if (!this._loaded.packages) await this.loadPackages();
+      } else if (name === 'audit') {
+        await this.loadAudit();
+      } else if (name === 'reports') {
+        await this.loadReports();
+      }
+    },
+
+    async loadStats() {
+      try {
+        const res = await fetch('/api/v1/admin/stats');
+        if (res.ok) this.stats = await res.json();
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+      }
+    },
+
+    async loadUsers() {
+      try {
+        const params = new URLSearchParams();
+        if (this.userSearch) params.set('q', this.userSearch);
+        if (this.userFilter !== 'all') params.set('status', this.userFilter);
+        const res = await fetch('/api/v1/admin/users?' + params);
+        if (res.ok) {
+          const data = await res.json();
+          this.users = data.users || [];
+          this._loaded.users = true;
+        }
+      } catch (e) {
+        console.error('Failed to load users:', e);
+      }
+    },
+
+    async loadPackages() {
+      try {
+        const params = new URLSearchParams();
+        if (this.pkgSearch) params.set('q', this.pkgSearch);
+        if (this.pkgFilter !== 'all') params.set('source', this.pkgFilter);
+        const res = await fetch('/api/v1/admin/packages?' + params);
+        if (res.ok) {
+          const data = await res.json();
+          this.packages = data.packages || [];
+          this._loaded.packages = true;
+        }
+      } catch (e) {
+        console.error('Failed to load packages:', e);
+      }
+    },
+
+    async loadAudit() {
+      try {
+        const params = new URLSearchParams();
+        if (this.auditSearch) params.set('q', this.auditSearch);
+        if (this.auditFilter !== 'all') params.set('type', this.auditFilter);
+        const res = await fetch('/api/v1/admin/audit?' + params);
+        if (res.ok) {
+          const data = await res.json();
+          this.auditLog = data.entries || [];
+          this._loaded.audit = true;
+        }
+      } catch (e) {
+        console.error('Failed to load audit log:', e);
+      }
+    },
+
+    async loadReports() {
+      try {
+        const res = await fetch('/api/v1/admin/reports');
+        if (res.ok) {
+          const data = await res.json();
+          this.reports = data.reports || [];
+          this._loaded.reports = true;
+        }
+      } catch (e) {
+        console.error('Failed to load reports:', e);
+      }
+    },
+
+    async openUserDrawer(user) {
+      // Fetch full user detail if an endpoint exists, otherwise use list data
+      try {
+        const res = await fetch('/api/v1/admin/users/' + encodeURIComponent(user.username));
+        if (res.ok) {
+          this.userDrawer = await res.json();
+          return;
+        }
+      } catch (e) {
+        // fall through to using the list data
+      }
+      this.userDrawer = user;
+    },
+
+    async openPkgDrawer(pkg) {
+      // Fetch full package detail if an endpoint exists, otherwise use list data
+      try {
+        const res = await fetch('/api/v1/admin/packages/' + encodeURIComponent(pkg.name));
+        if (res.ok) {
+          this.pkgDrawer = await res.json();
+          return;
+        }
+      } catch (e) {
+        // fall through to using the list data
+      }
+      this.pkgDrawer = pkg;
+    },
+
+    confirmAction(action, target) {
+      const name = target.username || target.name || target.target;
+      const configs = {
+        'ban': { title: 'Ban User', body: `Are you sure you want to ban <strong>${name}</strong>? This will revoke all their API tokens and prevent login.`, btnText: 'Ban User', btnClass: 'action-btn-danger' },
+        'unban': { title: 'Unban User', body: `Restore access for <strong>${name}</strong>? They will be able to login and publish again.`, btnText: 'Unban', btnClass: 'action-btn-success' },
+        'yank-all': { title: 'Yank All Versions', body: `Yank every version of <strong>${name}</strong>? The package will remain visible but all versions will be marked as yanked and uninstallable.`, btnText: 'Yank All', btnClass: 'action-btn-warn' },
+        'remove': { title: 'Remove Package', body: `Permanently remove <strong>${name}</strong>? This will delete the package and all versions from the registry. This cannot be undone.`, btnText: 'Remove', btnClass: 'action-btn-danger' },
+      };
+      this.confirm = { ...configs[action], action, target };
+    },
+
+    async executeAction() {
+      const { action, target } = this.confirm;
+      const name = target.username || target.name || target.target;
+      this.confirm = null;
+
+      try {
+        let res;
+        if (action === 'ban') {
+          res = await fetch('/api/v1/admin/users/' + encodeURIComponent(name) + '/ban', { method: 'POST' });
+          if (res.ok) {
+            this.showToast(`Banned ${name}`, 'success');
+            await this.loadUsers();
+            await this.loadStats();
+            if (this.userDrawer?.username === name) {
+              await this.openUserDrawer({ username: name });
+            }
+          } else {
+            this.showToast(`Failed to ban ${name}`, 'error');
+          }
+        } else if (action === 'unban') {
+          res = await fetch('/api/v1/admin/users/' + encodeURIComponent(name) + '/unban', { method: 'POST' });
+          if (res.ok) {
+            this.showToast(`Unbanned ${name}`, 'success');
+            await this.loadUsers();
+            await this.loadStats();
+            if (this.userDrawer?.username === name) {
+              await this.openUserDrawer({ username: name });
+            }
+          } else {
+            this.showToast(`Failed to unban ${name}`, 'error');
+          }
+        } else if (action === 'yank-all') {
+          res = await fetch('/api/v1/admin/packages/' + encodeURIComponent(name) + '/yank-all', { method: 'POST' });
+          if (res.ok) {
+            this.showToast(`Yanked all versions of ${name}`, 'success');
+            await this.loadPackages();
+          } else {
+            this.showToast(`Failed to yank ${name}`, 'error');
+          }
+        } else if (action === 'remove') {
+          res = await fetch('/api/v1/admin/packages/' + encodeURIComponent(name), { method: 'DELETE' });
+          if (res.ok) {
+            this.showToast(`Removed ${name}`, 'success');
+            this.pkgDrawer = null;
+            await Promise.all([this.loadPackages(), this.loadReports(), this.loadStats()]);
+          } else {
+            this.showToast(`Failed to remove ${name}`, 'error');
+          }
+        }
+      } catch (e) {
+        this.showToast(`Error: ${e.message}`, 'error');
+      }
+    },
+
+    async dismissReport(report) {
+      try {
+        const res = await fetch('/api/v1/admin/reports/' + encodeURIComponent(report.id) + '/dismiss', { method: 'POST' });
+        if (res.ok) {
+          this.showToast(`Dismissed report for ${report.target}`, 'success');
+          await Promise.all([this.loadReports(), this.loadStats()]);
+        } else {
+          this.showToast(`Failed to dismiss report`, 'error');
+        }
+      } catch (e) {
+        this.showToast(`Error: ${e.message}`, 'error');
+      }
+    },
+
+    async revokeTokens(user) {
+      try {
+        const res = await fetch('/api/v1/admin/users/' + encodeURIComponent(user.username) + '/revoke-tokens', { method: 'POST' });
+        if (res.ok) {
+          this.showToast(`Revoked all tokens for ${user.username}`, 'success');
+          if (this.userDrawer?.username === user.username) {
+            await this.openUserDrawer({ username: user.username });
+          }
+        } else {
+          this.showToast(`Failed to revoke tokens`, 'error');
+        }
+      } catch (e) {
+        this.showToast(`Error: ${e.message}`, 'error');
+      }
+    },
+
+    showToast(msg, type = 'success') {
+      this.toast = msg;
+      this.toastType = type;
+      setTimeout(() => { this.toast = ''; }, 3000);
+    },
+  };
+}
+</script>
+{% endblock %}

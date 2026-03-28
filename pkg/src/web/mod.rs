@@ -17,14 +17,24 @@ fn render<T: Template>(tmpl: T) -> impl IntoResponse {
     }
 }
 
-// Helper to extract optional username from session cookie
-async fn get_username(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
-    let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
-    let session_id = cookie.split(';')
-        .filter_map(|c| c.trim().strip_prefix("session="))
-        .next()?;
-    let user = get_session_user(&state.db, session_id).await?;
-    Some(user.username)
+struct SessionInfo {
+    username: Option<String>,
+    is_admin: bool,
+}
+
+async fn get_session_info(state: &AppState, headers: &axum::http::HeaderMap) -> SessionInfo {
+    let user = (|| async {
+        let cookie = headers.get(header::COOKIE)?.to_str().ok()?;
+        let session_id = cookie.split(';')
+            .filter_map(|c| c.trim().strip_prefix("session="))
+            .next()?;
+        get_session_user(&state.db, session_id).await
+    })().await;
+
+    match user {
+        Some(u) => SessionInfo { username: Some(u.username), is_admin: u.is_admin },
+        None => SessionInfo { username: None, is_admin: false },
+    }
 }
 
 // ── Data types for templates ──
@@ -63,6 +73,7 @@ pub struct TokenInfo {
 #[template(path = "index.html")]
 pub struct IndexTemplate {
     pub username: Option<String>,
+    pub is_admin: bool,
     pub total_packages: i64,
     pub recent: Vec<PackageSummary>,
 }
@@ -71,6 +82,7 @@ pub struct IndexTemplate {
 #[template(path = "search.html")]
 pub struct SearchTemplate {
     pub username: Option<String>,
+    pub is_admin: bool,
     pub query: String,
     pub packages: Vec<PackageSummary>,
     pub total: i64,
@@ -82,6 +94,7 @@ pub struct SearchTemplate {
 #[template(path = "package.html")]
 pub struct PackageTemplate {
     pub username: Option<String>,
+    pub is_admin: bool,
     pub name: String,
     pub description: String,
     pub repository_url: Option<String>,
@@ -96,6 +109,7 @@ pub struct PackageTemplate {
 #[template(path = "login.html")]
 pub struct LoginTemplate {
     pub username: Option<String>,
+    pub is_admin: bool,
     pub github_enabled: bool,
 }
 
@@ -103,6 +117,7 @@ pub struct LoginTemplate {
 #[template(path = "link.html")]
 pub struct LinkTemplate {
     pub username: Option<String>,
+    pub is_admin: bool,
     pub github_connected: bool,
     pub github_login: Option<String>,
 }
@@ -111,6 +126,7 @@ pub struct LinkTemplate {
 #[template(path = "account.html")]
 pub struct AccountTemplate {
     pub username: Option<String>,
+    pub is_admin: bool,
     pub user_email: String,
     pub user_homepage: Option<String>,
     pub github_connected: bool,
@@ -119,13 +135,37 @@ pub struct AccountTemplate {
     pub tokens: Vec<TokenInfo>,
 }
 
+#[derive(Template)]
+#[template(path = "admin.html")]
+pub struct AdminTemplate {
+    pub username: Option<String>,
+    pub is_admin: bool,
+}
+
 // ── Handlers ──
+
+pub async fn admin_page(
+    State(state): State<Arc<AppState>>,
+    headers: axum::http::HeaderMap,
+) -> impl IntoResponse {
+    let si = get_session_info(&state, &headers).await;
+    match si.username {
+        None => Redirect::to("/login").into_response(),
+        Some(ref _u) if !si.is_admin => {
+            (StatusCode::FORBIDDEN, "Admin access required").into_response()
+        }
+        Some(_) => render(AdminTemplate {
+            username: si.username,
+            is_admin: si.is_admin,
+        }).into_response(),
+    }
+}
 
 pub async fn index(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let username = get_username(&state, &headers).await;
+    let si = get_session_info(&state, &headers).await;
 
     let total_row = sqlx::query("SELECT COUNT(*) as cnt FROM packages")
         .fetch_one(&state.db)
@@ -152,7 +192,7 @@ pub async fn index(
         published_at: r.get("published_at"),
     }).collect();
 
-    render(IndexTemplate { username, total_packages, recent })
+    render(IndexTemplate { username: si.username, is_admin: si.is_admin, total_packages, recent })
 }
 
 #[derive(Deserialize)]
@@ -166,7 +206,7 @@ pub async fn search(
     headers: axum::http::HeaderMap,
     Query(params): Query<SearchParams>,
 ) -> impl IntoResponse {
-    let username = get_username(&state, &headers).await;
+    let si = get_session_info(&state, &headers).await;
     let query = params.q.unwrap_or_default();
     let page = params.page.unwrap_or(1).max(1);
     let per_page: i64 = 20;
@@ -207,7 +247,7 @@ pub async fn search(
     .ok();
     let total: i64 = total_row.map(|r| r.get("cnt")).unwrap_or(0);
 
-    render(SearchTemplate { username, query, packages, total, page, per_page })
+    render(SearchTemplate { username: si.username, is_admin: si.is_admin, query, packages, total, page, per_page })
 }
 
 pub async fn package_detail(
@@ -215,7 +255,7 @@ pub async fn package_detail(
     headers: axum::http::HeaderMap,
     axum::extract::Path(name): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    let username = get_username(&state, &headers).await;
+    let si = get_session_info(&state, &headers).await;
 
     let pkg = sqlx::query("SELECT id, name, description, repository_url, source, github_repo FROM packages WHERE name = ?")
         .bind(&name)
@@ -290,19 +330,19 @@ pub async fn package_detail(
     .unwrap_or_default();
     let owners: Vec<String> = owner_rows.iter().map(|r| r.get("username")).collect();
 
-    render(PackageTemplate { username, name, description, repository_url, source, github_repo, owners, versions, deps }).into_response()
+    render(PackageTemplate { username: si.username, is_admin: si.is_admin, name, description, repository_url, source, github_repo, owners, versions, deps }).into_response()
 }
 
 pub async fn login(
     State(state): State<Arc<AppState>>,
     headers: axum::http::HeaderMap,
 ) -> impl IntoResponse {
-    let username = get_username(&state, &headers).await;
-    if username.is_some() {
+    let si = get_session_info(&state, &headers).await;
+    if si.username.is_some() {
         return Redirect::to("/account").into_response();
     }
     let github_enabled = state.config.github_client_id.is_some();
-    render(LoginTemplate { username: None, github_enabled }).into_response()
+    render(LoginTemplate { username: None, is_admin: false, github_enabled }).into_response()
 }
 
 pub async fn link_page(
@@ -338,6 +378,7 @@ pub async fn link_page(
 
     render(LinkTemplate {
         username: Some(user.username),
+        is_admin: user.is_admin,
         github_connected,
         github_login,
     }).into_response()
@@ -427,7 +468,8 @@ pub async fn account(
     let github_login = github_row.map(|r| r.get::<String, _>("provider_login"));
 
     render(AccountTemplate {
-        username: Some(user.username),
+        username: Some(user.username.clone()),
+        is_admin: user.is_admin,
         user_email,
         user_homepage,
         github_connected,
