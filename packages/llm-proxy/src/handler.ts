@@ -18,6 +18,8 @@ import type {
   ClassifyRequest,
   EmbedRequest,
   ProviderConfig,
+  ProxyErrorResponse,
+  RateLimitConfig,
 } from "./types.js";
 import {
   resolveProvider,
@@ -29,6 +31,63 @@ import {
 
 /** Handler function type — takes a ProxyRequest, returns a ProxyResponse. */
 export type HandlerFn = (req: ProxyRequest) => Promise<ProxyResponse>;
+
+// --- Rate Limiter ---
+
+/** Sliding-window in-memory rate limiter. */
+class RateLimiter {
+  private windows = new Map<string, number[]>();
+  private windowMs: number;
+  private maxRequests: number;
+
+  constructor(config?: RateLimitConfig) {
+    this.windowMs = config?.windowMs ?? 60_000;
+    this.maxRequests = config?.maxRequests ?? 60;
+  }
+
+  check(key: string): ProxyErrorResponse | null {
+    const now = Date.now();
+    const timestamps = this.windows.get(key) ?? [];
+
+    // Remove expired entries
+    const valid = timestamps.filter(t => now - t < this.windowMs);
+
+    if (valid.length >= this.maxRequests) {
+      return {
+        error: "Rate limit exceeded",
+        code: "RATE_LIMITED",
+        details: `Max ${this.maxRequests} requests per ${this.windowMs}ms`,
+      };
+    }
+
+    valid.push(now);
+    this.windows.set(key, valid);
+
+    // Periodic cleanup of stale keys
+    if (this.windows.size > 10_000) {
+      for (const [k, v] of this.windows) {
+        if (v.every(t => now - t >= this.windowMs)) this.windows.delete(k);
+      }
+    }
+
+    return null;
+  }
+}
+
+// --- Body size check ---
+
+/** Check request body against maxBodySize. Returns error response or null. */
+function checkBodySize(body: string | object, config: ProxyConfig): ProxyErrorResponse | null {
+  const maxSize = config.maxBodySize || 1_048_576; // 1MB default
+  const size = typeof body === "string" ? body.length : JSON.stringify(body).length;
+  if (size > maxSize) {
+    return {
+      error: `Request body too large (${size} bytes, max ${maxSize})`,
+      code: "BODY_TOO_LARGE",
+    };
+  }
+  return null;
+}
 
 /**
  * Create a platform-agnostic handler function from a proxy config.
@@ -44,6 +103,7 @@ export function createHandler(config: ProxyConfig): HandlerFn {
     config.defaultModel,
   );
   const corsOrigin = config.cors ?? "*";
+  const rateLimiter = new RateLimiter(config.rateLimit);
 
   return async (req: ProxyRequest): Promise<ProxyResponse> => {
     // CORS preflight
@@ -55,6 +115,21 @@ export function createHandler(config: ProxyConfig): HandlerFn {
     const authResult = await checkAuth(config.auth, req.authHeader);
     if (authResult) {
       return { ...authResult, headers: { ...authResult.headers, ...corsHeaders(corsOrigin) } };
+    }
+
+    // Rate limit check
+    const rateLimitKey = req.authHeader || "anonymous";
+    const rateLimitError = rateLimiter.check(rateLimitKey);
+    if (rateLimitError) {
+      return jsonResponse(429, rateLimitError, corsOrigin);
+    }
+
+    // Body size check
+    if (req.body != null) {
+      const bodySizeError = checkBodySize(req.body as string | object, config);
+      if (bodySizeError) {
+        return jsonResponse(413, bodySizeError, corsOrigin);
+      }
     }
 
     try {
@@ -79,14 +154,22 @@ export function createHandler(config: ProxyConfig): HandlerFn {
         case "models":
           result = await handleModels(resolved);
           break;
+        case "stream":
+          return await handleStream(resolved, req.body as ChatRequest, corsOrigin);
         default:
-          return jsonResponse(404, { error: `Unknown endpoint: ${req.endpoint}` }, corsOrigin);
+          return jsonResponse(404, {
+            error: `Unknown endpoint: ${req.endpoint}`,
+            code: "INVALID_REQUEST" as const,
+          }, corsOrigin);
       }
 
       return jsonResponse(200, result, corsOrigin);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return jsonResponse(502, { error: message }, corsOrigin);
+      return jsonResponse(502, {
+        error: message,
+        code: "PROVIDER_ERROR" as const,
+      }, corsOrigin);
     }
   };
 }
@@ -232,6 +315,94 @@ async function handleModels(provider: ResolvedProvider): Promise<unknown> {
   }
 }
 
+// --- SSE Streaming ---
+
+/** Handle a streaming chat request, returning an SSE response. */
+async function handleStream(
+  provider: ResolvedProvider,
+  body: ChatRequest,
+  corsOrigin: string,
+): Promise<ProxyResponse> {
+  const spec = getSpec(provider.provider);
+  const model = body.model ?? provider.defaultModel;
+  const messages = body.messages || [{ role: "user", content: "" }];
+
+  const chatBody = spec.formatChatBody(
+    messages,
+    model,
+    body["max-tokens"],
+    body.temperature,
+    body.system,
+  );
+  (chatBody as Record<string, unknown>).stream = true;
+
+  const url =
+    provider.provider === "gemini"
+      ? geminiChatUrl(provider.baseUrl, model, provider.apiKey)
+      : spec.chatUrl(provider.baseUrl);
+
+  const headers = { ...spec.authHeader(provider.apiKey), "Content-Type": "application/json" };
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(chatBody),
+  });
+
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => response.statusText);
+    const errorBody: ProxyErrorResponse = {
+      error: `Provider streaming error (${response.status}): ${text}`,
+      code: "PROVIDER_ERROR",
+    };
+    return jsonResponse(502, errorBody, corsOrigin);
+  }
+
+  // Collect the streamed SSE data and return as a single SSE body.
+  // Note: ProxyResponse uses a string body, so we buffer the stream.
+  // Platform adapters can override this for true streaming if needed.
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let sseOutput = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") {
+            sseOutput += "data: [DONE]\n\n";
+            continue;
+          }
+          // Forward the SSE event
+          sseOutput += `data: ${data}\n\n`;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return {
+    status: 200,
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+      ...corsHeaders(corsOrigin),
+    },
+    body: sseOutput,
+  };
+}
+
 // --- Utilities ---
 
 /** Make an HTTP request to an LLM provider API. */
@@ -284,7 +455,7 @@ async function checkAuth(
   if (auth.verify) {
     const ok = await auth.verify(authHeader);
     if (!ok) {
-      return jsonResponse(401, { error: "Unauthorized" }, "*");
+      return jsonResponse(401, { error: "Unauthorized", code: "AUTH_FAILED" as const }, "*");
     }
     return null;
   }
@@ -292,7 +463,7 @@ async function checkAuth(
   if (auth.token) {
     const expected = `Bearer ${auth.token}`;
     if (authHeader !== expected) {
-      return jsonResponse(401, { error: "Unauthorized" }, "*");
+      return jsonResponse(401, { error: "Unauthorized", code: "AUTH_FAILED" as const }, "*");
     }
   }
 

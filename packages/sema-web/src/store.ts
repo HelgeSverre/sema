@@ -6,6 +6,8 @@
  * @module
  */
 
+import type { SemaWebContext } from "./context.js";
+
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
 }
@@ -25,25 +27,28 @@ interface SemaInterpreterLike {
  * - `store/session-remove!` — remove key from sessionStorage
  * - `store/session-clear!` — clear all sessionStorage
  *
- * Values are automatically serialized/deserialized as JSON when they
- * are not simple strings.
+ * Values are always serialized as JSON on set and parsed from JSON on get.
  */
-export function registerStoreBindings(interp: SemaInterpreterLike): void {
+export function registerStoreBindings(interp: SemaInterpreterLike, ctx: SemaWebContext): void {
   // --- localStorage ---
 
   interp.registerFunction("store/get", (key: string) => {
-    const val = localStorage.getItem(key);
-    if (val === null) return null;
     try {
+      const val = localStorage.getItem(key);
+      if (val === null) return null;
       return JSON.parse(val);
-    } catch {
-      return val;
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `store/get:${key}`);
+      return null;
     }
   });
 
   interp.registerFunction("store/set!", (key: string, value: any) => {
-    const serialized = typeof value === "string" ? value : JSON.stringify(value);
-    localStorage.setItem(key, serialized);
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `store/set!:${key}`);
+    }
     return null;
   });
 
@@ -63,7 +68,7 @@ export function registerStoreBindings(interp: SemaInterpreterLike): void {
       const key = localStorage.key(i);
       if (key !== null) keys.push(key);
     }
-    return JSON.stringify(keys);
+    return keys;
   });
 
   interp.registerFunction("store/has?", (key: string) => {
@@ -73,18 +78,22 @@ export function registerStoreBindings(interp: SemaInterpreterLike): void {
   // --- sessionStorage ---
 
   interp.registerFunction("store/session-get", (key: string) => {
-    const val = sessionStorage.getItem(key);
-    if (val === null) return null;
     try {
+      const val = sessionStorage.getItem(key);
+      if (val === null) return null;
       return JSON.parse(val);
-    } catch {
-      return val;
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `store/session-get:${key}`);
+      return null;
     }
   });
 
   interp.registerFunction("store/session-set!", (key: string, value: any) => {
-    const serialized = typeof value === "string" ? value : JSON.stringify(value);
-    sessionStorage.setItem(key, serialized);
+    try {
+      sessionStorage.setItem(key, JSON.stringify(value));
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `store/session-set!:${key}`);
+    }
     return null;
   });
 

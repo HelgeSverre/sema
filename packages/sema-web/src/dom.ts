@@ -7,7 +7,9 @@
  * @module
  */
 
-import { storeHandle, getElement, getNode, getEvent, SEMA_IDENT_RE } from "./handles.js";
+import { storeHandle, getElement, getNode, getEvent, releaseHandle, SEMA_IDENT_RE } from "./handles.js";
+import type { SemaWebContext } from "./context.js";
+import { renderSip } from "./sip.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
@@ -44,61 +46,64 @@ interface SemaInterpreterLike {
  * - `dom/set-value!` — set input value
  * - `dom/get-value` — get input value
  * - `dom/get-id` — get element by id
+ * - `dom/render` — render SIP data, return element handle
+ * - `dom/render-into!` — render SIP data into a target element
+ * - `dom/event-value` — read event.target.value from an event handle
  */
-export function registerDomBindings(interp: SemaInterpreterLike): void {
+export function registerDomBindings(interp: SemaInterpreterLike, ctx: SemaWebContext): void {
 
   // --- Query ---
 
   interp.registerFunction("dom/query", (selector: string) => {
     const el = document.querySelector(selector);
-    return storeHandle(el);
+    return storeHandle(el, ctx);
   });
 
   interp.registerFunction("dom/query-all", (selector: string) => {
     const els = document.querySelectorAll(selector);
     const ids: number[] = [];
     els.forEach((el) => {
-      const id = storeHandle(el);
+      const id = storeHandle(el, ctx);
       if (id != null) ids.push(id);
     });
-    return JSON.stringify(ids);
+    return ids;
   });
 
   interp.registerFunction("dom/get-id", (id: string) => {
     const el = document.getElementById(id);
-    return storeHandle(el);
+    return storeHandle(el, ctx);
   });
 
   // --- Create ---
 
   interp.registerFunction("dom/create-element", (tag: string) => {
     const el = document.createElement(tag);
-    return storeHandle(el);
+    return storeHandle(el, ctx);
   });
 
   interp.registerFunction("dom/create-text", (content: string) => {
     const node = document.createTextNode(content);
-    return storeHandle(node);
+    return storeHandle(node, ctx);
   });
 
   // --- Tree manipulation ---
 
   interp.registerFunction("dom/append-child!", (parentId: number, childId: number) => {
-    const parent = getElement(parentId);
-    const child = getNode(childId);
+    const parent = getElement(parentId, ctx);
+    const child = getNode(childId, ctx);
     parent.appendChild(child);
     return childId;
   });
 
   interp.registerFunction("dom/remove-child!", (parentId: number, childId: number) => {
-    const parent = getElement(parentId);
-    const child = getNode(childId);
+    const parent = getElement(parentId, ctx);
+    const child = getNode(childId, ctx);
     parent.removeChild(child);
     return childId;
   });
 
   interp.registerFunction("dom/remove!", (id: number) => {
-    const el = getElement(id);
+    const el = getElement(id, ctx);
     el.remove();
     return null;
   });
@@ -106,88 +111,86 @@ export function registerDomBindings(interp: SemaInterpreterLike): void {
   // --- Attributes ---
 
   interp.registerFunction("dom/set-attribute!", (id: number, attr: string, val: string) => {
-    getElement(id).setAttribute(attr, val);
+    getElement(id, ctx).setAttribute(attr, val);
     return null;
   });
 
   interp.registerFunction("dom/get-attribute", (id: number, attr: string) => {
-    return getElement(id).getAttribute(attr);
+    return getElement(id, ctx).getAttribute(attr);
   });
 
   interp.registerFunction("dom/remove-attribute!", (id: number, attr: string) => {
-    getElement(id).removeAttribute(attr);
+    getElement(id, ctx).removeAttribute(attr);
     return null;
   });
 
   // --- CSS classes ---
 
   interp.registerFunction("dom/add-class!", (id: number, ...classes: string[]) => {
-    getElement(id).classList.add(...classes);
+    getElement(id, ctx).classList.add(...classes);
     return null;
   });
 
   interp.registerFunction("dom/remove-class!", (id: number, ...classes: string[]) => {
-    getElement(id).classList.remove(...classes);
+    getElement(id, ctx).classList.remove(...classes);
     return null;
   });
 
   interp.registerFunction("dom/toggle-class!", (id: number, cls: string) => {
-    return getElement(id).classList.toggle(cls);
+    return getElement(id, ctx).classList.toggle(cls);
   });
 
   interp.registerFunction("dom/has-class?", (id: number, cls: string) => {
-    return getElement(id).classList.contains(cls);
+    return getElement(id, ctx).classList.contains(cls);
   });
 
   // --- Styles ---
 
   interp.registerFunction("dom/set-style!", (id: number, prop: string, val: string) => {
-    const el = getElement(id) as HTMLElement;
+    const el = getElement(id, ctx) as HTMLElement;
     el.style.setProperty(prop, val);
     return null;
   });
 
   interp.registerFunction("dom/get-style", (id: number, prop: string) => {
-    const el = getElement(id) as HTMLElement;
+    const el = getElement(id, ctx) as HTMLElement;
     return el.style.getPropertyValue(prop);
   });
 
   // --- Content ---
 
   interp.registerFunction("dom/set-text!", (id: number, text: string) => {
-    getElement(id).textContent = text;
+    getElement(id, ctx).textContent = text;
     return null;
   });
 
   interp.registerFunction("dom/get-text", (id: number) => {
-    return getElement(id).textContent;
+    return getElement(id, ctx).textContent;
   });
 
   interp.registerFunction("dom/set-html!", (id: number, html: string) => {
-    getElement(id).innerHTML = html;
+    getElement(id, ctx).innerHTML = html;
     return null;
   });
 
   interp.registerFunction("dom/get-html", (id: number) => {
-    return getElement(id).innerHTML;
+    return getElement(id, ctx).innerHTML;
   });
 
   // --- Form values ---
 
   interp.registerFunction("dom/set-value!", (id: number, val: string) => {
-    const el = getElement(id) as HTMLInputElement;
+    const el = getElement(id, ctx) as HTMLInputElement;
     el.value = val;
     return null;
   });
 
   interp.registerFunction("dom/get-value", (id: number) => {
-    const el = getElement(id) as HTMLInputElement;
+    const el = getElement(id, ctx) as HTMLInputElement;
     return el.value;
   });
 
   // --- Events ---
-  // Event listeners are stored so they can be removed with dom/off!.
-  const listeners = new Map<string, EventListener>();
 
   interp.registerFunction("dom/on!", (id: number, event: string, callbackName: string) => {
     // Validate callback name is a valid Sema identifier (prevents code injection)
@@ -195,38 +198,72 @@ export function registerDomBindings(interp: SemaInterpreterLike): void {
       throw new Error(`Invalid callback name: ${callbackName}`);
     }
 
-    const el = getElement(id);
+    const el = getElement(id, ctx);
     const key = `${id}:${event}:${callbackName}`;
 
     const listener = (ev: Event) => {
-      const evHandle = storeHandle(ev);
-      // Call the Sema callback by evaluating it
+      const evHandle = storeHandle(ev, ctx);
       try {
-        interp.registerFunction("__dom-current-event", () => evHandle);
         // The callback is a Sema function name — invoke it with the event handle
-        interp.evalStr(`(${callbackName} (__dom-current-event))`);
-      } catch (_e) {
-        // Silently ignore eval errors in event handlers to avoid breaking the page
+        interp.evalStr(`(${callbackName} ${evHandle})`);
+      } catch (e) {
+        ctx.onerror(e instanceof Error ? e : new Error(String(e)), `event:${event}:${callbackName}`);
+      } finally {
+        // Auto-release event handle
+        if (evHandle != null) ctx.handles.delete(evHandle);
       }
     };
 
-    listeners.set(key, listener);
+    ctx.listeners.set(key, listener);
     el.addEventListener(event, listener);
     return null;
   });
 
   interp.registerFunction("dom/off!", (id: number, event: string, callbackName: string) => {
     const key = `${id}:${event}:${callbackName}`;
-    const listener = listeners.get(key);
+    const listener = ctx.listeners.get(key);
     if (listener) {
-      getElement(id).removeEventListener(event, listener);
-      listeners.delete(key);
+      getElement(id, ctx).removeEventListener(event, listener);
+      ctx.listeners.delete(key);
     }
     return null;
   });
 
   interp.registerFunction("dom/prevent-default!", (evId: number) => {
-    getEvent(evId).preventDefault();
+    getEvent(evId, ctx).preventDefault();
+    return null;
+  });
+
+  // --- Event value ---
+
+  interp.registerFunction("dom/event-value", (evId: number) => {
+    const ev = getEvent(evId, ctx);
+    const target = (ev as any).target;
+    if (target && "value" in target) {
+      return target.value;
+    }
+    return null;
+  });
+
+  // --- SIP rendering ---
+
+  interp.registerFunction("dom/render", (sipData: any) => {
+    const node = renderSip(sipData, interp, ctx);
+    if (node instanceof Element) {
+      return storeHandle(node, ctx);
+    }
+    // Wrap non-element nodes in a span for handle compatibility
+    const wrapper = document.createElement("span");
+    wrapper.appendChild(node);
+    return storeHandle(wrapper, ctx);
+  });
+
+  interp.registerFunction("dom/render-into!", (selector: string, sipData: any) => {
+    const target = document.querySelector(selector);
+    if (!target) throw new Error(`dom/render-into!: target not found: ${selector}`);
+    target.innerHTML = "";
+    const node = renderSip(sipData, interp, ctx);
+    target.appendChild(node);
     return null;
   });
 }

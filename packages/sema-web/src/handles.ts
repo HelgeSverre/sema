@@ -4,8 +4,15 @@
  * Provides a numeric handle map so Sema can reference DOM elements,
  * text nodes, and events by numeric ID across the WASM boundary.
  *
+ * Functions accept an optional SemaWebContext parameter. When provided,
+ * state is stored in the context (enabling multi-instance isolation).
+ * When omitted, a module-level fallback is used for backward compatibility
+ * with modules not yet migrated to context-based usage (dom.ts, component.ts).
+ *
  * @module
  */
+
+import type { SemaWebContext } from "./context.js";
 
 /**
  * Regex pattern for valid Sema identifier names.
@@ -13,18 +20,32 @@
  */
 export const SEMA_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_/\-?!*><=+.]*$/;
 
-/** Handle map storing DOM objects by numeric ID. */
-const handles = new Map<number, Element | Text | Event>();
-let nextHandle = 1;
+// --- Module-level fallback state (for backward compatibility) ---
+// These will be removed once all modules are migrated to context-based usage.
+const _handles = new Map<number, Element | Text | Event>();
+let _nextHandle = 1;
+
+/** Get the handles map from ctx or the module-level fallback. */
+function getHandles(ctx?: SemaWebContext): Map<number, Element | Text | Event> {
+  return ctx ? ctx.handles : _handles;
+}
+
+/** Get and increment the next handle ID. */
+function allocHandle(ctx?: SemaWebContext): number {
+  if (ctx) {
+    return ctx.nextHandle++;
+  }
+  return _nextHandle++;
+}
 
 /**
  * Store a DOM object and return its numeric handle.
  * Returns null if the object is null/undefined.
  */
-export function storeHandle(obj: Element | Text | Event | null): number | null {
+export function storeHandle(obj: Element | Text | Event | null, ctx?: SemaWebContext): number | null {
   if (obj == null) return null;
-  const id = nextHandle++;
-  handles.set(id, obj);
+  const id = allocHandle(ctx);
+  getHandles(ctx).set(id, obj);
   return id;
 }
 
@@ -32,8 +53,8 @@ export function storeHandle(obj: Element | Text | Event | null): number | null {
  * Retrieve an Element by handle ID.
  * @throws Error if handle is invalid or not an Element
  */
-export function getElement(id: number): Element {
-  const el = handles.get(id);
+export function getElement(id: number, ctx?: SemaWebContext): Element {
+  const el = getHandles(ctx).get(id);
   if (!el || !(el instanceof Element)) {
     throw new Error(`Invalid element handle: ${id}`);
   }
@@ -44,8 +65,8 @@ export function getElement(id: number): Element {
  * Retrieve an Element or Text node by handle ID.
  * @throws Error if handle is invalid
  */
-export function getNode(id: number): Element | Text {
-  const node = handles.get(id);
+export function getNode(id: number, ctx?: SemaWebContext): Element | Text {
+  const node = getHandles(ctx).get(id);
   if (!node || (!(node instanceof Element) && !(node instanceof Text))) {
     throw new Error(`Invalid node handle: ${id}`);
   }
@@ -56,10 +77,18 @@ export function getNode(id: number): Element | Text {
  * Retrieve an Event by handle ID.
  * @throws Error if handle is invalid or not an Event
  */
-export function getEvent(id: number): Event {
-  const ev = handles.get(id);
+export function getEvent(id: number, ctx?: SemaWebContext): Event {
+  const ev = getHandles(ctx).get(id);
   if (!ev || !(ev instanceof Event)) {
     throw new Error(`Invalid event handle: ${id}`);
   }
   return ev;
+}
+
+/**
+ * Release a handle, freeing the reference to the DOM object.
+ * No-op if the handle does not exist.
+ */
+export function releaseHandle(id: number, ctx?: SemaWebContext): void {
+  getHandles(ctx).delete(id);
 }

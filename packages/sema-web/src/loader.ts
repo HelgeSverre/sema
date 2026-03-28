@@ -9,6 +9,7 @@
 
 interface SemaInterpreterLike {
   evalStr(code: string): { value: string | null; output: string[]; error: string | null };
+  evalStrAsync?(code: string): Promise<{ value: string | null; output: string[]; error: string | null }>;
 }
 
 /** Options for the script loader. */
@@ -26,6 +27,9 @@ export interface LoaderOptions {
  * Scripts are evaluated in document order:
  * 1. External scripts (`<script type="text/sema" src="app.sema">`) are fetched first
  * 2. Inline scripts (`<script type="text/sema">...</script>`) are evaluated directly
+ *
+ * If the interpreter supports `evalStrAsync`, it is used for evaluation.
+ * Otherwise falls back to synchronous `evalStr`.
  *
  * Errors are logged to the console but do not halt execution of subsequent scripts.
  *
@@ -71,7 +75,9 @@ export async function loadScripts(
     }
 
     try {
-      const result = interp.evalStr(code);
+      const result = interp.evalStrAsync
+        ? await interp.evalStrAsync(code)
+        : interp.evalStr(code);
 
       // Log output lines to console
       for (const line of result.output) {

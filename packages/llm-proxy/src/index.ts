@@ -48,4 +48,7 @@ export type {
   ModelsResponse,
   ProxyRequest,
   ProxyResponse,
+  ProxyErrorCode,
+  ProxyErrorResponse,
+  RateLimitConfig,
 } from "./types.js";

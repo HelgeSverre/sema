@@ -13,16 +13,22 @@
  * │ (llm/chat ...)   │──POST──▶│ /api/llm/chat    │──▶ OpenAI / Anthropic / etc.
  * │ (llm/complete ..)│──POST──▶│ /api/llm/complete │──▶ ...
  * │ (llm/embed ...)  │──POST──▶│ /api/llm/embed    │──▶ ...
+ * │ (llm/chat-stream)│──POST──▶│ /api/llm/stream   │──▶ SSE tokens ──▶ signal
  * └──────────────────┘         └──────────────────┘
  * ```
  *
  * ## Implementation
  *
- * All LLM functions are defined as pure Sema code using `http/post`,
+ * Most LLM functions are defined as pure Sema code using `http/post`,
  * `json/encode`, and `json/decode`. This piggybacks on the WASM
  * interpreter's HTTP replay mechanism: when called via `evalAsync()`,
  * `http/post` calls are intercepted, executed via browser `fetch()`,
  * and the results are replayed back transparently.
+ *
+ * `llm/chat-stream` is different — it is a JS-registered function that
+ * returns a reactive signal ID. The signal value is `{text, done, error}`
+ * and updates progressively as SSE tokens arrive from the proxy. Components
+ * that `(deref stream)` the signal auto-re-render via the reactive system.
  *
  * ## Usage
  *
@@ -32,10 +38,18 @@
  * });
  * // Must use evalAsync for HTTP-based LLM calls:
  * await web.evalAsync('(llm/chat (list (message :user "Hi")) {:model "gpt-4o"})');
+ *
+ * // Streaming (returns a signal, works synchronously):
+ * web.eval('(def s (llm/chat-stream (list (message :user "Hi")) {:model "gpt-4o"}))');
+ * // (deref s) → {:text "Hello wo" :done false}
+ * // ... later: (deref s) → {:text "Hello world!" :done true}
  * ```
  *
  * @module
  */
+
+import { signal } from "@preact/signals-core";
+import type { SemaWebContext } from "./context.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
@@ -92,6 +106,7 @@ export interface LlmProxyOptions {
 export function registerLlmBindings(
   interp: SemaInterpreterLike,
   opts: LlmProxyOptions,
+  ctx: SemaWebContext,
 ): void {
   const proxyUrl = opts.url.replace(/\/+$/, "");
 
@@ -110,6 +125,105 @@ export function registerLlmBindings(
 
   // Register a simple JS function for the proxy URL (sync, no HTTP needed)
   interp.registerFunction("llm/proxy-url", () => proxyUrl);
+
+  // --- llm/chat-stream: streaming chat that returns a reactive signal ---
+  //
+  // Returns a signal ID. The signal value is {text: "", done: false, error: null}.
+  // As SSE tokens arrive from the proxy, `text` accumulates and components
+  // that `(deref stream)` auto-re-render. When the stream finishes,
+  // `done` becomes true.
+  //
+  // Usage from Sema:
+  //   (def s (llm/chat-stream messages))        ; with defaults
+  //   (def s (llm/chat-stream messages opts))    ; with options map
+  //   (deref s) ;; → {:text "..." :done false :error nil}
+  interp.registerFunction("llm/chat-stream", (messages: any, streamOpts?: any) => {
+    const id = ctx.nextSignalId++;
+    const s = signal<{ text: string; done: boolean; error: string | null }>({
+      text: "",
+      done: false,
+      error: null,
+    });
+    ctx.signals.set(id, s as any);
+
+    // Build request headers
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(opts.headers || {}),
+    };
+    if (opts.token) {
+      headers["Authorization"] = `Bearer ${opts.token}`;
+    }
+
+    // Build the request body — messages + any per-call options
+    const body = JSON.stringify({
+      messages: messages,
+      ...(streamOpts && typeof streamOpts === "object" ? streamOpts : {}),
+      stream: true,
+    });
+
+    // Fire-and-forget: fetch SSE stream and update signal progressively
+    fetch(`${proxyUrl}/stream`, {
+      method: "POST",
+      headers,
+      body,
+    })
+      .then(async (response) => {
+        if (!response.ok || !response.body) {
+          s.value = { text: "", done: true, error: `HTTP ${response.status}` };
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let accumulated = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const data = line.slice(6).trim();
+              if (data === "[DONE]") {
+                s.value = { text: accumulated, done: true, error: null };
+                return;
+              }
+              try {
+                const parsed = JSON.parse(data);
+                // Extract content — supports OpenAI, Anthropic, and generic formats
+                const content =
+                  parsed.choices?.[0]?.delta?.content ||
+                  parsed.delta?.text ||
+                  parsed.content ||
+                  "";
+                if (content) {
+                  accumulated += content;
+                  s.value = { text: accumulated, done: false, error: null };
+                }
+              } catch {
+                // Not JSON — treat as raw text token
+                accumulated += data;
+                s.value = { text: accumulated, done: false, error: null };
+              }
+            }
+          }
+        }
+
+        // Stream ended without explicit [DONE] marker
+        s.value = { text: accumulated, done: true, error: null };
+      })
+      .catch((err) => {
+        s.value = { text: "", done: true, error: String(err) };
+      });
+
+    return id;
+  });
 
   // Define all LLM proxy functions as Sema code.
   // These use http/post which the WASM async loop intercepts for fetch().
