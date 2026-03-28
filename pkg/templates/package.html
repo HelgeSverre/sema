@@ -239,9 +239,26 @@
         </div>
       </section>
 
-      <section>
+      <section x-data="{ daily: [], total: {{ total_downloads }}, loaded: false }" x-init="
+        fetch('/api/v1/packages/{{ name }}/downloads')
+          .then(r => r.json())
+          .then(d => { daily = d.daily || []; total = d.total || 0; loaded = true; })
+          .catch(() => { loaded = true; })
+      ">
         <div class="section-label">Downloads</div>
-        <div class="sidebar-value">{{ total_downloads }}</div>
+        <div class="sidebar-value" x-text="total.toLocaleString()"></div>
+        <template x-if="daily.length > 0">
+          <div>
+            <div style="display:flex; align-items:end; gap:1px; height:32px; margin-top:0.5rem;">
+              <template x-for="d in daily" :key="d.date">
+                <div style="flex:1; background:var(--gold-dim); min-width:1px; border-radius:1px 1px 0 0;"
+                     :style="'height:' + (d.count / Math.max(...daily.map(x=>x.count), 1) * 100) + '%'"
+                     :title="d.date + ': ' + d.count + ' downloads'"></div>
+              </template>
+            </div>
+            <div style="font-size:0.55rem; color:var(--text-dim); margin-top:0.2rem;">Last 90 days</div>
+          </div>
+        </template>
       </section>
 
       {% if let Some(url) = repository_url %}

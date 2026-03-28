@@ -42,7 +42,7 @@ pub async fn stats(
             .map(|r| r.get("cnt"))
             .unwrap_or(0);
 
-    let total_downloads: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM download_log WHERE downloaded_at >= date('now', '-30 days')")
+    let total_downloads: i64 = sqlx::query("SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE download_date >= date('now', '-30 days')")
         .fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
 
     Json(serde_json::json!({
@@ -492,7 +492,7 @@ pub async fn list_packages(
               (SELECT pv.version FROM package_versions pv WHERE pv.package_id = p.id ORDER BY pv.published_at DESC LIMIT 1) as latest_version,
               (SELECT COUNT(*) FROM package_versions pv WHERE pv.package_id = p.id) as version_count,
               (SELECT u.username FROM users u JOIN owners o ON o.user_id = u.id WHERE o.package_id = p.id LIMIT 1) as owner,
-              (SELECT COUNT(*) FROM download_log dl WHERE dl.package_name = p.name) as downloads,
+              (SELECT COALESCE(SUM(count), 0) FROM download_daily dl WHERE dl.package_name = p.name) as downloads,
               EXISTS (SELECT 1 FROM reports r WHERE r.target_type = 'package' AND r.target_name = p.name AND r.status = 'open') as reported
            FROM packages p
            WHERE {where_sql}
@@ -601,7 +601,7 @@ pub async fn get_package(
     .map(|r| r.get("cnt"))
     .unwrap_or(0);
 
-    let dl_count: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM download_log WHERE package_name = ?")
+    let dl_count: i64 = sqlx::query("SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = ?")
         .bind(&name).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
 
     Json(serde_json::json!({

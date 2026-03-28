@@ -47,7 +47,7 @@ create_token() {
   curl -sf -X POST "$BASE/api/v1/tokens" \
     -H "Content-Type: application/json" \
     -H "Cookie: session=$session" \
-    -d "{\"name\":\"$name\"}" | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])"
+    -d "{\"name\":\"$name\"}" | grep -o '"token":"[^"]*"' | head -1 | cut -d'"' -f4
 }
 
 publish() {

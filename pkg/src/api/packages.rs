@@ -336,7 +336,7 @@ pub async fn get_package(
 
     let owners: Vec<String> = owner_rows.iter().map(|r| r.get("username")).collect();
 
-    let dl_count: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM download_log WHERE package_name = ?")
+    let dl_count: i64 = sqlx::query("SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = ?")
         .bind(&name).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
 
     Json(serde_json::json!({
@@ -383,8 +383,10 @@ pub async fn download(
     };
 
     // Record download
-    let _ = sqlx::query("INSERT INTO download_log (package_name, version) VALUES (?, ?)")
-        .bind(&name).bind(&version).execute(&state.db).await;
+    let _ = sqlx::query(
+        "INSERT INTO download_daily (package_name, version, download_date, count) VALUES (?, ?, date('now'), 1) ON CONFLICT(package_name, version, download_date) DO UPDATE SET count = count + 1"
+    )
+    .bind(&name).bind(&version).execute(&state.db).await;
 
     // GitHub-linked packages: redirect to upstream tarball
     let tarball_url: Option<String> = row.get("tarball_url");
@@ -419,6 +421,47 @@ pub async fn download(
         Body::from(data),
     )
         .into_response()
+}
+
+// ── Download Stats ──
+
+pub async fn download_stats(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    // Total downloads
+    let total: i64 = sqlx::query("SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = ?")
+        .bind(&name).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+
+    // Daily counts (last 90 days)
+    let daily_rows = sqlx::query(
+        "SELECT download_date, SUM(count) as count FROM download_daily WHERE package_name = ? AND download_date >= date('now', '-90 days') GROUP BY download_date ORDER BY download_date ASC"
+    )
+    .bind(&name).fetch_all(&state.db).await.unwrap_or_default();
+
+    let daily: Vec<serde_json::Value> = daily_rows.iter().map(|r| {
+        serde_json::json!({
+            "date": r.get::<String, _>("download_date"),
+            "count": r.get::<i64, _>("count"),
+        })
+    }).collect();
+
+    // Per-version totals
+    let version_rows = sqlx::query(
+        "SELECT version, SUM(count) as total FROM download_daily WHERE package_name = ? GROUP BY version ORDER BY total DESC"
+    )
+    .bind(&name).fetch_all(&state.db).await.unwrap_or_default();
+
+    let versions: serde_json::Map<String, serde_json::Value> = version_rows.iter().map(|r| {
+        (r.get::<String, _>("version"), serde_json::json!(r.get::<i64, _>("total")))
+    }).collect();
+
+    Json(serde_json::json!({
+        "package": name,
+        "total": total,
+        "daily": daily,
+        "versions": versions,
+    }))
 }
 
 // ── Search ──

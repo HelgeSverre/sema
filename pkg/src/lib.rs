@@ -50,6 +50,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Packages API
         .route("/api/v1/packages/{name}", get(api::packages::get_package))
         .route(
+            "/api/v1/packages/{name}/downloads",
+            get(api::packages::download_stats),
+        )
+        .route(
             "/api/v1/packages/{name}/{version}",
             put(api::packages::publish),
         )

@@ -3,7 +3,7 @@
 Stress-seed script for the Sema package registry.
 
 Populates the database with ~1000 users, ~500 packages, ~2000 versions,
-~200 reports, ~5000 audit log entries, and ~10000 download log entries.
+~200 reports, ~5000 audit log entries, and ~10000 downloads (aggregated daily).
 
 This script inserts bulk synthetic data directly via sqlite3.
 It does NOT create the admin user (helge) -- run seed.sh first for that.
@@ -336,9 +336,9 @@ def main():
     print(f"done ({len(version_rows)} inserted, {yanked_count} yanked) [{elapsed:.1f}s]")
 
     # ------------------------------------------------------------------
-    # 5. Download Log
+    # 5. Download Daily
     # ------------------------------------------------------------------
-    print(f"Inserting {NUM_DOWNLOADS} download log entries...", end=" ", flush=True)
+    print(f"Inserting {NUM_DOWNLOADS} downloads (aggregated by day)...", end=" ", flush=True)
     t1 = time.time()
 
     # Weight downloads toward a few "popular" packages
@@ -346,12 +346,13 @@ def main():
     popular_pkgs = package_names[:popular_count]
     other_pkgs = package_names[popular_count:]
 
-    # Build version lookup for download log
+    # Build version lookup for download daily
     pkg_versions = {}
     for row in conn.execute("SELECT p.name, pv.version FROM package_versions pv JOIN packages p ON p.id = pv.package_id").fetchall():
         pkg_versions.setdefault(row[0], []).append(row[1])
 
-    download_rows = []
+    # Aggregate downloads by (package_name, version, date)
+    download_counts: dict[tuple[str, str, str], int] = {}
     for _ in range(NUM_DOWNLOADS):
         # 70% downloads go to popular packages
         if random.random() < 0.7 and popular_pkgs:
@@ -363,17 +364,23 @@ def main():
 
         versions = pkg_versions.get(pkg_name, ["1.0.0"])
         version = random.choice(versions)
-        downloaded_at = random_date(60)
-        download_rows.append((pkg_name, version, downloaded_at))
+        download_date = random_date(60)
+        key = (pkg_name, version, download_date)
+        download_counts[key] = download_counts.get(key, 0) + 1
+
+    download_rows = [
+        (pkg_name, version, date, count)
+        for (pkg_name, version, date), count in download_counts.items()
+    ]
 
     conn.executemany(
-        "INSERT INTO download_log (package_name, version, downloaded_at) VALUES (?, ?, ?)",
+        "INSERT INTO download_daily (package_name, version, download_date, count) VALUES (?, ?, ?, ?)",
         download_rows,
     )
     conn.commit()
 
     elapsed = time.time() - t1
-    print(f"done [{elapsed:.1f}s]")
+    print(f"done ({len(download_rows)} rows from {NUM_DOWNLOADS} downloads) [{elapsed:.1f}s]")
 
     # ------------------------------------------------------------------
     # 6. Reports
@@ -516,7 +523,7 @@ def main():
     total_elapsed = time.time() - t0
 
     counts = {}
-    for table in ["users", "packages", "package_versions", "owners", "download_log", "reports", "audit_log"]:
+    for table in ["users", "packages", "package_versions", "owners", "download_daily", "reports", "audit_log"]:
         counts[table] = conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
 
     conn.close()
@@ -528,7 +535,7 @@ def main():
     print(f"  Packages:         {counts['packages']:>6}")
     print(f"  Versions:         {counts['package_versions']:>6}")
     print(f"  Owners:           {counts['owners']:>6}")
-    print(f"  Downloads:        {counts['download_log']:>6}")
+    print(f"  Downloads:        {counts['download_daily']:>6}")
     print(f"  Reports:          {counts['reports']:>6}")
     print(f"  Audit log:        {counts['audit_log']:>6}")
     print()
