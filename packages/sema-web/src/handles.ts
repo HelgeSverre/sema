@@ -7,6 +7,12 @@
  * @module
  */
 
+/**
+ * Regex pattern for valid Sema identifier names.
+ * Used to validate callback names and prevent code injection via evalStr.
+ */
+export const SEMA_IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_/\-?!*><=+.]*$/;
+
 /** Handle map storing DOM objects by numeric ID. */
 const handles = new Map<number, Element | Text | Event>();
 let nextHandle = 1;
