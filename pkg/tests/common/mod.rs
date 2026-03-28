@@ -19,11 +19,15 @@ pub async fn test_app() -> (Router, TempDir) {
 
 pub async fn test_app_with_state() -> (Router, Arc<AppState>, TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test.db");
     let blob_dir = dir.path().join("blobs");
     std::fs::create_dir_all(&blob_dir).unwrap();
 
-    let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
+    // Use DATABASE_URL from env if set (for multi-driver Docker testing),
+    // otherwise default to a temp SQLite database
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        let db_path = dir.path().join("test.db");
+        format!("sqlite://{}?mode=rwc", db_path.display())
+    });
     let db = sema_pkg::db::connect(&db_url).await;
 
     let config = sema_pkg::config::Config {
