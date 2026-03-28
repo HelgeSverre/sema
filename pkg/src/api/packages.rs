@@ -336,6 +336,9 @@ pub async fn get_package(
 
     let owners: Vec<String> = owner_rows.iter().map(|r| r.get("username")).collect();
 
+    let dl_count: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM download_log WHERE package_name = ?")
+        .bind(&name).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+
     Json(serde_json::json!({
         "package": {
             "name": pkg.get::<String, _>("name"),
@@ -345,6 +348,7 @@ pub async fn get_package(
         },
         "versions": version_list,
         "owners": owners,
+        "total_downloads": dl_count,
     }))
     .into_response()
 }
@@ -377,6 +381,10 @@ pub async fn download(
                 .into_response();
         }
     };
+
+    // Record download
+    let _ = sqlx::query("INSERT INTO download_log (package_name, version) VALUES (?, ?)")
+        .bind(&name).bind(&version).execute(&state.db).await;
 
     // GitHub-linked packages: redirect to upstream tarball
     let tarball_url: Option<String> = row.get("tarball_url");

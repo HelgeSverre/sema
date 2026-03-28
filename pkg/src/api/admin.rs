@@ -42,12 +42,15 @@ pub async fn stats(
             .map(|r| r.get("cnt"))
             .unwrap_or(0);
 
+    let total_downloads: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM download_log WHERE downloaded_at >= date('now', '-30 days')")
+        .fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+
     Json(serde_json::json!({
         "total_users": total_users,
         "total_packages": total_packages,
         "banned_users": banned_users,
         "open_reports": open_reports,
-        "total_downloads": 0,
+        "total_downloads": total_downloads,
     }))
 }
 
@@ -84,10 +87,12 @@ pub async fn list_users(
     let where_sql = where_clauses.join(" AND ");
     let sql = format!(
         r#"SELECT u.id, u.username, u.email, u.is_admin, u.github_id,
+              oc.provider_login,
               (SELECT COUNT(*) FROM owners WHERE owners.user_id = u.id) as package_count,
               (SELECT COUNT(*) FROM api_tokens WHERE api_tokens.user_id = u.id AND api_tokens.revoked_at IS NULL) as token_count,
               u.banned_at, u.created_at
            FROM users u
+           LEFT JOIN oauth_connections oc ON oc.user_id = u.id AND oc.provider = 'github' AND oc.revoked_at IS NULL
            WHERE {where_sql}
            ORDER BY u.created_at DESC"#
     );
@@ -110,6 +115,7 @@ pub async fn list_users(
                 "email": r.get::<String, _>("email"),
                 "is_admin": r.get::<i32, _>("is_admin") != 0,
                 "github_id": github_id,
+                "github_login": r.get::<Option<String>, _>("provider_login"),
                 "package_count": r.get::<i64, _>("package_count"),
                 "token_count": r.get::<i64, _>("token_count"),
                 "banned": banned_at.is_some(),
@@ -170,6 +176,9 @@ pub async fn get_user(
     .map(|r| r.get("cnt"))
     .unwrap_or(0);
 
+    let pkg_count: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM owners WHERE user_id = ?")
+        .bind(user_id).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+
     Json(serde_json::json!({
         "user": {
             "id": row.get::<i64, _>("id"),
@@ -181,6 +190,7 @@ pub async fn get_user(
             "created_at": row.get::<String, _>("created_at"),
         },
         "packages": package_names,
+        "package_count": pkg_count,
         "active_token_count": token_count,
     }))
     .into_response()
@@ -437,6 +447,7 @@ pub async fn list_packages(
               (SELECT pv.version FROM package_versions pv WHERE pv.package_id = p.id ORDER BY pv.published_at DESC LIMIT 1) as latest_version,
               (SELECT COUNT(*) FROM package_versions pv WHERE pv.package_id = p.id) as version_count,
               (SELECT u.username FROM users u JOIN owners o ON o.user_id = u.id WHERE o.package_id = p.id LIMIT 1) as owner,
+              (SELECT COUNT(*) FROM download_log dl WHERE dl.package_name = p.name) as downloads,
               EXISTS (SELECT 1 FROM reports r WHERE r.target_type = 'package' AND r.target_name = p.name AND r.status = 'open') as reported
            FROM packages p
            WHERE {where_sql}
@@ -460,6 +471,7 @@ pub async fn list_packages(
                 "version_count": r.get::<i64, _>("version_count"),
                 "source": r.get::<String, _>("source"),
                 "owner": r.get::<Option<String>, _>("owner"),
+                "downloads": r.get::<i64, _>("downloads"),
                 "reported": r.get::<i32, _>("reported") != 0,
                 "created_at": r.get::<String, _>("created_at"),
             })
@@ -537,6 +549,9 @@ pub async fn get_package(
     .map(|r| r.get("cnt"))
     .unwrap_or(0);
 
+    let dl_count: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM download_log WHERE package_name = ?")
+        .bind(&name).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+
     Json(serde_json::json!({
         "package": {
             "name": pkg.get::<String, _>("name"),
@@ -549,6 +564,7 @@ pub async fn get_package(
         "versions": version_list,
         "owners": owners,
         "open_reports": open_reports,
+        "total_downloads": dl_count,
     }))
     .into_response()
 }

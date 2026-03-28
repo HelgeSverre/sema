@@ -103,6 +103,7 @@ pub struct PackageTemplate {
     pub owners: Vec<String>,
     pub versions: Vec<VersionInfo>,
     pub deps: Vec<DepInfo>,
+    pub total_downloads: i64,
 }
 
 #[derive(Template)]
@@ -330,7 +331,10 @@ pub async fn package_detail(
     .unwrap_or_default();
     let owners: Vec<String> = owner_rows.iter().map(|r| r.get("username")).collect();
 
-    render(PackageTemplate { username: si.username, is_admin: si.is_admin, name, description, repository_url, source, github_repo, owners, versions, deps }).into_response()
+    let total_downloads: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM download_log WHERE package_name = ?")
+        .bind(&name).fetch_one(&state.db).await.map(|r| r.get("cnt")).unwrap_or(0);
+
+    render(PackageTemplate { username: si.username, is_admin: si.is_admin, name, description, repository_url, source, github_repo, owners, versions, deps, total_downloads }).into_response()
 }
 
 pub async fn login(

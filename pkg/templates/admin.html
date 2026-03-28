@@ -514,7 +514,7 @@
       <div>
         <template x-for="entry in auditLog.slice(0, 8)" :key="entry.id">
           <div class="audit-entry">
-            <span class="audit-time" x-text="timeAgo(entry.created_at)"></span>
+            <span class="audit-time" :title="entry.created_at" x-text="timeAgo(entry.created_at)"></span>
             <span class="audit-actor" x-text="entry.actor"></span>
             <span class="audit-action" x-html="entry.action"></span>
           </div>
@@ -558,13 +558,13 @@
               <td style="color:var(--text-dim);" x-text="user.email"></td>
               <td x-text="user.package_count"></td>
               <td>
-                <template x-if="user.github_username"><span class="status status-github" x-text="user.github_username"></span></template>
-                <template x-if="!user.github_username"><span style="color:var(--text-dim);">&mdash;</span></template>
+                <template x-if="user.github_login"><span class="status status-github" x-text="user.github_login"></span></template>
+                <template x-if="!user.github_login"><span style="color:var(--text-dim);">&mdash;</span></template>
               </td>
               <td>
                 <span class="status" :class="user.banned ? 'status-banned' : 'status-active'" x-text="user.banned ? 'Banned' : 'Active'"></span>
               </td>
-              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="timeAgo(user.created_at)"></td>
+              <td style="color:var(--text-dim); font-size:0.68rem;"><span :title="user.created_at" x-text="timeAgo(user.created_at)"></span></td>
               <td class="col-actions">
                 <button class="action-btn action-btn-ghost" @click="openUserDrawer(user)">View</button>
                 <template x-if="!user.banned">
@@ -624,7 +624,7 @@
               <td><span class="status" :class="pkg.source === 'github' ? 'status-github' : 'status-active'" x-text="pkg.source"></span></td>
               <td style="color:var(--text-dim);" x-text="pkg.owner"></td>
               <td style="color:var(--text-dim);" x-text="(pkg.downloads || 0).toLocaleString()"></td>
-              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="timeAgo(pkg.created_at)"></td>
+              <td style="color:var(--text-dim); font-size:0.68rem;"><span :title="pkg.created_at" x-text="timeAgo(pkg.created_at)"></span></td>
               <td class="col-actions">
                 <button class="action-btn action-btn-ghost" @click="openPkgDrawer(pkg)">View</button>
                 <button class="action-btn action-btn-warn" @click="confirmAction('yank-all', pkg)">Yank All</button>
@@ -658,7 +658,7 @@
       <div>
         <template x-for="entry in auditLog" :key="entry.id">
           <div class="audit-entry">
-            <span class="audit-time" x-text="timeAgo(entry.created_at)"></span>
+            <span class="audit-time" :title="entry.created_at" x-text="timeAgo(entry.created_at)"></span>
             <span class="audit-actor" x-text="entry.actor"></span>
             <span class="audit-action" x-html="entry.action"></span>
           </div>
@@ -679,12 +679,12 @@
           <div style="padding:0.85rem 1rem; border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:1rem;" :style="index === 0 ? 'border-top:1px solid var(--border)' : ''">
             <div style="flex:1;">
               <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
-                <span class="status" :class="report.type === 'spam' ? 'status-banned' : 'status-yanked'" x-text="report.type"></span>
-                <span style="font-size:0.78rem; color:var(--text-bright);" x-text="report.target"></span>
+                <span class="status" :class="report.report_type === 'spam' ? 'status-banned' : 'status-yanked'" x-text="report.report_type"></span>
+                <span style="font-size:0.78rem; color:var(--text-bright);" x-text="report.target_name"></span>
               </div>
               <div style="font-size:0.72rem; color:var(--text);" x-text="report.reason"></div>
               <div style="font-size:0.6rem; color:var(--text-dim); margin-top:0.2rem;">
-                Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span x-text="timeAgo(report.created_at)"></span>
+                Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span :title="report.created_at" x-text="timeAgo(report.created_at)"></span>
               </div>
             </div>
             <div style="display:flex; gap:0.3rem; flex-shrink:0;">
@@ -714,8 +714,8 @@
           <div class="drawer-section">
             <div class="drawer-section-title">Account</div>
             <div class="drawer-field"><span class="drawer-field-label">Email</span><span class="drawer-field-value" x-text="userDrawer.email"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Joined</span><span class="drawer-field-value" x-text="timeAgo(userDrawer.created_at)"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">GitHub</span><span class="drawer-field-value" x-text="userDrawer.github_username || 'Not connected'"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Joined</span><span class="drawer-field-value"><span :title="userDrawer.created_at" x-text="timeAgo(userDrawer.created_at)"></span></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">GitHub</span><span class="drawer-field-value" x-text="userDrawer.github_login || 'Not connected'"></span></div>
             <div class="drawer-field"><span class="drawer-field-label">Status</span><span class="drawer-field-value"><span class="status" :class="userDrawer.banned ? 'status-banned' : 'status-active'" x-text="userDrawer.banned ? 'Banned' : 'Active'"></span></span></div>
           </div>
           <div class="drawer-section">
@@ -726,7 +726,7 @@
           </div>
           <div class="drawer-section">
             <div class="drawer-section-title">Tokens</div>
-            <div style="font-size:0.72rem; color:var(--text-dim);" x-text="(userDrawer.token_count || 0) + ' active token(s)'"></div>
+            <div style="font-size:0.72rem; color:var(--text-dim);" x-text="(userDrawer.active_token_count || 0) + ' active token(s)'"></div>
           </div>
         </div>
         <div class="drawer-actions">
@@ -756,10 +756,10 @@
           <div class="drawer-section">
             <div class="drawer-section-title">Details</div>
             <div class="drawer-field"><span class="drawer-field-label">Source</span><span class="drawer-field-value" x-text="pkgDrawer.source"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Owner</span><span class="drawer-field-value" style="color:var(--gold);" x-text="pkgDrawer.owner"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Latest</span><span class="drawer-field-value" x-text="pkgDrawer.latest_version ? ('v' + pkgDrawer.latest_version) : 'N/A'"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Versions</span><span class="drawer-field-value" x-text="pkgDrawer.version_count"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Downloads</span><span class="drawer-field-value" x-text="(pkgDrawer.downloads || 0).toLocaleString()"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Owner</span><span class="drawer-field-value" style="color:var(--gold);" x-text="pkgDrawer.owners ? pkgDrawer.owners.join(', ') : ''"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Latest</span><span class="drawer-field-value" x-text="pkgDrawer.versions?.[0]?.version ? ('v' + pkgDrawer.versions[0].version) : 'N/A'"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Versions</span><span class="drawer-field-value" x-text="pkgDrawer.versions?.length || 0"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Downloads</span><span class="drawer-field-value" x-text="(pkgDrawer.total_downloads || 0).toLocaleString()"></span></div>
             <div class="drawer-field"><span class="drawer-field-label">Description</span><span class="drawer-field-value" x-text="pkgDrawer.description"></span></div>
           </div>
           <div class="drawer-section" x-show="pkgDrawer.versions && pkgDrawer.versions.length">
@@ -770,7 +770,7 @@
                   <span style="color:var(--text-bright);" x-text="v.version"></span>
                   <template x-if="v.yanked"><span class="status status-yanked" style="margin-left:0.3rem;">yanked</span></template>
                 </span>
-                <span style="color:var(--text-dim);" x-text="timeAgo(v.created_at)"></span>
+                <span style="color:var(--text-dim);" :title="v.published_at" x-text="timeAgo(v.published_at)"></span>
               </div>
             </template>
           </div>
