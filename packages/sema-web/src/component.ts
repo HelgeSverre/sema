@@ -366,8 +366,11 @@ export function registerComponentBindings(interp: SemaInterpreterLike, ctx: Sema
 
   // --- Sema-side convenience wrappers ---
   const semaResult = interp.evalStr(`
-    (define (mount! selector component-fn)
-      (component/mount! selector component-fn))
+    (defmacro mount! (selector component-name)
+      \`(component/mount! ,selector
+         ,(if (symbol? component-name)
+            (symbol->string component-name)
+            component-name)))
 
     (define (local name initial) (__component/local name initial))
 
