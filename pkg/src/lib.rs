@@ -77,5 +77,50 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/v1/webhooks/github",
             post(api::github::webhook),
         )
+        // Admin API
+        .route("/api/v1/admin/stats", get(api::admin::stats))
+        .route("/api/v1/admin/users", get(api::admin::list_users))
+        .route("/api/v1/admin/users/{id}", get(api::admin::get_user))
+        .route("/api/v1/admin/users/{id}/ban", post(api::admin::ban_user))
+        .route(
+            "/api/v1/admin/users/{id}/unban",
+            post(api::admin::unban_user),
+        )
+        .route(
+            "/api/v1/admin/users/{id}/revoke-tokens",
+            post(api::admin::revoke_user_tokens),
+        )
+        .route(
+            "/api/v1/admin/users/{id}/role",
+            put(api::admin::set_user_role),
+        )
+        .route(
+            "/api/v1/admin/packages",
+            get(api::admin::list_packages),
+        )
+        .route(
+            "/api/v1/admin/packages/{name}",
+            get(api::admin::get_package).delete(api::admin::remove_package),
+        )
+        .route(
+            "/api/v1/admin/packages/{name}/yank-all",
+            post(api::admin::yank_all_versions),
+        )
+        .route(
+            "/api/v1/admin/packages/{name}/transfer",
+            post(api::admin::transfer_ownership),
+        )
+        .route("/api/v1/admin/audit", get(api::admin::list_audit))
+        .route("/api/v1/admin/reports", get(api::admin::list_reports))
+        .route(
+            "/api/v1/admin/reports/{id}/action",
+            post(api::admin::action_report),
+        )
+        .route(
+            "/api/v1/admin/reports/{id}/dismiss",
+            post(api::admin::dismiss_report),
+        )
+        // Report submission (any authenticated user)
+        .route("/api/v1/reports", post(api::admin::submit_report))
         .with_state(state)
 }

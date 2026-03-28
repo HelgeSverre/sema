@@ -139,6 +139,8 @@ pub async fn link(
         }
     }
 
+    crate::audit::log(&state.db, &user.username, "link_repo", Some("package"), Some(&manifest.name), Some(&github_repo)).await.ok();
+
     (StatusCode::CREATED, Json(serde_json::json!({
         "ok": true,
         "package": manifest.name,
@@ -323,6 +325,7 @@ pub async fn webhook(
     ).await {
         Ok(true) => {
             tracing::info!("Webhook: synced {repo_full_name} tag {tag_name} as {version}");
+            crate::audit::log(&state.db, "system", "webhook_sync", Some("package"), Some(repo_full_name), Some(tag_name)).await.ok();
             Json(serde_json::json!({"ok": true, "version": version.to_string(), "imported": true})).into_response()
         }
         Ok(false) => {

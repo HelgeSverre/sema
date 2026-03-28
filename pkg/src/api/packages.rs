@@ -260,6 +260,8 @@ pub async fn publish(
             .await;
     }
 
+    crate::audit::log(&state.db, &user.username, "publish", Some("package"), Some(&name), Some(&version_str)).await.ok();
+
     (
         StatusCode::CREATED,
         Json(serde_json::json!({
@@ -513,6 +515,7 @@ pub async fn yank(
 
     match result {
         Ok(r) if r.rows_affected() > 0 => {
+            crate::audit::log(&state.db, &user.username, "yank", Some("version"), Some(&name), Some(&version)).await.ok();
             Json(serde_json::json!({"ok": true})).into_response()
         }
         _ => (
@@ -602,6 +605,8 @@ pub async fn add_owner(
         .execute(&state.db)
         .await;
 
+    crate::audit::log(&state.db, &user.username, "add_owner", Some("package"), Some(&name), Some(&body.username)).await.ok();
+
     Json(serde_json::json!({"ok": true})).into_response()
 }
 
@@ -664,6 +669,8 @@ pub async fn remove_owner(
             .execute(&state.db)
             .await;
     }
+
+    crate::audit::log(&state.db, &user.username, "remove_owner", Some("package"), Some(&name), Some(&body.username)).await.ok();
 
     Json(serde_json::json!({"ok": true})).into_response()
 }
