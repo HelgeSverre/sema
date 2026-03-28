@@ -40,6 +40,8 @@ import { registerStoreBindings } from "./store.js";
 import { registerReactiveBindings } from "./reactive.js";
 import { registerHiccupBindings } from "./hiccup.js";
 import { registerComponentBindings } from "./component.js";
+import { registerLlmBindings } from "./llm.js";
+import type { LlmProxyOptions } from "./llm.js";
 import { loadScripts } from "./loader.js";
 import type { LoaderOptions } from "./loader.js";
 
@@ -94,6 +96,32 @@ export interface SemaWebOptions extends InterpreterOptions {
    * Default: `true`.
    */
   console?: boolean;
+
+  /**
+   * LLM proxy configuration. When provided, registers `llm/*` namespace
+   * functions that forward requests to the specified backend proxy URL.
+   *
+   * The proxy server holds API keys and forwards to LLM providers.
+   * This is the secure way to use LLM functions from the browser.
+   *
+   * Can be a full options object or just the proxy URL string.
+   *
+   * @example
+   * ```js
+   * // Simple: just the URL
+   * await SemaWeb.create({ llmProxy: "https://api.example.com/llm" });
+   *
+   * // Full options
+   * await SemaWeb.create({
+   *   llmProxy: {
+   *     url: "https://api.example.com/llm",
+   *     token: "user-session-token",
+   *     timeout: 30000,
+   *   },
+   * });
+   * ```
+   */
+  llmProxy?: string | LlmProxyOptions;
 }
 
 /** Result of evaluating Sema code. */
@@ -167,6 +195,15 @@ export class SemaWeb {
     // Component system (mount!/unmount! with reactive re-rendering)
     if (opts?.components !== false) {
       registerComponentBindings(interp);
+    }
+
+    // LLM proxy bindings (forward llm/* calls to backend server)
+    if (opts?.llmProxy) {
+      const proxyOpts: LlmProxyOptions =
+        typeof opts.llmProxy === "string"
+          ? { url: opts.llmProxy }
+          : opts.llmProxy;
+      registerLlmBindings(interp, proxyOpts);
     }
 
     // Auto-discover and evaluate <script type="text/sema"> tags
@@ -302,9 +339,11 @@ function registerConsoleBindings(interp: SemaInterpreter): void {
 
 // Re-export types
 export type { LoaderOptions } from "./loader.js";
+export type { LlmProxyOptions } from "./llm.js";
 export { registerDomBindings } from "./dom.js";
 export { registerStoreBindings } from "./store.js";
 export { registerReactiveBindings } from "./reactive.js";
 export { registerHiccupBindings, renderHiccup } from "./hiccup.js";
 export { registerComponentBindings } from "./component.js";
+export { registerLlmBindings } from "./llm.js";
 export { loadScripts } from "./loader.js";
