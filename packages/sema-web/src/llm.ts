@@ -204,18 +204,19 @@ export function registerLlmBindings(
 
   const result = interp.evalStr(semaCode);
   if (result.error) {
-    console.error("[sema-web] Failed to register LLM bindings:", result.error);
+    throw new Error(`[sema-web] Failed to register LLM bindings: ${result.error}`);
   }
 }
 
 /**
  * Escape a string for safe embedding in Sema code.
- * Handles backslashes, double quotes, and newlines.
+ * Handles backslashes, double quotes, newlines, carriage returns, and tabs.
  */
 function escapeSemaString(s: string): string {
   return s
     .replace(/\\/g, "\\\\")
     .replace(/"/g, '\\"')
     .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r");
+    .replace(/\r/g, "\\r")
+    .replace(/\t/g, "\\t");
 }

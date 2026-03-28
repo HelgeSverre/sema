@@ -2,6 +2,10 @@
 ;;
 ;; This example uses atoms + hiccup + mount! to build a simple
 ;; chat interface that sends messages to an LLM via the proxy.
+;;
+;; Note: LLM calls use http/post internally, so the page must use
+;; evalAsync (which SemaWeb.init() does via the script loader).
+;; The WASM HTTP replay mechanism handles the async I/O transparently.
 
 ;; ── State ──────────────────────────────────────────────
 
