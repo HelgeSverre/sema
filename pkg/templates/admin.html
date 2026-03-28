@@ -76,6 +76,8 @@
 .admin-main {
   flex: 1;
   padding: 1.5rem 2rem;
+  overflow-y: auto;
+  max-height: calc(100vh - 48px);
 }
 
 .page-title {
@@ -512,7 +514,7 @@
       <div>
         <template x-for="entry in auditLog.slice(0, 8)" :key="entry.id">
           <div class="audit-entry">
-            <span class="audit-time" :title="entry.created_at" x-text="timeAgo(entry.created_at)"></span>
+            <span class="audit-time" x-text="entry.time"></span>
             <span class="audit-actor" x-text="entry.actor"></span>
             <span class="audit-action" x-html="entry.action"></span>
           </div>
@@ -529,8 +531,8 @@
       <p class="page-desc">Manage registered accounts</p>
 
       <div class="toolbar">
-        <input type="text" class="toolbar-search" placeholder="Search users by name or email..." x-model="userSearch" @input.debounce.300ms="userPage = 1; loadUsers()">
-        <select class="toolbar-filter" x-model="userFilter" @change="userPage = 1; loadUsers()">
+        <input type="text" class="toolbar-search" placeholder="Search users by name or email..." x-model="userSearch" @input.debounce.300ms="loadUsers()">
+        <select class="toolbar-filter" x-model="userFilter" @change="loadUsers()">
           <option value="all">All users</option>
           <option value="active">Active</option>
           <option value="banned">Banned</option>
@@ -556,13 +558,13 @@
               <td style="color:var(--text-dim);" x-text="user.email"></td>
               <td x-text="user.package_count"></td>
               <td>
-                <template x-if="user.github_login"><span class="status status-github" x-text="user.github_login"></span></template>
-                <template x-if="!user.github_login"><span style="color:var(--text-dim);">&mdash;</span></template>
+                <template x-if="user.github_username"><span class="status status-github" x-text="user.github_username"></span></template>
+                <template x-if="!user.github_username"><span style="color:var(--text-dim);">&mdash;</span></template>
               </td>
               <td>
                 <span class="status" :class="user.banned ? 'status-banned' : 'status-active'" x-text="user.banned ? 'Banned' : 'Active'"></span>
               </td>
-              <td style="color:var(--text-dim); font-size:0.68rem;"><span :title="user.created_at" x-text="timeAgo(user.created_at)"></span></td>
+              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="user.created_at"></td>
               <td class="col-actions">
                 <button class="action-btn action-btn-ghost" @click="openUserDrawer(user)">View</button>
                 <template x-if="!user.banned">
@@ -579,15 +581,6 @@
       <template x-if="users.length === 0">
         <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No users found.</div>
       </template>
-      <div style="display:flex; justify-content:center; align-items:center; gap:0.75rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border);"
-           x-show="userTotal > perPage">
-        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
-                @click="userPage--; loadUsers()" :disabled="userPage <= 1">← Prev</button>
-        <span style="font-size:0.65rem; color:var(--text-dim);"
-              x-text="userPage + ' / ' + Math.ceil(userTotal / perPage)"></span>
-        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
-                @click="userPage++; loadUsers()" :disabled="userPage >= Math.ceil(userTotal / perPage)">Next →</button>
-      </div>
     </div>
 
     <!-- Packages -->
@@ -596,8 +589,8 @@
       <p class="page-desc">Manage published packages and versions</p>
 
       <div class="toolbar">
-        <input type="text" class="toolbar-search" placeholder="Search packages..." x-model="pkgSearch" @input.debounce.300ms="pkgPage = 1; loadPackages()">
-        <select class="toolbar-filter" x-model="pkgFilter" @change="pkgPage = 1; loadPackages()">
+        <input type="text" class="toolbar-search" placeholder="Search packages..." x-model="pkgSearch" @input.debounce.300ms="loadPackages()">
+        <select class="toolbar-filter" x-model="pkgFilter" @change="loadPackages()">
           <option value="all">All packages</option>
           <option value="upload">Upload-sourced</option>
           <option value="github">GitHub-linked</option>
@@ -621,7 +614,7 @@
           <template x-for="pkg in packages" :key="pkg.name">
             <tr>
               <td>
-                <a :href="'/packages/' + pkg.name" style="color:var(--gold); text-decoration:none;" x-text="pkg.name"></a>
+                <span style="color:var(--gold);" x-text="pkg.name"></span>
                 <span style="font-size:0.6rem; color:var(--text-dim); margin-left:0.3rem;" x-text="pkg.latest_version ? ('v' + pkg.latest_version) : ''"></span>
                 <template x-if="pkg.reported">
                   <span class="status" style="margin-left:0.3rem; background:var(--error-dim); color:var(--error); border:1px solid var(--error-border);">Reported</span>
@@ -631,7 +624,7 @@
               <td><span class="status" :class="pkg.source === 'github' ? 'status-github' : 'status-active'" x-text="pkg.source"></span></td>
               <td style="color:var(--text-dim);" x-text="pkg.owner"></td>
               <td style="color:var(--text-dim);" x-text="(pkg.downloads || 0).toLocaleString()"></td>
-              <td style="color:var(--text-dim); font-size:0.68rem;"><span :title="pkg.created_at" x-text="timeAgo(pkg.created_at)"></span></td>
+              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="pkg.updated_at"></td>
               <td class="col-actions">
                 <button class="action-btn action-btn-ghost" @click="openPkgDrawer(pkg)">View</button>
                 <button class="action-btn action-btn-warn" @click="confirmAction('yank-all', pkg)">Yank All</button>
@@ -644,15 +637,6 @@
       <template x-if="packages.length === 0">
         <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No packages found.</div>
       </template>
-      <div style="display:flex; justify-content:center; align-items:center; gap:0.75rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border);"
-           x-show="pkgTotal > perPage">
-        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
-                @click="pkgPage--; loadPackages()" :disabled="pkgPage <= 1">← Prev</button>
-        <span style="font-size:0.65rem; color:var(--text-dim);"
-              x-text="pkgPage + ' / ' + Math.ceil(pkgTotal / perPage)"></span>
-        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
-                @click="pkgPage++; loadPackages()" :disabled="pkgPage >= Math.ceil(pkgTotal / perPage)">Next →</button>
-      </div>
     </div>
 
     <!-- Audit Log -->
@@ -661,8 +645,8 @@
       <p class="page-desc">All administrative and system actions</p>
 
       <div class="toolbar">
-        <input type="text" class="toolbar-search" placeholder="Filter events..." x-model="auditSearch" @input.debounce.300ms="auditPage = 1; loadAudit()">
-        <select class="toolbar-filter" x-model="auditFilter" @change="auditPage = 1; loadAudit()">
+        <input type="text" class="toolbar-search" placeholder="Filter events..." x-model="auditSearch" @input.debounce.300ms="loadAudit()">
+        <select class="toolbar-filter" x-model="auditFilter" @change="loadAudit()">
           <option value="all">All events</option>
           <option value="admin">Admin actions</option>
           <option value="publish">Publishes</option>
@@ -674,7 +658,7 @@
       <div>
         <template x-for="entry in auditLog" :key="entry.id">
           <div class="audit-entry">
-            <span class="audit-time" :title="entry.created_at" x-text="timeAgo(entry.created_at)"></span>
+            <span class="audit-time" x-text="entry.time"></span>
             <span class="audit-actor" x-text="entry.actor"></span>
             <span class="audit-action" x-html="entry.action"></span>
           </div>
@@ -683,15 +667,6 @@
           <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No audit entries found.</div>
         </template>
       </div>
-      <div style="display:flex; justify-content:center; align-items:center; gap:0.75rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border);"
-           x-show="auditTotal > perPage">
-        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
-                @click="auditPage--; loadAudit()" :disabled="auditPage <= 1">← Prev</button>
-        <span style="font-size:0.65rem; color:var(--text-dim);"
-              x-text="auditPage + ' / ' + Math.ceil(auditTotal / perPage)"></span>
-        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
-                @click="auditPage++; loadAudit()" :disabled="auditPage >= Math.ceil(auditTotal / perPage)">Next →</button>
-      </div>
     </div>
 
     <!-- Reports -->
@@ -699,40 +674,28 @@
       <h1 class="page-title">Reports</h1>
       <p class="page-desc">User-submitted reports requiring review</p>
 
-      <div style="display:flex; flex-direction:column; gap:0.75rem;">
-        <template x-for="report in reports" :key="report.id">
-          <div style="padding:1rem 1.2rem; background:var(--bg-raised); border:1px solid var(--border); border-radius:6px;">
-            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;">
-              <div style="flex:1; min-width:0;">
-                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.4rem;">
-                  <span class="status" :class="report.report_type === 'spam' ? 'status-banned' : report.report_type === 'malware' ? 'status-banned' : 'status-yanked'" x-text="report.report_type"></span>
-                  <a :href="report.target_type === 'package' ? ('/packages/' + report.target_name) : '#'" style="font-size:0.82rem; color:var(--text-bright); text-decoration:none;" :style="report.target_type === 'package' ? 'color:var(--gold)' : ''" x-text="report.target_name"></a>
-                  <span style="font-size:0.58rem; color:var(--text-dim); padding:0.1rem 0.3rem; border:1px solid var(--border); border-radius:3px;" x-text="report.target_type"></span>
-                </div>
-                <div style="font-size:0.75rem; color:var(--text); line-height:1.5; margin-bottom:0.5rem;" x-text="report.reason"></div>
-                <div style="font-size:0.62rem; color:var(--text-dim);">
-                  Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span :title="report.created_at" x-text="timeAgo(report.created_at)"></span>
-                </div>
+      <div style="display:flex; flex-direction:column; gap:0;">
+        <template x-for="(report, index) in reports" :key="report.id">
+          <div style="padding:0.85rem 1rem; border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:1rem;" :style="index === 0 ? 'border-top:1px solid var(--border)' : ''">
+            <div style="flex:1;">
+              <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
+                <span class="status" :class="report.type === 'spam' ? 'status-banned' : 'status-yanked'" x-text="report.type"></span>
+                <span style="font-size:0.78rem; color:var(--text-bright);" x-text="report.target"></span>
               </div>
-              <div style="display:flex; gap:0.4rem; flex-shrink:0; padding-top:0.1rem;">
-                <button class="action-btn action-btn-danger" @click="confirmAction('remove', report)">Act</button>
-                <button class="action-btn action-btn-ghost" @click="dismissReport(report)">Dismiss</button>
+              <div style="font-size:0.72rem; color:var(--text);" x-text="report.reason"></div>
+              <div style="font-size:0.6rem; color:var(--text-dim); margin-top:0.2rem;">
+                Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span x-text="report.time"></span>
               </div>
+            </div>
+            <div style="display:flex; gap:0.3rem; flex-shrink:0;">
+              <button class="action-btn action-btn-danger" @click="confirmAction('remove', report)">Act</button>
+              <button class="action-btn action-btn-ghost" @click="dismissReport(report)">Dismiss</button>
             </div>
           </div>
         </template>
         <template x-if="reports.length === 0">
-          <div style="color:var(--text-dim); font-size:0.72rem; padding:2rem 0; text-align:center; font-style:italic;">No open reports.</div>
+          <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No open reports.</div>
         </template>
-      </div>
-      <div style="display:flex; justify-content:center; align-items:center; gap:0.75rem; margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--border);"
-           x-show="reportTotal > perPage">
-        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
-                @click="reportPage--; loadReports()" :disabled="reportPage <= 1">← Prev</button>
-        <span style="font-size:0.65rem; color:var(--text-dim);"
-              x-text="reportPage + ' / ' + Math.ceil(reportTotal / perPage)"></span>
-        <button class="action-btn action-btn-ghost" style="padding:0.3rem 0.6rem;"
-                @click="reportPage++; loadReports()" :disabled="reportPage >= Math.ceil(reportTotal / perPage)">Next →</button>
       </div>
     </div>
 
@@ -751,8 +714,8 @@
           <div class="drawer-section">
             <div class="drawer-section-title">Account</div>
             <div class="drawer-field"><span class="drawer-field-label">Email</span><span class="drawer-field-value" x-text="userDrawer.email"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Joined</span><span class="drawer-field-value"><span :title="userDrawer.created_at" x-text="timeAgo(userDrawer.created_at)"></span></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">GitHub</span><span class="drawer-field-value" x-text="userDrawer.github_login || 'Not connected'"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Joined</span><span class="drawer-field-value" x-text="userDrawer.created_at"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">GitHub</span><span class="drawer-field-value" x-text="userDrawer.github_username || 'Not connected'"></span></div>
             <div class="drawer-field"><span class="drawer-field-label">Status</span><span class="drawer-field-value"><span class="status" :class="userDrawer.banned ? 'status-banned' : 'status-active'" x-text="userDrawer.banned ? 'Banned' : 'Active'"></span></span></div>
           </div>
           <div class="drawer-section">
@@ -763,7 +726,7 @@
           </div>
           <div class="drawer-section">
             <div class="drawer-section-title">Tokens</div>
-            <div style="font-size:0.72rem; color:var(--text-dim);" x-text="(userDrawer.active_token_count || 0) + ' active token(s)'"></div>
+            <div style="font-size:0.72rem; color:var(--text-dim);" x-text="(userDrawer.token_count || 0) + ' active token(s)'"></div>
           </div>
         </div>
         <div class="drawer-actions">
@@ -793,10 +756,10 @@
           <div class="drawer-section">
             <div class="drawer-section-title">Details</div>
             <div class="drawer-field"><span class="drawer-field-label">Source</span><span class="drawer-field-value" x-text="pkgDrawer.source"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Owner</span><span class="drawer-field-value" style="color:var(--gold);" x-text="pkgDrawer.owners ? pkgDrawer.owners.join(', ') : ''"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Latest</span><span class="drawer-field-value" x-text="pkgDrawer.versions?.[0]?.version ? ('v' + pkgDrawer.versions[0].version) : 'N/A'"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Versions</span><span class="drawer-field-value" x-text="pkgDrawer.versions?.length || 0"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Downloads</span><span class="drawer-field-value" x-text="(pkgDrawer.total_downloads || 0).toLocaleString()"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Owner</span><span class="drawer-field-value" style="color:var(--gold);" x-text="pkgDrawer.owner"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Latest</span><span class="drawer-field-value" x-text="pkgDrawer.latest_version ? ('v' + pkgDrawer.latest_version) : 'N/A'"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Versions</span><span class="drawer-field-value" x-text="pkgDrawer.version_count"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Downloads</span><span class="drawer-field-value" x-text="(pkgDrawer.downloads || 0).toLocaleString()"></span></div>
             <div class="drawer-field"><span class="drawer-field-label">Description</span><span class="drawer-field-value" x-text="pkgDrawer.description"></span></div>
           </div>
           <div class="drawer-section" x-show="pkgDrawer.versions && pkgDrawer.versions.length">
@@ -807,7 +770,7 @@
                   <span style="color:var(--text-bright);" x-text="v.version"></span>
                   <template x-if="v.yanked"><span class="status status-yanked" style="margin-left:0.3rem;">yanked</span></template>
                 </span>
-                <span style="color:var(--text-dim);" :title="v.published_at" x-text="timeAgo(v.published_at)"></span>
+                <span style="color:var(--text-dim);" x-text="v.created_at"></span>
               </div>
             </template>
           </div>
@@ -815,32 +778,7 @@
         <div class="drawer-actions">
           <button class="action-btn action-btn-warn" style="padding:0.4rem 0.8rem;" @click="confirmAction('yank-all', pkgDrawer)">Yank All Versions</button>
           <button class="action-btn action-btn-danger" style="padding:0.4rem 0.8rem;" @click="confirmAction('remove', pkgDrawer)">Remove Package</button>
-          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;"
-                  @click="transferModal = { packageName: pkgDrawer.name, targetUsername: '' }">Transfer Ownership</button>
-        </div>
-      </div>
-    </div>
-  </template>
-
-  <!-- Transfer Ownership Modal -->
-  <template x-if="transferModal">
-    <div>
-      <div class="drawer-overlay" @click="transferModal = null" style="z-index:199;"></div>
-      <div class="confirm-dialog">
-        <div class="confirm-title">Transfer Ownership</div>
-        <div class="confirm-body">
-          Transfer <strong x-text="transferModal.packageName"></strong> to a new owner. This replaces all current owners.
-        </div>
-        <div style="margin-bottom:1rem;">
-          <label style="font-size:0.65rem; color:var(--text-dim); display:block; margin-bottom:0.3rem;">New owner username</label>
-          <input type="text" class="form-input" style="max-width:none; font-size:0.75rem;"
-                 x-model="transferModal.targetUsername" placeholder="username">
-        </div>
-        <div class="confirm-actions">
-          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;" @click="transferModal = null">Cancel</button>
-          <button class="action-btn action-btn-warn" style="padding:0.4rem 0.8rem;"
-                  :disabled="!transferModal.targetUsername.trim()"
-                  @click="executeTransfer()">Transfer</button>
+          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;">Transfer Ownership</button>
         </div>
       </div>
     </div>
@@ -869,22 +807,6 @@
 
 {% block scripts %}
 <script>
-function timeAgo(dateStr) {
-  if (!dateStr) return '';
-  const date = new Date(dateStr.replace(' ', 'T') + 'Z');
-  const now = new Date();
-  const seconds = Math.floor((now - date) / 1000);
-  if (seconds < 60) return 'just now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  const months = Math.floor(days / 30);
-  return `${months}mo ago`;
-}
-
 function adminPanel() {
   return {
     tab: 'dashboard',
@@ -897,19 +819,8 @@ function adminPanel() {
     userDrawer: null,
     pkgDrawer: null,
     confirm: null,
-    transferModal: null,
     toast: '',
     toastType: 'success',
-
-    userPage: 1,
-    userTotal: 0,
-    pkgPage: 1,
-    pkgTotal: 0,
-    reportPage: 1,
-    reportTotal: 0,
-    auditPage: 1,
-    auditTotal: 0,
-    perPage: 50,
 
     stats: { total_users: 0, total_packages: 0, banned_users: 0, open_reports: 0 },
     users: [],
@@ -957,13 +868,10 @@ function adminPanel() {
         const params = new URLSearchParams();
         if (this.userSearch) params.set('q', this.userSearch);
         if (this.userFilter !== 'all') params.set('status', this.userFilter);
-        params.set('page', this.userPage);
-        params.set('per_page', this.perPage);
         const res = await fetch('/api/v1/admin/users?' + params);
         if (res.ok) {
           const data = await res.json();
           this.users = data.users || [];
-          this.userTotal = data.total || 0;
           this._loaded.users = true;
         }
       } catch (e) {
@@ -975,18 +883,11 @@ function adminPanel() {
       try {
         const params = new URLSearchParams();
         if (this.pkgSearch) params.set('q', this.pkgSearch);
-        if (this.pkgFilter === 'reported') {
-          params.set('reported', 'true');
-        } else if (this.pkgFilter !== 'all') {
-          params.set('source', this.pkgFilter);
-        }
-        params.set('page', this.pkgPage);
-        params.set('per_page', this.perPage);
+        if (this.pkgFilter !== 'all') params.set('source', this.pkgFilter);
         const res = await fetch('/api/v1/admin/packages?' + params);
         if (res.ok) {
           const data = await res.json();
           this.packages = data.packages || [];
-          this.pkgTotal = data.total || 0;
           this._loaded.packages = true;
         }
       } catch (e) {
@@ -998,14 +899,11 @@ function adminPanel() {
       try {
         const params = new URLSearchParams();
         if (this.auditSearch) params.set('q', this.auditSearch);
-        if (this.auditFilter !== 'all') params.set('action', this.auditFilter);
-        params.set('page', this.auditPage);
-        params.set('per_page', this.perPage);
+        if (this.auditFilter !== 'all') params.set('type', this.auditFilter);
         const res = await fetch('/api/v1/admin/audit?' + params);
         if (res.ok) {
           const data = await res.json();
           this.auditLog = data.entries || [];
-          this.auditTotal = data.total || 0;
           this._loaded.audit = true;
         }
       } catch (e) {
@@ -1015,14 +913,10 @@ function adminPanel() {
 
     async loadReports() {
       try {
-        const params = new URLSearchParams();
-        params.set('page', this.reportPage);
-        params.set('per_page', this.perPage);
-        const res = await fetch('/api/v1/admin/reports?' + params);
+        const res = await fetch('/api/v1/admin/reports');
         if (res.ok) {
           const data = await res.json();
           this.reports = data.reports || [];
-          this.reportTotal = data.total || 0;
           this._loaded.reports = true;
         }
       } catch (e) {
@@ -1031,13 +925,11 @@ function adminPanel() {
     },
 
     async openUserDrawer(user) {
+      // Fetch full user detail if an endpoint exists, otherwise use list data
       try {
-        const res = await fetch('/api/v1/admin/users/' + user.id);
+        const res = await fetch('/api/v1/admin/users/' + encodeURIComponent(user.username));
         if (res.ok) {
-          const data = await res.json();
-          // Flatten: merge data.user fields to top level so userDrawer.username etc. work
-          this.userDrawer = { ...data.user, ...data };
-          delete this.userDrawer.user;
+          this.userDrawer = await res.json();
           return;
         }
       } catch (e) {
@@ -1047,13 +939,11 @@ function adminPanel() {
     },
 
     async openPkgDrawer(pkg) {
+      // Fetch full package detail if an endpoint exists, otherwise use list data
       try {
         const res = await fetch('/api/v1/admin/packages/' + encodeURIComponent(pkg.name));
         if (res.ok) {
-          const data = await res.json();
-          // Flatten: merge data.package fields to top level so pkgDrawer.name etc. work
-          this.pkgDrawer = { ...data.package, ...data };
-          delete this.pkgDrawer.package;
+          this.pkgDrawer = await res.json();
           return;
         }
       } catch (e) {
@@ -1063,7 +953,7 @@ function adminPanel() {
     },
 
     confirmAction(action, target) {
-      const name = target.username || target.name || target.target_name;
+      const name = target.username || target.name || target.target;
       const configs = {
         'ban': { title: 'Ban User', body: `Are you sure you want to ban <strong>${name}</strong>? This will revoke all their API tokens and prevent login.`, btnText: 'Ban User', btnClass: 'action-btn-danger' },
         'unban': { title: 'Unban User', body: `Restore access for <strong>${name}</strong>? They will be able to login and publish again.`, btnText: 'Unban', btnClass: 'action-btn-success' },
@@ -1075,32 +965,31 @@ function adminPanel() {
 
     async executeAction() {
       const { action, target } = this.confirm;
-      const name = target.username || target.name || target.target_name;
-      const userId = target.id;
+      const name = target.username || target.name || target.target;
       this.confirm = null;
 
       try {
         let res;
         if (action === 'ban') {
-          res = await fetch('/api/v1/admin/users/' + userId + '/ban', { method: 'POST' });
+          res = await fetch('/api/v1/admin/users/' + encodeURIComponent(name) + '/ban', { method: 'POST' });
           if (res.ok) {
             this.showToast(`Banned ${name}`, 'success');
             await this.loadUsers();
             await this.loadStats();
-            if (this.userDrawer?.id === userId) {
-              await this.openUserDrawer({ id: userId });
+            if (this.userDrawer?.username === name) {
+              await this.openUserDrawer({ username: name });
             }
           } else {
             this.showToast(`Failed to ban ${name}`, 'error');
           }
         } else if (action === 'unban') {
-          res = await fetch('/api/v1/admin/users/' + userId + '/unban', { method: 'POST' });
+          res = await fetch('/api/v1/admin/users/' + encodeURIComponent(name) + '/unban', { method: 'POST' });
           if (res.ok) {
             this.showToast(`Unbanned ${name}`, 'success');
             await this.loadUsers();
             await this.loadStats();
-            if (this.userDrawer?.id === userId) {
-              await this.openUserDrawer({ id: userId });
+            if (this.userDrawer?.username === name) {
+              await this.openUserDrawer({ username: name });
             }
           } else {
             this.showToast(`Failed to unban ${name}`, 'error');
@@ -1128,35 +1017,11 @@ function adminPanel() {
       }
     },
 
-    async executeTransfer() {
-      const { packageName, targetUsername } = this.transferModal;
-      this.transferModal = null;
-      try {
-        const res = await fetch('/api/v1/admin/packages/' + encodeURIComponent(packageName) + '/transfer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to_username: targetUsername }),
-        });
-        if (res.ok) {
-          this.showToast(`Transferred ${packageName} to ${targetUsername}`, 'success');
-          await this.loadPackages();
-          if (this.pkgDrawer?.name === packageName) {
-            await this.openPkgDrawer({ name: packageName });
-          }
-        } else {
-          const data = await res.json();
-          this.showToast(data.error || 'Transfer failed', 'error');
-        }
-      } catch (e) {
-        this.showToast('Transfer failed: ' + e.message, 'error');
-      }
-    },
-
     async dismissReport(report) {
       try {
         const res = await fetch('/api/v1/admin/reports/' + encodeURIComponent(report.id) + '/dismiss', { method: 'POST' });
         if (res.ok) {
-          this.showToast(`Dismissed report for ${report.target_name}`, 'success');
+          this.showToast(`Dismissed report for ${report.target}`, 'success');
           await Promise.all([this.loadReports(), this.loadStats()]);
         } else {
           this.showToast(`Failed to dismiss report`, 'error');
@@ -1168,11 +1033,11 @@ function adminPanel() {
 
     async revokeTokens(user) {
       try {
-        const res = await fetch('/api/v1/admin/users/' + user.id + '/revoke-tokens', { method: 'POST' });
+        const res = await fetch('/api/v1/admin/users/' + encodeURIComponent(user.username) + '/revoke-tokens', { method: 'POST' });
         if (res.ok) {
           this.showToast(`Revoked all tokens for ${user.username}`, 'success');
-          if (this.userDrawer?.id === user.id) {
-            await this.openUserDrawer({ id: user.id });
+          if (this.userDrawer?.username === user.username) {
+            await this.openUserDrawer({ username: user.username });
           }
         } else {
           this.showToast(`Failed to revoke tokens`, 'error');
