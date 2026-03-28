@@ -647,7 +647,7 @@ pub async fn yank(
         .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
+        Ok(r) if r.rows_affected > 0 => {
             crate::audit::log(&state.db, &user.username, "yank", Some("version"), Some(&name), Some(&version)).await;
             Json(serde_json::json!({"ok": true})).into_response()
         }
