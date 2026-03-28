@@ -18,7 +18,7 @@
  * @module
  */
 
-import { storeHandle } from "./handles.js";
+import { storeHandle, SEMA_IDENT_RE } from "./handles.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
@@ -121,7 +121,7 @@ function applyAttributes(
       // Event handler: value must be a valid Sema function name
       const eventName = key.slice(3);
       if (typeof value === "string") {
-        if (!/^[a-zA-Z_][a-zA-Z0-9_/\-?!*><=+.]*$/.test(value)) {
+        if (!SEMA_IDENT_RE.test(value)) {
           console.error(`[sema-web] Invalid event handler name: ${value}`);
           continue;
         }

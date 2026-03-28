@@ -16,6 +16,8 @@
  * @module
  */
 
+import { SEMA_IDENT_RE } from "./handles.js";
+
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
   evalStr(code: string): { value: string | null; output: string[]; error: string | null };
@@ -124,7 +126,7 @@ export function registerReactiveBindings(interp: SemaInterpreterLike): void {
       const atom = atoms.get(atomId);
       if (!atom) throw new Error(`Unknown atom: ${atomId}`);
       // Validate callback name to prevent code injection
-      if (!/^[a-zA-Z_][a-zA-Z0-9_/\-?!*><=+.]*$/.test(callbackName)) {
+      if (!SEMA_IDENT_RE.test(callbackName)) {
         throw new Error(`Invalid callback name: ${callbackName}`);
       }
       atom.watchers.set(key, (_oldVal, _newVal) => {

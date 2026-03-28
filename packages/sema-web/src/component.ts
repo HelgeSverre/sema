@@ -23,6 +23,7 @@
  */
 
 import { renderHiccup } from "./hiccup.js";
+import { SEMA_IDENT_RE } from "./handles.js";
 import {
   startTracking,
   stopTracking,
@@ -113,11 +114,10 @@ function renderComponent(
   });
 
   component.cleanup = () => {
-    for (const key of watcherKeys) {
-      component.deps.forEach((atomId) => {
-        removeInternalWatcher(atomId, key);
-      });
-    }
+    component.deps.forEach((atomId) => {
+      const key = `__mount:${selector}:${atomId}`;
+      removeInternalWatcher(atomId, key);
+    });
   };
 }
 
@@ -138,7 +138,7 @@ export function registerComponentBindings(interp: SemaInterpreterLike): void {
     "component/mount!",
     (selector: string, componentFn: string) => {
       // Validate component function name
-      if (!/^[a-zA-Z_][a-zA-Z0-9_/\-?!*><=+.]*$/.test(componentFn)) {
+      if (!SEMA_IDENT_RE.test(componentFn)) {
         throw new Error(`Invalid component function name: ${componentFn}`);
       }
 

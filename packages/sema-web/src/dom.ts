@@ -7,7 +7,7 @@
  * @module
  */
 
-import { storeHandle, getElement, getNode, getEvent } from "./handles.js";
+import { storeHandle, getElement, getNode, getEvent, SEMA_IDENT_RE } from "./handles.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
@@ -191,7 +191,7 @@ export function registerDomBindings(interp: SemaInterpreterLike): void {
 
   interp.registerFunction("dom/on!", (id: number, event: string, callbackName: string) => {
     // Validate callback name is a valid Sema identifier (prevents code injection)
-    if (!/^[a-zA-Z_][a-zA-Z0-9_/\-?!*><=+.]*$/.test(callbackName)) {
+    if (!SEMA_IDENT_RE.test(callbackName)) {
       throw new Error(`Invalid callback name: ${callbackName}`);
     }
 
