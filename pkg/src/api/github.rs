@@ -144,19 +144,7 @@ pub async fn link(
         }
     }
 
-    // Fetch README
-    let readme_raw = github_sync::fetch_readme(&client, &token, &owner_name, &repo).await;
-    if let Some(ref raw) = readme_raw {
-        let html = github_sync::render_readme(raw);
-        if let Ok(Some(pkg_model)) = package::Entity::find_by_id(package_id).one(&state.db).await {
-            let mut pkg_active: package::ActiveModel = pkg_model.into();
-            pkg_active.readme_raw = Set(Some(raw.clone()));
-            pkg_active.readme_html = Set(Some(html));
-            let _ = pkg_active.update(&state.db).await;
-        }
-    }
-
-    crate::audit::log(&state.db, &user.username, "link_repo", Some("package"), Some(&manifest.name), Some(&github_repo)).await;
+    crate::audit::log(&state.db, &user.username, "link_repo", Some("package"), Some(&manifest.name), Some(&github_repo)).await.ok();
 
     (StatusCode::CREATED, Json(serde_json::json!({
         "ok": true,
@@ -355,7 +343,7 @@ pub async fn webhook(
     ).await {
         Ok(true) => {
             tracing::info!("Webhook: synced {repo_full_name} tag {tag_name} as {version}");
-            crate::audit::log(&state.db, "system", "webhook_sync", Some("package"), Some(repo_full_name), Some(tag_name)).await;
+            crate::audit::log(&state.db, "system", "webhook_sync", Some("package"), Some(repo_full_name), Some(tag_name)).await.ok();
             Json(serde_json::json!({"ok": true, "version": version.to_string(), "imported": true})).into_response()
         }
         Ok(false) => {
