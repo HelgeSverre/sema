@@ -17,6 +17,7 @@ pub struct User {
     pub id: i64,
     pub username: String,
     pub email: String,
+    pub is_admin: bool,
 }
 
 pub fn hash_password(password: &str) -> String {
@@ -72,10 +73,11 @@ pub async fn create_session(db: &Db, user_id: i64) -> String {
 
 pub async fn get_session_user(db: &Db, session_id: &str) -> Option<User> {
     let row = sqlx::query(
-        r#"SELECT u.id, u.username, u.email
+        r#"SELECT u.id, u.username, u.email, u.is_admin
            FROM users u
            JOIN sessions s ON s.user_id = u.id
-           WHERE s.id = ? AND s.expires_at > datetime('now')"#,
+           WHERE s.id = ? AND s.expires_at > datetime('now')
+             AND u.banned_at IS NULL"#,
     )
     .bind(session_id)
     .fetch_optional(db)
@@ -86,6 +88,7 @@ pub async fn get_session_user(db: &Db, session_id: &str) -> Option<User> {
         id: row.get("id"),
         username: row.get("username"),
         email: row.get("email"),
+        is_admin: row.get::<i32, _>("is_admin") != 0,
     })
 }
 
@@ -166,20 +169,42 @@ impl FromRequestParts<Arc<AppState>> for TokenUser {
             .execute(&state.db)
             .await;
 
-        let user_row = sqlx::query("SELECT id, username, email FROM users WHERE id = ?")
-            .bind(user_id)
-            .fetch_one(&state.db)
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let user_row = sqlx::query(
+            "SELECT id, username, email, is_admin FROM users WHERE id = ? AND banned_at IS NULL",
+        )
+        .bind(user_id)
+        .fetch_optional(&state.db)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .ok_or(StatusCode::UNAUTHORIZED)?;
 
         Ok(TokenUser {
             user: User {
                 id: user_row.get("id"),
                 username: user_row.get("username"),
                 email: user_row.get("email"),
+                is_admin: user_row.get::<i32, _>("is_admin") != 0,
             },
             scopes,
         })
+    }
+}
+
+/// Extractor: requires session auth + is_admin = 1
+pub struct AdminUser(pub User);
+
+impl FromRequestParts<Arc<AppState>> for AdminUser {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        let AuthUser(user) = AuthUser::from_request_parts(parts, state).await?;
+        if !user.is_admin {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        Ok(AdminUser(user))
     }
 }
 
