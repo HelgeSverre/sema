@@ -81,3 +81,14 @@ Sema is a Lisp where prompts are s-expressions, conversations are persistent dat
 - [Performance](https://sema-lang.com/docs/internals/performance.html): Benchmarks, optimization notes
 - [Feature Comparison](https://sema-lang.com/docs/internals/feature-comparison.html): Feature comparison with other Lisps and scripting languages
 - [Lisp Dialect Benchmark](https://sema-lang.com/docs/internals/lisp-comparison.html): Comparison with other Lisp implementations
+
+## Sema Web (Browser Framework)
+
+- [Overview](https://sema-lang.com/docs/web/index.html): Reactive web framework running Sema in the browser via WASM
+- [Getting Started](https://sema-lang.com/docs/web/getting-started.html): Installation, SemaWeb.create(), loading .sema files
+- [Reactive State](https://sema-lang.com/docs/web/reactive-state.html): atom, deref, put!, update!, swap!, computed, batch
+- [Components](https://sema-lang.com/docs/web/components.html): SIP markup, component functions, lifecycle
+- [LLM Integration](https://sema-lang.com/docs/web/llm.html): llm/complete, llm/chat, llm/chat-stream, llm/extract, llm/classify, llm/embed via proxy
+- [LLM Proxy](https://sema-lang.com/docs/web/llm-proxy.html): @sema-lang/llm-proxy — server-side proxy for OpenAI, Anthropic, Gemini, Ollama, Groq, Mistral, xAI
+- [Deployment](https://sema-lang.com/docs/web/deployment.html): Static hosting, Vercel/Netlify with LLM proxy, environment variables
+- [Examples](https://sema-lang.com/docs/web/examples.html): Counter, Todo app, AI chat — full copy-pasteable source
