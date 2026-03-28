@@ -306,6 +306,9 @@ The proxy server must implement these POST endpoints:
 | `/embed` | `{text, model?, ...}` | `{embedding: [...]}` or `[...]` |
 | `/models` (GET) | — | `{models: [...]}` |
 
+On errors, the proxy should return an appropriate HTTP status code (4xx/5xx).
+The response body is surfaced in the Sema error message.
+
 **Authentication:**
 
 The `token` option sends a `Bearer` token on each request (for authenticating the
