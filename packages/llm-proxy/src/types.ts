@@ -177,6 +177,8 @@ export interface ProxyResponse {
   status: number;
   headers: Record<string, string>;
   body: string;
+  /** Optional readable stream for SSE — when present, adapters should pipe it directly instead of using `body`. */
+  stream?: ReadableStream<Uint8Array>;
 }
 
 // --- Error types ---
