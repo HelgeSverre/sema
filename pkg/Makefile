@@ -1,10 +1,13 @@
-.PHONY: dev seed test test-e2e clean
+.PHONY: dev seed seed-stress test test-e2e clean
 
 dev:
 	cargo run
 
 seed:
 	bash seed.sh
+
+seed-stress: seed
+	python3 seed_stress.py
 
 test:
 	cargo test
