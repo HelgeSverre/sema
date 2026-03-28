@@ -137,7 +137,11 @@ export function registerLlmBindings(
   //   (def s (llm/chat-stream messages))        ; with defaults
   //   (def s (llm/chat-stream messages opts))    ; with options map
   //   (deref s) ;; → {:text "..." :done false :error nil}
-  interp.registerFunction("llm/chat-stream", (messages: any, streamOpts?: any) => {
+  // __llm/chat-stream-raw takes JSON strings (serialized on the Sema side)
+  interp.registerFunction("__llm/chat-stream-raw", (messagesJson: string, optsJson?: string) => {
+    const messages = JSON.parse(messagesJson);
+    const streamOpts = optsJson ? JSON.parse(optsJson) : {};
+
     const id = ctx.nextSignalId++;
     const s = signal<{ text: string; done: boolean; error: string | null }>({
       text: "",
@@ -332,6 +336,15 @@ export function registerLlmBindings(
 ;; List available models from the proxy.
 (define (llm/list-models)
   (__llm-proxy-get "models"))
+
+;; (llm/chat-stream messages) or (llm/chat-stream messages opts)
+;; Streaming chat — returns a signal ID that updates as tokens arrive.
+;; Signal value shape: {:text "" :done false :error nil}
+(define (llm/chat-stream messages . rest)
+  (let ((opts (if (null? rest) {} (car rest))))
+    (__llm/chat-stream-raw
+      (json/encode messages)
+      (json/encode (if (map? opts) opts {})))))
 `;
 
   const result = interp.evalStr(semaCode);

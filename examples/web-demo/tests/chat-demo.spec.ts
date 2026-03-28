@@ -38,7 +38,7 @@ test.describe("AI Chat Demo", () => {
       (window as any).__semaWeb.eval(`
         (let ((text "Say hello"))
           (update! messages (fn (msgs) (append msgs (list {:role "user" :content text}))))
-          (let ((s (llm/chat-stream (list (message :user text)) {})))
+          (let ((s (llm/chat-stream (list {:role "user" :content text}) {})))
             (put! current-stream s)))
       `);
     });
@@ -69,7 +69,7 @@ test.describe("AI Chat Demo", () => {
     await page.evaluate(() => {
       const web = (window as any).__semaWeb;
       web.eval('(update! messages (fn (msgs) (append msgs (list {:role "user" :content "Hi"}))))');
-      web.eval('(put! current-stream (llm/chat-stream (list (message :user "Say hi back briefly")) {}))');
+      web.eval('(put! current-stream (llm/chat-stream (list {:role "user" :content "Say hi back briefly"}) {}))');
     });
 
     // Wait for the assistant response to appear (streaming or completed)

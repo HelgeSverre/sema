@@ -15,7 +15,7 @@
       (let ((user-msg {:role "user" :content text}))
         (update! messages (fn (msgs) (append msgs (list user-msg))))
         (put! input-text "")
-        (let ((s (llm/chat-stream (list (message :user text)) {})))
+        (let ((s (llm/chat-stream (list {:role "user" :content text}) {})))
           (put! current-stream s))))))
 
 (define (format-message msg)
