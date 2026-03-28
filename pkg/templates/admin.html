@@ -1005,11 +1005,13 @@ function adminPanel() {
     },
 
     async openUserDrawer(user) {
-      // Fetch full user detail if an endpoint exists, otherwise use list data
       try {
         const res = await fetch('/api/v1/admin/users/' + user.id);
         if (res.ok) {
-          this.userDrawer = await res.json();
+          const data = await res.json();
+          // Flatten: merge data.user fields to top level so userDrawer.username etc. work
+          this.userDrawer = { ...data.user, ...data };
+          delete this.userDrawer.user;
           return;
         }
       } catch (e) {
@@ -1019,11 +1021,13 @@ function adminPanel() {
     },
 
     async openPkgDrawer(pkg) {
-      // Fetch full package detail if an endpoint exists, otherwise use list data
       try {
         const res = await fetch('/api/v1/admin/packages/' + encodeURIComponent(pkg.name));
         if (res.ok) {
-          this.pkgDrawer = await res.json();
+          const data = await res.json();
+          // Flatten: merge data.package fields to top level so pkgDrawer.name etc. work
+          this.pkgDrawer = { ...data.package, ...data };
+          delete this.pkgDrawer.package;
           return;
         }
       } catch (e) {
@@ -1046,30 +1050,31 @@ function adminPanel() {
     async executeAction() {
       const { action, target } = this.confirm;
       const name = target.username || target.name || target.target_name;
+      const userId = target.id;
       this.confirm = null;
 
       try {
         let res;
         if (action === 'ban') {
-          res = await fetch('/api/v1/admin/users/' + encodeURIComponent(name) + '/ban', { method: 'POST' });
+          res = await fetch('/api/v1/admin/users/' + userId + '/ban', { method: 'POST' });
           if (res.ok) {
             this.showToast(`Banned ${name}`, 'success');
             await this.loadUsers();
             await this.loadStats();
-            if (this.userDrawer?.username === name) {
-              await this.openUserDrawer({ username: name });
+            if (this.userDrawer?.id === userId) {
+              await this.openUserDrawer({ id: userId });
             }
           } else {
             this.showToast(`Failed to ban ${name}`, 'error');
           }
         } else if (action === 'unban') {
-          res = await fetch('/api/v1/admin/users/' + encodeURIComponent(name) + '/unban', { method: 'POST' });
+          res = await fetch('/api/v1/admin/users/' + userId + '/unban', { method: 'POST' });
           if (res.ok) {
             this.showToast(`Unbanned ${name}`, 'success');
             await this.loadUsers();
             await this.loadStats();
-            if (this.userDrawer?.username === name) {
-              await this.openUserDrawer({ username: name });
+            if (this.userDrawer?.id === userId) {
+              await this.openUserDrawer({ id: userId });
             }
           } else {
             this.showToast(`Failed to unban ${name}`, 'error');
@@ -1113,11 +1118,11 @@ function adminPanel() {
 
     async revokeTokens(user) {
       try {
-        const res = await fetch('/api/v1/admin/users/' + encodeURIComponent(user.username) + '/revoke-tokens', { method: 'POST' });
+        const res = await fetch('/api/v1/admin/users/' + user.id + '/revoke-tokens', { method: 'POST' });
         if (res.ok) {
           this.showToast(`Revoked all tokens for ${user.username}`, 'success');
-          if (this.userDrawer?.username === user.username) {
-            await this.openUserDrawer({ username: user.username });
+          if (this.userDrawer?.id === user.id) {
+            await this.openUserDrawer({ id: user.id });
           }
         } else {
           this.showToast(`Failed to revoke tokens`, 'error');
