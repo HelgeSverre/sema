@@ -1,4 +1,4 @@
-use crate::{blob, crypto, db::Db};
+use crate::{crypto, db::Db};
 use sqlx::Row;
 
 /// Fetch the decrypted GitHub access token for a user.
@@ -143,18 +143,15 @@ pub async fn list_semver_tags(
     Ok(tags)
 }
 
-/// Sync a single tag: download tarball from GitHub, store as blob, create version record.
+/// Sync a single tag: store metadata and GitHub tarball URL (no blob download).
 /// Returns Ok(true) if version was created, Ok(false) if it already existed.
 pub async fn sync_tag(
     db: &Db,
-    client: &reqwest::Client,
-    token: &str,
     owner: &str,
     repo: &str,
     tag_name: &str,
     version: &semver::Version,
     package_id: i64,
-    blob_dir: &str,
     sema_version_req: Option<&str>,
 ) -> Result<bool, String> {
     let version_str = version.to_string();
@@ -175,31 +172,14 @@ pub async fn sync_tag(
     }
 
     let tarball_url = format!("https://api.github.com/repos/{owner}/{repo}/tarball/{tag_name}");
-    let resp = client
-        .get(&tarball_url)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("User-Agent", "sema-pkg")
-        .send()
-        .await
-        .map_err(|e| format!("Failed to download tarball for {tag_name}: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Failed to download tarball for {tag_name} ({})", resp.status()));
-    }
-
-    let tarball = resp.bytes().await.map_err(|e| format!("Failed to read tarball: {e}"))?;
-
-    let (blob_key, checksum, size) = blob::store(blob_dir, &tarball).await;
 
     sqlx::query(
-        "INSERT INTO package_versions (package_id, version, checksum_sha256, blob_key, size_bytes, sema_version_req) VALUES (?, ?, ?, ?, ?, ?)"
+        "INSERT INTO package_versions (package_id, version, checksum_sha256, blob_key, size_bytes, sema_version_req, tarball_url) VALUES (?, ?, '', '', 0, ?, ?)"
     )
     .bind(package_id)
     .bind(&version_str)
-    .bind(&checksum)
-    .bind(&blob_key)
-    .bind(size as i64)
     .bind(sema_version_req)
+    .bind(&tarball_url)
     .execute(db)
     .await
     .map_err(|e| format!("Failed to insert version: {e}"))?;

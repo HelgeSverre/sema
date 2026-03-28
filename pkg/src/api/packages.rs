@@ -2,7 +2,7 @@ use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
     http::{header, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     Json,
 };
 use serde::Deserialize;
@@ -300,7 +300,7 @@ pub async fn get_package(
     let pkg_id: i64 = pkg.get("id");
 
     let versions = sqlx::query(
-        r#"SELECT version, checksum_sha256, size_bytes, yanked, sema_version_req, published_at
+        r#"SELECT version, checksum_sha256, size_bytes, yanked, sema_version_req, tarball_url, published_at
            FROM package_versions WHERE package_id = ?
            ORDER BY published_at DESC"#,
     )
@@ -318,6 +318,7 @@ pub async fn get_package(
                 "size_bytes": r.get::<i64, _>("size_bytes"),
                 "yanked": r.get::<i32, _>("yanked") != 0,
                 "sema_version_req": r.get::<Option<String>, _>("sema_version_req"),
+                "tarball_url": r.get::<Option<String>, _>("tarball_url"),
                 "published_at": r.get::<String, _>("published_at"),
             })
         })
@@ -353,7 +354,7 @@ pub async fn download(
     Path((name, version)): Path<(String, String)>,
 ) -> impl IntoResponse {
     let row = sqlx::query(
-        r#"SELECT pv.blob_key FROM package_versions pv
+        r#"SELECT pv.blob_key, pv.tarball_url FROM package_versions pv
            JOIN packages p ON p.id = pv.package_id
            WHERE p.name = ? AND pv.version = ? AND pv.yanked = 0"#,
     )
@@ -364,8 +365,8 @@ pub async fn download(
     .ok()
     .flatten();
 
-    let blob_key: String = match row {
-        Some(r) => r.get("blob_key"),
+    let row = match row {
+        Some(r) => r,
         None => {
             return (
                 StatusCode::NOT_FOUND,
@@ -375,6 +376,16 @@ pub async fn download(
         }
     };
 
+    // GitHub-linked packages: redirect to upstream tarball
+    let tarball_url: Option<String> = row.get("tarball_url");
+    if let Some(url) = tarball_url {
+        if !url.is_empty() {
+            return Redirect::temporary(&url).into_response();
+        }
+    }
+
+    // Upload-sourced packages: serve blob from disk
+    let blob_key: String = row.get("blob_key");
     let data = match blob::read(&state.config.blob_dir, &blob_key).await {
         Some(d) => d,
         None => {

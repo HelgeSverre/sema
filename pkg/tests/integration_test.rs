@@ -1,6 +1,7 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use http_body_util::BodyExt;
+use sqlx::Row;
 use tower::ServiceExt;
 
 mod common;
@@ -595,6 +596,93 @@ fn test_email_validation() {
 fn test_password_validation() {
     assert!(sema_pkg::auth::validate_password("longpassword").is_ok());
     assert!(sema_pkg::auth::validate_password("short").is_err());
+}
+
+// ── Meta Registry (GitHub redirect) Tests ──
+
+#[tokio::test]
+async fn test_download_github_package_redirects() {
+    let (app, state, _dir) = test_app_with_state().await;
+
+    // Insert a GitHub-linked package with tarball_url directly in the DB
+    sqlx::query("INSERT INTO packages (name, description, source, github_repo) VALUES ('gh-pkg', 'A GitHub package', 'github', 'testowner/testrepo')")
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let pkg_id: i64 = sqlx::query("SELECT id FROM packages WHERE name = 'gh-pkg'")
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
+        .get("id");
+
+    sqlx::query(
+        "INSERT INTO package_versions (package_id, version, checksum_sha256, blob_key, size_bytes, tarball_url) VALUES (?, '1.0.0', '', '', 0, 'https://api.github.com/repos/testowner/testrepo/tarball/v1.0.0')"
+    )
+    .bind(pkg_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    // Download should return a 302 redirect
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/packages/gh-pkg/1.0.0/download")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(
+        res.headers().get("location").unwrap(),
+        "https://api.github.com/repos/testowner/testrepo/tarball/v1.0.0"
+    );
+}
+
+#[tokio::test]
+async fn test_get_package_includes_tarball_url() {
+    let (app, state, _dir) = test_app_with_state().await;
+
+    sqlx::query("INSERT INTO packages (name, description, source, github_repo) VALUES ('gh-pkg2', 'Another GH package', 'github', 'owner/repo')")
+        .execute(&state.db)
+        .await
+        .unwrap();
+
+    let pkg_id: i64 = sqlx::query("SELECT id FROM packages WHERE name = 'gh-pkg2'")
+        .fetch_one(&state.db)
+        .await
+        .unwrap()
+        .get("id");
+
+    sqlx::query(
+        "INSERT INTO package_versions (package_id, version, checksum_sha256, blob_key, size_bytes, tarball_url) VALUES (?, '2.0.0', '', '', 0, 'https://api.github.com/repos/owner/repo/tarball/v2.0.0')"
+    )
+    .bind(pkg_id)
+    .execute(&state.db)
+    .await
+    .unwrap();
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/packages/gh-pkg2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert_eq!(
+        body["versions"][0]["tarball_url"],
+        "https://api.github.com/repos/owner/repo/tarball/v2.0.0"
+    );
 }
 
 #[test]

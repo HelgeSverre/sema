@@ -119,8 +119,8 @@ pub async fn link(
 
     for (tag_name, version) in &tags {
         match github_sync::sync_tag(
-            &state.db, &client, &token, &owner, &repo,
-            tag_name, version, package_id, &state.config.blob_dir,
+            &state.db, &owner, &repo,
+            tag_name, version, package_id,
             manifest.sema_version_req.as_deref(),
         ).await {
             Ok(true) => imported += 1,
@@ -214,8 +214,8 @@ pub async fn sync(
     let mut imported = 0u32;
     for (tag_name, version) in &tags {
         match github_sync::sync_tag(
-            &state.db, &client, &token, &owner, &repo,
-            tag_name, version, package_id, &state.config.blob_dir, None,
+            &state.db, &owner, &repo,
+            tag_name, version, package_id, None,
         ).await {
             Ok(true) => imported += 1,
             Ok(false) => {}
@@ -312,38 +312,14 @@ pub async fn webhook(
         return (StatusCode::FORBIDDEN, Json(serde_json::json!({"error": "Invalid signature"}))).into_response();
     }
 
-    // Get the owner's GitHub token (use first owner)
-    let owner_row = sqlx::query("SELECT user_id FROM owners WHERE package_id = ? LIMIT 1")
-        .bind(package_id)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten();
-
-    let owner_user_id: i64 = match owner_row {
-        Some(r) => r.get("user_id"),
-        None => return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "No owner found"}))).into_response(),
-    };
-
-    let token = match github_sync::get_github_token(&state.db, owner_user_id, &state.config.oauth_token_key).await {
-        Some(t) => t,
-        None => {
-            let _ = sqlx::query(
-                "INSERT INTO github_sync_log (package_id, tag, status, error) VALUES (?, ?, 'error', 'Owner GitHub token missing or revoked')"
-            ).bind(package_id).bind(tag_name).execute(&state.db).await;
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "Owner GitHub token not available"}))).into_response();
-        }
-    };
-
     let (owner, repo) = match github_sync::parse_github_url(repo_full_name) {
         Some(pair) => pair,
         None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "Invalid repo name"}))).into_response(),
     };
 
-    let client = reqwest::Client::new();
     match github_sync::sync_tag(
-        &state.db, &client, &token, &owner, &repo,
-        tag_name, &version, package_id, &state.config.blob_dir, None,
+        &state.db, &owner, &repo,
+        tag_name, &version, package_id, None,
     ).await {
         Ok(true) => {
             tracing::info!("Webhook: synced {repo_full_name} tag {tag_name} as {version}");

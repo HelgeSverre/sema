@@ -10,6 +10,11 @@ use tower::ServiceExt;
 use sema_pkg::{build_router, AppState};
 
 pub async fn test_app() -> (Router, TempDir) {
+    let (app, _state, dir) = test_app_with_state().await;
+    (app, dir)
+}
+
+pub async fn test_app_with_state() -> (Router, Arc<AppState>, TempDir) {
     let dir = tempfile::tempdir().unwrap();
     let db_path = dir.path().join("test.db");
     let blob_dir = dir.path().join("blobs");
@@ -27,12 +32,13 @@ pub async fn test_app() -> (Router, TempDir) {
         github_client_id: None,
         github_client_secret: None,
         session_secret: "test-secret".into(),
+        oauth_token_key: "test-key-32-bytes-long-for-aes!!".into(),
         max_tarball_bytes: 10 * 1024 * 1024,
     };
 
     let state = Arc::new(AppState { db, config });
-    let app = build_router(state);
-    (app, dir)
+    let app = build_router(state.clone());
+    (app, state, dir)
 }
 
 pub async fn body_json(res: Response<Body>) -> Value {
