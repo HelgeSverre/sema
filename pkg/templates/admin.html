@@ -514,7 +514,7 @@
       <div>
         <template x-for="entry in auditLog.slice(0, 8)" :key="entry.id">
           <div class="audit-entry">
-            <span class="audit-time" x-text="entry.time"></span>
+            <span class="audit-time" x-text="timeAgo(entry.created_at)"></span>
             <span class="audit-actor" x-text="entry.actor"></span>
             <span class="audit-action" x-html="entry.action"></span>
           </div>
@@ -564,7 +564,7 @@
               <td>
                 <span class="status" :class="user.banned ? 'status-banned' : 'status-active'" x-text="user.banned ? 'Banned' : 'Active'"></span>
               </td>
-              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="user.created_at"></td>
+              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="timeAgo(user.created_at)"></td>
               <td class="col-actions">
                 <button class="action-btn action-btn-ghost" @click="openUserDrawer(user)">View</button>
                 <template x-if="!user.banned">
@@ -624,7 +624,7 @@
               <td><span class="status" :class="pkg.source === 'github' ? 'status-github' : 'status-active'" x-text="pkg.source"></span></td>
               <td style="color:var(--text-dim);" x-text="pkg.owner"></td>
               <td style="color:var(--text-dim);" x-text="(pkg.downloads || 0).toLocaleString()"></td>
-              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="pkg.updated_at"></td>
+              <td style="color:var(--text-dim); font-size:0.68rem;" x-text="timeAgo(pkg.created_at)"></td>
               <td class="col-actions">
                 <button class="action-btn action-btn-ghost" @click="openPkgDrawer(pkg)">View</button>
                 <button class="action-btn action-btn-warn" @click="confirmAction('yank-all', pkg)">Yank All</button>
@@ -658,7 +658,7 @@
       <div>
         <template x-for="entry in auditLog" :key="entry.id">
           <div class="audit-entry">
-            <span class="audit-time" x-text="entry.time"></span>
+            <span class="audit-time" x-text="timeAgo(entry.created_at)"></span>
             <span class="audit-actor" x-text="entry.actor"></span>
             <span class="audit-action" x-html="entry.action"></span>
           </div>
@@ -684,7 +684,7 @@
               </div>
               <div style="font-size:0.72rem; color:var(--text);" x-text="report.reason"></div>
               <div style="font-size:0.6rem; color:var(--text-dim); margin-top:0.2rem;">
-                Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span x-text="report.time"></span>
+                Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span x-text="timeAgo(report.created_at)"></span>
               </div>
             </div>
             <div style="display:flex; gap:0.3rem; flex-shrink:0;">
@@ -714,7 +714,7 @@
           <div class="drawer-section">
             <div class="drawer-section-title">Account</div>
             <div class="drawer-field"><span class="drawer-field-label">Email</span><span class="drawer-field-value" x-text="userDrawer.email"></span></div>
-            <div class="drawer-field"><span class="drawer-field-label">Joined</span><span class="drawer-field-value" x-text="userDrawer.created_at"></span></div>
+            <div class="drawer-field"><span class="drawer-field-label">Joined</span><span class="drawer-field-value" x-text="timeAgo(userDrawer.created_at)"></span></div>
             <div class="drawer-field"><span class="drawer-field-label">GitHub</span><span class="drawer-field-value" x-text="userDrawer.github_username || 'Not connected'"></span></div>
             <div class="drawer-field"><span class="drawer-field-label">Status</span><span class="drawer-field-value"><span class="status" :class="userDrawer.banned ? 'status-banned' : 'status-active'" x-text="userDrawer.banned ? 'Banned' : 'Active'"></span></span></div>
           </div>
@@ -770,7 +770,7 @@
                   <span style="color:var(--text-bright);" x-text="v.version"></span>
                   <template x-if="v.yanked"><span class="status status-yanked" style="margin-left:0.3rem;">yanked</span></template>
                 </span>
-                <span style="color:var(--text-dim);" x-text="v.created_at"></span>
+                <span style="color:var(--text-dim);" x-text="timeAgo(v.created_at)"></span>
               </div>
             </template>
           </div>
@@ -807,6 +807,22 @@
 
 {% block scripts %}
 <script>
+function timeAgo(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr.replace(' ', 'T') + 'Z');
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+  if (seconds < 60) return 'just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+}
+
 function adminPanel() {
   return {
     tab: 'dashboard',
