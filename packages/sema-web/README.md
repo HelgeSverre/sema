@@ -255,6 +255,72 @@ The component **automatically re-renders** when atoms it reads via `deref` chang
 - `(component/unmount! selector)` — remove a mounted component
 - `(component/force-render! selector)` — force re-render
 
+### `llm/*` — LLM Proxy
+
+LLM functions are available in the browser when a proxy URL is configured. The proxy server holds
+API keys and forwards requests to the actual LLM providers (OpenAI, Anthropic, etc.).
+
+```js
+// Enable LLM in the browser
+const web = await SemaWeb.create({
+  llmProxy: "https://api.example.com/llm",
+});
+```
+
+```sema
+;; Simple completion
+(llm/complete "Say hello in exactly 5 words" {:max-tokens 50})
+
+;; Chat with messages
+(llm/chat
+  (list (message :system "You are a helpful assistant.")
+        (message :user "What is Sema?"))
+  {:model "gpt-4o" :max-tokens 200})
+
+;; Structured extraction
+(llm/extract
+  {:name {:type "string"} :age {:type "number"}}
+  "John is 30 years old")
+
+;; Classification
+(llm/classify (list "positive" "negative" "neutral")
+  "This product is amazing!")
+
+;; Text embeddings
+(llm/embed "Hello world")
+
+;; List available models from the proxy
+(llm/list-models)
+```
+
+**Proxy protocol:**
+
+The proxy server must implement these POST endpoints:
+
+| Endpoint | Body | Returns |
+|----------|------|---------|
+| `/complete` | `{prompt, model?, max-tokens?, ...}` | `{content, usage?}` or string |
+| `/chat` | `{messages, model?, max-tokens?, ...}` | `{content, usage?}` or string |
+| `/extract` | `{schema, text, model?, ...}` | extracted data object |
+| `/classify` | `{categories, text, model?, ...}` | `{category}` or string |
+| `/embed` | `{text, model?, ...}` | `{embedding: [...]}` or `[...]` |
+| `/models` (GET) | — | `{models: [...]}` |
+
+**Authentication:**
+
+The `token` option sends a `Bearer` token on each request (for authenticating the
+browser client to your proxy — never send LLM API keys to the browser):
+
+```js
+await SemaWeb.create({
+  llmProxy: {
+    url: "https://api.example.com/llm",
+    token: "user-session-jwt",
+    timeout: 30000,
+  },
+});
+```
+
 ## Configuration
 
 ```js
@@ -280,6 +346,16 @@ const web = await SemaWeb.create({
   // Register component/mount system (default: true)
   // Automatically enables reactive + hiccup
   components: true,
+
+  // LLM proxy — enables llm/* functions in the browser
+  // Simple: just the URL
+  llmProxy: "https://api.example.com/llm",
+  // Or full options:
+  // llmProxy: {
+  //   url: "https://api.example.com/llm",
+  //   token: "user-session-token",
+  //   timeout: 30000,
+  // },
 
   // Custom WASM URL (for CDN deployment)
   wasmUrl: "https://cdn.example.com/sema_wasm_bg.wasm",
@@ -378,6 +454,7 @@ const web = await SemaWeb.create({
 │                                         │
 │  <script type="text/sema">              │
 │    (mount! "#app" "my-view")            │
+│    (llm/chat messages opts)             │
 │  </script>                              │
 │                                         │
 ├─────────────────────────────────────────┤
@@ -391,12 +468,22 @@ const web = await SemaWeb.create({
 │  │ reactive │ render   │ mount!       │ │
 │  └──────────┴──────────┴──────────────┘ │
 │  ┌────────────────────────────────────┐ │
+│  │ llm/* proxy (→ backend server)    │ │
+│  └────────────────────────────────────┘ │
+│  ┌────────────────────────────────────┐ │
 │  │ Script loader (<script> discovery) │ │
 │  └────────────────────────────────────┘ │
 ├─────────────────────────────────────────┤
 │  @sema-lang/sema (interpreter API)      │
 ├─────────────────────────────────────────┤
 │  @sema-lang/sema-wasm (WASM VM)        │
+└─────────────────────────────────────────┘
+         │
+         ▼  (when llmProxy configured)
+┌─────────────────────────────────────────┐
+│  Your LLM Proxy Server                  │
+│  Holds API keys, forwards to providers  │
+│  → OpenAI / Anthropic / Gemini / etc.   │
 └─────────────────────────────────────────┘
 ```
 
