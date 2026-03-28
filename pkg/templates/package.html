@@ -162,7 +162,7 @@
 <div class="page-content">
   <div style="margin-bottom:1.5rem;">
     <div style="display:flex; align-items:baseline; gap:0.6rem; flex-wrap:wrap;">
-      <h1 style="font-size:1.3rem; color:var(--gold); font-weight:500;">{{ name }}</h1>
+      <h1 style="font-size:1.3rem; color:var(--gold); font-weight:500;" data-testid="pkg-name">{{ name }}</h1>
       {% if let Some(v) = versions.first() %}
       <span class="badge badge-gold">{{ v.version }}</span>
       {% endif %}
@@ -172,20 +172,20 @@
     </div>
     <p style="font-size:0.82rem; color:var(--text); margin-top:0.35rem;">{{ description }}</p>
     <div style="margin-top:0.75rem;">
-      <div class="install-snippet" style="display:inline-flex;">
+      <div class="install-snippet" style="display:inline-flex;" data-testid="install-cmd">
         <span class="prompt">$</span> sema pkg install {{ name }}
       </div>
     </div>
   </div>
 
   <div class="tabs">
-    <a href="#versions" class="tab active" data-tab="versions">Versions <span style="font-size:0.6rem; color:var(--text-dim);">{{ versions.len() }}</span></a>
-    <a href="#deps" class="tab" data-tab="deps">Dependencies <span style="font-size:0.6rem; color:var(--text-dim);">{{ deps.len() }}</span></a>
+    <a href="#versions" class="tab active" data-tab="versions" data-testid="tab-versions">Versions <span style="font-size:0.6rem; color:var(--text-dim);">{{ versions.len() }}</span></a>
+    <a href="#deps" class="tab" data-tab="deps" data-testid="tab-deps">Dependencies <span style="font-size:0.6rem; color:var(--text-dim);">{{ deps.len() }}</span></a>
   </div>
 
   <div class="detail-grid">
     <div>
-      <div class="tab-panel active" id="versions">
+      <div class="tab-panel active" id="versions" data-testid="versions-table">
         <table class="dep-table">
           <thead><tr><th>Version</th><th>Size</th><th>Published</th></tr></thead>
           <tbody>
@@ -232,9 +232,11 @@
 
       <section>
         <div class="section-label">Owners</div>
+        <div data-testid="owners-list">
         {% for owner in owners %}
         <div class="sidebar-value">{{ owner }}</div>
         {% endfor %}
+        </div>
       </section>
 
       {% if let Some(url) = repository_url %}

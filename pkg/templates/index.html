@@ -10,7 +10,7 @@
       Discover and share Sema libraries
     </p>
     <form action="/search" method="get" class="search-bar" style="max-width:28rem; margin:0 auto;">
-      <input type="text" name="q" class="search-input" placeholder="Search packages…" autofocus>
+      <input type="text" name="q" class="search-input" placeholder="Search packages…" autofocus data-testid="home-search">
       <button type="submit" class="search-btn">Search</button>
     </form>
     <div style="margin-top:1rem; font-size:0.65rem; color:var(--text-dim);">
@@ -21,9 +21,9 @@
   {% if !recent.is_empty() %}
   <section style="margin-bottom:2.5rem;">
     <div class="section-label">Recently Updated</div>
-    <div class="pkg-list">
+    <div class="pkg-list" data-testid="recent-packages">
       {% for pkg in recent %}
-      <a href="/packages/{{ pkg.name }}" class="pkg-list-item">
+      <a href="/packages/{{ pkg.name }}" class="pkg-list-item" data-testid="pkg-item">
         <div class="pkg-list-left">
           <span class="pkg-list-name">{{ pkg.name }}</span><span class="pkg-list-version">{{ pkg.latest_version }}</span>
           <div class="pkg-list-desc">{{ pkg.description }}</div>
