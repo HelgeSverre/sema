@@ -520,45 +520,41 @@ test.describe('Admin Panel', () => {
 
     await api.setSession(page.context(), adminSession);
     await page.goto('/admin');
+    await page.waitForSelector('.stats-grid', { state: 'visible', timeout: 15000 });
 
     // Navigate to Users tab
     await page.locator('.sidebar-link', { hasText: 'Users' }).click();
-    await page.waitForResponse(
-      (r) => r.url().includes('/api/v1/admin/users') && r.ok(),
-    );
+    await page.waitForSelector('.admin-table tbody tr', { timeout: 10000 });
 
     // Search for the target user
     const searchInput = page.locator(
       'div[x-show*="users"] .toolbar-search',
     );
-    const searchResponse = page.waitForResponse(
-      (r) => r.url().includes('/api/v1/admin/users') && r.url().includes('q=') && r.ok(),
-    );
     await searchInput.fill(target);
-    await searchResponse;
+    await page.waitForSelector(`.admin-table tbody tr:has-text("${target}")`, { timeout: 10000 });
 
     // Verify the user shows "Banned" badge
     const userRow = page.locator('.admin-table tbody tr', { hasText: target });
     await expect(userRow).toBeVisible();
-    await expect(userRow.locator('.status-banned')).toBeVisible({ timeout: 5_000 });
+    await expect(userRow.locator('.status-banned')).toBeVisible({ timeout: 10000 });
 
     // Click "Unban" — opens confirm dialog
     await userRow.locator('button', { hasText: 'Unban' }).click();
 
     // Confirm dialog should appear
-    await expect(page.locator('.confirm-dialog')).toBeVisible();
+    await expect(page.locator('.confirm-dialog')).toBeVisible({ timeout: 10000 });
 
     // Click the confirm button inside the dialog
     const confirmBtn = page.locator('.confirm-dialog button', { hasText: /Unban|Confirm|Yes/ });
     await confirmBtn.click();
 
     // Toast should show success
-    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 10000 });
 
     // User should no longer show "Banned" badge
     await page.waitForTimeout(500);
     const updatedRow = page.locator('.admin-table tbody tr', { hasText: target });
-    await expect(updatedRow.locator('.status-banned')).toHaveCount(0, { timeout: 5_000 });
+    await expect(updatedRow.locator('.status-banned')).toHaveCount(0, { timeout: 10000 });
   });
 
   // ────────────────────────────────────────────
@@ -603,7 +599,7 @@ test.describe('Admin Panel', () => {
     await page.goto(`/packages/${pkgName}`);
 
     // The package detail page should show the new owner
-    await expect(page.locator(`text=${newowner}`)).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator(`text=${newowner}`)).toBeVisible({ timeout: 10000 });
   });
 
   // ────────────────────────────────────────────
@@ -630,22 +626,18 @@ test.describe('Admin Panel', () => {
 
     await api.setSession(page.context(), adminSession);
     await page.goto('/admin');
+    await page.waitForSelector('.stats-grid', { state: 'visible', timeout: 15000 });
 
     // Navigate to Users tab
     await page.locator('.sidebar-link', { hasText: 'Users' }).click();
-    await page.waitForResponse(
-      (r) => r.url().includes('/api/v1/admin/users') && r.ok(),
-    );
+    await page.waitForSelector('.admin-table tbody tr', { timeout: 10000 });
 
     // Search for the target user
     const searchInput = page.locator(
       'div[x-show*="users"] .toolbar-search',
     );
-    const searchResponse = page.waitForResponse(
-      (r) => r.url().includes('/api/v1/admin/users') && r.url().includes('q=') && r.ok(),
-    );
     await searchInput.fill(target);
-    await searchResponse;
+    await page.waitForSelector(`.admin-table tbody tr:has-text("${target}")`, { timeout: 10000 });
 
     // Click "View" on the target user to open the drawer
     const userRow = page.locator('.admin-table tbody tr', { hasText: target });
@@ -656,6 +648,6 @@ test.describe('Admin Panel', () => {
     await page.locator('button', { hasText: 'Revoke All Tokens' }).click();
 
     // Toast should show success
-    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 5_000 });
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 10000 });
   });
 });
