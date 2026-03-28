@@ -99,10 +99,15 @@
 
 ;; ── Board Helpers ───────────────────────────────────────────────────
 
+;; Compare card IDs — handles both number and string representations
+(define (id-equal? a b)
+  (or (equal? a b)
+      (equal? (number->string a) (number->string b))))
+
 (define (find-card-by-id cards id)
   (cond
     ((null? cards) nil)
-    ((equal? (get (car cards) :id) id) (car cards))
+    ((id-equal? (get (car cards) :id) id) (car cards))
     (#t (find-card-by-id (cdr cards) id))))
 
 (define (cards-in-col col)
@@ -138,21 +143,21 @@
       (update! board (fn (b) (append b (list card)))))))
 
 (define (delete-card id)
-  (update! board (fn (b) (filter (fn (c) (not (equal? (get c :id) id))) b)))
-  (when (equal? @selected-card-id id)
+  (update! board (fn (b) (filter (fn (c) (not (id-equal? (get c :id) id))) b)))
+  (when (id-equal? @selected-card-id id)
     (put! selected-card-id nil)))
 
 (define (move-card id new-col)
   (update! board (fn (b)
     (map (fn (c)
-      (if (equal? (get c :id) id)
+      (if (id-equal? (get c :id) id)
         (assoc (assoc c :column new-col) :created-at @tick)
         c)) b))))
 
 (define (update-card-field id field val)
   (update! board (fn (b)
     (map (fn (c)
-      (if (equal? (get c :id) id)
+      (if (id-equal? (get c :id) id)
         (assoc c field val)
         c)) b))))
 
@@ -338,19 +343,25 @@
                {})))
       (put! ai-stream s))))
 
-(define (check-ai-stream)
+;; Process completed AI stream — called via js/set-interval polling, NOT during render
+(define (poll-ai-stream)
   (let ((s @ai-stream))
     (when (not (null? s))
       (let ((val @s))
         (when (get val :done)
           (let ((text (get val :text)))
             (when (not (equal? text ""))
-              (let ((tasks (json/decode text)))
-                (when (not (null? tasks))
-                  (when (list? tasks)
+              ;; Try to extract JSON from the response (may contain markdown fences)
+              (let ((clean (if (string/contains? text "[")
+                            (substring text
+                              (string/index-of text "[")
+                              (+ 1 (string/last-index-of text "]")))
+                            text)))
+                (let ((tasks (try (json/decode clean) (catch e nil))))
+                  (when (and (not (null? tasks)) (list? tasks))
                     (map (fn (task)
                       (let ((card {:id (gen-id)
-                                   :title (get task :title)
+                                   :title (if (null? (get task :title)) "Untitled" (get task :title))
                                    :description ""
                                    :column "todo"
                                    :priority (if (null? (get task :priority)) "medium" (get task :priority))
@@ -361,13 +372,16 @@
           (put! ai-stream nil)
           (put! ai-loading #f))))))
 
+;; Poll every 500ms for AI stream completion (avoids side effects during render)
+(js/set-interval "poll-ai-stream" 500)
+
 (define (render-ai-status)
   (let ((s @ai-stream))
     (if (null? s)
       [:span]
       (let ((val @s))
         (if (get val :done)
-          (begin (check-ai-stream) [:span])
+          [:span {:class streaming-indicator-style} "Processing..."]
           [:span {:class streaming-indicator-style} "Generating tasks..."])))))
 
 ;; ── Scoped CSS ──────────────────────────────────────────────────────
