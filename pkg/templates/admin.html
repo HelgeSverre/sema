@@ -614,7 +614,7 @@
           <template x-for="pkg in packages" :key="pkg.name">
             <tr>
               <td>
-                <span style="color:var(--gold);" x-text="pkg.name"></span>
+                <a :href="'/packages/' + pkg.name" style="color:var(--gold); text-decoration:none;" x-text="pkg.name"></a>
                 <span style="font-size:0.6rem; color:var(--text-dim); margin-left:0.3rem;" x-text="pkg.latest_version ? ('v' + pkg.latest_version) : ''"></span>
                 <template x-if="pkg.reported">
                   <span class="status" style="margin-left:0.3rem; background:var(--error-dim); color:var(--error); border:1px solid var(--error-border);">Reported</span>
@@ -674,27 +674,30 @@
       <h1 class="page-title">Reports</h1>
       <p class="page-desc">User-submitted reports requiring review</p>
 
-      <div style="display:flex; flex-direction:column; gap:0;">
-        <template x-for="(report, index) in reports" :key="report.id">
-          <div style="padding:0.85rem 1rem; border-bottom:1px solid var(--border); display:flex; align-items:baseline; gap:1rem;" :style="index === 0 ? 'border-top:1px solid var(--border)' : ''">
-            <div style="flex:1;">
-              <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.25rem;">
-                <span class="status" :class="report.report_type === 'spam' ? 'status-banned' : 'status-yanked'" x-text="report.report_type"></span>
-                <span style="font-size:0.78rem; color:var(--text-bright);" x-text="report.target_name"></span>
+      <div style="display:flex; flex-direction:column; gap:0.75rem;">
+        <template x-for="report in reports" :key="report.id">
+          <div style="padding:1rem 1.2rem; background:var(--bg-raised); border:1px solid var(--border); border-radius:6px;">
+            <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:1rem;">
+              <div style="flex:1; min-width:0;">
+                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:0.4rem;">
+                  <span class="status" :class="report.report_type === 'spam' ? 'status-banned' : report.report_type === 'malware' ? 'status-banned' : 'status-yanked'" x-text="report.report_type"></span>
+                  <a :href="report.target_type === 'package' ? ('/packages/' + report.target_name) : '#'" style="font-size:0.82rem; color:var(--text-bright); text-decoration:none;" :style="report.target_type === 'package' ? 'color:var(--gold)' : ''" x-text="report.target_name"></a>
+                  <span style="font-size:0.58rem; color:var(--text-dim); padding:0.1rem 0.3rem; border:1px solid var(--border); border-radius:3px;" x-text="report.target_type"></span>
+                </div>
+                <div style="font-size:0.75rem; color:var(--text); line-height:1.5; margin-bottom:0.5rem;" x-text="report.reason"></div>
+                <div style="font-size:0.62rem; color:var(--text-dim);">
+                  Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span :title="report.created_at" x-text="timeAgo(report.created_at)"></span>
+                </div>
               </div>
-              <div style="font-size:0.72rem; color:var(--text);" x-text="report.reason"></div>
-              <div style="font-size:0.6rem; color:var(--text-dim); margin-top:0.2rem;">
-                Reported by <span style="color:var(--gold);" x-text="report.reporter"></span> &middot; <span :title="report.created_at" x-text="timeAgo(report.created_at)"></span>
+              <div style="display:flex; gap:0.4rem; flex-shrink:0; padding-top:0.1rem;">
+                <button class="action-btn action-btn-danger" @click="confirmAction('remove', report)">Act</button>
+                <button class="action-btn action-btn-ghost" @click="dismissReport(report)">Dismiss</button>
               </div>
-            </div>
-            <div style="display:flex; gap:0.3rem; flex-shrink:0;">
-              <button class="action-btn action-btn-danger" @click="confirmAction('remove', report)">Act</button>
-              <button class="action-btn action-btn-ghost" @click="dismissReport(report)">Dismiss</button>
             </div>
           </div>
         </template>
         <template x-if="reports.length === 0">
-          <div style="color:var(--text-dim); font-size:0.72rem; padding:1rem 0;">No open reports.</div>
+          <div style="color:var(--text-dim); font-size:0.72rem; padding:2rem 0; text-align:center; font-style:italic;">No open reports.</div>
         </template>
       </div>
     </div>
@@ -899,7 +902,11 @@ function adminPanel() {
       try {
         const params = new URLSearchParams();
         if (this.pkgSearch) params.set('q', this.pkgSearch);
-        if (this.pkgFilter !== 'all') params.set('source', this.pkgFilter);
+        if (this.pkgFilter === 'reported') {
+          params.set('reported', 'true');
+        } else if (this.pkgFilter !== 'all') {
+          params.set('source', this.pkgFilter);
+        }
         const res = await fetch('/api/v1/admin/packages?' + params);
         if (res.ok) {
           const data = await res.json();
@@ -915,7 +922,7 @@ function adminPanel() {
       try {
         const params = new URLSearchParams();
         if (this.auditSearch) params.set('q', this.auditSearch);
-        if (this.auditFilter !== 'all') params.set('type', this.auditFilter);
+        if (this.auditFilter !== 'all') params.set('action', this.auditFilter);
         const res = await fetch('/api/v1/admin/audit?' + params);
         if (res.ok) {
           const data = await res.json();
@@ -943,7 +950,7 @@ function adminPanel() {
     async openUserDrawer(user) {
       // Fetch full user detail if an endpoint exists, otherwise use list data
       try {
-        const res = await fetch('/api/v1/admin/users/' + encodeURIComponent(user.username));
+        const res = await fetch('/api/v1/admin/users/' + user.id);
         if (res.ok) {
           this.userDrawer = await res.json();
           return;
@@ -969,7 +976,7 @@ function adminPanel() {
     },
 
     confirmAction(action, target) {
-      const name = target.username || target.name || target.target;
+      const name = target.username || target.name || target.target_name;
       const configs = {
         'ban': { title: 'Ban User', body: `Are you sure you want to ban <strong>${name}</strong>? This will revoke all their API tokens and prevent login.`, btnText: 'Ban User', btnClass: 'action-btn-danger' },
         'unban': { title: 'Unban User', body: `Restore access for <strong>${name}</strong>? They will be able to login and publish again.`, btnText: 'Unban', btnClass: 'action-btn-success' },
@@ -981,7 +988,7 @@ function adminPanel() {
 
     async executeAction() {
       const { action, target } = this.confirm;
-      const name = target.username || target.name || target.target;
+      const name = target.username || target.name || target.target_name;
       this.confirm = null;
 
       try {
@@ -1037,7 +1044,7 @@ function adminPanel() {
       try {
         const res = await fetch('/api/v1/admin/reports/' + encodeURIComponent(report.id) + '/dismiss', { method: 'POST' });
         if (res.ok) {
-          this.showToast(`Dismissed report for ${report.target}`, 'success');
+          this.showToast(`Dismissed report for ${report.target_name}`, 'success');
           await Promise.all([this.loadReports(), this.loadStats()]);
         } else {
           this.showToast(`Failed to dismiss report`, 'error');
