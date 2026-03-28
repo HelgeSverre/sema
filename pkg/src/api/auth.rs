@@ -66,7 +66,7 @@ pub async fn register(
         Ok(r) => {
             let user_id = r.last_insert_rowid();
             let session_id = create_session(&state.db, user_id).await;
-            crate::audit::log(&state.db, &username, "register", Some("user"), Some(&username), None).await.ok();
+            crate::audit::log(&state.db, &username, "register", Some("user"), Some(&username), None).await;
             (
                 StatusCode::CREATED,
                 [(header::SET_COOKIE, session_cookie(&session_id))],

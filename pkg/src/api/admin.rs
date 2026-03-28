@@ -197,6 +197,14 @@ pub async fn ban_user(
     Path(user_id): Path<i64>,
     body: Option<Json<BanRequest>>,
 ) -> impl IntoResponse {
+    if user_id == admin.id {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Cannot ban yourself"})),
+        )
+            .into_response();
+    }
+
     let reason = body.and_then(|b| b.0.reason);
 
     // Verify user exists
@@ -245,8 +253,7 @@ pub async fn ban_user(
         Some(&username),
         Some(detail),
     )
-    .await
-    .ok();
+    .await;
 
     Json(serde_json::json!({"ok": true})).into_response()
 }
@@ -285,8 +292,7 @@ pub async fn unban_user(
         Some(&username),
         None,
     )
-    .await
-    .ok();
+    .await;
 
     Json(serde_json::json!({"ok": true})).into_response()
 }
@@ -329,8 +335,7 @@ pub async fn revoke_user_tokens(
         Some(&username),
         Some(&format!("revoked {count} tokens")),
     )
-    .await
-    .ok();
+    .await;
 
     Json(serde_json::json!({"ok": true, "revoked": count})).into_response()
 }
@@ -346,6 +351,14 @@ pub async fn set_user_role(
     Path(user_id): Path<i64>,
     Json(body): Json<RoleRequest>,
 ) -> impl IntoResponse {
+    if user_id == admin.id {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Cannot change your own admin role"})),
+        )
+            .into_response();
+    }
+
     let user_row = sqlx::query("SELECT username FROM users WHERE id = ?")
         .bind(user_id)
         .fetch_optional(&state.db)
@@ -378,8 +391,7 @@ pub async fn set_user_role(
         Some(&username),
         Some(&format!("set role to {role_str}")),
     )
-    .await
-    .ok();
+    .await;
 
     Json(serde_json::json!({"ok": true})).into_response()
 }
@@ -571,8 +583,7 @@ pub async fn yank_all_versions(
         Some(&name),
         Some(&format!("yanked {count} versions")),
     )
-    .await
-    .ok();
+    .await;
 
     Json(serde_json::json!({"ok": true, "yanked": count})).into_response()
 }
@@ -624,6 +635,12 @@ pub async fn remove_package(
         .execute(&state.db)
         .await;
 
+    // Clean up any reports targeting this package
+    let _ = sqlx::query("DELETE FROM reports WHERE target_type = 'package' AND target_name = ?")
+        .bind(&name)
+        .execute(&state.db)
+        .await;
+
     audit::log(
         &state.db,
         &admin.username,
@@ -632,8 +649,7 @@ pub async fn remove_package(
         Some(&name),
         None,
     )
-    .await
-    .ok();
+    .await;
 
     Json(serde_json::json!({"ok": true})).into_response()
 }
@@ -702,8 +718,7 @@ pub async fn transfer_ownership(
         Some(&name),
         Some(&format!("transferred to {}", body.to_username)),
     )
-    .await
-    .ok();
+    .await;
 
     Json(serde_json::json!({"ok": true})).into_response()
 }
@@ -814,7 +829,7 @@ pub async fn list_reports(
         r#"SELECT r.id, u.username as reporter, r.target_type, r.target_name,
               r.report_type, r.reason, r.status, r.created_at
            FROM reports r
-           JOIN users u ON u.id = r.reporter_id
+           LEFT JOIN users u ON u.id = r.reporter_id
            WHERE r.status = ?
            ORDER BY r.created_at DESC"#,
     )
@@ -828,7 +843,7 @@ pub async fn list_reports(
         .map(|r| {
             serde_json::json!({
                 "id": r.get::<i64, _>("id"),
-                "reporter": r.get::<String, _>("reporter"),
+                "reporter": r.get::<Option<String>, _>("reporter").unwrap_or_else(|| "[deleted]".to_string()),
                 "target_type": r.get::<String, _>("target_type"),
                 "target_name": r.get::<String, _>("target_name"),
                 "report_type": r.get::<String, _>("report_type"),
@@ -865,8 +880,7 @@ pub async fn action_report(
                 Some(&report_id.to_string()),
                 None,
             )
-            .await
-            .ok();
+            .await;
 
             Json(serde_json::json!({"ok": true})).into_response()
         }
@@ -901,8 +915,7 @@ pub async fn dismiss_report(
                 Some(&report_id.to_string()),
                 None,
             )
-            .await
-            .ok();
+            .await;
 
             Json(serde_json::json!({"ok": true})).into_response()
         }
@@ -931,6 +944,41 @@ pub async fn submit_report(
     AuthUser(user): AuthUser,
     Json(body): Json<SubmitReportRequest>,
 ) -> impl IntoResponse {
+    // Validate target_type
+    if !matches!(body.target_type.as_str(), "package" | "user") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "target_type must be 'package' or 'user'"})),
+        )
+            .into_response();
+    }
+
+    // Validate report_type
+    if !matches!(body.report_type.as_str(), "spam" | "malware" | "abuse" | "other") {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "report_type must be 'spam', 'malware', 'abuse', or 'other'"})),
+        )
+            .into_response();
+    }
+
+    // Validate lengths
+    if body.target_name.is_empty() || body.target_name.len() > 200 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "target_name must be 1-200 characters"})),
+        )
+            .into_response();
+    }
+
+    if body.reason.is_empty() || body.reason.len() > 2000 {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "reason must be 1-2000 characters"})),
+        )
+            .into_response();
+    }
+
     let result = sqlx::query(
         "INSERT INTO reports (reporter_id, target_type, target_name, report_type, reason) VALUES (?, ?, ?, ?, ?)",
     )
