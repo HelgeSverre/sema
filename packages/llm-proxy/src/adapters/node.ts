@@ -62,6 +62,7 @@ interface NodeRequest {
 /** Minimal Node.js ServerResponse interface. */
 interface NodeResponse {
   writeHead(status: number, headers: Record<string, string>): void;
+  write(chunk: string | Uint8Array): boolean;
   end(body?: string): void;
 }
 
@@ -106,9 +107,24 @@ export function createNodeHandler(config: ProxyConfig): NodeHandler {
         };
 
         handler(proxyReq).then(
-          (proxyRes) => {
+          async (proxyRes) => {
             res.writeHead(proxyRes.status, proxyRes.headers);
-            res.end(proxyRes.body);
+            // If the response has a ReadableStream, pipe it directly for SSE
+            if (proxyRes.stream) {
+              const reader = proxyRes.stream.getReader();
+              try {
+                while (true) {
+                  const { done, value } = await reader.read();
+                  if (done) break;
+                  res.write(value);
+                }
+              } finally {
+                reader.releaseLock();
+                res.end();
+              }
+            } else {
+              res.end(proxyRes.body);
+            }
           },
           (err) => {
             res.writeHead(500, { "Content-Type": "application/json" });

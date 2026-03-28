@@ -358,39 +358,10 @@ async function handleStream(
     return jsonResponse(502, errorBody, corsOrigin);
   }
 
-  // Collect the streamed SSE data and return as a single SSE body.
-  // Note: ProxyResponse uses a string body, so we buffer the stream.
-  // Platform adapters can override this for true streaming if needed.
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let sseOutput = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (line.startsWith("data: ")) {
-          const data = line.slice(6).trim();
-          if (data === "[DONE]") {
-            sseOutput += "data: [DONE]\n\n";
-            continue;
-          }
-          // Forward the SSE event
-          sseOutput += `data: ${data}\n\n`;
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
+  // Pass the provider's SSE stream through directly for real-time streaming.
+  // Adapters that support piping (Node.js) will use the `stream` field.
+  // Adapters that don't (or for fallback) get an empty body — they should
+  // check for `stream` first.
   return {
     status: 200,
     headers: {
@@ -399,7 +370,8 @@ async function handleStream(
       "Connection": "keep-alive",
       ...corsHeaders(corsOrigin),
     },
-    body: sseOutput,
+    body: "",
+    stream: response.body,
   };
 }
 
