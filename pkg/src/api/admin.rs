@@ -60,6 +60,8 @@ pub async fn stats(
 pub struct UserListParams {
     pub q: Option<String>,
     pub status: Option<String>,
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
 }
 
 pub async fn list_users(
@@ -67,6 +69,10 @@ pub async fn list_users(
     AdminUser(_user): AdminUser,
     Query(params): Query<UserListParams>,
 ) -> impl IntoResponse {
+    let per_page = params.per_page.unwrap_or(50).min(200);
+    let page = params.page.unwrap_or(1).max(1);
+    let offset = (page - 1) * per_page;
+
     let mut where_clauses: Vec<String> = vec!["1=1".to_string()];
     let mut binds: Vec<String> = Vec::new();
 
@@ -85,6 +91,19 @@ pub async fn list_users(
     }
 
     let where_sql = where_clauses.join(" AND ");
+
+    // Get total count
+    let count_sql = format!("SELECT COUNT(*) as cnt FROM users u WHERE {where_sql}");
+    let mut count_query = sqlx::query(&count_sql);
+    for b in &binds {
+        count_query = count_query.bind(b);
+    }
+    let total: i64 = count_query
+        .fetch_one(&state.db)
+        .await
+        .map(|r| r.get("cnt"))
+        .unwrap_or(0);
+
     let sql = format!(
         r#"SELECT u.id, u.username, u.email, u.is_admin, u.github_id,
               oc.provider_login,
@@ -94,13 +113,15 @@ pub async fn list_users(
            FROM users u
            LEFT JOIN oauth_connections oc ON oc.user_id = u.id AND oc.provider = 'github' AND oc.revoked_at IS NULL
            WHERE {where_sql}
-           ORDER BY u.created_at DESC"#
+           ORDER BY u.created_at DESC
+           LIMIT ? OFFSET ?"#
     );
 
     let mut query = sqlx::query(&sql);
     for b in &binds {
         query = query.bind(b);
     }
+    query = query.bind(per_page).bind(offset);
 
     let rows = query.fetch_all(&state.db).await.unwrap_or_default();
 
@@ -124,7 +145,12 @@ pub async fn list_users(
         })
         .collect();
 
-    Json(serde_json::json!({ "users": users }))
+    Json(serde_json::json!({
+        "users": users,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }))
 }
 
 pub async fn get_user(
@@ -413,6 +439,8 @@ pub struct PkgListParams {
     pub q: Option<String>,
     pub source: Option<String>,
     pub reported: Option<bool>,
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
 }
 
 pub async fn list_packages(
@@ -420,6 +448,10 @@ pub async fn list_packages(
     AdminUser(_user): AdminUser,
     Query(params): Query<PkgListParams>,
 ) -> impl IntoResponse {
+    let per_page = params.per_page.unwrap_or(50).min(200);
+    let page = params.page.unwrap_or(1).max(1);
+    let offset = (page - 1) * per_page;
+
     let mut where_clauses: Vec<String> = vec!["1=1".to_string()];
     let mut binds: Vec<String> = Vec::new();
 
@@ -442,6 +474,19 @@ pub async fn list_packages(
     }
 
     let where_sql = where_clauses.join(" AND ");
+
+    // Get total count
+    let count_sql = format!("SELECT COUNT(*) as cnt FROM packages p WHERE {where_sql}");
+    let mut count_query = sqlx::query(&count_sql);
+    for b in &binds {
+        count_query = count_query.bind(b);
+    }
+    let total: i64 = count_query
+        .fetch_one(&state.db)
+        .await
+        .map(|r| r.get("cnt"))
+        .unwrap_or(0);
+
     let sql = format!(
         r#"SELECT p.name, p.description, p.source, p.created_at,
               (SELECT pv.version FROM package_versions pv WHERE pv.package_id = p.id ORDER BY pv.published_at DESC LIMIT 1) as latest_version,
@@ -451,13 +496,15 @@ pub async fn list_packages(
               EXISTS (SELECT 1 FROM reports r WHERE r.target_type = 'package' AND r.target_name = p.name AND r.status = 'open') as reported
            FROM packages p
            WHERE {where_sql}
-           ORDER BY p.created_at DESC"#
+           ORDER BY p.created_at DESC
+           LIMIT ? OFFSET ?"#
     );
 
     let mut query = sqlx::query(&sql);
     for b in &binds {
         query = query.bind(b);
     }
+    query = query.bind(per_page).bind(offset);
 
     let rows = query.fetch_all(&state.db).await.unwrap_or_default();
 
@@ -478,7 +525,12 @@ pub async fn list_packages(
         })
         .collect();
 
-    Json(serde_json::json!({ "packages": packages }))
+    Json(serde_json::json!({
+        "packages": packages,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }))
 }
 
 pub async fn get_package(
@@ -832,6 +884,8 @@ pub async fn list_audit(
 #[derive(Deserialize)]
 pub struct ReportListParams {
     pub status: Option<String>,
+    pub page: Option<i64>,
+    pub per_page: Option<i64>,
 }
 
 pub async fn list_reports(
@@ -839,7 +893,19 @@ pub async fn list_reports(
     AdminUser(_user): AdminUser,
     Query(params): Query<ReportListParams>,
 ) -> impl IntoResponse {
+    let per_page = params.per_page.unwrap_or(50).min(200);
+    let page = params.page.unwrap_or(1).max(1);
+    let offset = (page - 1) * per_page;
+
     let status = params.status.unwrap_or_else(|| "open".to_string());
+
+    // Get total count
+    let total: i64 = sqlx::query("SELECT COUNT(*) as cnt FROM reports WHERE status = ?")
+        .bind(&status)
+        .fetch_one(&state.db)
+        .await
+        .map(|r| r.get("cnt"))
+        .unwrap_or(0);
 
     let rows = sqlx::query(
         r#"SELECT r.id, u.username as reporter, r.target_type, r.target_name,
@@ -847,9 +913,12 @@ pub async fn list_reports(
            FROM reports r
            LEFT JOIN users u ON u.id = r.reporter_id
            WHERE r.status = ?
-           ORDER BY r.created_at DESC"#,
+           ORDER BY r.created_at DESC
+           LIMIT ? OFFSET ?"#,
     )
     .bind(&status)
+    .bind(per_page)
+    .bind(offset)
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
@@ -870,7 +939,12 @@ pub async fn list_reports(
         })
         .collect();
 
-    Json(serde_json::json!({ "reports": reports }))
+    Json(serde_json::json!({
+        "reports": reports,
+        "total": total,
+        "page": page,
+        "per_page": per_page,
+    }))
 }
 
 pub async fn action_report(

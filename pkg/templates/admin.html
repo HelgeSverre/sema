@@ -531,8 +531,8 @@
       <p class="page-desc">Manage registered accounts</p>
 
       <div class="toolbar">
-        <input type="text" class="toolbar-search" placeholder="Search users by name or email..." x-model="userSearch" @input.debounce.300ms="loadUsers()">
-        <select class="toolbar-filter" x-model="userFilter" @change="loadUsers()">
+        <input type="text" class="toolbar-search" placeholder="Search users by name or email..." x-model="userSearch" @input.debounce.300ms="userPage = 1; loadUsers()">
+        <select class="toolbar-filter" x-model="userFilter" @change="userPage = 1; loadUsers()">
           <option value="all">All users</option>
           <option value="active">Active</option>
           <option value="banned">Banned</option>
@@ -589,8 +589,8 @@
       <p class="page-desc">Manage published packages and versions</p>
 
       <div class="toolbar">
-        <input type="text" class="toolbar-search" placeholder="Search packages..." x-model="pkgSearch" @input.debounce.300ms="loadPackages()">
-        <select class="toolbar-filter" x-model="pkgFilter" @change="loadPackages()">
+        <input type="text" class="toolbar-search" placeholder="Search packages..." x-model="pkgSearch" @input.debounce.300ms="pkgPage = 1; loadPackages()">
+        <select class="toolbar-filter" x-model="pkgFilter" @change="pkgPage = 1; loadPackages()">
           <option value="all">All packages</option>
           <option value="upload">Upload-sourced</option>
           <option value="github">GitHub-linked</option>
@@ -645,8 +645,8 @@
       <p class="page-desc">All administrative and system actions</p>
 
       <div class="toolbar">
-        <input type="text" class="toolbar-search" placeholder="Filter events..." x-model="auditSearch" @input.debounce.300ms="loadAudit()">
-        <select class="toolbar-filter" x-model="auditFilter" @change="loadAudit()">
+        <input type="text" class="toolbar-search" placeholder="Filter events..." x-model="auditSearch" @input.debounce.300ms="auditPage = 1; loadAudit()">
+        <select class="toolbar-filter" x-model="auditFilter" @change="auditPage = 1; loadAudit()">
           <option value="all">All events</option>
           <option value="admin">Admin actions</option>
           <option value="publish">Publishes</option>
@@ -841,6 +841,16 @@ function adminPanel() {
     toast: '',
     toastType: 'success',
 
+    userPage: 1,
+    userTotal: 0,
+    pkgPage: 1,
+    pkgTotal: 0,
+    reportPage: 1,
+    reportTotal: 0,
+    auditPage: 1,
+    auditTotal: 0,
+    perPage: 50,
+
     stats: { total_users: 0, total_packages: 0, banned_users: 0, open_reports: 0 },
     users: [],
     packages: [],
@@ -887,10 +897,13 @@ function adminPanel() {
         const params = new URLSearchParams();
         if (this.userSearch) params.set('q', this.userSearch);
         if (this.userFilter !== 'all') params.set('status', this.userFilter);
+        params.set('page', this.userPage);
+        params.set('per_page', this.perPage);
         const res = await fetch('/api/v1/admin/users?' + params);
         if (res.ok) {
           const data = await res.json();
           this.users = data.users || [];
+          this.userTotal = data.total || 0;
           this._loaded.users = true;
         }
       } catch (e) {
@@ -907,10 +920,13 @@ function adminPanel() {
         } else if (this.pkgFilter !== 'all') {
           params.set('source', this.pkgFilter);
         }
+        params.set('page', this.pkgPage);
+        params.set('per_page', this.perPage);
         const res = await fetch('/api/v1/admin/packages?' + params);
         if (res.ok) {
           const data = await res.json();
           this.packages = data.packages || [];
+          this.pkgTotal = data.total || 0;
           this._loaded.packages = true;
         }
       } catch (e) {
@@ -923,10 +939,13 @@ function adminPanel() {
         const params = new URLSearchParams();
         if (this.auditSearch) params.set('q', this.auditSearch);
         if (this.auditFilter !== 'all') params.set('action', this.auditFilter);
+        params.set('page', this.auditPage);
+        params.set('per_page', this.perPage);
         const res = await fetch('/api/v1/admin/audit?' + params);
         if (res.ok) {
           const data = await res.json();
           this.auditLog = data.entries || [];
+          this.auditTotal = data.total || 0;
           this._loaded.audit = true;
         }
       } catch (e) {
