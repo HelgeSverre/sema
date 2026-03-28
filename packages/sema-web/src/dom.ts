@@ -245,6 +245,47 @@ export function registerDomBindings(interp: SemaInterpreterLike, ctx: SemaWebCon
     return null;
   });
 
+  // --- Event key (for keyboard events) ---
+
+  interp.registerFunction("dom/event-key", (evId: number) => {
+    const ev = getEvent(evId, ctx);
+    if ("key" in ev) {
+      return (ev as KeyboardEvent).key;
+    }
+    return null;
+  });
+
+  // --- Event target (returns element handle) ---
+
+  interp.registerFunction("dom/event-target", (evId: number) => {
+    const ev = getEvent(evId, ctx);
+    const target = ev.target;
+    if (target instanceof Element) {
+      return storeHandle(target, ctx);
+    }
+    return null;
+  });
+
+  // --- Event target closest (find closest ancestor matching selector) ---
+
+  interp.registerFunction("dom/event-target-closest", (evId: number, selector: string) => {
+    const ev = getEvent(evId, ctx);
+    const target = ev.target;
+    if (target instanceof Element) {
+      const found = target.closest(selector);
+      if (found) return storeHandle(found, ctx);
+    }
+    return null;
+  });
+
+  // --- Element focus ---
+
+  interp.registerFunction("dom/focus!", (id: number) => {
+    const el = getElement(id, ctx);
+    if ("focus" in el) (el as HTMLElement).focus();
+    return null;
+  });
+
   // --- SIP rendering ---
 
   interp.registerFunction("dom/render", (sipData: any) => {
