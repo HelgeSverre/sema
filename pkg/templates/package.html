@@ -250,8 +250,7 @@
         <div x-show="daily.length > 0">
           <div style="display:flex; align-items:end; gap:1px; height:32px; margin-top:0.5rem;">
             <template x-for="d in daily" :key="d.date">
-              <div style="flex:1; background:var(--gold-dim); min-width:1px; border-radius:1px 1px 0 0;"
-                   :style="'height:' + (d.count / Math.max(...daily.map(x=>x.count), 1) * 100) + '%'"
+              <div :style="'flex:1; background:var(--gold-dim); min-width:1px; border-radius:1px 1px 0 0; height:' + (d.count / Math.max(...daily.map(x=>x.count), 1) * 100) + '%'"
                    :title="d.date + ': ' + d.count + ' downloads'"></div>
             </template>
           </div>
