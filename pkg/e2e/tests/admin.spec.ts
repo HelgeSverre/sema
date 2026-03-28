@@ -497,4 +497,157 @@ test.describe('Admin Panel', () => {
     await expect(adminPage.getByTestId('nav-admin')).toBeVisible();
     await adminContext.close();
   });
+
+  // ────────────────────────────────────────────
+  // 13. Unban user flow
+  // ────────────────────────────────────────────
+  test('unban user flow', async ({ page, request }) => {
+    const adminName = unique('adm-unban');
+    const adminSession = await api.register(
+      request,
+      adminName,
+      `${adminName}@test.com`,
+    );
+    makeAdmin(adminName);
+
+    // Register target user and ban them via API
+    const target = unique('unbannable');
+    await api.register(request, target, `${target}@test.com`);
+    const targetId = getUserId(target);
+    await request.post(`${BASE}/api/v1/admin/users/${targetId}/ban`, {
+      headers: { cookie: `session=${adminSession}` },
+    });
+
+    await api.setSession(page.context(), adminSession);
+    await page.goto('/admin');
+    await page.waitForSelector('.stats-grid', { state: 'visible', timeout: 15000 });
+
+    // Navigate to Users tab
+    await page.locator('.sidebar-link', { hasText: 'Users' }).click();
+    await page.waitForSelector('.admin-table tbody tr', { timeout: 10000 });
+
+    // Search for the target user
+    const searchInput = page.locator(
+      'div[x-show*="users"] .toolbar-search',
+    );
+    await searchInput.fill(target);
+    await page.waitForSelector(`.admin-table tbody tr:has-text("${target}")`, { timeout: 10000 });
+
+    // Verify the user shows "Banned" badge
+    const userRow = page.locator('.admin-table tbody tr', { hasText: target });
+    await expect(userRow).toBeVisible();
+    await expect(userRow.locator('.status-banned')).toBeVisible({ timeout: 10000 });
+
+    // Click "Unban" — opens confirm dialog
+    await userRow.locator('button', { hasText: 'Unban' }).click();
+
+    // Confirm dialog should appear
+    await expect(page.locator('.confirm-dialog')).toBeVisible({ timeout: 10000 });
+
+    // Click the confirm button inside the dialog
+    const confirmBtn = page.locator('.confirm-dialog button', { hasText: /Unban|Confirm|Yes/ });
+    await confirmBtn.click();
+
+    // Toast should show success
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 10000 });
+
+    // User should no longer show "Banned" badge
+    await page.waitForTimeout(500);
+    const updatedRow = page.locator('.admin-table tbody tr', { hasText: target });
+    await expect(updatedRow.locator('.status-banned')).toHaveCount(0, { timeout: 10000 });
+  });
+
+  // ────────────────────────────────────────────
+  // 14. Transfer ownership flow
+  // ────────────────────────────────────────────
+  test('transfer ownership flow', async ({ page, request }) => {
+    const adminName = unique('adm-transfer');
+    const adminSession = await api.register(
+      request,
+      adminName,
+      `${adminName}@test.com`,
+    );
+    makeAdmin(adminName);
+
+    // Register owner and new owner
+    const owner = unique('xferowner');
+    const ownerSession = await api.register(
+      request,
+      owner,
+      `${owner}@test.com`,
+    );
+    const newowner = unique('xfernew');
+    await api.register(request, newowner, `${newowner}@test.com`);
+
+    // Owner publishes a package
+    const ownerToken = await api.createToken(request, ownerSession, 'xfer-tok');
+    const pkgName = unique('xferpkg');
+    await api.publishPackage(request, ownerToken, pkgName, '1.0.0');
+
+    // Transfer ownership via admin API
+    const transferRes = await request.post(
+      `${BASE}/api/v1/admin/packages/${pkgName}/transfer`,
+      {
+        data: { to_username: newowner },
+        headers: { cookie: `session=${adminSession}` },
+      },
+    );
+    expect(transferRes.ok()).toBeTruthy();
+
+    // Verify the transfer in the browser on the package detail page
+    await api.setSession(page.context(), adminSession);
+    await page.goto(`/packages/${pkgName}`);
+
+    // The package detail page should show the new owner
+    await expect(page.locator(`text=${newowner}`)).toBeVisible({ timeout: 10000 });
+  });
+
+  // ────────────────────────────────────────────
+  // 15. Revoke tokens from user drawer
+  // ────────────────────────────────────────────
+  test('revoke tokens from user drawer', async ({ page, request }) => {
+    const adminName = unique('adm-revtok');
+    const adminSession = await api.register(
+      request,
+      adminName,
+      `${adminName}@test.com`,
+    );
+    makeAdmin(adminName);
+
+    // Register target user and create 2 tokens
+    const target = unique('tokentarget');
+    const targetSession = await api.register(
+      request,
+      target,
+      `${target}@test.com`,
+    );
+    await api.createToken(request, targetSession, 'tok-a');
+    await api.createToken(request, targetSession, 'tok-b');
+
+    await api.setSession(page.context(), adminSession);
+    await page.goto('/admin');
+    await page.waitForSelector('.stats-grid', { state: 'visible', timeout: 15000 });
+
+    // Navigate to Users tab
+    await page.locator('.sidebar-link', { hasText: 'Users' }).click();
+    await page.waitForSelector('.admin-table tbody tr', { timeout: 10000 });
+
+    // Search for the target user
+    const searchInput = page.locator(
+      'div[x-show*="users"] .toolbar-search',
+    );
+    await searchInput.fill(target);
+    await page.waitForSelector(`.admin-table tbody tr:has-text("${target}")`, { timeout: 10000 });
+
+    // Click "View" on the target user to open the drawer
+    const userRow = page.locator('.admin-table tbody tr', { hasText: target });
+    await expect(userRow).toBeVisible();
+    await userRow.locator('button', { hasText: 'View' }).click();
+
+    // Wait for drawer to open and click "Revoke All Tokens"
+    await page.locator('button', { hasText: 'Revoke All Tokens' }).click();
+
+    // Toast should show success
+    await expect(page.locator('.toast-success')).toBeVisible({ timeout: 10000 });
+  });
 });

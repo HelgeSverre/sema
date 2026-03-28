@@ -1689,3 +1689,451 @@ async fn test_admin_list_users_filter_banned() {
         .collect();
     assert!(!usernames.contains(&"fb-bad"));
 }
+
+// ── Coverage Gap Tests ──
+
+#[tokio::test]
+async fn test_download_tracking() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "dt-admin", "dt-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "dt-user", "dt-user@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "dt-token").await;
+
+    publish_package(app.clone(), &token, "dt-pkg", "1.0.0", b"dt-data").await;
+
+    // Download twice
+    for _ in 0..2 {
+        let res = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/packages/dt-pkg/1.0.0/download")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+    }
+
+    // Check package endpoint for total_downloads
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/packages/dt-pkg")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert!(
+        body["total_downloads"].as_i64().unwrap_or(0) >= 2,
+        "expected total_downloads >= 2, got {:?}",
+        body["total_downloads"]
+    );
+
+    // Check admin stats for total_downloads
+    let res = get_with_session(app.clone(), "/api/v1/admin/stats", &admin_session).await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    assert!(
+        body["total_downloads"].as_i64().unwrap_or(0) >= 2,
+        "expected admin stats total_downloads >= 2, got {:?}",
+        body["total_downloads"]
+    );
+}
+
+#[tokio::test]
+async fn test_admin_get_package_detail() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "dpd-admin", "dpd-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "dpd-user1", "dpd-user1@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "dpd-token").await;
+
+    // Publish two versions
+    let res = publish_package(app.clone(), &token, "detail-pkg", "1.0.0", b"data1").await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let res = publish_package(app.clone(), &token, "detail-pkg", "2.0.0", b"data2").await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    // Submit a report against it
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "detail-pkg",
+            "report_type": "malware",
+            "reason": "Looks suspicious"
+        }),
+        &user_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    // Admin gets package detail
+    let res = get_with_session(
+        app.clone(),
+        "/api/v1/admin/packages/detail-pkg",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+
+    assert_eq!(body["package"]["name"], "detail-pkg");
+    assert!(
+        body["versions"].as_array().unwrap().len() >= 2,
+        "expected at least 2 versions"
+    );
+    assert!(
+        !body["owners"].as_array().unwrap().is_empty(),
+        "expected at least one owner"
+    );
+    assert!(
+        body["open_reports"].as_i64().unwrap_or(0) >= 1,
+        "expected open_reports >= 1, got {:?}",
+        body["open_reports"]
+    );
+    // total_downloads should be present (may be 0)
+    assert!(body.get("total_downloads").is_some(), "expected total_downloads field");
+}
+
+#[tokio::test]
+async fn test_admin_transfer_package_not_found() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "tpnf-admin", "tpnf-admin@test.com").await;
+
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/admin/packages/nonexistent-xyz/transfer",
+        serde_json::json!({"to_username": "someone"}),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_admin_transfer_target_user_not_found() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "ttunf-admin", "ttunf-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "ttunf-user", "ttunf-user@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "ttunf-token").await;
+
+    publish_package(app.clone(), &token, "ttunf-pkg", "1.0.0", b"data").await;
+
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/admin/packages/ttunf-pkg/transfer",
+        serde_json::json!({"to_username": "ghost-user"}),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn test_yank_not_owner() {
+    let (app, _state, _dir) = test_app_with_state().await;
+    let session1 = register_user(app.clone(), "yno-owner", "yno-owner@test.com").await;
+    let token1 = create_api_token(app.clone(), &session1, "yno-tok1").await;
+
+    let session2 = register_user(app.clone(), "yno-intruder", "yno-intruder@test.com").await;
+    let token2 = create_api_token(app.clone(), &session2, "yno-tok2").await;
+
+    // Owner publishes
+    let res = publish_package(app.clone(), &token1, "yno-pkg", "1.0.0", b"data").await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    // Intruder tries to yank
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/packages/yno-pkg/1.0.0/yank")
+                .header("authorization", format!("Bearer {token2}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn test_revoke_other_users_token() {
+    let (app, _state, _dir) = test_app_with_state().await;
+    let session1 = register_user(app.clone(), "rot-user1", "rot-user1@test.com").await;
+    let session2 = register_user(app.clone(), "rot-user2", "rot-user2@test.com").await;
+
+    // user1 creates a token
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/tokens",
+        serde_json::json!({"name": "rot-tok1"}),
+        &session1,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    let body = body_json(res).await;
+    let token_id = body["id"].as_i64().unwrap();
+    let token_value = body["token"].as_str().unwrap().to_string();
+
+    // user2 tries to delete user1's token
+    let res = delete_with_session(
+        app.clone(),
+        &format!("/api/v1/tokens/{token_id}"),
+        &session2,
+    )
+    .await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NOT_FOUND,
+        "user2 should not be able to delete user1's token"
+    );
+
+    // user1's token should still work (publish with it)
+    let res = publish_package(app.clone(), &token_value, "rot-pkg", "1.0.0", b"data").await;
+    assert_eq!(
+        res.status(),
+        StatusCode::CREATED,
+        "user1's token should still work after user2's failed delete attempt"
+    );
+}
+
+#[tokio::test]
+async fn test_get_package_api_not_found() {
+    let (app, _dir) = test_app().await;
+
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/packages/nonexistent-xyz-123")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
+    let body = body_json(res).await;
+    assert!(
+        body.get("error").is_some(),
+        "expected error field in 404 response body"
+    );
+}
+
+#[tokio::test]
+async fn test_pagination_integration() {
+    let (app, _state, _dir) = test_app_with_state().await;
+    let session = register_user(app.clone(), "pag-user", "pag-user@test.com").await;
+    let token = create_api_token(app.clone(), &session, "pag-token").await;
+
+    // Publish 5 packages with unique names
+    for i in 1..=5 {
+        let name = format!("pag-pkg-{i}");
+        let res = publish_package(app.clone(), &token, &name, "1.0.0", b"data").await;
+        assert_eq!(res.status(), StatusCode::CREATED);
+    }
+
+    // Page 1: expect 2 results
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search?per_page=2&page=1")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let page1 = body["packages"].as_array().unwrap();
+    assert_eq!(page1.len(), 2, "page 1 should have 2 packages");
+    assert!(
+        body["total"].as_i64().unwrap_or(0) >= 5,
+        "total should be >= 5"
+    );
+
+    // Page 2: expect 2 different results
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search?per_page=2&page=2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let page2 = body["packages"].as_array().unwrap();
+    assert_eq!(page2.len(), 2, "page 2 should have 2 packages");
+    // Ensure page 1 and page 2 have different packages
+    let page1_names: Vec<&str> = page1.iter().map(|p| p["name"].as_str().unwrap()).collect();
+    let page2_names: Vec<&str> = page2.iter().map(|p| p["name"].as_str().unwrap()).collect();
+    for name in &page2_names {
+        assert!(
+            !page1_names.contains(name),
+            "page 2 package {name} should not appear in page 1"
+        );
+    }
+
+    // Page 3: expect 1 result (the 5th)
+    let res = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/search?per_page=2&page=3")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let page3 = body["packages"].as_array().unwrap();
+    assert_eq!(page3.len(), 1, "page 3 should have 1 package");
+}
+
+#[tokio::test]
+async fn test_admin_audit_text_search() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "ats-admin", "ats-admin@test.com").await;
+    register_user(
+        app.clone(),
+        "audit-searchable-victim",
+        "ats-victim@test.com",
+    )
+    .await;
+
+    let victim_id = get_user_id(&state, "audit-searchable-victim").await;
+
+    // Ban the user (generates an audit entry referencing the username)
+    let res = post_json_with_session(
+        app.clone(),
+        &format!("/api/v1/admin/users/{victim_id}/ban"),
+        serde_json::json!({"reason": "audit search test"}),
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+
+    // Search audit log for the victim's name
+    let res = get_with_session(
+        app.clone(),
+        "/api/v1/admin/audit?q=audit-searchable-victim",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let entries = body["entries"].as_array().unwrap();
+    assert!(
+        !entries.is_empty(),
+        "expected at least 1 audit entry matching 'audit-searchable-victim'"
+    );
+    // All returned entries should reference the victim name somewhere
+    for entry in entries {
+        let entry_str = serde_json::to_string(entry).unwrap();
+        assert!(
+            entry_str.contains("audit-searchable-victim"),
+            "audit entry should reference 'audit-searchable-victim': {entry_str}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_admin_packages_filter_reported() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "pfr-admin", "pfr-admin@test.com").await;
+    let user_session =
+        register_user(app.clone(), "pfr-user", "pfr-user@test.com").await;
+    let token = create_api_token(app.clone(), &user_session, "pfr-token").await;
+
+    publish_package(app.clone(), &token, "pfr-reported-pkg", "1.0.0", b"data").await;
+    publish_package(app.clone(), &token, "pfr-clean-pkg", "1.0.0", b"data").await;
+
+    // Submit a report against the first package
+    let res = post_json_with_session(
+        app.clone(),
+        "/api/v1/reports",
+        serde_json::json!({
+            "target_type": "package",
+            "target_name": "pfr-reported-pkg",
+            "report_type": "malware",
+            "reason": "Looks malicious"
+        }),
+        &user_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    // Admin filters packages by reported
+    let res = get_with_session(
+        app.clone(),
+        "/api/v1/admin/packages?reported=true",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let body = body_json(res).await;
+    let packages = body["packages"].as_array().unwrap();
+    let names: Vec<&str> = packages
+        .iter()
+        .map(|p| p["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"pfr-reported-pkg"),
+        "reported package should appear in filtered results, got: {names:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_admin_report_not_found() {
+    let (app, state, _dir) = test_app_with_state().await;
+    let admin_session =
+        register_admin(app.clone(), &state, "rnf-admin", "rnf-admin@test.com").await;
+
+    // Dismiss nonexistent report
+    let res = post_empty_with_session(
+        app.clone(),
+        "/api/v1/admin/reports/99999/dismiss",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NOT_FOUND,
+        "dismiss nonexistent report should be 404"
+    );
+
+    // Action nonexistent report
+    let res = post_empty_with_session(
+        app.clone(),
+        "/api/v1/admin/reports/99999/action",
+        &admin_session,
+    )
+    .await;
+    assert_eq!(
+        res.status(),
+        StatusCode::NOT_FOUND,
+        "action nonexistent report should be 404"
+    );
+}
