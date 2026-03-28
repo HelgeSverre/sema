@@ -116,7 +116,7 @@ describe("registerComponentBindings", () => {
 
   it("evalStr was called with mount! wrapper definition", () => {
     const calls = interp.getEvalCalls();
-    const hasMount = calls.some((c: string) => c.includes("define (mount!"));
+    const hasMount = calls.some((c: string) => c.includes("defmacro mount!"));
     expect(hasMount).toBe(true);
   });
 });
