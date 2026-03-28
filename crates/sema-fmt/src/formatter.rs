@@ -71,7 +71,7 @@ fn build_one(
         }
 
         // Prefix tokens — attach to the following node
-        Token::Quote | Token::Quasiquote | Token::Unquote | Token::UnquoteSplice => {
+        Token::Quote | Token::Quasiquote | Token::Unquote | Token::UnquoteSplice | Token::Deref => {
             let prefix_tok = st.token.clone();
             if pos + 1 >= tokens.len() {
                 return Err(SemaError::eval("prefix token at end of input"));
@@ -434,6 +434,7 @@ fn token_text(tok: &Token) -> String {
         Token::Quasiquote => "`".to_string(),
         Token::Unquote => ",".to_string(),
         Token::UnquoteSplice => ",@".to_string(),
+        Token::Deref => "@".to_string(),
         Token::ShortLambdaStart => "#(".to_string(),
         Token::BytevectorStart => "#u8(".to_string(),
         Token::Comment(text) => text.clone(),
@@ -447,6 +448,7 @@ fn prefix_text(tok: &Token) -> &'static str {
         Token::Quasiquote => "`",
         Token::Unquote => ",",
         Token::UnquoteSplice => ",@",
+        Token::Deref => "@",
         _ => "",
     }
 }

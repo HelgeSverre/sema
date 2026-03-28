@@ -35,13 +35,17 @@
 
 import { SemaInterpreter } from "@sema-lang/sema";
 import type { InterpreterOptions } from "@sema-lang/sema";
+import { SemaWebContext } from "./context.js";
 import { registerDomBindings } from "./dom.js";
 import { registerStoreBindings } from "./store.js";
 import { registerReactiveBindings } from "./reactive.js";
-import { registerHiccupBindings } from "./hiccup.js";
+import { registerSipBindings } from "./sip.js";
 import { registerComponentBindings } from "./component.js";
 import { registerLlmBindings } from "./llm.js";
 import type { LlmProxyOptions } from "./llm.js";
+import { registerRouterBindings } from "./router.js";
+import { registerCssBindings } from "./css.js";
+import { registerHttpBindings } from "./http.js";
 import { loadScripts } from "./loader.js";
 import type { LoaderOptions } from "./loader.js";
 
@@ -66,22 +70,22 @@ export interface SemaWebOptions extends InterpreterOptions {
   store?: boolean;
 
   /**
-   * Whether to register reactive atom bindings (`atom/*` namespace
-   * plus `atom`, `deref`, `reset!`, `swap!` convenience functions).
+   * Whether to register reactive state bindings (`state`, `put!`, `update!`,
+   * `deref`, `computed`, `batch`, `watch`).
    * Default: `true`.
    */
   reactive?: boolean;
 
   /**
-   * Whether to register hiccup rendering bindings (`hiccup/*` namespace).
+   * Whether to register SIP rendering bindings (`sip/*` namespace).
    * Default: `true`.
    */
-  hiccup?: boolean;
+  sip?: boolean;
 
   /**
    * Whether to register component/mount bindings (`component/*` namespace
    * plus `mount!` convenience function).
-   * Automatically enables `reactive` and `hiccup` if they are not explicitly disabled.
+   * Automatically enables `reactive` and `sip` if they are not explicitly disabled.
    * Default: `true`.
    */
   components?: boolean;
@@ -96,6 +100,24 @@ export interface SemaWebOptions extends InterpreterOptions {
    * Default: `true`.
    */
   console?: boolean;
+
+  /**
+   * Whether to register `router/*` namespace functions for SPA routing.
+   * Default: `true`.
+   */
+  router?: boolean;
+
+  /**
+   * Whether to register `css/*` namespace functions for scoped CSS.
+   * Default: `true`.
+   */
+  css?: boolean;
+
+  /**
+   * Whether to register browser-specific `http/*` functions (SSE, etc.).
+   * Default: `true`.
+   */
+  http?: boolean;
 
   /**
    * LLM proxy configuration. When provided, registers `llm/*` namespace
@@ -138,6 +160,12 @@ export interface EvalResult {
  * - `dom/*` functions for DOM manipulation
  * - `store/*` functions for localStorage/sessionStorage
  * - `console/*` functions for browser console access
+ * - Reactive state with `state`, `put!`, `update!`, `computed`, `batch`, `watch`
+ * - SIP declarative rendering (`sip/*` namespace)
+ * - Component system with `mount!`, `defcomponent`, `local`, `on-mount`
+ * - `router/*` hash-based SPA routing
+ * - `css/*` scoped CSS injection
+ * - `http/*` browser-specific HTTP (SSE)
  * - Auto-loading of `<script type="text/sema">` tags
  *
  * @example
@@ -152,9 +180,11 @@ export interface EvalResult {
  */
 export class SemaWeb {
   private _interp: SemaInterpreter;
+  private _ctx: SemaWebContext;
 
-  private constructor(interp: SemaInterpreter) {
+  private constructor(interp: SemaInterpreter, ctx: SemaWebContext) {
     this._interp = interp;
+    this._ctx = ctx;
   }
 
   /**
@@ -165,36 +195,52 @@ export class SemaWeb {
    */
   static async create(opts?: SemaWebOptions): Promise<SemaWeb> {
     const interp = await SemaInterpreter.create(opts);
-    const web = new SemaWeb(interp);
+    const ctx = new SemaWebContext();
+    const web = new SemaWeb(interp, ctx);
 
     // Register browser bindings
     if (opts?.dom !== false) {
-      registerDomBindings(interp);
+      registerDomBindings(interp, ctx);
     }
 
     if (opts?.store !== false) {
-      registerStoreBindings(interp);
+      registerStoreBindings(interp, ctx);
     }
 
     if (opts?.console !== false) {
       registerConsoleBindings(interp);
     }
 
-    // Reactive bindings (atoms, dependency tracking)
+    // Reactive bindings (state, put!, update!, computed, batch, watch)
     // Auto-enabled if components are enabled
     if (opts?.reactive !== false || opts?.components !== false) {
-      registerReactiveBindings(interp);
+      registerReactiveBindings(interp, ctx);
     }
 
-    // Hiccup rendering (declarative DOM from vectors/maps)
+    // SIP rendering (declarative DOM from vectors/maps)
     // Auto-enabled if components are enabled
-    if (opts?.hiccup !== false || opts?.components !== false) {
-      registerHiccupBindings(interp);
+    if (opts?.sip !== false || opts?.components !== false) {
+      registerSipBindings(interp, ctx);
     }
 
     // Component system (mount!/unmount! with reactive re-rendering)
     if (opts?.components !== false) {
-      registerComponentBindings(interp);
+      registerComponentBindings(interp, ctx);
+    }
+
+    // Router bindings (hash-based SPA routing)
+    if (opts?.router !== false) {
+      registerRouterBindings(interp, ctx);
+    }
+
+    // CSS bindings (scoped style injection)
+    if (opts?.css !== false) {
+      registerCssBindings(interp, ctx);
+    }
+
+    // HTTP bindings (SSE, browser-specific wrappers)
+    if (opts?.http !== false) {
+      registerHttpBindings(interp, ctx);
     }
 
     // LLM proxy bindings (forward llm/* calls to backend server)
@@ -203,7 +249,7 @@ export class SemaWeb {
         typeof opts.llmProxy === "string"
           ? { url: opts.llmProxy }
           : opts.llmProxy;
-      registerLlmBindings(interp, proxyOpts);
+      registerLlmBindings(interp, proxyOpts, ctx);
     }
 
     // Auto-discover and evaluate <script type="text/sema"> tags
@@ -277,6 +323,15 @@ export class SemaWeb {
   }
 
   /**
+   * Get the SemaWebContext instance.
+   *
+   * Useful for advanced operations requiring direct context access.
+   */
+  get context(): SemaWebContext {
+    return this._ctx;
+  }
+
+  /**
    * Get the Sema interpreter version.
    */
   version(): string {
@@ -340,10 +395,15 @@ function registerConsoleBindings(interp: SemaInterpreter): void {
 // Re-export types
 export type { LoaderOptions } from "./loader.js";
 export type { LlmProxyOptions } from "./llm.js";
+export { SemaWebContext } from "./context.js";
+export type { MountedComponent, ErrorHandler } from "./context.js";
 export { registerDomBindings } from "./dom.js";
 export { registerStoreBindings } from "./store.js";
 export { registerReactiveBindings } from "./reactive.js";
-export { registerHiccupBindings, renderHiccup } from "./hiccup.js";
+export { registerSipBindings, renderSip } from "./sip.js";
 export { registerComponentBindings } from "./component.js";
 export { registerLlmBindings } from "./llm.js";
+export { registerRouterBindings } from "./router.js";
+export { registerCssBindings } from "./css.js";
+export { registerHttpBindings } from "./http.js";
 export { loadScripts } from "./loader.js";

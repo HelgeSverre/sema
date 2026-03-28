@@ -77,6 +77,9 @@ export interface ProxyConfig {
    * Default: 1MB (1_048_576).
    */
   maxBodySize?: number;
+
+  /** Rate limiting configuration. */
+  rateLimit?: RateLimitConfig;
 }
 
 // --- Request/Response types (protocol between browser and proxy) ---
@@ -174,4 +177,32 @@ export interface ProxyResponse {
   status: number;
   headers: Record<string, string>;
   body: string;
+}
+
+// --- Error types ---
+
+/** Structured error codes returned by the proxy. */
+export type ProxyErrorCode =
+  | "AUTH_FAILED"
+  | "RATE_LIMITED"
+  | "PROVIDER_ERROR"
+  | "INVALID_REQUEST"
+  | "TIMEOUT"
+  | "BODY_TOO_LARGE";
+
+/** Structured error response body. */
+export interface ProxyErrorResponse {
+  error: string;
+  code: ProxyErrorCode;
+  details?: string;
+}
+
+// --- Rate limiting ---
+
+/** Configuration for the sliding-window rate limiter. */
+export interface RateLimitConfig {
+  /** Time window in milliseconds. Default: 60000 (1 minute). */
+  windowMs?: number;
+  /** Maximum requests per window. Default: 60. */
+  maxRequests?: number;
 }

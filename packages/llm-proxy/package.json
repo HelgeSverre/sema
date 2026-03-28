@@ -57,6 +57,7 @@
     "serverless",
     "ai"
   ],
+  "publishConfig": { "access": "public" },
   "author": {
     "name": "Helge Sverre",
     "url": "https://helgesver.re"

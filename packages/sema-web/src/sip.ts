@@ -1,5 +1,5 @@
 /**
- * Hiccup-style declarative DOM rendering for Sema.
+ * SIP (Sema Interface Protocol) — declarative DOM rendering for Sema.
  *
  * Renders Sema vectors as DOM elements using the hiccup convention:
  *
@@ -19,6 +19,7 @@
  */
 
 import { storeHandle, SEMA_IDENT_RE } from "./handles.js";
+import type { SemaWebContext } from "./context.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
@@ -26,12 +27,12 @@ interface SemaInterpreterLike {
 }
 
 /**
- * Render a hiccup data structure to a DOM Node.
+ * Render a SIP data structure to a DOM Node.
  *
- * Hiccup format: [tag, attrs?, ...children]
+ * SIP format: [tag, attrs?, ...children]
  * - tag: keyword or string (e.g., `:div` serialized as `":div"`)
  * - attrs: optional map of attributes (object with keyword keys)
- * - children: strings, numbers, booleans, or nested hiccup vectors
+ * - children: strings, numbers, booleans, or nested SIP vectors
  *
  * Special attribute handling:
  * - `on-*` attributes are event handlers (value = Sema function name string)
@@ -39,18 +40,18 @@ interface SemaInterpreterLike {
  * - `class` sets className
  * - `value`, `checked`, `disabled` set corresponding DOM properties
  */
-export function renderHiccup(node: any, interp: SemaInterpreterLike): Node {
-  // null/nil → empty text
+export function renderSip(node: any, interp: SemaInterpreterLike, ctx: SemaWebContext): Node {
+  // null/nil -> empty text
   if (node === null || node === undefined) {
     return document.createTextNode("");
   }
 
-  // Primitives → text node
+  // Primitives -> text node
   if (typeof node === "string" || typeof node === "number" || typeof node === "boolean") {
     return document.createTextNode(String(node));
   }
 
-  // Array → hiccup element or fragment
+  // Array -> SIP element or fragment
   if (Array.isArray(node)) {
     if (node.length === 0) {
       return document.createTextNode("");
@@ -62,12 +63,12 @@ export function renderHiccup(node: any, interp: SemaInterpreterLike): Node {
     if (typeof tag !== "string") {
       const frag = document.createDocumentFragment();
       for (const child of node) {
-        frag.appendChild(renderHiccup(child, interp));
+        frag.appendChild(renderSip(child, interp, ctx));
       }
       return frag;
     }
 
-    // Strip keyword colon prefix: ":div" → "div"
+    // Strip keyword colon prefix: ":div" -> "div"
     const tagName = tag.startsWith(":") ? tag.slice(1) : tag;
     const el = document.createElement(tagName);
 
@@ -80,13 +81,13 @@ export function renderHiccup(node: any, interp: SemaInterpreterLike): Node {
       typeof rest[0] === "object" &&
       !Array.isArray(rest[0])
     ) {
-      applyAttributes(el, rest[0], interp);
+      applyAttributes(el, rest[0], interp, ctx);
       childStart = 1;
     }
 
     // Render children
     for (let i = childStart; i < rest.length; i++) {
-      el.appendChild(renderHiccup(rest[i], interp));
+      el.appendChild(renderSip(rest[i], interp, ctx));
     }
 
     return el;
@@ -97,19 +98,20 @@ export function renderHiccup(node: any, interp: SemaInterpreterLike): Node {
 }
 
 /**
- * Apply attributes from a hiccup attrs map to an Element.
+ * Apply attributes from a SIP attrs map to an Element.
  *
  * Handles:
- * - `on-*` → event listeners (value is a Sema function name)
- * - `style` → CSS (string or property map)
- * - `class` → className
- * - `value`, `checked`, `disabled` → DOM properties
- * - Everything else → setAttribute
+ * - `on-*` -> event listeners (value is a Sema function name)
+ * - `style` -> CSS (string or property map)
+ * - `class` -> className
+ * - `value`, `checked`, `disabled` -> DOM properties
+ * - Everything else -> setAttribute
  */
 function applyAttributes(
   el: Element,
   attrs: Record<string, any>,
   interp: SemaInterpreterLike,
+  ctx: SemaWebContext,
 ): void {
   for (let [key, value] of Object.entries(attrs)) {
     // Strip keyword colon prefix from keys
@@ -118,21 +120,14 @@ function applyAttributes(
     }
 
     if (key.startsWith("on-")) {
-      // Event handler: value must be a valid Sema function name
+      // Event handler: set data attribute for delegated event handling
       const eventName = key.slice(3);
       if (typeof value === "string") {
         if (!SEMA_IDENT_RE.test(value)) {
           console.error(`[sema-web] Invalid event handler name: ${value}`);
           continue;
         }
-        el.addEventListener(eventName, (ev: Event) => {
-          const evHandle = storeHandle(ev);
-          try {
-            interp.evalStr(`(${value} ${evHandle})`);
-          } catch (e) {
-            console.error(`[sema-web] Event handler error (${value}):`, e);
-          }
-        });
+        el.setAttribute(`data-sema-on-${eventName}`, value);
       }
     } else if (key === "style") {
       if (typeof value === "string") {
@@ -153,6 +148,8 @@ function applyAttributes(
     } else if (key === "disabled") {
       if (value) {
         el.setAttribute("disabled", "");
+      } else {
+        el.removeAttribute("disabled");
       }
     } else {
       el.setAttribute(key, String(value));
@@ -161,31 +158,51 @@ function applyAttributes(
 }
 
 /**
- * Register `hiccup/*` namespace functions.
+ * Register `sip/*` namespace functions.
  *
  * Functions registered:
- * - `hiccup/render` — render hiccup data, return element handle
- * - `hiccup/render-into!` — render hiccup into a target element (by CSS selector)
+ * - `sip/render` — render SIP data, return element handle
+ * - `sip/render-into!` — render SIP into a target element (by CSS selector)
  */
-export function registerHiccupBindings(interp: SemaInterpreterLike): void {
-  // hiccup/render — render hiccup data and return an element handle
-  interp.registerFunction("hiccup/render", (hiccupData: any) => {
-    const node = renderHiccup(hiccupData, interp);
+export function registerSipBindings(interp: SemaInterpreterLike, ctx: SemaWebContext): void {
+  // sip/render — render SIP data and return an element handle
+  interp.registerFunction("sip/render", (sipData: any) => {
+    const node = renderSip(sipData, interp, ctx);
     if (node instanceof Element) {
-      return storeHandle(node);
+      return storeHandle(node, ctx);
     }
     // Wrap non-element nodes in a span for handle compatibility
     const wrapper = document.createElement("span");
     wrapper.appendChild(node);
-    return storeHandle(wrapper);
+    return storeHandle(wrapper, ctx);
   });
 
-  // hiccup/render-into! — render hiccup into a target element by CSS selector
-  interp.registerFunction("hiccup/render-into!", (selector: string, hiccupData: any) => {
+  // sip/render-into! — render SIP into a target element by CSS selector
+  interp.registerFunction("sip/render-into!", (selector: string, sipData: any) => {
+    const target = document.querySelector(selector);
+    if (!target) throw new Error(`sip/render-into!: target not found: ${selector}`);
+    target.innerHTML = "";
+    const node = renderSip(sipData, interp, ctx);
+    target.appendChild(node);
+    return null;
+  });
+
+  // Backward-compatible aliases for the old hiccup/* names
+  interp.registerFunction("hiccup/render", (sipData: any) => {
+    const node = renderSip(sipData, interp, ctx);
+    if (node instanceof Element) {
+      return storeHandle(node, ctx);
+    }
+    const wrapper = document.createElement("span");
+    wrapper.appendChild(node);
+    return storeHandle(wrapper, ctx);
+  });
+
+  interp.registerFunction("hiccup/render-into!", (selector: string, sipData: any) => {
     const target = document.querySelector(selector);
     if (!target) throw new Error(`hiccup/render-into!: target not found: ${selector}`);
     target.innerHTML = "";
-    const node = renderHiccup(hiccupData, interp);
+    const node = renderSip(sipData, interp, ctx);
     target.appendChild(node);
     return null;
   });
