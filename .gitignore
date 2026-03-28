@@ -32,5 +32,9 @@ tools/token-data.json
 
 reddit-scrutiny.json
 
+# Example runtime output
+mazes/
+examples/fixtures/glados-downloads/output/
+
 # Worktrees
 .worktrees/
