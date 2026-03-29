@@ -23,8 +23,10 @@
 (def total-count (computed (length @board)))
 (def done-count (computed (length (filter (fn (c) (equal? (get c :column) "done")) @board))))
 (def progress-pct (computed
-  (if (= @total-count 0) 0
-    (/ (* @done-count 100) @total-count))))
+  (let ((t @total-count)
+        (d @done-count))
+    (if (or (null? t) (null? d) (= t 0)) 0
+      (/ (* d 100) t)))))
 (def search-active (computed (not (equal? @search-text ""))))
 
 ;; ── ID Generation ───────────────────────────────────────────────────
@@ -32,28 +34,28 @@
 (define (gen-id)
   (let ((id @next-id))
     (update! next-id (fn (n) (+ n 1)))
-    id))
+    (number->string id)))
 
 ;; ── Seed Data ───────────────────────────────────────────────────────
 
 (define (make-seed-data)
   (list
-    {:id 1 :title "Set up CI/CD pipeline"
+    {:id "1" :title "Set up CI/CD pipeline"
      :description "Configure GitHub Actions for automated testing and deployment"
      :column "todo" :priority "high" :created-at 0 :ai-generated #f}
-    {:id 2 :title "Design landing page mockup"
+    {:id "2" :title "Design landing page mockup"
      :description "Create wireframes in Figma for the new marketing site"
      :column "todo" :priority "medium" :created-at 0 :ai-generated #f}
-    {:id 3 :title "Implement user authentication"
+    {:id "3" :title "Implement user authentication"
      :description "Add OAuth2 login with Google and GitHub providers"
      :column "in-progress" :priority "urgent" :created-at 0 :ai-generated #f}
-    {:id 4 :title "Write API documentation"
+    {:id "4" :title "Write API documentation"
      :description "Document all REST endpoints with examples"
      :column "in-progress" :priority "medium" :created-at 0 :ai-generated #f}
-    {:id 5 :title "Fix responsive layout on mobile"
+    {:id "5" :title "Fix responsive layout on mobile"
      :description "Header nav collapses incorrectly below 768px"
      :column "done" :priority "high" :created-at 0 :ai-generated #f}
-    {:id 6 :title "Add unit tests for auth module"
+    {:id "6" :title "Add unit tests for auth module"
      :description "Cover login, signup, and token refresh flows"
      :column "todo" :priority "low" :created-at 0 :ai-generated #f}))
 
@@ -79,6 +81,12 @@
 (define (on-board-change old new) (save-board))
 (watch board "on-board-change")
 
+;; Safe string conversion — handles numbers, strings, and nil
+(define (->str x)
+  (cond ((null? x) "0")
+        ((string? x) x)
+        (#t (number->string x))))
+
 ;; ── Timer (1s tick for "time in column") ────────────────────────────
 
 (define (tick-clock)
@@ -99,15 +107,10 @@
 
 ;; ── Board Helpers ───────────────────────────────────────────────────
 
-;; Compare card IDs — handles both number and string representations
-(define (id-equal? a b)
-  (or (equal? a b)
-      (equal? (number->string a) (number->string b))))
-
 (define (find-card-by-id cards id)
   (cond
     ((null? cards) nil)
-    ((id-equal? (get (car cards) :id) id) (car cards))
+    ((equal? (get (car cards) :id) id) (car cards))
     (#t (find-card-by-id (cdr cards) id))))
 
 (define (cards-in-col col)
@@ -143,21 +146,21 @@
       (update! board (fn (b) (append b (list card)))))))
 
 (define (delete-card id)
-  (update! board (fn (b) (filter (fn (c) (not (id-equal? (get c :id) id))) b)))
-  (when (id-equal? @selected-card-id id)
+  (update! board (fn (b) (filter (fn (c) (not (equal? (get c :id) id))) b)))
+  (when (equal? @selected-card-id id)
     (put! selected-card-id nil)))
 
 (define (move-card id new-col)
   (update! board (fn (b)
     (map (fn (c)
-      (if (id-equal? (get c :id) id)
+      (if (equal? (get c :id) id)
         (assoc (assoc c :column new-col) :created-at @tick)
         c)) b))))
 
 (define (update-card-field id field val)
   (update! board (fn (b)
     (map (fn (c)
-      (if (id-equal? (get c :id) id)
+      (if (equal? (get c :id) id)
         (assoc c field val)
         c)) b))))
 
@@ -167,9 +170,8 @@
   (let ((el (dom/event-target-closest ev "[data-card-id]")))
     (if (null? el)
       nil
-      (let ((raw (dom/get-attribute el "data-card-id")))
-        ;; dom/get-attribute may return string or number depending on WASM layer
-        (if (string? raw) (string->number raw) raw)))))
+      ;; Force to string — WASM bridge may auto-convert "1" to 1
+      (->str (dom/get-attribute el "data-card-id")))))
 
 (define (get-col-id-from-event ev)
   (let ((el (dom/event-target-closest ev "[data-col-id]")))
@@ -335,13 +337,25 @@
 
 ;; ── AI Task Generation ──────────────────────────────────────────────
 
+(define (build-board-context)
+  (let ((existing (map (fn (c)
+          (string-append "[" (get c :column) "] " (get c :title) " (" (get c :priority) ")"))
+        @board)))
+    (foldl (fn (acc s) (string-append acc s "\n")) "" existing)))
+
 (define (ai-generate-tasks ev)
   (when (not @ai-loading)
     (put! ai-loading #t)
-    (let ((s (llm/chat-stream
-               (list {:role "user" :content "Generate exactly 3 software project tasks. Return ONLY a JSON array of objects with \"title\" and \"priority\" fields. Priority must be one of: low, medium, high, urgent. Example: [{\"title\":\"Set up CI/CD pipeline\",\"priority\":\"high\"}]. No other text."})
-               {})))
-      (put! ai-stream s))))
+    (let ((context (build-board-context)))
+      (let ((prompt (string-append
+              "You are a project manager. Here is the current board:\n\n"
+              context
+              "\nGenerate 3 NEW tasks that complement this board. "
+              "They must be DIFFERENT from existing tasks. "
+              "Return ONLY a JSON array: [{\"title\":\"...\",\"priority\":\"low|medium|high|urgent\"}]\n"
+              "No markdown fences, no explanation, just the raw JSON array.")))
+        (let ((s (llm/chat-stream (list {:role "user" :content prompt}) {})))
+          (put! ai-stream s))))))
 
 ;; Process completed AI stream — called via js/set-interval polling, NOT during render
 (define (poll-ai-stream)
@@ -835,7 +849,7 @@
     (let ((is-dragging (equal? @drag-card-id id)))
     [:div {:class (if is-dragging card-dragging-style card-style)
            :data-testid "board-card"
-           :data-card-id (number->string id)
+           :data-card-id (->str id)
            :on-pointerdown "handle-pointer-down-card"
            :on-click "handle-card-click"}
       [:div {:class card-title-style :data-testid "card-title"} title]
@@ -851,18 +865,18 @@
       [:div {:class card-actions-style}
         (when (not (equal? col "todo"))
           [:button {:class action-btn-style
-                    :data-card-id (number->string id)
+                    :data-card-id (->str id)
                     :on-click "handle-move-left"
                     :data-testid "move-left-btn"
                     :title "Move left"} "\u2190"])
         (when (not (equal? col "done"))
           [:button {:class action-btn-style
-                    :data-card-id (number->string id)
+                    :data-card-id (->str id)
                     :on-click "handle-move-right"
                     :data-testid "move-right-btn"
                     :title "Move right"} "\u2192"])
         [:button {:class delete-btn-style
-                  :data-card-id (number->string id)
+                  :data-card-id (->str id)
                   :on-click "handle-delete"
                   :data-testid "delete-btn"
                   :title "Delete"} "\u2717"]]])))
@@ -903,7 +917,7 @@
       [:div {:class col-header-style}
         [:span {:class col-title-style} col-name]
         [:span {:class col-count-style :data-testid (string-append "count-" col-id)}
-          (number->string (length cards))]]
+          (->str (length cards))]]
       [:div {:class cards-list-style}
         (if (null? cards)
           [:div {:class empty-col-msg-style} "No cards yet"]
@@ -927,12 +941,12 @@
           [:button {:class clear-search-btn-style
                     :on-click "clear-search"
                     :data-testid "clear-search"} "\u00D7"])]
-      [:div {:class progress-wrap-style}
+      [:div {:class progress-wrap-style :data-testid "progress-text"}
         [:div {:class progress-bar-bg-style}
           [:div {:class progress-bar-fill-style
-                 :style (string-append "width:" (number->string @progress-pct) "%")
+                 :style (string-append "width:" (->str @progress-pct) "%")
                  :data-testid "progress-fill"}]]
-        [:span (string-append (number->string @done-count) "/" (number->string @total-count))]]
+        [:span (string-append (->str @done-count) "/" (->str @total-count))]]
       (if @ai-loading
         [:button {:class ai-btn-loading-style :disabled "true"
                   :data-testid "ai-generate-btn"} "Generating..."]
@@ -991,9 +1005,10 @@
       (render-column "todo" "To Do")
       (render-column "in-progress" "In Progress")
       (render-column "done" "Done")]
-    (render-ai-status)])
+    (render-ai-status)
+    ;; Modal overlay (rendered inline — separate mount doesn't track state changes)
+    (modal-view)])
 
 ;; ── Mount ───────────────────────────────────────────────────────────
 
 (mount! "#app" board-root)
-(mount! "#card-modal" modal-view)
