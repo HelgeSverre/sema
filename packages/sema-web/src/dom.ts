@@ -234,6 +234,13 @@ export function registerDomBindings(interp: SemaInterpreterLike, ctx: SemaWebCon
     return null;
   });
 
+  interp.registerFunction("dom/stop-propagation!", (evId: number) => {
+    const ev = getEvent(evId, ctx);
+    ev.stopPropagation();
+    (ev as any).__sema_stop = true;
+    return null;
+  });
+
   // --- Event value ---
 
   interp.registerFunction("dom/event-value", (evId: number) => {

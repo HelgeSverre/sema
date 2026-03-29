@@ -142,6 +142,8 @@ class EventDelegator {
             const fn = el.getAttribute(attr)!;
             if (SEMA_IDENT_RE.test(fn)) {
               this.dispatchEvent(interp, ctx, fn, ev);
+              // Stop walking up if the handler called stopPropagation
+              if (ev.cancelBubble || (ev as any).__sema_stop) break;
             }
           }
           el = el.parentElement;

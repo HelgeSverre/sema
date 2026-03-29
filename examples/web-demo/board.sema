@@ -221,6 +221,7 @@
       (put! selected-card-id card-id-str))))
 
 (define (handle-move-left ev)
+  (dom/stop-propagation! ev)
   (dom/prevent-default! ev)
   (let ((card-id-str (get-card-id-from-event ev)))
     (when (not (null? card-id-str))
@@ -231,6 +232,7 @@
               (move-card card-id-str p))))))))
 
 (define (handle-move-right ev)
+  (dom/stop-propagation! ev)
   (dom/prevent-default! ev)
   (let ((card-id-str (get-card-id-from-event ev)))
     (when (not (null? card-id-str))
@@ -241,6 +243,7 @@
               (move-card card-id-str n))))))))
 
 (define (handle-delete ev)
+  (dom/stop-propagation! ev)
   (dom/prevent-default! ev)
   (let ((card-id-str (get-card-id-from-event ev)))
     (when (not (null? card-id-str))
@@ -993,7 +996,7 @@
                       :data-testid "modal-close"} "Close"]]]))))
 
 (define (stop-propagation ev)
-  (dom/prevent-default! ev))
+  (dom/stop-propagation! ev))
 
 ;; ── Board Root (main mount point) ───────────────────────────────────
 
