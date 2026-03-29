@@ -1,0 +1,56 @@
+name: sema-web tests
+on:
+  push:
+    paths:
+      - "packages/sema-web/**"
+      - "packages/sema/**"
+      - "packages/llm-proxy/**"
+      - "crates/sema-wasm/**"
+  pull_request:
+    paths:
+      - "packages/sema-web/**"
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx vitest run
+        working-directory: packages/sema-web
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: unit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/cache@v4
+        id: wasm-cache
+        with:
+          path: packages/sema-wasm/pkg
+          key: wasm-${{ hashFiles('crates/sema-wasm/src/**', 'Cargo.lock') }}
+      - if: steps.wasm-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install wasm-pack
+          wasm-pack build crates/sema-wasm --target web --out-dir ../../packages/sema-wasm/pkg
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npx tsup src/index.ts --format esm --no-dts
+        working-directory: packages/sema-web
+      - run: npx playwright install --with-deps chromium
+        working-directory: packages/sema-web
+      - run: npx playwright test
+        working-directory: packages/sema-web
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: packages/sema-web/playwright-report/
