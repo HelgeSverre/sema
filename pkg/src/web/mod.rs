@@ -108,6 +108,7 @@ pub struct PackageTemplate {
     pub versions: Vec<VersionInfo>,
     pub deps: Vec<DepInfo>,
     pub total_downloads: i64,
+    pub readme_html: Option<String>,
 }
 
 #[derive(Template)]
@@ -276,6 +277,7 @@ pub async fn package_detail(
     let repository_url = pkg.repository_url.clone();
     let source = pkg.source.clone();
     let github_repo = pkg.github_repo.clone();
+    let readme_html = pkg.readme_html.clone();
 
     let version_models = package_version::Entity::find()
         .filter(package_version::Column::PackageId.eq(pkg_id))
@@ -327,7 +329,7 @@ pub async fn package_detail(
     .flatten();
     let total_downloads: i64 = total_row.and_then(|r| r.try_get("", "cnt").ok()).unwrap_or(0);
 
-    render(PackageTemplate { username: si.username, is_admin: si.is_admin, name, description, repository_url, source, github_repo, owners, versions, deps, total_downloads }).into_response()
+    render(PackageTemplate { username: si.username, is_admin: si.is_admin, name, description, repository_url, source, github_repo, owners, versions, deps, total_downloads, readme_html }).into_response()
 }
 
 pub async fn login(

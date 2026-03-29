@@ -144,6 +144,18 @@ pub async fn link(
         }
     }
 
+    // Fetch README
+    let readme_raw = github_sync::fetch_readme(&client, &token, &owner_name, &repo).await;
+    if let Some(ref raw) = readme_raw {
+        let html = github_sync::render_readme(raw);
+        if let Ok(Some(pkg_model)) = package::Entity::find_by_id(package_id).one(&state.db).await {
+            let mut pkg_active: package::ActiveModel = pkg_model.into();
+            pkg_active.readme_raw = Set(Some(raw.clone()));
+            pkg_active.readme_html = Set(Some(html));
+            let _ = pkg_active.update(&state.db).await;
+        }
+    }
+
     crate::audit::log(&state.db, &user.username, "link_repo", Some("package"), Some(&manifest.name), Some(&github_repo)).await;
 
     (StatusCode::CREATED, Json(serde_json::json!({
@@ -235,6 +247,18 @@ pub async fn sync(
                 };
                 let _ = log_model.insert(&state.db).await;
             }
+        }
+    }
+
+    // Fetch README
+    let readme_raw = github_sync::fetch_readme(&client, &token, &owner_name, &repo).await;
+    if let Some(ref raw) = readme_raw {
+        let html = github_sync::render_readme(raw);
+        if let Ok(Some(pkg_model)) = package::Entity::find_by_id(package_id).one(&state.db).await {
+            let mut pkg_active: package::ActiveModel = pkg_model.into();
+            pkg_active.readme_raw = Set(Some(raw.clone()));
+            pkg_active.readme_html = Set(Some(html));
+            let _ = pkg_active.update(&state.db).await;
         }
     }
 

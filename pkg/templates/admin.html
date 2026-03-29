@@ -815,7 +815,32 @@
         <div class="drawer-actions">
           <button class="action-btn action-btn-warn" style="padding:0.4rem 0.8rem;" @click="confirmAction('yank-all', pkgDrawer)">Yank All Versions</button>
           <button class="action-btn action-btn-danger" style="padding:0.4rem 0.8rem;" @click="confirmAction('remove', pkgDrawer)">Remove Package</button>
-          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;">Transfer Ownership</button>
+          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;"
+                  @click="transferModal = { packageName: pkgDrawer.name, targetUsername: '' }">Transfer Ownership</button>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <!-- Transfer Ownership Modal -->
+  <template x-if="transferModal">
+    <div>
+      <div class="drawer-overlay" @click="transferModal = null" style="z-index:199;"></div>
+      <div class="confirm-dialog">
+        <div class="confirm-title">Transfer Ownership</div>
+        <div class="confirm-body">
+          Transfer <strong x-text="transferModal.packageName"></strong> to a new owner. This replaces all current owners.
+        </div>
+        <div style="margin-bottom:1rem;">
+          <label style="font-size:0.65rem; color:var(--text-dim); display:block; margin-bottom:0.3rem;">New owner username</label>
+          <input type="text" class="form-input" style="max-width:none; font-size:0.75rem;"
+                 x-model="transferModal.targetUsername" placeholder="username">
+        </div>
+        <div class="confirm-actions">
+          <button class="action-btn action-btn-ghost" style="padding:0.4rem 0.8rem;" @click="transferModal = null">Cancel</button>
+          <button class="action-btn action-btn-warn" style="padding:0.4rem 0.8rem;"
+                  :disabled="!transferModal.targetUsername.trim()"
+                  @click="executeTransfer()">Transfer</button>
         </div>
       </div>
     </div>
@@ -872,6 +897,7 @@ function adminPanel() {
     userDrawer: null,
     pkgDrawer: null,
     confirm: null,
+    transferModal: null,
     toast: '',
     toastType: 'success',
 
@@ -1099,6 +1125,30 @@ function adminPanel() {
         }
       } catch (e) {
         this.showToast(`Error: ${e.message}`, 'error');
+      }
+    },
+
+    async executeTransfer() {
+      const { packageName, targetUsername } = this.transferModal;
+      this.transferModal = null;
+      try {
+        const res = await fetch('/api/v1/admin/packages/' + encodeURIComponent(packageName) + '/transfer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ to_username: targetUsername }),
+        });
+        if (res.ok) {
+          this.showToast(`Transferred ${packageName} to ${targetUsername}`, 'success');
+          await this.loadPackages();
+          if (this.pkgDrawer?.name === packageName) {
+            await this.openPkgDrawer({ name: packageName });
+          }
+        } else {
+          const data = await res.json();
+          this.showToast(data.error || 'Transfer failed', 'error');
+        }
+      } catch (e) {
+        this.showToast('Transfer failed: ' + e.message, 'error');
       }
     },
 

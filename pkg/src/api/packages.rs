@@ -352,6 +352,7 @@ pub async fn get_package(
             "description": pkg.description,
             "repository_url": pkg.repository_url,
             "created_at": pkg.created_at,
+            "readme_html": pkg.readme_html,
         },
         "versions": version_list,
         "owners": owners,

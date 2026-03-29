@@ -194,6 +194,42 @@ pub async fn sync_tag(
     Ok(true)
 }
 
+/// Fetch README content from a GitHub repository.
+pub async fn fetch_readme(
+    client: &reqwest::Client,
+    token: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/readme");
+    let resp = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github.raw+json")
+        .header("User-Agent", "sema-pkg")
+        .send()
+        .await
+        .ok()?;
+    if resp.status().is_success() {
+        resp.text().await.ok()
+    } else {
+        None
+    }
+}
+
+/// Render a Markdown README to HTML using comrak (GitHub Flavored Markdown).
+pub fn render_readme(markdown: &str) -> String {
+    use comrak::{markdown_to_html, Options};
+    let mut options = Options::default();
+    options.extension.table = true;
+    options.extension.autolink = true;
+    options.extension.tasklist = true;
+    options.extension.strikethrough = true;
+    options.extension.header_ids = Some(String::new());
+    options.render.unsafe_ = false;
+    markdown_to_html(markdown, &options)
+}
+
 /// Register a webhook on a GitHub repository.
 pub async fn register_webhook(
     client: &reqwest::Client,

@@ -12,6 +12,8 @@ pub struct Model {
     pub source: String,
     pub github_repo: Option<String>,
     pub webhook_secret: Option<String>,
+    pub readme_raw: Option<String>,
+    pub readme_html: Option<String>,
     pub created_at: String,
 }
 
