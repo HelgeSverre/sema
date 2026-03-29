@@ -38,3 +38,22 @@ examples/fixtures/glados-downloads/output/
 
 # Worktrees
 .worktrees/
+
+# Node / npm
+node_modules/
+package-lock.json
+
+# TypeScript build output
+packages/sema/dist/
+packages/sema-web/dist/
+packages/llm-proxy/dist/
+packages/sema-wasm/pkg/
+
+# Test artifacts
+test-results/
+packages/sema-web/test-results/
+examples/web-demo/test-results/
+playwright-report/
+
+# Claude Code
+.claude/
