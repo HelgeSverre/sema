@@ -4,11 +4,15 @@ use axum::{
     response::{AppendHeaders, IntoResponse, Redirect},
 };
 use rand::RngCore;
+use sea_orm::*;
 use serde::Deserialize;
-use sqlx::Row;
 use std::sync::Arc;
 
-use crate::{auth::create_session, AppState};
+use crate::{
+    auth::create_session,
+    entity::{oauth_connection, user},
+    AppState,
+};
 
 fn generate_state() -> String {
     let mut bytes = [0u8; 16];
@@ -182,47 +186,56 @@ pub async fn callback(
         };
 
         // Check if this github_id is already linked to a different user
-        let existing = sqlx::query("SELECT user_id FROM oauth_connections WHERE provider = 'github' AND provider_user_id = ?")
-            .bind(gh_user.id.to_string())
-            .fetch_optional(&state.db)
+        let existing = oauth_connection::Entity::find()
+            .filter(oauth_connection::Column::Provider.eq("github"))
+            .filter(oauth_connection::Column::ProviderUserId.eq(gh_user.id.to_string()))
+            .one(&state.db)
             .await
             .ok()
             .flatten();
+
         if let Some(row) = existing {
-            let linked_user_id: i64 = row.get("user_id");
-            if linked_user_id != current_user.id {
+            if row.user_id != current_user.id {
                 return (StatusCode::CONFLICT, "This GitHub account is linked to another user").into_response();
             }
         }
 
-        // Upsert oauth_connections
-        sqlx::query(
-            "INSERT INTO oauth_connections (user_id, provider, provider_user_id, provider_login, access_token_enc, scopes, updated_at)
-             VALUES (?, 'github', ?, ?, ?, ?, datetime('now'))
-             ON CONFLICT(user_id, provider) DO UPDATE SET
-               provider_user_id = excluded.provider_user_id,
-               provider_login = excluded.provider_login,
-               access_token_enc = excluded.access_token_enc,
-               scopes = excluded.scopes,
-               revoked_at = NULL,
-               updated_at = datetime('now')"
-        )
-        .bind(current_user.id)
-        .bind(gh_user.id.to_string())
-        .bind(&gh_user.login)
-        .bind(&token_enc)
-        .bind(scopes_str)
-        .execute(&state.db)
+        // Upsert oauth_connections (raw SQL for datetime('now') expression)
+        state.db.execute(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            r#"INSERT INTO oauth_connections (user_id, provider, provider_user_id, provider_login, access_token_enc, scopes, updated_at)
+               VALUES (?, 'github', ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(user_id, provider) DO UPDATE SET
+                 provider_user_id = excluded.provider_user_id,
+                 provider_login = excluded.provider_login,
+                 access_token_enc = excluded.access_token_enc,
+                 scopes = excluded.scopes,
+                 revoked_at = NULL,
+                 updated_at = datetime('now')"#,
+            [
+                current_user.id.into(),
+                gh_user.id.to_string().into(),
+                gh_user.login.clone().into(),
+                token_enc.clone().into(),
+                scopes_str.into(),
+            ],
+        ))
         .await
         .ok();
 
         // Also set github_id on users table if not set
-        sqlx::query("UPDATE users SET github_id = ? WHERE id = ? AND github_id IS NULL")
-            .bind(gh_user.id)
-            .bind(current_user.id)
-            .execute(&state.db)
+        let user_model = user::Entity::find_by_id(current_user.id)
+            .one(&state.db)
             .await
-            .ok();
+            .ok()
+            .flatten();
+        if let Some(u) = user_model {
+            if u.github_id.is_none() {
+                let mut active: user::ActiveModel = u.into();
+                active.github_id = Set(Some(gh_user.id));
+                let _ = active.update(&state.db).await;
+            }
+        }
 
         let clear_state = "github_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0".to_string();
         return (
@@ -248,24 +261,26 @@ pub async fn callback(
         }
     };
 
-    // Store token for GitHub-linked packages
-    sqlx::query(
-        "INSERT INTO oauth_connections (user_id, provider, provider_user_id, provider_login, access_token_enc, scopes, updated_at)
-         VALUES (?, 'github', ?, ?, ?, ?, datetime('now'))
-         ON CONFLICT(user_id, provider) DO UPDATE SET
-           provider_user_id = excluded.provider_user_id,
-           provider_login = excluded.provider_login,
-           access_token_enc = excluded.access_token_enc,
-           scopes = excluded.scopes,
-           revoked_at = NULL,
-           updated_at = datetime('now')"
-    )
-    .bind(user_id)
-    .bind(gh_user.id.to_string())
-    .bind(&gh_user.login)
-    .bind(&token_enc)
-    .bind(scopes_str)
-    .execute(&state.db)
+    // Store token for GitHub-linked packages (raw SQL for datetime('now') expression)
+    state.db.execute(Statement::from_sql_and_values(
+        state.db.get_database_backend(),
+        r#"INSERT INTO oauth_connections (user_id, provider, provider_user_id, provider_login, access_token_enc, scopes, updated_at)
+           VALUES (?, 'github', ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(user_id, provider) DO UPDATE SET
+             provider_user_id = excluded.provider_user_id,
+             provider_login = excluded.provider_login,
+             access_token_enc = excluded.access_token_enc,
+             scopes = excluded.scopes,
+             revoked_at = NULL,
+             updated_at = datetime('now')"#,
+        [
+            user_id.into(),
+            gh_user.id.to_string().into(),
+            gh_user.login.clone().into(),
+            token_enc.into(),
+            scopes_str.into(),
+        ],
+    ))
     .await
     .ok();
 
@@ -313,19 +328,21 @@ async fn find_or_create_user(
     login: &str,
     email: &str,
 ) -> Result<i64, String> {
-    let existing = sqlx::query("SELECT id FROM users WHERE github_id = ?")
-        .bind(github_id)
-        .fetch_optional(db)
+    // Check for existing user by github_id
+    let existing = user::Entity::find()
+        .filter(user::Column::GithubId.eq(github_id))
+        .one(db)
         .await
         .map_err(|e| e.to_string())?;
 
-    if let Some(row) = existing {
-        return Ok(row.get("id"));
+    if let Some(u) = existing {
+        return Ok(u.id);
     }
 
-    let username_taken = sqlx::query("SELECT id FROM users WHERE username = ?")
-        .bind(login)
-        .fetch_optional(db)
+    // Check if username is taken
+    let username_taken = user::Entity::find()
+        .filter(user::Column::Username.eq(login))
+        .one(db)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -335,9 +352,10 @@ async fn find_or_create_user(
         login.to_string()
     };
 
-    let email_taken = sqlx::query("SELECT id FROM users WHERE email = ?")
-        .bind(email)
-        .fetch_optional(db)
+    // Check if email is taken
+    let email_taken = user::Entity::find()
+        .filter(user::Column::Email.eq(email))
+        .one(db)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -347,17 +365,15 @@ async fn find_or_create_user(
         email.to_string()
     };
 
-    let result = sqlx::query(
-        "INSERT INTO users (username, email, github_id) VALUES (?, ?, ?)",
-    )
-    .bind(&username)
-    .bind(&user_email)
-    .bind(github_id)
-    .execute(db)
-    .await
-    .map_err(|e| e.to_string())?;
+    let new_user = user::ActiveModel {
+        username: Set(username),
+        email: Set(user_email),
+        github_id: Set(Some(github_id)),
+        ..Default::default()
+    };
 
-    Ok(result.last_insert_rowid())
+    let result = new_user.insert(db).await.map_err(|e| e.to_string())?;
+    Ok(result.id)
 }
 
 fn github_creds(state: &AppState) -> Option<(String, String)> {

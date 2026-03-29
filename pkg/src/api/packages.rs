@@ -2,14 +2,20 @@ use axum::{
     body::Body,
     extract::{Multipart, Path, Query, State},
     http::{header, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Redirect},
     Json,
 };
+use sea_orm::*;
+use sea_orm::sea_query::{Expr, OnConflict};
 use serde::Deserialize;
-use sqlx::Row;
 use std::sync::Arc;
 
-use crate::{auth::TokenUser, blob, AppState};
+use crate::{
+    auth::TokenUser,
+    blob,
+    entity::{dependency, owner, package, package_version, user},
+    AppState,
+};
 
 // ── Publish ──
 
@@ -96,18 +102,17 @@ pub async fn publish(
 
     // Find or create package
     let package_id: i64;
-    let existing = sqlx::query("SELECT id, source FROM packages WHERE name = ?")
-        .bind(&name)
-        .fetch_optional(&state.db)
+    let existing = package::Entity::find()
+        .filter(package::Column::Name.eq(&name))
+        .one(&state.db)
         .await
         .ok()
         .flatten();
 
-    if let Some(row) = existing {
-        package_id = row.get("id");
+    if let Some(pkg) = existing {
+        package_id = pkg.id;
 
-        let source: String = row.get("source");
-        if source == "github" {
+        if pkg.source == "github" {
             return (
                 StatusCode::FORBIDDEN,
                 Json(serde_json::json!({
@@ -117,16 +122,13 @@ pub async fn publish(
                 .into_response();
         }
 
-        let owner_row = sqlx::query(
-            "SELECT COUNT(*) as cnt FROM owners WHERE package_id = ? AND user_id = ?",
-        )
-        .bind(package_id)
-        .bind(user.id)
-        .fetch_one(&state.db)
-        .await
-        .ok();
+        let is_owner = owner::Entity::find()
+            .filter(owner::Column::PackageId.eq(package_id))
+            .filter(owner::Column::UserId.eq(user.id))
+            .count(&state.db)
+            .await
+            .unwrap_or(0);
 
-        let is_owner: i32 = owner_row.map(|r| r.get("cnt")).unwrap_or(0);
         if is_owner == 0 {
             return (
                 StatusCode::FORBIDDEN,
@@ -135,7 +137,7 @@ pub async fn publish(
                 .into_response();
         }
     } else {
-        let mut tx = match state.db.begin().await {
+        let txn = match state.db.begin().await {
             Ok(tx) => tx,
             Err(_) => {
                 return (
@@ -146,27 +148,23 @@ pub async fn publish(
             }
         };
 
-        let r = sqlx::query(
-            "INSERT INTO packages (name, description, repository_url, source) VALUES (?, ?, ?, 'upload')",
-        )
-        .bind(&name)
-        .bind(&metadata.description)
-        .bind(&metadata.repository_url)
-        .execute(&mut *tx)
-        .await;
+        let new_pkg = package::ActiveModel {
+            name: Set(name.clone()),
+            description: Set(metadata.description.clone()),
+            repository_url: Set(metadata.repository_url.clone()),
+            source: Set("upload".into()),
+            ..Default::default()
+        };
 
-        match r {
-            Ok(r) => {
-                package_id = r.last_insert_rowid();
-                let owner_result = sqlx::query(
-                    "INSERT INTO owners (package_id, user_id) VALUES (?, ?)",
-                )
-                .bind(package_id)
-                .bind(user.id)
-                .execute(&mut *tx)
-                .await;
+        match new_pkg.insert(&txn).await {
+            Ok(pkg) => {
+                package_id = pkg.id;
+                let new_owner = owner::ActiveModel {
+                    package_id: Set(package_id),
+                    user_id: Set(user.id),
+                };
 
-                if owner_result.is_err() {
+                if new_owner.insert(&txn).await.is_err() {
                     return (
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(serde_json::json!({"error": "Failed to create package owner"})),
@@ -183,7 +181,7 @@ pub async fn publish(
             }
         }
 
-        if let Err(_) = tx.commit().await {
+        if txn.commit().await.is_err() {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({"error": "Failed to commit transaction"})),
@@ -194,16 +192,13 @@ pub async fn publish(
 
     // Check version doesn't exist
     let version_str = ver.to_string();
-    let exists_row = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM package_versions WHERE package_id = ? AND version = ?",
-    )
-    .bind(package_id)
-    .bind(&version_str)
-    .fetch_one(&state.db)
-    .await
-    .ok();
+    let exists = package_version::Entity::find()
+        .filter(package_version::Column::PackageId.eq(package_id))
+        .filter(package_version::Column::Version.eq(&version_str))
+        .count(&state.db)
+        .await
+        .unwrap_or(0);
 
-    let exists: i32 = exists_row.map(|r| r.get("cnt")).unwrap_or(0);
     if exists > 0 {
         return (
             StatusCode::CONFLICT,
@@ -216,20 +211,18 @@ pub async fn publish(
     let (blob_key, checksum, size) = blob::store(&state.config.blob_dir, &tarball).await;
 
     // Insert version
-    let vr = sqlx::query(
-        "INSERT INTO package_versions (package_id, version, checksum_sha256, blob_key, size_bytes, sema_version_req) VALUES (?, ?, ?, ?, ?, ?)",
-    )
-    .bind(package_id)
-    .bind(&version_str)
-    .bind(&checksum)
-    .bind(&blob_key)
-    .bind(size as i64)
-    .bind(&metadata.sema_version_req)
-    .execute(&state.db)
-    .await;
+    let new_version = package_version::ActiveModel {
+        package_id: Set(package_id),
+        version: Set(version_str.clone()),
+        checksum_sha256: Set(checksum.clone()),
+        blob_key: Set(blob_key),
+        size_bytes: Set(size as i64),
+        sema_version_req: Set(metadata.sema_version_req.clone()),
+        ..Default::default()
+    };
 
-    let version_id = match vr {
-        Ok(r) => r.last_insert_rowid(),
+    let version_model = match new_version.insert(&state.db).await {
+        Ok(m) => m,
         Err(_) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -239,26 +232,29 @@ pub async fn publish(
         }
     };
 
+    let version_id = version_model.id;
+
     // Insert dependencies
     for dep in &metadata.dependencies {
-        let _ = sqlx::query(
-            "INSERT INTO dependencies (version_id, dependency_name, version_req) VALUES (?, ?, ?)",
-        )
-        .bind(version_id)
-        .bind(&dep.name)
-        .bind(&dep.version_req)
-        .execute(&state.db)
-        .await;
+        let new_dep = dependency::ActiveModel {
+            version_id: Set(version_id),
+            dependency_name: Set(dep.name.clone()),
+            version_req: Set(dep.version_req.clone()),
+            ..Default::default()
+        };
+        let _ = new_dep.insert(&state.db).await;
     }
 
     // Update package description if provided
     if !metadata.description.is_empty() {
-        let _ = sqlx::query("UPDATE packages SET description = ? WHERE id = ?")
-            .bind(&metadata.description)
-            .bind(package_id)
-            .execute(&state.db)
+        let _ = package::Entity::update_many()
+            .col_expr(package::Column::Description, Expr::value(&metadata.description))
+            .filter(package::Column::Id.eq(package_id))
+            .exec(&state.db)
             .await;
     }
+
+    crate::audit::log(&state.db, &user.username, "publish", Some("package"), Some(&name), Some(&version_str)).await;
 
     (
         StatusCode::CREATED,
@@ -279,14 +275,11 @@ pub async fn get_package(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let pkg = sqlx::query(
-        "SELECT id, name, description, repository_url, created_at FROM packages WHERE name = ?",
-    )
-    .bind(&name)
-    .fetch_optional(&state.db)
-    .await;
-
-    let pkg = match pkg {
+    let pkg = match package::Entity::find()
+        .filter(package::Column::Name.eq(&name))
+        .one(&state.db)
+        .await
+    {
         Ok(Some(p)) => p,
         _ => {
             return (
@@ -297,51 +290,73 @@ pub async fn get_package(
         }
     };
 
-    let pkg_id: i64 = pkg.get("id");
+    let pkg_id = pkg.id;
 
-    let versions = sqlx::query(
-        r#"SELECT version, checksum_sha256, size_bytes, yanked, sema_version_req, published_at
-           FROM package_versions WHERE package_id = ?
-           ORDER BY published_at DESC"#,
-    )
-    .bind(pkg_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let versions = package_version::Entity::find()
+        .filter(package_version::Column::PackageId.eq(pkg_id))
+        .order_by_desc(package_version::Column::PublishedAt)
+        .all(&state.db)
+        .await
+        .unwrap_or_default();
 
     let version_list: Vec<serde_json::Value> = versions
         .iter()
-        .map(|r| {
+        .map(|v| {
             serde_json::json!({
-                "version": r.get::<String, _>("version"),
-                "checksum_sha256": r.get::<String, _>("checksum_sha256"),
-                "size_bytes": r.get::<i64, _>("size_bytes"),
-                "yanked": r.get::<i32, _>("yanked") != 0,
-                "sema_version_req": r.get::<Option<String>, _>("sema_version_req"),
-                "published_at": r.get::<String, _>("published_at"),
+                "version": v.version,
+                "checksum_sha256": v.checksum_sha256,
+                "size_bytes": v.size_bytes,
+                "yanked": v.yanked != 0,
+                "sema_version_req": v.sema_version_req,
+                "tarball_url": v.tarball_url,
+                "published_at": v.published_at,
             })
         })
         .collect();
 
-    let owner_rows = sqlx::query(
-        "SELECT u.username FROM users u JOIN owners o ON o.user_id = u.id WHERE o.package_id = ?",
-    )
-    .bind(pkg_id)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    // Owners via join query
+    let owner_rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            "SELECT u.username FROM users u JOIN owners o ON o.user_id = u.id WHERE o.package_id = $1",
+            [pkg_id.into()],
+        ))
+        .await
+        .unwrap_or_default();
 
-    let owners: Vec<String> = owner_rows.iter().map(|r| r.get("username")).collect();
+    let owners: Vec<String> = owner_rows
+        .iter()
+        .filter_map(|r| r.try_get("", "username").ok())
+        .collect();
+
+    // Total downloads
+    let dl_row = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            "SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = $1",
+            [name.clone().into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+
+    let dl_count: i64 = dl_row
+        .and_then(|r| r.try_get("", "cnt").ok())
+        .unwrap_or(0);
 
     Json(serde_json::json!({
         "package": {
-            "name": pkg.get::<String, _>("name"),
-            "description": pkg.get::<String, _>("description"),
-            "repository_url": pkg.get::<Option<String>, _>("repository_url"),
-            "created_at": pkg.get::<String, _>("created_at"),
+            "name": pkg.name,
+            "description": pkg.description,
+            "repository_url": pkg.repository_url,
+            "created_at": pkg.created_at,
+            "readme_html": pkg.readme_html,
         },
         "versions": version_list,
         "owners": owners,
+        "total_downloads": dl_count,
     }))
     .into_response()
 }
@@ -352,20 +367,22 @@ pub async fn download(
     State(state): State<Arc<AppState>>,
     Path((name, version)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let row = sqlx::query(
-        r#"SELECT pv.blob_key FROM package_versions pv
-           JOIN packages p ON p.id = pv.package_id
-           WHERE p.name = ? AND pv.version = ? AND pv.yanked = 0"#,
-    )
-    .bind(&name)
-    .bind(&version)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    // Join query to find the version row
+    let row = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            r#"SELECT pv.blob_key, pv.tarball_url FROM package_versions pv
+               JOIN packages p ON p.id = pv.package_id
+               WHERE p.name = $1 AND pv.version = $2 AND pv.yanked = 0"#,
+            [name.clone().into(), version.clone().into()],
+        ))
+        .await
+        .ok()
+        .flatten();
 
-    let blob_key: String = match row {
-        Some(r) => r.get("blob_key"),
+    let row = match row {
+        Some(r) => r,
         None => {
             return (
                 StatusCode::NOT_FOUND,
@@ -375,6 +392,26 @@ pub async fn download(
         }
     };
 
+    // Record download (UPSERT) — raw SQL needed for date('now') expression
+    let _ = state
+        .db
+        .execute(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            "INSERT INTO download_daily (package_name, version, download_date, count) VALUES ($1, $2, date('now'), 1) ON CONFLICT(package_name, version, download_date) DO UPDATE SET count = count + 1",
+            [name.clone().into(), version.clone().into()],
+        ))
+        .await;
+
+    // GitHub-linked packages: redirect to upstream tarball
+    let tarball_url: Option<String> = row.try_get("", "tarball_url").ok();
+    if let Some(url) = tarball_url {
+        if !url.is_empty() {
+            return Redirect::temporary(&url).into_response();
+        }
+    }
+
+    // Upload-sourced packages: serve blob from disk
+    let blob_key: String = row.try_get("", "blob_key").unwrap_or_default();
     let data = match blob::read(&state.config.blob_dir, &blob_key).await {
         Some(d) => d,
         None => {
@@ -400,6 +437,78 @@ pub async fn download(
         .into_response()
 }
 
+// ── Download Stats ──
+
+pub async fn download_stats(
+    State(state): State<Arc<AppState>>,
+    Path(name): Path<String>,
+) -> impl IntoResponse {
+    let backend = state.db.get_database_backend();
+
+    // Total downloads
+    let total_row = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            "SELECT COALESCE(SUM(count), 0) as cnt FROM download_daily WHERE package_name = $1",
+            [name.clone().into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+
+    let total: i64 = total_row
+        .and_then(|r| r.try_get("", "cnt").ok())
+        .unwrap_or(0);
+
+    // Daily counts (last 90 days)
+    let daily_rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            backend,
+            "SELECT download_date, SUM(count) as count FROM download_daily WHERE package_name = $1 AND download_date >= date('now', '-90 days') GROUP BY download_date ORDER BY download_date ASC",
+            [name.clone().into()],
+        ))
+        .await
+        .unwrap_or_default();
+
+    let daily: Vec<serde_json::Value> = daily_rows
+        .iter()
+        .filter_map(|r| {
+            let date: String = r.try_get("", "download_date").ok()?;
+            let count: i64 = r.try_get("", "count").ok()?;
+            Some(serde_json::json!({ "date": date, "count": count }))
+        })
+        .collect();
+
+    // Per-version totals
+    let version_rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            backend,
+            "SELECT version, SUM(count) as total FROM download_daily WHERE package_name = $1 GROUP BY version ORDER BY total DESC",
+            [name.clone().into()],
+        ))
+        .await
+        .unwrap_or_default();
+
+    let versions: serde_json::Map<String, serde_json::Value> = version_rows
+        .iter()
+        .filter_map(|r| {
+            let version: String = r.try_get("", "version").ok()?;
+            let total: i64 = r.try_get("", "total").ok()?;
+            Some((version, serde_json::json!(total)))
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "package": name,
+        "total": total,
+        "daily": daily,
+        "versions": versions,
+    }))
+}
+
 // ── Search ──
 
 #[derive(Deserialize)]
@@ -416,44 +525,57 @@ pub async fn search(
     let q = params.q.unwrap_or_default();
     let per_page = params.per_page.unwrap_or(20).min(100);
     let page = params.page.unwrap_or(1).max(1);
-    let offset = (page - 1) * per_page;
     let pattern = format!("%{q}%");
 
-    let rows = sqlx::query(
-        r#"SELECT name, description, created_at FROM packages
-           WHERE name LIKE ? OR description LIKE ?
-           ORDER BY name
-           LIMIT ? OFFSET ?"#,
-    )
-    .bind(&pattern)
-    .bind(&pattern)
-    .bind(per_page)
-    .bind(offset)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let backend = state.db.get_database_backend();
+
+    // Search with LIKE on name and description
+    let rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            backend,
+            r#"SELECT name, description, created_at FROM packages
+               WHERE name LIKE $1 OR description LIKE $2
+               ORDER BY name
+               LIMIT $3 OFFSET $4"#,
+            [
+                pattern.clone().into(),
+                pattern.clone().into(),
+                per_page.into(),
+                ((page - 1) * per_page).into(),
+            ],
+        ))
+        .await
+        .unwrap_or_default();
 
     let packages: Vec<serde_json::Value> = rows
         .iter()
-        .map(|r| {
-            serde_json::json!({
-                "name": r.get::<String, _>("name"),
-                "description": r.get::<String, _>("description"),
-                "created_at": r.get::<String, _>("created_at"),
-            })
+        .filter_map(|r| {
+            let name: String = r.try_get("", "name").ok()?;
+            let description: String = r.try_get("", "description").ok()?;
+            let created_at: String = r.try_get("", "created_at").ok()?;
+            Some(serde_json::json!({
+                "name": name,
+                "description": description,
+                "created_at": created_at,
+            }))
         })
         .collect();
 
-    let total_row = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM packages WHERE name LIKE ? OR description LIKE ?",
-    )
-    .bind(&pattern)
-    .bind(&pattern)
-    .fetch_one(&state.db)
-    .await
-    .ok();
+    let total_row = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            "SELECT COUNT(*) as cnt FROM packages WHERE name LIKE $1 OR description LIKE $2",
+            [pattern.clone().into(), pattern.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
 
-    let total: i64 = total_row.map(|r| r.get("cnt")).unwrap_or(0);
+    let total: i64 = total_row
+        .and_then(|r| r.try_get("", "cnt").ok())
+        .unwrap_or(0);
 
     Json(serde_json::json!({
         "packages": packages,
@@ -470,18 +592,26 @@ pub async fn yank(
     TokenUser { user, .. }: TokenUser,
     Path((name, version)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    let owner_row = sqlx::query(
-        r#"SELECT COUNT(*) as cnt FROM owners o
-           JOIN packages p ON p.id = o.package_id
-           WHERE p.name = ? AND o.user_id = ?"#,
-    )
-    .bind(&name)
-    .bind(user.id)
-    .fetch_one(&state.db)
-    .await
-    .ok();
+    let backend = state.db.get_database_backend();
 
-    let is_owner: i32 = owner_row.map(|r| r.get("cnt")).unwrap_or(0);
+    // Check ownership via join
+    let owner_row = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            r#"SELECT COUNT(*) as cnt FROM owners o
+               JOIN packages p ON p.id = o.package_id
+               WHERE p.name = $1 AND o.user_id = $2"#,
+            [name.clone().into(), user.id.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+
+    let is_owner: i64 = owner_row
+        .and_then(|r| r.try_get("", "cnt").ok())
+        .unwrap_or(0);
+
     if is_owner == 0 {
         return (
             StatusCode::FORBIDDEN,
@@ -490,18 +620,35 @@ pub async fn yank(
             .into_response();
     }
 
-    let result = sqlx::query(
-        r#"UPDATE package_versions SET yanked = 1
-           WHERE package_id = (SELECT id FROM packages WHERE name = ?)
-           AND version = ?"#,
-    )
-    .bind(&name)
-    .bind(&version)
-    .execute(&state.db)
-    .await;
+    // Find the package to get its ID for the update
+    let pkg = package::Entity::find()
+        .filter(package::Column::Name.eq(&name))
+        .one(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+    let pkg = match pkg {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "Version not found"})),
+            )
+                .into_response();
+        }
+    };
+
+    let result = package_version::Entity::update_many()
+        .col_expr(package_version::Column::Yanked, Expr::value(1))
+        .filter(package_version::Column::PackageId.eq(pkg.id))
+        .filter(package_version::Column::Version.eq(&version))
+        .exec(&state.db)
+        .await;
 
     match result {
-        Ok(r) if r.rows_affected() > 0 => {
+        Ok(r) if r.rows_affected > 0 => {
+            crate::audit::log(&state.db, &user.username, "yank", Some("version"), Some(&name), Some(&version)).await;
             Json(serde_json::json!({"ok": true})).into_response()
         }
         _ => (
@@ -518,18 +665,24 @@ pub async fn list_owners(
     State(state): State<Arc<AppState>>,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
-    let rows = sqlx::query(
-        r#"SELECT u.username FROM users u
-           JOIN owners o ON o.user_id = u.id
-           JOIN packages p ON p.id = o.package_id
-           WHERE p.name = ?"#,
-    )
-    .bind(&name)
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
+    let rows = state
+        .db
+        .query_all(Statement::from_sql_and_values(
+            state.db.get_database_backend(),
+            r#"SELECT u.username FROM users u
+               JOIN owners o ON o.user_id = u.id
+               JOIN packages p ON p.id = o.package_id
+               WHERE p.name = $1"#,
+            [name.into()],
+        ))
+        .await
+        .unwrap_or_default();
 
-    let owners: Vec<String> = rows.iter().map(|r| r.get("username")).collect();
+    let owners: Vec<String> = rows
+        .iter()
+        .filter_map(|r| r.try_get("", "username").ok())
+        .collect();
+
     Json(serde_json::json!({"owners": owners}))
 }
 
@@ -544,20 +697,24 @@ pub async fn add_owner(
     Path(name): Path<String>,
     Json(body): Json<OwnerRequest>,
 ) -> impl IntoResponse {
-    let pkg_row = sqlx::query(
-        r#"SELECT p.id FROM packages p
-           JOIN owners o ON o.package_id = p.id
-           WHERE p.name = ? AND o.user_id = ?"#,
-    )
-    .bind(&name)
-    .bind(user.id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let backend = state.db.get_database_backend();
 
-    let pkg_id: i64 = match pkg_row {
-        Some(r) => r.get("id"),
+    // Check caller is an owner
+    let pkg_row = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            r#"SELECT p.id FROM packages p
+               JOIN owners o ON o.package_id = p.id
+               WHERE p.name = $1 AND o.user_id = $2"#,
+            [name.clone().into(), user.id.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+
+    let pkg_id: i64 = match pkg_row.and_then(|r| r.try_get("", "id").ok()) {
+        Some(id) => id,
         None => {
             return (
                 StatusCode::FORBIDDEN,
@@ -567,15 +724,16 @@ pub async fn add_owner(
         }
     };
 
-    let new_owner_row = sqlx::query("SELECT id FROM users WHERE username = ?")
-        .bind(&body.username)
-        .fetch_optional(&state.db)
+    // Find the target user
+    let new_owner = user::Entity::find()
+        .filter(user::Column::Username.eq(&body.username))
+        .one(&state.db)
         .await
         .ok()
         .flatten();
 
-    let new_owner_id: i64 = match new_owner_row {
-        Some(r) => r.get("id"),
+    let new_owner_id = match new_owner {
+        Some(u) => u.id,
         None => {
             return (
                 StatusCode::NOT_FOUND,
@@ -585,11 +743,22 @@ pub async fn add_owner(
         }
     };
 
-    let _ = sqlx::query("INSERT OR IGNORE INTO owners (package_id, user_id) VALUES (?, ?)")
-        .bind(pkg_id)
-        .bind(new_owner_id)
-        .execute(&state.db)
+    // INSERT OR IGNORE
+    let new_owner_model = owner::ActiveModel {
+        package_id: Set(pkg_id),
+        user_id: Set(new_owner_id),
+    };
+    let _ = owner::Entity::insert(new_owner_model)
+        .on_conflict(
+            OnConflict::columns([owner::Column::PackageId, owner::Column::UserId])
+                .do_nothing()
+                .to_owned(),
+        )
+        .do_nothing()
+        .exec(&state.db)
         .await;
+
+    crate::audit::log(&state.db, &user.username, "add_owner", Some("package"), Some(&name), Some(&body.username)).await;
 
     Json(serde_json::json!({"ok": true})).into_response()
 }
@@ -600,20 +769,24 @@ pub async fn remove_owner(
     Path(name): Path<String>,
     Json(body): Json<OwnerRequest>,
 ) -> impl IntoResponse {
-    let pkg_row = sqlx::query(
-        r#"SELECT p.id FROM packages p
-           JOIN owners o ON o.package_id = p.id
-           WHERE p.name = ? AND o.user_id = ?"#,
-    )
-    .bind(&name)
-    .bind(user.id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten();
+    let backend = state.db.get_database_backend();
 
-    let pkg_id: i64 = match pkg_row {
-        Some(r) => r.get("id"),
+    // Check caller is an owner
+    let pkg_row = state
+        .db
+        .query_one(Statement::from_sql_and_values(
+            backend,
+            r#"SELECT p.id FROM packages p
+               JOIN owners o ON o.package_id = p.id
+               WHERE p.name = $1 AND o.user_id = $2"#,
+            [name.clone().into(), user.id.into()],
+        ))
+        .await
+        .ok()
+        .flatten();
+
+    let pkg_id: i64 = match pkg_row.and_then(|r| r.try_get("", "id").ok()) {
+        Some(id) => id,
         None => {
             return (
                 StatusCode::FORBIDDEN,
@@ -623,13 +796,13 @@ pub async fn remove_owner(
         }
     };
 
-    let owner_count_row = sqlx::query("SELECT COUNT(*) as cnt FROM owners WHERE package_id = ?")
-        .bind(pkg_id)
-        .fetch_one(&state.db)
+    // Check owner count
+    let owner_count = owner::Entity::find()
+        .filter(owner::Column::PackageId.eq(pkg_id))
+        .count(&state.db)
         .await
-        .ok();
+        .unwrap_or(0);
 
-    let owner_count: i32 = owner_count_row.map(|r| r.get("cnt")).unwrap_or(0);
     if owner_count <= 1 {
         return (
             StatusCode::BAD_REQUEST,
@@ -638,21 +811,23 @@ pub async fn remove_owner(
             .into_response();
     }
 
-    let target_row = sqlx::query("SELECT id FROM users WHERE username = ?")
-        .bind(&body.username)
-        .fetch_optional(&state.db)
+    // Find target user and delete ownership
+    let target = user::Entity::find()
+        .filter(user::Column::Username.eq(&body.username))
+        .one(&state.db)
         .await
         .ok()
         .flatten();
 
-    if let Some(r) = target_row {
-        let tid: i64 = r.get("id");
-        let _ = sqlx::query("DELETE FROM owners WHERE package_id = ? AND user_id = ?")
-            .bind(pkg_id)
-            .bind(tid)
-            .execute(&state.db)
+    if let Some(target_user) = target {
+        let _ = owner::Entity::delete_many()
+            .filter(owner::Column::PackageId.eq(pkg_id))
+            .filter(owner::Column::UserId.eq(target_user.id))
+            .exec(&state.db)
             .await;
     }
+
+    crate::audit::log(&state.db, &user.username, "remove_owner", Some("package"), Some(&name), Some(&body.username)).await;
 
     Json(serde_json::json!({"ok": true})).into_response()
 }

@@ -1,25 +1,33 @@
-use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
+use sea_orm::DatabaseConnection;
+use sqlx::sqlite::SqlitePoolOptions;
 
-pub type Db = SqlitePool;
+pub type Db = DatabaseConnection;
 
 pub async fn connect(database_url: &str) -> Db {
-    let pool = SqlitePoolOptions::new()
-        .max_connections(5)
+    // Run migrations with a temporary sqlx pool (SeaORM doesn't support sqlx::migrate! directly)
+    let sqlx_pool = SqlitePoolOptions::new()
+        .max_connections(1)
         .connect(database_url)
         .await
-        .expect("Failed to connect to database");
+        .expect("Failed to connect for migrations");
 
-    // Enable WAL mode for better concurrent reads
     sqlx::query("PRAGMA journal_mode=WAL")
-        .execute(&pool)
+        .execute(&sqlx_pool)
         .await
         .expect("Failed to set WAL mode");
 
-    // Run migrations
     sqlx::migrate!("./migrations")
-        .run(&pool)
+        .run(&sqlx_pool)
         .await
         .expect("Failed to run migrations");
 
-    pool
+    drop(sqlx_pool);
+
+    // Connect with SeaORM for all query operations
+    let mut opts = sea_orm::ConnectOptions::new(database_url.to_string());
+    opts.max_connections(5);
+
+    sea_orm::Database::connect(opts)
+        .await
+        .expect("Failed to connect to database")
 }

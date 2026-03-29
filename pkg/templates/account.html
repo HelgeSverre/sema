@@ -88,7 +88,7 @@
     </nav>
 
     <div>
-      <div class="account-section" id="profile">
+      <div class="account-section" id="profile" data-testid="section-profile">
         <h2>Profile</h2>
         <div class="form-group">
           <label class="form-label">Username</label>
@@ -111,7 +111,7 @@
         {% endif %}
       </div>
 
-      <div class="account-section" id="github">
+      <div class="account-section" id="github" data-testid="section-github">
         <h2>GitHub Integration</h2>
         {% if github_connected %}
         <p style="font-size:0.78rem; color:var(--text);">
@@ -128,7 +128,7 @@
         {% endif %}
       </div>
 
-      <div class="account-section" id="packages">
+      <div class="account-section" id="packages" data-testid="section-packages">
         <h2>My Packages</h2>
         {% if packages.is_empty() %}
         <div class="empty-state">You haven't published any packages yet. <a href="/link" style="color:var(--gold); margin-left:0.25rem;">Link a GitHub repository →</a></div>
@@ -146,7 +146,7 @@
         {% endif %}
       </div>
 
-      <div class="account-section" id="tokens" x-data="{ tokens: [{% for t in tokens %}{ id: {{ t.id }}, name: '{{ t.name }}', created_at: '{{ t.created_at }}', last_used_at: {% if let Some(lu) = t.last_used_at %}'{{ lu }}'{% else %}null{% endif %} },{% endfor %}], newName: '', newToken: '', creating: false }">
+      <div class="account-section" id="tokens" data-testid="section-tokens" x-data="{ tokens: [{% for t in tokens %}{ id: {{ t.id }}, name: '{{ t.name }}', created_at: '{{ t.created_at }}', last_used_at: {% if let Some(lu) = t.last_used_at %}'{{ lu }}'{% else %}null{% endif %} },{% endfor %}], newName: '', newToken: '', creating: false }">
         <h2>API Tokens</h2>
         <p style="font-size:0.78rem; color:var(--text-dim); margin-bottom:1rem;">
           Tokens are used by <code style="font-family:var(--mono); color:var(--gold); font-size:0.82em;">sema pkg publish</code> to authenticate.
@@ -154,7 +154,7 @@
 
         <div x-show="newToken" style="padding:0.75rem; margin-bottom:1rem; background:var(--bg-code); border:1px solid var(--gold-dim); border-radius:4px;">
           <div style="font-size:0.65rem; color:var(--gold); margin-bottom:0.3rem;">Token created — copy it now, it won't be shown again:</div>
-          <code style="font-size:0.78rem; color:var(--text-bright); word-break:break-all;" x-text="newToken"></code>
+          <code style="font-size:0.78rem; color:var(--text-bright); word-break:break-all;" x-text="newToken" data-testid="token-display"></code>
           <div style="margin-top:0.75rem; padding-top:0.6rem; border-top:1px solid var(--border);">
             <div style="font-size:0.65rem; color:var(--text-dim); margin-bottom:0.3rem;">Login from the CLI:</div>
             <div class="install-snippet" style="display:inline-flex; font-size:0.72rem;">
@@ -164,7 +164,7 @@
         </div>
 
         <template x-for="t in tokens" :key="t.id">
-          <div class="token-row" style="border-top:1px solid var(--border);">
+          <div class="token-row" style="border-top:1px solid var(--border);" data-testid="token-row">
             <div>
               <div class="token-name" x-text="t.name"></div>
               <div class="token-meta">
@@ -184,8 +184,8 @@
           <div class="form-group" style="margin-bottom:0.5rem;">
             <label class="form-label">New Token Name</label>
             <div style="display:flex; gap:0.5rem; align-items:center;">
-              <input type="text" class="form-input" placeholder="e.g. github-actions" style="max-width:16rem;" x-model="newName">
-              <button class="btn btn-primary" style="font-size:0.7rem; padding:0.45rem 0.8rem;" :disabled="creating || !newName.trim()" @click="
+              <input type="text" class="form-input" placeholder="e.g. github-actions" style="max-width:16rem;" x-model="newName" data-testid="token-name-input">
+              <button class="btn btn-primary" style="font-size:0.7rem; padding:0.45rem 0.8rem;" data-testid="token-generate-btn" :disabled="creating || !newName.trim()" @click="
                 creating = true;
                 const res = await fetch('/api/v1/tokens', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name: newName})});
                 const data = await res.json();

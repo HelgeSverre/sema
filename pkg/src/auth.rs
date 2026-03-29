@@ -7,16 +7,22 @@ use axum::{
     http::{header, request::Parts, StatusCode},
 };
 use rand::RngCore;
-use sqlx::Row;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use std::sync::Arc;
+use time::{Duration, OffsetDateTime};
 
-use crate::{db::Db, AppState};
+use crate::{
+    db::Db,
+    entity::{api_token, session, user},
+    AppState,
+};
 
 #[derive(Debug, Clone)]
 pub struct User {
     pub id: i64,
     pub username: String,
     pub email: String,
+    pub is_admin: bool,
 }
 
 pub fn hash_password(password: &str) -> String {
@@ -59,33 +65,56 @@ pub fn hash_token(token: &str) -> String {
 pub async fn create_session(db: &Db, user_id: i64) -> String {
     let session_id = generate_session_id();
     // Note: 7 days must match session cookie Max-Age=604800 in api/auth.rs and github.rs
-    sqlx::query(
-        "INSERT INTO sessions (id, user_id, expires_at) VALUES (?, ?, datetime('now', '+7 days'))",
-    )
-    .bind(&session_id)
-    .bind(user_id)
-    .execute(db)
-    .await
-    .expect("Failed to create session");
+    let expires_at = {
+        let t = OffsetDateTime::now_utc() + Duration::days(7);
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            t.year(), t.month() as u8, t.day(), t.hour(), t.minute(), t.second()
+        )
+    };
+
+    let model = session::ActiveModel {
+        id: Set(session_id.clone()),
+        user_id: Set(user_id),
+        expires_at: Set(expires_at),
+        ..Default::default()
+    };
+
+    model.insert(db).await.expect("Failed to create session");
     session_id
 }
 
 pub async fn get_session_user(db: &Db, session_id: &str) -> Option<User> {
-    let row = sqlx::query(
-        r#"SELECT u.id, u.username, u.email
-           FROM users u
-           JOIN sessions s ON s.user_id = u.id
-           WHERE s.id = ? AND s.expires_at > datetime('now')"#,
-    )
-    .bind(session_id)
-    .fetch_optional(db)
-    .await
-    .ok()??;
+    // Find the session and its related user in one query
+    let result = session::Entity::find_by_id(session_id.to_string())
+        .find_also_related(user::Entity)
+        .one(db)
+        .await
+        .ok()??;
+
+    let (session_model, user_model) = result;
+    let user_model = user_model?;
+
+    // Check session expiry: compare expires_at against current time
+    let t = OffsetDateTime::now_utc();
+    let now = format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+        t.year(), t.month() as u8, t.day(), t.hour(), t.minute(), t.second()
+    );
+    if session_model.expires_at <= now {
+        return None;
+    }
+
+    // Check ban status
+    if user_model.banned_at.is_some() {
+        return None;
+    }
 
     Some(User {
-        id: row.get("id"),
-        username: row.get("username"),
-        email: row.get("email"),
+        id: user_model.id,
+        username: user_model.username,
+        email: user_model.email,
+        is_admin: user_model.is_admin != 0,
     })
 }
 
@@ -147,39 +176,63 @@ impl FromRequestParts<Arc<AppState>> for TokenUser {
 
         let token_hash = hash_token(token);
 
-        let row = sqlx::query(
-            "SELECT id, user_id, scopes FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL",
-        )
-        .bind(&token_hash)
-        .fetch_optional(&state.db)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .ok_or(StatusCode::UNAUTHORIZED)?;
+        // Find the token by hash, excluding revoked tokens
+        let token_model = api_token::Entity::find()
+            .filter(api_token::Column::TokenHash.eq(&token_hash))
+            .filter(api_token::Column::RevokedAt.is_null())
+            .one(&state.db)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
 
-        let token_id: i64 = row.get("id");
-        let user_id: i64 = row.get("user_id");
-        let scopes: String = row.get("scopes");
+        let scopes = token_model.scopes.clone();
+        let user_id = token_model.user_id;
 
         // Update last_used_at
-        let _ = sqlx::query("UPDATE api_tokens SET last_used_at = datetime('now') WHERE id = ?")
-            .bind(token_id)
-            .execute(&state.db)
-            .await;
+        let t = OffsetDateTime::now_utc();
+        let now = format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            t.year(), t.month() as u8, t.day(), t.hour(), t.minute(), t.second()
+        );
+        let mut active_token: api_token::ActiveModel = token_model.into();
+        active_token.last_used_at = Set(Some(now));
+        let _ = active_token.update(&state.db).await;
 
-        let user_row = sqlx::query("SELECT id, username, email FROM users WHERE id = ?")
-            .bind(user_id)
-            .fetch_one(&state.db)
+        // Find the user, excluding banned users
+        let user_model = user::Entity::find_by_id(user_id)
+            .filter(user::Column::BannedAt.is_null())
+            .one(&state.db)
             .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+            .ok_or(StatusCode::UNAUTHORIZED)?;
 
         Ok(TokenUser {
             user: User {
-                id: user_row.get("id"),
-                username: user_row.get("username"),
-                email: user_row.get("email"),
+                id: user_model.id,
+                username: user_model.username,
+                email: user_model.email,
+                is_admin: user_model.is_admin != 0,
             },
             scopes,
         })
+    }
+}
+
+/// Extractor: requires session auth + is_admin = 1
+pub struct AdminUser(pub User);
+
+impl FromRequestParts<Arc<AppState>> for AdminUser {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &Arc<AppState>,
+    ) -> Result<Self, Self::Rejection> {
+        let AuthUser(user) = AuthUser::from_request_parts(parts, state).await?;
+        if !user.is_admin {
+            return Err(StatusCode::FORBIDDEN);
+        }
+        Ok(AdminUser(user))
     }
 }
 

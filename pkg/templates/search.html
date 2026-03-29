@@ -16,16 +16,16 @@
       {% else %}
       <span style="font-size:0.85rem; color:var(--text-bright);">All packages</span>
       {% endif %}
-      <span style="font-size:0.7rem; color:var(--text-dim); margin-left:0.5rem;">{{ total }} packages</span>
+      <span style="font-size:0.7rem; color:var(--text-dim); margin-left:0.5rem;" data-testid="results-count">{{ total }} packages</span>
     </div>
   </div>
 
   {% if packages.is_empty() %}
   <div class="empty-state">No packages found</div>
   {% else %}
-  <div class="pkg-list">
+  <div class="pkg-list" data-testid="search-results">
     {% for pkg in packages %}
-    <a href="/packages/{{ pkg.name }}" class="pkg-list-item">
+    <a href="/packages/{{ pkg.name }}" class="pkg-list-item" data-testid="pkg-item">
       <div class="pkg-list-left">
         <span class="pkg-list-name">{{ pkg.name }}</span><span class="pkg-list-version">{{ pkg.latest_version }}</span>
         <div class="pkg-list-desc">{{ pkg.description }}</div>
@@ -37,7 +37,7 @@
   {% endif %}
 
   {% if total > per_page %}
-  <div style="display:flex; justify-content:center; gap:0.5rem; margin-top:2rem;">
+  <div style="display:flex; justify-content:center; gap:0.5rem; margin-top:2rem;" data-testid="pagination">
     {% if page > 1 %}
     <a href="/search?q={{ query }}&page={{ page - 1 }}" class="btn btn-ghost">← Prev</a>
     {% endif %}

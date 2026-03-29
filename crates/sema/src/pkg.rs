@@ -1006,13 +1006,18 @@ fn registry_install(name: &str, version: &str, registry_url: &str) -> Result<Str
 }
 
 /// Download a registry package and return (tarball_bytes, checksum).
+/// The registry may return a redirect (e.g. to GitHub for meta-registry packages),
+/// so we explicitly follow redirects.
 fn registry_download(
     name: &str,
     version: &str,
     registry_url: &str,
 ) -> Result<(Vec<u8>, String), String> {
     let token = read_token();
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))?;
     let base = registry_url.trim_end_matches('/');
 
     let url = format!("{base}/api/v1/packages/{name}/{version}/download");
