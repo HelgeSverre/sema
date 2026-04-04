@@ -93,6 +93,8 @@ fn op_name(op: Op) -> &'static str {
         Op::Append => "APPEND",
         Op::Get => "GET",
         Op::ContainsQ => "CONTAINS_Q",
+        Op::Mod => "MOD",
+        Op::Nth => "NTH",
     }
 }
 
@@ -239,7 +241,7 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
 }
 
 fn op_from_u8(byte: u8) -> Option<Op> {
-    const MAX_OP: u8 = Op::ContainsQ as u8;
+    const MAX_OP: u8 = Op::Nth as u8;
     if byte > MAX_OP {
         return None;
     }

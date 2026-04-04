@@ -1319,6 +1319,72 @@ impl VM {
                         }
                     }
 
+                    op::MOD => {
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
+                        match (a.as_int(), b.as_int()) {
+                            (Some(ai), Some(bi)) => {
+                                if bi == 0 {
+                                    let err = SemaError::eval("modulo by zero");
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                                } else {
+                                    self.stack.push(Value::int(ai % bi));
+                                }
+                            }
+                            _ => {
+                                let af = a.as_float().or_else(|| a.as_int().map(|i| i as f64));
+                                let bf = b.as_float().or_else(|| b.as_int().map(|i| i as f64));
+                                match (af, bf) {
+                                    (Some(af), Some(bf)) => {
+                                        self.stack.push(Value::float(af % bf));
+                                    }
+                                    _ => {
+                                        let err = SemaError::type_error("number", a.type_name());
+                                        handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    op::NTH => {
+                        let idx_val = unsafe { pop_unchecked(&mut self.stack) };
+                        let coll = unsafe { pop_unchecked(&mut self.stack) };
+                        let idx = if let Some(i) = idx_val.as_int() {
+                            i as usize
+                        } else {
+                            let err = SemaError::type_error("int", idx_val.type_name());
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        };
+                        if let Some(l) = coll.as_list() {
+                            match l.get(idx) {
+                                Some(v) => self.stack.push(v.clone()),
+                                None => {
+                                    let err = SemaError::eval(format!(
+                                        "index {} out of bounds (length {})",
+                                        idx,
+                                        l.len()
+                                    ));
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                                }
+                            }
+                        } else if let Some(v) = coll.as_vector() {
+                            match v.get(idx) {
+                                Some(v) => self.stack.push(v.clone()),
+                                None => {
+                                    let err = SemaError::eval(format!(
+                                        "index {} out of bounds (length {})",
+                                        idx,
+                                        v.len()
+                                    ));
+                                    handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                                }
+                            }
+                        } else {
+                            let err = SemaError::type_error("list or vector", coll.type_name());
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        }
+                    }
+
                     _ => {
                         return Err(SemaError::eval(format!("VM: invalid opcode {}", op)));
                     }

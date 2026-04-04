@@ -436,6 +436,8 @@ const TAG_RECORD: u64 = 22;
 const TAG_BYTEVECTOR: u64 = 23;
 const TAG_MULTIMETHOD: u64 = 24;
 const TAG_STREAM: u64 = 25;
+const TAG_F64_ARRAY: u64 = 26;
+const TAG_I64_ARRAY: u64 = 27;
 
 /// Small-int range: [-2^44, 2^44 - 1] = [-17_592_186_044_416, +17_592_186_044_415]
 const SMALL_INT_MIN: i64 = -(1i64 << 44);
@@ -527,6 +529,8 @@ pub enum ValueView {
     Bytevector(Rc<Vec<u8>>),
     MultiMethod(Rc<MultiMethod>),
     Stream(Rc<StreamBox>),
+    F64Array(Rc<Vec<f64>>),
+    I64Array(Rc<Vec<i64>>),
 }
 
 // ── The NaN-boxed Value type ──────────────────────────────────────
@@ -758,6 +762,22 @@ impl Value {
         Value::from_rc_ptr(TAG_BYTEVECTOR, rc)
     }
 
+    pub fn f64_array(data: Vec<f64>) -> Value {
+        Value::from_rc_ptr(TAG_F64_ARRAY, Rc::new(data))
+    }
+
+    pub fn f64_array_from_rc(rc: Rc<Vec<f64>>) -> Value {
+        Value::from_rc_ptr(TAG_F64_ARRAY, rc)
+    }
+
+    pub fn i64_array(data: Vec<i64>) -> Value {
+        Value::from_rc_ptr(TAG_I64_ARRAY, Rc::new(data))
+    }
+
+    pub fn i64_array_from_rc(rc: Rc<Vec<i64>>) -> Value {
+        Value::from_rc_ptr(TAG_I64_ARRAY, rc)
+    }
+
     pub fn multimethod(m: MultiMethod) -> Value {
         Value::from_rc_ptr(TAG_MULTIMETHOD, Rc::new(m))
     }
@@ -907,6 +927,8 @@ impl Value {
             TAG_BYTEVECTOR => ValueView::Bytevector(unsafe { self.get_rc::<Vec<u8>>() }),
             TAG_MULTIMETHOD => ValueView::MultiMethod(unsafe { self.get_rc::<MultiMethod>() }),
             TAG_STREAM => ValueView::Stream(unsafe { self.get_rc::<StreamBox>() }),
+            TAG_F64_ARRAY => ValueView::F64Array(unsafe { self.get_rc::<Vec<f64>>() }),
+            TAG_I64_ARRAY => ValueView::I64Array(unsafe { self.get_rc::<Vec<i64>>() }),
             _ => unreachable!("invalid NaN-boxed tag: {}", tag),
         }
     }
@@ -942,6 +964,8 @@ impl Value {
             TAG_BYTEVECTOR => "bytevector",
             TAG_MULTIMETHOD => "multimethod",
             TAG_STREAM => "stream",
+            TAG_F64_ARRAY => "f64-array",
+            TAG_I64_ARRAY => "i64-array",
             _ => "unknown",
         }
     }
@@ -1338,6 +1362,38 @@ impl Value {
         }
     }
 
+    pub fn as_f64_array(&self) -> Option<&[f64]> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_F64_ARRAY {
+            Some(unsafe { self.borrow_ref::<Vec<f64>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_f64_array_rc(&self) -> Option<Rc<Vec<f64>>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_F64_ARRAY {
+            Some(unsafe { self.get_rc::<Vec<f64>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_i64_array(&self) -> Option<&[i64]> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_I64_ARRAY {
+            Some(unsafe { self.borrow_ref::<Vec<i64>>() })
+        } else {
+            None
+        }
+    }
+
+    pub fn as_i64_array_rc(&self) -> Option<Rc<Vec<i64>>> {
+        if is_boxed(self.0) && get_tag(self.0) == TAG_I64_ARRAY {
+            Some(unsafe { self.get_rc::<Vec<i64>>() })
+        } else {
+            None
+        }
+    }
+
     pub fn as_stream(&self) -> Option<&StreamBox> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_STREAM {
             Some(unsafe { self.borrow_ref::<StreamBox>() })
@@ -1446,6 +1502,8 @@ impl Clone for Value {
                         TAG_BYTEVECTOR => Rc::increment_strong_count(ptr as *const Vec<u8>),
                         TAG_MULTIMETHOD => Rc::increment_strong_count(ptr as *const MultiMethod),
                         TAG_STREAM => Rc::increment_strong_count(ptr as *const StreamBox),
+                        TAG_F64_ARRAY => Rc::increment_strong_count(ptr as *const Vec<f64>),
+                        TAG_I64_ARRAY => Rc::increment_strong_count(ptr as *const Vec<i64>),
                         _ => unreachable!("invalid heap tag in clone: {}", tag),
                     }
                 }
@@ -1494,6 +1552,8 @@ impl Drop for Value {
                         TAG_BYTEVECTOR => drop(Rc::from_raw(ptr as *const Vec<u8>)),
                         TAG_MULTIMETHOD => drop(Rc::from_raw(ptr as *const MultiMethod)),
                         TAG_STREAM => drop(Rc::from_raw(ptr as *const StreamBox)),
+                        TAG_F64_ARRAY => drop(Rc::from_raw(ptr as *const Vec<f64>)),
+                        TAG_I64_ARRAY => drop(Rc::from_raw(ptr as *const Vec<i64>)),
                         _ => {} // unreachable, but don't panic in drop
                     }
                 }
@@ -1539,6 +1599,13 @@ impl PartialEq for Value {
                 a.type_tag == b.type_tag && a.fields == b.fields
             }
             (ValueView::Bytevector(a), ValueView::Bytevector(b)) => a == b,
+            (ValueView::F64Array(a), ValueView::F64Array(b)) => {
+                a.len() == b.len()
+                    && a.iter()
+                        .zip(b.iter())
+                        .all(|(x, y)| x.to_bits() == y.to_bits())
+            }
+            (ValueView::I64Array(a), ValueView::I64Array(b)) => a == b,
             (ValueView::Stream(a), ValueView::Stream(b)) => Rc::ptr_eq(&a, &b),
             _ => false,
         }
@@ -1600,6 +1667,16 @@ impl Hash for Value {
                 11u8.hash(state);
                 bv.hash(state);
             }
+            ValueView::F64Array(arr) => {
+                26u8.hash(state);
+                for v in arr.iter() {
+                    v.to_bits().hash(state);
+                }
+            }
+            ValueView::I64Array(arr) => {
+                27u8.hash(state);
+                arr.hash(state);
+            }
             ValueView::Stream(s) => {
                 25u8.hash(state);
                 (Rc::as_ptr(&s) as usize).hash(state);
@@ -1636,8 +1713,10 @@ impl Ord for Value {
                 ValueView::HashMap(_) => 11,
                 ValueView::Record(_) => 12,
                 ValueView::Bytevector(_) => 13,
-                ValueView::Stream(_) => 14,
-                _ => 15,
+                ValueView::F64Array(_) => 14,
+                ValueView::I64Array(_) => 15,
+                ValueView::Stream(_) => 16,
+                _ => 17,
             }
         }
         match (self.view(), other.view()) {
@@ -1655,6 +1734,13 @@ impl Ord for Value {
                 compare_spurs(a.type_tag, b.type_tag).then_with(|| a.fields.cmp(&b.fields))
             }
             (ValueView::Bytevector(a), ValueView::Bytevector(b)) => a.cmp(&b),
+            (ValueView::I64Array(a), ValueView::I64Array(b)) => a.cmp(&b),
+            (ValueView::F64Array(a), ValueView::F64Array(b)) => a
+                .iter()
+                .zip(b.iter())
+                .map(|(x, y)| x.total_cmp(y))
+                .find(|o| *o != std::cmp::Ordering::Equal)
+                .unwrap_or_else(|| a.len().cmp(&b.len())),
             _ => type_order(self).cmp(&type_order(other)),
         }
     }
@@ -1778,6 +1864,26 @@ impl fmt::Display for Value {
                         write!(f, " ")?;
                     }
                     write!(f, "{byte}")?;
+                }
+                write!(f, ")")
+            }
+            ValueView::F64Array(arr) => {
+                write!(f, "#f64(")?;
+                for (i, v) in arr.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{v}")?;
+                }
+                write!(f, ")")
+            }
+            ValueView::I64Array(arr) => {
+                write!(f, "#i64(")?;
+                for (i, v) in arr.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, " ")?;
+                    }
+                    write!(f, "{v}")?;
                 }
                 write!(f, ")")
             }
@@ -1939,6 +2045,8 @@ impl fmt::Debug for Value {
             ValueView::Thunk(t) => write!(f, "{t:?}"),
             ValueView::Record(r) => write!(f, "{r:?}"),
             ValueView::Bytevector(bv) => write!(f, "Bytevector({bv:?})"),
+            ValueView::F64Array(arr) => write!(f, "F64Array({arr:?})"),
+            ValueView::I64Array(arr) => write!(f, "I64Array({arr:?})"),
             ValueView::MultiMethod(m) => write!(f, "{m:?}"),
             ValueView::Stream(s) => write!(f, "Stream({:?})", s.stream_type()),
         }
