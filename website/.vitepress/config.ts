@@ -53,6 +53,7 @@ export default defineConfig({
             { text: 'Shell Completions', link: '/docs/shell-completions' },
             { text: 'Editor Support', link: '/docs/editors' },
             { text: 'Language Server (LSP)', link: '/docs/lsp' },
+            { text: 'Model Context Protocol (MCP)', link: '/docs/mcp' },
             { text: 'Embedding in Rust', link: '/docs/embedding' },
             { text: 'Embedding in JavaScript', link: '/docs/embedding-js' },
             { text: 'Packages', link: '/docs/packages' },
