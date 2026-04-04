@@ -46,7 +46,7 @@ fn test_mcp_server_initialize_and_list_tools() {
     .unwrap();
 
     let mut child = Command::new(sema_bin())
-        .args(["serve", "--no-llm", tool_file.to_str().unwrap()])
+        .args(["mcp", "--no-llm", tool_file.to_str().unwrap()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -160,7 +160,7 @@ fn test_mcp_server_with_compiled_bytecode() {
 
     // Serve the compiled bytecode
     let mut child = Command::new(sema_bin())
-        .args(["serve", "--no-llm", bytecode_file.to_str().unwrap()])
+        .args(["mcp", "--no-llm", bytecode_file.to_str().unwrap()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -227,7 +227,7 @@ fn test_mcp_server_unknown_tool() {
     std::fs::write(&tool_file, "(define x 42)\n").unwrap();
 
     let mut child = Command::new(sema_bin())
-        .args(["serve", "--no-llm", tool_file.to_str().unwrap()])
+        .args(["mcp", "--no-llm", tool_file.to_str().unwrap()])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
