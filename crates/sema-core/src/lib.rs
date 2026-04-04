@@ -12,7 +12,7 @@ pub use context::{
     call_callback, eval_callback, set_call_callback, set_eval_callback, with_stdlib_ctx,
     CallCallbackFn, EvalCallbackFn, EvalContext,
 };
-pub use error::{CallFrame, SemaError, Span, SpanMap, StackTrace};
+pub use error::{CallFrame, SemaError, Span, SpanMap, StackTrace, YieldReason};
 pub use home::sema_home;
 pub use json::{json_to_value, key_to_string, value_to_json, value_to_json_lossy};
 pub use lasso::Spur;

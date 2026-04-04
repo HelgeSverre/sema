@@ -1202,6 +1202,10 @@ fn eval_try(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, 
 
     match body_result {
         Ok(val) => Ok(Trampoline::Value(val)),
+        Err(SemaError::Yield(reason)) => {
+            // Yield is NOT an error — propagate transparently through try/catch
+            Err(SemaError::Yield(reason))
+        }
         Err(err) => {
             // Convert error to a Sema value (map)
             let err_val = error_to_value(&err);
@@ -1308,6 +1312,7 @@ fn error_to_value(err: &SemaError) -> Value {
         }
         SemaError::WithTrace { .. } => unreachable!("inner() already unwraps WithTrace"),
         SemaError::WithContext { .. } => unreachable!("inner() already unwraps WithContext"),
+        SemaError::Yield(_) => unreachable!("Yield should never reach error_to_value"),
     }
 
     // Add stack trace as list of maps

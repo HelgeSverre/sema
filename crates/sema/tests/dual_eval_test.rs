@@ -1116,6 +1116,71 @@ dual_eval_tests! {
         (let ((p (async (define x 10) (define y 20) (+ x y))))
           (await p))
     "# => Value::int(30),
+
+    // ── Producer/consumer with channels ────────────────────────
+
+    // Producer sends to channel, consumer receives — scheduler interleaves
+    async_producer_consumer: r#"
+        (let ((ch (channel/new 1)))
+          (let ((producer (async (channel/send ch 42)))
+                (consumer (async (channel/recv ch))))
+            (await consumer)))
+    "# => Value::int(42),
+
+    // Multiple values through a channel
+    async_producer_consumer_multi: r#"
+        (let ((ch (channel/new 2)))
+          (let ((producer (async
+                  (channel/send ch 10)
+                  (channel/send ch 20)))
+                (consumer (async
+                  (let ((a (channel/recv ch))
+                        (b (channel/recv ch)))
+                    (+ a b)))))
+            (await consumer)))
+    "# => Value::int(30),
+
+    // Send on full channel yields until consumer reads
+    async_send_blocks_on_full: r#"
+        (let ((ch (channel/new 1)))
+          (channel/send ch :first)
+          (let ((sender (async (channel/send ch :second) :sent))
+                (reader (async (channel/recv ch))))
+            (list (await reader) (await sender))))
+    "# => Value::list(vec![Value::keyword("first"), Value::keyword("sent")]),
+
+    // ── async/race ──────────────────────────────────────────────
+
+    async_race_first_wins: r#"
+        (let ((fast (async/resolved 1))
+              (slow (async (+ 2 2))))
+          (async/race (list fast slow)))
+    "# => Value::int(1),
+
+    async_race_compute: r#"
+        (let ((a (async (* 3 3)))
+              (b (async (* 4 4))))
+          (async/race (list a b)))
+    "# => Value::int(9),
+
+    // ── yield through try/catch ─────────────────────────────────
+
+    async_yield_through_try: r#"
+        (let ((ch (channel/new 1)))
+          (let ((t (async
+                  (try
+                    (channel/recv ch)
+                    (catch e :error)))))
+            (channel/send ch 99)
+            (await t)))
+    "# => Value::int(99),
+
+    // ── async/sleep ─────────────────────────────────────────────
+
+    async_sleep_returns_nil: r#"
+        (let ((p (async (async/sleep 0))))
+          (await p))
+    "# => Value::nil(),
 }
 
 dual_eval_error_tests! {

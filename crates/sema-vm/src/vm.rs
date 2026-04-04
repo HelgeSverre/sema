@@ -1836,6 +1836,10 @@ impl VM {
         err: SemaError,
         failing_pc: usize,
     ) -> Result<ExceptionAction, SemaError> {
+        // Yield is NOT an error — propagate transparently through try/catch
+        if matches!(&err, SemaError::Yield(_)) {
+            return Err(err);
+        }
         let mut pc_for_lookup = failing_pc as u32;
         // Walk frames from top looking for a handler
         while let Some(frame) = self.frames.last() {
@@ -2096,6 +2100,13 @@ fn error_to_value(err: &SemaError) -> Value {
         }
         SemaError::WithTrace { .. } | SemaError::WithContext { .. } => {
             unreachable!("inner() already unwraps these")
+        }
+        SemaError::Yield(_) => {
+            map.insert(Value::keyword("type"), Value::keyword("yield"));
+            map.insert(
+                Value::keyword("message"),
+                Value::string("task yield (should not be caught)"),
+            );
         }
     }
     Value::map(map)
