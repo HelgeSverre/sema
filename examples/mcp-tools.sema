@@ -1,0 +1,36 @@
+;; mcp-tools.sema — Example tools for use with `sema serve`
+;;
+;; Start the MCP server:
+;;   sema mcp examples/mcp-tools.sema
+;;
+;; Then connect from Claude Desktop, Cursor, or any MCP client.
+
+(deftool greet
+  "Greet someone by name"
+  {:name {:type :string :description "The person's name"}}
+  (lambda (name)
+    (string-append "Hello, " name "!")))
+
+(deftool calculate
+  "Evaluate a simple arithmetic expression (a op b)"
+  {:expression {:type :string :description "A math expression like '2 + 3'"}}
+  (lambda (expr)
+    (let ((parts (string/split expr " ")))
+      (if (= (length parts) 3)
+        (let ((a  (string/to-number (nth parts 0)))
+              (op (nth parts 1))
+              (b  (string/to-number (nth parts 2))))
+          (cond
+            ((= op "+") (number/to-string (+ a b)))
+            ((= op "-") (number/to-string (- a b)))
+            ((= op "*") (number/to-string (* a b)))
+            ((= op "/") (number/to-string (/ a b)))
+            (else       (string-append "Unknown operator: " op))))
+        (string-append "Expected 'a op b', got: " expr)))))
+
+(deftool word-count
+  "Count words in a text"
+  {:text {:type :string :description "The text to count words in"}}
+  (lambda (text)
+    (let ((words (string/split text " ")))
+      (number/to-string (length words)))))
