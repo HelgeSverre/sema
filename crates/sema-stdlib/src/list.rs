@@ -49,9 +49,13 @@ pub fn register(env: &sema_core::Env) {
             Ok(Value::int(m.len() as i64))
         } else if let Some(bv) = args[0].as_bytevector() {
             Ok(Value::int(bv.len() as i64))
+        } else if let Some(arr) = args[0].as_f64_array() {
+            Ok(Value::int(arr.len() as i64))
+        } else if let Some(arr) = args[0].as_i64_array() {
+            Ok(Value::int(arr.len() as i64))
         } else {
             Err(SemaError::type_error(
-                "list, vector, string, map, or bytevector",
+                "list, vector, string, map, bytevector, or typed array",
                 args[0].type_name(),
             ))
         }
