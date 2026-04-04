@@ -866,23 +866,35 @@ fn run_mcp_server(files: Vec<String>, no_llm: bool, sandbox_arg: Option<String>)
         interpreter.eval_str_in_global("(llm/auto-configure)").ok();
     }
 
-    // Load all specified files to define tools
+    // Load all specified files to define tools (supports .sema and .semac)
     for file in &files {
         let path = std::path::Path::new(file);
         if !path.exists() {
             eprintln!("Error: file not found: {file}");
             std::process::exit(1);
         }
-        let source = std::fs::read_to_string(path).unwrap_or_else(|e| {
-            eprintln!("Error reading {file}: {e}");
-            std::process::exit(1);
-        });
         if let Ok(canonical) = path.canonicalize() {
             interpreter.ctx.push_file_path(canonical);
         }
-        if let Err(e) = interpreter.eval_str_in_global(&source) {
-            eprintln!("Error evaluating {file}: {e}");
-            std::process::exit(1);
+        let is_bytecode = path.extension().is_some_and(|ext| ext == "semac");
+        if is_bytecode {
+            let bytes = std::fs::read(path).unwrap_or_else(|e| {
+                eprintln!("Error reading {file}: {e}");
+                std::process::exit(1);
+            });
+            if let Err(e) = run_bytecode_bytes(&interpreter, &bytes) {
+                eprintln!("Error evaluating {file}: {e}");
+                std::process::exit(1);
+            }
+        } else {
+            let source = std::fs::read_to_string(path).unwrap_or_else(|e| {
+                eprintln!("Error reading {file}: {e}");
+                std::process::exit(1);
+            });
+            if let Err(e) = interpreter.eval_str_in_global(&source) {
+                eprintln!("Error evaluating {file}: {e}");
+                std::process::exit(1);
+            }
         }
     }
 
@@ -1264,18 +1276,39 @@ fn try_run_embedded() -> Option<i32> {
 
     sema_core::vfs::init_vfs(arch.files);
 
+    // Check for --serve flag: run as MCP server instead of normal execution
+    let serve_mode = std::env::args().any(|a| a == "--serve");
+
     let sandbox = sema_core::Sandbox::allow_all();
     let interpreter = Interpreter::new_with_sandbox(&sandbox);
 
     let _ = interpreter.eval_str("(llm/auto-configure)");
 
     match run_bytecode_bytes(&interpreter, &bytecode) {
-        Ok(_) => Some(0),
+        Ok(_) => {}
         Err(e) => {
             print_error(&e);
-            Some(1)
+            return Some(1);
         }
     }
+
+    if serve_mode {
+        let tools = sema_mcp::discover_tools(&interpreter.global_env);
+        eprintln!(
+            "Sema MCP server starting on stdio ({} tool{} discovered)",
+            tools.len(),
+            if tools.len() == 1 { "" } else { "s" }
+        );
+        for tool in &tools {
+            eprintln!("  - {}: {}", tool.name, tool.description);
+        }
+        if let Err(e) = sema_mcp::run_server(tools, &interpreter.ctx, &interpreter.global_env) {
+            eprintln!("MCP server error: {e}");
+            return Some(1);
+        }
+    }
+
+    Some(0)
 }
 
 fn run_build(

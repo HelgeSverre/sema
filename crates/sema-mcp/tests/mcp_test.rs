@@ -124,6 +124,102 @@ fn test_mcp_server_initialize_and_list_tools() {
 }
 
 #[test]
+fn test_mcp_server_with_compiled_bytecode() {
+    // Compile a .sema file to .semac, then serve it
+    let dir = std::env::temp_dir().join("sema-mcp-test-semac");
+    std::fs::create_dir_all(&dir).unwrap();
+    let source_file = dir.join("tools.sema");
+    let bytecode_file = dir.join("tools.semac");
+    std::fs::write(
+        &source_file,
+        r#"
+(deftool reverse-text
+  "Reverse a string"
+  {:text {:type :string :description "Text to reverse"}}
+  (lambda (text)
+    (list->string (reverse (string->list text)))))
+"#,
+    )
+    .unwrap();
+
+    // Compile to bytecode
+    let compile_output = Command::new(sema_bin())
+        .args([
+            "compile",
+            source_file.to_str().unwrap(),
+            "-o",
+            bytecode_file.to_str().unwrap(),
+        ])
+        .output()
+        .expect("failed to compile");
+    assert!(
+        compile_output.status.success(),
+        "compile failed: {}",
+        String::from_utf8_lossy(&compile_output.stderr)
+    );
+
+    // Serve the compiled bytecode
+    let mut child = Command::new(sema_bin())
+        .args(["serve", "--no-llm", bytecode_file.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to start sema serve with .semac");
+
+    let mut stdin = child.stdin.take().unwrap();
+    let mut stdout = BufReader::new(child.stdout.take().unwrap());
+
+    // Initialize
+    send_and_recv(
+        &mut stdin,
+        &mut stdout,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "initialize",
+            "params": {}
+        }),
+    );
+
+    // List tools — should find the compiled tool
+    let resp = send_and_recv(
+        &mut stdin,
+        &mut stdout,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/list",
+            "params": {}
+        }),
+    );
+    let tools = resp["result"]["tools"].as_array().unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0]["name"], "reverse-text");
+
+    // Call the tool
+    let resp = send_and_recv(
+        &mut stdin,
+        &mut stdout,
+        &serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "reverse-text",
+                "arguments": {"text": "hello"}
+            }
+        }),
+    );
+    let content = resp["result"]["content"].as_array().unwrap();
+    assert_eq!(content[0]["text"], "olleh");
+
+    drop(stdin);
+    child.kill().ok();
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
 fn test_mcp_server_unknown_tool() {
     let dir = std::env::temp_dir().join("sema-mcp-test-2");
     std::fs::create_dir_all(&dir).unwrap();
