@@ -40,3 +40,4 @@ axum.workspace = true
 tokio-stream.workspace = true
 futures.workspace = true
 mime_guess.workspace = true
+rusqlite.workspace = true

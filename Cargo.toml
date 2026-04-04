@@ -69,6 +69,7 @@ tokio-stream = "0.1"
 mime_guess = "2"
 toml = "0.8"
 toml_edit = "0.22"
+rusqlite = { version = "0.31", features = ["bundled"] }
 semver = "1"
 tar = "0.4"
 flate2 = "1"
