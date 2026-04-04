@@ -383,6 +383,20 @@ enum Commands {
     Lsp,
     /// Start the Debug Adapter Protocol server
     Dap,
+    /// Start an MCP (Model Context Protocol) server exposing deftool definitions
+    Serve {
+        /// Sema file(s) to load (tools are discovered after evaluation)
+        #[arg(required = true)]
+        files: Vec<String>,
+
+        /// Disable LLM features
+        #[arg(long)]
+        no_llm: bool,
+
+        /// Sandbox mode (e.g., "strict", "all", or comma-separated capabilities)
+        #[arg(long)]
+        sandbox: Option<String>,
+    },
     /// Evaluate code and return results (designed for machine consumption by editors/LSP)
     Eval {
         /// Read program from stdin instead of --expr
@@ -655,6 +669,13 @@ fn main() {
                     .expect("Failed to create tokio runtime")
                     .block_on(sema_dap::run_server());
             }
+            Commands::Serve {
+                files,
+                no_llm,
+                sandbox: serve_sandbox,
+            } => {
+                run_mcp_server(files, no_llm, serve_sandbox);
+            }
             Commands::Eval {
                 stdin,
                 expr,
@@ -827,6 +848,59 @@ fn eval_with_mode(
         interpreter.eval_str_compiled(input)
     } else {
         interpreter.eval_str(input)
+    }
+}
+
+fn run_mcp_server(files: Vec<String>, no_llm: bool, sandbox_arg: Option<String>) {
+    let sandbox = match &sandbox_arg {
+        Some(value) => sema_core::Sandbox::parse_cli(value).unwrap_or_else(|e| {
+            eprintln!("Error: {e}");
+            std::process::exit(1);
+        }),
+        None => sema_core::Sandbox::allow_all(),
+    };
+
+    let interpreter = Interpreter::new_with_sandbox(&sandbox);
+
+    if !no_llm {
+        interpreter.eval_str_in_global("(llm/auto-configure)").ok();
+    }
+
+    // Load all specified files to define tools
+    for file in &files {
+        let path = std::path::Path::new(file);
+        if !path.exists() {
+            eprintln!("Error: file not found: {file}");
+            std::process::exit(1);
+        }
+        let source = std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Error reading {file}: {e}");
+            std::process::exit(1);
+        });
+        if let Ok(canonical) = path.canonicalize() {
+            interpreter.ctx.push_file_path(canonical);
+        }
+        if let Err(e) = interpreter.eval_str_in_global(&source) {
+            eprintln!("Error evaluating {file}: {e}");
+            std::process::exit(1);
+        }
+    }
+
+    // Discover all deftool definitions
+    let tools = sema_mcp::discover_tools(&interpreter.global_env);
+
+    eprintln!(
+        "Sema MCP server starting on stdio ({} tool{} discovered)",
+        tools.len(),
+        if tools.len() == 1 { "" } else { "s" }
+    );
+    for tool in &tools {
+        eprintln!("  - {}: {}", tool.name, tool.description);
+    }
+
+    if let Err(e) = sema_mcp::run_server(tools, &interpreter.ctx, &interpreter.global_env) {
+        eprintln!("MCP server error: {e}");
+        std::process::exit(1);
     }
 }
 
