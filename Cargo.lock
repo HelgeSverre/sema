@@ -2781,6 +2781,7 @@ dependencies = [
  "sema-fmt",
  "sema-llm",
  "sema-lsp",
+ "sema-mcp",
  "sema-notebook",
  "sema-reader",
  "sema-stdlib",
@@ -2826,6 +2827,16 @@ dependencies = [
  "serde_json",
  "tokio",
  "tower-lsp",
+]
+
+[[package]]
+name = "sema-mcp"
+version = "1.13.0"
+dependencies = [
+ "sema-core",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
