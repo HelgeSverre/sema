@@ -407,6 +407,39 @@ sema lsp
 
 Provides diagnostics, completion, hover, go-to-definition, and code lenses. See the [LSP documentation](/docs/lsp.html) for full feature details and editor setup instructions.
 
+### `sema mcp`
+
+Start a Model Context Protocol (MCP) server. Evaluates the specified file(s), discovers all `deftool` definitions, and exposes them as MCP tools over stdio.
+
+```
+sema mcp [OPTIONS] <FILES>...
+```
+
+| Flag                 | Description                                                     |
+| -------------------- | --------------------------------------------------------------- |
+| `--no-llm`           | Disable LLM auto-configuration                                 |
+| `--sandbox <MODE>`   | Sandbox mode (`strict`, `all`, or comma-separated capabilities) |
+
+```bash
+# Serve tools from a source file
+sema mcp tools.sema
+
+# Serve compiled bytecode (faster startup)
+sema mcp tools.semac
+
+# Multiple files
+sema mcp math-tools.sema string-tools.sema
+```
+
+Standalone binaries built with `sema build` also support MCP via the `--mcp` flag:
+
+```bash
+sema build tools.sema -o my-tools
+./my-tools --mcp
+```
+
+See the [MCP documentation](/docs/mcp.html) for full details and client setup instructions.
+
 ## Examples
 
 ```bash
