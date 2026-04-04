@@ -1,7 +1,7 @@
 ;; mcp-tools.sema — Example tools for use with `sema serve`
 ;;
 ;; Start the MCP server:
-;;   sema serve examples/mcp-tools.sema
+;;   sema mcp examples/mcp-tools.sema
 ;;
 ;; Then connect from Claude Desktop, Cursor, or any MCP client.
 

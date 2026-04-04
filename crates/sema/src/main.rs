@@ -388,7 +388,7 @@ enum Commands {
         command: NotebookCommands,
     },
     /// Start an MCP (Model Context Protocol) server exposing deftool definitions
-    Serve {
+    Mcp {
         /// Sema file(s) to load (tools are discovered after evaluation)
         #[arg(required = true)]
         files: Vec<String>,
@@ -724,12 +724,12 @@ fn main() {
             Commands::Notebook { command } => {
                 run_notebook_command(command);
             }
-            Commands::Serve {
+            Commands::Mcp {
                 files,
                 no_llm,
-                sandbox: serve_sandbox,
+                sandbox: mcp_sandbox,
             } => {
-                run_mcp_server(files, no_llm, serve_sandbox);
+                run_mcp_server(files, no_llm, mcp_sandbox);
             }
             Commands::Eval {
                 stdin,
@@ -1440,8 +1440,8 @@ fn try_run_embedded() -> Option<i32> {
 
     sema_core::vfs::init_vfs(arch.files);
 
-    // Check for --serve flag: run as MCP server instead of normal execution
-    let serve_mode = std::env::args().any(|a| a == "--serve");
+    // Check for --mcp flag: run as MCP server instead of normal execution
+    let mcp_mode = std::env::args().any(|a| a == "--mcp");
 
     let sandbox = sema_core::Sandbox::allow_all();
     let interpreter = Interpreter::new_with_sandbox(&sandbox);
@@ -1456,7 +1456,7 @@ fn try_run_embedded() -> Option<i32> {
         }
     }
 
-    if serve_mode {
+    if mcp_mode {
         let tools = sema_mcp::discover_tools(&interpreter.global_env);
         eprintln!(
             "Sema MCP server starting on stdio ({} tool{} discovered)",
