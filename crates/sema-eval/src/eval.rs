@@ -417,6 +417,9 @@ fn run_trampoline(ctx: &EvalContext, trampoline: Trampoline) -> EvalResult {
                 match eval_step(ctx, &expr, &env) {
                     Ok(t) => current = t,
                     Err(e) => {
+                        if matches!(&e, SemaError::Yield(_)) {
+                            return Err(e);
+                        }
                         if e.stack_trace().is_none() {
                             let trace = ctx.capture_stack_trace();
                             return Err(e.with_stack_trace(trace));
@@ -494,6 +497,10 @@ fn eval_value_inner(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
                         current_env = next_env;
                     }
                     Err(e) => {
+                        if matches!(&e, SemaError::Yield(_)) {
+                            drop(guard);
+                            return Err(e);
+                        }
                         if e.stack_trace().is_none() {
                             let trace = ctx.capture_stack_trace();
                             drop(guard);
@@ -506,6 +513,10 @@ fn eval_value_inner(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
             }
         }
         Err(e) => {
+            if matches!(&e, SemaError::Yield(_)) {
+                drop(guard);
+                return Err(e);
+            }
             if e.stack_trace().is_none() {
                 let trace = ctx.capture_stack_trace();
                 drop(guard);

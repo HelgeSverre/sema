@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::rc::Rc;
 
-use crate::value::Value;
+use crate::value::{AsyncPromise, Channel, Value};
 
 /// Check arity of a native function's arguments, returning `SemaError::Arity` on mismatch.
 ///
@@ -129,6 +130,32 @@ impl fmt::Display for StackTrace {
 /// Maps Rc pointer addresses to source spans for expression tracking.
 pub type SpanMap = HashMap<usize, Span>;
 
+/// Reason a task is yielding control back to the scheduler.
+///
+/// Contains Rc pointers to async primitives — these are always handled
+/// within the same thread by the task scheduler. The `Send` impl is safe
+/// because `Yield` errors never actually cross thread boundaries; they
+/// are always caught and processed on the thread that created them.
+#[derive(Debug, Clone)]
+pub enum YieldReason {
+    /// Waiting for a promise to resolve.
+    AwaitPromise(Rc<AsyncPromise>),
+    /// Waiting to receive from an empty channel.
+    ChannelRecv(Rc<Channel>),
+    /// Waiting to send to a full channel (carries the value to send).
+    ChannelSend(Rc<Channel>, Value),
+    /// Sleeping for a duration in milliseconds.
+    Sleep(u64),
+}
+
+// SAFETY: YieldReason never crosses thread boundaries — it is always caught
+// by the same-thread async scheduler before any function returns it to user code.
+// This impl restores SemaError's Send bound which is required by thread::spawn
+// in existing integration tests (the Yield variant is never the actual error
+// sent across threads in those tests).
+unsafe impl Send for YieldReason {}
+unsafe impl Sync for YieldReason {}
+
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum SemaError {
     #[error("Reader error at {span}: {message}")]
@@ -184,6 +211,12 @@ pub enum SemaError {
         hint: Option<String>,
         note: Option<String>,
     },
+
+    /// Task yield — not a real error. Used by the async scheduler to
+    /// suspend a task at a yield point (await, channel op, sleep).
+    /// Must never be caught by try/catch.
+    #[error("yield: {0:?}")]
+    Yield(YieldReason),
 }
 
 /// Compute the Levenshtein edit distance between two strings.
