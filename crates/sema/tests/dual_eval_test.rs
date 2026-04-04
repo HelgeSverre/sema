@@ -1006,3 +1006,130 @@ dual_eval_error_tests! {
     pio_err_irq_bad_mode: "(pio/irq :bogus 0)",
     pio_err_wait_bad_source: "(pio/wait 1 :bogus 0)",
 }
+
+// ============================================================
+// Async concurrency — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // Basic async/spawn + await
+    async_spawn_await: r#"
+        (let ((p (async/spawn (fn () (+ 1 2)))))
+          (async/await p))
+    "# => Value::int(3),
+
+    // async special form wraps body and spawns
+    async_special_form: r#"
+        (let ((p (async (+ 10 20))))
+          (await p))
+    "# => Value::int(30),
+
+    // Multiple async tasks with async/all
+    async_all: r#"
+        (let ((p1 (async (+ 1 1)))
+              (p2 (async (+ 2 2)))
+              (p3 (async (+ 3 3))))
+          (async/all (list p1 p2 p3)))
+    "# => Value::list(vec![Value::int(2), Value::int(4), Value::int(6)]),
+
+    // Already-resolved promise
+    async_resolved: r#"
+        (async/await (async/resolved 42))
+    "# => Value::int(42),
+
+    // Promise state predicates
+    async_resolved_predicate: r#"
+        (async/resolved? (async/resolved 1))
+    "# => Value::TRUE,
+
+    async_rejected_predicate: r#"
+        (async/rejected? (async/rejected "oops"))
+    "# => Value::TRUE,
+
+    async_promise_predicate: r#"
+        (async/promise? (async/resolved 1))
+    "# => Value::TRUE,
+
+    async_promise_predicate_false: r#"
+        (async/promise? 42)
+    "# => Value::FALSE,
+
+    // Channel basics
+    channel_send_recv: r#"
+        (let ((ch (channel/new 3)))
+          (channel/send ch 10)
+          (channel/send ch 20)
+          (channel/recv ch))
+    "# => Value::int(10),
+
+    channel_fifo: r#"
+        (let ((ch (channel/new 3)))
+          (channel/send ch :a)
+          (channel/send ch :b)
+          (channel/recv ch)
+          (channel/recv ch))
+    "# => Value::keyword("b"),
+
+    channel_count: r#"
+        (let ((ch (channel/new 5)))
+          (channel/send ch 1)
+          (channel/send ch 2)
+          (channel/count ch))
+    "# => Value::int(2),
+
+    channel_empty: r#"
+        (channel/empty? (channel/new 1))
+    "# => Value::TRUE,
+
+    channel_not_empty: r#"
+        (let ((ch (channel/new 1)))
+          (channel/send ch 42)
+          (channel/empty? ch))
+    "# => Value::FALSE,
+
+    channel_predicate: r#"
+        (channel? (channel/new 1))
+    "# => Value::TRUE,
+
+    channel_predicate_false: r#"
+        (channel? 42)
+    "# => Value::FALSE,
+
+    channel_close: r#"
+        (let ((ch (channel/new 1)))
+          (channel/close ch)
+          (channel/closed? ch))
+    "# => Value::TRUE,
+
+    channel_try_recv_empty: r#"
+        (channel/try-recv (channel/new 1))
+    "# => Value::nil(),
+
+    channel_full: r#"
+        (let ((ch (channel/new 1)))
+          (channel/send ch 42)
+          (channel/full? ch))
+    "# => Value::TRUE,
+
+    // Async with multiple expressions in body
+    async_multi_body: r#"
+        (let ((p (async (define x 10) (define y 20) (+ x y))))
+          (await p))
+    "# => Value::int(30),
+}
+
+dual_eval_error_tests! {
+    async_await_rejected: "(async/await (async/rejected \"error\"))",
+    channel_send_closed: r#"
+        (let ((ch (channel/new 1)))
+          (channel/close ch)
+          (channel/send ch 1))
+    "#,
+    channel_recv_empty: "(channel/recv (channel/new 1))",
+    channel_send_full: r#"
+        (let ((ch (channel/new 1)))
+          (channel/send ch 1)
+          (channel/send ch 2))
+    "#,
+    channel_zero_capacity: "(channel/new 0)",
+}

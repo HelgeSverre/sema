@@ -1,5 +1,6 @@
 #![allow(clippy::mutable_key_type, clippy::cloned_ref_to_slice_refs)]
 mod arithmetic;
+mod async_ops;
 mod bitwise;
 mod bytevector;
 mod comparison;
@@ -67,6 +68,7 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     text::register(env);
     stream::register(env);
     pio::register(env);
+    async_ops::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     stream::register_io(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]

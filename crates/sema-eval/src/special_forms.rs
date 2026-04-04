@@ -63,6 +63,10 @@ struct SpecialFormSpurs {
     message: Spur,
     prompt: Spur,
 
+    // Async concurrency
+    async_: Spur,
+    await_: Spur,
+
     // Silent aliases for other Lisp dialects
     def: Spur,
     defn: Spur,
@@ -119,6 +123,10 @@ impl SpecialFormSpurs {
             message: intern("message"),
             prompt: intern("prompt"),
 
+            // Async concurrency
+            async_: intern("async"),
+            await_: intern("await"),
+
             // Silent aliases
             def: intern("def"),
             defn: intern("defn"),
@@ -149,6 +157,8 @@ fn special_forms() -> &'static SpecialFormSpurs {
 pub const SPECIAL_FORM_NAMES: &[&str] = &[
     // Core language
     "and",
+    "async",
+    "await",
     "begin",
     "case",
     "cond",
@@ -283,6 +293,12 @@ pub fn try_eval_special(
         Some(eval_message(args, env, ctx))
     } else if head_spur == sf.prompt {
         Some(eval_prompt(args, env, ctx))
+
+    // Async concurrency
+    } else if head_spur == sf.async_ {
+        Some(eval_async(args, env, ctx))
+    } else if head_spur == sf.await_ {
+        Some(eval_await(args, env, ctx))
     } else {
         None
     }
@@ -2099,4 +2115,50 @@ fn parse_params(names: &[Spur]) -> (Vec<Spur>, Option<Spur>) {
     } else {
         (names.to_vec(), None)
     }
+}
+
+// ── Async concurrency ────────────────────────────────────────────
+
+/// (async body ...) — Wraps body in a thunk and spawns it as an async task.
+/// Returns an async-promise that can be awaited.
+fn eval_async(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.is_empty() {
+        return Err(SemaError::arity("async", "1+", 0));
+    }
+
+    // Create a lambda that captures the current env and evaluates the body
+    let lambda = Lambda {
+        params: vec![],
+        rest_param: None,
+        body: args.to_vec(),
+        env: env.clone(),
+        name: None,
+    };
+    let func = Value::lambda(lambda);
+
+    // Spawn the task via the async/spawn builtin
+    let spawn_fn_spur = intern("async/spawn");
+    let spawn_fn = env.get(spawn_fn_spur).ok_or_else(|| {
+        SemaError::eval("async: async/spawn not found in environment".to_string())
+    })?;
+
+    sema_core::call_callback(ctx, &spawn_fn, &[func]).map(Trampoline::Value)
+}
+
+/// (await promise) — Blocks until the async promise resolves, then returns the result.
+fn eval_await(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("await", "1", args.len()));
+    }
+
+    // Evaluate the promise expression
+    let promise_val = eval::eval_value(ctx, &args[0], env)?;
+
+    // Delegate to async/await builtin
+    let await_fn_spur = intern("async/await");
+    let await_fn = env.get(await_fn_spur).ok_or_else(|| {
+        SemaError::eval("await: async/await not found in environment".to_string())
+    })?;
+
+    sema_core::call_callback(ctx, &await_fn, &[promise_val]).map(Trampoline::Value)
 }
