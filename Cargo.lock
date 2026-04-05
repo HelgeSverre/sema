@@ -407,6 +407,7 @@ dependencies = [
  "iana-time-zone",
  "js-sys",
  "num-traits",
+ "serde",
  "wasm-bindgen",
  "windows-link",
 ]
@@ -2713,6 +2714,7 @@ dependencies = [
  "sema-fmt",
  "sema-llm",
  "sema-lsp",
+ "sema-notebook",
  "sema-reader",
  "sema-stdlib",
  "sema-vm",
@@ -2757,6 +2759,26 @@ dependencies = [
  "serde_json",
  "tokio",
  "tower-lsp",
+]
+
+[[package]]
+name = "sema-notebook"
+version = "1.12.2"
+dependencies = [
+ "axum",
+ "chrono",
+ "mime_guess",
+ "sema-core",
+ "sema-eval",
+ "sema-llm",
+ "sema-reader",
+ "sema-stdlib",
+ "sema-vm",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tokio-stream",
+ "uuid",
 ]
 
 [[package]]
