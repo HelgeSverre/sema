@@ -155,16 +155,17 @@ Re-rendering uses morphdom for efficient DOM patching -- only changed nodes are 
 | --- | --- | --- |
 | [Reactive State](./reactive-state) | `state`, `put!`, `update!`, `computed`, `batch`, `watch` | Signal-based reactivity |
 | [Components](./components) | `defcomponent`, `mount!`, `local`, `on-mount` | Reactive UI components |
-| SIP Markup | `sip/*` | Declarative DOM rendering |
-| DOM API | `dom/*` | Low-level DOM manipulation |
-| Store | `store/*` | localStorage / sessionStorage |
-| Routing | `router/*` | Hash-based SPA routing |
-| Scoped CSS | `css/*` | Dynamic style injection |
-| HTTP | `http/*` | Fetch, SSE |
-| LLM | `llm/*` | AI completions via proxy |
+| [SIP Markup](./sip-markup) | `sip/*` | Declarative DOM rendering |
+| [DOM API](./dom-api) | `dom/*` | Low-level DOM manipulation |
+| [Store](./store) | `store/*` | localStorage / sessionStorage |
+| [Routing](./routing) | `router/*` | Hash-based SPA routing |
+| [Scoped CSS](./css) | `css/*` | Dynamic style injection |
+| [HTTP & Streams](./http) | `http/*` | Browser fetch integration and SSE streams |
+| [LLM](./llm) | `llm/*` | AI completions via proxy |
 
 ## Next Steps
 
 - [Getting Started](./getting-started) -- install, set up a page, evaluate code
+- [Building a Sema Web App](./building-apps) -- recommended project layout and compiled-archive workflow
 - [Reactive State](./reactive-state) -- the core programming model
 - [Components](./components) -- building interactive UIs

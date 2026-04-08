@@ -134,6 +134,7 @@ export default defineConfig({
           items: [
             { text: 'Overview', link: '/docs/web/' },
             { text: 'Getting Started', link: '/docs/web/getting-started' },
+            { text: 'Building an App', link: '/docs/web/building-apps' },
             { text: 'Reactive State', link: '/docs/web/reactive-state' },
             { text: 'Components', link: '/docs/web/components' },
             { text: 'SIP Markup', link: '/docs/web/sip-markup' },
@@ -141,6 +142,7 @@ export default defineConfig({
             { text: 'Store', link: '/docs/web/store' },
             { text: 'Routing', link: '/docs/web/routing' },
             { text: 'Scoped CSS', link: '/docs/web/css' },
+            { text: 'HTTP & Streams', link: '/docs/web/http' },
             { text: 'LLM Integration', link: '/docs/web/llm' },
             { text: 'LLM Proxy', link: '/docs/web/llm-proxy' },
             { text: 'Deployment', link: '/docs/web/deployment' },

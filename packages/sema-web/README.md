@@ -95,7 +95,7 @@ For development and simple embeds, loading `.sema` source directly is fine. For 
 build a compiled `.vfs` archive and load that with the same script-tag API:
 
 ```bash
-cargo run -p sema-lang -- build --target web app.sema -o public/app.vfs
+sema build --target web app.sema -o public/app.vfs
 ```
 
 ```html
@@ -153,8 +153,10 @@ instead of evaluating source in the browser.
 (dom/get-value input)
 
 ;; Events
-(dom/on! el "click" handler-name)
-(dom/off! el "click" handler-name)
+(dom/on! el "click" my-handler)
+;; or:
+(dom/on! el "click" "my-handler")
+(dom/off! el "click" my-handler)
 (dom/prevent-default! event)
 ```
 
@@ -176,6 +178,37 @@ instead of evaluating source in the browser.
 (store/session-clear!)
 ```
 
+### `http/*` — Browser HTTP & Streams
+
+Sema Web uses the standard `http/*` request functions for browser `fetch`, and adds a
+streaming SSE API for long-lived responses.
+
+```sema
+;; Standard requests
+(http/get "/api/posts")
+(http/post "/api/messages" {:text "hello"})
+
+;; Streaming SSE connection
+(def stream
+  (http/event-source
+    {:url "/api/events"
+     :headers {"authorization" "Bearer demo-token"}
+     :with-credentials true}))
+
+;; Read current stream state
+(:data @stream)
+(:event @stream)
+(:done @stream)
+(:error @stream)
+
+;; Close when finished
+(http/close-stream stream)
+```
+
+`http/event-source` uses a fetch-based SSE client rather than the browser's native
+`EventSource`, so it supports headers, credentials, and POST bodies. Streams created in
+components are automatically closed on unmount.
+
 ### `console/*` — Browser Console
 
 ```sema
@@ -189,27 +222,27 @@ instead of evaluating source in the browser.
 (console/time-end "label")
 ```
 
-### Reactive Atoms
+### Reactive State
 
-Atoms are mutable reference cells with change notification — the foundation of reactive rendering.
+Reactive state is built around signals.
 
 ```sema
-;; Create an atom
-(define count (atom 0))
+;; Create a signal
+(def count (state 0))
 
 ;; Read value (tracks dependency in reactive context)
-(deref count)                ;; → 0
+@count                       ;; → 0
 
 ;; Set value directly
-(reset! count 42)
+(put! count 42)
 
 ;; Update by applying a function to current value
-(swap! count (lambda (n) (+ n 1)))
+(update! count (fn (n) (+ n 1)))
 ```
 
-Low-level `atom/*` functions are also available: `atom/create`, `atom/deref`, `atom/reset!`, `atom/add-watch`, `atom/remove-watch`.
+Use `(watch signal callback)` to observe changes and `(unwatch! watch-id)` to dispose a watch.
 
-### Hiccup — Declarative DOM
+### SIP — Declarative DOM
 
 Describe UI as data using vectors and maps (the hiccup convention):
 
@@ -225,50 +258,50 @@ Describe UI as data using vectors and maps (the hiccup convention):
 **Attributes:**
 - `class` — sets className
 - `style` — CSS string or property map: `{:color "red" :font-size "14px"}`
-- `on-*` — event handlers (value is a Sema function name): `{:on-click "my-handler"}`
+- `on-*` — SIP delegated event handlers use a Sema function name string: `{:on-click "my-handler"}`
 - `value`, `checked`, `disabled` — form element properties
 - All other attributes use `setAttribute`
 
 **Standalone rendering:**
 
 ```sema
-;; Render hiccup to an element handle
-(define el (hiccup/render [:div {:class "box"} "hello"]))
+;; Render SIP to an element handle
+(define el (sip/render [:div {:class "box"} "hello"]))
 (dom/append-child! (dom/query "#app") el)
 
 ;; Render directly into a target element
-(hiccup/render-into! "#app" [:h1 "Hello from Sema!"])
+(sip/render-into! "#app" [:h1 "Hello from Sema!"])
 ```
 
 ### Components — Reactive Rendering
 
-Define a component as a function returning hiccup, then mount it to a DOM element.
-The component **automatically re-renders** when atoms it reads via `deref` change.
+Define a component as a function returning SIP, then mount it to a DOM element.
+The component **automatically re-renders** when signals it reads during render change.
 
 ```sema
 ;; State
-(define count (atom 0))
+(def count (state 0))
 
 ;; Event handlers
 (define (increment ev)
-  (swap! count (lambda (n) (+ n 1))))
+  (update! count (fn (n) (+ n 1))))
 
-;; Component: a function that returns hiccup
-(define (counter-view)
+;; Component: a function that returns SIP
+(defcomponent counter-view ()
   [:div
-    [:h1 (deref count)]
+    [:h1 @count]
     [:button {:on-click "increment"} "+"]])
 
-;; Mount to DOM — re-renders when count changes
+;; Mount to DOM
 (mount! "#app" "counter-view")
 ```
 
 **How it works:**
 1. `mount!` calls the component function
-2. During the call, it tracks which atoms are read via `deref`
-3. It renders the returned hiccup to DOM
-4. When any tracked atom changes, the component re-renders automatically
-5. Multiple atom changes in the same tick are batched (one re-render per frame)
+2. During the call, it tracks which signals are read
+3. It renders the returned SIP to DOM
+4. When any tracked signal changes, the component re-renders automatically
+5. Multiple updates in the same tick are batched
 
 **Component functions:**
 - `(mount! selector fn-name)` — mount a component to a CSS selector
@@ -361,14 +394,14 @@ const web = await SemaWeb.create({
   // Register console/* functions (default: true)
   console: true,
 
-  // Register reactive atom bindings (default: true)
+  // Register reactive bindings (default: true)
   reactive: true,
 
-  // Register hiccup rendering bindings (default: true)
-  hiccup: true,
+  // Register SIP rendering bindings (default: true)
+  sip: true,
 
   // Register component/mount system (default: true)
-  // Automatically enables reactive + hiccup
+  // Automatically enables reactive + sip
   components: true,
 
   // LLM proxy — enables llm/* functions in the browser
@@ -438,29 +471,29 @@ const web = await SemaWeb.create({
 (dom/on! dec-btn "click" "on-decrement")
 ```
 
-### Reactive style (atoms + hiccup + mount!)
+### Reactive style (state + SIP + mount!)
 
 ```sema
 ;; counter-reactive.sema — Reactive counter with automatic re-rendering
 
 ;; State
-(define count (atom 0))
+(def count (state 0))
 
 ;; Event handlers
 (define (handle-increment ev)
-  (swap! count (lambda (n) (+ n 1))))
+  (update! count (fn (n) (+ n 1))))
 
 (define (handle-decrement ev)
-  (swap! count (lambda (n) (- n 1))))
+  (update! count (fn (n) (- n 1))))
 
 (define (handle-reset ev)
-  (reset! count 0))
+  (put! count 0))
 
-;; Component — returns hiccup, re-renders when atoms change
-(define (counter-view)
+;; Component — returns SIP, re-renders when state changes
+(defcomponent counter-view ()
   [:div {:class "counter"}
     [:h2 "Sema Reactive Counter"]
-    [:div {:class "display"} (deref count)]
+    [:div {:class "display"} @count]
     [:div {:class "buttons"}
       [:button {:on-click "handle-decrement"} "−"]
       [:button {:on-click "handle-reset"} "Reset"]
@@ -488,8 +521,8 @@ const web = await SemaWeb.create({
 │  │ bindings │ bindings │ bindings     │ │
 │  └──────────┴──────────┴──────────────┘ │
 │  ┌──────────┬──────────┬──────────────┐ │
-│  │ atom/*   │ hiccup/* │ component/*  │ │
-│  │ reactive │ render   │ mount!       │ │
+│  │ state    │ sip/*    │ component/*  │ │
+│  │ put!/…   │ render   │ mount!       │ │
 │  └──────────┴──────────┴──────────────┘ │
 │  ┌────────────────────────────────────┐ │
 │  │ llm/* proxy (→ backend server)    │ │

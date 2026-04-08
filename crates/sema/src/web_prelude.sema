@@ -11,3 +11,9 @@
 (defmacro defcomponent (name params . body)
   `(define ,name
      (fn ,params ,@body)))
+
+(defmacro computed (expr)
+  `(__state/computed-create (fn () ,expr)))
+
+(defmacro batch (. body)
+  `(__state/batch-run (fn () ,@body)))

@@ -3139,4 +3139,44 @@ mod tests {
 
         assert!(!rendered.is_nil(), "component should return SIP markup");
     }
+
+    #[test]
+    fn web_build_prelude_expands_reactive_macros() {
+        let source = r#"
+            (def doubled (computed 42))
+            (def batched (batch 1 2 3))
+        "#;
+
+        let bytes = compile_source_to_bytecode(source).expect("compile should succeed");
+        let compiled = sema_vm::deserialize_from_bytes(&bytes).expect("bytecode should deserialize");
+
+        let interp = Interpreter::new_with_sandbox(&Sandbox::allow_all());
+        interp.global_env.set(
+            intern("__state/computed-create"),
+            Value::native_fn(NativeFn::simple("__state/computed-create", |args| {
+                Ok(Value::string("computed-ok"))
+            })),
+        );
+        interp.global_env.set(
+            intern("__state/batch-run"),
+            Value::native_fn(NativeFn::simple("__state/batch-run", |args| {
+                Ok(Value::string("batch-ok"))
+            })),
+        );
+
+        sema_eval::execute_compile_result(&interp.ctx, interp.global_env.clone(), compiled)
+            .expect("compiled program should execute");
+
+        let doubled = interp
+            .global_env
+            .get(intern("doubled"))
+            .expect("computed should define doubled");
+        let batched = interp
+            .global_env
+            .get(intern("batched"))
+            .expect("batch should define batched");
+
+        assert_eq!(doubled, Value::string("computed-ok"));
+        assert_eq!(batched, Value::string("batch-ok"));
+    }
 }

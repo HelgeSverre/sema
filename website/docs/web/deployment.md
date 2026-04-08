@@ -2,6 +2,8 @@
 
 This guide covers deploying Sema Web applications to production. The deployment approach depends on whether your app uses LLM features.
 
+If you want the broader recommended app structure first, start with [Building a Sema Web App](./building-apps). This page is focused on the deployment step.
+
 ## Static Hosting (No LLM)
 
 If your app does not use any `llm/*` functions, deployment is straightforward: serve static files.
@@ -25,7 +27,7 @@ prefer a compiled `.vfs` archive built with the CLI.
 Build the app once:
 
 ```bash
-cargo run -p sema-lang -- build --target web app.sema -o public/app.vfs
+sema build --target web app.sema -o public/app.vfs
 ```
 
 Then deploy the compiled archive:
@@ -114,7 +116,7 @@ export default createVercelHandler({
 **4. Build the app for production:**
 
 ```bash
-cargo run -p sema-lang -- build --target web app.sema -o public/app.vfs
+sema build --target web app.sema -o public/app.vfs
 ```
 
 **4. Create the HTML entry point:**
@@ -188,7 +190,7 @@ export const config = { path: "/api/llm/*" };
 **3. Build the app for production:**
 
 ```bash
-cargo run -p sema-lang -- build --target web app.sema -o public/app.vfs
+sema build --target web app.sema -o public/app.vfs
 ```
 
 **4. Configure Netlify:**

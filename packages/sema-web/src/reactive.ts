@@ -15,7 +15,6 @@
 
 import { signal, computed, effect, batch } from "@preact/signals-core";
 import type { Signal, ReadonlySignal } from "@preact/signals-core";
-import { SEMA_IDENT_RE } from "./handles.js";
 import type { SemaWebContext } from "./context.js";
 import { toInvokableCallback, releaseCallback } from "./callbacks.js";
 
@@ -32,10 +31,8 @@ interface SemaInterpreterLike {
  * - `__state/create` — create a new signal, returns numeric ID
  * - `__state/deref` — read signal value (auto-tracked by signals-core)
  * - `__state/put!` — set signal value
- * - `__state/computed-create` — create a computed signal from a named thunk
- * - `__state/next-computed-id` — return a unique name for computed thunks
- * - `__state/batch-run` — run a named thunk inside batch()
- * - `__state/next-batch-id` — return a unique name for batch thunks
+ * - `__state/computed-create` — create a computed signal from a callback
+ * - `__state/batch-run` — run a callback inside batch()
  * - `__state/watch` — watch a signal, call Sema fn on change
  *
  * Sema-level wrappers (convenience):
@@ -75,20 +72,16 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
     return newValue;
   });
 
-  // __state/computed-create — create a computed signal from a named Sema thunk.
-  // The thunkName is a zero-arg Sema function whose return value is captured
-  // via a registered JS capture function.
-  interp.registerFunction("__state/computed-create", (thunkName: string) => {
-    if (!SEMA_IDENT_RE.test(thunkName)) {
-      throw new Error(`Invalid computed thunk name: ${thunkName}`);
-    }
+  // __state/computed-create — create a computed signal from a zero-arg callback.
+  interp.registerFunction("__state/computed-create", (callbackValue: any) => {
+    const callback = toInvokableCallback(callbackValue, interp, "computed callback");
     const id = ctx.nextSignalId++;
 
     const c = computed(() => {
       try {
-        return interp.invokeGlobal(thunkName);
+        return callback();
       } catch (e) {
-        ctx.onerror(e instanceof Error ? e : new Error(String(e)), `computed:${thunkName}`);
+        ctx.onerror(e instanceof Error ? e : new Error(String(e)), "computed");
         return undefined;
       }
     });
@@ -96,32 +89,22 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
     return id;
   });
 
-  // Counter for generating unique computed thunk names
-  let computedCounter = 0;
-  interp.registerFunction("__state/next-computed-id", () => {
-    return `__cthunk_${computedCounter++}`;
-  });
-
-  // __state/batch-run — run a named thunk inside batch()
-  interp.registerFunction("__state/batch-run", (thunkName: string) => {
-    if (!SEMA_IDENT_RE.test(thunkName)) {
-      throw new Error(`Invalid batch thunk name: ${thunkName}`);
-    }
+  // __state/batch-run — run a callback inside batch()
+  interp.registerFunction("__state/batch-run", (callbackValue: any) => {
+    const callback = toInvokableCallback(callbackValue, interp, "batch callback");
     let captured: any = undefined;
-    batch(() => {
-      try {
-        captured = interp.invokeGlobal(thunkName);
-      } catch (e) {
-        ctx.onerror(e instanceof Error ? e : new Error(String(e)), "batch");
-      }
-    });
+    try {
+      batch(() => {
+        try {
+          captured = callback();
+        } catch (e) {
+          ctx.onerror(e instanceof Error ? e : new Error(String(e)), "batch");
+        }
+      });
+    } finally {
+      releaseCallback(callbackValue);
+    }
     return captured;
-  });
-
-  // Counter for generating unique batch thunk names
-  let batchCounter = 0;
-  interp.registerFunction("__state/next-batch-id", () => {
-    return `__bthunk_${batchCounter++}`;
   });
 
   // __state/watch — watch a signal for changes, call Sema fn with old + new values.
@@ -174,16 +157,10 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
     (define (update! ref f . args) (put! ref (apply f (cons (deref ref) args))))
 
     (defmacro computed (expr)
-      (let ((name (string->symbol (__state/next-computed-id))))
-        \`(begin
-           (define (,name) ,expr)
-           (__state/computed-create ,(symbol->string name)))))
+      \`(__state/computed-create (fn () ,expr)))
 
     (defmacro batch (. body)
-      (let ((name (string->symbol (__state/next-batch-id))))
-        \`(begin
-           (define (,name) ,@body)
-           (__state/batch-run ,(symbol->string name)))))
+      \`(__state/batch-run (fn () ,@body)))
 
     (define (watch ref fn) (__state/watch ref fn))
     (define (unwatch! watch-id) (__state/unwatch watch-id))

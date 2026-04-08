@@ -38,9 +38,9 @@ Use the `&` prefix to define nested pseudo-selectors and modifiers:
         :border "none"
         :border-radius "4px"
         :cursor "pointer"
-        :&:hover {:background "#2563eb"}
-        :&:active {:background "#1d4ed8"}
-        :&:disabled {:opacity "0.5" :cursor "not-allowed"}}))
+        "&:hover" {:background "#2563eb"}
+        "&:active" {:background "#1d4ed8"}
+        "&:disabled" {:opacity "0.5" :cursor "not-allowed"}}))
 
 [:button {:class btn-class} "Submit"]
 ```
@@ -80,8 +80,8 @@ You can also write property names in kebab-case directly -- both forms work.
         :border "1px solid #e5e7eb"
         :border-radius "12px"
         :padding "24px"
-        :&:hover {:border-color "#3b82f6"
-                  :box-shadow "0 4px 12px rgba(59,130,246,0.15)"}}))
+        "&:hover" {:border-color "#3b82f6"
+                   :box-shadow "0 4px 12px rgba(59,130,246,0.15)"}}))
 
 (define (styled-card title body)
   [:div {:class card-style}
