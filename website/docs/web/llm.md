@@ -43,7 +43,7 @@ The token is sent as `Authorization: Bearer {token}` on every request. This auth
 
 ## API Reference
 
-All LLM functions are asynchronous (they make HTTP requests). Use `evalAsync()` from JavaScript, or call them from within Sema components where async is handled automatically.
+All non-streaming `llm/*` functions are asynchronous because they make HTTP requests. Use `evalAsync()` from JavaScript for top-level calls. In UI code, prefer triggering them from event handlers or lifecycle code, not during component render. `llm/chat-stream` is the exception: it returns immediately with a reactive signal.
 
 ### `(llm/complete prompt opts?)`
 
@@ -104,9 +104,9 @@ Streaming chat completion. Returns a **reactive signal** that updates progressiv
 - `messages` -- list of message maps
 - `opts` -- optional map with `:model`, `:temperature`, `:max-tokens`
 
-**Returns:** signal ID. Deref to get `{:text string :done boolean :error string-or-nil}`.
+**Returns:** reactive signal. Deref it to get `{:text string :done boolean :error string-or-nil}`.
 
-Use `(llm/close-stream signal-id)` to abort an in-flight stream explicitly when needed.
+Use `(llm/close-stream stream)` to abort an in-flight stream explicitly when needed.
 
 This is the only LLM function that works synchronously (it returns immediately with a signal). All other `llm/*` functions require async evaluation.
 
@@ -202,53 +202,58 @@ Here is a complete example that builds a chat interface with progressive token d
 ```scheme
 ;; ai-chat.sema — Streaming chat with progressive rendering
 
-(define messages (atom '()))
-(define input-text (atom ""))
-(define current-stream (atom nil))
+(def messages (state '()))
+(def input-text (state ""))
+(def current-stream (state nil))
 
-(define (send-message)
-  (let ((text (deref input-text)))
+(define (set-input ev)
+  (put! input-text (dom/event-value ev)))
+
+(define (maybe-send ev)
+  (when (string=? (dom/event-key ev) "Enter")
+    (send-message ev)))
+
+(define (send-message ev)
+  (let ((text @input-text))
     (when (not (string=? text ""))
-      ;; Add user message to history
-      (swap! messages #(append % (list {:role "user" :content text})))
-      (put! input-text "")
-
-      ;; Start streaming response
-      (let ((stream (llm/chat-stream
-                      (map #(message (string->keyword (:role %)) (:content %))
-                           (deref messages))
-                      {:model "gpt-4o"})))
-        (put! current-stream stream)))))
+      (let ((next-messages (append @messages (list {:role "user" :content text}))))
+        (put! messages next-messages)
+        (put! input-text "")
+        (put! current-stream
+          (llm/chat-stream
+            (map (fn (msg)
+              (message (string->keyword (:role msg)) (:content msg)))
+              next-messages)
+            {:model "gpt-4o"}))))))
 
 (define (chat-messages)
-  (sip (:div.messages
-    (for-each #(sip
-      (:div {:class (string-append "msg " (:role %))}
-        (:p (:content %))))
-      (deref messages))
-    ;; Show streaming response
-    (when (deref current-stream)
-      (let ((s (deref (deref current-stream))))
+  [:div {:class "messages"}
+    (map (fn (msg)
+      [:div {:class (string-append "msg " (:role msg))}
+        [:p (:content msg)]])
+      @messages)
+    (when @current-stream
+      (let ((s (deref @current-stream)))
         (when (:text s)
-          (sip (:div.msg.assistant
-            (:p (:text s))
+          [:div {:class "msg assistant"}
+            [:p (:text s)]
             (unless (:done s)
-              (sip (:span.typing "...")))))))))))
+              [:span {:class "typing"} "..."]]))))])
 
 (define (chat-input)
-  (sip (:div.input-row
-    (:input {:value (deref input-text)
-             :on-input #(put! input-text (.-value (.-target %)))
-             :on-keydown #(when (string=? (.-key %) "Enter") (send-message))
-             :placeholder "Type a message..."})
-    (:button {:on-click send-message} "Send"))))
+  [:div {:class "input-row"}
+    [:input {:value @input-text
+             :on-input "set-input"
+             :on-keydown "maybe-send"
+             :placeholder "Type a message..."}]
+    [:button {:on-click "send-message"} "Send"]])
 
-(define (app)
-  (sip (:div.chat-app
+(defcomponent app ()
+  [:div {:class "chat-app"}
     (chat-messages)
-    (chat-input))))
+    (chat-input)])
 
-(mount! (app) "#app")
+(mount! "#app" "app")
 ```
 
 The key insight is that `llm/chat-stream` returns a signal. When you `deref` it inside a component, that component automatically re-renders as new tokens arrive. No manual polling or callback wiring is needed.

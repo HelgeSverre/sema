@@ -62,8 +62,7 @@ Creates reactive state scoped to the current component. Unlike hooks in React, l
 (defcomponent counter ()
   (let ((count (local "count" 0)))
     [:div
-      [:p "Count: " @count]
-      [:button {:on-click "increment-local"} "+"]]))
+      [:p "Count: " @count]]))
 ```
 
 On the first render, `(local "count" 0)` creates a new signal with value `0`. On subsequent re-renders, it returns the same signal -- the initial value is ignored.
@@ -72,21 +71,27 @@ On the first render, `(local "count" 0)` creates a new signal with value `0`. On
 
 ### `(on-mount fn)` -- Lifecycle Hook
 
-Registers a function to call once after the component's first render. The callback can return a cleanup function name (as a string) that will be called when the component is unmounted.
+Registers a function to call once after the component's first render. The callback can return either:
+
+- a cleanup function value
+- a cleanup function name string
+
+That cleanup runs when the component is unmounted.
 
 ```scheme
 (defcomponent timer ()
-  (let ((elapsed (local "elapsed" 0)))
+  (let ((elapsed (local "elapsed" 0))
+        (interval-id (local "interval-id" nil)))
 
     (define (tick) (update! elapsed (fn (n) (+ n 1))))
 
     (define (cleanup)
-      (js/clear-interval (local "interval-id" nil)))
+      (when @interval-id
+        (js/clear-interval @interval-id)))
 
     (on-mount (fn ()
-      (let ((id (js/set-interval "tick" 1000)))
-        (put! (local "interval-id" id) id)
-        "cleanup")))   ;; return cleanup function name
+      (put! interval-id (js/set-interval tick 1000))
+      cleanup))   ;; returning the function value is preferred
 
     [:p "Elapsed: " @elapsed "s"]))
 ```
@@ -284,7 +289,7 @@ Only signals read via `@` during the component's render are tracked. Event handl
 
 ## Gotchas
 
-**Event handler names, not values.** `{:on-click "my-fn"}` passes the string `"my-fn"`. The runtime looks up and calls the function by name. Passing a function value (`{:on-click my-fn}`) will not work.
+**SIP event handlers still use names.** `{:on-click "my-fn"}` passes the string `"my-fn"`. SIP delegated event attributes are still name-based even though lower-level APIs like `dom/on!`, `watch`, and `on-mount` now accept function values.
 
 **`local` needs a string name.** `(local "count" 0)` not `(local count 0)`. The name is used as a stable key across re-renders.
 

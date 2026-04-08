@@ -206,25 +206,34 @@ Read `event.target.value` from an event handle. Useful in input event handlers:
 
 ## Events
 
-### `(dom/on! handle event callback-name)` -> nil
+### `(dom/on! handle event callback)` -> nil
 
-Add an event listener. The callback name must be a valid Sema identifier (not a lambda). The callback receives a numeric event handle as its argument.
+Add an event listener. The callback may be either:
+
+- a function value
+- a callback name string for an existing top-level function
+
+The callback receives a numeric event handle as its argument.
 
 ```scheme
 (define (handle-click ev)
   (dom/prevent-default! ev)
   (println "Clicked!"))
 
+(dom/on! btn "click" handle-click)
+;; or:
 (dom/on! btn "click" "handle-click")
 ```
 
 The event handle is automatically released after the callback returns.
 
-### `(dom/off! handle event callback-name)` -> nil
+### `(dom/off! handle event callback)` -> nil
 
 Remove a previously registered event listener.
 
 ```scheme
+(dom/off! btn "click" handle-click)
+;; or:
 (dom/off! btn "click" "handle-click")
 ```
 
@@ -261,5 +270,5 @@ Render SIP data into the element matching `selector`, replacing existing content
 ## Notes
 
 - All handles are numeric IDs managed by an internal handle map. They reference DOM elements, text nodes, or events.
-- `dom/on!` callbacks are invoked via `evalStr`, so the callback must be a named top-level function. Closures and lambdas are not supported as handler names.
+- `dom/on!` accepts either a function value or a callback-name string. `dom/off!` must be given the same callback identity that was used when registering the listener.
 - When using `dom/on!` on elements inside a component rendered with morphdom, be aware that morphdom may replace DOM nodes, orphaning your listeners. Prefer SIP `on-*` attributes for components that re-render.

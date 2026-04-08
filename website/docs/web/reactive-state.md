@@ -113,16 +113,20 @@ Use `batch` when updating multiple related signals to avoid intermediate renders
 
 Observes a signal and calls a function whenever the value changes. The function receives the old and new values as arguments.
 
+`watch` returns a numeric watch handle. Call `unwatch!` with that handle to stop observing.
+
 ```scheme
 (def count (state 0))
 
 (define (log-change old new)
   (console/log "count changed from" old "to" new))
 
-(watch count log-change)
+(def stop-id (watch count log-change))
 
 (put! count 1)   ;; logs: count changed from 0 to 1
 (put! count 2)   ;; logs: count changed from 1 to 2
+
+(unwatch! stop-id)
 ```
 
 Common uses for `watch`:
@@ -135,6 +139,15 @@ Common uses for `watch`:
 ::: tip
 Do not use `watch` to update other signals that drive rendering -- use `computed` instead. Watches are for effects outside the reactive graph (network, storage, logging).
 :::
+
+### `(unwatch! watch-id)` -- Stop Watching
+
+Disposes a watch created by `watch`.
+
+```scheme
+(def watch-id (watch count log-change))
+(unwatch! watch-id)
+```
 
 ## Complete Example: Todo List
 

@@ -52,6 +52,10 @@ The fastest way to get running -- add two script tags:
 2. Registers all browser bindings (DOM, reactive, components, etc.)
 3. Discovers all `<script type="text/sema">` tags and evaluates them in order
 
+::: tip Dev vs Prod
+During development, pointing a script tag at `.sema` source is fine. For production, build a compiled `.vfs` archive and keep the same HTML shape. See [Building a Sema Web App](./building-apps) and [Deployment](./deployment).
+:::
+
 ## Manual Usage
 
 For more control, use `SemaWeb.create()` with `autoLoad: false`:
@@ -195,4 +199,6 @@ web.dispose();
 
 - [Reactive State](./reactive-state) -- signals, computed values, and watchers
 - [Components](./components) -- building interactive UIs with auto-re-rendering
+- [Building a Sema Web App](./building-apps) -- recommended project structure and production flow
+- [HTTP & Streams](./http) -- browser fetch integration and SSE streams
 - [Overview](./index) -- architecture and full feature list

@@ -76,7 +76,7 @@ Boolean attributes are set or removed based on truthiness:
 
 ## Event Handlers
 
-Event handlers use `on-*` attributes. The value must be a **named function** (a string matching a valid Sema identifier). The handler is installed as a delegated event via a `data-sema-on-*` attribute:
+Event handlers use `on-*` attributes. In SIP markup, the value must still be a **named function** string. The handler is installed as a delegated event via a `data-sema-on-*` attribute:
 
 ```scheme
 (define (handle-click ev)
@@ -87,7 +87,7 @@ Event handlers use `on-*` attributes. The value must be a **named function** (a 
 
 The event handler receives a numeric event handle as its argument. Use `dom/event-value` to read `event.target.value` from it, or `dom/prevent-default!` to cancel the default action.
 
-> **Gotcha**: Inline lambdas are not supported as event handler values. The value must be a string naming a defined function. The name is validated against `^[a-zA-Z_][a-zA-Z0-9_/\-?!*><=+.]*$` to prevent code injection.
+> **Gotcha**: Inline lambdas are not supported as SIP event handler values. The value must be a string naming a defined function. Lower-level APIs like `dom/on!` can accept function values, but SIP delegated event attributes are still name-based.
 
 ## Children
 
@@ -165,5 +165,5 @@ Renders SIP data into a target element selected by CSS selector. Replaces existi
 ## Gotchas
 
 - **Keyword colons are stripped** from both tag names and attribute keys. `:div` becomes `div`, `:class` becomes `class`.
-- **Event handlers must be named functions** -- you cannot pass a lambda directly. Define the function first, then reference it by name as a string.
+- **SIP event handlers must be named functions** -- you cannot pass a lambda directly in `{:on-click ...}`. Define the function first, then reference it by name as a string.
 - **`hiccup/render` and `hiccup/render-into!`** are legacy aliases for backward compatibility. Prefer the `sip/` or `dom/` namespace.
