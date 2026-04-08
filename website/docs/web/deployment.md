@@ -4,20 +4,37 @@ This guide covers deploying Sema Web applications to production. The deployment 
 
 ## Static Hosting (No LLM)
 
-If your app does not use any `llm/*` functions, deployment is straightforward: serve static files. Sema Web runs entirely in the browser via WebAssembly.
+If your app does not use any `llm/*` functions, deployment is straightforward: serve static files.
+Sema Web runs entirely in the browser via WebAssembly.
 
-Your deployment needs:
-1. An HTML file that loads the Sema Web bundle
-2. Your `.sema` source files
-3. The `@sema-lang/sema-web` JavaScript bundle
+For development and quick embeds, you can still load `.sema` source directly. For production,
+prefer a compiled `.vfs` archive built with the CLI.
 
-Any static host works: Vercel, Netlify, Cloudflare Pages, GitHub Pages, or even an S3 bucket.
+### Development
+
+```html
+<script type="text/sema" src="/app.sema"></script>
+<script type="module">
+  import { SemaWeb } from "@sema-lang/sema-web";
+  await SemaWeb.init();
+</script>
+```
+
+### Production
+
+Build the app once:
+
+```bash
+cargo run -p sema-lang -- build --target web app.sema -o public/app.vfs
+```
+
+Then deploy the compiled archive:
 
 ```
 my-app/
-  index.html
-  app.sema
-  node_modules/@sema-lang/sema-web/dist/
+  public/
+    index.html
+    app.vfs
 ```
 
 ```html
@@ -25,17 +42,21 @@ my-app/
 <html>
 <head>
   <title>My Sema App</title>
-  <script type="module">
-    import { SemaWeb } from "@sema-lang/sema-web";
-    const web = await SemaWeb.create({ container: "#app" });
-    await web.loadFile("app.sema");
-  </script>
 </head>
 <body>
   <div id="app"></div>
+
+  <script type="text/sema" src="/app.vfs"></script>
+  <script type="module">
+    import { SemaWeb } from "@sema-lang/sema-web";
+    await SemaWeb.init();
+  </script>
 </body>
 </html>
 ```
+
+The HTML shape stays the same. Only the `src` changes from source (`.sema`) to a compiled
+archive (`.vfs`).
 
 ## With LLM Proxy
 
@@ -62,7 +83,7 @@ This is the recommended approach. Vercel serves both static files and serverless
 my-sema-app/
   public/
     index.html
-    app.sema
+    app.vfs
   api/
     llm/
       [...path].ts        # Proxy catch-all route
@@ -90,6 +111,12 @@ export default createVercelHandler({
 });
 ```
 
+**4. Build the app for production:**
+
+```bash
+cargo run -p sema-lang -- build --target web app.sema -o public/app.vfs
+```
+
 **4. Create the HTML entry point:**
 
 ```html
@@ -98,15 +125,13 @@ export default createVercelHandler({
 <html>
 <head>
   <title>My AI App</title>
+  <script type="text/sema" src="/app.vfs"></script>
   <script type="module">
     import { SemaWeb } from "@sema-lang/sema-web";
 
-    const web = await SemaWeb.create({
-      container: "#app",
+    await SemaWeb.create({
       llmProxy: "/api/llm",
     });
-
-    await web.loadFile("/app.sema");
   </script>
 </head>
 <body>
@@ -137,7 +162,7 @@ vercel --prod          # Production deployment
 my-sema-app/
   public/
     index.html
-    app.sema
+    app.vfs
   netlify/
     edge-functions/
       llm.ts
@@ -160,7 +185,13 @@ export default createNetlifyHandler({
 export const config = { path: "/api/llm/*" };
 ```
 
-**3. Configure Netlify:**
+**3. Build the app for production:**
+
+```bash
+cargo run -p sema-lang -- build --target web app.sema -o public/app.vfs
+```
+
+**4. Configure Netlify:**
 
 ```toml
 # netlify.toml
@@ -172,9 +203,9 @@ export const config = { path: "/api/llm/*" };
   function = "llm"
 ```
 
-**4. Set environment variables** in the Netlify dashboard under Site settings > Environment variables.
+**5. Set environment variables** in the Netlify dashboard under Site settings > Environment variables.
 
-**5. Deploy:**
+**6. Deploy:**
 
 ```bash
 netlify deploy --prod

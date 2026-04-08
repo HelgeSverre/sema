@@ -10,6 +10,17 @@
 interface SemaInterpreterLike {
   evalStr(code: string): { value: string | null; output: string[]; error: string | null };
   evalStrAsync?(code: string): Promise<{ value: string | null; output: string[]; error: string | null }>;
+  loadArchive?(bytes: ArrayBuffer | Uint8Array): {
+    ok: boolean;
+    entryPoint: string | null;
+    fileCount: number;
+    semaVersion: string | null;
+    buildTarget: string | null;
+    buildTimestamp: string | null;
+    error: string | null;
+  };
+  runEntry?(path: string): { value: string | null; output: string[]; error: string | null };
+  runEntryAsync?(path: string): Promise<{ value: string | null; output: string[]; error: string | null }>;
 }
 
 /** Options for the script loader. */
@@ -58,6 +69,56 @@ export async function loadScripts(
           results.push({ value: null, output: [], error: err });
           continue;
         }
+        const artifactKind = classifyExternalScript(src);
+        if (artifactKind === "archive") {
+          if (!interp.loadArchive || (!interp.runEntry && !interp.runEntryAsync)) {
+            const err = `Runtime does not support compiled web archives: ${src}`;
+            console.error(`[sema-web] ${err}`);
+            results.push({ value: null, output: [], error: err });
+            continue;
+          }
+
+          const bytes = new Uint8Array(await resp.arrayBuffer());
+          let archiveInfo;
+          try {
+            archiveInfo = interp.loadArchive(bytes);
+          } catch (e) {
+            const err = `Failed to load archive ${src}: ${e instanceof Error ? e.message : String(e)}`;
+            console.error(`[sema-web] ${err}`);
+            results.push({ value: null, output: [], error: err });
+            continue;
+          }
+
+          if (!archiveInfo.ok) {
+            const err = archiveInfo.error || `Failed to load archive ${src}`;
+            console.error(`[sema-web] ${err}`);
+            results.push({ value: null, output: [], error: err });
+            continue;
+          }
+
+          if (!archiveInfo.entryPoint) {
+            const err = `Archive ${src} did not provide an entry point`;
+            console.error(`[sema-web] ${err}`);
+            results.push({ value: null, output: [], error: err });
+            continue;
+          }
+
+          const result = interp.runEntryAsync
+            ? await interp.runEntryAsync(archiveInfo.entryPoint)
+            : interp.runEntry!(archiveInfo.entryPoint);
+
+          for (const line of result.output) {
+            console.log(`[sema] ${line}`);
+          }
+
+          if (result.error) {
+            console.error(`[sema-web] Error in ${src}: ${result.error}`);
+          }
+
+          results.push(result);
+          continue;
+        }
+
         code = await resp.text();
       } catch (e) {
         const err = `Failed to fetch ${src}: ${e instanceof Error ? e.message : String(e)}`;
@@ -97,4 +158,12 @@ export async function loadScripts(
   }
 
   return results;
+}
+
+function classifyExternalScript(src: string): "source" | "archive" {
+  const url = new URL(src, document.baseURI);
+  if (url.pathname.endsWith(".vfs")) {
+    return "archive";
+  }
+  return "source";
 }

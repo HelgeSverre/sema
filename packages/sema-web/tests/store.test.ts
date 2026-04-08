@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { registerStoreBindings } from "../src/store.js";
 import { SemaWebContext } from "../src/context.js";
 import { createMockInterpreter } from "./helpers.js";
@@ -11,8 +11,6 @@ describe("registerStoreBindings", () => {
     interp = createMockInterpreter();
     ctx = new SemaWebContext();
     registerStoreBindings(interp, ctx);
-    localStorage.clear();
-    sessionStorage.clear();
   });
 
   // --- localStorage: number ---

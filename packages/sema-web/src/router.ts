@@ -39,16 +39,38 @@ interface RouteMatch {
   handler: string;
 }
 
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function decodeRouteParam(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 /**
  * Compile a route pattern (e.g., "/todos/:id") into a regex and param name list.
  */
 function compileRoute(pattern: string): { regex: RegExp; paramNames: string[] } {
   const paramNames: string[] = [];
-  const regexStr = pattern.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_, name) => {
+  let regexStr = "^";
+  let lastIndex = 0;
+
+  pattern.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (match, name, offset) => {
+    regexStr += escapeRegexLiteral(pattern.slice(lastIndex, offset));
     paramNames.push(name);
-    return "([^/]+)";
+    regexStr += "([^/]+)";
+    lastIndex = offset + match.length;
+    return match;
   });
-  return { regex: new RegExp(`^${regexStr}$`), paramNames };
+
+  regexStr += escapeRegexLiteral(pattern.slice(lastIndex));
+  regexStr += "$";
+
+  return { regex: new RegExp(regexStr), paramNames };
 }
 
 /**
@@ -66,6 +88,7 @@ function compileRoute(pattern: string): { regex: RegExp; paramNames: string[] } 
  */
 export function registerRouterBindings(interp: SemaInterpreterLike, ctx: SemaWebContext): void {
   const routes: Route[] = [];
+  let removeHashChangeListener: (() => void) | null = null;
 
   // Create a signal for the current route match
   const routeSignalId = ctx.nextSignalId++;
@@ -78,7 +101,7 @@ export function registerRouterBindings(interp: SemaInterpreterLike, ctx: SemaWeb
       if (match) {
         const params: Record<string, string> = {};
         route.paramNames.forEach((name, i) => {
-          params[name] = match[i + 1];
+          params[name] = decodeRouteParam(match[i + 1]);
         });
         return { path, params, handler: route.handler };
       }
@@ -102,7 +125,15 @@ export function registerRouterBindings(interp: SemaInterpreterLike, ctx: SemaWeb
       const { regex, paramNames } = compileRoute(String(pattern));
       routes.push({ pattern: String(pattern), regex, paramNames, handler: String(handler) });
     }
+    if (removeHashChangeListener) {
+      removeHashChangeListener();
+      ctx.cleanupHooks.delete(removeHashChangeListener);
+    }
     window.addEventListener("hashchange", updateRoute);
+    removeHashChangeListener = () => {
+      window.removeEventListener("hashchange", updateRoute);
+    };
+    ctx.cleanupHooks.add(removeHashChangeListener);
     updateRoute();
     return null;
   });

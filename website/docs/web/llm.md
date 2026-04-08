@@ -22,7 +22,7 @@ Pass the `llmProxy` option when creating a Sema Web instance:
 
 ```js
 const web = await SemaWeb.create({
-  container: "#app",
+  autoLoad: false,
   llmProxy: "https://your-backend.com/api/llm",
 });
 ```
@@ -31,7 +31,7 @@ If your proxy requires authentication (recommended for production), also pass a 
 
 ```js
 const web = await SemaWeb.create({
-  container: "#app",
+  autoLoad: false,
   llmProxy: {
     url: "https://your-backend.com/api/llm",
     token: "user-session-token",
@@ -105,6 +105,8 @@ Streaming chat completion. Returns a **reactive signal** that updates progressiv
 - `opts` -- optional map with `:model`, `:temperature`, `:max-tokens`
 
 **Returns:** signal ID. Deref to get `{:text string :done boolean :error string-or-nil}`.
+
+Use `(llm/close-stream signal-id)` to abort an in-flight stream explicitly when needed.
 
 This is the only LLM function that works synchronously (it returns immediately with a signal). All other `llm/*` functions require async evaluation.
 

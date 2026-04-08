@@ -4,7 +4,7 @@
 (define (handle-dec ev) (update! count (fn (n) (- n 1))))
 (define (handle-reset ev) (put! count 0))
 
-(define (counter-view)
+(defcomponent counter-view ()
   [:div
     [:p {:id "count-display"} (number->string @count)]
     [:button {:id "btn-inc" :on-click "handle-inc"} "+"]

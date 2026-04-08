@@ -26,19 +26,17 @@ interface SemaInterpreterLike {
   evalStr(code: string): { value: string | null; output: string[]; error: string | null };
 }
 
-let styleEl: HTMLStyleElement | null = null;
-let classCounter = 0;
-
 /**
- * Get or create the shared `<style>` element for injected CSS rules.
+ * Get or create the instance-owned `<style>` element for injected CSS rules.
  */
-function getStyleSheet(): HTMLStyleElement {
-  if (!styleEl) {
-    styleEl = document.createElement("style");
+function getStyleSheet(ctx: SemaWebContext): HTMLStyleElement {
+  if (!ctx.styleEl) {
+    const styleEl = document.createElement("style");
     styleEl.setAttribute("data-sema-css", "");
     document.head.appendChild(styleEl);
+    ctx.styleEl = styleEl;
   }
-  return styleEl;
+  return ctx.styleEl;
 }
 
 /**
@@ -89,12 +87,12 @@ function generateRules(className: string, props: Record<string, any>, parentSele
  * Sema wrapper:
  * - `(css props)` — convenience alias for css/scoped
  */
-export function registerCssBindings(interp: SemaInterpreterLike, _ctx: SemaWebContext): void {
+export function registerCssBindings(interp: SemaInterpreterLike, ctx: SemaWebContext): void {
   // css/scoped — generate scoped class name and inject rules
   interp.registerFunction("css/scoped", (props: Record<string, any>) => {
-    const className = `sema-${++classCounter}`;
+    const className = `sema-${ctx.cssNamespace}-${ctx.nextCssClassId++}`;
     const rules = generateRules(className, props);
-    const sheet = getStyleSheet();
+    const sheet = getStyleSheet(ctx);
     for (const rule of rules) {
       sheet.sheet?.insertRule(rule, sheet.sheet.cssRules.length);
     }

@@ -47,6 +47,7 @@
  */
 
 import { createHandler } from "../handler.js";
+import { extractClientIdFromNodeHeaders } from "../client-id.js";
 import type { ProxyConfig, ProxyRequest } from "../types.js";
 
 /** Minimal Node.js IncomingMessage interface. */
@@ -79,6 +80,7 @@ export type NodeHandler = (
  */
 export function createNodeHandler(config: ProxyConfig): NodeHandler {
   const handler = createHandler(config);
+  const corsOrigin = config.cors ?? "*";
 
   return (req: NodeRequest, res: NodeResponse): void => {
     const url = req.url ?? "/";
@@ -94,8 +96,13 @@ export function createNodeHandler(config: ProxyConfig): NodeHandler {
         try {
           body = JSON.parse(bodyStr);
         } catch {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "Invalid JSON body" }));
+          res.writeHead(400, {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": corsOrigin,
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          });
+          res.end(JSON.stringify({ error: "Invalid JSON body", code: "INVALID_REQUEST" }));
           return;
         }
 
@@ -104,6 +111,7 @@ export function createNodeHandler(config: ProxyConfig): NodeHandler {
           endpoint,
           body,
           authHeader: getHeader(req.headers, "authorization"),
+          clientId: extractClientIdFromNodeHeaders((name) => getHeader(req.headers, name)),
         };
 
         handler(proxyReq).then(
@@ -142,6 +150,7 @@ export function createNodeHandler(config: ProxyConfig): NodeHandler {
         endpoint,
         body: null,
         authHeader: getHeader(req.headers, "authorization"),
+        clientId: extractClientIdFromNodeHeaders((name) => getHeader(req.headers, name)),
       };
 
       handler(proxyReq).then(

@@ -92,3 +92,15 @@ export function getEvent(id: number, ctx?: SemaWebContext): Event {
 export function releaseHandle(id: number, ctx?: SemaWebContext): void {
   getHandles(ctx).delete(id);
 }
+
+/**
+ * Release all element/text handles that point to a node inside the given subtree.
+ */
+export function releaseHandlesForSubtree(root: Node, ctx?: SemaWebContext): void {
+  const handles = getHandles(ctx);
+  for (const [id, value] of handles) {
+    if ((value instanceof Element || value instanceof Text) && (value === root || root.contains(value))) {
+      handles.delete(id);
+    }
+  }
+}

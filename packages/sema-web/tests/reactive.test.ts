@@ -78,7 +78,7 @@ describe("registerReactiveBindings", () => {
   });
 
   it("__state/watch calls back when value changes", () => {
-    const { interp, ctx } = setup();
+    const { interp } = setup();
 
     const create = interp.getFunction("__state/create")!;
     const put = interp.getFunction("__state/put!")!;
@@ -87,7 +87,8 @@ describe("registerReactiveBindings", () => {
     const id = create(10);
     const callsBefore = interp.getEvalCalls().length;
 
-    watch(id, "my-callback");
+    const watchId = watch(id, "my-callback");
+    expect(typeof watchId).toBe("number");
 
     // Change the value to trigger the watch effect
     put(id, 20);
@@ -98,6 +99,48 @@ describe("registerReactiveBindings", () => {
       (c) => c.includes("my-callback")
     );
     expect(watchCalls.length).toBeGreaterThan(0);
+  });
+
+  it("__state/unwatch stops further callbacks", () => {
+    const { interp } = setup();
+
+    const create = interp.getFunction("__state/create")!;
+    const put = interp.getFunction("__state/put!")!;
+    const watch = interp.getFunction("__state/watch")!;
+    const unwatch = interp.getFunction("__state/unwatch")!;
+
+    const id = create(10);
+    const watchId = watch(id, "my-callback");
+
+    put(id, 20);
+    const callsAfterFirstUpdate = interp.getEvalCalls().filter((c) => c.includes("my-callback")).length;
+
+    unwatch(watchId);
+    put(id, 30);
+
+    const callsAfterUnwatch = interp.getEvalCalls().filter((c) => c.includes("my-callback")).length;
+    expect(callsAfterFirstUpdate).toBeGreaterThan(0);
+    expect(callsAfterUnwatch).toBe(callsAfterFirstUpdate);
+  });
+
+  it("__state/watch accepts direct function callbacks", () => {
+    const { interp } = setup();
+
+    const create = interp.getFunction("__state/create")!;
+    const put = interp.getFunction("__state/put!")!;
+    const watch = interp.getFunction("__state/watch")!;
+
+    const id = create(1);
+    const seen: Array<[number, number]> = [];
+
+    watch(id, (oldVal: number, newVal: number) => {
+      seen.push([oldVal, newVal]);
+    });
+
+    put(id, 2);
+    put(id, 3);
+
+    expect(seen).toEqual([[1, 2], [2, 3]]);
   });
 
   it("__state/batch-run executes the thunk via evalStr", () => {

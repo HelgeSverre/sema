@@ -25,6 +25,7 @@
  */
 
 import { createHandler } from "../handler.js";
+import { extractClientIdFromRequestHeaders } from "../client-id.js";
 import type { ProxyConfig, ProxyRequest } from "../types.js";
 
 /** Route handler functions returned by createVercelHandler. */
@@ -42,6 +43,7 @@ export interface VercelHandlers {
  */
 export function createVercelHandler(config: ProxyConfig): VercelHandlers {
   const handler = createHandler(config);
+  const corsOrigin = config.cors ?? "*";
 
   async function handle(req: Request): Promise<Response> {
     const url = new URL(req.url);
@@ -49,7 +51,22 @@ export function createVercelHandler(config: ProxyConfig): VercelHandlers {
     let body: unknown = null;
 
     if (req.method === "POST") {
-      body = await req.json();
+      try {
+        body = await req.json();
+      } catch {
+        return new Response(
+          JSON.stringify({ error: "Invalid JSON body", code: "INVALID_REQUEST" }),
+          {
+            status: 400,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": corsOrigin,
+              "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+              "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            },
+          },
+        );
+      }
     }
 
     const proxyReq: ProxyRequest = {
@@ -57,11 +74,13 @@ export function createVercelHandler(config: ProxyConfig): VercelHandlers {
       endpoint,
       body,
       authHeader: req.headers.get("authorization"),
+      clientId: extractClientIdFromRequestHeaders(req.headers),
     };
 
     const proxyRes = await handler(proxyReq);
+    const responseBody = proxyRes.stream ?? (proxyRes.body || null);
 
-    return new Response(proxyRes.body || null, {
+    return new Response(responseBody, {
       status: proxyRes.status,
       headers: proxyRes.headers,
     });

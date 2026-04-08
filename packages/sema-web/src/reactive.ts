@@ -17,9 +17,11 @@ import { signal, computed, effect, batch } from "@preact/signals-core";
 import type { Signal, ReadonlySignal } from "@preact/signals-core";
 import { SEMA_IDENT_RE } from "./handles.js";
 import type { SemaWebContext } from "./context.js";
+import { toInvokableCallback, releaseCallback } from "./callbacks.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
+  invokeGlobal(name: string, ...args: any[]): any;
   evalStr(code: string): { value: string | null; output: string[]; error: string | null };
 }
 
@@ -46,6 +48,11 @@ interface SemaInterpreterLike {
  * - `(watch ref fn)` — watch state for changes
  */
 export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaWebContext): void {
+  const getActiveComponent = () => {
+    const componentId = ctx.renderContextStack[ctx.renderContextStack.length - 1];
+    return componentId != null ? ctx.mountedComponentsById.get(componentId) ?? null : null;
+  };
+
   // __state/create — create a new signal, returns numeric ID
   interp.registerFunction("__state/create", (initialValue: any) => {
     const id = ctx.nextSignalId++;
@@ -76,18 +83,14 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
       throw new Error(`Invalid computed thunk name: ${thunkName}`);
     }
     const id = ctx.nextSignalId++;
-    const capName = `__ccap_${id}`;
-    let captured: any = undefined;
-    interp.registerFunction(capName, (val: any) => { captured = val; return null; });
 
     const c = computed(() => {
-      captured = undefined;
-      const result = interp.evalStr(`(${capName} (${thunkName}))`);
-      if (result.error) {
-        ctx.onerror(new Error(result.error), `computed:${thunkName}`);
+      try {
+        return interp.invokeGlobal(thunkName);
+      } catch (e) {
+        ctx.onerror(e instanceof Error ? e : new Error(String(e)), `computed:${thunkName}`);
         return undefined;
       }
-      return captured;
     });
     ctx.signals.set(id, c as unknown as Signal<any>);
     return id;
@@ -105,12 +108,11 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
       throw new Error(`Invalid batch thunk name: ${thunkName}`);
     }
     let captured: any = undefined;
-    const capName = `__bcap_${thunkName}`;
-    interp.registerFunction(capName, (val: any) => { captured = val; return null; });
     batch(() => {
-      const result = interp.evalStr(`(${capName} (${thunkName}))`);
-      if (result.error) {
-        ctx.onerror(new Error(result.error), "batch");
+      try {
+        captured = interp.invokeGlobal(thunkName);
+      } catch (e) {
+        ctx.onerror(e instanceof Error ? e : new Error(String(e)), "batch");
       }
     });
     return captured;
@@ -123,38 +125,43 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
   });
 
   // __state/watch — watch a signal for changes, call Sema fn with old + new values.
-  // Returns a dispose handle (not currently exposed, but the effect runs until GC).
-  interp.registerFunction("__state/watch", (signalId: number, callbackName: string) => {
+  // Returns a numeric watch handle that can be disposed with __state/unwatch.
+  interp.registerFunction("__state/watch", (signalId: number, callbackValue: any) => {
     const s = ctx.signals.get(signalId);
     if (!s) throw new Error(`Unknown state: ${signalId}`);
-    if (!SEMA_IDENT_RE.test(callbackName)) {
-      throw new Error(`Invalid watch callback name: ${callbackName}`);
-    }
+    const callback = toInvokableCallback(callbackValue, interp, "watch callback");
 
     let prev = s.value;
-    const watchId = ctx.nextSignalId++; // reuse signal counter for unique IDs
-    const capOld = `__watch_old_${watchId}`;
-    const capNew = `__watch_new_${watchId}`;
 
-    // Register stable capture functions for passing values
-    interp.registerFunction(capOld, () => prev);
-    interp.registerFunction(capNew, () => s.value);
-
+    const watchId = ctx.nextWatchId++;
     const dispose = effect(() => {
       const current = s.value; // track dependency
       if (prev !== current) {
         const oldVal = prev;
         prev = current;
-        // Update the capture functions to return the correct values
-        interp.registerFunction(capOld, () => oldVal);
-        interp.registerFunction(capNew, () => current);
         try {
-          interp.evalStr(`(${callbackName} (${capOld}) (${capNew}))`);
+          callback(oldVal, current);
         } catch (e) {
-          ctx.onerror(e instanceof Error ? e : new Error(String(e)), `watch:${callbackName}`);
+          ctx.onerror(e instanceof Error ? e : new Error(String(e)), "watch");
         }
       }
     });
+    ctx.watchDisposers.set(watchId, { dispose, callback });
+    const owner = getActiveComponent();
+    if (owner) owner.ownedWatchIds.add(watchId);
+    return watchId;
+  });
+
+  interp.registerFunction("__state/unwatch", (watchId: number) => {
+    const registration = ctx.watchDisposers.get(watchId);
+    if (registration) {
+      registration.dispose();
+      ctx.watchDisposers.delete(watchId);
+      releaseCallback(registration.callback);
+      for (const component of ctx.mountedComponents.values()) {
+        component.ownedWatchIds.delete(watchId);
+      }
+    }
     return null;
   });
 
@@ -179,6 +186,7 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
            (__state/batch-run ,(symbol->string name)))))
 
     (define (watch ref fn) (__state/watch ref fn))
+    (define (unwatch! watch-id) (__state/unwatch watch-id))
   `);
 
   if (semaResult.error) {

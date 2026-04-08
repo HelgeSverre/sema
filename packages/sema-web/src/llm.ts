@@ -50,6 +50,7 @@
 
 import { signal } from "@preact/signals-core";
 import type { SemaWebContext } from "./context.js";
+import { openSseStream } from "./sse.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
@@ -179,72 +180,78 @@ export function registerLlmBindings(
       stream: true,
     });
 
-    // Fire-and-forget: fetch SSE stream and update signal progressively
-    fetch(`${proxyUrl}/stream`, {
+    let accumulated = "";
+    const managedStream = openSseStream({
+      url: `${proxyUrl}/stream`,
       method: "POST",
       headers,
       body,
-    })
-      .then(async (response) => {
-        if (!response.ok || !response.body) {
-          s.value = { text: "", done: true, error: `HTTP ${response.status}` };
-          return;
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let accumulated = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6).trim();
-              if (data === "[DONE]") {
-                s.value = { text: accumulated, done: true, error: null };
-                return;
-              }
-              try {
-                const parsed = JSON.parse(data);
-                // Anthropic sends message_stop instead of [DONE]
-                if (parsed.type === "message_stop") {
-                  s.value = { text: accumulated, done: true, error: null };
-                  return;
-                }
-                // Extract content — supports OpenAI, Anthropic, and generic formats
-                const content =
-                  parsed.choices?.[0]?.delta?.content ||  // OpenAI
-                  parsed.delta?.text ||                    // Anthropic content_block_delta
-                  parsed.content ||                        // Generic
-                  "";
-                if (content) {
-                  accumulated += content;
-                  s.value = { text: accumulated, done: false, error: null };
-                }
-              } catch {
-                // Not JSON — treat as raw text token
-                accumulated += data;
-                s.value = { text: accumulated, done: false, error: null };
-              }
-            }
+      onEvent: (event) => {
+        if (!event.data) return;
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed.type === "token" && typeof parsed.text === "string") {
+            accumulated += parsed.text;
+            s.value = { text: accumulated, done: false, error: null };
+            return;
           }
+          if (parsed.type === "done") {
+            s.value = { text: accumulated, done: true, error: null };
+            return;
+          }
+          if (parsed.type === "error") {
+            s.value = {
+              text: accumulated,
+              done: true,
+              error: typeof parsed.error === "string" ? parsed.error : "Stream error",
+            };
+          }
+        } catch {
+          s.value = { text: accumulated, done: true, error: "Invalid stream payload" };
         }
+      },
+      onError: (error) => {
+        s.value = { text: accumulated, done: true, error: error.message };
+      },
+      onClose: () => {
+        ctx.streams.delete(id);
+        s.value = {
+          text: accumulated,
+          done: true,
+          error: s.value.error,
+        };
+      },
+    });
 
-        // Stream ended without explicit [DONE] marker
-        s.value = { text: accumulated, done: true, error: null };
-      })
-      .catch((err) => {
-        s.value = { text: "", done: true, error: String(err) };
-      });
+    ctx.streams.set(id, {
+      kind: "llm-stream",
+      close: managedStream.close,
+    });
+    const ownerId = ctx.renderContextStack[ctx.renderContextStack.length - 1];
+    const owner = ownerId != null ? ctx.mountedComponentsById.get(ownerId) ?? null : null;
+    if (owner) owner.ownedStreamIds.add(id);
 
     return id;
+  });
+
+  interp.registerFunction("__llm/close-stream", (signalId: number) => {
+    const stream = ctx.streams.get(signalId);
+    if (stream) {
+      stream.close();
+      ctx.streams.delete(signalId);
+      for (const component of ctx.mountedComponents.values()) {
+        component.ownedStreamIds.delete(signalId);
+      }
+    }
+
+    const current = ctx.signals.get(signalId) as any;
+    if (current) {
+      current.value = {
+        ...(current.value ?? {}),
+        done: true,
+      };
+    }
+    return null;
   });
 
   // Define all LLM proxy functions as Sema code.
@@ -345,6 +352,9 @@ export function registerLlmBindings(
     (__llm/chat-stream-raw
       (json/encode messages)
       (json/encode (if (map? opts) opts {})))))
+
+(define (llm/close-stream signal-id)
+  (__llm/close-stream signal-id))
 `;
 
   const result = interp.evalStr(semaCode);

@@ -244,14 +244,16 @@ All errors return a structured JSON body:
 
 ## SSE Streaming Protocol
 
-The `/stream` endpoint returns a `text/event-stream` response. Each event is a line prefixed with `data: ` containing a JSON chunk from the provider, or `data: [DONE]` to signal completion.
+The `/stream` endpoint returns a normalized `text/event-stream` response. Each event is a `data:` line containing a small JSON object.
 
 ```
-data: {"choices":[{"delta":{"content":"Hello"}}]}
+data: {"type":"token","text":"Hello"}
 
-data: {"choices":[{"delta":{"content":" world"}}]}
+data: {"type":"token","text":" world"}
 
-data: [DONE]
+data: {"type":"done"}
 ```
 
-The `llm/chat-stream` function in Sema Web handles SSE parsing automatically. You do not need to work with this protocol directly unless building a custom client.
+If a stream fails after it has started, the proxy emits `data: {"type":"error","error":"..."}` before closing the stream.
+
+The `llm/chat-stream` function in Sema Web handles this protocol automatically. You only need to parse it yourself when building a custom client.

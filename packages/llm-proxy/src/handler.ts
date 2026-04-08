@@ -76,10 +76,21 @@ class RateLimiter {
 
 // --- Body size check ---
 
+const textEncoder = new TextEncoder();
+const DEFAULT_UPSTREAM_TIMEOUT_MS = 30_000;
+
+class UpstreamTimeoutError extends Error {
+  constructor(timeoutMs: number) {
+    super(`Upstream provider timed out after ${timeoutMs}ms`);
+    this.name = "UpstreamTimeoutError";
+  }
+}
+
 /** Check request body against maxBodySize. Returns error response or null. */
 function checkBodySize(body: string | object, config: ProxyConfig): ProxyErrorResponse | null {
   const maxSize = config.maxBodySize || 1_048_576; // 1MB default
-  const size = typeof body === "string" ? body.length : JSON.stringify(body).length;
+  const serialized = typeof body === "string" ? body : JSON.stringify(body);
+  const size = textEncoder.encode(serialized).length;
   if (size > maxSize) {
     return {
       error: `Request body too large (${size} bytes, max ${maxSize})`,
@@ -87,6 +98,201 @@ function checkBodySize(body: string | object, config: ProxyConfig): ProxyErrorRe
     };
   }
   return null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isOptionalString(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+function isOptionalNumber(value: unknown): value is number | undefined {
+  return value === undefined || typeof value === "number";
+}
+
+function isChatRequestBody(body: unknown): body is ChatRequest {
+  if (!isPlainObject(body) || !Array.isArray(body.messages)) return false;
+  if (!body.messages.every((message) =>
+    isPlainObject(message)
+    && typeof message.role === "string"
+    && typeof message.content === "string"
+  )) {
+    return false;
+  }
+
+  return isOptionalString(body.model)
+    && isOptionalNumber(body["max-tokens"])
+    && isOptionalNumber(body.temperature)
+    && isOptionalString(body.system);
+}
+
+function isCompleteRequestBody(body: unknown): body is CompleteRequest {
+  return isPlainObject(body)
+    && typeof body.prompt === "string"
+    && isOptionalString(body.model)
+    && isOptionalNumber(body["max-tokens"])
+    && isOptionalNumber(body.temperature)
+    && isOptionalString(body.system);
+}
+
+function isExtractRequestBody(body: unknown): body is ExtractRequest {
+  return isPlainObject(body)
+    && isPlainObject(body.schema)
+    && typeof body.text === "string"
+    && isOptionalString(body.model)
+    && isOptionalNumber(body["max-tokens"]);
+}
+
+function isClassifyRequestBody(body: unknown): body is ClassifyRequest {
+  return isPlainObject(body)
+    && Array.isArray(body.categories)
+    && body.categories.every((category) => typeof category === "string")
+    && typeof body.text === "string"
+    && isOptionalString(body.model);
+}
+
+function isEmbedRequestBody(body: unknown): body is EmbedRequest {
+  return isPlainObject(body)
+    && typeof body.text === "string"
+    && isOptionalString(body.model);
+}
+
+function validateRequest(req: ProxyRequest): ProxyErrorResponse | null {
+  switch (req.endpoint) {
+    case "chat":
+    case "stream":
+      return isChatRequestBody(req.body)
+        ? null
+        : {
+            error: "Invalid chat request body",
+            code: "INVALID_REQUEST",
+            details: "Expected { messages: [{ role, content }], model?, max-tokens?, temperature?, system? }",
+          };
+    case "complete":
+      return isCompleteRequestBody(req.body)
+        ? null
+        : {
+            error: "Invalid complete request body",
+            code: "INVALID_REQUEST",
+            details: "Expected { prompt: string, model?, max-tokens?, temperature?, system? }",
+          };
+    case "extract":
+      return isExtractRequestBody(req.body)
+        ? null
+        : {
+            error: "Invalid extract request body",
+            code: "INVALID_REQUEST",
+            details: "Expected { schema: object, text: string, model?, max-tokens? }",
+          };
+    case "classify":
+      return isClassifyRequestBody(req.body)
+        ? null
+        : {
+            error: "Invalid classify request body",
+            code: "INVALID_REQUEST",
+            details: "Expected { categories: string[], text: string, model? }",
+          };
+    case "embed":
+      return isEmbedRequestBody(req.body)
+        ? null
+        : {
+            error: "Invalid embed request body",
+            code: "INVALID_REQUEST",
+            details: "Expected { text: string, model? }",
+          };
+    case "models":
+      return req.body == null
+        ? null
+        : {
+            error: "Invalid models request body",
+            code: "INVALID_REQUEST",
+            details: "GET /models does not accept a request body",
+          };
+    default:
+      return null;
+  }
+}
+
+function isTimeoutError(error: unknown): error is UpstreamTimeoutError {
+  return error instanceof UpstreamTimeoutError;
+}
+
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw new UpstreamTimeoutError(timeoutMs);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function readWithIdleTimeout<T>(
+  read: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      read,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new UpstreamTimeoutError(timeoutMs)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+function encodeSseEvent(payload: Record<string, unknown>): Uint8Array {
+  return textEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function providerStreamMode(provider: ResolvedProvider["provider"]): "openai" | "anthropic" | "fallback" {
+  if (provider === "anthropic") return "anthropic";
+  if (provider === "gemini") return "fallback";
+  return "openai";
+}
+
+function extractNormalizedToken(
+  mode: "openai" | "anthropic" | "fallback",
+  parsed: Record<string, any>,
+): { type: "token"; text: string } | { type: "done" } | { type: "error"; error: string } | null {
+  if (mode === "anthropic") {
+    if (parsed.type === "message_stop") return { type: "done" };
+    if (parsed.type === "error") {
+      return { type: "error", error: String(parsed.error?.message ?? "Provider stream error") };
+    }
+    const text = parsed.delta?.text;
+    return typeof text === "string" && text.length > 0 ? { type: "token", text } : null;
+  }
+
+  if (parsed.error) {
+    return { type: "error", error: String(parsed.error?.message ?? parsed.error) };
+  }
+
+  const text =
+    parsed.choices?.[0]?.delta?.content
+    ?? parsed.choices?.[0]?.message?.content
+    ?? parsed.message?.content
+    ?? parsed.content;
+
+  return typeof text === "string" && text.length > 0 ? { type: "token", text } : null;
 }
 
 /**
@@ -104,6 +310,7 @@ export function createHandler(config: ProxyConfig): HandlerFn {
   );
   const corsOrigin = config.cors ?? "*";
   const rateLimiter = new RateLimiter(config.rateLimit);
+  const upstreamTimeoutMs = config.upstreamTimeoutMs ?? DEFAULT_UPSTREAM_TIMEOUT_MS;
 
   return async (req: ProxyRequest): Promise<ProxyResponse> => {
     // CORS preflight
@@ -118,7 +325,7 @@ export function createHandler(config: ProxyConfig): HandlerFn {
     }
 
     // Rate limit check
-    const rateLimitKey = req.authHeader || "anonymous";
+    const rateLimitKey = req.clientId || req.authHeader || "anonymous";
     const rateLimitError = rateLimiter.check(rateLimitKey);
     if (rateLimitError) {
       return jsonResponse(429, rateLimitError, corsOrigin);
@@ -132,30 +339,35 @@ export function createHandler(config: ProxyConfig): HandlerFn {
       }
     }
 
+    const validationError = validateRequest(req);
+    if (validationError) {
+      return jsonResponse(400, validationError, corsOrigin);
+    }
+
     try {
       let result: unknown;
 
       switch (req.endpoint) {
         case "chat":
-          result = await handleChat(resolved, req.body as ChatRequest);
+          result = await handleChat(resolved, req.body as ChatRequest, upstreamTimeoutMs);
           break;
         case "complete":
-          result = await handleComplete(resolved, req.body as CompleteRequest);
+          result = await handleComplete(resolved, req.body as CompleteRequest, upstreamTimeoutMs);
           break;
         case "extract":
-          result = await handleExtract(resolved, req.body as ExtractRequest);
+          result = await handleExtract(resolved, req.body as ExtractRequest, upstreamTimeoutMs);
           break;
         case "classify":
-          result = await handleClassify(resolved, req.body as ClassifyRequest);
+          result = await handleClassify(resolved, req.body as ClassifyRequest, upstreamTimeoutMs);
           break;
         case "embed":
-          result = await handleEmbed(resolved, req.body as EmbedRequest);
+          result = await handleEmbed(resolved, req.body as EmbedRequest, upstreamTimeoutMs);
           break;
         case "models":
-          result = await handleModels(resolved);
+          result = await handleModels(resolved, upstreamTimeoutMs);
           break;
         case "stream":
-          return await handleStream(resolved, req.body as ChatRequest, corsOrigin);
+          return await handleStream(resolved, req.body as ChatRequest, corsOrigin, upstreamTimeoutMs);
         default:
           return jsonResponse(404, {
             error: `Unknown endpoint: ${req.endpoint}`,
@@ -165,6 +377,12 @@ export function createHandler(config: ProxyConfig): HandlerFn {
 
       return jsonResponse(200, result, corsOrigin);
     } catch (err) {
+      if (isTimeoutError(err)) {
+        return jsonResponse(504, {
+          error: err.message,
+          code: "TIMEOUT" as const,
+        }, corsOrigin);
+      }
       const message = err instanceof Error ? err.message : String(err);
       return jsonResponse(502, {
         error: message,
@@ -179,6 +397,7 @@ export function createHandler(config: ProxyConfig): HandlerFn {
 async function handleChat(
   provider: ResolvedProvider,
   body: ChatRequest,
+  timeoutMs: number,
 ): Promise<unknown> {
   const spec = getSpec(provider.provider);
   const model = body.model ?? provider.defaultModel;
@@ -197,13 +416,14 @@ async function handleChat(
       ? geminiChatUrl(provider.baseUrl, model, provider.apiKey)
       : spec.chatUrl(provider.baseUrl);
 
-  const data = await llmFetch(url, reqBody, spec.authHeader(provider.apiKey));
+  const data = await llmFetch(url, reqBody, spec.authHeader(provider.apiKey), timeoutMs);
   return spec.parseChatResponse(data);
 }
 
 async function handleComplete(
   provider: ResolvedProvider,
   body: CompleteRequest,
+  timeoutMs: number,
 ): Promise<unknown> {
   // Complete is implemented as a single-message chat
   return handleChat(provider, {
@@ -212,12 +432,13 @@ async function handleComplete(
     "max-tokens": body["max-tokens"],
     temperature: body.temperature,
     system: body.system,
-  });
+  }, timeoutMs);
 }
 
 async function handleExtract(
   provider: ResolvedProvider,
   body: ExtractRequest,
+  timeoutMs: number,
 ): Promise<unknown> {
   const schemaStr = JSON.stringify(body.schema, null, 2);
   const systemPrompt = [
@@ -231,7 +452,7 @@ async function handleExtract(
     model: body.model,
     "max-tokens": body["max-tokens"] ?? 1024,
     system: systemPrompt,
-  });
+  }, timeoutMs);
 
   // Try to parse the content as JSON
   const content =
@@ -249,6 +470,7 @@ async function handleExtract(
 async function handleClassify(
   provider: ResolvedProvider,
   body: ClassifyRequest,
+  timeoutMs: number,
 ): Promise<unknown> {
   const cats = body.categories.map((c) => `"${c}"`).join(", ");
   const systemPrompt = [
@@ -261,7 +483,7 @@ async function handleClassify(
     model: body.model,
     "max-tokens": 50,
     system: systemPrompt,
-  });
+  }, timeoutMs);
 
   const content =
     typeof response === "object" && response !== null && "content" in response
@@ -274,6 +496,7 @@ async function handleClassify(
 async function handleEmbed(
   provider: ResolvedProvider,
   body: EmbedRequest,
+  timeoutMs: number,
 ): Promise<unknown> {
   const spec = getSpec(provider.provider);
   const model = body.model ?? spec.embedModel ?? provider.defaultModel;
@@ -284,17 +507,17 @@ async function handleEmbed(
       : spec.embedUrl(provider.baseUrl);
 
   const reqBody = spec.formatEmbedBody(body.text, model);
-  const data = await llmFetch(url, reqBody, spec.authHeader(provider.apiKey));
+  const data = await llmFetch(url, reqBody, spec.authHeader(provider.apiKey), timeoutMs);
   return spec.parseEmbedResponse(data);
 }
 
-async function handleModels(provider: ResolvedProvider): Promise<unknown> {
+async function handleModels(provider: ResolvedProvider, timeoutMs: number): Promise<unknown> {
   const spec = getSpec(provider.provider);
 
   // For Gemini, model listing uses a different URL format
   if (provider.provider === "gemini") {
     const url = `${provider.baseUrl}/models?key=${provider.apiKey}`;
-    const data = await llmFetch(url, null, {});
+    const data = await llmFetch(url, null, {}, timeoutMs);
     const models = data.models as Array<{ name: string }>;
     return {
       models: models?.map((m) => m.name.replace("models/", "")) ?? [],
@@ -304,7 +527,7 @@ async function handleModels(provider: ResolvedProvider): Promise<unknown> {
   // For Ollama and OpenAI-compatible providers
   const url = `${provider.baseUrl}/models`;
   try {
-    const data = await llmFetch(url, null, spec.authHeader(provider.apiKey));
+    const data = await llmFetch(url, null, spec.authHeader(provider.apiKey), timeoutMs);
     const items = data.data as Array<{ id: string }>;
     return {
       models: items?.map((m) => m.id) ?? [],
@@ -322,7 +545,34 @@ async function handleStream(
   provider: ResolvedProvider,
   body: ChatRequest,
   corsOrigin: string,
+  timeoutMs: number,
 ): Promise<ProxyResponse> {
+  if (providerStreamMode(provider.provider) === "fallback") {
+    const response = await handleChat(provider, body, timeoutMs) as { content?: string } | string;
+    const content =
+      typeof response === "object" && response !== null && "content" in response
+        ? String(response.content ?? "")
+        : String(response ?? "");
+
+    return {
+      status: 200,
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        ...corsHeaders(corsOrigin),
+      },
+      body: "",
+      stream: new ReadableStream<Uint8Array>({
+        start(controller) {
+          if (content) controller.enqueue(encodeSseEvent({ type: "token", text: content }));
+          controller.enqueue(encodeSseEvent({ type: "done" }));
+          controller.close();
+        },
+      }),
+    };
+  }
+
   const spec = getSpec(provider.provider);
   const model = body.model ?? provider.defaultModel;
   const messages = body.messages || [{ role: "user", content: "" }];
@@ -343,11 +593,11 @@ async function handleStream(
 
   const headers = { ...spec.authHeader(provider.apiKey), "Content-Type": "application/json" };
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
     method: "POST",
     headers,
     body: JSON.stringify(chatBody),
-  });
+  }, timeoutMs);
 
   if (!response.ok || !response.body) {
     const text = await response.text().catch(() => response.statusText);
@@ -358,10 +608,8 @@ async function handleStream(
     return jsonResponse(502, errorBody, corsOrigin);
   }
 
-  // Pass the provider's SSE stream through directly for real-time streaming.
-  // Adapters that support piping (Node.js) will use the `stream` field.
-  // Adapters that don't (or for fallback) get an empty body — they should
-  // check for `stream` first.
+  const mode = providerStreamMode(provider.provider);
+  const upstream = response.body;
   return {
     status: 200,
     headers: {
@@ -371,7 +619,64 @@ async function handleStream(
       ...corsHeaders(corsOrigin),
     },
     body: "",
-    stream: response.body,
+    stream: new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const reader = upstream.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        try {
+          while (true) {
+            const { done, value } = await readWithIdleTimeout(reader.read(), timeoutMs);
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+
+            for (const line of lines) {
+              if (!line.startsWith("data: ")) continue;
+              const data = line.slice(6).trim();
+              if (data === "[DONE]") {
+                controller.enqueue(encodeSseEvent({ type: "done" }));
+                controller.close();
+                return;
+              }
+
+              try {
+                const parsed = JSON.parse(data) as Record<string, any>;
+                const normalized = extractNormalizedToken(mode, parsed);
+                if (!normalized) continue;
+                controller.enqueue(encodeSseEvent(normalized));
+                if (normalized.type === "done" || normalized.type === "error") {
+                  controller.close();
+                  return;
+                }
+              } catch {
+                controller.enqueue(encodeSseEvent({ type: "token", text: data }));
+              }
+            }
+          }
+
+          controller.enqueue(encodeSseEvent({ type: "done" }));
+          controller.close();
+        } catch (error) {
+          if (isTimeoutError(error)) {
+            reader.cancel().catch(() => {});
+          }
+          const message = isTimeoutError(error)
+            ? error.message
+            : (error instanceof Error ? error.message : String(error));
+          controller.enqueue(encodeSseEvent({ type: "error", error: message }));
+          controller.close();
+        } finally {
+          reader.releaseLock();
+        }
+      },
+      cancel() {
+        upstream.cancel().catch(() => {});
+      },
+    }),
   };
 }
 
@@ -382,6 +687,7 @@ async function llmFetch(
   url: string,
   body: unknown,
   headers: Record<string, string>,
+  timeoutMs: number,
 ): Promise<Record<string, unknown>> {
   const isGet = body === null;
   const reqHeaders: Record<string, string> = {
@@ -392,11 +698,11 @@ async function llmFetch(
     reqHeaders["Content-Type"] = "application/json";
   }
 
-  const resp = await fetch(url, {
+  const resp = await fetchWithTimeout(url, {
     method: isGet ? "GET" : "POST",
     headers: reqHeaders,
     body: isGet ? undefined : JSON.stringify(body),
-  });
+  }, timeoutMs);
 
   if (!resp.ok) {
     const text = await resp.text().catch(() => resp.statusText);

@@ -89,6 +89,26 @@ Reference external Sema files with the `src` attribute:
 <script type="text/sema" src="counter.sema"></script>
 ```
 
+### Production `.vfs` archives
+
+For development and simple embeds, loading `.sema` source directly is fine. For production,
+build a compiled `.vfs` archive and load that with the same script-tag API:
+
+```bash
+cargo run -p sema-lang -- build --target web app.sema -o public/app.vfs
+```
+
+```html
+<script type="text/sema" src="/app.vfs"></script>
+<script type="module">
+  import { SemaWeb } from "@sema-lang/sema-web";
+  await SemaWeb.init();
+</script>
+```
+
+`SemaWeb.init()` auto-detects `.vfs` archives and runs their compiled `__main__.semac` entry
+instead of evaluating source in the browser.
+
 ## API Namespaces
 
 ### `dom/*` — DOM Manipulation
@@ -305,6 +325,7 @@ The proxy server must implement these POST endpoints:
 | `/classify` | `{categories, text, model?, ...}` | `{category}` or string |
 | `/embed` | `{text, model?, ...}` | `{embedding: [...]}` or `[...]` |
 | `/models` (GET) | — | `{models: [...]}` |
+| `/stream` | `{messages, model?, max-tokens?, ...}` | normalized SSE: `token`, `done`, `error` events |
 
 On errors, the proxy should return an appropriate HTTP status code (4xx/5xx).
 The response body is surfaced in the Sema error message.

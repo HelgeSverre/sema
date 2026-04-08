@@ -33,6 +33,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.js",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {

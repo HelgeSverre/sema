@@ -12,6 +12,11 @@ export function createMockInterpreter() {
     registerFunction(name: string, fn: (...args: any[]) => any) {
       functions.set(name, fn);
     },
+    invokeGlobal(name: string, ...args: any[]) {
+      evalCalls.push(`(${name} ${args.map((arg) => JSON.stringify(arg)).join(" ")})`);
+      const fn = functions.get(name);
+      return fn ? fn(...args) : null;
+    },
     evalStr(code: string): MockEvalResult {
       evalCalls.push(code);
       // Try to execute simple function calls for macro registration
