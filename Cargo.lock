@@ -2652,6 +2652,7 @@ dependencies = [
 name = "sema-core"
 version = "1.12.2"
 dependencies = [
+ "crc32fast",
  "hashbrown 0.15.5",
  "lasso",
  "serde_json",

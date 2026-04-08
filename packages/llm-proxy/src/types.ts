@@ -80,6 +80,13 @@ export interface ProxyConfig {
 
   /** Rate limiting configuration. */
   rateLimit?: RateLimitConfig;
+
+  /**
+   * Timeout for upstream provider requests in milliseconds.
+   * Applies to both streaming and non-streaming provider calls.
+   * Default: 30000.
+   */
+  upstreamTimeoutMs?: number;
 }
 
 // --- Request/Response types (protocol between browser and proxy) ---
@@ -170,6 +177,8 @@ export interface ProxyRequest {
   body: unknown;
   /** Authorization header value (or null). */
   authHeader: string | null;
+  /** Best-effort client identity for rate limiting (IP/session/etc.). */
+  clientId?: string | null;
 }
 
 /** Platform-agnostic outgoing response. */

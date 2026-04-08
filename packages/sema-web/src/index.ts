@@ -35,12 +35,12 @@
 
 import { SemaInterpreter } from "@sema-lang/sema";
 import type { InterpreterOptions } from "@sema-lang/sema";
-import { SemaWebContext } from "./context.js";
+import { SemaWebContext, disposeContextResources } from "./context.js";
 import { registerDomBindings } from "./dom.js";
 import { registerStoreBindings } from "./store.js";
 import { registerReactiveBindings } from "./reactive.js";
 import { registerSipBindings } from "./sip.js";
-import { registerComponentBindings } from "./component.js";
+import { registerComponentBindings, disposeAllComponents } from "./component.js";
 import { registerLlmBindings } from "./llm.js";
 import type { LlmProxyOptions } from "./llm.js";
 import { registerRouterBindings } from "./router.js";
@@ -343,6 +343,8 @@ export class SemaWeb {
    * The instance cannot be used after calling this method.
    */
   dispose(): void {
+    disposeAllComponents(this._ctx);
+    disposeContextResources(this._ctx);
     this._interp.dispose();
   }
 }

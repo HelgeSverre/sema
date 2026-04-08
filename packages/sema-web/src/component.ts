@@ -26,13 +26,15 @@
  */
 
 import morphdom from "morphdom";
-import { signal, effect, batch } from "@preact/signals-core";
+import { signal, effect } from "@preact/signals-core";
 import type { SemaWebContext, MountedComponent } from "./context.js";
 import { renderSip } from "./sip.js";
-import { SEMA_IDENT_RE, storeHandle } from "./handles.js";
+import { SEMA_IDENT_RE, storeHandle, releaseHandlesForSubtree } from "./handles.js";
+import { toInvokableCallback, releaseCallback, type SemaCallback } from "./callbacks.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
+  invokeGlobal(name: string, ...args: any[]): any;
   evalStr(code: string): { value: string | null; output: string[]; error: string | null };
 }
 
@@ -46,23 +48,21 @@ interface SemaInterpreterLike {
  * and pops it after, so that `local` and `on-mount` can discover which
  * component is currently rendering.
  */
-function callComponent(interp: SemaInterpreterLike, fnName: string, ctx: SemaWebContext): any {
-  let captured: any = null;
-  const captureId = ctx.nextCaptureId++;
-  const captureName = `__cc_${captureId}`;
-  interp.registerFunction(captureName, (val: any) => { captured = val; return null; });
-
-  // Push render context so local/on-mount know which component is active
-  ctx.renderContextStack.push(fnName);
+function withComponentContext<T>(ctx: SemaWebContext, componentId: number, fn: () => T): T {
+  ctx.renderContextStack.push(componentId);
   try {
-    const result = interp.evalStr(`(${captureName} (${fnName}))`);
-    if (result.error) {
-      ctx.onerror(new Error(result.error), `component:${fnName}`);
-      return null;
-    }
-    return captured;
+    return fn();
   } finally {
     ctx.renderContextStack.pop();
+  }
+}
+
+function callComponent(interp: SemaInterpreterLike, component: MountedComponent, ctx: SemaWebContext): any {
+  try {
+    return withComponentContext(ctx, component.instanceId, () => interp.invokeGlobal(component.componentFn));
+  } catch (e) {
+    ctx.onerror(e instanceof Error ? e : new Error(String(e)), `component:${component.componentFn}`);
+    return null;
   }
 }
 
@@ -72,7 +72,6 @@ function callComponent(interp: SemaInterpreterLike, fnName: string, ctx: SemaWeb
  */
 function renderComponent(
   component: MountedComponent,
-  selector: string,
   interp: SemaInterpreterLike,
   ctx: SemaWebContext,
 ): void {
@@ -80,7 +79,7 @@ function renderComponent(
   if (component.dispose) component.dispose();
 
   component.dispose = effect(() => {
-    const sipData = callComponent(interp, component.componentFn, ctx);
+    const sipData = callComponent(interp, component, ctx);
     if (sipData == null) return;
 
     const clone = component.target.cloneNode(false) as Element;
@@ -102,23 +101,108 @@ function renderComponent(
         }
         return true;
       },
-      onNodeDiscarded(_node) {
-        // Handle cleanup happens via releaseHandle when Sema code explicitly releases.
-        // We don't track inverse mapping from node -> handle, so this is a no-op for now.
+      onNodeDiscarded(node) {
+        releaseHandlesForSubtree(node, ctx);
       },
     });
   });
 }
 
 /**
- * Find a MountedComponent by its function name.
- * Searches all mounted components for one with a matching componentFn.
+ * Find the currently rendering mounted component.
  */
-function findComponentByFn(ctx: SemaWebContext, fnName: string): MountedComponent | null {
-  for (const component of ctx.mountedComponents.values()) {
-    if (component.componentFn === fnName) return component;
+function getActiveComponent(ctx: SemaWebContext): MountedComponent | null {
+  const componentId = ctx.renderContextStack[ctx.renderContextStack.length - 1];
+  return componentId != null ? ctx.mountedComponentsById.get(componentId) ?? null : null;
+}
+
+function cleanupWatch(ctx: SemaWebContext, watchId: number): void {
+  const registration = ctx.watchDisposers.get(watchId);
+  if (registration) {
+    registration.dispose();
+    ctx.watchDisposers.delete(watchId);
+    releaseCallback(registration.callback);
   }
-  return null;
+}
+
+function cleanupInterval(ctx: SemaWebContext, intervalId: number): void {
+  clearInterval(intervalId);
+  const registration = ctx.intervals.get(intervalId);
+  if (registration) {
+    releaseCallback(registration.callback);
+  }
+  ctx.intervals.delete(intervalId);
+}
+
+function cleanupStream(ctx: SemaWebContext, signalId: number): void {
+  const stream = ctx.streams.get(signalId);
+  if (stream) {
+    stream.close();
+    ctx.streams.delete(signalId);
+  }
+}
+
+function destroyMountedComponent(selector: string, component: MountedComponent, ctx: SemaWebContext): void {
+  if (component.pendingMount) {
+    releaseCallback(component.pendingMount);
+    component.pendingMount = null;
+  }
+
+  if (component.mountCleanup) {
+    try {
+      withComponentContext(ctx, component.instanceId, () => component.mountCleanup!());
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `unmount-cleanup:${component.componentFn}`);
+    } finally {
+      component.mountCleanup = null;
+    }
+  }
+
+  if (component.dispose) {
+    try {
+      component.dispose();
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `component-dispose:${component.componentFn}`);
+    }
+    component.dispose = null;
+  }
+
+  if (component.eventCleanup) {
+    try {
+      component.eventCleanup();
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `component-events:${component.componentFn}`);
+    }
+    component.eventCleanup = null;
+  }
+
+  for (const watchId of component.ownedWatchIds) {
+    cleanupWatch(ctx, watchId);
+  }
+  component.ownedWatchIds.clear();
+
+  for (const intervalId of component.ownedIntervalIds) {
+    cleanupInterval(ctx, intervalId);
+  }
+  component.ownedIntervalIds.clear();
+
+  for (const signalId of component.ownedStreamIds) {
+    cleanupStream(ctx, signalId);
+    ctx.signals.delete(signalId);
+  }
+  component.ownedStreamIds.clear();
+
+  for (const signalId of component.localState.values()) {
+    ctx.signals.delete(signalId);
+  }
+  component.localState.clear();
+
+  for (const child of Array.from(component.target.childNodes)) {
+    releaseHandlesForSubtree(child, ctx);
+  }
+  component.target.innerHTML = "";
+  ctx.mountedComponents.delete(selector);
+  ctx.mountedComponentsById.delete(component.instanceId);
 }
 
 /**
@@ -126,15 +210,16 @@ function findComponentByFn(ctx: SemaWebContext, fnName: string): MountedComponen
  * and dispatches to Sema callback functions via `data-sema-on-*` attributes.
  */
 class EventDelegator {
-  setup(target: Element, interp: SemaInterpreterLike, ctx: SemaWebContext) {
+  setup(target: Element, interp: SemaInterpreterLike, ctx: SemaWebContext): () => void {
     const bubbling = [
       "click", "dblclick", "contextmenu", "input", "change", "submit",
       "keydown", "keyup", "keypress", "pointerdown", "pointerup", "pointermove",
       "focusin", "focusout",
     ];
+    const listeners: Array<{ event: string; listener: EventListener }> = [];
 
     for (const event of bubbling) {
-      target.addEventListener(event, (ev) => {
+      const listener = (ev: Event) => {
         let el = ev.target as Element | null;
         while (el && target.contains(el)) {
           const attr = `data-sema-on-${event}`;
@@ -148,29 +233,41 @@ class EventDelegator {
           }
           el = el.parentElement;
         }
-      });
+      };
+      target.addEventListener(event, listener);
+      listeners.push({ event, listener });
     }
 
     // mouseenter via mouseover + relatedTarget
-    target.addEventListener("mouseover", (ev: Event) => {
+    const mouseOverListener = (ev: Event) => {
       const mev = ev as MouseEvent;
       const el = (mev.target as Element).closest?.("[data-sema-on-mouseenter]");
       if (!el || el.contains(mev.relatedTarget as Node)) return;
       this.dispatchEvent(interp, ctx, el.getAttribute("data-sema-on-mouseenter")!, mev);
-    });
+    };
+    target.addEventListener("mouseover", mouseOverListener);
+    listeners.push({ event: "mouseover", listener: mouseOverListener });
 
-    target.addEventListener("mouseout", (ev: Event) => {
+    const mouseOutListener = (ev: Event) => {
       const mev = ev as MouseEvent;
       const el = (mev.target as Element).closest?.("[data-sema-on-mouseleave]");
       if (!el || el.contains(mev.relatedTarget as Node)) return;
       this.dispatchEvent(interp, ctx, el.getAttribute("data-sema-on-mouseleave")!, mev);
-    });
+    };
+    target.addEventListener("mouseout", mouseOutListener);
+    listeners.push({ event: "mouseout", listener: mouseOutListener });
+
+    return () => {
+      for (const { event, listener } of listeners) {
+        target.removeEventListener(event, listener);
+      }
+    };
   }
 
   private dispatchEvent(interp: SemaInterpreterLike, ctx: SemaWebContext, callbackName: string, ev: Event) {
     const evHandle = storeHandle(ev, ctx);
     try {
-      interp.evalStr(`(${callbackName} ${evHandle})`);
+      interp.invokeGlobal(callbackName, evHandle);
     } catch (e) {
       ctx.onerror(e instanceof Error ? e : new Error(String(e)), `event:${ev.type}:${callbackName}`);
     } finally {
@@ -207,58 +304,67 @@ export function registerComponentBindings(interp: SemaInterpreterLike, ctx: Sema
       // Unmount existing component at this selector
       const existing = ctx.mountedComponents.get(selector);
       if (existing) {
-        if (existing.dispose) existing.dispose();
+        destroyMountedComponent(selector, existing, ctx);
       }
 
       const component: MountedComponent = {
+        instanceId: ctx.nextComponentId++,
         target,
         componentFn,
-        captureId: 0,
         dispose: null,
+        eventCleanup: null,
         localState: new Map(),
         mountCleanup: null,
-        renderContextStack: [],
+        pendingMount: null,
+        ownedWatchIds: new Set(),
+        ownedIntervalIds: new Set(),
+        ownedStreamIds: new Set(),
       };
 
       // Set up delegated event handling on the mount target
       const delegator = new EventDelegator();
-      delegator.setup(target, interp, ctx);
+      component.eventCleanup = delegator.setup(target, interp, ctx);
 
       // Store component before rendering so local/on-mount can find it
       ctx.mountedComponents.set(selector, component);
+      ctx.mountedComponentsById.set(component.instanceId, component);
 
       // Initial render via effect (will auto-track reactive dependencies)
-      renderComponent(component, selector, interp, ctx);
+      renderComponent(component, interp, ctx);
 
       // Handle on-mount callback after first render
-      const pendingMount = (component as any).__pendingMount as string | undefined;
-      if (pendingMount && SEMA_IDENT_RE.test(pendingMount)) {
+      const pendingMount = component.pendingMount;
+      if (pendingMount) {
         try {
-          // Call the mount callback — capture any returned cleanup function
-          const cleanupCapName = `__mount_cleanup_${ctx.nextCaptureId++}`;
-          let cleanupFnName: string | null = null;
-          interp.registerFunction(cleanupCapName, (val: any) => {
-            if (typeof val === "string") cleanupFnName = val;
-            return null;
-          });
-          const mountResult = interp.evalStr(`(${cleanupCapName} (${pendingMount}))`);
-          if (mountResult.error) {
-            ctx.onerror(new Error(mountResult.error), `on-mount:${pendingMount}`);
-          } else if (cleanupFnName && SEMA_IDENT_RE.test(cleanupFnName)) {
+          const mountCallback = toInvokableCallback(pendingMount, interp, "on-mount callback");
+          const cleanupFn = withComponentContext(ctx, component.instanceId, () => mountCallback());
+          if (typeof cleanupFn === "function") {
             // Store cleanup function to call on unmount
-            const finalCleanupName = cleanupFnName;
+            const finalCleanupFn = cleanupFn as SemaCallback;
             component.mountCleanup = () => {
               try {
-                interp.evalStr(`(${finalCleanupName})`);
+                withComponentContext(ctx, component.instanceId, () => finalCleanupFn());
+              } catch (e) {
+                ctx.onerror(e instanceof Error ? e : new Error(String(e)), "unmount-cleanup");
+              } finally {
+                releaseCallback(finalCleanupFn);
+              }
+            };
+          } else if (typeof cleanupFn === "string" && SEMA_IDENT_RE.test(cleanupFn)) {
+            const finalCleanupName = cleanupFn;
+            component.mountCleanup = () => {
+              try {
+                withComponentContext(ctx, component.instanceId, () => interp.invokeGlobal(finalCleanupName));
               } catch (e) {
                 ctx.onerror(e instanceof Error ? e : new Error(String(e)), `unmount-cleanup:${finalCleanupName}`);
               }
             };
           }
+          releaseCallback(mountCallback);
         } catch (e) {
-          ctx.onerror(e instanceof Error ? e : new Error(String(e)), `on-mount:${pendingMount}`);
+          ctx.onerror(e instanceof Error ? e : new Error(String(e)), "on-mount");
         }
-        delete (component as any).__pendingMount;
+        component.pendingMount = null;
       }
 
       return null;
@@ -269,10 +375,7 @@ export function registerComponentBindings(interp: SemaInterpreterLike, ctx: Sema
   interp.registerFunction("component/unmount!", (selector: string) => {
     const component = ctx.mountedComponents.get(selector);
     if (component) {
-      if (component.mountCleanup) component.mountCleanup();
-      if (component.dispose) component.dispose();
-      component.target.innerHTML = "";
-      ctx.mountedComponents.delete(selector);
+      destroyMountedComponent(selector, component, ctx);
     }
     return null;
   });
@@ -281,7 +384,7 @@ export function registerComponentBindings(interp: SemaInterpreterLike, ctx: Sema
   interp.registerFunction("component/force-render!", (selector: string) => {
     const component = ctx.mountedComponents.get(selector);
     if (component) {
-      renderComponent(component, selector, interp, ctx);
+      renderComponent(component, interp, ctx);
     }
     return null;
   });
@@ -298,71 +401,63 @@ export function registerComponentBindings(interp: SemaInterpreterLike, ctx: Sema
     if (stack.length === 0) {
       throw new Error("(local) called outside of a component render context");
     }
-    const componentFnName = stack[stack.length - 1];
-    const component = findComponentByFn(ctx, componentFnName);
+    const component = getActiveComponent(ctx);
     if (!component) {
-      throw new Error(`(local) no mounted component for "${componentFnName}"`);
+      throw new Error("(local) no active mounted component");
     }
 
     // Key by name within this component's local state
-    const existing = component.localState.get(name);
-    if (existing) {
-      // Return the signal ID for the existing local state
-      for (const [id, s] of ctx.signals) {
-        if (s === existing) return id;
-      }
-      // Should not happen, but create a new mapping if needed
-      const id = ctx.nextSignalId++;
-      ctx.signals.set(id, existing);
-      return id;
+    const existingId = component.localState.get(name);
+    if (existingId != null) {
+      return existingId;
     }
 
     // First call: create a new signal
     const id = ctx.nextSignalId++;
     const s = signal(initialValue);
     ctx.signals.set(id, s);
-    component.localState.set(name, s);
+    component.localState.set(name, id);
     return id;
   });
 
   // __component/on-mount — register lifecycle callback, called once after first render
-  interp.registerFunction("__component/on-mount", (callbackName: string) => {
-    if (!SEMA_IDENT_RE.test(callbackName)) {
-      throw new Error(`Invalid on-mount callback name: ${callbackName}`);
-    }
+  interp.registerFunction("__component/on-mount", (callbackValue: any) => {
     const stack = ctx.renderContextStack;
     if (stack.length === 0) {
       throw new Error("(on-mount) called outside of a component render context");
     }
-    const componentFnName = stack[stack.length - 1];
-    const component = findComponentByFn(ctx, componentFnName);
+    const component = getActiveComponent(ctx);
     if (!component) {
-      throw new Error(`(on-mount) no mounted component for "${componentFnName}"`);
+      throw new Error("(on-mount) no active mounted component");
     }
 
-    // Store the callback name as a string; it will be invoked after first render
-    (component as any).__pendingMount = callbackName;
+    releaseCallback(component.pendingMount);
+    component.pendingMount = callbackValue;
     return null;
   });
 
   // js/set-interval — browser setInterval wrapper
-  interp.registerFunction("js/set-interval", (callbackName: string, ms: number) => {
-    if (!SEMA_IDENT_RE.test(callbackName)) {
-      throw new Error(`Invalid interval callback name: ${callbackName}`);
-    }
+  interp.registerFunction("js/set-interval", (callbackValue: any, ms: number) => {
+    const callback = toInvokableCallback(callbackValue, interp, "interval callback");
     const id = setInterval(() => {
       try {
-        interp.evalStr(`(${callbackName})`);
+        callback();
       } catch (e) {
-        ctx.onerror(e instanceof Error ? e : new Error(String(e)), `interval:${callbackName}`);
+        ctx.onerror(e instanceof Error ? e : new Error(String(e)), "interval");
       }
     }, ms);
+    ctx.intervals.set(id, { callback });
+    const owner = getActiveComponent(ctx);
+    if (owner) owner.ownedIntervalIds.add(id);
     return id;
   });
 
   // js/clear-interval — browser clearInterval wrapper
   interp.registerFunction("js/clear-interval", (id: number) => {
-    clearInterval(id);
+    cleanupInterval(ctx, id);
+    for (const component of ctx.mountedComponents.values()) {
+      component.ownedIntervalIds.delete(id);
+    }
     return null;
   });
 
@@ -385,5 +480,11 @@ export function registerComponentBindings(interp: SemaInterpreterLike, ctx: Sema
 
   if (semaResult.error) {
     throw new Error(`[sema-web] Failed to register component wrappers: ${semaResult.error}`);
+  }
+}
+
+export function disposeAllComponents(ctx: SemaWebContext): void {
+  for (const [selector, component] of Array.from(ctx.mountedComponents.entries())) {
+    destroyMountedComponent(selector, component, ctx);
   }
 }

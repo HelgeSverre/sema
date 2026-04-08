@@ -251,6 +251,31 @@ impl Interpreter {
     }
 }
 
+pub fn execute_compile_result(
+    ctx: &EvalContext,
+    globals: Rc<Env>,
+    result: sema_vm::CompileResult,
+) -> Result<Value, SemaError> {
+    let functions: Vec<Rc<sema_vm::Function>> = result.functions.into_iter().map(Rc::new).collect();
+    let main_cache_slots = result.chunk.n_global_cache_slots;
+    let closure = Rc::new(sema_vm::Closure {
+        func: Rc::new(sema_vm::Function {
+            name: None,
+            chunk: result.chunk,
+            upvalue_descs: Vec::new(),
+            arity: 0,
+            has_rest: false,
+            local_names: Vec::new(),
+            source_file: None,
+            cache_offset: 0,
+        }),
+        upvalues: Vec::new(),
+    });
+
+    let mut vm = sema_vm::VM::new(globals, functions, &[], main_cache_slots)?;
+    vm.execute(closure, ctx)
+}
+
 /// Evaluate a string containing one or more expressions.
 pub fn eval_string(ctx: &EvalContext, input: &str, env: &Env) -> EvalResult {
     let (exprs, spans) = sema_reader::read_many_with_spans(input)?;

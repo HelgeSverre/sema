@@ -40,13 +40,17 @@ describe("SemaWebContext", () => {
     const ctx2 = new SemaWebContext();
 
     ctx1.mountedComponents.set("app", {
+      instanceId: 1,
       target: document.createElement("div"),
       componentFn: "render-app",
-      captureId: 1,
       dispose: null,
+      eventCleanup: null,
       localState: new Map(),
       mountCleanup: null,
-      renderContextStack: [],
+      pendingMount: null,
+      ownedWatchIds: new Set(),
+      ownedIntervalIds: new Set(),
+      ownedStreamIds: new Set(),
     });
 
     expect(ctx1.mountedComponents.size).toBe(1);

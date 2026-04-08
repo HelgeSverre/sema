@@ -9,16 +9,42 @@
  */
 
 import type { Signal } from "@preact/signals-core";
+import { releaseCallback, type SemaCallback } from "./callbacks.js";
 
 /** A mounted component managed by the component system. */
 export interface MountedComponent {
+  instanceId: number;
   target: Element;
   componentFn: string;
-  captureId: number;
   dispose: (() => void) | null;
-  localState: Map<string, Signal<any>>;
+  eventCleanup: (() => void) | null;
+  localState: Map<string, number>;
   mountCleanup: (() => void) | null;
-  renderContextStack: string[];
+  pendingMount: unknown;
+  ownedWatchIds: Set<number>;
+  ownedIntervalIds: Set<number>;
+  ownedStreamIds: Set<number>;
+}
+
+export interface ListenerRegistration {
+  target: EventTarget;
+  event: string;
+  listener: EventListener;
+  callback?: SemaCallback;
+}
+
+export interface WatchRegistration {
+  dispose: () => void;
+  callback?: SemaCallback;
+}
+
+export interface IntervalRegistration {
+  callback?: SemaCallback;
+}
+
+export interface StreamRegistration {
+  kind: "event-source" | "llm-stream";
+  close: () => void;
 }
 
 /** Error handler callback type. */
@@ -42,18 +68,106 @@ export class SemaWebContext {
 
   /** Mounted components */
   mountedComponents = new Map<string, MountedComponent>();
+  mountedComponentsById = new Map<number, MountedComponent>();
+  nextComponentId = 1;
 
   /** Next capture ID for callComponent */
   nextCaptureId = 1;
 
   /** Component render context stack (per-instance for multi-instance isolation) */
-  renderContextStack: string[] = [];
+  renderContextStack: number[] = [];
 
   /** DOM event listeners registry */
-  listeners = new Map<string, EventListener>();
+  listeners = new Map<string, ListenerRegistration>();
+
+  /** Reactive watch cleanup callbacks */
+  watchDisposers = new Map<number, WatchRegistration>();
+  nextWatchId = 1;
+
+  /** Browser interval handles */
+  intervals = new Map<number, IntervalRegistration>();
+
+  /** Managed streaming resources keyed by signal id */
+  streams = new Map<number, StreamRegistration>();
+
+  /** Runtime-level cleanup hooks */
+  cleanupHooks = new Set<() => void>();
+
+  /** Instance-owned scoped CSS stylesheet */
+  styleEl: HTMLStyleElement | null = null;
+  cssNamespace = Math.random().toString(36).slice(2, 10);
+  nextCssClassId = 1;
 
   /** Error handler */
   onerror: ErrorHandler = (error, context) => {
     console.error(`[sema-web] Error in ${context}:`, error);
   };
+}
+
+export function disposeContextResources(ctx: SemaWebContext): void {
+  for (const { target, event, listener, callback } of ctx.listeners.values()) {
+    try {
+      target.removeEventListener(event, listener);
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `listener-cleanup:${event}`);
+    }
+    releaseCallback(callback);
+  }
+  ctx.listeners.clear();
+
+  for (const { dispose, callback } of ctx.watchDisposers.values()) {
+    try {
+      dispose();
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), "watch-cleanup");
+    }
+    releaseCallback(callback);
+  }
+  ctx.watchDisposers.clear();
+
+  for (const [id, { callback }] of ctx.intervals) {
+    try {
+      clearInterval(id);
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `interval-cleanup:${id}`);
+    }
+    releaseCallback(callback);
+  }
+  ctx.intervals.clear();
+
+  for (const stream of ctx.streams.values()) {
+    try {
+      stream.close();
+    } catch (e) {
+      ctx.onerror(
+        e instanceof Error ? e : new Error(String(e)),
+        `${stream.kind}-cleanup`,
+      );
+    }
+  }
+  ctx.streams.clear();
+
+  for (const cleanup of ctx.cleanupHooks) {
+    try {
+      cleanup();
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), "runtime-cleanup");
+    }
+  }
+  ctx.cleanupHooks.clear();
+
+  if (ctx.styleEl) {
+    try {
+      ctx.styleEl.remove();
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), "css-cleanup");
+    }
+    ctx.styleEl = null;
+  }
+
+  ctx.handles.clear();
+  ctx.signals.clear();
+  ctx.mountedComponents.clear();
+  ctx.mountedComponentsById.clear();
+  ctx.renderContextStack.length = 0;
 }

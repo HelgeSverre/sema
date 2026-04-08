@@ -10,9 +10,11 @@
 import { storeHandle, getElement, getNode, getEvent, releaseHandle, SEMA_IDENT_RE } from "./handles.js";
 import type { SemaWebContext } from "./context.js";
 import { renderSip } from "./sip.js";
+import { toInvokableCallback, releaseCallback } from "./callbacks.js";
 
 interface SemaInterpreterLike {
   registerFunction(name: string, fn: (...args: any[]) => any): void;
+  invokeGlobal(name: string, ...args: any[]): any;
   evalStr(code: string): { value: string | null; output: string[]; error: string | null };
 }
 
@@ -192,38 +194,52 @@ export function registerDomBindings(interp: SemaInterpreterLike, ctx: SemaWebCon
 
   // --- Events ---
 
-  interp.registerFunction("dom/on!", (id: number, event: string, callbackName: string) => {
-    // Validate callback name is a valid Sema identifier (prevents code injection)
-    if (!SEMA_IDENT_RE.test(callbackName)) {
-      throw new Error(`Invalid callback name: ${callbackName}`);
-    }
-
+  interp.registerFunction("dom/on!", (id: number, event: string, callbackValue: any) => {
     const el = getElement(id, ctx);
-    const key = `${id}:${event}:${callbackName}`;
+    const callback = toInvokableCallback(callbackValue, interp, `dom/on! callback for "${event}"`);
+    const callbackKey =
+      typeof callback.__semaCallbackHandle === "number"
+        ? `handle:${callback.__semaCallbackHandle}`
+        : typeof callbackValue === "string"
+          ? `name:${callbackValue}`
+          : `fn:${String(callback)}`;
+    const key = `${id}:${event}:${callbackKey}`;
+    const existing = ctx.listeners.get(key);
+    if (existing) {
+      existing.target.removeEventListener(existing.event, existing.listener);
+      releaseCallback(existing.callback);
+      ctx.listeners.delete(key);
+    }
 
     const listener = (ev: Event) => {
       const evHandle = storeHandle(ev, ctx);
       try {
-        // The callback is a Sema function name — invoke it with the event handle
-        interp.evalStr(`(${callbackName} ${evHandle})`);
+        callback(evHandle);
       } catch (e) {
-        ctx.onerror(e instanceof Error ? e : new Error(String(e)), `event:${event}:${callbackName}`);
+        ctx.onerror(e instanceof Error ? e : new Error(String(e)), `event:${event}`);
       } finally {
         // Auto-release event handle
         if (evHandle != null) ctx.handles.delete(evHandle);
       }
     };
 
-    ctx.listeners.set(key, listener);
+    ctx.listeners.set(key, { target: el, event, listener, callback });
     el.addEventListener(event, listener);
     return null;
   });
 
-  interp.registerFunction("dom/off!", (id: number, event: string, callbackName: string) => {
-    const key = `${id}:${event}:${callbackName}`;
-    const listener = ctx.listeners.get(key);
-    if (listener) {
-      getElement(id, ctx).removeEventListener(event, listener);
+  interp.registerFunction("dom/off!", (id: number, event: string, callbackValue: any) => {
+    const callbackKey =
+      typeof callbackValue === "function" && typeof callbackValue.__semaCallbackHandle === "number"
+        ? `handle:${callbackValue.__semaCallbackHandle}`
+        : typeof callbackValue === "string"
+          ? `name:${callbackValue}`
+          : `fn:${String(callbackValue)}`;
+    const key = `${id}:${event}:${callbackKey}`;
+    const registration = ctx.listeners.get(key);
+    if (registration) {
+      registration.target.removeEventListener(registration.event, registration.listener);
+      releaseCallback(registration.callback);
       ctx.listeners.delete(key);
     }
     return null;

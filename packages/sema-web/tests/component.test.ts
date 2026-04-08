@@ -33,7 +33,7 @@ describe("registerComponentBindings", () => {
   beforeEach(() => {
     interp = createMockInterpreter();
     ctx = new SemaWebContext();
-    document.body.innerHTML = '<div id="app"></div>';
+    document.body.innerHTML = '<div id="app"></div><div id="app2"></div>';
     registerComponentBindings(interp, ctx);
   });
 
@@ -54,15 +54,9 @@ describe("registerComponentBindings", () => {
   // --- mount ---
 
   it("component/mount! with valid selector registers in ctx.mountedComponents", () => {
-    // Make evalStr return SIP data when the component function is called
-    interp.evalStr = (code: string) => {
-      // The capture function call: (__cc_N (my-view))
-      const capMatch = code.match(/^\((__cc_\d+)\s/);
-      if (capMatch) {
-        const capFn = interp.getFunction(capMatch[1]);
-        if (capFn) capFn([":div", "hello"]);
-      }
-      return { value: null, output: [], error: null };
+    interp.invokeGlobal = (name: string) => {
+      if (name === "my-view") return [":div", "hello"];
+      return null;
     };
 
     interp.getFunction("component/mount!")!("#app", "my-view");
@@ -70,17 +64,72 @@ describe("registerComponentBindings", () => {
     expect(ctx.mountedComponents.get("#app")!.componentFn).toBe("my-view");
   });
 
+  it("mounting the same component function twice keeps instance-local state isolated", () => {
+    interp.registerFunction("shared-view", () => {
+      const currentId = interp.getFunction("__component/current-id")!();
+      const localId = interp.getFunction("__component/local")!("count", 0);
+      return [":div", `${currentId}:${localId}`];
+    });
+
+    interp.getFunction("component/mount!")!("#app", "shared-view");
+    interp.getFunction("component/mount!")!("#app2", "shared-view");
+
+    const first = ctx.mountedComponents.get("#app")!;
+    const second = ctx.mountedComponents.get("#app2")!;
+
+    expect(first.instanceId).not.toBe(second.instanceId);
+    expect(first.localState.get("count")).not.toBe(second.localState.get("count"));
+  });
+
+  it("remounting runs mount cleanup and tears down delegated listeners", () => {
+    const target = document.getElementById("app")!;
+    const removeSpy = vi.spyOn(target, "removeEventListener");
+    let cleanupCalls = 0;
+
+    interp.registerFunction("mount-cleanup-fn", () => {
+      cleanupCalls += 1;
+      return null;
+    });
+    interp.registerFunction("mount-hook", () => "mount-cleanup-fn");
+    interp.registerFunction("my-view", () => {
+      interp.getFunction("__component/on-mount")!("mount-hook");
+      return [":div", "hello"];
+    });
+
+    interp.getFunction("component/mount!")!("#app", "my-view");
+    interp.getFunction("component/mount!")!("#app", "my-view");
+
+    expect(cleanupCalls).toBe(1);
+    expect(removeSpy).toHaveBeenCalled();
+  });
+
+  it("on-mount accepts direct function callbacks that return direct cleanup functions", () => {
+    let mountCalls = 0;
+    let cleanupCalls = 0;
+
+    interp.registerFunction("my-view", () => {
+      interp.getFunction("__component/on-mount")!(() => {
+        mountCalls += 1;
+        return () => {
+          cleanupCalls += 1;
+        };
+      });
+      return [":div", "hello"];
+    });
+
+    interp.getFunction("component/mount!")!("#app", "my-view");
+    interp.getFunction("component/unmount!")!("#app");
+
+    expect(mountCalls).toBe(1);
+    expect(cleanupCalls).toBe(1);
+  });
+
   // --- unmount ---
 
   it("component/unmount! removes from ctx.mountedComponents and clears target", () => {
-    // Mount first
-    interp.evalStr = (code: string) => {
-      const capMatch = code.match(/^\((__cc_\d+)\s/);
-      if (capMatch) {
-        const capFn = interp.getFunction(capMatch[1]);
-        if (capFn) capFn([":div", "hello"]);
-      }
-      return { value: null, output: [], error: null };
+    interp.invokeGlobal = (name: string) => {
+      if (name === "my-view") return [":div", "hello"];
+      return null;
     };
 
     interp.getFunction("component/mount!")!("#app", "my-view");

@@ -36,10 +36,10 @@ A minimal example demonstrating reactive state with `atom`, `put!`, and `update!
     .buttons { display: flex; gap: 0.5rem; justify-content: center; }
     button { padding: 0.5rem 1.5rem; font-size: 1.2rem; cursor: pointer; border-radius: 4px; border: 1px solid #ccc; }
   </style>
+  <script type="text/sema" src="counter.sema"></script>
   <script type="module">
     import { SemaWeb } from "@sema-lang/sema-web";
-    const web = await SemaWeb.create({ container: "#app" });
-    await web.loadFile("counter.sema");
+    await SemaWeb.init();
   </script>
 </head>
 <body>
@@ -158,10 +158,10 @@ A more complete example showing lists, computed values, batched updates, multipl
     .modes button { background: none; border: 1px solid transparent; border-radius: 3px; cursor: pointer; padding: 2px 6px; font-size: 0.85rem; }
     .modes button.active { border-color: #4a9eff; color: #4a9eff; }
   </style>
+  <script type="text/sema" src="todo.sema"></script>
   <script type="module">
     import { SemaWeb } from "@sema-lang/sema-web";
-    const web = await SemaWeb.create({ container: "#app" });
-    await web.loadFile("todo.sema");
+    await SemaWeb.init();
   </script>
 </head>
 <body>
@@ -253,15 +253,12 @@ A streaming chat interface using `llm/chat-stream`. Requires a deployed [LLM pro
     .input-bar input { flex: 1; padding: 0.75rem; border-radius: 8px; border: 1px solid #444; background: #2a2a4a; color: #eee; font-size: 1rem; }
     .input-bar button { padding: 0.75rem 1.5rem; border-radius: 8px; border: none; background: #4a9eff; color: white; cursor: pointer; font-size: 1rem; }
   </style>
+  <script type="text/sema" src="chat.sema"></script>
   <script type="module">
     import { SemaWeb } from "@sema-lang/sema-web";
-
-    const web = await SemaWeb.create({
-      container: "#app",
+    await SemaWeb.create({
       llmProxy: "/api/llm",
     });
-
-    await web.loadFile("chat.sema");
   </script>
 </head>
 <body>

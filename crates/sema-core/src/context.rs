@@ -14,6 +14,7 @@ pub type CallCallbackFn = fn(&EvalContext, &Value, &[Value]) -> Result<Value, Se
 
 pub struct EvalContext {
     pub module_cache: RefCell<BTreeMap<PathBuf, BTreeMap<String, Value>>>,
+    pub embedded_files: RefCell<BTreeMap<PathBuf, Vec<u8>>>,
     pub current_file: RefCell<Vec<PathBuf>>,
     pub module_exports: RefCell<Vec<Option<Vec<String>>>>,
     pub module_load_stack: RefCell<Vec<PathBuf>>,
@@ -36,6 +37,7 @@ impl EvalContext {
     pub fn new() -> Self {
         EvalContext {
             module_cache: RefCell::new(BTreeMap::new()),
+            embedded_files: RefCell::new(BTreeMap::new()),
             current_file: RefCell::new(Vec::new()),
             module_exports: RefCell::new(Vec::new()),
             module_load_stack: RefCell::new(Vec::new()),
@@ -58,6 +60,7 @@ impl EvalContext {
     pub fn new_with_sandbox(sandbox: Sandbox) -> Self {
         EvalContext {
             module_cache: RefCell::new(BTreeMap::new()),
+            embedded_files: RefCell::new(BTreeMap::new()),
             current_file: RefCell::new(Vec::new()),
             module_exports: RefCell::new(Vec::new()),
             module_load_stack: RefCell::new(Vec::new()),
@@ -102,6 +105,26 @@ impl EvalContext {
 
     pub fn cache_module(&self, path: PathBuf, exports: BTreeMap<String, Value>) {
         self.module_cache.borrow_mut().insert(path, exports);
+    }
+
+    pub fn clear_module_cache(&self) {
+        self.module_cache.borrow_mut().clear();
+    }
+
+    pub fn embedded_file_exists(&self, path: &PathBuf) -> bool {
+        self.embedded_files.borrow().contains_key(path)
+    }
+
+    pub fn get_embedded_file(&self, path: &PathBuf) -> Option<Vec<u8>> {
+        self.embedded_files.borrow().get(path).cloned()
+    }
+
+    pub fn set_embedded_file(&self, path: PathBuf, bytes: Vec<u8>) {
+        self.embedded_files.borrow_mut().insert(path, bytes);
+    }
+
+    pub fn clear_embedded_files(&self) {
+        self.embedded_files.borrow_mut().clear();
     }
 
     pub fn set_module_exports(&self, names: Vec<String>) {

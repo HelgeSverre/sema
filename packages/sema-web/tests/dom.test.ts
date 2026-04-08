@@ -139,6 +139,25 @@ describe("registerDomBindings", () => {
     }
   });
 
+  it("dom/on! accepts direct function callbacks and dom/off! removes them", () => {
+    const handle = interp.getFunction("dom/create-element")!("button");
+    const el = ctx.handles.get(handle) as Element;
+    document.body.appendChild(el);
+
+    const calls: number[] = [];
+    const callback = (evHandle: number) => {
+      calls.push(evHandle);
+    };
+
+    interp.getFunction("dom/on!")!(handle, "click", callback);
+    el.dispatchEvent(new Event("click"));
+    expect(calls).toHaveLength(1);
+
+    interp.getFunction("dom/off!")!(handle, "click", callback);
+    el.dispatchEvent(new Event("click"));
+    expect(calls).toHaveLength(1);
+  });
+
   // --- dom/on! errors route through ctx.onerror ---
 
   it("event errors route through ctx.onerror", () => {
@@ -149,15 +168,14 @@ describe("registerDomBindings", () => {
     const el = ctx.handles.get(handle) as Element;
     document.body.appendChild(el);
 
-    // Make evalStr throw
-    interp.evalStr = () => { throw new Error("boom"); };
+    interp.invokeGlobal = () => { throw new Error("boom"); };
 
     interp.getFunction("dom/on!")!(handle, "click", "bad-handler");
     el.dispatchEvent(new Event("click"));
 
     expect(onerrorSpy).toHaveBeenCalledWith(
       expect.any(Error),
-      expect.stringContaining("event:click:bad-handler"),
+      expect.stringContaining("event:click"),
     );
   });
 });

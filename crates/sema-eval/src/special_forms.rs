@@ -1362,6 +1362,129 @@ fn eval_module(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     Ok(Trampoline::Eval(body.last().unwrap().clone(), env.clone()))
 }
 
+fn is_module_entry_spec(spec: &str) -> bool {
+    sema_core::resolve::is_package_import(spec)
+        || (!spec.ends_with(".sema")
+            && !spec.starts_with("./")
+            && !spec.starts_with("../")
+            && !spec.starts_with('/'))
+}
+
+fn module_file_path(
+    spec: &str,
+    resolved_path: &std::path::Path,
+    direct_hit: bool,
+) -> std::path::PathBuf {
+    if direct_hit && is_module_entry_spec(spec) {
+        resolved_path.join("__entry__")
+    } else {
+        resolved_path.to_path_buf()
+    }
+}
+
+fn resolve_embedded_file(
+    ctx: &EvalContext,
+    spec: &str,
+) -> Option<(std::path::PathBuf, std::path::PathBuf, Vec<u8>)> {
+    let direct = std::path::PathBuf::from(spec);
+    if let Some(bytes) = ctx.get_embedded_file(&direct) {
+        let file_path = module_file_path(spec, &direct, true);
+        return Some((direct, file_path, bytes));
+    }
+
+    let base_dir = ctx.current_file_dir()?;
+    let candidate = base_dir.join(spec);
+    let bytes = ctx.get_embedded_file(&candidate)?;
+    Some((
+        candidate.clone(),
+        module_file_path(spec, &candidate, false),
+        bytes,
+    ))
+}
+
+fn eval_bytes_in_env(
+    op_name: &str,
+    path_str: &str,
+    exec_path: &std::path::Path,
+    bytes: &[u8],
+    env: &Env,
+    ctx: &EvalContext,
+) -> Result<Value, SemaError> {
+    ctx.push_file_path(exec_path.to_path_buf());
+    let eval_result = (|| {
+        if sema_vm::is_bytecode_file(bytes) {
+            let result = sema_vm::deserialize_from_bytes(bytes)?;
+            return eval::execute_compile_result(ctx, Rc::new(env.clone()), result);
+        }
+
+        let content = String::from_utf8(bytes.to_vec())
+            .map_err(|e| SemaError::Io(format!("{op_name} {path_str}: invalid UTF-8: {e}")))?;
+        let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
+        ctx.merge_span_table(spans);
+
+        let mut result = Value::nil();
+        for expr in &exprs {
+            result = eval::eval_value(ctx, expr, env)?;
+        }
+        Ok(result)
+    })();
+    ctx.pop_file_path();
+    eval_result
+}
+
+fn import_module_from_bytes(
+    path_str: &str,
+    resolved_path: std::path::PathBuf,
+    file_path: std::path::PathBuf,
+    content_bytes: Vec<u8>,
+    selective: &[String],
+    env: &Env,
+    ctx: &EvalContext,
+) -> Result<Trampoline, SemaError> {
+    if let Some(cached) = ctx.get_cached_module(&resolved_path) {
+        copy_exports_to_env(&cached, selective, env)?;
+        return Ok(Trampoline::Value(Value::nil()));
+    }
+
+    ctx.begin_module_load(&resolved_path)?;
+
+    let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> = (|| {
+        let module_env = eval::create_module_env(env);
+        ctx.push_file_path(file_path);
+        ctx.clear_module_exports();
+
+        let eval_result = (|| {
+            if sema_vm::is_bytecode_file(&content_bytes) {
+                let result = sema_vm::deserialize_from_bytes(&content_bytes)?;
+                eval::execute_compile_result(ctx, Rc::new(module_env.clone()), result)?;
+            } else {
+                let content = String::from_utf8(content_bytes).map_err(|e| {
+                    SemaError::Io(format!("import {path_str}: invalid UTF-8 in module: {e}"))
+                })?;
+                let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
+                ctx.merge_span_table(spans);
+                for expr in &exprs {
+                    eval::eval_value(ctx, expr, &module_env)?;
+                }
+            }
+            Ok(())
+        })();
+
+        ctx.pop_file_path();
+        let declared = ctx.take_module_exports();
+        eval_result?;
+
+        Ok(collect_module_exports(&module_env, declared.as_deref()))
+    })();
+
+    ctx.end_module_load(&resolved_path);
+    let exports = load_result?;
+
+    ctx.cache_module(resolved_path, exports.clone());
+    copy_exports_to_env(&exports, selective, env)?;
+    Ok(Trampoline::Value(Value::nil()))
+}
+
 /// (import "path.sema") or (import "path.sema" sym1 sym2)
 fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
@@ -1381,6 +1504,18 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
                 .ok_or_else(|| SemaError::eval("import: selective names must be symbols"))
         })
         .collect::<Result<_, _>>()?;
+
+    if let Some((resolved_path, file_path, content_bytes)) = resolve_embedded_file(ctx, path_str) {
+        return import_module_from_bytes(
+            path_str,
+            resolved_path,
+            file_path,
+            content_bytes,
+            &selective,
+            env,
+            ctx,
+        );
+    }
 
     // Check VFS first — bundled executables have packages embedded in the VFS
     // and won't have them installed on the filesystem.
@@ -1425,53 +1560,18 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             resolved_vfs_path.clone()
         };
 
-        // Use the resolved path as cache key — this prevents collisions
-        // when two packages have identically-named internal files
-        // (e.g., both have "helpers.sema" → distinct resolved paths).
-        if let Some(cached) = ctx.get_cached_module(&resolved_vfs_path) {
-            copy_exports_to_env(&cached, &selective, env)?;
-            return Ok(Trampoline::Value(Value::nil()));
-        }
-
         if let Some(content_bytes) =
             sema_core::vfs::vfs_resolve_and_read(path_str, base_dir.as_deref())
         {
-            let content = String::from_utf8(content_bytes).map_err(|e| {
-                SemaError::Io(format!("import {path_str}: invalid UTF-8 in VFS: {e}"))
-            })?;
-
-            ctx.begin_module_load(&resolved_vfs_path)?;
-
-            let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> =
-                (|| {
-                    let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-                    ctx.merge_span_table(spans);
-
-                    let module_env = eval::create_module_env(env);
-                    ctx.push_file_path(file_path);
-                    ctx.clear_module_exports();
-
-                    let eval_result = (|| {
-                        for expr in &exprs {
-                            eval::eval_value(ctx, expr, &module_env)?;
-                        }
-                        Ok(())
-                    })();
-
-                    ctx.pop_file_path();
-                    let declared = ctx.take_module_exports();
-                    eval_result?;
-
-                    Ok(collect_module_exports(&module_env, declared.as_deref()))
-                })();
-
-            ctx.end_module_load(&resolved_vfs_path);
-            let exports = load_result?;
-
-            ctx.cache_module(resolved_vfs_path, exports.clone());
-            copy_exports_to_env(&exports, &selective, env)?;
-
-            return Ok(Trampoline::Value(Value::nil()));
+            return import_module_from_bytes(
+                path_str,
+                resolved_vfs_path,
+                file_path,
+                content_bytes,
+                &selective,
+                env,
+                ctx,
+            );
         }
     }
 
@@ -1502,45 +1602,17 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         return Ok(Trampoline::Value(Value::nil()));
     }
 
-    ctx.begin_module_load(&canonical)?;
-
-    let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> = (|| {
-        // Load and evaluate the module
-        let content = std::fs::read_to_string(&canonical)
-            .map_err(|e| SemaError::Io(format!("import {path_str}: {e}")))?;
-        let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-        ctx.merge_span_table(spans);
-
-        let module_env = eval::create_module_env(env);
-        ctx.push_file_path(canonical.clone());
-        ctx.clear_module_exports();
-
-        let eval_result = (|| {
-            for expr in &exprs {
-                eval::eval_value(ctx, expr, &module_env)?;
-            }
-            Ok(())
-        })();
-
-        ctx.pop_file_path();
-
-        // Always pop export scope, even if module evaluation fails.
-        let declared = ctx.take_module_exports();
-        eval_result?;
-
-        Ok(collect_module_exports(&module_env, declared.as_deref()))
-    })();
-
-    ctx.end_module_load(&canonical);
-    let exports = load_result?;
-
-    // Cache
-    ctx.cache_module(canonical, exports.clone());
-
-    // Copy to caller env
-    copy_exports_to_env(&exports, &selective, env)?;
-
-    Ok(Trampoline::Value(Value::nil()))
+    let content_bytes =
+        std::fs::read(&canonical).map_err(|e| SemaError::Io(format!("import {path_str}: {e}")))?;
+    import_module_from_bytes(
+        path_str,
+        canonical.clone(),
+        canonical,
+        content_bytes,
+        &selective,
+        env,
+        ctx,
+    )
 }
 
 /// Collect exported bindings from a module env
@@ -1611,6 +1683,11 @@ fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
         std::path::PathBuf::from(path_str)
     };
 
+    if let Some((_, file_path, content_bytes)) = resolve_embedded_file(ctx, path_str) {
+        let result = eval_bytes_in_env("load", path_str, &file_path, &content_bytes, env, ctx)?;
+        return Ok(Trampoline::Value(result));
+    }
+
     // Check VFS before hitting the filesystem
     if sema_core::vfs::is_vfs_active() {
         let base_dir = ctx
@@ -1619,12 +1696,6 @@ fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
         if let Some(content_bytes) =
             sema_core::vfs::vfs_resolve_and_read(path_str, base_dir.as_deref())
         {
-            let content = String::from_utf8(content_bytes).map_err(|e| {
-                SemaError::Io(format!("load {path_str}: invalid UTF-8 in VFS: {e}"))
-            })?;
-            let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-            ctx.merge_span_table(spans);
-
             // Push resolved VFS path so nested load/import resolves correctly.
             // Determine which VFS key matched: direct or base-dir-relative.
             let vfs_path = if sema_core::vfs::vfs_exists(path_str) == Some(true) {
@@ -1634,48 +1705,107 @@ fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
             } else {
                 std::path::PathBuf::from(path_str)
             };
-            ctx.push_file_path(vfs_path);
-
-            let mut result = Value::nil();
-            let eval_result = (|| {
-                for expr in &exprs {
-                    result = eval::eval_value(ctx, expr, env)?;
-                }
-                Ok(result.clone())
-            })();
-
-            ctx.pop_file_path();
-            eval_result?;
+            let result = eval_bytes_in_env("load", path_str, &vfs_path, &content_bytes, env, ctx)?;
             return Ok(Trampoline::Value(result));
         }
     }
 
-    let content = std::fs::read_to_string(&resolved)
+    let canonical = resolved
+        .canonicalize()
         .map_err(|e| SemaError::Io(format!("load {}: {e}", resolved.display())))?;
-    let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-    ctx.merge_span_table(spans);
-
-    // Push the file path so nested load/import resolves correctly
-    let canonical = resolved.canonicalize().ok();
-    if let Some(path) = canonical.clone() {
-        ctx.push_file_path(path);
-    }
-
-    let mut result = Value::nil();
-    let eval_result = (|| {
-        for expr in &exprs {
-            result = eval::eval_value(ctx, expr, env)?;
-        }
-        Ok(result.clone())
-    })();
-
-    // Pop regardless of success/failure
-    if canonical.is_some() {
-        ctx.pop_file_path();
-    }
-
-    eval_result?;
+    let content_bytes = std::fs::read(&canonical)
+        .map_err(|e| SemaError::Io(format!("load {}: {e}", canonical.display())))?;
+    let result = eval_bytes_in_env("load", path_str, &canonical, &content_bytes, env, ctx)?;
     Ok(Trampoline::Value(result))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::*;
+    use crate::eval::Interpreter;
+
+    fn compile_source(interp: &Interpreter, source: &str) -> Vec<u8> {
+        let result = interp.compile_to_bytecode(source).unwrap();
+        sema_vm::serialize_to_bytes(&result, 0).unwrap()
+    }
+
+    #[test]
+    fn import_reads_embedded_bytecode_modules() {
+        let interp = Interpreter::new();
+        let module = r#"
+            (module util (export double)
+              (define (double x) (* x 2)))
+        "#;
+        let bytes = compile_source(&interp, module);
+        interp
+            .ctx
+            .set_embedded_file(PathBuf::from("lib/util.sema"), bytes);
+
+        let result = interp
+            .eval_str(r#"(import "lib/util.sema") (double 21)"#)
+            .unwrap();
+        assert_eq!(result, Value::int(42));
+    }
+
+    #[test]
+    fn compiled_entry_imports_embedded_package_modules() {
+        let interp = Interpreter::new();
+        let module = r#"
+            (module util (export answer)
+              (define answer 42))
+        "#;
+        let bytes = compile_source(&interp, module);
+        interp
+            .ctx
+            .set_embedded_file(PathBuf::from("json-utils"), bytes);
+
+        let result = interp
+            .eval_str_compiled(r#"(import "json-utils") answer"#)
+            .unwrap();
+        assert_eq!(result, Value::int(42));
+    }
+
+    #[test]
+    fn load_executes_embedded_bytecode_files() {
+        let interp = Interpreter::new();
+        let file = r#"
+            (define loaded-value 7)
+            (set! loaded-value (+ loaded-value 5))
+        "#;
+        let bytes = compile_source(&interp, file);
+        interp
+            .ctx
+            .set_embedded_file(PathBuf::from("defs.sema"), bytes);
+
+        let result = interp
+            .eval_str(r#"(load "defs.sema") loaded-value"#)
+            .unwrap();
+        assert_eq!(result, Value::int(12));
+    }
+
+    #[test]
+    fn load_bytecode_preserves_relative_resolution() {
+        let interp = Interpreter::new();
+        interp.ctx.set_embedded_file(
+            PathBuf::from("nested/helper.sema"),
+            br#"(define helper-value 41)"#.to_vec(),
+        );
+        let file = r#"
+            (load "helper.sema")
+            (define loaded-value (+ helper-value 1))
+        "#;
+        let bytes = compile_source(&interp, file);
+        interp
+            .ctx
+            .set_embedded_file(PathBuf::from("nested/main.sema"), bytes);
+
+        let result = interp
+            .eval_str(r#"(load "nested/main.sema") loaded-value"#)
+            .unwrap();
+        assert_eq!(result, Value::int(42));
+    }
 }
 
 /// (case key-expr ((datum ...) body ...) ... (else body ...))
