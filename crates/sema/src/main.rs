@@ -802,8 +802,12 @@ fn main() {
                     }
                 }
             }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("error: '{file}' not found (not a file or command)\n\nRun 'sema --help' for available commands.");
+                std::process::exit(1);
+            }
             Err(e) => {
-                eprintln!("Error reading {file}: {e}");
+                eprintln!("error: could not read '{file}': {e}");
                 std::process::exit(1);
             }
         }
