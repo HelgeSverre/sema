@@ -38,6 +38,7 @@
 
 import { createHandler } from "../handler.js";
 import { extractClientIdFromRequestHeaders } from "../client-id.js";
+import { buildBodyTooLargeResponse, getMaxBodySize, readRequestTextWithLimit } from "../body.js";
 import type { ProxyConfig, ProxyRequest } from "../types.js";
 
 /** Cloudflare Workers module export format. */
@@ -53,6 +54,7 @@ export interface CloudflareWorker {
 export function createCloudflareHandler(config: ProxyConfig): CloudflareWorker {
   const handler = createHandler(config);
   const corsOrigin = config.cors ?? "*";
+  const maxBodySize = getMaxBodySize(config);
 
   return {
     fetch: async (req: Request): Promise<Response> => {
@@ -62,7 +64,15 @@ export function createCloudflareHandler(config: ProxyConfig): CloudflareWorker {
 
       if (req.method === "POST") {
         try {
-          body = await req.json();
+          const bodyResult = await readRequestTextWithLimit(req, maxBodySize);
+          if (!bodyResult.ok) {
+            const tooLarge = buildBodyTooLargeResponse(corsOrigin, maxBodySize, bodyResult.size);
+            return new Response(tooLarge.body, {
+              status: tooLarge.status,
+              headers: tooLarge.headers,
+            });
+          }
+          body = bodyResult.text ? JSON.parse(bodyResult.text) : null;
         } catch {
           return new Response(
             JSON.stringify({ error: "Invalid JSON body", code: "INVALID_REQUEST" }),
@@ -84,7 +94,8 @@ export function createCloudflareHandler(config: ProxyConfig): CloudflareWorker {
         endpoint,
         body,
         authHeader: req.headers.get("authorization"),
-        clientId: extractClientIdFromRequestHeaders(req.headers),
+        clientId: extractClientIdFromRequestHeaders(req.headers, config.trustProxyHeaders),
+        requestedHeaders: req.headers.get("access-control-request-headers"),
       };
 
       const proxyRes = await handler(proxyReq);

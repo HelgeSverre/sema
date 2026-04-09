@@ -21,9 +21,11 @@ export interface MountedComponent {
   localState: Map<string, number>;
   mountCleanup: (() => void) | null;
   pendingMount: unknown;
+  ownedSignalIds: Set<number>;
   ownedWatchIds: Set<number>;
   ownedIntervalIds: Set<number>;
   ownedStreamIds: Set<number>;
+  ownedListenerKeys: Set<string>;
 }
 
 export interface ListenerRegistration {
@@ -77,6 +79,9 @@ export class SemaWebContext {
   /** Component render context stack (per-instance for multi-instance isolation) */
   renderContextStack: number[] = [];
 
+  /** Current execution owner stack for callbacks invoked outside render. */
+  ownerStack: number[] = [];
+
   /** DOM event listeners registry */
   listeners = new Map<string, ListenerRegistration>();
 
@@ -90,6 +95,9 @@ export class SemaWebContext {
   /** Managed streaming resources keyed by signal id */
   streams = new Map<number, StreamRegistration>();
 
+  /** Per-signal cleanup hooks (used for callback-backed computed signals, etc.) */
+  signalFinalizers = new Map<number, () => void>();
+
   /** Runtime-level cleanup hooks */
   cleanupHooks = new Set<() => void>();
 
@@ -102,6 +110,57 @@ export class SemaWebContext {
   onerror: ErrorHandler = (error, context) => {
     console.error(`[sema-web] Error in ${context}:`, error);
   };
+}
+
+export function getCurrentOwnerId(ctx: SemaWebContext): number | null {
+  const ownerId = ctx.ownerStack[ctx.ownerStack.length - 1];
+  if (ownerId != null) return ownerId;
+  const renderId = ctx.renderContextStack[ctx.renderContextStack.length - 1];
+  return renderId != null ? renderId : null;
+}
+
+export function withOwnerContext<T>(
+  ctx: SemaWebContext,
+  ownerId: number | null,
+  fn: () => T,
+): T {
+  if (ownerId == null) return fn();
+  ctx.ownerStack.push(ownerId);
+  try {
+    return fn();
+  } finally {
+    ctx.ownerStack.pop();
+  }
+}
+
+export function registerSignalFinalizer(
+  ctx: SemaWebContext,
+  signalId: number,
+  finalizer: () => void,
+): void {
+  const existing = ctx.signalFinalizers.get(signalId);
+  if (existing) {
+    try {
+      existing();
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `signal-finalizer:${signalId}`);
+    }
+  }
+  ctx.signalFinalizers.set(signalId, finalizer);
+}
+
+export function disposeSignal(ctx: SemaWebContext, signalId: number): void {
+  const finalizer = ctx.signalFinalizers.get(signalId);
+  if (finalizer) {
+    try {
+      finalizer();
+    } catch (e) {
+      ctx.onerror(e instanceof Error ? e : new Error(String(e)), `signal-finalizer:${signalId}`);
+    } finally {
+      ctx.signalFinalizers.delete(signalId);
+    }
+  }
+  ctx.signals.delete(signalId);
 }
 
 export function disposeContextResources(ctx: SemaWebContext): void {
@@ -166,8 +225,11 @@ export function disposeContextResources(ctx: SemaWebContext): void {
   }
 
   ctx.handles.clear();
-  ctx.signals.clear();
+  for (const signalId of Array.from(ctx.signals.keys())) {
+    disposeSignal(ctx, signalId);
+  }
   ctx.mountedComponents.clear();
   ctx.mountedComponentsById.clear();
   ctx.renderContextStack.length = 0;
+  ctx.ownerStack.length = 0;
 }

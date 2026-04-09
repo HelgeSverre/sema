@@ -48,9 +48,11 @@ describe("SemaWebContext", () => {
       localState: new Map(),
       mountCleanup: null,
       pendingMount: null,
+      ownedSignalIds: new Set(),
       ownedWatchIds: new Set(),
       ownedIntervalIds: new Set(),
       ownedStreamIds: new Set(),
+      ownedListenerKeys: new Set(),
     });
 
     expect(ctx1.mountedComponents.size).toBe(1);

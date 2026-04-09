@@ -107,4 +107,31 @@ describe("registerHttpBindings", () => {
     expect(aborted).toBe(true);
     expect(ctx.streams.has(signalId)).toBe(false);
   });
+
+  it("assigns stream ownership from the current execution context", () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(makeSseResponse([])));
+
+    const component = {
+      instanceId: 1,
+      target: document.createElement("div"),
+      componentFn: "view",
+      dispose: null,
+      eventCleanup: null,
+      localState: new Map(),
+      mountCleanup: null,
+      pendingMount: null,
+      ownedSignalIds: new Set<number>(),
+      ownedWatchIds: new Set<number>(),
+      ownedIntervalIds: new Set<number>(),
+      ownedStreamIds: new Set<number>(),
+      ownedListenerKeys: new Set<string>(),
+    };
+
+    ctx.mountedComponentsById.set(component.instanceId, component as any);
+    ctx.ownerStack.push(component.instanceId);
+    const signalId = interp.getFunction("http/event-source")!("/stream");
+    ctx.ownerStack.pop();
+
+    expect(component.ownedStreamIds.has(signalId)).toBe(true);
+  });
 });

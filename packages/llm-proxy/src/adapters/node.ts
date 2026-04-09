@@ -48,6 +48,7 @@
 
 import { createHandler } from "../handler.js";
 import { extractClientIdFromNodeHeaders } from "../client-id.js";
+import { buildBodyTooLargeResponse, getMaxBodySize } from "../body.js";
 import type { ProxyConfig, ProxyRequest } from "../types.js";
 
 /** Minimal Node.js IncomingMessage interface. */
@@ -81,6 +82,7 @@ export type NodeHandler = (
 export function createNodeHandler(config: ProxyConfig): NodeHandler {
   const handler = createHandler(config);
   const corsOrigin = config.cors ?? "*";
+  const maxBodySize = getMaxBodySize(config);
 
   return (req: NodeRequest, res: NodeResponse): void => {
     const url = req.url ?? "/";
@@ -88,9 +90,36 @@ export function createNodeHandler(config: ProxyConfig): NodeHandler {
 
     // Read request body
     if (req.method === "POST") {
+      const contentLength = getHeader(req.headers, "content-length");
+      if (contentLength) {
+        const declaredBytes = Number.parseInt(contentLength, 10);
+        if (Number.isFinite(declaredBytes) && declaredBytes > maxBodySize) {
+          const tooLarge = buildBodyTooLargeResponse(corsOrigin, maxBodySize, declaredBytes);
+          res.writeHead(tooLarge.status, tooLarge.headers);
+          res.end(tooLarge.body);
+          return;
+        }
+      }
+
       const chunks: Uint8Array[] = [];
-      req.on("data", (chunk) => chunks.push(chunk));
+      let totalBytes = 0;
+      let tooLarge = false;
+      req.on("data", (chunk) => {
+        totalBytes += chunk.length;
+        if (totalBytes > maxBodySize) {
+          tooLarge = true;
+          return;
+        }
+        chunks.push(chunk);
+      });
       req.on("end", () => {
+        if (tooLarge) {
+          const response = buildBodyTooLargeResponse(corsOrigin, maxBodySize, totalBytes);
+          res.writeHead(response.status, response.headers);
+          res.end(response.body);
+          return;
+        }
+
         const bodyStr = new TextDecoder().decode(concatUint8Arrays(chunks));
         let body: unknown = null;
         try {
@@ -111,7 +140,11 @@ export function createNodeHandler(config: ProxyConfig): NodeHandler {
           endpoint,
           body,
           authHeader: getHeader(req.headers, "authorization"),
-          clientId: extractClientIdFromNodeHeaders((name) => getHeader(req.headers, name)),
+          clientId: extractClientIdFromNodeHeaders(
+            (name) => getHeader(req.headers, name),
+            config.trustProxyHeaders,
+          ),
+          requestedHeaders: getHeader(req.headers, "access-control-request-headers"),
         };
 
         handler(proxyReq).then(
@@ -150,7 +183,11 @@ export function createNodeHandler(config: ProxyConfig): NodeHandler {
         endpoint,
         body: null,
         authHeader: getHeader(req.headers, "authorization"),
-        clientId: extractClientIdFromNodeHeaders((name) => getHeader(req.headers, name)),
+        clientId: extractClientIdFromNodeHeaders(
+          (name) => getHeader(req.headers, name),
+          config.trustProxyHeaders,
+        ),
+        requestedHeaders: getHeader(req.headers, "access-control-request-headers"),
       };
 
       handler(proxyReq).then(

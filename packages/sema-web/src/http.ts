@@ -10,6 +10,7 @@
 
 import { signal } from "@preact/signals-core";
 import type { SemaWebContext } from "./context.js";
+import { getCurrentOwnerId } from "./context.js";
 import { openSseStream } from "./sse.js";
 
 interface SemaInterpreterLike {
@@ -36,7 +37,7 @@ interface HttpStreamState {
 }
 
 function getActiveComponent(ctx: SemaWebContext) {
-  const componentId = ctx.renderContextStack[ctx.renderContextStack.length - 1];
+  const componentId = getCurrentOwnerId(ctx);
   return componentId != null ? ctx.mountedComponentsById.get(componentId) ?? null : null;
 }
 
@@ -58,13 +59,13 @@ function normalizeStreamOptions(
 ): HttpStreamOptions {
   if (typeof input === "string") {
     const normalized = stripColonKeys(maybeOpts && typeof maybeOpts === "object" ? maybeOpts : {});
-  return {
-    url: input,
-    method: normalized.method,
-    headers: normalized.headers,
-    body: normalized.body,
-    withCredentials: normalized.withCredentials ?? normalized["with-credentials"],
-  };
+    return {
+      url: input,
+      method: normalized.method,
+      headers: normalized.headers,
+      body: normalized.body,
+      withCredentials: normalized.withCredentials ?? normalized["with-credentials"],
+    };
   }
 
   const normalized = stripColonKeys(input && typeof input === "object" ? input : {});

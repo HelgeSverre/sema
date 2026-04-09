@@ -16,6 +16,11 @@ vi.mock("morphdom", () => ({
 // Mock @preact/signals-core — effect() runs synchronously in tests
 vi.mock("@preact/signals-core", () => ({
   signal: (val: any) => ({ value: val, peek: () => val }),
+  computed: (fn: () => any) => ({
+    get value() {
+      return fn();
+    },
+  }),
   effect: (fn: () => void) => {
     fn();
     return () => {};
