@@ -9,6 +9,7 @@
 
 import { storeHandle, getElement, getNode, getEvent, releaseHandle, SEMA_IDENT_RE } from "./handles.js";
 import type { SemaWebContext } from "./context.js";
+import { getCurrentOwnerId, withOwnerContext } from "./context.js";
 import { renderSip } from "./sip.js";
 import { toInvokableCallback, releaseCallback } from "./callbacks.js";
 
@@ -197,6 +198,7 @@ export function registerDomBindings(interp: SemaInterpreterLike, ctx: SemaWebCon
   interp.registerFunction("dom/on!", (id: number, event: string, callbackValue: any) => {
     const el = getElement(id, ctx);
     const callback = toInvokableCallback(callbackValue, interp, `dom/on! callback for "${event}"`);
+    const ownerId = getCurrentOwnerId(ctx);
     const callbackKey =
       typeof callback.__semaCallbackHandle === "number"
         ? `handle:${callback.__semaCallbackHandle}`
@@ -209,12 +211,15 @@ export function registerDomBindings(interp: SemaInterpreterLike, ctx: SemaWebCon
       existing.target.removeEventListener(existing.event, existing.listener);
       releaseCallback(existing.callback);
       ctx.listeners.delete(key);
+      for (const component of ctx.mountedComponents.values()) {
+        component.ownedListenerKeys.delete(key);
+      }
     }
 
     const listener = (ev: Event) => {
       const evHandle = storeHandle(ev, ctx);
       try {
-        callback(evHandle);
+        withOwnerContext(ctx, ownerId, () => callback(evHandle));
       } catch (e) {
         ctx.onerror(e instanceof Error ? e : new Error(String(e)), `event:${event}`);
       } finally {
@@ -225,6 +230,8 @@ export function registerDomBindings(interp: SemaInterpreterLike, ctx: SemaWebCon
 
     ctx.listeners.set(key, { target: el, event, listener, callback });
     el.addEventListener(event, listener);
+    const owner = ownerId != null ? ctx.mountedComponentsById.get(ownerId) ?? null : null;
+    if (owner) owner.ownedListenerKeys.add(key);
     return null;
   });
 
@@ -241,6 +248,9 @@ export function registerDomBindings(interp: SemaInterpreterLike, ctx: SemaWebCon
       registration.target.removeEventListener(registration.event, registration.listener);
       releaseCallback(registration.callback);
       ctx.listeners.delete(key);
+      for (const component of ctx.mountedComponents.values()) {
+        component.ownedListenerKeys.delete(key);
+      }
     }
     return null;
   });

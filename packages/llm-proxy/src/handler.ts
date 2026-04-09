@@ -21,6 +21,7 @@ import type {
   ProxyErrorResponse,
   RateLimitConfig,
 } from "./types.js";
+import { byteLength } from "./body.js";
 import {
   resolveProvider,
   getSpec,
@@ -76,7 +77,6 @@ class RateLimiter {
 
 // --- Body size check ---
 
-const textEncoder = new TextEncoder();
 const DEFAULT_UPSTREAM_TIMEOUT_MS = 30_000;
 
 class UpstreamTimeoutError extends Error {
@@ -90,7 +90,7 @@ class UpstreamTimeoutError extends Error {
 function checkBodySize(body: string | object, config: ProxyConfig): ProxyErrorResponse | null {
   const maxSize = config.maxBodySize || 1_048_576; // 1MB default
   const serialized = typeof body === "string" ? body : JSON.stringify(body);
-  const size = textEncoder.encode(serialized).length;
+  const size = byteLength(serialized);
   if (size > maxSize) {
     return {
       error: `Request body too large (${size} bytes, max ${maxSize})`,
@@ -260,7 +260,7 @@ async function readWithIdleTimeout<T>(
 }
 
 function encodeSseEvent(payload: Record<string, unknown>): Uint8Array {
-  return textEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
+  return new TextEncoder().encode(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
 function providerStreamMode(provider: ResolvedProvider["provider"]): "openai" | "anthropic" | "fallback" {
@@ -315,33 +315,39 @@ export function createHandler(config: ProxyConfig): HandlerFn {
   return async (req: ProxyRequest): Promise<ProxyResponse> => {
     // CORS preflight
     if (req.method === "OPTIONS") {
-      return corsResponse(corsOrigin);
+      return corsResponse(corsOrigin, config.corsAllowedHeaders, req.requestedHeaders);
     }
 
     // Auth check
     const authResult = await checkAuth(config.auth, req.authHeader);
     if (authResult) {
-      return { ...authResult, headers: { ...authResult.headers, ...corsHeaders(corsOrigin) } };
+      return {
+        ...authResult,
+        headers: {
+          ...authResult.headers,
+          ...corsHeaders(corsOrigin, config.corsAllowedHeaders, req.requestedHeaders),
+        },
+      };
     }
 
     // Rate limit check
     const rateLimitKey = req.clientId || req.authHeader || "anonymous";
     const rateLimitError = rateLimiter.check(rateLimitKey);
     if (rateLimitError) {
-      return jsonResponse(429, rateLimitError, corsOrigin);
+      return jsonResponse(429, rateLimitError, corsOrigin, config.corsAllowedHeaders, req.requestedHeaders);
     }
 
     // Body size check
     if (req.body != null) {
       const bodySizeError = checkBodySize(req.body as string | object, config);
       if (bodySizeError) {
-        return jsonResponse(413, bodySizeError, corsOrigin);
+        return jsonResponse(413, bodySizeError, corsOrigin, config.corsAllowedHeaders, req.requestedHeaders);
       }
     }
 
     const validationError = validateRequest(req);
     if (validationError) {
-      return jsonResponse(400, validationError, corsOrigin);
+      return jsonResponse(400, validationError, corsOrigin, config.corsAllowedHeaders, req.requestedHeaders);
     }
 
     try {
@@ -372,22 +378,22 @@ export function createHandler(config: ProxyConfig): HandlerFn {
           return jsonResponse(404, {
             error: `Unknown endpoint: ${req.endpoint}`,
             code: "INVALID_REQUEST" as const,
-          }, corsOrigin);
+          }, corsOrigin, config.corsAllowedHeaders, req.requestedHeaders);
       }
 
-      return jsonResponse(200, result, corsOrigin);
+      return jsonResponse(200, result, corsOrigin, config.corsAllowedHeaders, req.requestedHeaders);
     } catch (err) {
       if (isTimeoutError(err)) {
         return jsonResponse(504, {
           error: err.message,
           code: "TIMEOUT" as const,
-        }, corsOrigin);
+        }, corsOrigin, config.corsAllowedHeaders, req.requestedHeaders);
       }
       const message = err instanceof Error ? err.message : String(err);
       return jsonResponse(502, {
         error: message,
         code: "PROVIDER_ERROR" as const,
-      }, corsOrigin);
+      }, corsOrigin, config.corsAllowedHeaders, req.requestedHeaders);
     }
   };
 }
@@ -753,31 +759,50 @@ function jsonResponse(
   status: number,
   body: unknown,
   corsOrigin: string,
+  allowedHeaders?: string[],
+  requestedHeaders?: string | null,
 ): ProxyResponse {
   return {
     status,
     headers: {
       "Content-Type": "application/json",
-      ...corsHeaders(corsOrigin),
+      ...corsHeaders(corsOrigin, allowedHeaders, requestedHeaders),
     },
     body: JSON.stringify(body),
   };
 }
 
 /** CORS headers. */
-function corsHeaders(origin: string): Record<string, string> {
+function corsHeaders(
+  origin: string,
+  allowedHeaders?: string[],
+  requestedHeaders?: string | null,
+): Record<string, string> {
+  const headerNames = new Set<string>(["Content-Type", "Authorization"]);
+  for (const header of allowedHeaders ?? []) {
+    const trimmed = header.trim();
+    if (trimmed) headerNames.add(trimmed);
+  }
+  for (const header of (requestedHeaders ?? "").split(",")) {
+    const trimmed = header.trim();
+    if (trimmed) headerNames.add(trimmed);
+  }
   return {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": Array.from(headerNames).join(", "),
   };
 }
 
 /** CORS preflight response. */
-function corsResponse(origin: string): ProxyResponse {
+function corsResponse(
+  origin: string,
+  allowedHeaders?: string[],
+  requestedHeaders?: string | null,
+): ProxyResponse {
   return {
     status: 204,
-    headers: corsHeaders(origin),
+    headers: corsHeaders(origin, allowedHeaders, requestedHeaders),
     body: "",
   };
 }

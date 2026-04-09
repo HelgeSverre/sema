@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { signal, effect } from "@preact/signals-core";
 import { registerReactiveBindings } from "../src/reactive.js";
-import { SemaWebContext } from "../src/context.js";
+import { SemaWebContext, disposeContextResources } from "../src/context.js";
 import { createMockInterpreter } from "./helpers.js";
 
 function setup() {
@@ -143,6 +143,38 @@ describe("registerReactiveBindings", () => {
     expect(seen).toEqual([[1, 2], [2, 3]]);
   });
 
+  it("__state/watch binds ownership from the current execution context", () => {
+    const { interp, ctx } = setup();
+
+    const create = interp.getFunction("__state/create")!;
+    const watch = interp.getFunction("__state/watch")!;
+
+    const component = {
+      instanceId: 1,
+      target: document.createElement("div"),
+      componentFn: "view",
+      dispose: null,
+      eventCleanup: null,
+      localState: new Map(),
+      mountCleanup: null,
+      pendingMount: null,
+      ownedSignalIds: new Set<number>(),
+      ownedWatchIds: new Set<number>(),
+      ownedIntervalIds: new Set<number>(),
+      ownedStreamIds: new Set<number>(),
+      ownedListenerKeys: new Set<string>(),
+    };
+    ctx.mountedComponentsById.set(component.instanceId, component as any);
+    ctx.ownerStack.push(component.instanceId);
+
+    const id = create(1);
+    const watchId = watch(id, () => {});
+
+    ctx.ownerStack.pop();
+
+    expect(component.ownedWatchIds.has(watchId)).toBe(true);
+  });
+
   it("__state/batch-run executes the thunk via evalStr", () => {
     const { interp } = setup();
 
@@ -176,6 +208,26 @@ describe("registerReactiveBindings", () => {
       (c) => c.includes("my_thunk")
     );
     expect(computedCalls.length).toBeGreaterThan(0);
+  });
+
+  it("releases computed callback handles when the context is disposed", () => {
+    const { interp, ctx } = setup();
+
+    const computedCreate = interp.getFunction("__state/computed-create")!;
+    let released = 0;
+    const callback = Object.assign(() => 42, {
+      __semaRelease: () => {
+        released += 1;
+      },
+    });
+
+    const id = computedCreate(callback);
+    expect(ctx.signals.has(id)).toBe(true);
+
+    disposeContextResources(ctx);
+
+    expect(released).toBe(1);
+    expect(ctx.signals.has(id)).toBe(false);
   });
 
   it("Sema wrappers are registered via evalStr", () => {

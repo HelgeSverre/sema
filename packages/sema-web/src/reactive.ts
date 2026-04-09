@@ -16,6 +16,7 @@
 import { signal, computed, effect, batch } from "@preact/signals-core";
 import type { Signal, ReadonlySignal } from "@preact/signals-core";
 import type { SemaWebContext } from "./context.js";
+import { getCurrentOwnerId, registerSignalFinalizer, withOwnerContext } from "./context.js";
 import { toInvokableCallback, releaseCallback } from "./callbacks.js";
 
 interface SemaInterpreterLike {
@@ -46,7 +47,7 @@ interface SemaInterpreterLike {
  */
 export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaWebContext): void {
   const getActiveComponent = () => {
-    const componentId = ctx.renderContextStack[ctx.renderContextStack.length - 1];
+    const componentId = getCurrentOwnerId(ctx);
     return componentId != null ? ctx.mountedComponentsById.get(componentId) ?? null : null;
   };
 
@@ -76,16 +77,21 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
   interp.registerFunction("__state/computed-create", (callbackValue: any) => {
     const callback = toInvokableCallback(callbackValue, interp, "computed callback");
     const id = ctx.nextSignalId++;
+    const owner = getActiveComponent();
 
     const c = computed(() => {
       try {
-        return callback();
+        return withOwnerContext(ctx, owner?.instanceId ?? null, () => callback());
       } catch (e) {
         ctx.onerror(e instanceof Error ? e : new Error(String(e)), "computed");
         return undefined;
       }
     });
     ctx.signals.set(id, c as unknown as Signal<any>);
+    registerSignalFinalizer(ctx, id, () => {
+      releaseCallback(callbackValue);
+    });
+    if (owner) owner.ownedSignalIds.add(id);
     return id;
   });
 
@@ -113,6 +119,7 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
     const s = ctx.signals.get(signalId);
     if (!s) throw new Error(`Unknown state: ${signalId}`);
     const callback = toInvokableCallback(callbackValue, interp, "watch callback");
+    const owner = getActiveComponent();
 
     let prev = s.value;
 
@@ -123,14 +130,13 @@ export function registerReactiveBindings(interp: SemaInterpreterLike, ctx: SemaW
         const oldVal = prev;
         prev = current;
         try {
-          callback(oldVal, current);
+          withOwnerContext(ctx, owner?.instanceId ?? null, () => callback(oldVal, current));
         } catch (e) {
           ctx.onerror(e instanceof Error ? e : new Error(String(e)), "watch");
         }
       }
     });
     ctx.watchDisposers.set(watchId, { dispose, callback });
-    const owner = getActiveComponent();
     if (owner) owner.ownedWatchIds.add(watchId);
     return watchId;
   });

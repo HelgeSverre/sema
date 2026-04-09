@@ -73,6 +73,12 @@ export interface ProxyConfig {
   cors?: string;
 
   /**
+   * Additional headers allowed in CORS preflight responses.
+   * Use this when browser clients send custom headers to the proxy.
+   */
+  corsAllowedHeaders?: string[];
+
+  /**
    * Maximum request body size in bytes.
    * Default: 1MB (1_048_576).
    */
@@ -87,6 +93,15 @@ export interface ProxyConfig {
    * Default: 30000.
    */
   upstreamTimeoutMs?: number;
+
+  /**
+   * Whether proxy forwarding headers should be trusted for client identity.
+   *
+   * - `false` / unset: do not trust proxy forwarding headers
+   * - `true`: trust the default forwarding headers
+   * - `string[]`: trust the provided header names, in order
+   */
+  trustProxyHeaders?: boolean | string[];
 }
 
 // --- Request/Response types (protocol between browser and proxy) ---
@@ -179,6 +194,8 @@ export interface ProxyRequest {
   authHeader: string | null;
   /** Best-effort client identity for rate limiting (IP/session/etc.). */
   clientId?: string | null;
+  /** Browser-requested CORS headers from preflight, if any. */
+  requestedHeaders?: string | null;
 }
 
 /** Platform-agnostic outgoing response. */

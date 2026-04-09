@@ -50,6 +50,7 @@
 
 import { signal } from "@preact/signals-core";
 import type { SemaWebContext } from "./context.js";
+import { getCurrentOwnerId } from "./context.js";
 import { openSseStream } from "./sse.js";
 
 interface SemaInterpreterLike {
@@ -227,7 +228,7 @@ export function registerLlmBindings(
       kind: "llm-stream",
       close: managedStream.close,
     });
-    const ownerId = ctx.renderContextStack[ctx.renderContextStack.length - 1];
+    const ownerId = getCurrentOwnerId(ctx);
     const owner = ownerId != null ? ctx.mountedComponentsById.get(ownerId) ?? null : null;
     if (owner) owner.ownedStreamIds.add(id);
 

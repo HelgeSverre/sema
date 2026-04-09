@@ -27,7 +27,13 @@
 
 import morphdom from "morphdom";
 import { signal, effect } from "@preact/signals-core";
-import type { SemaWebContext, MountedComponent } from "./context.js";
+import {
+  type SemaWebContext,
+  type MountedComponent,
+  disposeSignal,
+  getCurrentOwnerId,
+  withOwnerContext,
+} from "./context.js";
 import { renderSip } from "./sip.js";
 import { SEMA_IDENT_RE, storeHandle, releaseHandlesForSubtree } from "./handles.js";
 import { toInvokableCallback, releaseCallback, type SemaCallback } from "./callbacks.js";
@@ -49,12 +55,14 @@ interface SemaInterpreterLike {
  * component is currently rendering.
  */
 function withComponentContext<T>(ctx: SemaWebContext, componentId: number, fn: () => T): T {
-  ctx.renderContextStack.push(componentId);
-  try {
-    return fn();
-  } finally {
-    ctx.renderContextStack.pop();
-  }
+  return withOwnerContext(ctx, componentId, () => {
+    ctx.renderContextStack.push(componentId);
+    try {
+      return fn();
+    } finally {
+      ctx.renderContextStack.pop();
+    }
+  });
 }
 
 function callComponent(interp: SemaInterpreterLike, component: MountedComponent, ctx: SemaWebContext): any {
@@ -142,6 +150,14 @@ function cleanupStream(ctx: SemaWebContext, signalId: number): void {
   }
 }
 
+function cleanupListener(ctx: SemaWebContext, key: string): void {
+  const registration = ctx.listeners.get(key);
+  if (!registration) return;
+  registration.target.removeEventListener(registration.event, registration.listener);
+  releaseCallback(registration.callback);
+  ctx.listeners.delete(key);
+}
+
 function destroyMountedComponent(selector: string, component: MountedComponent, ctx: SemaWebContext): void {
   if (component.pendingMount) {
     releaseCallback(component.pendingMount);
@@ -176,6 +192,16 @@ function destroyMountedComponent(selector: string, component: MountedComponent, 
     component.eventCleanup = null;
   }
 
+  for (const listenerKey of component.ownedListenerKeys) {
+    cleanupListener(ctx, listenerKey);
+  }
+  component.ownedListenerKeys.clear();
+
+  for (const signalId of component.ownedSignalIds) {
+    disposeSignal(ctx, signalId);
+  }
+  component.ownedSignalIds.clear();
+
   for (const watchId of component.ownedWatchIds) {
     cleanupWatch(ctx, watchId);
   }
@@ -188,12 +214,12 @@ function destroyMountedComponent(selector: string, component: MountedComponent, 
 
   for (const signalId of component.ownedStreamIds) {
     cleanupStream(ctx, signalId);
-    ctx.signals.delete(signalId);
+    disposeSignal(ctx, signalId);
   }
   component.ownedStreamIds.clear();
 
   for (const signalId of component.localState.values()) {
-    ctx.signals.delete(signalId);
+    disposeSignal(ctx, signalId);
   }
   component.localState.clear();
 
@@ -210,7 +236,12 @@ function destroyMountedComponent(selector: string, component: MountedComponent, 
  * and dispatches to Sema callback functions via `data-sema-on-*` attributes.
  */
 class EventDelegator {
-  setup(target: Element, interp: SemaInterpreterLike, ctx: SemaWebContext): () => void {
+  setup(
+    component: MountedComponent,
+    target: Element,
+    interp: SemaInterpreterLike,
+    ctx: SemaWebContext,
+  ): () => void {
     const bubbling = [
       "click", "dblclick", "contextmenu", "input", "change", "submit",
       "keydown", "keyup", "keypress", "pointerdown", "pointerup", "pointermove",
@@ -226,7 +257,9 @@ class EventDelegator {
           if (el.hasAttribute(attr)) {
             const fn = el.getAttribute(attr)!;
             if (SEMA_IDENT_RE.test(fn)) {
-              this.dispatchEvent(interp, ctx, fn, ev);
+              withOwnerContext(ctx, component.instanceId, () => {
+                this.dispatchEvent(interp, ctx, fn, ev);
+              });
               // Stop walking up if the handler called stopPropagation
               if (ev.cancelBubble || (ev as any).__sema_stop) break;
             }
@@ -243,7 +276,9 @@ class EventDelegator {
       const mev = ev as MouseEvent;
       const el = (mev.target as Element).closest?.("[data-sema-on-mouseenter]");
       if (!el || el.contains(mev.relatedTarget as Node)) return;
-      this.dispatchEvent(interp, ctx, el.getAttribute("data-sema-on-mouseenter")!, mev);
+      withOwnerContext(ctx, component.instanceId, () => {
+        this.dispatchEvent(interp, ctx, el.getAttribute("data-sema-on-mouseenter")!, mev);
+      });
     };
     target.addEventListener("mouseover", mouseOverListener);
     listeners.push({ event: "mouseover", listener: mouseOverListener });
@@ -252,7 +287,9 @@ class EventDelegator {
       const mev = ev as MouseEvent;
       const el = (mev.target as Element).closest?.("[data-sema-on-mouseleave]");
       if (!el || el.contains(mev.relatedTarget as Node)) return;
-      this.dispatchEvent(interp, ctx, el.getAttribute("data-sema-on-mouseleave")!, mev);
+      withOwnerContext(ctx, component.instanceId, () => {
+        this.dispatchEvent(interp, ctx, el.getAttribute("data-sema-on-mouseleave")!, mev);
+      });
     };
     target.addEventListener("mouseout", mouseOutListener);
     listeners.push({ event: "mouseout", listener: mouseOutListener });
@@ -316,14 +353,16 @@ export function registerComponentBindings(interp: SemaInterpreterLike, ctx: Sema
         localState: new Map(),
         mountCleanup: null,
         pendingMount: null,
+        ownedSignalIds: new Set(),
         ownedWatchIds: new Set(),
         ownedIntervalIds: new Set(),
         ownedStreamIds: new Set(),
+        ownedListenerKeys: new Set(),
       };
 
       // Set up delegated event handling on the mount target
       const delegator = new EventDelegator();
-      component.eventCleanup = delegator.setup(target, interp, ctx);
+      component.eventCleanup = delegator.setup(component, target, interp, ctx);
 
       // Store component before rendering so local/on-mount can find it
       ctx.mountedComponents.set(selector, component);
@@ -439,15 +478,16 @@ export function registerComponentBindings(interp: SemaInterpreterLike, ctx: Sema
   // js/set-interval — browser setInterval wrapper
   interp.registerFunction("js/set-interval", (callbackValue: any, ms: number) => {
     const callback = toInvokableCallback(callbackValue, interp, "interval callback");
+    const ownerId = getCurrentOwnerId(ctx);
     const id = setInterval(() => {
       try {
-        callback();
+        withOwnerContext(ctx, ownerId, () => callback());
       } catch (e) {
         ctx.onerror(e instanceof Error ? e : new Error(String(e)), "interval");
       }
     }, ms);
     ctx.intervals.set(id, { callback });
-    const owner = getActiveComponent(ctx);
+    const owner = ownerId != null ? ctx.mountedComponentsById.get(ownerId) ?? null : null;
     if (owner) owner.ownedIntervalIds.add(id);
     return id;
   });
