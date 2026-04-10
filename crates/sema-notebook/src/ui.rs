@@ -15,24 +15,60 @@ pub fn index_html() -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sema Notebook</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a1a1a'/%3E%3Ctext x='16' y='24.5' text-anchor='middle' font-family='Georgia' font-weight='600' font-size='26' fill='%23c8a855'%3ES%3C/text%3E%3C/svg%3E">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/ui/style.css">
 </head>
 <body>
-<div id="app">
-  <header id="toolbar">
-    <div class="toolbar-left">
-      <h1 class="logo">Sema <span class="logo-sub">Notebook</span></h1>
-    </div>
-    <div class="toolbar-center" id="notebook-title">Untitled</div>
-    <div class="toolbar-right">
-      <button onclick="Notebook.addCell('code')" title="Add code cell">+ Code</button>
-      <button onclick="Notebook.addCell('markdown')" title="Add markdown cell">+ Markdown</button>
-      <button onclick="Notebook.evalAll()" title="Run all cells">Run All</button>
-      <button onclick="Notebook.save()" title="Save notebook">Save</button>
-      <button onclick="Notebook.reset()" title="Reset environment">Reset</button>
-    </div>
-  </header>
-  <main id="cells"></main>
+<div id="toolbar">
+  <div class="toolbar-left">
+    <svg class="logo-mark" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="6" fill="#1a1a1a"/>
+      <text x="16" y="24.5" text-anchor="middle" font-family="Georgia, 'Times New Roman', serif" font-weight="600" font-size="26" fill="#c8a855">S</text>
+    </svg>
+    <span class="logo-text">Notebook</span>
+  </div>
+  <div class="toolbar-center">
+    <input type="text" id="notebook-title" value="Untitled">
+    <svg class="edit-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z"/>
+    </svg>
+  </div>
+  <div class="toolbar-right">
+    <button class="toolbar-btn" title="Add code cell" onclick="Notebook.addCell('code')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="4,2 1,8 4,14"/><polyline points="12,2 15,8 12,14"/><line x1="10" y1="2" x2="6" y2="14"/>
+      </svg>
+    </button>
+    <button class="toolbar-btn" title="Add markdown cell" onclick="Notebook.addCell('markdown')">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="2" y1="3" x2="14" y2="3"/><line x1="2" y1="7" x2="10" y2="7"/><line x1="2" y1="11" x2="14" y2="11"/>
+      </svg>
+    </button>
+    <div class="toolbar-sep"></div>
+    <button class="toolbar-btn" title="Run all cells" onclick="Notebook.evalAll()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="3,1 13,8 3,15" fill="currentColor" stroke="none"/>
+      </svg>
+    </button>
+    <div class="toolbar-sep"></div>
+    <button class="toolbar-btn" title="Save notebook" onclick="Notebook.save()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M13 15H3a1 1 0 01-1-1V2a1 1 0 011-1h8l3 3v10a1 1 0 01-1 1z"/>
+        <path d="M10 1v3H6"/><rect x="5" y="9" width="6" height="4"/>
+      </svg>
+    </button>
+    <button class="toolbar-btn" title="Reset environment" onclick="Notebook.reset()">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M1 4v4h4"/><path d="M2.5 10A6 6 0 1 0 4 4L1 8"/>
+      </svg>
+    </button>
+  </div>
+</div>
+<div id="cells"><div id="cells-inner"></div></div>
+<div id="status-bar">
+  <span class="status-text" id="cell-count">0 cells</span>
+  <span class="status-text status-ready" id="status-indicator">Ready</span>
 </div>
 <script src="/ui/notebook.js"></script>
 </body>
@@ -52,22 +88,23 @@ pub fn asset(path: &str) -> Option<(String, String)> {
 fn css() -> &'static str {
     r##"/* Sema Notebook — Stylesheet */
 :root {
-  --bg: #1a1a2e;
-  --bg-cell: #16213e;
-  --bg-cell-hover: #1a2744;
-  --bg-output: #0f3460;
-  --bg-input: #1a1a2e;
-  --text: #e0e0e0;
-  --text-dim: #8899aa;
-  --accent: #e94560;
-  --accent2: #0ea5e9;
-  --border: #2a3a5a;
-  --success: #34d399;
-  --error: #f87171;
-  --stale: #fbbf24;
-  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-  --radius: 8px;
+  --bg: #0c0c0c;
+  --bg-editor: #0a0a0a;
+  --bg-output: #080808;
+  --bg-elevated: #141414;
+  --border: #1e1e1e;
+  --border-focus: #333;
+  --gold: #c8a855;
+  --gold-dim: rgba(200, 168, 85, 0.5);
+  --gold-glow: rgba(200, 168, 85, 0.08);
+  --text: #a09888;
+  --text-bright: #d8d0c0;
+  --text-dim: #5a5448;
+  --success: #6a9955;
+  --error: #c85555;
+  --error-bg: rgba(200, 85, 85, 0.06);
+  --mono: 'JetBrains Mono', monospace;
+  --serif: 'Cormorant', Georgia, serif;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -75,14 +112,12 @@ fn css() -> &'static str {
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--font-sans);
-  line-height: 1.6;
-}
-
-#app {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 0 16px;
+  font-family: var(--mono);
+  font-size: 14px;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 /* Toolbar */
@@ -90,255 +125,446 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 0;
+  padding: 0 1.25rem;
+  height: 48px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 24px;
-  position: sticky;
-  top: 0;
-  background: var(--bg);
+  background: var(--bg-elevated);
+  flex-shrink: 0;
   z-index: 100;
 }
 
-.logo {
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--accent);
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
-.logo-sub {
-  color: var(--text-dim);
-  font-weight: 400;
+
+.logo-mark { width: 24px; height: 24px; flex-shrink: 0; }
+
+.logo-text {
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  font-weight: 300;
+  letter-spacing: 0.06em;
+  color: var(--text-bright);
 }
 
 .toolbar-center {
-  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  cursor: text;
+  padding: 0.2rem 0.5rem;
+  border-radius: 3px;
+  transition: background 0.15s;
+}
+.toolbar-center:hover { background: var(--gold-glow); }
+.toolbar-center:hover .edit-icon { opacity: 1; }
+
+#notebook-title {
+  font-family: var(--serif);
+  font-size: 1.1rem;
+  font-weight: 400;
+  color: var(--text-bright);
+  background: none;
+  border: none;
+  outline: none;
+  text-align: center;
+  min-width: 120px;
+}
+
+.edit-icon {
   color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.15s;
+  flex-shrink: 0;
 }
 
 .toolbar-right {
   display: flex;
-  gap: 8px;
+  align-items: center;
+  gap: 0.25rem;
 }
 
-button {
-  background: var(--bg-cell);
-  color: var(--text);
-  border: 1px solid var(--border);
-  padding: 6px 14px;
-  border-radius: var(--radius);
-  cursor: pointer;
-  font-size: 13px;
-  font-family: var(--font-sans);
-  transition: background 0.15s, border-color 0.15s;
-}
-button:hover {
-  background: var(--bg-cell-hover);
-  border-color: var(--accent2);
-}
-
-/* Cells */
-#cells {
-  padding-bottom: 120px;
-}
-
-.cell {
-  margin-bottom: 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  transition: border-color 0.2s;
-}
-.cell:focus-within {
-  border-color: var(--accent2);
-}
-.cell.stale {
-  border-color: var(--stale);
-}
-
-.cell-header {
+.toolbar-btn {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: var(--bg-cell);
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-dim);
-}
-
-.cell-badge {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.cell-number {
-  background: var(--accent2);
-  color: #fff;
-  padding: 1px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  font-family: var(--font-mono);
-}
-
-.cell-type {
-  text-transform: uppercase;
-  font-size: 10px;
-  letter-spacing: 0.5px;
-}
-
-.cell-actions {
-  display: flex;
-  gap: 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
-}
-.cell:hover .cell-actions {
-  opacity: 1;
-}
-
-.cell-actions button {
-  padding: 2px 8px;
-  font-size: 11px;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   border: none;
+  border-radius: 4px;
   background: transparent;
   color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  position: relative;
 }
-.cell-actions button:hover {
-  color: var(--text);
-  background: var(--bg-cell-hover);
+.toolbar-btn:hover { color: var(--gold); background: var(--gold-glow); }
+.toolbar-btn svg { width: 16px; height: 16px; }
+
+.toolbar-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 0.25rem;
 }
 
-.cell-actions button.run-btn {
-  color: var(--success);
-}
-
-/* Editor */
-.cell-editor {
-  width: 100%;
-  min-height: 60px;
-  padding: 12px 16px;
-  background: var(--bg-input);
-  color: var(--text);
-  border: none;
-  resize: vertical;
-  font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1.5;
-  outline: none;
-  tab-size: 2;
-}
-
-.cell-editor.markdown-editor {
-  font-family: var(--font-sans);
-}
-
-/* Output */
-.cell-output {
-  padding: 10px 16px;
-  background: var(--bg-output);
-  font-family: var(--font-mono);
-  font-size: 13px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  border-top: 1px solid var(--border);
-}
-
-.cell-output.error {
-  color: var(--error);
-  background: #1a0a0a;
-}
-
-.cell-output.empty {
-  display: none;
-}
-
-.cell-meta {
-  display: flex;
-  gap: 12px;
-  padding: 4px 16px;
-  background: var(--bg-output);
-  font-size: 11px;
-  color: var(--text-dim);
-  border-top: 1px solid rgba(255,255,255,0.05);
-}
-
-.stale-badge {
-  color: var(--stale);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-/* Markdown rendered */
-.markdown-preview {
-  padding: 12px 16px;
-  line-height: 1.7;
-}
-.markdown-preview h1, .markdown-preview h2, .markdown-preview h3 {
-  margin: 0.5em 0 0.25em;
-  color: var(--text);
-}
-.markdown-preview code {
-  background: var(--bg-cell);
-  padding: 2px 6px;
+/* Tooltip */
+.toolbar-btn[title]::after {
+  content: attr(title);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a1a;
+  color: var(--text-bright);
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  padding: 0.3rem 0.5rem;
   border-radius: 3px;
-  font-family: var(--font-mono);
-  font-size: 0.9em;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 200;
 }
-.markdown-preview pre code {
-  display: block;
-  padding: 12px;
-  overflow-x: auto;
+.toolbar-btn:hover[title]::after { opacity: 1; }
+
+/* Cells container */
+#cells {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
 }
 
-/* Loading spinner */
-.cell-loading {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  color: var(--accent2);
-  font-size: 13px;
+#cells-inner {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0 1.5rem;
 }
-.spinner {
+
+/* Empty state */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6rem 2rem;
+  gap: 1.5rem;
+}
+.empty-state-text {
+  font-family: var(--serif);
+  font-size: 1.3rem;
+  font-weight: 300;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+.empty-state-actions { display: flex; gap: 0.75rem; }
+.pill-btn {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--gold);
+  background: transparent;
+  border: 1px solid var(--gold-dim);
+  padding: 0.4rem 1rem;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  letter-spacing: 0.03em;
+}
+.pill-btn:hover { background: var(--gold-glow); border-color: var(--gold); }
+
+/* Cell */
+.cell {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0;
+  position: relative;
+}
+.cell-gutter {
+  width: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 0.65rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  user-select: none;
+}
+.cell-gutter .exec-count { color: var(--gold); font-size: 0.7rem; }
+.cell-gutter .exec-count.stale { color: var(--gold-dim); }
+.cell-gutter .spinner {
   width: 14px;
   height: 14px;
   border: 2px solid var(--border);
-  border-top-color: var(--accent2);
+  border-top-color: var(--gold);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* Add cell button between cells */
-.add-cell-divider {
+.cell-body {
+  flex: 1;
+  border-left: 3px solid transparent;
+  transition: border-color 0.15s;
+  min-width: 0;
+}
+.cell.focused .cell-body { border-left-color: var(--gold); }
+.cell.stale .cell-body { border-left: 3px dashed var(--gold-dim); }
+
+/* Cell actions (hover) */
+.cell-actions {
+  position: absolute;
+  top: 0.35rem;
+  right: 0;
   display: flex;
-  justify-content: center;
-  padding: 4px 0;
+  gap: 0.15rem;
   opacity: 0;
   transition: opacity 0.15s;
+  z-index: 10;
 }
-.add-cell-divider:hover {
-  opacity: 1;
+.cell:hover .cell-actions { opacity: 1; }
+
+.cell-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
 }
-.add-cell-divider button {
-  font-size: 11px;
-  padding: 2px 12px;
-  border: 1px dashed var(--border);
-  background: transparent;
+.cell-action-btn:hover { color: var(--gold); background: var(--gold-glow); }
+.cell-action-btn.delete:hover { color: var(--error); }
+.cell-action-btn svg { width: 13px; height: 13px; }
+
+/* Editor */
+.cell-editor { position: relative; }
+.cell-editor textarea {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text-bright);
+  background: var(--bg-editor);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  tab-size: 2;
+  caret-color: var(--gold);
+  transition: border-color 0.15s;
+}
+.cell-editor textarea:focus { border-color: var(--border-focus); }
+.cell-editor textarea::selection { background: var(--gold); color: var(--bg); }
+
+.shift-enter-hint {
+  position: absolute;
+  bottom: 0.4rem;
+  right: 0.5rem;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  letter-spacing: 0.03em;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+.cell.focused .shift-enter-hint { opacity: 1; }
+
+/* Output */
+.cell-output {
+  border-top: 1px solid var(--border);
+  background: var(--bg-output);
+  border-radius: 0 0 3px 3px;
+  overflow: hidden;
+}
+.cell-output-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.75rem;
+  cursor: pointer;
+  user-select: none;
+}
+.cell-output-header:hover { background: rgba(255,255,255,0.02); }
+
+.output-chevron {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  transition: transform 0.15s;
+  width: 1rem;
+  text-align: center;
+}
+.output-chevron.collapsed { transform: rotate(-90deg); }
+
+.output-meta {
+  font-size: 0.7rem;
   color: var(--text-dim);
 }
-.add-cell-divider button:hover {
-  border-color: var(--accent2);
-  color: var(--accent2);
+
+.cell-output-content {
+  padding: 0.5rem 0.75rem 0.6rem;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.cell-output-content.collapsed { display: none; }
+
+/* Error output */
+.cell-output.error { border-left: 3px solid var(--error); }
+.cell-output.error .cell-output-content {
+  color: var(--error);
+  background: var(--error-bg);
 }
 
-/* Responsive */
-@media (max-width: 600px) {
-  #toolbar { flex-wrap: wrap; gap: 8px; }
-  .toolbar-right { flex-wrap: wrap; }
-  #app { padding: 0 8px; }
+/* Markdown rendered */
+.markdown-rendered {
+  padding: 0.6rem 0.75rem;
+  cursor: text;
+  line-height: 1.7;
+  color: var(--text-bright);
 }
+.markdown-rendered h1,
+.markdown-rendered h2,
+.markdown-rendered h3,
+.markdown-rendered h4 {
+  font-family: var(--serif);
+  font-weight: 500;
+  color: var(--text-bright);
+  margin: 0.5em 0 0.3em;
+}
+.markdown-rendered h1 { font-size: 1.8rem; }
+.markdown-rendered h2 { font-size: 1.4rem; }
+.markdown-rendered h3 { font-size: 1.15rem; }
+.markdown-rendered h4 { font-size: 1rem; }
+.markdown-rendered p { margin: 0.4em 0; }
+.markdown-rendered code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--bg-editor);
+  padding: 0.15em 0.4em;
+  border-radius: 3px;
+}
+.markdown-rendered pre {
+  background: var(--bg-editor);
+  padding: 0.6rem 0.75rem;
+  border-radius: 3px;
+  margin: 0.5em 0;
+  overflow-x: auto;
+}
+.markdown-rendered pre code { background: none; padding: 0; }
+.markdown-rendered ul, .markdown-rendered ol { padding-left: 1.5em; margin: 0.4em 0; }
+.markdown-rendered strong { color: var(--gold); }
+.markdown-rendered em { font-style: italic; }
+.markdown-rendered a {
+  color: var(--gold);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Between-cell divider */
+.cell-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  margin: 0 0 0 40px;
+  position: relative;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.cell-divider:hover { opacity: 1; }
+.cell-divider-line {
+  position: absolute;
+  left: 0; right: 0;
+  top: 50%;
+  height: 1px;
+  background: var(--border);
+}
+.add-cell-btn {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--gold);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+.add-cell-btn:hover { border-color: var(--gold); background: var(--gold-glow); }
+
+.add-cell-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  z-index: 50;
+  display: none;
+}
+.add-cell-dropdown.open { display: block; }
+.add-cell-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 1rem;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.1s, color 0.1s;
+}
+.add-cell-dropdown button:hover { background: var(--gold-glow); color: var(--gold); }
+.add-cell-dropdown button + button { border-top: 1px solid var(--border); }
+
+/* Status bar */
+#status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1rem 0 calc(1.5rem + 40px + 1.5rem);
+  height: 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+  flex-shrink: 0;
+}
+.status-text { font-size: 0.65rem; color: var(--text-dim); }
+.status-ready { color: var(--success); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-focus); }
 "##
 }
 
@@ -346,6 +572,8 @@ fn js() -> &'static str {
     r##"/* Sema Notebook — Client-side JavaScript */
 const Notebook = (() => {
   let cells = [];
+  let focusedCellId = null;
+  let shiftEnterUsed = localStorage.getItem('sema-nb-shift-enter-used') === 'true';
 
   async function api(method, path, body) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -358,80 +586,201 @@ const Notebook = (() => {
     return res.json();
   }
 
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   function autoResize(textarea) {
     textarea.style.height = 'auto';
     textarea.style.height = textarea.scrollHeight + 'px';
   }
 
-  function renderOutputHTML(output) {
-    if (!output || !output.content) return '';
-    const escaped = escapeHtml(output.content);
-    const cls = output.output_type === 'error' ? 'cell-output error' : 'cell-output';
-    let meta = '';
-    if (output.meta) {
-      const parts = [];
-      if (output.meta.duration_ms != null) parts.push(`${output.meta.duration_ms}ms`);
-      if (output.meta.cost_usd != null) parts.push(`$${output.meta.cost_usd.toFixed(4)}`);
-      if (output.meta.requires_reeval) parts.push('requires re-eval');
-      if (parts.length) meta = `<div class="cell-meta">${parts.join(' · ')}</div>`;
-    }
-    return `<div class="${cls}">${escaped}</div>${meta}`;
+  // SVG icons for cell actions
+  const icons = {
+    run: '<svg viewBox="0 0 16 16" fill="currentColor"><polygon points="4,2 13,8 4,14"/></svg>',
+    delete: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><path d="M3 4l1 10h8l1-10"/></svg>',
+    moveUp: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="13" x2="8" y2="3"/><polyline points="4,7 8,3 12,7"/></svg>',
+    moveDown: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="3" x2="8" y2="13"/><polyline points="4,9 8,13 12,9"/></svg>',
+  };
+
+  function renderMarkdown(src) {
+    let html = escapeHtml(src);
+    html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/```[\w]*\n([\s\S]*?)```/g, '<pre><code>$1</code></pre>');
+    html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<li>.*<\/li>\n?)+/g, function(m) { return '<ul>' + m + '</ul>'; });
+    html = html.replace(/^(?!<[hup]|<li|<ul|<ol|<pre)(.+)$/gm, '<p>$1</p>');
+    return html;
   }
 
-  function escapeHtml(str) {
-    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  function renderOutputHTML(output) {
+    if (!output || !output.content) return '';
+    const isError = output.output_type === 'error';
+    const cls = isError ? 'cell-output error' : 'cell-output';
+
+    let displayContent = '';
+    if (output.content) {
+      if (isError) {
+        displayContent = escapeHtml(output.content);
+      } else {
+        displayContent = '<span style="color:var(--gold)">' + escapeHtml(output.content) + '</span>';
+      }
+    }
+
+    let metaParts = [];
+    if (output.meta) {
+      if (output.meta.duration_ms != null) metaParts.push(output.meta.duration_ms + 'ms');
+      if (output.meta.cost_usd != null) metaParts.push('$' + output.meta.cost_usd.toFixed(4));
+    }
+    const metaText = metaParts.join(' \u00b7 ');
+
+    return '<div class="' + cls + '">' +
+      '<div class="cell-output-header" onclick="Notebook.toggleOutput(this)">' +
+        '<span class="output-chevron">\u25bc</span>' +
+        '<span class="output-meta">' + metaText + '</span>' +
+      '</div>' +
+      '<div class="cell-output-content">' + displayContent + '</div>' +
+    '</div>';
   }
 
   function renderCell(cell) {
     const isCode = cell.cell_type === 'code';
-    const staleClass = cell.stale ? ' stale' : '';
-    const numberBadge = cell.cell_number != null
-      ? `<span class="cell-number">In [${cell.cell_number}]</span>` : '';
-    const typeLabel = isCode ? 'code' : 'md';
+    const isFocused = cell.id === focusedCellId;
+    const isStale = cell.stale;
 
+    let classes = 'cell';
+    if (isFocused) classes += ' focused';
+    if (isStale) classes += ' stale';
+
+    // Gutter
+    let gutterContent = '';
+    if (!isCode) {
+      gutterContent = '<span style="color:var(--text-dim)">M</span>';
+    } else if (cell._loading) {
+      gutterContent = '<div class="spinner"></div>';
+    } else if (cell.cell_number != null) {
+      const sc = isStale ? ' stale' : '';
+      const ss = isStale ? '*' : '';
+      gutterContent = '<span class="exec-count' + sc + '">[' + cell.cell_number + ss + ']</span>';
+    } else {
+      gutterContent = '<span style="color:var(--text-dim)">[ ]</span>';
+    }
+
+    // Actions
+    let actions = '<div class="cell-actions">';
+    if (isCode) {
+      actions += '<button class="cell-action-btn" title="Run" onclick="Notebook.evalCell(\'' + cell.id + '\')">' + icons.run + '</button>';
+    }
+    actions += '<button class="cell-action-btn" title="Move up" onclick="Notebook.moveCell(\'' + cell.id + '\',-1)">' + icons.moveUp + '</button>';
+    actions += '<button class="cell-action-btn" title="Move down" onclick="Notebook.moveCell(\'' + cell.id + '\',1)">' + icons.moveDown + '</button>';
+    actions += '<button class="cell-action-btn delete" title="Delete" onclick="Notebook.deleteCell(\'' + cell.id + '\')">' + icons.delete + '</button>';
+    actions += '</div>';
+
+    // Body content
+    let bodyContent = '';
+    if (!isCode && cell._rendered) {
+      bodyContent = '<div class="markdown-rendered" onclick="Notebook.editMarkdown(\'' + cell.id + '\')">' + renderMarkdown(cell.source) + '</div>';
+    } else {
+      const rows = Math.max(cell.source.split('\n').length, 1);
+      const hint = (!shiftEnterUsed && isFocused) ? '<span class="shift-enter-hint">Shift+Enter</span>' : '';
+      bodyContent = '<div class="cell-editor">' +
+        '<textarea rows="' + rows + '" spellcheck="false" data-id="' + cell.id + '"' +
+        ' onfocus="Notebook.focusCell(\'' + cell.id + '\')"' +
+        ' onkeydown="Notebook.onKeyDown(event,\'' + cell.id + '\')"' +
+        ' oninput="Notebook.onEdit(this,\'' + cell.id + '\')"' +
+        '>' + escapeHtml(cell.source) + '</textarea>' +
+        hint + '</div>';
+    }
+
+    // Output
     let outputHTML = '';
-    if (cell.rendered_outputs) {
+    if (cell.rendered_outputs && isCode) {
       outputHTML = cell.rendered_outputs.map(renderOutputHTML).join('');
     }
 
-    const staleBadge = cell.stale ? '<span class="stale-badge">stale</span>' : '';
+    return '<div class="' + classes + '" id="cell-' + cell.id + '" data-id="' + cell.id + '">' +
+      '<div class="cell-gutter">' + gutterContent + '</div>' +
+      '<div class="cell-body">' + actions + bodyContent + outputHTML + '</div>' +
+    '</div>';
+  }
 
-    return `
-      <div class="cell${staleClass}" id="cell-${cell.id}" data-id="${cell.id}">
-        <div class="cell-header">
-          <div class="cell-badge">
-            ${numberBadge}
-            <span class="cell-type">${typeLabel}</span>
-            ${staleBadge}
-          </div>
-          <div class="cell-actions">
-            ${isCode ? `<button class="run-btn" onclick="Notebook.evalCell('${cell.id}')">Run</button>` : ''}
-            <button onclick="Notebook.deleteCell('${cell.id}')">Delete</button>
-          </div>
-        </div>
-        <textarea
-          class="cell-editor${isCode ? '' : ' markdown-editor'}"
-          data-id="${cell.id}"
-          spellcheck="false"
-          oninput="Notebook.onEdit(this)"
-          onkeydown="Notebook.onKeyDown(event, '${cell.id}')"
-        >${escapeHtml(cell.source)}</textarea>
-        <div class="cell-output-container" id="output-${cell.id}">${outputHTML}</div>
-      </div>
-    `;
+  function renderDivider(afterId) {
+    return '<div class="cell-divider" onmouseenter="this.classList.add(\'visible\')" onmouseleave="Notebook.closeDivider(this)">' +
+      '<div class="cell-divider-line"></div>' +
+      '<div class="add-cell-btn" onclick="Notebook.toggleDropdown(event,\'' + afterId + '\')">+</div>' +
+      '<div class="add-cell-dropdown" data-after="' + afterId + '">' +
+        '<button onclick="Notebook.insertCell(\'code\',\'' + afterId + '\')">Code</button>' +
+        '<button onclick="Notebook.insertCell(\'markdown\',\'' + afterId + '\')">Markdown</button>' +
+      '</div>' +
+    '</div>';
   }
 
   function renderAllCells() {
-    const container = document.getElementById('cells');
-    container.innerHTML = cells.map(renderCell).join('');
+    const container = document.getElementById('cells-inner');
+
+    if (cells.length === 0) {
+      container.innerHTML = '<div class="empty-state">' +
+        '<span class="empty-state-text">Empty notebook</span>' +
+        '<div class="empty-state-actions">' +
+          '<button class="pill-btn" onclick="Notebook.addCell(\'code\')">+ Code</button>' +
+          '<button class="pill-btn" onclick="Notebook.addCell(\'markdown\')">+ Markdown</button>' +
+        '</div></div>';
+      updateStatus();
+      return;
+    }
+
+    // Auto-render markdown cells that haven't been edited
+    cells.forEach(function(c) {
+      if (c.cell_type === 'markdown' && c._rendered === undefined && c.source) {
+        c._rendered = true;
+      }
+    });
+
+    let html = renderDivider('top');
+    cells.forEach(function(cell) {
+      html += renderCell(cell);
+      html += renderDivider(cell.id);
+    });
+    container.innerHTML = html;
+
     // Auto-resize all textareas
-    container.querySelectorAll('.cell-editor').forEach(autoResize);
+    container.querySelectorAll('textarea').forEach(autoResize);
+    updateStatus();
+  }
+
+  function updateStatus() {
+    const el = document.getElementById('cell-count');
+    if (el) el.textContent = cells.length + ' cell' + (cells.length !== 1 ? 's' : '');
+  }
+
+  function focusCell(id) {
+    focusedCellId = id;
+    renderAllCells();
+    const ta = document.querySelector('#cell-' + id + ' textarea');
+    if (ta) ta.focus();
+  }
+
+  function editMarkdown(id) {
+    const cell = cells.find(function(c) { return c.id === id; });
+    if (cell) {
+      cell._rendered = false;
+      focusedCellId = id;
+      renderAllCells();
+      const ta = document.querySelector('#cell-' + id + ' textarea');
+      if (ta) ta.focus();
+    }
   }
 
   async function load() {
     try {
       const data = await api('GET', '/api/notebook');
-      document.getElementById('notebook-title').textContent = data.title || 'Untitled';
+      document.getElementById('notebook-title').value = data.title || 'Untitled';
       cells = data.cells || [];
       renderAllCells();
     } catch (e) {
@@ -441,55 +790,99 @@ const Notebook = (() => {
 
   async function addCell(type, afterId) {
     try {
-      const body = { type, source: '' };
+      const body = { type: type, source: '' };
       if (afterId) body.after = afterId;
       const data = await api('POST', '/api/cells', body);
-      // Reload full state to get correct numbering
       await load();
-      // Focus the new cell
-      const el = document.querySelector(`#cell-${data.id} .cell-editor`);
+      focusedCellId = data.id;
+      renderAllCells();
+      const el = document.querySelector('#cell-' + data.id + ' textarea');
       if (el) el.focus();
     } catch (e) {
       console.error('Failed to create cell:', e);
     }
   }
 
-  async function evalCell(id) {
-    const outputContainer = document.getElementById(`output-${id}`);
-    if (outputContainer) {
-      outputContainer.innerHTML = '<div class="cell-loading"><div class="spinner"></div>Evaluating...</div>';
+  async function insertCell(type, afterId) {
+    closeAllDropdowns();
+    const body = { type: type, source: '' };
+    if (afterId && afterId !== 'top') body.after = afterId;
+    try {
+      const data = await api('POST', '/api/cells', body);
+      await load();
+      focusedCellId = data.id;
+      renderAllCells();
+      const el = document.querySelector('#cell-' + data.id + ' textarea');
+      if (el) el.focus();
+    } catch (e) {
+      console.error('Failed to insert cell:', e);
     }
+  }
 
-    // First, update the source on the server
-    const textarea = document.querySelector(`#cell-${id} .cell-editor`);
+  async function evalCell(id) {
+    const cell = cells.find(function(c) { return c.id === id; });
+    if (!cell) return;
+
+    // Sync source
+    const textarea = document.querySelector('#cell-' + id + ' textarea');
     if (textarea) {
       try {
-        await api('POST', `/api/cells/${id}`, { source: textarea.value });
-      } catch (e) { /* ignore update error, eval will use latest */ }
+        await api('POST', '/api/cells/' + id, { source: textarea.value });
+      } catch (e) { /* ignore */ }
     }
 
+    cell._loading = true;
+    renderAllCells();
+
     try {
-      const result = await api('POST', `/api/cells/${id}/eval`);
-      // Re-load to get stale markers and updated numbering
+      await api('POST', '/api/cells/' + id + '/eval');
+      // Advance focus to next cell
+      const idx = cells.findIndex(function(c) { return c.id === id; });
+      if (idx < cells.length - 1) {
+        focusedCellId = cells[idx + 1].id;
+      }
+      shiftEnterUsed = true;
+      localStorage.setItem('sema-nb-shift-enter-used', 'true');
       await load();
     } catch (e) {
-      if (outputContainer) {
-        outputContainer.innerHTML = `<div class="cell-output error">${escapeHtml(e.message)}</div>`;
-      }
+      cell._loading = false;
+      renderAllCells();
+      console.error('Eval failed:', e);
+    }
+  }
+
+  async function evalCellStay(id) {
+    const cell = cells.find(function(c) { return c.id === id; });
+    if (!cell) return;
+
+    const textarea = document.querySelector('#cell-' + id + ' textarea');
+    if (textarea) {
+      try {
+        await api('POST', '/api/cells/' + id, { source: textarea.value });
+      } catch (e) { /* ignore */ }
+    }
+
+    cell._loading = true;
+    renderAllCells();
+
+    try {
+      await api('POST', '/api/cells/' + id + '/eval');
+      focusedCellId = id;
+      await load();
+    } catch (e) {
+      cell._loading = false;
+      renderAllCells();
+      console.error('Eval failed:', e);
     }
   }
 
   async function evalAll() {
+    const sources = [];
+    document.querySelectorAll('.cell-editor textarea').forEach(function(ta) {
+      if (ta.dataset.id) sources.push([ta.dataset.id, ta.value]);
+    });
     try {
-      // First sync all cell sources
-      const textareas = document.querySelectorAll('.cell-editor');
-      for (const ta of textareas) {
-        const id = ta.dataset.id;
-        if (id) {
-          await api('POST', `/api/cells/${id}`, { source: ta.value });
-        }
-      }
-      await api('POST', '/api/eval-all');
+      await api('POST', '/api/eval-all', { sources: sources });
       await load();
     } catch (e) {
       console.error('Eval all failed:', e);
@@ -498,16 +891,40 @@ const Notebook = (() => {
 
   async function deleteCell(id) {
     try {
-      await api('POST', `/api/cells/${id}/delete`);
+      await api('DELETE', '/api/cells/' + id);
+      if (focusedCellId === id) focusedCellId = null;
       await load();
     } catch (e) {
       console.error('Delete failed:', e);
     }
   }
 
+  async function moveCell(id, dir) {
+    const idx = cells.findIndex(function(c) { return c.id === id; });
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= cells.length) return;
+
+    const ids = cells.map(function(c) { return c.id; });
+    const tmp = ids[idx];
+    ids[idx] = ids[newIdx];
+    ids[newIdx] = tmp;
+
+    try {
+      await api('POST', '/api/cells/reorder', { cell_ids: ids });
+      await load();
+    } catch (e) {
+      console.error('Move failed:', e);
+    }
+  }
+
   async function save() {
     try {
       await api('POST', '/api/save');
+      const btn = document.querySelector('.toolbar-btn[title="Save notebook"]');
+      if (btn) {
+        btn.style.color = 'var(--success)';
+        setTimeout(function() { btn.style.color = ''; }, 600);
+      }
     } catch (e) {
       alert('Save failed: ' + e.message);
     }
@@ -523,37 +940,104 @@ const Notebook = (() => {
     }
   }
 
-  function onEdit(textarea) {
+  function onEdit(textarea, cellId) {
     autoResize(textarea);
+    const cell = cells.find(function(c) { return c.id === cellId; });
+    if (cell) cell.source = textarea.value;
   }
 
   function onKeyDown(event, cellId) {
-    // Shift+Enter: evaluate cell
     if (event.key === 'Enter' && event.shiftKey) {
       event.preventDefault();
-      evalCell(cellId);
+      const cell = cells.find(function(c) { return c.id === cellId; });
+      if (cell && cell.cell_type === 'markdown') {
+        cell._rendered = true;
+        renderAllCells();
+      } else {
+        evalCell(cellId);
+      }
       return;
     }
-    // Tab: insert 2 spaces
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      evalCellStay(cellId);
+      return;
+    }
     if (event.key === 'Tab' && !event.shiftKey) {
       event.preventDefault();
       const ta = event.target;
       const start = ta.selectionStart;
-      const end = ta.selectionEnd;
-      ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+      ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(ta.selectionEnd);
       ta.selectionStart = ta.selectionEnd = start + 2;
+      const cell = cells.find(function(c) { return c.id === cellId; });
+      if (cell) cell.source = ta.value;
+      autoResize(ta);
     }
-    // Ctrl/Cmd+S: save
     if (event.key === 's' && (event.ctrlKey || event.metaKey)) {
       event.preventDefault();
       save();
     }
+    if (event.key === 'Escape') {
+      event.target.blur();
+      focusedCellId = null;
+      renderAllCells();
+    }
   }
 
-  // Initialize on load
+  function toggleOutput(header) {
+    const chevron = header.querySelector('.output-chevron');
+    const content = header.nextElementSibling;
+    if (chevron) chevron.classList.toggle('collapsed');
+    if (content) content.classList.toggle('collapsed');
+  }
+
+  function toggleDropdown(event, afterId) {
+    event.stopPropagation();
+    const divider = event.target.closest('.cell-divider');
+    const dropdown = divider ? divider.querySelector('.add-cell-dropdown') : null;
+    closeAllDropdowns();
+    if (dropdown) dropdown.classList.add('open');
+  }
+
+  function closeAllDropdowns() {
+    document.querySelectorAll('.add-cell-dropdown.open').forEach(function(d) {
+      d.classList.remove('open');
+    });
+  }
+
+  function closeDivider(el) {
+    const dropdown = el.querySelector('.add-cell-dropdown');
+    if (!dropdown || !dropdown.classList.contains('open')) {
+      el.classList.remove('visible');
+    }
+  }
+
+  // Close dropdowns on outside click
+  document.addEventListener('click', function(e) {
+    if (!e.target.closest('.add-cell-btn') && !e.target.closest('.add-cell-dropdown')) {
+      closeAllDropdowns();
+    }
+  });
+
   document.addEventListener('DOMContentLoaded', load);
 
-  return { addCell, evalCell, evalAll, deleteCell, save, reset, onEdit, onKeyDown };
+  return {
+    addCell: addCell,
+    insertCell: insertCell,
+    evalCell: evalCell,
+    evalAll: evalAll,
+    deleteCell: deleteCell,
+    moveCell: moveCell,
+    save: save,
+    reset: reset,
+    onEdit: onEdit,
+    onKeyDown: onKeyDown,
+    focusCell: focusCell,
+    editMarkdown: editMarkdown,
+    toggleOutput: toggleOutput,
+    toggleDropdown: toggleDropdown,
+    closeDivider: closeDivider,
+  };
 })();
 "##
 }
