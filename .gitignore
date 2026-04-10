@@ -34,3 +34,12 @@ reddit-scrutiny.json
 
 # Worktrees
 .worktrees/
+
+# Node
+node_modules/
+
+# Build output
+**/dist/
+
+# Test artifacts
+test-results/
