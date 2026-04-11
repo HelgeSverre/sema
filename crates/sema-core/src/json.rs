@@ -182,4 +182,169 @@ mod tests {
         assert_eq!(arr[1], serde_json::Value::Null);
         assert_eq!(arr[2], serde_json::Value::Number(3.into()));
     }
+
+    // ── value_to_json tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_value_to_json_nil() {
+        let json = value_to_json(&Value::nil()).unwrap();
+        assert_eq!(json, serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_value_to_json_bool() {
+        assert_eq!(
+            value_to_json(&Value::bool(true)).unwrap(),
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(
+            value_to_json(&Value::bool(false)).unwrap(),
+            serde_json::Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn test_value_to_json_int() {
+        let json = value_to_json(&Value::int(42)).unwrap();
+        assert_eq!(json, serde_json::Value::Number(42.into()));
+    }
+
+    #[test]
+    fn test_value_to_json_float() {
+        let json = value_to_json(&Value::float(3.14)).unwrap();
+        assert_eq!(
+            json,
+            serde_json::Value::Number(serde_json::Number::from_f64(3.14).unwrap())
+        );
+    }
+
+    #[test]
+    fn test_value_to_json_string() {
+        let json = value_to_json(&Value::string("hello")).unwrap();
+        assert_eq!(json, serde_json::Value::String("hello".to_string()));
+    }
+
+    #[test]
+    fn test_value_to_json_keyword() {
+        let json = value_to_json(&Value::keyword("foo")).unwrap();
+        assert_eq!(json, serde_json::Value::String("foo".to_string()));
+    }
+
+    #[test]
+    fn test_value_to_json_symbol() {
+        let json = value_to_json(&Value::symbol("foo")).unwrap();
+        assert_eq!(json, serde_json::Value::String("foo".to_string()));
+    }
+
+    #[test]
+    fn test_value_to_json_list() {
+        let val = Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]);
+        let json = value_to_json(&val).unwrap();
+        assert_eq!(
+            json,
+            serde_json::Value::Array(vec![
+                serde_json::Value::Number(1.into()),
+                serde_json::Value::Number(2.into()),
+                serde_json::Value::Number(3.into()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_value_to_json_map() {
+        let mut map = BTreeMap::new();
+        map.insert(Value::keyword("x"), Value::int(10));
+        map.insert(Value::keyword("y"), Value::int(20));
+        let val = Value::map(map);
+        let json = value_to_json(&val).unwrap();
+        let obj = json.as_object().unwrap();
+        assert_eq!(obj.get("x"), Some(&serde_json::Value::Number(10.into())));
+        assert_eq!(obj.get("y"), Some(&serde_json::Value::Number(20.into())));
+    }
+
+    // ── json_to_value tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_json_to_value_null() {
+        let val = json_to_value(&serde_json::Value::Null);
+        assert!(val.is_nil());
+    }
+
+    #[test]
+    fn test_json_to_value_int() {
+        let val = json_to_value(&serde_json::json!(42));
+        assert_eq!(val.as_int(), Some(42));
+    }
+
+    #[test]
+    fn test_json_to_value_string() {
+        let val = json_to_value(&serde_json::json!("hello"));
+        assert_eq!(val.as_str(), Some("hello"));
+    }
+
+    #[test]
+    fn test_json_to_value_array() {
+        let val = json_to_value(&serde_json::json!([1, 2, 3]));
+        let items = val.as_list().unwrap();
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].as_int(), Some(1));
+        assert_eq!(items[1].as_int(), Some(2));
+        assert_eq!(items[2].as_int(), Some(3));
+    }
+
+    #[test]
+    fn test_json_to_value_object() {
+        let val = json_to_value(&serde_json::json!({"name": "alice", "age": 30}));
+        match val.view() {
+            ValueView::Map(map) => {
+                assert_eq!(
+                    map.get(&Value::keyword("name")),
+                    Some(&Value::string("alice"))
+                );
+                assert_eq!(map.get(&Value::keyword("age")), Some(&Value::int(30)));
+            }
+            _ => panic!("expected map"),
+        }
+    }
+
+    // ── roundtrip test ───────────────────────────────────────────────
+
+    #[test]
+    fn test_json_roundtrip_simple() {
+        let original = Value::list(vec![
+            Value::int(1),
+            Value::string("two"),
+            Value::bool(true),
+            Value::nil(),
+        ]);
+        let json = value_to_json(&original).unwrap();
+        let roundtripped = json_to_value(&json);
+        // List structure preserved
+        let items = roundtripped.as_list().unwrap();
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[0].as_int(), Some(1));
+        assert_eq!(items[1].as_str(), Some("two"));
+        assert_eq!(items[2].as_bool(), Some(true));
+        assert!(items[3].is_nil());
+    }
+
+    // ── key_to_string tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_key_to_string_keyword() {
+        let s = key_to_string(&Value::keyword("foo"));
+        assert_eq!(s, "foo");
+    }
+
+    #[test]
+    fn test_key_to_string_string() {
+        let s = key_to_string(&Value::string("bar"));
+        assert_eq!(s, "bar");
+    }
+
+    #[test]
+    fn test_key_to_string_int() {
+        let s = key_to_string(&Value::int(42));
+        assert_eq!(s, "42");
+    }
 }

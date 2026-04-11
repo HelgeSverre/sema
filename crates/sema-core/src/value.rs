@@ -2460,4 +2460,145 @@ mod tests {
         let c = next_gensym("z");
         assert!(c.contains("__0"));
     }
+
+    // ── StreamBox tests ──────────────────────────────────────────────
+
+    #[derive(Debug)]
+    struct TestStream {
+        data: RefCell<Vec<u8>>,
+        readable: bool,
+        writable: bool,
+    }
+
+    impl TestStream {
+        fn new(readable: bool, writable: bool) -> Self {
+            TestStream {
+                data: RefCell::new(Vec::new()),
+                readable,
+                writable,
+            }
+        }
+    }
+
+    impl SemaStream for TestStream {
+        fn read(&self, buf: &mut [u8]) -> Result<usize, SemaError> {
+            let mut data = self.data.borrow_mut();
+            let n = buf.len().min(data.len());
+            buf[..n].copy_from_slice(&data[..n]);
+            data.drain(..n);
+            Ok(n)
+        }
+
+        fn write(&self, data: &[u8]) -> Result<usize, SemaError> {
+            self.data.borrow_mut().extend_from_slice(data);
+            Ok(data.len())
+        }
+
+        fn flush(&self) -> Result<(), SemaError> {
+            Ok(())
+        }
+
+        fn close(&self) -> Result<(), SemaError> {
+            Ok(())
+        }
+
+        fn available(&self) -> Result<bool, SemaError> {
+            Ok(!self.data.borrow().is_empty())
+        }
+
+        fn is_readable(&self) -> bool {
+            self.readable
+        }
+
+        fn is_writable(&self) -> bool {
+            self.writable
+        }
+
+        fn stream_type(&self) -> &'static str {
+            "test"
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    #[test]
+    fn streambox_read_writes_data() {
+        let sb = StreamBox::new(TestStream::new(true, true));
+        sb.write(b"hello").unwrap();
+        let mut buf = [0u8; 5];
+        let n = sb.read(&mut buf).unwrap();
+        assert_eq!(n, 5);
+        assert_eq!(&buf, b"hello");
+    }
+
+    #[test]
+    fn streambox_close_prevents_read() {
+        let sb = StreamBox::new(TestStream::new(true, true));
+        sb.close().unwrap();
+        let mut buf = [0u8; 5];
+        let err = sb.read(&mut buf).unwrap_err();
+        assert!(err.to_string().contains("closed"));
+    }
+
+    #[test]
+    fn streambox_close_prevents_write() {
+        let sb = StreamBox::new(TestStream::new(true, true));
+        sb.close().unwrap();
+        let err = sb.write(b"data").unwrap_err();
+        assert!(err.to_string().contains("closed"));
+    }
+
+    #[test]
+    fn streambox_close_prevents_flush() {
+        let sb = StreamBox::new(TestStream::new(true, true));
+        sb.close().unwrap();
+        let err = sb.flush().unwrap_err();
+        assert!(err.to_string().contains("closed"));
+    }
+
+    #[test]
+    fn streambox_double_close_is_noop() {
+        let sb = StreamBox::new(TestStream::new(true, true));
+        sb.close().unwrap();
+        sb.close().unwrap(); // second close should be Ok
+    }
+
+    #[test]
+    fn streambox_is_closed() {
+        let sb = StreamBox::new(TestStream::new(true, true));
+        assert!(!sb.is_closed());
+        sb.close().unwrap();
+        assert!(sb.is_closed());
+    }
+
+    #[test]
+    fn streambox_is_readable() {
+        let sb = StreamBox::new(TestStream::new(true, false));
+        assert!(sb.is_readable());
+        sb.close().unwrap();
+        assert!(!sb.is_readable());
+    }
+
+    #[test]
+    fn streambox_is_writable() {
+        let sb = StreamBox::new(TestStream::new(false, true));
+        assert!(sb.is_writable());
+        sb.close().unwrap();
+        assert!(!sb.is_writable());
+    }
+
+    #[test]
+    fn streambox_available_when_closed() {
+        let sb = StreamBox::new(TestStream::new(true, true));
+        sb.close().unwrap();
+        assert_eq!(sb.available().unwrap(), false);
+    }
+
+    #[test]
+    fn streambox_stream_type() {
+        let sb = StreamBox::new(TestStream::new(true, true));
+        assert_eq!(sb.stream_type(), "test");
+    }
 }
