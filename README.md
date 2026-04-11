@@ -313,6 +313,7 @@ The [`examples/`](https://github.com/helgesverre/sema/tree/main/examples) direct
 | [`shape-geometry.sema`](https://github.com/helgesverre/sema/blob/main/examples/shape-geometry.sema)           | Shape areas/perimeters with map pattern matching             |
 | [`http-router.sema`](https://github.com/helgesverre/sema/blob/main/examples/http-router.sema)                 | HTTP router with `match` on nested maps and guards           |
 | [`destructuring.sema`](https://github.com/helgesverre/sema/blob/main/examples/destructuring.sema)             | Comprehensive destructuring showcase (vector, map, lambda)   |
+| [`demo.sema-nb`](https://github.com/helgesverre/sema/blob/main/examples/notebook/demo.sema-nb)               | Interactive notebook demo (run with `sema notebook serve`)   |
 
 ## Why Sema?
 

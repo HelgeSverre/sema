@@ -2,7 +2,7 @@
 
 Sema is a Lisp with first-class LLM primitives, implemented in Rust. The primary execution path is a tree-walking interpreter — the evaluator walks the AST directly via a trampoline loop for tail-call optimization. A [bytecode VM](./bytecode-vm.md) is available as an opt-in execution path (via `--vm`) for faster execution of compute-heavy workloads. The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
 
-The entire implementation is ~70k lines of Rust spread across 11 crates, each with a clear responsibility and strict dependency ordering.
+The entire implementation is ~70k lines of Rust spread across 12 crates, each with a clear responsibility and strict dependency ordering.
 
 ## Crate Map
 
@@ -10,38 +10,39 @@ The entire implementation is ~70k lines of Rust spread across 11 crates, each wi
                 ┌─────────────────────────────────────┐
                 │              sema                    │
                 │  (binary: CLI, REPL, embedding API)  │
-                └──────────┬──────────────┬────────────┘
-                           │              │
-              ┌────────────▼───┐    ┌─────▼──────────┐
-              │  sema-stdlib   │    │    sema-llm     │
-              │  native fns    │    │  LLM providers  │
-              │  functions     │    │  + embeddings   │
-              └────────┬───────┘    └──────┬──────────┘
-                       │                   │
-                       │    ┌──────────────┘
-                       │    │
-              ┌────────▼────▼──┐
-              │   sema-eval    │
-              │  trampoline    │
-              │  evaluator     │
-              └────────┬───────┘
-                       │
-              ┌────────▼───────┐
-              │    sema-vm     │
-              │  bytecode VM   │
-              │  (opt-in)      │
-              └────────┬───────┘
-                       │
-              ┌────────▼───────┐
-              │  sema-reader   │
-              │  lexer/parser  │
-              └────────┬───────┘
-                       │
-              ┌────────▼───────┐
-              │   sema-core    │
-              │  Value, Env,   │
-              │  SemaError     │
-              └────────────────┘
+                └──┬───────┬──────────────┬────────────┘
+                   │       │              │
+                   │  ┌────▼───────┐ ┌────▼──────────┐
+                   │  │ sema-stdlib│ │   sema-llm    │
+                   │  │ native fns │ │ LLM providers │
+                   │  │ functions  │ │ + embeddings  │
+                   │  └────┬───────┘ └─────┬─────────┘
+                   │       │               │
+     ┌─────────────▼──┐    │  ┌────────────┘
+     │ sema-notebook  │    │  │
+     │ notebook UI +  │    │  │
+     │ server         │ ┌──▼──▼────┐
+     └────────────────┘ │ sema-eval│
+                        │trampoline│
+                        │evaluator │
+                        └────┬─────┘
+                             │
+                    ┌────────▼───────┐
+                    │    sema-vm     │
+                    │  bytecode VM   │
+                    │  (opt-in)      │
+                    └────────┬───────┘
+                             │
+                    ┌────────▼───────┐
+                    │  sema-reader   │
+                    │  lexer/parser  │
+                    └────────┬───────┘
+                             │
+                    ┌────────▼───────┐
+                    │   sema-core    │
+                    │  Value, Env,   │
+                    │  SemaError     │
+                    └────────────────┘
 ```
 
 **Dependency flow:** `sema-core ← sema-reader ← sema-vm ← sema-eval ← sema-stdlib / sema-llm ← sema`
@@ -66,6 +67,7 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-lsp**    | Language Server              | LSP via tower-lsp: completions, hover, go-to-definition, references, rename, semantic tokens, diagnostics                                  |
 | **sema-dap**    | Debug Adapter                | DAP server: breakpoints, stepping, stack traces, variable inspection via VM debug hooks                                                    |
 | **sema-fmt**    | Formatter                       | Code formatter for `.sema` files (`sema fmt`)                                                                                             |
+| **sema-notebook** | Notebook interface       | `.sema-nb` JSON format, evaluation engine, HTTP server with REST API, embedded browser UI, Markdown export                                 |
 | **sema-wasm**  | WASM bindings             | Browser playground bindings, JS interop via `wasm-bindgen`                                                                                |
 | **sema**        | Binary                          | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API                                                                              |
 

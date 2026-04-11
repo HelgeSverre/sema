@@ -14,6 +14,9 @@ make fmt                                                 # cargo fmt
 make install                                             # install to ~/.cargo/bin
 make all                                                 # lint + test + build
 make run                                                 # start REPL
+make example-notebook                                    # run demo notebook headlessly
+make example-notebook-serve                              # serve demo notebook in browser
+make test-notebook-e2e                                   # Playwright E2E tests for notebook
 
 cargo test -p sema-reader                                # test single crate
 cargo test -p sema --test integration_test -- test_name  # single integration test
@@ -28,16 +31,17 @@ Integration tests are in `crates/sema/tests/integration_test.rs`. Dual-eval test
 
 ## Architecture
 
-Cargo workspace with 11 crates. Dependency flow (arrows = "depends on"):
+Cargo workspace with 12 crates. Dependency flow (arrows = "depends on"):
 
 ```
 sema-core  ←  sema-reader  ←  sema-vm  ←  sema-eval  ←  sema (binary)
-    ↑                            ↑            ↑
-    ├── sema-stdlib ─────────────┼────────────┘
-    ├── sema-llm ────────────────┼────────────┘
-    ├── sema-lsp (language server)             │
-    ├── sema-dap (debug adapter)───────────────┘
-    ├── sema-fmt (formatter)
+    ↑                            ↑            ↑               ↑
+    ├── sema-stdlib ─────────────┼────────────┘               │
+    ├── sema-llm ────────────────┼────────────┘               │
+    ├── sema-lsp (language server)             │               │
+    ├── sema-dap (debug adapter)───────────────┘               │
+    ├── sema-fmt (formatter)                                   │
+    ├── sema-notebook (notebook UI + server) ──────────────────┘
     └── sema-wasm (browser playground)
 ```
 
@@ -47,11 +51,12 @@ sema-core  ←  sema-reader  ←  sema-vm  ←  sema-eval  ←  sema (binary)
 - **sema-eval** — Trampoline-based tree-walking evaluator, special forms, module system, destructuring/pattern matching, prelude macros
 - **sema-stdlib** — Native functions across many modules registered into `Env`
 - **sema-llm** — LLM provider trait + Anthropic/OpenAI/Gemini/Ollama clients (tokio `block_on` for sync)
+- **sema-notebook** — Jupyter-inspired notebook interface: `.sema-nb` JSON format, evaluation engine with shared cell environment, HTTP server with REST API, embedded browser UI, Markdown export
 - **sema-lsp** — Language Server Protocol (tower-lsp). Single-threaded backend via mpsc channel. Completions, hover, go-to-definition, references, rename, semantic tokens, folding ranges, inlay hints, document highlight, code lens, workspace scanning.
 - **sema-dap** — Debug Adapter Protocol server. Breakpoints, stepping, stack traces, variable inspection via VM debug hooks.
 - **sema-fmt** — Code formatter for Sema source files.
 - **sema-wasm** — WASM bindings for browser playground at sema.run
-- **sema** — Binary: CLI (clap) + REPL (rustyline) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + `sema lsp` + `sema dap` + `sema fmt` + integration tests
+- **sema** — Binary: CLI (clap) + REPL (rustyline) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + `sema lsp` + `sema dap` + `sema fmt` + `sema notebook` + integration tests
 
 **Critical**: `sema-stdlib` and `sema-llm` depend on `sema-core` but NOT on `sema-eval` (avoids circular deps). Stdlib calls eval via thread-local callbacks registered by sema-eval.
 
@@ -104,6 +109,7 @@ Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. Both 
 - **Legacy files**: `integration_test.rs` (tree-walker only), `vm_integration_test.rs` (VM equivalence)
 - **New tests go in `dual_eval_test.rs`** — the macros generate `_tw` and `_vm` variants automatically
 - I/O, LLM, sandbox, CLI, module/import, server tests → tree-walker only (`integration_test.rs`)
+- Notebook E2E tests: `crates/sema-notebook/tests/e2e/` (Playwright, run via `make test-notebook-e2e`)
 
 ## Adding New Functionality
 

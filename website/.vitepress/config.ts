@@ -108,6 +108,8 @@ export default defineConfig({
             { text: 'Records', link: '/docs/stdlib/records' },
             { text: 'Text Processing', link: '/docs/stdlib/text-processing' },
             { text: 'Key-Value Store', link: '/docs/stdlib/kv-store' },
+            { text: 'SQLite', link: '/docs/stdlib/sqlite' },
+            { text: 'Typed Arrays', link: '/docs/stdlib/typed-arrays' },
             { text: 'Context', link: '/docs/stdlib/context' },
             { text: 'Terminal Styling', link: '/docs/stdlib/terminal' },
             { text: 'Playground & WASM', link: '/docs/stdlib/playground' },

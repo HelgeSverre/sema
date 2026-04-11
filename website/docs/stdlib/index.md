@@ -255,6 +255,34 @@ Sema's stdlib follows consistent naming patterns:
 | `prompt/template`, `prompt/render`                                        | Prompt templates                           |
 | `document/create`, `document/text`, `document/metadata`, `document/chunk` | Document metadata                          |
 
+### [SQLite](./sqlite)
+
+| Function                         | Description                    |
+| -------------------------------- | ------------------------------ |
+| `db/open`, `db/open-memory`      | Open file or in-memory database |
+| `db/exec`, `db/exec-batch`       | Execute statements             |
+| `db/query`, `db/query-one`       | Query rows as maps             |
+| `db/last-insert-id`              | Last inserted rowid            |
+| `db/tables`                      | List tables                    |
+| `db/close`                       | Close connection               |
+
+### [Typed Arrays](./typed-arrays)
+
+| Function                                                  | Description            |
+| --------------------------------------------------------- | ---------------------- |
+| `f64-array`, `i64-array`                                  | Create from values     |
+| `f64-array/make`, `i64-array/make`                        | Create with fill       |
+| `f64-array/range`, `i64-array/range`                      | Create from range      |
+| `f64-array/from-list`, `i64-array/from-list`              | Convert from list      |
+| `f64-array/ref`, `i64-array/ref`                          | Index access           |
+| `f64-array/set!`, `i64-array/set!`                        | Set element (CoW)      |
+| `f64-array/length`, `i64-array/length`                    | Length                 |
+| `f64-array/sum`, `i64-array/sum`                          | Fast sum               |
+| `f64-array/dot`                                           | Dot product            |
+| `f64-array/map`, `i64-array/map`                          | Map over elements      |
+| `f64-array/fold`, `i64-array/fold`                        | Fold over elements     |
+| `f64-array?`, `i64-array?`                                | Type predicates        |
+
 ### [Context](./context)
 
 | Function                                                          | Description                              |
