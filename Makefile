@@ -104,6 +104,20 @@ test-notebook-e2e: build
 	@echo "=== Running notebook E2E tests ==="
 	cd crates/sema-notebook/tests/e2e && npx playwright test
 
+mutants:
+	@echo "=== Mutation testing (high-value crates) ==="
+	cargo mutants -p sema-stdlib --timeout 30 -- --test-threads=1
+
+mutants-core:
+	cargo mutants -p sema-core --timeout 30
+
+mutants-notebook:
+	cargo mutants -p sema-notebook --timeout 30
+
+mutants-all:
+	@echo "=== Full mutation testing (all crates, slow) ==="
+	cargo mutants --workspace --timeout 60 -- --test-threads=1
+
 example-notebook-serve: build
 	cargo run --quiet -- notebook serve examples/notebook/demo.sema-nb
 
