@@ -98,6 +98,12 @@ pub enum Op {
     Append,    // pop two lists, push concatenated list (2-arg only)
     Get,       // pop map, pop key → push map[key] or nil
     ContainsQ, // pop map, pop key → push #t if key exists
+
+    // Modulo (integer fast path)
+    Mod, // pop a, pop b → push a % b
+
+    // Vector/list indexed access (fast path for nth)
+    Nth, // pop collection, pop index → push element
 }
 
 impl Op {
@@ -172,6 +178,8 @@ impl Op {
             61 => Some(Op::Append),
             62 => Some(Op::Get),
             63 => Some(Op::ContainsQ),
+            64 => Some(Op::Mod),
+            65 => Some(Op::Nth),
             _ => None,
         }
     }
@@ -248,6 +256,8 @@ const _: () = {
             Op::Append => {}
             Op::Get => {}
             Op::ContainsQ => {}
+            Op::Mod => {}
+            Op::Nth => {}
         }
     }
 };
@@ -319,6 +329,8 @@ pub mod op {
     pub const APPEND: u8 = Op::Append as u8;
     pub const GET: u8 = Op::Get as u8;
     pub const CONTAINS_Q: u8 = Op::ContainsQ as u8;
+    pub const MOD: u8 = Op::Mod as u8;
+    pub const NTH: u8 = Op::Nth as u8;
 
     // Instruction sizes (opcode byte + operand bytes)
     /// Size of a bare opcode with no operands: 1

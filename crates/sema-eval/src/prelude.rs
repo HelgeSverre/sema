@@ -75,4 +75,25 @@ pub const PRELUDE: &str = r#"
                        (throw e#)))))
          (stream/close ,var)
          res#))))
+
+;; dotimes: execute body n times with a counter variable
+;; (dotimes (i 10) (println i)) — prints 0..9
+(defmacro dotimes (binding . body)
+  (let ((var (car binding))
+        (count (cadr binding)))
+    `(do ((,var 0 (+ ,var 1)))
+       ((= ,var ,count))
+       ,@body)))
+
+;; for-range: loop from start to end (exclusive) with optional step
+;; (for-range (i 0 10) (println i)) — prints 0..9
+;; (for-range (i 0 10 2) (println i)) — prints 0,2,4,6,8
+(defmacro for-range (binding . body)
+  (let ((var (car binding))
+        (start (cadr binding))
+        (end (caddr binding))
+        (step (if (null? (cdddr binding)) 1 (car (cdddr binding)))))
+    `(do ((,var ,start (+ ,var ,step)))
+       ((>= ,var ,end))
+       ,@body)))
 "#;

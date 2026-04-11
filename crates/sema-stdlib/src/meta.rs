@@ -72,6 +72,15 @@ pub fn register(env: &sema_core::Env) {
         Ok(result)
     });
 
+    // (time/ms thunk) — calls zero-arg thunk, returns elapsed time in ms as float
+    register_fn(env, "time/ms", |args| {
+        check_arity!(args, "time/ms", 1);
+        let start = std::time::Instant::now();
+        let _result = crate::list::call_function(&args[0], &[])?;
+        let elapsed = start.elapsed();
+        Ok(Value::float(elapsed.as_secs_f64() * 1000.0))
+    });
+
     // (assert condition) or (assert condition message) — throws if condition is falsy
     register_fn(env, "assert", |args| {
         if args.is_empty() || args.len() > 2 {

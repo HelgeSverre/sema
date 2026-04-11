@@ -584,6 +584,10 @@ impl Compiler {
             ("append", 2) => Op::Append,
             ("get", 2) => Op::Get,
             ("contains?", 2) => Op::ContainsQ,
+            // Modulo
+            ("mod", 2) | ("modulo", 2) => Op::Mod,
+            // Indexed access
+            ("nth", 2) => Op::Nth,
             _ => return Ok(false),
         };
 

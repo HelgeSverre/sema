@@ -35,6 +35,7 @@ mod system;
 mod terminal;
 mod text;
 mod toml_ops;
+mod typed_array;
 
 use sema_core::{Caps, Env, Sandbox, Value};
 
@@ -69,6 +70,7 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     text::register(env);
     stream::register(env);
     pio::register(env);
+    typed_array::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     stream::register_io(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]
