@@ -110,11 +110,11 @@ const Notebook = (() => {
     // Actions
     let actions = '<div class="cell-actions">';
     if (isCode) {
-      actions += '<button class="cell-action-btn" title="Run" onclick="Notebook.evalCell(\'' + cell.id + '\')">' + icons.run + '</button>';
+      actions += '<button type="button" class="cell-action-btn" title="Run" onclick="Notebook.evalCell(\'' + cell.id + '\')">' + icons.run + '</button>';
     }
-    actions += '<button class="cell-action-btn" title="Move up" onclick="Notebook.moveCell(\'' + cell.id + '\',-1)">' + icons.moveUp + '</button>';
-    actions += '<button class="cell-action-btn" title="Move down" onclick="Notebook.moveCell(\'' + cell.id + '\',1)">' + icons.moveDown + '</button>';
-    actions += '<button class="cell-action-btn delete" title="Delete" onclick="Notebook.deleteCell(\'' + cell.id + '\')">' + icons.delete + '</button>';
+    actions += '<button type="button" class="cell-action-btn" title="Move up" onclick="Notebook.moveCell(\'' + cell.id + '\',-1)">' + icons.moveUp + '</button>';
+    actions += '<button type="button" class="cell-action-btn" title="Move down" onclick="Notebook.moveCell(\'' + cell.id + '\',1)">' + icons.moveDown + '</button>';
+    actions += '<button type="button" class="cell-action-btn delete" title="Delete" onclick="Notebook.deleteCell(\'' + cell.id + '\')">' + icons.delete + '</button>';
     actions += '</div>';
 
     // Body content
@@ -148,10 +148,10 @@ const Notebook = (() => {
   function renderDivider(afterId) {
     return '<div class="cell-divider" onmouseenter="this.classList.add(\'visible\')" onmouseleave="Notebook.closeDivider(this)">' +
       '<div class="cell-divider-line"></div>' +
-      '<div class="add-cell-btn" onclick="Notebook.toggleDropdown(event,\'' + afterId + '\')">+</div>' +
+      '<button type="button" class="add-cell-btn" onclick="Notebook.toggleDropdown(event,\'' + afterId + '\')">+</button>' +
       '<div class="add-cell-dropdown" data-after="' + afterId + '">' +
-        '<button onclick="Notebook.insertCell(\'code\',\'' + afterId + '\')">Code</button>' +
-        '<button onclick="Notebook.insertCell(\'markdown\',\'' + afterId + '\')">Markdown</button>' +
+        '<button type="button" onclick="Notebook.insertCell(\'code\',\'' + afterId + '\')">Code</button>' +
+        '<button type="button" onclick="Notebook.insertCell(\'markdown\',\'' + afterId + '\')">Markdown</button>' +
       '</div>' +
     '</div>';
   }
@@ -163,8 +163,8 @@ const Notebook = (() => {
       container.innerHTML = '<div class="empty-state">' +
         '<span class="empty-state-text">Empty notebook</span>' +
         '<div class="empty-state-actions">' +
-          '<button class="pill-btn" onclick="Notebook.addCell(\'code\')">+ Code</button>' +
-          '<button class="pill-btn" onclick="Notebook.addCell(\'markdown\')">+ Markdown</button>' +
+          '<button type="button" class="pill-btn" onclick="Notebook.addCell(\'code\')">+ Code</button>' +
+          '<button type="button" class="pill-btn" onclick="Notebook.addCell(\'markdown\')">+ Markdown</button>' +
         '</div></div>';
       updateStatus();
       return;

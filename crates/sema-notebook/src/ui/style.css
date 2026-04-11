@@ -421,7 +421,9 @@ body {
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--gold);
+  font-family: var(--mono);
   font-size: 0.8rem;
+  padding: 0;
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;
 }
@@ -450,6 +452,7 @@ body {
   color: var(--text);
   background: none;
   border: none;
+  outline: none;
   cursor: pointer;
   text-align: left;
   white-space: nowrap;
@@ -471,6 +474,10 @@ body {
 }
 .status-text { font-size: 0.65rem; color: var(--text-dim); }
 .status-ready { color: var(--success); }
+
+/* Focus styles */
+button:focus { outline: none; }
+button:focus-visible { outline: 1px solid var(--gold-dim); outline-offset: 1px; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; }
