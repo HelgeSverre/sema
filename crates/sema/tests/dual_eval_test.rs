@@ -1006,3 +1006,63 @@ dual_eval_error_tests! {
     pio_err_irq_bad_mode: "(pio/irq :bogus 0)",
     pio_err_wait_bad_source: "(pio/wait 1 :bogus 0)",
 }
+
+// ============================================================
+// Typed Arrays — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // f64-array: make + ref
+    f64_array_make_and_ref: "(f64-array/ref (f64-array/make 3 1.5) 0)" => Value::float(1.5),
+    f64_array_make_default_fill: "(f64-array/ref (f64-array/make 3) 1)" => Value::float(0.0),
+
+    // f64-array: from-list + sum
+    f64_array_from_list_sum: "(f64-array/sum (f64-array/from-list '(1.0 2.0 3.0)))" => Value::float(6.0),
+
+    // f64-array: length
+    f64_array_length: "(f64-array/length (f64-array/make 5))" => Value::int(5),
+    f64_array_length_from_list: "(f64-array/length (f64-array/from-list '(10 20 30)))" => Value::int(3),
+
+    // f64-array: dot product
+    f64_array_dot: "(f64-array/dot (f64-array/from-list '(1.0 2.0 3.0)) (f64-array/from-list '(4.0 5.0 6.0)))" => Value::float(32.0),
+
+    // f64-array: map
+    f64_array_map: "(f64-array/sum (f64-array/map (fn (x) (* x 2.0)) (f64-array/from-list '(1.0 2.0 3.0))))" => Value::float(12.0),
+
+    // f64-array: fold
+    f64_array_fold: "(f64-array/fold (fn (acc x) (+ acc x)) 0.0 (f64-array/from-list '(1.0 2.0 3.0 4.0)))" => Value::float(10.0),
+
+    // f64-array: range
+    f64_array_range: "(f64-array/length (f64-array/range 0 5))" => Value::int(5),
+    f64_array_range_sum: "(f64-array/sum (f64-array/range 1 4))" => Value::float(6.0),
+
+    // i64-array: make + ref
+    i64_array_make_and_ref: "(i64-array/ref (i64-array/make 3 7) 2)" => Value::int(7),
+    i64_array_make_default_fill: "(i64-array/ref (i64-array/make 4) 0)" => Value::int(0),
+
+    // i64-array: from-list + sum
+    i64_array_from_list_sum: "(i64-array/sum (i64-array/from-list '(10 20 30)))" => Value::int(60),
+
+    // type predicates
+    f64_array_predicate_true: "(f64-array? (f64-array/make 1))" => Value::bool(true),
+    f64_array_predicate_false: "(f64-array? 42)" => Value::bool(false),
+    i64_array_predicate_true: "(i64-array? (i64-array/make 1))" => Value::bool(true),
+    i64_array_predicate_false: "(i64-array? \"hello\")" => Value::bool(false),
+    f64_array_not_i64: "(i64-array? (f64-array/make 1))" => Value::bool(false),
+    i64_array_not_f64: "(f64-array? (i64-array/make 1))" => Value::bool(false),
+}
+
+// ============================================================
+// reverse and filter — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    // reverse
+    reverse_basic: "(reverse '(1 2 3))" => Value::list(vec![Value::int(3), Value::int(2), Value::int(1)]),
+    reverse_empty: "(reverse '())" => Value::list(vec![]),
+
+    // filter
+    filter_even: "(filter even? '(1 2 3 4 5 6))" => Value::list(vec![Value::int(2), Value::int(4), Value::int(6)]),
+    filter_none_match: "(filter even? '(1 3 5))" => Value::list(vec![]),
+    filter_all_match: "(filter odd? '(1 3 5))" => Value::list(vec![Value::int(1), Value::int(3), Value::int(5)]),
+}
