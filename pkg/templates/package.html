@@ -162,7 +162,7 @@
 <div class="page-content">
   <div style="margin-bottom:1.5rem;">
     <div style="display:flex; align-items:baseline; gap:0.6rem; flex-wrap:wrap;">
-      <h1 style="font-size:1.3rem; color:var(--gold); font-weight:500;">{{ name }}</h1>
+      <h1 style="font-size:1.3rem; color:var(--gold); font-weight:500;" data-testid="pkg-name">{{ name }}</h1>
       {% if let Some(v) = versions.first() %}
       <span class="badge badge-gold">{{ v.version }}</span>
       {% endif %}
@@ -172,20 +172,30 @@
     </div>
     <p style="font-size:0.82rem; color:var(--text); margin-top:0.35rem;">{{ description }}</p>
     <div style="margin-top:0.75rem;">
-      <div class="install-snippet" style="display:inline-flex;">
+      <div class="install-snippet" style="display:inline-flex;" data-testid="install-cmd">
         <span class="prompt">$</span> sema pkg install {{ name }}
       </div>
     </div>
   </div>
 
   <div class="tabs">
-    <a href="#versions" class="tab active" data-tab="versions">Versions <span style="font-size:0.6rem; color:var(--text-dim);">{{ versions.len() }}</span></a>
-    <a href="#deps" class="tab" data-tab="deps">Dependencies <span style="font-size:0.6rem; color:var(--text-dim);">{{ deps.len() }}</span></a>
+    <a href="#readme" class="tab active" data-tab="readme" data-testid="tab-readme">Readme</a>
+    <a href="#versions" class="tab" data-tab="versions" data-testid="tab-versions">Versions <span style="font-size:0.6rem; color:var(--text-dim);">{{ versions.len() }}</span></a>
+    <a href="#deps" class="tab" data-tab="deps" data-testid="tab-deps">Dependencies <span style="font-size:0.6rem; color:var(--text-dim);">{{ deps.len() }}</span></a>
   </div>
 
   <div class="detail-grid">
     <div>
-      <div class="tab-panel active" id="versions">
+      <div class="tab-panel active" id="readme" x-data="{ html: '' }" x-init="
+        fetch('/api/v1/packages/{{ name }}')
+          .then(r => r.json())
+          .then(d => html = (d.package && d.package.readme_html) || '')
+      ">
+        <div class="readme" x-show="html" x-html="html"></div>
+        <div class="empty-state" x-show="!html">No README available</div>
+      </div>
+
+      <div class="tab-panel" id="versions" data-testid="versions-table">
         <table class="dep-table">
           <thead><tr><th>Version</th><th>Size</th><th>Published</th></tr></thead>
           <tbody>
@@ -232,9 +242,30 @@
 
       <section>
         <div class="section-label">Owners</div>
+        <div data-testid="owners-list">
         {% for owner in owners %}
         <div class="sidebar-value">{{ owner }}</div>
         {% endfor %}
+        </div>
+      </section>
+
+      <section x-data="{ daily: [], total: {{ total_downloads }}, loaded: false }" x-init="
+        fetch('/api/v1/packages/{{ name }}/downloads')
+          .then(r => r.json())
+          .then(d => { daily = d.daily || []; total = d.total || 0; loaded = true; })
+          .catch(() => { loaded = true; })
+      ">
+        <div class="section-label">Downloads</div>
+        <div class="sidebar-value" x-text="total.toLocaleString()"></div>
+        <div x-show="daily.length > 0">
+          <div style="display:flex; align-items:end; gap:1px; height:32px; margin-top:0.5rem;">
+            <template x-for="d in daily" :key="d.date">
+              <div :style="'flex:1; background:var(--gold-dim); min-width:1px; border-radius:1px 1px 0 0; height:' + (d.count / Math.max(...daily.map(x=>x.count), 1) * 100) + '%'"
+                   :title="d.date + ': ' + d.count + ' downloads'"></div>
+            </template>
+          </div>
+          <div style="font-size:0.55rem; color:var(--text-dim); margin-top:0.2rem;">Last 90 days</div>
+        </div>
       </section>
 
       {% if let Some(url) = repository_url %}
@@ -275,6 +306,57 @@
           {% endfor %}
         </table>
       </section>
+
+      {% if username.is_some() %}
+      <section x-data="{ showReport: false, reportType: 'spam', reason: '', submitting: false, submitted: false, error: '' }">
+        <a href="#" @click.prevent="showReport = !showReport" style="font-size:0.65rem; color:var(--text-dim);">
+          Report this package
+        </a>
+
+        <div x-show="showReport" x-cloak style="margin-top:0.75rem; padding:0.75rem; background:var(--bg-code); border:1px solid var(--border); border-radius:4px;">
+          <div x-show="submitted" style="color:var(--success, #4ade80); font-size:0.72rem;">
+            Report submitted. Thank you.
+          </div>
+          <div x-show="!submitted">
+            <label style="font-size:0.65rem; color:var(--text-dim); display:block; margin-bottom:0.3rem;">Type</label>
+            <select x-model="reportType" style="font-family:var(--mono); font-size:0.75rem; padding:0.4rem 0.6rem; background:var(--bg-raised); color:var(--text-bright); border:1px solid var(--border); border-radius:4px; width:100%; outline:none; margin-bottom:0.5rem;">
+              <option value="spam">Spam</option>
+              <option value="malware">Malware</option>
+              <option value="abuse">Abuse</option>
+              <option value="other">Other</option>
+            </select>
+
+            <label style="font-size:0.65rem; color:var(--text-dim); display:block; margin-bottom:0.3rem;">Reason</label>
+            <textarea x-model="reason" maxlength="2000" rows="3" placeholder="Describe the issue..." style="font-family:var(--mono); font-size:0.75rem; padding:0.4rem 0.6rem; background:var(--bg-raised); color:var(--text-bright); border:1px solid var(--border); border-radius:4px; width:100%; outline:none; resize:vertical; box-sizing:border-box;"></textarea>
+            <div style="font-size:0.55rem; color:var(--text-dim); text-align:right;" x-text="reason.length + '/2000'"></div>
+
+            <div x-show="error" style="color:var(--error); font-size:0.68rem; margin-bottom:0.3rem;" x-text="error"></div>
+
+            <div style="display:flex; gap:0.4rem; margin-top:0.4rem;">
+              <button class="btn btn-primary" style="font-size:0.65rem; padding:0.3rem 0.6rem;" :disabled="submitting || !reason.trim()" @click="
+                submitting = true; error = '';
+                try {
+                  const res = await fetch('/api/v1/reports', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                      target_type: 'package',
+                      target_name: '{{ name }}',
+                      report_type: reportType,
+                      reason: reason
+                    })
+                  });
+                  submitting = false;
+                  if (res.ok) { submitted = true; }
+                  else { const d = await res.json().catch(() => ({})); error = d.error || 'Failed to submit report'; }
+                } catch(e) { submitting = false; error = 'Network error'; }
+              " x-text="submitting ? 'Submitting...' : 'Submit Report'"></button>
+              <button class="btn btn-ghost" style="font-size:0.65rem; padding:0.3rem 0.6rem;" @click="showReport = false">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </section>
+      {% endif %}
     </aside>
   </div>
 </div>

@@ -140,11 +140,11 @@
 
     <div class="auth-card">
       <div class="auth-tabs">
-        <button class="auth-tab" :class="tab === 'signin' ? 'active' : ''" @click="tab = 'signin'">Sign In</button>
-        <button class="auth-tab" :class="tab === 'signup' ? 'active' : ''" @click="tab = 'signup'">Create Account</button>
+        <button class="auth-tab" :class="tab === 'signin' ? 'active' : ''" @click="tab = 'signin'" data-testid="tab-signin">Sign In</button>
+        <button class="auth-tab" :class="tab === 'signup' ? 'active' : ''" @click="tab = 'signup'" data-testid="tab-register">Create Account</button>
       </div>
 
-      <div x-show="error" style="padding:0.5rem 0.75rem; margin-bottom:1rem; font-size:0.72rem; color:var(--error); border:1px solid rgba(200,85,85,0.3); border-radius:4px;" x-text="error"></div>
+      <div x-show="error" style="padding:0.5rem 0.75rem; margin-bottom:1rem; font-size:0.72rem; color:var(--error); border:1px solid rgba(200,85,85,0.3); border-radius:4px;" x-text="error" data-testid="auth-error"></div>
 
       <div x-show="tab === 'signin'">
         <form class="auth-form" @submit.prevent="
@@ -160,13 +160,13 @@
         ">
           <div class="form-group">
             <label class="form-label">Username or Email</label>
-            <input type="text" class="form-input" placeholder="helge" x-ref="loginUser" required>
+            <input type="text" class="form-input" placeholder="helge" x-ref="loginUser" required data-testid="login-username">
           </div>
           <div class="form-group">
             <label class="form-label">Password</label>
-            <input type="password" class="form-input" placeholder="••••••••" x-ref="loginPass" required>
+            <input type="password" class="form-input" placeholder="••••••••" x-ref="loginPass" required data-testid="login-password">
           </div>
-          <button type="submit" class="btn btn-primary" :disabled="loading" x-text="loading ? 'Signing in…' : 'Sign In'"></button>
+          <button type="submit" class="btn btn-primary" :disabled="loading" x-text="loading ? 'Signing in…' : 'Sign In'" data-testid="login-submit"></button>
         </form>
 
         {% if github_enabled %}
@@ -192,17 +192,17 @@
         ">
           <div class="form-group">
             <label class="form-label">Username</label>
-            <input type="text" class="form-input" placeholder="helge" x-ref="regUser" required>
+            <input type="text" class="form-input" placeholder="helge" x-ref="regUser" required data-testid="reg-username">
           </div>
           <div class="form-group">
             <label class="form-label">Email</label>
-            <input type="email" class="form-input" placeholder="you@example.com" x-ref="regEmail" required>
+            <input type="email" class="form-input" placeholder="you@example.com" x-ref="regEmail" required data-testid="reg-email">
           </div>
           <div class="form-group">
             <label class="form-label">Password</label>
-            <input type="password" class="form-input" placeholder="••••••••" x-ref="regPass" required>
+            <input type="password" class="form-input" placeholder="••••••••" x-ref="regPass" required data-testid="reg-password">
           </div>
-          <button type="submit" class="btn btn-primary" :disabled="loading" x-text="loading ? 'Creating…' : 'Create Account'"></button>
+          <button type="submit" class="btn btn-primary" :disabled="loading" x-text="loading ? 'Creating…' : 'Create Account'" data-testid="reg-submit"></button>
         </form>
 
         {% if github_enabled %}

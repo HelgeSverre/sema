@@ -35,10 +35,13 @@
     <a href="/search" class="header-link">Browse</a>
     <a href="https://sema-lang.com/docs/" class="header-link">Docs</a>
     {% if username.is_some() %}
-    <a href="/link" class="header-link">Link Repo</a>
-    <a href="/account" class="header-link">Account</a>
+    {% if is_admin %}
+    <a href="/admin" class="header-link" data-testid="nav-admin" style="color:var(--error);">Admin</a>
+    {% endif %}
+    <a href="/link" class="header-link" data-testid="nav-link-repo">Link Repo</a>
+    <a href="/account" class="header-link" data-testid="nav-account">Account</a>
     {% else %}
-    <a href="/login" class="header-link">Sign In</a>
+    <a href="/login" class="header-link" data-testid="nav-signin">Sign In</a>
     {% endif %}
   </nav>
 </header>

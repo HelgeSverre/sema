@@ -3,6 +3,9 @@ use axum::http::{Request, Response, StatusCode};
 use axum::Router;
 use http_body_util::BodyExt;
 use serde_json::Value;
+use sea_orm::*;
+use sea_orm::prelude::Expr;
+use sema_pkg::entity::user;
 use std::sync::Arc;
 use tempfile::TempDir;
 use tower::ServiceExt;
@@ -10,12 +13,21 @@ use tower::ServiceExt;
 use sema_pkg::{build_router, AppState};
 
 pub async fn test_app() -> (Router, TempDir) {
+    let (app, _state, dir) = test_app_with_state().await;
+    (app, dir)
+}
+
+pub async fn test_app_with_state() -> (Router, Arc<AppState>, TempDir) {
     let dir = tempfile::tempdir().unwrap();
-    let db_path = dir.path().join("test.db");
     let blob_dir = dir.path().join("blobs");
     std::fs::create_dir_all(&blob_dir).unwrap();
 
-    let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
+    // Use DATABASE_URL from env if set (for multi-driver Docker testing),
+    // otherwise default to a temp SQLite database
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        let db_path = dir.path().join("test.db");
+        format!("sqlite://{}?mode=rwc", db_path.display())
+    });
     let db = sema_pkg::db::connect(&db_url).await;
 
     let config = sema_pkg::config::Config {
@@ -27,12 +39,13 @@ pub async fn test_app() -> (Router, TempDir) {
         github_client_id: None,
         github_client_secret: None,
         session_secret: "test-secret".into(),
+        oauth_token_key: "test-key-32-bytes-long-for-aes!!".into(),
         max_tarball_bytes: 10 * 1024 * 1024,
     };
 
     let state = Arc::new(AppState { db, config });
-    let app = build_router(state);
-    (app, dir)
+    let app = build_router(state.clone());
+    (app, state, dir)
 }
 
 pub async fn body_json(res: Response<Body>) -> Value {
@@ -175,4 +188,113 @@ pub async fn publish_package(
     )
     .await
     .unwrap()
+}
+
+/// Promote a user to admin via direct DB access.
+pub async fn make_admin(state: &Arc<AppState>, username: &str) {
+    user::Entity::update_many()
+        .col_expr(user::Column::IsAdmin, Expr::value(1i32))
+        .filter(user::Column::Username.eq(username))
+        .exec(&state.db)
+        .await
+        .unwrap();
+}
+
+/// Register a user and make them admin. Returns session string.
+pub async fn register_admin(
+    app: Router,
+    state: &Arc<AppState>,
+    username: &str,
+    email: &str,
+) -> String {
+    let session = register_user(app, username, email).await;
+    make_admin(state, username).await;
+    session
+}
+
+/// Send a POST with empty body and session cookie.
+pub async fn post_empty_with_session(
+    app: Router,
+    uri: &str,
+    session: &str,
+) -> Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header("cookie", format!("session={session}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Send a PUT with JSON body and session cookie.
+pub async fn put_json_with_session(
+    app: Router,
+    uri: &str,
+    body: Value,
+    session: &str,
+) -> Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("PUT")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header("cookie", format!("session={session}"))
+            .body(Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Send a DELETE with session cookie.
+pub async fn delete_with_session(
+    app: Router,
+    uri: &str,
+    session: &str,
+) -> Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header("cookie", format!("session={session}"))
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Send a DELETE with JSON body and session cookie.
+pub async fn delete_json_with_session(
+    app: Router,
+    uri: &str,
+    body: Value,
+    session: &str,
+) -> Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("DELETE")
+            .uri(uri)
+            .header("content-type", "application/json")
+            .header("cookie", format!("session={session}"))
+            .body(Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+/// Get a user's ID from the database.
+pub async fn get_user_id(state: &Arc<AppState>, username: &str) -> i64 {
+    user::Entity::find()
+        .filter(user::Column::Username.eq(username))
+        .one(&state.db)
+        .await
+        .unwrap()
+        .unwrap()
+        .id
 }

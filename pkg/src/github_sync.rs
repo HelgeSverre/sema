@@ -1,27 +1,27 @@
-use crate::{blob, crypto, db::Db};
-use sqlx::Row;
+use sea_orm::*;
+
+use crate::{crypto, db::Db, entity::{github_sync_log, oauth_connection, package_version}};
 
 /// Fetch the decrypted GitHub access token for a user.
 pub async fn get_github_token(db: &Db, user_id: i64, token_key: &str) -> Option<String> {
-    let row = sqlx::query(
-        "SELECT access_token_enc FROM oauth_connections WHERE user_id = ? AND provider = 'github' AND revoked_at IS NULL"
-    )
-    .bind(user_id)
-    .fetch_optional(db)
-    .await
-    .ok()??;
+    let row = oauth_connection::Entity::find()
+        .filter(oauth_connection::Column::UserId.eq(user_id))
+        .filter(oauth_connection::Column::Provider.eq("github"))
+        .filter(oauth_connection::Column::RevokedAt.is_null())
+        .one(db)
+        .await
+        .ok()??;
 
-    let enc: Vec<u8> = row.get("access_token_enc");
-    crypto::decrypt(&enc, token_key)
+    crypto::decrypt(&row.access_token_enc, token_key)
 }
 
 /// Mark a user's GitHub connection as revoked (e.g. after a 401).
 pub async fn mark_token_revoked(db: &Db, user_id: i64) {
-    let _ = sqlx::query(
-        "UPDATE oauth_connections SET revoked_at = datetime('now') WHERE user_id = ? AND provider = 'github'"
-    )
-    .bind(user_id)
-    .execute(db)
+    let _ = db.execute(Statement::from_sql_and_values(
+        db.get_database_backend(),
+        "UPDATE oauth_connections SET revoked_at = datetime('now') WHERE user_id = ? AND provider = 'github'",
+        [user_id.into()],
+    ))
     .await;
 }
 
@@ -143,77 +143,91 @@ pub async fn list_semver_tags(
     Ok(tags)
 }
 
-/// Sync a single tag: download tarball from GitHub, store as blob, create version record.
+/// Sync a single tag: store metadata and GitHub tarball URL (no blob download).
 /// Returns Ok(true) if version was created, Ok(false) if it already existed.
 pub async fn sync_tag(
     db: &Db,
-    client: &reqwest::Client,
-    token: &str,
     owner: &str,
     repo: &str,
     tag_name: &str,
     version: &semver::Version,
     package_id: i64,
-    blob_dir: &str,
     sema_version_req: Option<&str>,
 ) -> Result<bool, String> {
     let version_str = version.to_string();
 
-    let exists = sqlx::query(
-        "SELECT COUNT(*) as cnt FROM package_versions WHERE package_id = ? AND version = ?"
-    )
-    .bind(package_id)
-    .bind(&version_str)
-    .fetch_one(db)
-    .await
-    .ok()
-    .map(|r| r.get::<i32, _>("cnt"))
-    .unwrap_or(0);
+    // Check if version already exists
+    let exists = package_version::Entity::find()
+        .filter(package_version::Column::PackageId.eq(package_id))
+        .filter(package_version::Column::Version.eq(&version_str))
+        .count(db)
+        .await
+        .unwrap_or(0);
 
     if exists > 0 {
         return Ok(false);
     }
 
     let tarball_url = format!("https://api.github.com/repos/{owner}/{repo}/tarball/{tag_name}");
+
+    let version_model = package_version::ActiveModel {
+        package_id: Set(package_id),
+        version: Set(version_str),
+        checksum_sha256: Set(String::new()),
+        blob_key: Set(String::new()),
+        size_bytes: Set(0),
+        sema_version_req: Set(sema_version_req.map(String::from)),
+        tarball_url: Set(Some(tarball_url)),
+        ..Default::default()
+    };
+
+    version_model.insert(db).await.map_err(|e| format!("Failed to insert version: {e}"))?;
+
+    let log_model = github_sync_log::ActiveModel {
+        package_id: Set(package_id),
+        tag: Set(tag_name.to_string()),
+        status: Set("ok".into()),
+        ..Default::default()
+    };
+    let _ = log_model.insert(db).await;
+
+    Ok(true)
+}
+
+/// Fetch README content from a GitHub repository.
+pub async fn fetch_readme(
+    client: &reqwest::Client,
+    token: &str,
+    owner: &str,
+    repo: &str,
+) -> Option<String> {
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/readme");
     let resp = client
-        .get(&tarball_url)
+        .get(&url)
         .header("Authorization", format!("Bearer {token}"))
+        .header("Accept", "application/vnd.github.raw+json")
         .header("User-Agent", "sema-pkg")
         .send()
         .await
-        .map_err(|e| format!("Failed to download tarball for {tag_name}: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("Failed to download tarball for {tag_name} ({})", resp.status()));
+        .ok()?;
+    if resp.status().is_success() {
+        resp.text().await.ok()
+    } else {
+        None
     }
+}
 
-    let tarball = resp.bytes().await.map_err(|e| format!("Failed to read tarball: {e}"))?;
-
-    let (blob_key, checksum, size) = blob::store(blob_dir, &tarball).await;
-
-    sqlx::query(
-        "INSERT INTO package_versions (package_id, version, checksum_sha256, blob_key, size_bytes, sema_version_req) VALUES (?, ?, ?, ?, ?, ?)"
-    )
-    .bind(package_id)
-    .bind(&version_str)
-    .bind(&checksum)
-    .bind(&blob_key)
-    .bind(size as i64)
-    .bind(sema_version_req)
-    .execute(db)
-    .await
-    .map_err(|e| format!("Failed to insert version: {e}"))?;
-
-    sqlx::query(
-        "INSERT INTO github_sync_log (package_id, tag, status) VALUES (?, ?, 'ok')"
-    )
-    .bind(package_id)
-    .bind(tag_name)
-    .execute(db)
-    .await
-    .ok();
-
-    Ok(true)
+/// Render a Markdown README to HTML using comrak (GitHub Flavored Markdown).
+pub fn render_readme(markdown: &str) -> String {
+    use comrak::{markdown_to_html, Options};
+    let mut options = Options::default();
+    options.extension.table = true;
+    options.extension.autolink = true;
+    options.extension.tasklist = true;
+    options.extension.strikethrough = true;
+    options.extension.header_ids = Some(String::new());
+    options.render.unsafe_ = false;
+    markdown_to_html(markdown, &options)
 }
 
 /// Register a webhook on a GitHub repository.
