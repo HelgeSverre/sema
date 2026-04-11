@@ -75,12 +75,13 @@ const Notebook = (() => {
     }
     const metaText = metaParts.join(' \u00b7 ');
 
-    return '<div class="' + cls + '">' +
+    const testType = isError ? 'error' : isStdout ? 'stdout' : 'value';
+    return '<div class="' + cls + '" data-testid="cell-output-' + testType + '">' +
       '<div class="cell-output-header" onclick="Notebook.toggleOutput(this)">' +
-        '<span class="output-chevron">\u25bc</span>' +
-        '<span class="output-meta">' + metaText + '</span>' +
+        '<span class="output-chevron" data-testid="output-chevron">\u25bc</span>' +
+        '<span class="output-meta" data-testid="output-meta">' + metaText + '</span>' +
       '</div>' +
-      '<div class="cell-output-content">' + displayContent + '</div>' +
+      '<div class="cell-output-content" data-testid="output-content">' + displayContent + '</div>' +
     '</div>';
   }
 
@@ -96,36 +97,37 @@ const Notebook = (() => {
     // Gutter
     let gutterContent = '';
     if (!isCode) {
-      gutterContent = '<span style="color:var(--text-dim)">M</span>';
+      gutterContent = '<span data-testid="gutter-markdown" style="color:var(--text-dim)">M</span>';
     } else if (cell._loading) {
-      gutterContent = '<div class="spinner"></div>';
+      gutterContent = '<div class="spinner" data-testid="gutter-spinner"></div>';
     } else if (cell.cell_number != null) {
       const sc = isStale ? ' stale' : '';
       const ss = isStale ? '*' : '';
-      gutterContent = '<span class="exec-count' + sc + '">[' + cell.cell_number + ss + ']</span>';
+      gutterContent = '<span class="exec-count' + sc + '" data-testid="gutter-exec-count">[' + cell.cell_number + ss + ']</span>';
     } else {
-      gutterContent = '<span style="color:var(--text-dim)">[ ]</span>';
+      gutterContent = '<span data-testid="gutter-empty" style="color:var(--text-dim)">[ ]</span>';
     }
 
     // Actions
-    let actions = '<div class="cell-actions">';
+    let actions = '<div class="cell-actions" data-testid="cell-actions">';
     if (isCode) {
-      actions += '<button type="button" class="cell-action-btn" title="Run" onclick="Notebook.evalCell(\'' + cell.id + '\')">' + icons.run + '</button>';
+      actions += '<button type="button" class="cell-action-btn" title="Run" data-testid="btn-cell-run" onclick="Notebook.evalCell(\'' + cell.id + '\')">' + icons.run + '</button>';
     }
-    actions += '<button type="button" class="cell-action-btn" title="Move up" onclick="Notebook.moveCell(\'' + cell.id + '\',-1)">' + icons.moveUp + '</button>';
-    actions += '<button type="button" class="cell-action-btn" title="Move down" onclick="Notebook.moveCell(\'' + cell.id + '\',1)">' + icons.moveDown + '</button>';
-    actions += '<button type="button" class="cell-action-btn delete" title="Delete" onclick="Notebook.deleteCell(\'' + cell.id + '\')">' + icons.delete + '</button>';
+    actions += '<button type="button" class="cell-action-btn" title="Move up" data-testid="btn-cell-move-up" onclick="Notebook.moveCell(\'' + cell.id + '\',-1)">' + icons.moveUp + '</button>';
+    actions += '<button type="button" class="cell-action-btn" title="Move down" data-testid="btn-cell-move-down" onclick="Notebook.moveCell(\'' + cell.id + '\',1)">' + icons.moveDown + '</button>';
+    actions += '<button type="button" class="cell-action-btn delete" title="Delete" data-testid="btn-cell-delete" onclick="Notebook.deleteCell(\'' + cell.id + '\')">' + icons.delete + '</button>';
     actions += '</div>';
 
     // Body content
     let bodyContent = '';
     if (!isCode && cell._rendered) {
-      bodyContent = '<div class="markdown-rendered" onclick="Notebook.editMarkdown(\'' + cell.id + '\')">' + renderMarkdown(cell.source) + '</div>';
+      bodyContent = '<div class="markdown-rendered" data-testid="markdown-rendered" onclick="Notebook.editMarkdown(\'' + cell.id + '\')">' + renderMarkdown(cell.source) + '</div>';
     } else {
       const rows = Math.max(cell.source.split('\n').length, 1);
-      const hint = (!shiftEnterUsed && isFocused) ? '<span class="shift-enter-hint">Shift+Enter</span>' : '';
-      bodyContent = '<div class="cell-editor">' +
+      const hint = (!shiftEnterUsed && isFocused) ? '<span class="shift-enter-hint" data-testid="shift-enter-hint">Shift+Enter</span>' : '';
+      bodyContent = '<div class="cell-editor" data-testid="cell-editor">' +
         '<textarea rows="' + rows + '" spellcheck="false" data-id="' + cell.id + '"' +
+        ' data-testid="cell-textarea"' +
         ' onfocus="Notebook.focusCell(\'' + cell.id + '\')"' +
         ' onkeydown="Notebook.onKeyDown(event,\'' + cell.id + '\')"' +
         ' oninput="Notebook.onEdit(this,\'' + cell.id + '\')"' +
@@ -139,19 +141,19 @@ const Notebook = (() => {
       outputHTML = cell.rendered_outputs.map(renderOutputHTML).join('');
     }
 
-    return '<div class="' + classes + '" id="cell-' + cell.id + '" data-id="' + cell.id + '">' +
-      '<div class="cell-gutter">' + gutterContent + '</div>' +
-      '<div class="cell-body">' + actions + bodyContent + outputHTML + '</div>' +
+    return '<div class="' + classes + '" id="cell-' + cell.id + '" data-id="' + cell.id + '" data-testid="cell" data-cell-type="' + cell.cell_type + '">' +
+      '<div class="cell-gutter" data-testid="cell-gutter">' + gutterContent + '</div>' +
+      '<div class="cell-body" data-testid="cell-body">' + actions + bodyContent + outputHTML + '</div>' +
     '</div>';
   }
 
   function renderDivider(afterId) {
-    return '<div class="cell-divider" onmouseenter="this.classList.add(\'visible\')" onmouseleave="Notebook.closeDivider(this)">' +
+    return '<div class="cell-divider" data-testid="cell-divider" onmouseenter="this.classList.add(\'visible\')" onmouseleave="Notebook.closeDivider(this)">' +
       '<div class="cell-divider-line"></div>' +
-      '<button type="button" class="add-cell-btn" onclick="Notebook.toggleDropdown(event,\'' + afterId + '\')">+</button>' +
-      '<div class="add-cell-dropdown" data-after="' + afterId + '">' +
-        '<button type="button" onclick="Notebook.insertCell(\'code\',\'' + afterId + '\')">Code</button>' +
-        '<button type="button" onclick="Notebook.insertCell(\'markdown\',\'' + afterId + '\')">Markdown</button>' +
+      '<button type="button" class="add-cell-btn" data-testid="btn-add-cell" onclick="Notebook.toggleDropdown(event,\'' + afterId + '\')">+</button>' +
+      '<div class="add-cell-dropdown" data-testid="add-cell-dropdown" data-after="' + afterId + '">' +
+        '<button type="button" data-testid="btn-insert-code" onclick="Notebook.insertCell(\'code\',\'' + afterId + '\')">Code</button>' +
+        '<button type="button" data-testid="btn-insert-markdown" onclick="Notebook.insertCell(\'markdown\',\'' + afterId + '\')">Markdown</button>' +
       '</div>' +
     '</div>';
   }
@@ -160,11 +162,11 @@ const Notebook = (() => {
     const container = document.getElementById('cells-inner');
 
     if (cells.length === 0) {
-      container.innerHTML = '<div class="empty-state">' +
+      container.innerHTML = '<div class="empty-state" data-testid="empty-state">' +
         '<span class="empty-state-text">Empty notebook</span>' +
         '<div class="empty-state-actions">' +
-          '<button type="button" class="pill-btn" onclick="Notebook.addCell(\'code\')">+ Code</button>' +
-          '<button type="button" class="pill-btn" onclick="Notebook.addCell(\'markdown\')">+ Markdown</button>' +
+          '<button type="button" class="pill-btn" data-testid="btn-empty-add-code" onclick="Notebook.addCell(\'code\')">+ Code</button>' +
+          '<button type="button" class="pill-btn" data-testid="btn-empty-add-markdown" onclick="Notebook.addCell(\'markdown\')">+ Markdown</button>' +
         '</div></div>';
       updateStatus();
       return;
