@@ -14,7 +14,10 @@ pub fn index_html() -> String {
 pub fn asset(path: &str) -> Option<(String, String)> {
     match path {
         "style.css" => Some((css().to_string(), "text/css".to_string())),
-        "alpine.min.js" => Some((alpine_js().to_string(), "application/javascript".to_string())),
+        "alpine.min.js" => Some((
+            alpine_js().to_string(),
+            "application/javascript".to_string(),
+        )),
         "notebook.js" => Some((js().to_string(), "application/javascript".to_string())),
         _ => None,
     }

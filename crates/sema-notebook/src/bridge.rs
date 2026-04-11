@@ -131,10 +131,10 @@ impl EngineHandle {
                                 CellType::Markdown => engine.notebook.add_markdown_cell(&source),
                             };
                             if let Some(after_id) = &after {
-                                let after_idx =
-                                    engine.notebook.cell_index(after_id).ok_or_else(|| {
-                                        format!("Cell not found: {after_id}")
-                                    })?;
+                                let after_idx = engine
+                                    .notebook
+                                    .cell_index(after_id)
+                                    .ok_or_else(|| format!("Cell not found: {after_id}"))?;
                                 let new_idx = engine.notebook.cell_index(&id).unwrap();
                                 let cell = engine.notebook.cells.remove(new_idx);
                                 let insert_at = if after_idx < new_idx {
@@ -334,7 +334,8 @@ impl EngineHandle {
     // ── Public typed methods ────────────────────────────────────
 
     pub async fn get_notebook(&self) -> Result<render::NotebookResponse, BridgeError> {
-        self.send(|reply| EngineRequest::GetNotebook { reply }).await
+        self.send(|reply| EngineRequest::GetNotebook { reply })
+            .await
     }
 
     pub async fn create_cell(

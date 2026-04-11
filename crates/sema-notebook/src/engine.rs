@@ -519,4 +519,3 @@ mod tests {
         assert!(engine.undo_last_cell().is_err());
     }
 }
-

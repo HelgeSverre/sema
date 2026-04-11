@@ -13530,10 +13530,16 @@ fn test_db_exec_and_query() {
     let list = rows.as_list().unwrap();
     assert_eq!(list.len(), 2);
     let alice = list[0].as_map_ref().unwrap();
-    assert_eq!(alice.get(&Value::keyword("name")).unwrap(), &Value::string("Alice"));
+    assert_eq!(
+        alice.get(&Value::keyword("name")).unwrap(),
+        &Value::string("Alice")
+    );
     assert_eq!(alice.get(&Value::keyword("age")).unwrap(), &Value::int(30));
     let bob = list[1].as_map_ref().unwrap();
-    assert_eq!(bob.get(&Value::keyword("name")).unwrap(), &Value::string("Bob"));
+    assert_eq!(
+        bob.get(&Value::keyword("name")).unwrap(),
+        &Value::string("Bob")
+    );
     interp.eval_str(r#"(db/close "eq")"#).unwrap();
 }
 
@@ -13544,9 +13550,15 @@ fn test_db_query_with_params() {
     interp
         .eval_str(r#"(db/exec "qp" "CREATE TABLE items (id INTEGER PRIMARY KEY, value REAL)")"#)
         .unwrap();
-    interp.eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 3.14)"#).unwrap();
-    interp.eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 2.72)"#).unwrap();
-    interp.eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 1.0)"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 3.14)"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 2.72)"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 1.0)"#)
+        .unwrap();
     let rows = interp
         .eval_str(r#"(db/query "qp" "SELECT value FROM items WHERE value > ?" 2.0)"#)
         .unwrap();
@@ -13569,7 +13581,10 @@ fn test_db_query_one() {
         .eval_str(r#"(db/query-one "qo" "SELECT val FROM kv WHERE key = ?" "name")"#)
         .unwrap();
     let row = result.as_map_ref().unwrap();
-    assert_eq!(row.get(&Value::keyword("val")).unwrap(), &Value::string("Alice"));
+    assert_eq!(
+        row.get(&Value::keyword("val")).unwrap(),
+        &Value::string("Alice")
+    );
     let missing = interp
         .eval_str(r#"(db/query-one "qo" "SELECT val FROM kv WHERE key = ?" "nope")"#)
         .unwrap();
@@ -13584,10 +13599,14 @@ fn test_db_last_insert_id() {
     interp
         .eval_str(r#"(db/exec "lid" "CREATE TABLE t (id INTEGER PRIMARY KEY)")"#)
         .unwrap();
-    interp.eval_str(r#"(db/exec "lid" "INSERT INTO t DEFAULT VALUES")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "lid" "INSERT INTO t DEFAULT VALUES")"#)
+        .unwrap();
     let id = interp.eval_str(r#"(db/last-insert-id "lid")"#).unwrap();
     assert_eq!(id, Value::int(1));
-    interp.eval_str(r#"(db/exec "lid" "INSERT INTO t DEFAULT VALUES")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "lid" "INSERT INTO t DEFAULT VALUES")"#)
+        .unwrap();
     let id2 = interp.eval_str(r#"(db/last-insert-id "lid")"#).unwrap();
     assert_eq!(id2, Value::int(2));
     interp.eval_str(r#"(db/close "lid")"#).unwrap();
@@ -13597,8 +13616,12 @@ fn test_db_last_insert_id() {
 fn test_db_tables() {
     let interp = Interpreter::new();
     interp.eval_str(r#"(db/open-memory "tbl")"#).unwrap();
-    interp.eval_str(r#"(db/exec "tbl" "CREATE TABLE alpha (id INTEGER)")"#).unwrap();
-    interp.eval_str(r#"(db/exec "tbl" "CREATE TABLE beta (id INTEGER)")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "tbl" "CREATE TABLE alpha (id INTEGER)")"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(db/exec "tbl" "CREATE TABLE beta (id INTEGER)")"#)
+        .unwrap();
     let tables = interp.eval_str(r#"(db/tables "tbl")"#).unwrap();
     let list = tables.as_list().unwrap();
     assert_eq!(list.len(), 2);
@@ -13650,7 +13673,9 @@ fn test_db_open_file() {
         .eval_str(&format!(r#"(db/exec "{path}" "CREATE TABLE t (v TEXT)")"#))
         .unwrap();
     interp
-        .eval_str(&format!(r#"(db/exec "{path}" "INSERT INTO t VALUES (?)" "hello")"#))
+        .eval_str(&format!(
+            r#"(db/exec "{path}" "INSERT INTO t VALUES (?)" "hello")"#
+        ))
         .unwrap();
     interp.eval_str(&format!(r#"(db/close "{path}")"#)).unwrap();
     // Reopen and verify persistence
@@ -13659,7 +13684,10 @@ fn test_db_open_file() {
         .eval_str(&format!(r#"(db/query-one "{path}" "SELECT v FROM t")"#))
         .unwrap();
     let map = result.as_map_ref().unwrap();
-    assert_eq!(map.get(&Value::keyword("v")).unwrap(), &Value::string("hello"));
+    assert_eq!(
+        map.get(&Value::keyword("v")).unwrap(),
+        &Value::string("hello")
+    );
     interp.eval_str(&format!(r#"(db/close "{path}")"#)).unwrap();
     let _ = std::fs::remove_file(&tmp);
 }
@@ -13691,8 +13719,7 @@ fn test_db_foreign_keys() {
         .eval_str(r#"(db/exec "fk" "CREATE TABLE child (id INTEGER, pid INTEGER REFERENCES parent(id))")"#)
         .unwrap();
     // Inserting a child with non-existent parent should fail because foreign_keys=ON
-    let result = interp
-        .eval_str(r#"(db/exec "fk" "INSERT INTO child VALUES (1, 999)")"#);
+    let result = interp.eval_str(r#"(db/exec "fk" "INSERT INTO child VALUES (1, 999)")"#);
     assert!(result.is_err());
     interp.eval_str(r#"(db/close "fk")"#).unwrap();
 }
