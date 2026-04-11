@@ -245,17 +245,9 @@ impl Engine {
             .ok_or_else(|| "Nothing to undo".to_string())?;
 
         // Restore environment bindings
-        {
-            let mut bindings = self.interpreter.global_env.bindings.borrow_mut();
-            bindings.clear();
-            for (spur, value) in snapshot.bindings {
-                bindings.insert(spur, value);
-            }
-        }
         self.interpreter
             .global_env
-            .version
-            .set(self.interpreter.global_env.version.get().wrapping_add(1));
+            .replace_bindings(snapshot.bindings);
 
         // Restore the cell's outputs
         if let Some(cell) = self.notebook.cell_mut(&snapshot.cell_id) {

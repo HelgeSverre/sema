@@ -355,7 +355,7 @@ body {
   font-size: 11px;
   color: var(--gold);
   background: transparent;
-  border: 1px solid var(--gold-dim, #6b5c2a);
+  border: 1px solid var(--gold-dim);
   border-radius: 4px;
   cursor: pointer;
 }

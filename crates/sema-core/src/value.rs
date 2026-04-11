@@ -2073,6 +2073,18 @@ impl Env {
     pub fn get_local(&self, name: Spur) -> Option<Value> {
         self.bindings.borrow().get(&name).cloned()
     }
+
+    /// Replace all bindings in the current scope with the given iterator.
+    /// Used for bulk restore (e.g., undo/rollback).
+    pub fn replace_bindings(&self, new_bindings: impl IntoIterator<Item = (Spur, Value)>) {
+        let mut bindings = self.bindings.borrow_mut();
+        bindings.clear();
+        for (spur, value) in new_bindings {
+            bindings.insert(spur, value);
+        }
+        drop(bindings);
+        self.bump_version();
+    }
 }
 
 impl Default for Env {
