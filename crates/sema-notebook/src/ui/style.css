@@ -114,6 +114,7 @@ body {
 }
 .toolbar-btn:hover { color: var(--gold); background: var(--gold-glow); }
 .toolbar-btn:disabled { opacity: 0.25; cursor: default; pointer-events: none; }
+.toolbar-btn.save-flash { color: var(--success); }
 .toolbar-btn svg { width: 16px; height: 16px; }
 
 .toolbar-sep {

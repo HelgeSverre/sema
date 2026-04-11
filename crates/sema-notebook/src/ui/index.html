@@ -7,8 +7,13 @@
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231a1a1a'/%3E%3Ctext x='16' y='24.5' text-anchor='middle' font-family='Georgia' font-weight='600' font-size='26' fill='%23c8a855'%3ES%3C/text%3E%3C/svg%3E">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/ui/style.css">
+<script defer src="/ui/notebook.js"></script>
+<script defer src="/ui/alpine.min.js"></script>
 </head>
-<body>
+
+<body x-data="notebook" @keydown.window.meta.s.prevent="save()" @keydown.window.ctrl.s.prevent="save()">
+
+<!-- ── Toolbar ── -->
 <div id="toolbar" data-testid="toolbar">
   <div class="toolbar-left">
     <svg class="logo-mark" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
@@ -18,52 +23,205 @@
     <span class="logo-text">Notebook</span>
   </div>
   <div class="toolbar-center">
-    <input type="text" id="notebook-title" data-testid="notebook-title" value="Untitled">
+    <input type="text" id="notebook-title" data-testid="notebook-title" x-model="title">
     <svg class="edit-icon" width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z"/>
     </svg>
   </div>
   <div class="toolbar-right">
-    <button type="button" class="toolbar-btn" title="Add code cell" data-testid="btn-add-code" onclick="Notebook.addCell('code')">
+    <button type="button" class="toolbar-btn" title="Add code cell" data-testid="btn-add-code" @click="addCell('code')">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <polyline points="4,2 1,8 4,14"/><polyline points="12,2 15,8 12,14"/><line x1="10" y1="2" x2="6" y2="14"/>
       </svg>
     </button>
-    <button type="button" class="toolbar-btn" title="Add markdown cell" data-testid="btn-add-markdown" onclick="Notebook.addCell('markdown')">
+    <button type="button" class="toolbar-btn" title="Add markdown cell" data-testid="btn-add-markdown" @click="addCell('markdown')">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <line x1="2" y1="3" x2="14" y2="3"/><line x1="2" y1="7" x2="10" y2="7"/><line x1="2" y1="11" x2="14" y2="11"/>
       </svg>
     </button>
     <div class="toolbar-sep"></div>
-    <button type="button" class="toolbar-btn" title="Run all cells" data-testid="btn-run-all" onclick="Notebook.evalAll()">
+    <button type="button" class="toolbar-btn" title="Run all cells" data-testid="btn-run-all" @click="evalAll()">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="3,1 13,8 3,15" fill="currentColor" stroke="none"/>
       </svg>
     </button>
-    <button type="button" class="toolbar-btn" id="undo-btn" title="Undo last cell" data-testid="btn-undo" onclick="Notebook.undo()" disabled>
+    <button type="button" class="toolbar-btn" id="undo-btn" title="Undo last cell" data-testid="btn-undo" :disabled="!canUndo" @click="undo()">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M3 7h7a3 3 0 0 1 0 6H8"/><polyline points="6,4 3,7 6,10"/>
       </svg>
     </button>
     <div class="toolbar-sep"></div>
-    <button type="button" class="toolbar-btn" title="Save notebook" data-testid="btn-save" onclick="Notebook.save()">
+    <button type="button" class="toolbar-btn" title="Save notebook" data-testid="btn-save" :class="{ 'save-flash': saveFeedback }" @click="save()">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M13 15H3a1 1 0 01-1-1V2a1 1 0 011-1h8l3 3v10a1 1 0 01-1 1z"/>
         <path d="M10 1v3H6"/><rect x="5" y="9" width="6" height="4"/>
       </svg>
     </button>
-    <button type="button" class="toolbar-btn" title="Reset environment" data-testid="btn-reset" onclick="Notebook.reset()">
+    <button type="button" class="toolbar-btn" title="Reset environment" data-testid="btn-reset" @click="reset()">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <path d="M1 4v4h4"/><path d="M2.5 10A6 6 0 1 0 4 4L1 8"/>
       </svg>
     </button>
   </div>
 </div>
-<div id="cells" data-testid="cells-container"><div id="cells-inner"></div></div>
+
+<!-- ── Cells ── -->
+<div id="cells" data-testid="cells-container">
+  <div id="cells-inner">
+
+    <!-- Empty state -->
+    <template x-if="cells.length === 0">
+      <div class="empty-state" data-testid="empty-state">
+        <span class="empty-state-text">Empty notebook</span>
+        <div class="empty-state-actions">
+          <button type="button" class="pill-btn" data-testid="btn-empty-add-code" @click="addCell('code')">+ Code</button>
+          <button type="button" class="pill-btn" data-testid="btn-empty-add-markdown" @click="addCell('markdown')">+ Markdown</button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Cell list -->
+    <template x-if="cells.length > 0">
+      <div>
+        <!-- Top divider -->
+        <div class="cell-divider" data-testid="cell-divider"
+             @mouseenter="$el.classList.add('visible')" @mouseleave="if (openDropdownId !== 'top') $el.classList.remove('visible')">
+          <div class="cell-divider-line"></div>
+          <button type="button" class="add-cell-btn" data-testid="btn-add-cell" @click.stop="openDropdownId = openDropdownId === 'top' ? null : 'top'">+</button>
+          <div class="add-cell-dropdown" data-testid="add-cell-dropdown" :class="{ open: openDropdownId === 'top' }">
+            <button type="button" data-testid="btn-insert-code" @click="insertCell('code', 'top')">Code</button>
+            <button type="button" data-testid="btn-insert-markdown" @click="insertCell('markdown', 'top')">Markdown</button>
+          </div>
+        </div>
+
+        <!-- Cells -->
+        <template x-for="(cell, cellIndex) in cells" :key="cell.id">
+          <div>
+            <!-- Cell -->
+            <div class="cell"
+                 :id="'cell-' + cell.id"
+                 :data-id="cell.id"
+                 :data-cell-type="cell.cell_type"
+                 :class="{ focused: focusedCellId === cell.id, stale: cell.stale }"
+                 data-testid="cell">
+
+              <!-- Gutter -->
+              <div class="cell-gutter" data-testid="cell-gutter">
+                <template x-if="cell.cell_type !== 'code'">
+                  <span data-testid="gutter-markdown" style="color:var(--text-dim)">M</span>
+                </template>
+                <template x-if="cell.cell_type === 'code' && cell._loading">
+                  <div class="spinner" data-testid="gutter-spinner"></div>
+                </template>
+                <template x-if="cell.cell_type === 'code' && !cell._loading && cell.cell_number != null">
+                  <span class="exec-count" :class="{ stale: cell.stale }" data-testid="gutter-exec-count"
+                        x-text="'[' + cell.cell_number + (cell.stale ? '*' : '') + ']'"></span>
+                </template>
+                <template x-if="cell.cell_type === 'code' && !cell._loading && cell.cell_number == null">
+                  <span data-testid="gutter-empty" style="color:var(--text-dim)">[ ]</span>
+                </template>
+              </div>
+
+              <!-- Body -->
+              <div class="cell-body" data-testid="cell-body">
+
+                <!-- Hover actions -->
+                <div class="cell-actions" data-testid="cell-actions">
+                  <button x-show="cell.cell_type === 'code'" type="button" class="cell-action-btn" title="Run" data-testid="btn-cell-run" @click="evalCell(cell.id)">
+                    <svg viewBox="0 0 16 16" fill="currentColor"><polygon points="4,2 13,8 4,14"/></svg>
+                  </button>
+                  <button type="button" class="cell-action-btn" title="Move up" data-testid="btn-cell-move-up" @click="moveCell(cell.id, -1)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="13" x2="8" y2="3"/><polyline points="4,7 8,3 12,7"/></svg>
+                  </button>
+                  <button type="button" class="cell-action-btn" title="Move down" data-testid="btn-cell-move-down" @click="moveCell(cell.id, 1)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="3" x2="8" y2="13"/><polyline points="4,9 8,13 12,9"/></svg>
+                  </button>
+                  <button type="button" class="cell-action-btn delete" title="Delete" data-testid="btn-cell-delete" @click="deleteCell(cell.id)">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polyline points="2,4 14,4"/><path d="M5 4V2h6v2"/><path d="M3 4l1 10h8l1-10"/></svg>
+                  </button>
+                </div>
+
+                <!-- Markdown rendered view -->
+                <template x-if="cell.cell_type === 'markdown' && cell._rendered">
+                  <div class="markdown-rendered" data-testid="markdown-rendered" @click="editMarkdown(cell.id)" x-html="renderMarkdown(cell.source)"></div>
+                </template>
+
+                <!-- Editor (code cells + markdown in edit mode) -->
+                <template x-if="cell.cell_type === 'code' || !cell._rendered">
+                  <div class="cell-editor" data-testid="cell-editor">
+                    <textarea :rows="Math.max(cell.source.split('\n').length, 1)"
+                              spellcheck="false"
+                              :data-id="cell.id"
+                              data-testid="cell-textarea"
+                              x-text="cell.source"
+                              @focus="focusedCellId = cell.id"
+                              @input="cell.source = $el.value; autoResize($el)"
+                              @keydown.shift.enter.prevent="handleShiftEnter(cell)"
+                              @keydown.meta.enter.prevent="evalCellStay(cell.id)"
+                              @keydown.ctrl.enter.prevent="evalCellStay(cell.id)"
+                              @keydown.tab.prevent="insertTab($el, cell)"
+                              @keydown.escape="$el.blur(); focusedCellId = null"
+                              x-init="$nextTick(() => autoResize($el))"
+                    ></textarea>
+                    <span x-show="!shiftEnterUsed && focusedCellId === cell.id" class="shift-enter-hint" data-testid="shift-enter-hint">Shift+Enter</span>
+                  </div>
+                </template>
+
+                <!-- Outputs (code cells only) -->
+                <template x-if="cell.cell_type === 'code' && cell.rendered_outputs">
+                  <div>
+                    <template x-for="output in cell.rendered_outputs" :key="output.output_type + output.content">
+                      <template x-if="!(output.output_type === 'value' && !output.content)">
+                        <div class="cell-output" :class="{ error: output.output_type === 'error' }"
+                             :data-testid="'cell-output-' + (output.output_type === 'error' ? 'error' : output.output_type === 'stdout' ? 'stdout' : 'value')">
+                          <div class="cell-output-header" @click="toggleOutput($el)">
+                            <span class="output-chevron" data-testid="output-chevron">&#9660;</span>
+                            <span class="output-meta" data-testid="output-meta" x-text="formatMeta(output)"></span>
+                          </div>
+                          <div class="cell-output-content" data-testid="output-content">
+                            <template x-if="output.output_type === 'error'">
+                              <span x-text="output.content"></span>
+                            </template>
+                            <template x-if="output.output_type === 'stdout'">
+                              <span x-text="output.content"></span>
+                            </template>
+                            <template x-if="output.output_type === 'value' && output.content">
+                              <span style="color:var(--gold)" x-text="output.content"></span>
+                            </template>
+                            <button x-show="output.output_type === 'error' && canUndo" class="undo-inline-btn" type="button" @click="undo()">Undo cell</button>
+                          </div>
+                        </div>
+                      </template>
+                    </template>
+                  </div>
+                </template>
+
+              </div>
+            </div>
+
+            <!-- Divider after cell -->
+            <div class="cell-divider" data-testid="cell-divider"
+                 @mouseenter="$el.classList.add('visible')" @mouseleave="if (openDropdownId !== cell.id) $el.classList.remove('visible')">
+              <div class="cell-divider-line"></div>
+              <button type="button" class="add-cell-btn" data-testid="btn-add-cell" @click.stop="openDropdownId = openDropdownId === cell.id ? null : cell.id">+</button>
+              <div class="add-cell-dropdown" data-testid="add-cell-dropdown" :class="{ open: openDropdownId === cell.id }">
+                <button type="button" data-testid="btn-insert-code" @click="insertCell('code', cell.id)">Code</button>
+                <button type="button" data-testid="btn-insert-markdown" @click="insertCell('markdown', cell.id)">Markdown</button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </template>
+
+  </div>
+</div>
+
+<!-- ── Status bar ── -->
 <div id="status-bar" data-testid="status-bar">
-  <span class="status-text" id="cell-count" data-testid="cell-count">0 cells</span>
+  <span class="status-text" id="cell-count" data-testid="cell-count" x-text="cells.length + ' cell' + (cells.length !== 1 ? 's' : '')">0 cells</span>
   <span class="status-text status-ready" id="status-indicator" data-testid="status-indicator">Ready</span>
 </div>
-<script src="/ui/notebook.js"></script>
+
 </body>
 </html>
