@@ -13499,3 +13499,200 @@ fn test_with_stream_error_cleanup() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- SQLite tests ---
+
+#[test]
+fn test_db_open_memory_and_close() {
+    let interp = Interpreter::new();
+    let handle = interp.eval_str(r#"(db/open-memory "test-mem")"#).unwrap();
+    assert_eq!(handle, Value::string("test-mem"));
+    interp.eval_str(r#"(db/close "test-mem")"#).unwrap();
+}
+
+#[test]
+fn test_db_exec_and_query() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "eq")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "eq" "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")"#)
+        .unwrap();
+    let affected = interp
+        .eval_str(r#"(db/exec "eq" "INSERT INTO users (name, age) VALUES (?, ?)" "Alice" 30)"#)
+        .unwrap();
+    assert_eq!(affected, Value::int(1));
+    interp
+        .eval_str(r#"(db/exec "eq" "INSERT INTO users (name, age) VALUES (?, ?)" "Bob" 25)"#)
+        .unwrap();
+    let rows = interp
+        .eval_str(r#"(db/query "eq" "SELECT name, age FROM users ORDER BY name")"#)
+        .unwrap();
+    let list = rows.as_list().unwrap();
+    assert_eq!(list.len(), 2);
+    let alice = list[0].as_map_ref().unwrap();
+    assert_eq!(alice.get(&Value::keyword("name")).unwrap(), &Value::string("Alice"));
+    assert_eq!(alice.get(&Value::keyword("age")).unwrap(), &Value::int(30));
+    let bob = list[1].as_map_ref().unwrap();
+    assert_eq!(bob.get(&Value::keyword("name")).unwrap(), &Value::string("Bob"));
+    interp.eval_str(r#"(db/close "eq")"#).unwrap();
+}
+
+#[test]
+fn test_db_query_with_params() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "qp")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "qp" "CREATE TABLE items (id INTEGER PRIMARY KEY, value REAL)")"#)
+        .unwrap();
+    interp.eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 3.14)"#).unwrap();
+    interp.eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 2.72)"#).unwrap();
+    interp.eval_str(r#"(db/exec "qp" "INSERT INTO items (value) VALUES (?)" 1.0)"#).unwrap();
+    let rows = interp
+        .eval_str(r#"(db/query "qp" "SELECT value FROM items WHERE value > ?" 2.0)"#)
+        .unwrap();
+    let list = rows.as_list().unwrap();
+    assert_eq!(list.len(), 2);
+    interp.eval_str(r#"(db/close "qp")"#).unwrap();
+}
+
+#[test]
+fn test_db_query_one() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "qo")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "qo" "CREATE TABLE kv (key TEXT PRIMARY KEY, val TEXT)")"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(db/exec "qo" "INSERT INTO kv VALUES (?, ?)" "name" "Alice")"#)
+        .unwrap();
+    let result = interp
+        .eval_str(r#"(db/query-one "qo" "SELECT val FROM kv WHERE key = ?" "name")"#)
+        .unwrap();
+    let row = result.as_map_ref().unwrap();
+    assert_eq!(row.get(&Value::keyword("val")).unwrap(), &Value::string("Alice"));
+    let missing = interp
+        .eval_str(r#"(db/query-one "qo" "SELECT val FROM kv WHERE key = ?" "nope")"#)
+        .unwrap();
+    assert!(missing.is_nil());
+    interp.eval_str(r#"(db/close "qo")"#).unwrap();
+}
+
+#[test]
+fn test_db_last_insert_id() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "lid")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "lid" "CREATE TABLE t (id INTEGER PRIMARY KEY)")"#)
+        .unwrap();
+    interp.eval_str(r#"(db/exec "lid" "INSERT INTO t DEFAULT VALUES")"#).unwrap();
+    let id = interp.eval_str(r#"(db/last-insert-id "lid")"#).unwrap();
+    assert_eq!(id, Value::int(1));
+    interp.eval_str(r#"(db/exec "lid" "INSERT INTO t DEFAULT VALUES")"#).unwrap();
+    let id2 = interp.eval_str(r#"(db/last-insert-id "lid")"#).unwrap();
+    assert_eq!(id2, Value::int(2));
+    interp.eval_str(r#"(db/close "lid")"#).unwrap();
+}
+
+#[test]
+fn test_db_tables() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "tbl")"#).unwrap();
+    interp.eval_str(r#"(db/exec "tbl" "CREATE TABLE alpha (id INTEGER)")"#).unwrap();
+    interp.eval_str(r#"(db/exec "tbl" "CREATE TABLE beta (id INTEGER)")"#).unwrap();
+    let tables = interp.eval_str(r#"(db/tables "tbl")"#).unwrap();
+    let list = tables.as_list().unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0], Value::string("alpha"));
+    assert_eq!(list[1], Value::string("beta"));
+    interp.eval_str(r#"(db/close "tbl")"#).unwrap();
+}
+
+#[test]
+fn test_db_exec_batch() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "batch")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec-batch "batch" "CREATE TABLE a (id INTEGER); CREATE TABLE b (id INTEGER);")"#)
+        .unwrap();
+    let tables = interp.eval_str(r#"(db/tables "batch")"#).unwrap();
+    let list = tables.as_list().unwrap();
+    assert_eq!(list.len(), 2);
+    interp.eval_str(r#"(db/close "batch")"#).unwrap();
+}
+
+#[test]
+fn test_db_null_values() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "nv")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "nv" "CREATE TABLE t (a TEXT, b INTEGER)")"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(db/exec "nv" "INSERT INTO t VALUES (?, ?)" nil 42)"#)
+        .unwrap();
+    let row = interp
+        .eval_str(r#"(db/query-one "nv" "SELECT a, b FROM t")"#)
+        .unwrap();
+    let map = row.as_map_ref().unwrap();
+    assert!(map.get(&Value::keyword("a")).unwrap().is_nil());
+    assert_eq!(map.get(&Value::keyword("b")).unwrap(), &Value::int(42));
+    interp.eval_str(r#"(db/close "nv")"#).unwrap();
+}
+
+#[test]
+fn test_db_open_file() {
+    let tmp = std::env::temp_dir().join("sema-db-test-file.db");
+    let path = tmp.to_str().unwrap();
+    let _ = std::fs::remove_file(&tmp);
+    let interp = Interpreter::new();
+    interp.eval_str(&format!(r#"(db/open "{path}")"#)).unwrap();
+    interp
+        .eval_str(&format!(r#"(db/exec "{path}" "CREATE TABLE t (v TEXT)")"#))
+        .unwrap();
+    interp
+        .eval_str(&format!(r#"(db/exec "{path}" "INSERT INTO t VALUES (?)" "hello")"#))
+        .unwrap();
+    interp.eval_str(&format!(r#"(db/close "{path}")"#)).unwrap();
+    // Reopen and verify persistence
+    interp.eval_str(&format!(r#"(db/open "{path}")"#)).unwrap();
+    let result = interp
+        .eval_str(&format!(r#"(db/query-one "{path}" "SELECT v FROM t")"#))
+        .unwrap();
+    let map = result.as_map_ref().unwrap();
+    assert_eq!(map.get(&Value::keyword("v")).unwrap(), &Value::string("hello"));
+    interp.eval_str(&format!(r#"(db/close "{path}")"#)).unwrap();
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn test_db_error_no_open() {
+    let interp = Interpreter::new();
+    let result = interp.eval_str(r#"(db/query "nonexistent" "SELECT 1")"#);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_db_error_bad_sql() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "bad")"#).unwrap();
+    let result = interp.eval_str(r#"(db/exec "bad" "NOT VALID SQL")"#);
+    assert!(result.is_err());
+    interp.eval_str(r#"(db/close "bad")"#).unwrap();
+}
+
+#[test]
+fn test_db_foreign_keys() {
+    let interp = Interpreter::new();
+    interp.eval_str(r#"(db/open-memory "fk")"#).unwrap();
+    interp
+        .eval_str(r#"(db/exec "fk" "CREATE TABLE parent (id INTEGER PRIMARY KEY)")"#)
+        .unwrap();
+    interp
+        .eval_str(r#"(db/exec "fk" "CREATE TABLE child (id INTEGER, pid INTEGER REFERENCES parent(id))")"#)
+        .unwrap();
+    // Inserting a child with non-existent parent should fail because foreign_keys=ON
+    let result = interp
+        .eval_str(r#"(db/exec "fk" "INSERT INTO child VALUES (1, 999)")"#);
+    assert!(result.is_err());
+    interp.eval_str(r#"(db/close "fk")"#).unwrap();
+}

@@ -25,6 +25,8 @@ mod predicates;
 mod regex_ops;
 #[cfg(not(target_arch = "wasm32"))]
 mod server;
+#[cfg(not(target_arch = "wasm32"))]
+mod sqlite;
 mod stream;
 mod string;
 #[cfg(not(target_arch = "wasm32"))]
@@ -73,6 +75,8 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     kv::register(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]
     pdf::register(env, sandbox);
+    #[cfg(not(target_arch = "wasm32"))]
+    sqlite::register(env, sandbox);
 }
 
 fn register_fn_gated(
