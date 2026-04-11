@@ -2,24 +2,28 @@
 
 ## 1.13.0
 
-### Removed
-
-- **Link checker CI workflow** — removed the lychee-based `links.yml` GitHub Actions workflow and `lychee.toml` config. The workflow failed on every run due to external sites (npmjs, academic publishers, cargo-dist docs) returning 403 to bot user-agents, producing only false positives.
-
 ### Added
+- **Notebook interface** (`sema notebook`) — Jupyter-inspired cell-based notebook with browser UI, stdout capture, single-cell undo with environment rollback, Alpine.js templates, `.sema-nb` JSON format, Sema branding (black/gold palette)
+- **SQLite integration** — `db/open`, `db/open-memory`, `db/exec`, `db/exec-batch`, `db/query`, `db/query-one`, `db/last-insert-id`, `db/tables`, `db/close` via bundled rusqlite; parameterized queries, WAL mode, foreign keys enabled by default
+- **Typed numeric arrays** — `f64-array` and `i64-array` types with dedicated VM intrinsics (15,000x faster than list foldl for numeric workloads)
+- **VM intrinsics** — `Mod` and `Nth` opcodes for faster modulo and indexed access
+- **Loop macros** — `dotimes` and `for-range` counted iteration macros
+- **Meta package registry** — GitHub-linked packages with upstream redirect, SeaORM migration, multi-database support (SQLite/PostgreSQL/MySQL)
+- **Registry admin panel** — Dashboard with user/package management, audit logging, moderation queue, ban enforcement
+- **Download tracking** — Daily download aggregation with sparkline visualization
+- **Package README display** — Server-side GitHub-flavored markdown rendering with syntax highlighting
+- **Package reporting** — "Report this package" feature with moderation queue
+- **Demo notebook** (`examples/notebook/demo.sema-nb`) — 16-cell Sema language tour
+- **Notebook E2E tests** — 41 Playwright browser tests
+- **Registry E2E tests** — 63 Playwright browser tests + 69 Rust integration tests
+- **`time/ms`** — Millisecond timestamp stdlib function
 
-- **Unified stream abstraction** — new first-class `stream` value type with a portable byte-oriented I/O protocol. The same `stream/read` and `stream/write` work across files, in-memory buffers, strings, and standard I/O.
-  - **In-memory streams**: `stream/byte-buffer` (read/write buffer), `stream/from-string` (read-only string), `stream/from-bytes` (read-only bytevector)
-  - **File streams**: `stream/open-input` (buffered file reader), `stream/open-output` (buffered file writer) — sandbox-gated
-  - **Standard I/O**: `*stdin*`, `*stdout*`, `*stderr*` global stream values
-  - **Reading**: `stream/read` (n bytes → bytevector), `stream/read-byte` (one byte or nil), `stream/read-line` (line → string or nil, handles `\r\n`), `stream/read-all` (entire stream → bytevector)
-  - **Writing**: `stream/write` (bytevector), `stream/write-byte` (single byte), `stream/write-string` (string as UTF-8)
-  - **Control**: `stream/close`, `stream/flush`, `stream/copy` (pipe between streams)
-  - **Introspection**: `stream?`, `stream/readable?`, `stream/writable?`, `stream/available?`, `stream/type`
-  - **Extraction**: `stream/to-bytes`, `stream/to-string` (extract byte-buffer contents)
-  - **`with-stream` macro** — auto-closes on exit, even on error: `(with-stream (s (stream/open-input "f.txt")) (stream/read-all s))`
-  - Backed by a Rust `SemaStream` trait with vtable dispatch — extensible for embedded targets (UART, I2C, SPI)
-- **PIO assembler** — Lisp DSL for RP2040/RP2350 Programmable I/O. PIO programs are expressed as lists of instruction maps, assembled to 16-bit machine code bytevectors via `pio/assemble`. All 9 PIO instructions supported: `pio/jmp`, `pio/wait`, `pio/in`, `pio/out`, `pio/push`, `pio/pull`, `pio/mov`, `pio/irq`, `pio/set`, plus `pio/nop`, `pio/side` (side-set), and `pio/delay` (cycle delay). Labels are symbols, wrap points are keywords (`:wrap-target`, `:wrap`). Programs are data — macros can generate hardware programs.
+### Changed
+- `make examples` now skips `eliza.sema` (interactive) and `eliza-web.sema` (server) to prevent blocking during smoke tests
+- Package registry migrated from raw sqlx queries to SeaORM entity models (13 entities)
+
+### Fixed
+- Notebook stdout capture — `println`/`display`/`print` output now appears in cell output instead of server terminal
 
 ## 1.12.3
 
