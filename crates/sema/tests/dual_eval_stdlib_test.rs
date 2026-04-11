@@ -317,6 +317,39 @@ dual_eval_tests! {
     http_text_body: r#"(get (http/text "hello world") :body)"# => Value::string("hello world"),
 }
 
+// ============================================================
+// String operations — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    string_length_basic: r#"(string-length "hello")"# => Value::int(5),
+    string_length_empty: r#"(string-length "")"# => Value::int(0),
+    substring_basic: r#"(substring "hello" 1 3)"# => Value::string("el"),
+    string_append_two: r#"(string-append "foo" "bar")"# => Value::string("foobar"),
+    string_trim_spaces: r#"(string/trim "  hi  ")"# => Value::string("hi"),
+    string_upper: r#"(string/upper "hello")"# => Value::string("HELLO"),
+    string_lower: r#"(string/lower "HELLO")"# => Value::string("hello"),
+    string_replace_basic: r#"(string/replace "hello world" "world" "sema")"# => Value::string("hello sema"),
+    string_join_list: r#"(string/join (list "a" "b" "c") ",")"# => Value::string("a,b,c"),
+    string_to_number_int: r#"(string->number "42")"# => Value::int(42),
+    string_to_number_float: r#"(string->number "3.14")"# => Value::float(3.14),
+}
+
+// ============================================================
+// Math operations — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    math_abs_negative: "(abs -5)" => Value::int(5),
+    math_abs_positive: "(abs 5)" => Value::int(5),
+    math_floor_basic: "(floor 3.7)" => Value::int(3),
+    math_sqrt_basic: "(sqrt 9)" => Value::float(3.0),
+    math_min_two: "(min 3 7)" => Value::int(3),
+    math_max_two: "(max 3 7)" => Value::int(7),
+    math_round_basic: "(round 3.6)" => Value::int(4),
+    math_round_down: "(round 3.2)" => Value::int(3),
+}
+
 dual_eval_error_tests! {
     http_ok_no_args: "(http/ok)",
     http_ok_too_many: r#"(http/ok "a" "b")"#,
