@@ -1,10 +1,7 @@
 //! HTTP server for the notebook interface.
 //!
-//! The Sema interpreter uses `Rc` and is single-threaded. To bridge this
-//! with axum's async runtime, all evaluation runs on a dedicated OS thread
-//! via `tokio::task::spawn_blocking`. An `Arc<Mutex<>>` is NOT used
-//! because `Interpreter` is `!Send`. Instead, we use a channel-based
-//! approach: the engine lives on its own thread and processes requests.
+//! This module handles HTTP routing and request/response serialization.
+//! All interpreter interaction goes through [`bridge::EngineHandle`].
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,279 +11,34 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot};
+use serde::Deserialize;
 
+use crate::bridge::{BridgeError, EngineHandle};
 use crate::format::{CellType, Notebook};
 use crate::render;
 use crate::ui;
 use crate::vfs;
 
-// ── Engine thread communication ──────────────────────────────────
+// ── Error mapping ───────────────────────────────────────────────
 
-type EngineResult<T> = Result<T, String>;
-
-/// A request sent to the engine thread.
-enum EngineRequest {
-    GetNotebook {
-        reply: oneshot::Sender<render::NotebookResponse>,
-    },
-    CreateCell {
-        cell_type: CellType,
-        source: String,
-        after: Option<String>,
-        reply: oneshot::Sender<EngineResult<CreateCellData>>,
-    },
-    GetCell {
-        id: String,
-        reply: oneshot::Sender<EngineResult<render::RenderedCell>>,
-    },
-    UpdateCell {
-        id: String,
-        source: Option<String>,
-        cell_type: Option<String>,
-        reply: oneshot::Sender<EngineResult<render::RenderedCell>>,
-    },
-    EvalCell {
-        id: String,
-        reply: oneshot::Sender<EngineResult<render::EvalResponse>>,
-    },
-    DeleteCell {
-        id: String,
-        reply: oneshot::Sender<EngineResult<()>>,
-    },
-    ReorderCells {
-        cell_ids: Vec<String>,
-        reply: oneshot::Sender<EngineResult<()>>,
-    },
-    EvalAll {
-        reply: oneshot::Sender<Vec<render::EvalResponse>>,
-    },
-    GetEnv {
-        reply: oneshot::Sender<render::EnvResponse>,
-    },
-    Reset {
-        reply: oneshot::Sender<()>,
-    },
-    Save {
-        reply: oneshot::Sender<EngineResult<String>>,
-    },
+fn bridge_err(e: BridgeError, status: StatusCode) -> (StatusCode, String) {
+    match e {
+        BridgeError::EngineDown => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        BridgeError::Request(_) => (status, e.to_string()),
+    }
 }
 
-#[derive(Clone, Serialize)]
-struct CreateCellData {
-    id: String,
-    #[serde(flatten)]
-    cell: render::RenderedCell,
-}
+// ── Shared state ────────────────────────────────────────────────
 
-/// Shared server state — just a channel to the engine thread.
 struct AppState {
-    tx: mpsc::Sender<EngineRequest>,
+    engine: EngineHandle,
     vfs_root: PathBuf,
 }
 
-/// Spawn the engine on a dedicated OS thread and return a channel sender.
-fn spawn_engine_thread(
-    notebook: Notebook,
-    notebook_path: Option<PathBuf>,
-) -> mpsc::Sender<EngineRequest> {
-    let (tx, mut rx) = mpsc::channel::<EngineRequest>(64);
-
-    std::thread::spawn(move || {
-        use crate::engine::Engine;
-
-        let mut engine = Engine::new(notebook);
-        let nb_path = notebook_path;
-
-        // Block on receiving requests
-        while let Some(req) = {
-            // Use a small tokio runtime just to receive from the channel
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
-            rt.block_on(rx.recv())
-        } {
-            match req {
-                EngineRequest::GetNotebook { reply } => {
-                    let _ = reply.send(render::notebook_response(&engine.notebook));
-                }
-                EngineRequest::CreateCell {
-                    cell_type,
-                    source,
-                    after,
-                    reply,
-                } => {
-                    let id = match cell_type {
-                        CellType::Code => engine.notebook.add_code_cell(&source),
-                        CellType::Markdown => engine.notebook.add_markdown_cell(&source),
-                    };
-                    if let Some(after_id) = &after {
-                        let new_idx = engine.notebook.cell_index(&id).unwrap();
-                        if let Some(after_idx) = engine.notebook.cell_index(after_id) {
-                            let cell = engine.notebook.cells.remove(new_idx);
-                            let insert_at = if after_idx < new_idx {
-                                after_idx + 1
-                            } else {
-                                after_idx
-                            };
-                            engine.notebook.cells.insert(insert_at, cell);
-                        }
-                    }
-                    let cell = engine.notebook.cell(&id).unwrap();
-                    let cell_number = engine
-                        .notebook
-                        .cells
-                        .iter()
-                        .filter(|c| c.cell_type == CellType::Code)
-                        .position(|c| c.id == id)
-                        .map(|i| i + 1);
-                    let rendered = render::render_cell(cell, cell_number);
-                    let _ = reply.send(Ok(CreateCellData { id, cell: rendered }));
-                }
-                EngineRequest::GetCell { id, reply } => {
-                    let result = match engine.notebook.cell(&id) {
-                        Some(cell) => {
-                            let cell_number = engine
-                                .notebook
-                                .cells
-                                .iter()
-                                .filter(|c| c.cell_type == CellType::Code)
-                                .position(|c| c.id == id)
-                                .map(|i| i + 1);
-                            Ok(render::render_cell(cell, cell_number))
-                        }
-                        None => Err(format!("Cell not found: {id}")),
-                    };
-                    let _ = reply.send(result);
-                }
-                EngineRequest::UpdateCell {
-                    id,
-                    source,
-                    cell_type,
-                    reply,
-                } => {
-                    let result = (|| {
-                        let cell = engine
-                            .notebook
-                            .cell_mut(&id)
-                            .ok_or_else(|| format!("Cell not found: {id}"))?;
-                        if let Some(s) = source {
-                            cell.source = s;
-                            if !cell.outputs.is_empty() {
-                                cell.stale = true;
-                            }
-                        }
-                        if let Some(ct) = cell_type {
-                            cell.cell_type = match ct.as_str() {
-                                "code" => CellType::Code,
-                                "markdown" => CellType::Markdown,
-                                other => return Err(format!("Unknown type: {other}")),
-                            };
-                        }
-                        let cell = engine.notebook.cell(&id).unwrap();
-                        let cell_number = engine
-                            .notebook
-                            .cells
-                            .iter()
-                            .filter(|c| c.cell_type == CellType::Code)
-                            .position(|c| c.id == id)
-                            .map(|i| i + 1);
-                        Ok(render::render_cell(cell, cell_number))
-                    })();
-                    let _ = reply.send(result);
-                }
-                EngineRequest::EvalCell { id, reply } => {
-                    let result = engine.eval_cell(&id).map(|r| {
-                        let output = render::render_output(&r.output);
-                        render::EvalResponse {
-                            id: id.clone(),
-                            output,
-                            stdout: r.stdout,
-                        }
-                    });
-                    let _ = reply.send(result);
-                }
-                EngineRequest::DeleteCell { id, reply } => {
-                    let result = match engine.notebook.cell_index(&id) {
-                        Some(idx) => {
-                            engine.notebook.cells.remove(idx);
-                            Ok(())
-                        }
-                        None => Err(format!("Cell not found: {id}")),
-                    };
-                    let _ = reply.send(result);
-                }
-                EngineRequest::ReorderCells { cell_ids, reply } => {
-                    let result = (|| {
-                        let mut reordered = Vec::with_capacity(cell_ids.len());
-                        for id in &cell_ids {
-                            let idx = engine
-                                .notebook
-                                .cell_index(id)
-                                .ok_or_else(|| format!("Cell not found: {id}"))?;
-                            reordered.push(engine.notebook.cells[idx].clone());
-                        }
-                        for cell in &engine.notebook.cells {
-                            if !cell_ids.contains(&cell.id) {
-                                reordered.push(cell.clone());
-                            }
-                        }
-                        engine.notebook.cells = reordered;
-                        Ok(())
-                    })();
-                    let _ = reply.send(result);
-                }
-                EngineRequest::EvalAll { reply } => {
-                    let results = engine.eval_all();
-                    let responses = results
-                        .into_iter()
-                        .map(|(id, result)| {
-                            let (output, stdout) = match result {
-                                Ok(r) => (render::render_output(&r.output), r.stdout),
-                                Err(e) => (
-                                    render::RenderedOutput {
-                                        output_type: crate::format::OutputType::Error,
-                                        content: e,
-                                        mime_type: "text/x-sema-error".to_string(),
-                                        meta: render::OutputMeta::default(),
-                                    },
-                                    None,
-                                ),
-                            };
-                            render::EvalResponse { id, output, stdout }
-                        })
-                        .collect();
-                    let _ = reply.send(responses);
-                }
-                EngineRequest::GetEnv { reply } => {
-                    let _ = reply.send(render::EnvResponse {
-                        bindings: engine.env_bindings(),
-                    });
-                }
-                EngineRequest::Reset { reply } => {
-                    engine.reset();
-                    let _ = reply.send(());
-                }
-                EngineRequest::Save { reply } => {
-                    let result = match &nb_path {
-                        Some(path) => engine
-                            .notebook
-                            .save(path)
-                            .map(|_| path.display().to_string()),
-                        None => Err("No file path".to_string()),
-                    };
-                    let _ = reply.send(result);
-                }
-            }
-        }
-    });
-
-    tx
-}
+// ── Server startup ──────────────────────────────────────────────
 
 /// Start the notebook HTTP server.
-pub async fn serve(notebook_path: Option<PathBuf>, port: u16) {
+pub async fn serve(notebook_path: Option<PathBuf>, host: &str, port: u16) {
     let (notebook, nb_path) = match &notebook_path {
         Some(path) => {
             if path.exists() {
@@ -313,9 +65,8 @@ pub async fn serve(notebook_path: Option<PathBuf>, port: u16) {
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
-    let tx = spawn_engine_thread(notebook, nb_path);
-
-    let state = Arc::new(AppState { tx, vfs_root });
+    let engine = EngineHandle::spawn(notebook, nb_path);
+    let state = Arc::new(AppState { engine, vfs_root });
 
     let app = Router::new()
         // Browser UI
@@ -324,10 +75,11 @@ pub async fn serve(notebook_path: Option<PathBuf>, port: u16) {
         // Notebook API
         .route("/api/notebook", get(get_notebook))
         .route("/api/cells", post(create_cell))
-        .route("/api/cells/{id}", get(get_cell))
-        .route("/api/cells/{id}", post(update_cell))
+        .route(
+            "/api/cells/{id}",
+            get(get_cell).post(update_cell).delete(delete_cell),
+        )
         .route("/api/cells/{id}/eval", post(eval_cell))
-        .route("/api/cells/{id}/delete", post(delete_cell))
         .route("/api/cells/reorder", post(reorder_cells))
         .route("/api/eval-all", post(eval_all))
         .route("/api/env", get(get_env))
@@ -339,8 +91,8 @@ pub async fn serve(notebook_path: Option<PathBuf>, port: u16) {
         .route("/vfs/list", get(vfs_list_handler))
         .with_state(state);
 
-    let addr = format!("0.0.0.0:{port}");
-    eprintln!("Sema Notebook server listening on http://localhost:{port}");
+    let addr = format!("{host}:{port}");
+    eprintln!("Sema Notebook server listening on http://{host}:{port}");
 
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
@@ -354,28 +106,7 @@ pub async fn serve(notebook_path: Option<PathBuf>, port: u16) {
         .unwrap_or_else(|e| eprintln!("Server error: {e}"));
 }
 
-// ── Helper to send a request and await the reply ─────────────────
-
-async fn send_request<T>(
-    tx: &mpsc::Sender<EngineRequest>,
-    make_req: impl FnOnce(oneshot::Sender<T>) -> EngineRequest,
-) -> Result<T, (StatusCode, String)> {
-    let (reply_tx, reply_rx) = oneshot::channel();
-    tx.send(make_req(reply_tx)).await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Engine thread died".to_string(),
-        )
-    })?;
-    reply_rx.await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Engine dropped reply".to_string(),
-        )
-    })
-}
-
-// ── UI handlers ──────────────────────────────────────────────────
+// ── UI handlers ─────────────────────────────────────────────────
 
 async fn index_handler() -> Html<String> {
     Html(ui::index_html())
@@ -391,13 +122,17 @@ async fn ui_asset_handler(Path(path): Path<String>) -> Response {
     }
 }
 
-// ── Notebook API handlers ────────────────────────────────────────
+// ── Notebook API handlers ───────────────────────────────────────
 
 async fn get_notebook(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<render::NotebookResponse>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::GetNotebook { reply }).await?;
-    Ok(Json(resp))
+    state
+        .engine
+        .get_notebook()
+        .await
+        .map(Json)
+        .map_err(|e| bridge_err(e, StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 #[derive(Deserialize)]
@@ -417,7 +152,7 @@ fn default_code() -> String {
 async fn create_cell(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateCellRequest>,
-) -> Result<Json<CreateCellData>, (StatusCode, String)> {
+) -> Result<Json<render::CreateCellData>, (StatusCode, String)> {
     let cell_type = match req.cell_type.as_str() {
         "code" => CellType::Code,
         "markdown" => CellType::Markdown,
@@ -428,22 +163,24 @@ async fn create_cell(
             ))
         }
     };
-    let resp = send_request(&state.tx, |reply| EngineRequest::CreateCell {
-        cell_type,
-        source: req.source,
-        after: req.after,
-        reply,
-    })
-    .await?;
-    resp.map(Json).map_err(|e| (StatusCode::BAD_REQUEST, e))
+    state
+        .engine
+        .create_cell(cell_type, req.source, req.after)
+        .await
+        .map(Json)
+        .map_err(|e| bridge_err(e, StatusCode::BAD_REQUEST))
 }
 
 async fn get_cell(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<render::RenderedCell>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::GetCell { id, reply }).await?;
-    resp.map(Json).map_err(|e| (StatusCode::NOT_FOUND, e))
+    state
+        .engine
+        .get_cell(id)
+        .await
+        .map(Json)
+        .map_err(|e| bridge_err(e, StatusCode::NOT_FOUND))
 }
 
 #[derive(Deserialize)]
@@ -459,35 +196,36 @@ async fn update_cell(
     Path(id): Path<String>,
     Json(req): Json<UpdateCellRequest>,
 ) -> Result<Json<render::RenderedCell>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::UpdateCell {
-        id,
-        source: req.source,
-        cell_type: req.cell_type,
-        reply,
-    })
-    .await?;
-    resp.map(Json).map_err(|e| (StatusCode::NOT_FOUND, e))
+    state
+        .engine
+        .update_cell(id, req.source, req.cell_type)
+        .await
+        .map(Json)
+        .map_err(|e| bridge_err(e, StatusCode::NOT_FOUND))
 }
 
 async fn eval_cell(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<render::EvalResponse>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::EvalCell { id, reply }).await?;
-    resp.map(Json).map_err(|e| (StatusCode::BAD_REQUEST, e))
+    state
+        .engine
+        .eval_cell(id)
+        .await
+        .map(Json)
+        .map_err(|e| bridge_err(e, StatusCode::BAD_REQUEST))
 }
 
 async fn delete_cell(
     State(state): State<Arc<AppState>>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::DeleteCell {
-        id: id.clone(),
-        reply,
-    })
-    .await?;
-    resp.map(|_| Json(serde_json::json!({"deleted": id})))
-        .map_err(|e| (StatusCode::NOT_FOUND, e))
+    state
+        .engine
+        .delete_cell(id.clone())
+        .await
+        .map(|_| Json(serde_json::json!({"deleted": id})))
+        .map_err(|e| bridge_err(e, StatusCode::NOT_FOUND))
 }
 
 #[derive(Deserialize)]
@@ -499,45 +237,67 @@ async fn reorder_cells(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ReorderRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::ReorderCells {
-        cell_ids: req.cell_ids,
-        reply,
-    })
-    .await?;
-    resp.map(|_| Json(serde_json::json!({"ok": true})))
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+    state
+        .engine
+        .reorder_cells(req.cell_ids)
+        .await
+        .map(|_| Json(serde_json::json!({"ok": true})))
+        .map_err(|e| bridge_err(e, StatusCode::BAD_REQUEST))
+}
+
+#[derive(Deserialize, Default)]
+struct EvalAllRequest {
+    #[serde(default)]
+    sources: Vec<(String, String)>,
 }
 
 async fn eval_all(
     State(state): State<Arc<AppState>>,
+    body: Option<Json<EvalAllRequest>>,
 ) -> Result<Json<Vec<render::EvalResponse>>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::EvalAll { reply }).await?;
-    Ok(Json(resp))
+    let sources = body.map(|b| b.0.sources).unwrap_or_default();
+    state
+        .engine
+        .eval_all(sources)
+        .await
+        .map(Json)
+        .map_err(|e| bridge_err(e, StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 async fn get_env(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<render::EnvResponse>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::GetEnv { reply }).await?;
-    Ok(Json(resp))
+    state
+        .engine
+        .get_env()
+        .await
+        .map(Json)
+        .map_err(|e| bridge_err(e, StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 async fn reset(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    send_request(&state.tx, |reply| EngineRequest::Reset { reply }).await?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    state
+        .engine
+        .reset()
+        .await
+        .map(|_| Json(serde_json::json!({"ok": true})))
+        .map_err(|e| bridge_err(e, StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 async fn save_notebook(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let resp = send_request(&state.tx, |reply| EngineRequest::Save { reply }).await?;
-    resp.map(|path| Json(serde_json::json!({"saved": path})))
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))
+    state
+        .engine
+        .save()
+        .await
+        .map(|path| Json(serde_json::json!({"saved": path})))
+        .map_err(|e| bridge_err(e, StatusCode::BAD_REQUEST))
 }
 
-// ── VFS handlers ─────────────────────────────────────────────────
+// ── VFS handlers ────────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct VfsPathQuery {

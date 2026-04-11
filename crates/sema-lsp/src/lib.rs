@@ -1325,13 +1325,9 @@ impl BackendState {
         let sandbox = Sandbox::deny(Caps::ALL);
         let interp = sema_eval::Interpreter::new_with_sandbox(&sandbox);
         let mut builtin_names = HashSet::new();
-        {
-            let bindings = interp.global_env.bindings.borrow();
-            for (spur, _) in bindings.iter() {
-                let name = sema_core::resolve(*spur);
-                builtin_names.insert(name);
-            }
-        }
+        interp.global_env.iter_bindings(|spur, _| {
+            builtin_names.insert(sema_core::resolve(spur));
+        });
 
         BackendState {
             builtin_names,

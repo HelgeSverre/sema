@@ -164,8 +164,6 @@ pub fn export_markdown(notebook: &Notebook) -> String {
 pub struct EvalResponse {
     pub id: String,
     pub output: RenderedOutput,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stdout: Option<String>,
 }
 
 /// API response for listing environment bindings.
@@ -181,10 +179,128 @@ pub struct NotebookResponse {
     pub cells: Vec<RenderedCell>,
 }
 
+/// API response data for a newly created cell.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CreateCellData {
+    pub id: String,
+    #[serde(flatten)]
+    pub cell: RenderedCell,
+}
+
 /// Produce the full notebook response for the API.
 pub fn notebook_response(notebook: &Notebook) -> NotebookResponse {
     NotebookResponse {
         title: notebook.metadata.title.clone(),
         cells: render_notebook(notebook),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::format::Notebook;
+
+    #[test]
+    fn render_notebook_numbers_code_cells() {
+        let mut nb = Notebook::new("T");
+        nb.add_code_cell("a");
+        nb.add_markdown_cell("text");
+        nb.add_code_cell("b");
+
+        let rendered = render_notebook(&nb);
+        assert_eq!(rendered.len(), 3);
+        assert_eq!(rendered[0].cell_number, Some(1));
+        assert_eq!(rendered[1].cell_number, None); // markdown
+        assert_eq!(rendered[2].cell_number, Some(2));
+    }
+
+    #[test]
+    fn export_markdown_basic() {
+        let mut nb = Notebook::new("My Notebook");
+        nb.add_markdown_cell("Some prose here.");
+        nb.add_code_cell("(+ 1 2)");
+
+        let md = export_markdown(&nb);
+        assert!(md.contains("# My Notebook"));
+        assert!(md.contains("Some prose here."));
+        assert!(md.contains("```sema\n(+ 1 2)\n```"));
+    }
+
+    #[test]
+    fn export_markdown_with_output() {
+        let mut nb = Notebook::new("T");
+        let id = nb.add_code_cell("(+ 1 2)");
+        nb.cell_mut(&id).unwrap().outputs = vec![CellOutput {
+            output_type: OutputType::Value,
+            display: "3".to_string(),
+            sema_value: None,
+            timestamp: chrono::Utc::now(),
+            cost_usd: None,
+            requires_reeval: false,
+            duration_ms: None,
+        }];
+
+        let md = export_markdown(&nb);
+        assert!(md.contains("**Out [1]:**"));
+        assert!(md.contains("3"));
+    }
+
+    #[test]
+    fn export_markdown_with_error() {
+        let mut nb = Notebook::new("T");
+        let id = nb.add_code_cell("(bad)");
+        nb.cell_mut(&id).unwrap().outputs = vec![CellOutput {
+            output_type: OutputType::Error,
+            display: "unbound: bad".to_string(),
+            sema_value: None,
+            timestamp: chrono::Utc::now(),
+            cost_usd: None,
+            requires_reeval: false,
+            duration_ms: None,
+        }];
+
+        let md = export_markdown(&nb);
+        assert!(md.contains("**Error [1]:**"));
+        assert!(md.contains("unbound: bad"));
+    }
+
+    #[test]
+    fn render_output_value() {
+        let output = CellOutput {
+            output_type: OutputType::Value,
+            display: "42".to_string(),
+            sema_value: Some("42".to_string()),
+            timestamp: chrono::Utc::now(),
+            cost_usd: None,
+            requires_reeval: false,
+            duration_ms: Some(10),
+        };
+        let rendered = render_output(&output);
+        assert_eq!(rendered.content, "42");
+        assert_eq!(rendered.mime_type, "text/plain");
+        assert_eq!(rendered.meta.duration_ms, Some(10));
+    }
+
+    #[test]
+    fn render_output_error() {
+        let output = CellOutput {
+            output_type: OutputType::Error,
+            display: "boom".to_string(),
+            sema_value: None,
+            timestamp: chrono::Utc::now(),
+            cost_usd: None,
+            requires_reeval: false,
+            duration_ms: None,
+        };
+        let rendered = render_output(&output);
+        assert_eq!(rendered.mime_type, "text/x-sema-error");
+    }
+
+    #[test]
+    fn notebook_response_includes_title() {
+        let nb = Notebook::new("Hello");
+        let resp = notebook_response(&nb);
+        assert_eq!(resp.title, "Hello");
+        assert!(resp.cells.is_empty());
     }
 }

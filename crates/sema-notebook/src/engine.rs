@@ -18,8 +18,6 @@ use crate::format::{CellOutput, CellType, Notebook, OutputType};
 pub struct EvalResult {
     /// The output to store in the cell.
     pub output: CellOutput,
-    /// Captured stdout text (if any).
-    pub stdout: Option<String>,
 }
 
 /// The notebook evaluation engine. Wraps an `Interpreter` and a `Notebook`.
@@ -73,42 +71,27 @@ impl Engine {
     }
 
     /// Evaluate raw source code in the notebook's environment.
-    pub fn eval_source(&self, source: &str) -> EvalResult {
+    pub fn eval_source(&mut self, source: &str) -> EvalResult {
         let start = Instant::now();
 
-        // Capture stdout
-        let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let captured_clone = captured.clone();
-
-        // Evaluate in the global env so `define` persists across cells
         let eval_result = self.interpreter.eval_str_in_global(source);
         let duration_ms = start.elapsed().as_millis() as u64;
-
-        let stdout_bytes = captured_clone.lock().unwrap_or_else(|p| p.into_inner());
-        let stdout_text = if stdout_bytes.is_empty() {
-            None
-        } else {
-            Some(String::from_utf8_lossy(&stdout_bytes).to_string())
-        };
 
         match eval_result {
             Ok(value) => {
                 let display = format_value_for_display(&value);
                 let sema_value = value_to_sexp(&value);
-                let bindings = extract_new_bindings(source);
 
                 EvalResult {
                     output: CellOutput {
                         output_type: OutputType::Value,
                         display,
                         sema_value: Some(sema_value),
-                        bindings,
                         timestamp: Utc::now(),
                         cost_usd: None,
                         requires_reeval: is_opaque(&value),
                         duration_ms: Some(duration_ms),
                     },
-                    stdout: stdout_text,
                 }
             }
             Err(err) => EvalResult {
@@ -116,13 +99,11 @@ impl Engine {
                     output_type: OutputType::Error,
                     display: format_error(&err),
                     sema_value: None,
-                    bindings: BTreeMap::new(),
                     timestamp: Utc::now(),
                     cost_usd: None,
                     requires_reeval: false,
                     duration_ms: Some(duration_ms),
                 },
-                stdout: stdout_text,
             },
         }
     }
@@ -177,12 +158,11 @@ impl Engine {
     /// Get all current environment bindings as a map of name -> display string.
     pub fn env_bindings(&self) -> BTreeMap<String, String> {
         let mut map = BTreeMap::new();
-        let bindings = self.interpreter.global_env.bindings.borrow();
-        for (&spur, value) in bindings.iter() {
+        self.interpreter.global_env.iter_bindings(|spur, value| {
             let name = resolve(spur);
             let display = format_value_for_display(value);
             map.insert(name, display);
-        }
+        });
         map
     }
 
@@ -227,11 +207,123 @@ pub fn format_error(err: &sema_core::SemaError) -> String {
     format!("{err}")
 }
 
-/// Extract variable names that look like they're being defined in this source.
-/// This is a simple heuristic — it looks for `(def ...)` and `(define ...)` forms.
-fn extract_new_bindings(_source: &str) -> BTreeMap<String, String> {
-    // A simple heuristic: we don't actually track bindings at the source level.
-    // The real bindings are in the environment. This is a placeholder for
-    // future binding-diff tracking.
-    BTreeMap::new()
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::format::Notebook;
+
+    fn test_engine() -> Engine {
+        Engine::new(Notebook::new("Test"))
+    }
+
+    #[test]
+    fn eval_simple_expression() {
+        let mut engine = test_engine();
+        let (id, result) = engine.create_and_eval("(+ 1 2)").unwrap();
+        assert_eq!(result.output.output_type, OutputType::Value);
+        assert_eq!(result.output.display, "3");
+        assert!(result.output.duration_ms.is_some());
+        // Cell should be stored in notebook
+        assert!(engine.notebook.cell(&id).is_some());
+        assert_eq!(engine.notebook.cell(&id).unwrap().outputs.len(), 1);
+    }
+
+    #[test]
+    fn definitions_persist_across_cells() {
+        let mut engine = test_engine();
+        engine.create_and_eval("(define x 42)").unwrap();
+        let (_, result) = engine.create_and_eval("x").unwrap();
+        assert_eq!(result.output.display, "42");
+    }
+
+    #[test]
+    fn eval_error_produces_error_output() {
+        let mut engine = test_engine();
+        let (_, result) = engine.create_and_eval("(undefined-fn)").unwrap();
+        assert_eq!(result.output.output_type, OutputType::Error);
+        assert!(!result.output.display.is_empty());
+    }
+
+    #[test]
+    fn eval_cell_not_found() {
+        let mut engine = test_engine();
+        let result = engine.eval_cell("nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Cell not found"));
+    }
+
+    #[test]
+    fn eval_markdown_cell_rejected() {
+        let mut engine = test_engine();
+        let id = engine.notebook.add_markdown_cell("# Hello");
+        let result = engine.eval_cell(&id);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("markdown"));
+    }
+
+    #[test]
+    fn eval_all_runs_all_code_cells() {
+        let mut engine = test_engine();
+        engine.notebook.add_code_cell("(define a 1)");
+        engine.notebook.add_markdown_cell("text");
+        engine.notebook.add_code_cell("(+ a 2)");
+
+        let results = engine.eval_all();
+        assert_eq!(results.len(), 2); // only code cells
+        assert!(results[0].1.is_ok());
+        assert!(results[1].1.is_ok());
+        assert_eq!(results[1].1.as_ref().unwrap().output.display, "3");
+    }
+
+    #[test]
+    fn eval_marks_downstream_stale() {
+        let mut engine = test_engine();
+        let id1 = engine.notebook.add_code_cell("(define x 1)");
+        let id2 = engine.notebook.add_code_cell("x");
+
+        // Eval both cells
+        engine.eval_cell(&id1).unwrap();
+        engine.eval_cell(&id2).unwrap();
+        assert!(!engine.notebook.cell(&id2).unwrap().stale);
+
+        // Re-eval cell 1 should mark cell 2 as stale
+        engine.eval_cell(&id1).unwrap();
+        assert!(engine.notebook.cell(&id2).unwrap().stale);
+    }
+
+    #[test]
+    fn reset_clears_state() {
+        let mut engine = test_engine();
+        engine.create_and_eval("(define x 1)").unwrap();
+        assert!(!engine.notebook.cells.is_empty());
+
+        engine.reset();
+        // Cells remain but outputs are cleared
+        assert!(!engine.notebook.cells.is_empty());
+        assert!(engine.notebook.cells[0].outputs.is_empty());
+
+        // x should be unbound after reset
+        let (_, result) = engine.create_and_eval("x").unwrap();
+        assert_eq!(result.output.output_type, OutputType::Error);
+    }
+
+    #[test]
+    fn nil_displays_as_empty() {
+        assert_eq!(format_value_for_display(&Value::nil()), "");
+    }
+
+    #[test]
+    fn opaque_values_require_reeval() {
+        let mut engine = test_engine();
+        let (_, result) = engine.create_and_eval("(fn (x) x)").unwrap();
+        assert!(result.output.requires_reeval);
+    }
+
+    #[test]
+    fn non_opaque_values_do_not_require_reeval() {
+        let mut engine = test_engine();
+        let (_, result) = engine.create_and_eval("42").unwrap();
+        assert!(!result.output.requires_reeval);
+    }
 }
+

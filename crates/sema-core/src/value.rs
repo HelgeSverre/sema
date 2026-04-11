@@ -2060,6 +2060,19 @@ impl Env {
         names.dedup();
         names
     }
+
+    /// Iterate over bindings in the current scope only (not parent scopes).
+    pub fn iter_bindings(&self, mut f: impl FnMut(Spur, &Value)) {
+        let bindings = self.bindings.borrow();
+        for (&spur, value) in bindings.iter() {
+            f(spur, value);
+        }
+    }
+
+    /// Get a binding from the current scope only (not parent scopes).
+    pub fn get_local(&self, name: Spur) -> Option<Value> {
+        self.bindings.borrow().get(&name).cloned()
+    }
 }
 
 impl Default for Env {

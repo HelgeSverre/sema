@@ -6,7 +6,6 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Top-level notebook document.
@@ -78,9 +77,6 @@ pub struct CellOutput {
     /// Round-trippable S-expression form of the value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sema_value: Option<String>,
-    /// Variables defined or mutated by this cell.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub bindings: BTreeMap<String, String>,
     /// When this output was produced.
     pub timestamp: DateTime<Utc>,
     /// Estimated LLM cost in USD, if applicable.
@@ -130,6 +126,7 @@ impl Notebook {
     /// Save the notebook to a `.sema-nb` JSON file.
     pub fn save(&mut self, path: &Path) -> Result<(), String> {
         self.metadata.modified = Utc::now();
+        self.metadata.sema_version = env!("CARGO_PKG_VERSION").to_string();
         let json = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize notebook: {e}"))?;
         std::fs::write(path, json).map_err(|e| format!("Failed to write {}: {e}", path.display()))
@@ -191,4 +188,168 @@ fn new_cell_id() -> String {
     let uuid = uuid::Uuid::new_v4();
     // Use first 8 hex chars for brevity
     format!("c{}", &uuid.simple().to_string()[..8])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_notebook_has_correct_defaults() {
+        let nb = Notebook::new("Test");
+        assert_eq!(nb.version, 1);
+        assert_eq!(nb.metadata.title, "Test");
+        assert!(nb.cells.is_empty());
+    }
+
+    #[test]
+    fn add_code_cell() {
+        let mut nb = Notebook::new("T");
+        let id = nb.add_code_cell("(+ 1 2)");
+        assert_eq!(nb.cells.len(), 1);
+        assert_eq!(nb.cells[0].cell_type, CellType::Code);
+        assert_eq!(nb.cells[0].source, "(+ 1 2)");
+        assert_eq!(nb.cells[0].id, id);
+    }
+
+    #[test]
+    fn add_markdown_cell() {
+        let mut nb = Notebook::new("T");
+        let id = nb.add_markdown_cell("# Hello");
+        assert_eq!(nb.cells.len(), 1);
+        assert_eq!(nb.cells[0].cell_type, CellType::Markdown);
+        assert_eq!(nb.cells[0].source, "# Hello");
+        assert!(nb.cell(&id).is_some());
+    }
+
+    #[test]
+    fn cell_lookup_by_id() {
+        let mut nb = Notebook::new("T");
+        let id1 = nb.add_code_cell("a");
+        let id2 = nb.add_code_cell("b");
+        assert_eq!(nb.cell_index(&id1), Some(0));
+        assert_eq!(nb.cell_index(&id2), Some(1));
+        assert_eq!(nb.cell_index("nonexistent"), None);
+        assert!(nb.cell(&id1).is_some());
+        assert!(nb.cell("nonexistent").is_none());
+    }
+
+    #[test]
+    fn cell_mut_updates_source() {
+        let mut nb = Notebook::new("T");
+        let id = nb.add_code_cell("old");
+        nb.cell_mut(&id).unwrap().source = "new".to_string();
+        assert_eq!(nb.cell(&id).unwrap().source, "new");
+    }
+
+    #[test]
+    fn mark_downstream_stale() {
+        let mut nb = Notebook::new("T");
+        let _id1 = nb.add_code_cell("a");
+        let id2 = nb.add_code_cell("b");
+        let id3 = nb.add_code_cell("c");
+        let _md = nb.add_markdown_cell("text");
+
+        // Give cells 2 and 3 outputs so they can become stale
+        let output = CellOutput {
+            output_type: OutputType::Value,
+            display: "val".to_string(),
+            sema_value: None,
+            timestamp: Utc::now(),
+            cost_usd: None,
+            requires_reeval: false,
+            duration_ms: None,
+        };
+        nb.cell_mut(&id2).unwrap().outputs = vec![output.clone()];
+        nb.cell_mut(&id3).unwrap().outputs = vec![output];
+
+        // Mark downstream of cell 0
+        nb.mark_downstream_stale(0);
+        assert!(!nb.cells[0].stale); // cell 0 itself not stale
+        assert!(nb.cells[1].stale); // cell 1 (code with output) is stale
+        assert!(nb.cells[2].stale); // cell 2 (code with output) is stale
+        assert!(!nb.cells[3].stale); // markdown cell not marked stale
+    }
+
+    #[test]
+    fn mark_downstream_skips_empty_outputs() {
+        let mut nb = Notebook::new("T");
+        nb.add_code_cell("a");
+        nb.add_code_cell("b"); // no outputs
+
+        nb.mark_downstream_stale(0);
+        assert!(!nb.cells[1].stale); // no outputs = not marked stale
+    }
+
+    #[test]
+    fn serialization_round_trip() {
+        let mut nb = Notebook::new("Round Trip");
+        nb.add_code_cell("(define x 42)");
+        nb.add_markdown_cell("## Notes");
+
+        let json = serde_json::to_string(&nb).unwrap();
+        let restored: Notebook = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.version, 1);
+        assert_eq!(restored.metadata.title, "Round Trip");
+        assert_eq!(restored.cells.len(), 2);
+        assert_eq!(restored.cells[0].cell_type, CellType::Code);
+        assert_eq!(restored.cells[0].source, "(define x 42)");
+        assert_eq!(restored.cells[1].cell_type, CellType::Markdown);
+        assert_eq!(restored.cells[1].source, "## Notes");
+    }
+
+    #[test]
+    fn serialization_with_output_round_trip() {
+        let mut nb = Notebook::new("T");
+        let id = nb.add_code_cell("(+ 1 2)");
+        nb.cell_mut(&id).unwrap().outputs = vec![CellOutput {
+            output_type: OutputType::Value,
+            display: "3".to_string(),
+            sema_value: Some("3".to_string()),
+            timestamp: Utc::now(),
+            cost_usd: None,
+            requires_reeval: false,
+            duration_ms: Some(5),
+        }];
+
+        let json = serde_json::to_string(&nb).unwrap();
+        let restored: Notebook = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.cells[0].outputs.len(), 1);
+        assert_eq!(restored.cells[0].outputs[0].display, "3");
+        assert_eq!(restored.cells[0].outputs[0].duration_ms, Some(5));
+    }
+
+    #[test]
+    fn stale_field_skipped_when_false() {
+        let mut nb = Notebook::new("T");
+        nb.add_code_cell("a");
+        let json = serde_json::to_string(&nb).unwrap();
+        assert!(!json.contains("stale"));
+    }
+
+    #[test]
+    fn cell_id_format() {
+        let id = new_cell_id();
+        assert!(id.starts_with('c'));
+        assert_eq!(id.len(), 9); // "c" + 8 hex chars
+    }
+
+    #[test]
+    fn save_and_load_round_trip() {
+        let dir = std::env::temp_dir().join(format!("sema-nb-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test.sema-nb");
+
+        let mut nb = Notebook::new("File Test");
+        nb.add_code_cell("(+ 1 2)");
+        nb.save(&path).unwrap();
+
+        let loaded = Notebook::load(&path).unwrap();
+        assert_eq!(loaded.metadata.title, "File Test");
+        assert_eq!(loaded.cells.len(), 1);
+        assert_eq!(loaded.metadata.sema_version, env!("CARGO_PKG_VERSION"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

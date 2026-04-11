@@ -18,6 +18,7 @@
 //! - `ui` — embedded browser UI (HTML/CSS/JS, replaceable)
 //! - `vfs` — sandboxed filesystem access
 
+pub mod bridge;
 pub mod engine;
 pub mod format;
 pub mod render;

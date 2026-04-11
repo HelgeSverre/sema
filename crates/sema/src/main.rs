@@ -153,13 +153,12 @@ impl SemaCompleter {
     }
 
     fn collect_env_bindings(&self, env: &Env, prefix: &str, candidates: &mut Vec<String>) {
-        let bindings = env.bindings.borrow();
-        for (spur, _) in bindings.iter() {
-            let name = sema_core::resolve(*spur);
+        env.iter_bindings(|spur, _| {
+            let name = sema_core::resolve(spur);
             if name.starts_with(prefix) {
                 candidates.push(name);
             }
-        }
+        });
         if let Some(parent) = &env.parent {
             self.collect_env_bindings(parent, prefix, candidates);
         }
@@ -516,6 +515,10 @@ enum NotebookCommands {
     Serve {
         /// Path to .sema-nb file (created if absent)
         file: Option<String>,
+
+        /// Host address to bind to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
 
         /// Port to listen on
         #[arg(short, long, default_value = "8888")]
@@ -884,13 +887,13 @@ fn eval_with_mode(
 
 fn run_notebook_command(command: NotebookCommands) {
     match command {
-        NotebookCommands::Serve { file, port } => {
+        NotebookCommands::Serve { file, host, port } => {
             let path = file.map(std::path::PathBuf::from);
             tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()
                 .expect("Failed to create tokio runtime")
-                .block_on(sema_notebook::serve(path, port));
+                .block_on(sema_notebook::serve(path, &host, port));
         }
         NotebookCommands::Run { file, cells } => {
             let path = std::path::Path::new(&file);
@@ -2857,29 +2860,29 @@ fn print_help() {
 }
 
 fn print_env(interpreter: &Interpreter) {
-    let bindings = interpreter.global_env.bindings.borrow();
-    let mut user_bindings: Vec<_> = bindings
-        .iter()
-        .filter(|(_, v)| v.as_native_fn_rc().is_none())
-        .collect();
-    user_bindings.sort_by_key(|(k, _)| *k);
+    let mut user_bindings: Vec<(String, String)> = Vec::new();
+    interpreter.global_env.iter_bindings(|spur, val| {
+        if val.as_native_fn_rc().is_none() {
+            user_bindings.push((sema_core::resolve(spur), format!("{val}")));
+        }
+    });
+    user_bindings.sort_by(|(a, _), (b, _)| a.cmp(b));
     if user_bindings.is_empty() {
         println!("(no user-defined bindings)");
     } else {
-        for (spur, val) in user_bindings {
-            let name = sema_core::resolve(*spur);
+        for (name, val) in &user_bindings {
             println!("  {name} = {val}");
         }
     }
 }
 
 fn print_builtins(interpreter: &Interpreter) {
-    let bindings = interpreter.global_env.bindings.borrow();
-    let mut names: Vec<_> = bindings
-        .iter()
-        .filter(|(_, v)| v.as_native_fn_rc().is_some())
-        .map(|(spur, _)| sema_core::resolve(*spur))
-        .collect();
+    let mut names: Vec<String> = Vec::new();
+    interpreter.global_env.iter_bindings(|spur, val| {
+        if val.as_native_fn_rc().is_some() {
+            names.push(sema_core::resolve(spur));
+        }
+    });
     names.sort();
 
     if names.is_empty() {
