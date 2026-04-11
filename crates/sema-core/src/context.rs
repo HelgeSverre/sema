@@ -317,6 +317,169 @@ impl Default for EvalContext {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeMap;
+    use std::path::PathBuf;
+
+    use crate::{Caps, Sandbox, Value};
+
+    // --- File path tracking ---
+
+    #[test]
+    fn test_push_pop_file_path() {
+        let ctx = EvalContext::new();
+        let path = PathBuf::from("/foo/bar/baz.sema");
+        ctx.push_file_path(path.clone());
+        assert_eq!(ctx.current_file_path(), Some(path));
+        ctx.pop_file_path();
+        assert_eq!(ctx.current_file_path(), None);
+    }
+
+    #[test]
+    fn test_current_file_dir() {
+        let ctx = EvalContext::new();
+        ctx.push_file_path(PathBuf::from("/foo/bar/baz.sema"));
+        assert_eq!(ctx.current_file_dir(), Some(PathBuf::from("/foo/bar")));
+    }
+
+    #[test]
+    fn test_current_file_dir_empty() {
+        let ctx = EvalContext::new();
+        assert_eq!(ctx.current_file_dir(), None);
+    }
+
+    #[test]
+    fn test_nested_file_paths() {
+        let ctx = EvalContext::new();
+        let first = PathBuf::from("/a/first.sema");
+        let second = PathBuf::from("/b/second.sema");
+        ctx.push_file_path(first.clone());
+        ctx.push_file_path(second.clone());
+        assert_eq!(ctx.current_file_path(), Some(second));
+        ctx.pop_file_path();
+        assert_eq!(ctx.current_file_path(), Some(first));
+    }
+
+    // --- Module caching ---
+
+    #[test]
+    fn test_cache_module() {
+        let ctx = EvalContext::new();
+        let path = PathBuf::from("/lib/math.sema");
+        let mut exports = BTreeMap::new();
+        exports.insert("add".to_string(), Value::int(1));
+        ctx.cache_module(path.clone(), exports.clone());
+        let cached = ctx.get_cached_module(&path).unwrap();
+        assert_eq!(cached.len(), 1);
+        assert_eq!(cached.get("add"), Some(&Value::int(1)));
+    }
+
+    #[test]
+    fn test_get_cached_module_miss() {
+        let ctx = EvalContext::new();
+        let path = PathBuf::from("/nonexistent.sema");
+        assert_eq!(ctx.get_cached_module(&path), None);
+    }
+
+    #[test]
+    fn test_cache_module_overwrites() {
+        let ctx = EvalContext::new();
+        let path = PathBuf::from("/lib/math.sema");
+
+        let mut first = BTreeMap::new();
+        first.insert("old".to_string(), Value::int(1));
+        ctx.cache_module(path.clone(), first);
+
+        let mut second = BTreeMap::new();
+        second.insert("new".to_string(), Value::int(2));
+        ctx.cache_module(path.clone(), second);
+
+        let cached = ctx.get_cached_module(&path).unwrap();
+        assert!(cached.get("old").is_none());
+        assert_eq!(cached.get("new"), Some(&Value::int(2)));
+    }
+
+    // --- Module exports ---
+
+    #[test]
+    fn test_module_exports_roundtrip() {
+        let ctx = EvalContext::new();
+        ctx.clear_module_exports(); // pushes None onto stack
+        ctx.set_module_exports(vec!["foo".to_string(), "bar".to_string()]);
+        let taken = ctx.take_module_exports();
+        assert_eq!(taken, Some(vec!["foo".to_string(), "bar".to_string()]));
+    }
+
+    #[test]
+    fn test_take_module_exports_empty() {
+        let ctx = EvalContext::new();
+        // Nothing has been pushed, so take should return None
+        assert_eq!(ctx.take_module_exports(), None);
+    }
+
+    // --- Cyclic import detection ---
+
+    #[test]
+    fn test_begin_module_load_ok() {
+        let ctx = EvalContext::new();
+        let path = PathBuf::from("/lib/a.sema");
+        assert!(ctx.begin_module_load(&path).is_ok());
+    }
+
+    #[test]
+    fn test_begin_module_load_cycle() {
+        let ctx = EvalContext::new();
+        let path = PathBuf::from("/lib/a.sema");
+        ctx.begin_module_load(&path).unwrap();
+        let result = ctx.begin_module_load(&path);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("cyclic import"), "error should mention cyclic import: {msg}");
+    }
+
+    #[test]
+    fn test_end_module_load() {
+        let ctx = EvalContext::new();
+        let path = PathBuf::from("/lib/a.sema");
+        ctx.begin_module_load(&path).unwrap();
+        ctx.end_module_load(&path);
+        // Stack is now empty, so beginning the same path again should succeed
+        assert!(ctx.begin_module_load(&path).is_ok());
+    }
+
+    #[test]
+    fn test_nested_module_loads() {
+        let ctx = EvalContext::new();
+        let a = PathBuf::from("/lib/a.sema");
+        let b = PathBuf::from("/lib/b.sema");
+        ctx.begin_module_load(&a).unwrap();
+        ctx.begin_module_load(&b).unwrap();
+        ctx.end_module_load(&b);
+        // A should still be in the stack — beginning A again should fail
+        let result = ctx.begin_module_load(&a);
+        assert!(result.is_err());
+        let msg = result.unwrap_err().to_string();
+        assert!(msg.contains("cyclic import"), "A should still be loading: {msg}");
+    }
+
+    // --- Sandbox integration ---
+
+    #[test]
+    fn test_new_with_sandbox() {
+        let sandbox = Sandbox::deny(Caps::NETWORK);
+        let ctx = EvalContext::new_with_sandbox(sandbox);
+        // Verify the sandbox is set by checking a denied capability
+        let result = ctx.sandbox.check(Caps::NETWORK, "http/get");
+        assert!(result.is_err());
+        // Allowed capability should pass
+        let result = ctx.sandbox.check(Caps::FS_READ, "file/read");
+        assert!(result.is_ok());
+    }
+}
+
 thread_local! {
     static STDLIB_CTX: EvalContext = EvalContext::new();
 }
