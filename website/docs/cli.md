@@ -316,6 +316,87 @@ sema fmt --check
 sema fmt --diff
 ```
 
+### `sema notebook`
+
+Jupyter-inspired cell-based notebook interface with a browser UI. Notebooks are saved as `.sema-nb` JSON files. Cells share a persistent environment — definitions in earlier cells are visible in later ones.
+
+```
+sema notebook <COMMAND>
+```
+
+| Subcommand                              | Description                                       |
+| --------------------------------------- | ------------------------------------------------- |
+| `serve [FILE]`                          | Start the notebook server with browser UI          |
+| `run <FILE>`                            | Run all cells headlessly (for CI/testing)          |
+| `export <FILE>`                         | Export notebook to Markdown                        |
+| `new <FILE>`                            | Create a new empty notebook                        |
+
+#### `sema notebook serve`
+
+```
+sema notebook serve [OPTIONS] [FILE]
+```
+
+| Flag                | Description                                  |
+| ------------------- | -------------------------------------------- |
+| `--host <HOST>`     | Host address to bind to (default: `127.0.0.1`) |
+| `-p, --port <PORT>` | Port to listen on (default: `8888`)          |
+
+Opens a browser-based notebook at `http://localhost:8888`. If `FILE` doesn't exist, a new notebook is created. The UI supports:
+- Code and markdown cells with Shift+Enter to evaluate
+- Stdout capture — `println` output appears in cell output
+- Collapsible output with execution timing
+- Single-cell undo with environment rollback
+- Between-cell insert buttons
+- Keyboard shortcuts (Shift+Enter, Cmd+Enter, Cmd+S, Tab, Escape)
+
+#### `sema notebook run`
+
+```
+sema notebook run [OPTIONS] <FILE>
+```
+
+| Flag              | Description                                          |
+| ----------------- | ---------------------------------------------------- |
+| `--cells <CELLS>` | Only run specific cells (1-based, comma-separated)   |
+
+Evaluates all code cells in order without starting a browser. Useful for CI validation and batch execution.
+
+#### `sema notebook export`
+
+```
+sema notebook export [OPTIONS] <FILE>
+```
+
+| Flag                  | Description                           |
+| --------------------- | ------------------------------------- |
+| `-f, --format <FMT>`  | Output format (default: `md`)         |
+| `-o, --output <FILE>` | Output file (default: stdout)         |
+
+#### `sema notebook new`
+
+```
+sema notebook new [OPTIONS] <FILE>
+```
+
+| Flag              | Description                                      |
+| ----------------- | ------------------------------------------------ |
+| `-t, --title <T>` | Notebook title (default: filename stem)          |
+
+```bash
+# Create and open a notebook
+sema notebook new my-project.sema-nb --title "My Project"
+sema notebook serve my-project.sema-nb
+
+# Run cells headlessly (CI / smoke test)
+sema notebook run my-project.sema-nb
+
+# Export to Markdown
+sema notebook export my-project.sema-nb -o output.md
+```
+
+See the full [Notebook documentation](/docs/notebook.html) for details on the file format, UI features, and keyboard shortcuts.
+
 ### `sema lsp`
 
 Start the Language Server Protocol (LSP) server. Communicates over stdio using the standard LSP JSON-RPC protocol.
