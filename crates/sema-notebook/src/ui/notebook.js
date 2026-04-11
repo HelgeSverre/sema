@@ -2,7 +2,14 @@
 const Notebook = (() => {
   let cells = [];
   let focusedCellId = null;
+  let canUndo = false;
   let shiftEnterUsed = localStorage.getItem('sema-nb-shift-enter-used') === 'true';
+
+  function updateUndoState(flag) {
+    canUndo = !!flag;
+    var btn = document.getElementById('undo-btn');
+    if (btn) btn.disabled = !canUndo;
+  }
 
   async function api(method, path, body) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
@@ -81,7 +88,9 @@ const Notebook = (() => {
         '<span class="output-chevron" data-testid="output-chevron">\u25bc</span>' +
         '<span class="output-meta" data-testid="output-meta">' + metaText + '</span>' +
       '</div>' +
-      '<div class="cell-output-content" data-testid="output-content">' + displayContent + '</div>' +
+      '<div class="cell-output-content" data-testid="output-content">' + displayContent +
+        (isError && canUndo ? '<button class="undo-inline-btn" onclick="Notebook.undo()">Undo cell</button>' : '') +
+      '</div>' +
     '</div>';
   }
 
@@ -219,6 +228,7 @@ const Notebook = (() => {
       const data = await api('GET', '/api/notebook');
       document.getElementById('notebook-title').value = data.title || 'Untitled';
       cells = data.cells || [];
+      updateUndoState(data.can_undo);
       renderAllCells();
     } catch (e) {
       console.error('Failed to load notebook:', e);
@@ -367,10 +377,21 @@ const Notebook = (() => {
     }
   }
 
+  async function undo() {
+    try {
+      var data = await api('POST', '/api/undo');
+      updateUndoState(data.can_undo);
+      await load();
+    } catch (e) {
+      console.error('Undo failed:', e);
+    }
+  }
+
   async function reset() {
     if (!confirm('Reset the environment? All cell outputs will be cleared.')) return;
     try {
       await api('POST', '/api/reset');
+      updateUndoState(false);
       await load();
     } catch (e) {
       console.error('Reset failed:', e);
@@ -463,6 +484,7 @@ const Notebook = (() => {
     insertCell: insertCell,
     evalCell: evalCell,
     evalAll: evalAll,
+    undo: undo,
     deleteCell: deleteCell,
     moveCell: moveCell,
     save: save,

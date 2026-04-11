@@ -84,6 +84,7 @@ pub async fn serve(notebook_path: Option<PathBuf>, host: &str, port: u16) {
         .route("/api/eval-all", post(eval_all))
         .route("/api/env", get(get_env))
         .route("/api/reset", post(reset))
+        .route("/api/undo", post(undo_cell))
         .route("/api/save", post(save_notebook))
         // VFS endpoints
         .route("/vfs/read", get(vfs_read_handler))
@@ -294,6 +295,17 @@ async fn save_notebook(
         .save()
         .await
         .map(|path| Json(serde_json::json!({"saved": path})))
+        .map_err(|e| bridge_err(e, StatusCode::BAD_REQUEST))
+}
+
+async fn undo_cell(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<render::UndoResponse>, (StatusCode, String)> {
+    state
+        .engine
+        .undo_cell()
+        .await
+        .map(Json)
         .map_err(|e| bridge_err(e, StatusCode::BAD_REQUEST))
 }
 

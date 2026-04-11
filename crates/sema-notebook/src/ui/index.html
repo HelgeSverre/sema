@@ -40,6 +40,11 @@
         <polygon points="3,1 13,8 3,15" fill="currentColor" stroke="none"/>
       </svg>
     </button>
+    <button type="button" class="toolbar-btn" id="undo-btn" title="Undo last cell" data-testid="btn-undo" onclick="Notebook.undo()" disabled>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M3 7h7a3 3 0 0 1 0 6H8"/><polyline points="6,4 3,7 6,10"/>
+      </svg>
+    </button>
     <div class="toolbar-sep"></div>
     <button type="button" class="toolbar-btn" title="Save notebook" data-testid="btn-save" onclick="Notebook.save()">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">

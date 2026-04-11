@@ -167,6 +167,8 @@ pub struct EvalResponse {
     /// Captured stdout from println/display/print calls.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub stdout: String,
+    /// Whether the last cell evaluation can be undone.
+    pub can_undo: bool,
 }
 
 /// API response for listing environment bindings.
@@ -180,6 +182,17 @@ pub struct EnvResponse {
 pub struct NotebookResponse {
     pub title: String,
     pub cells: Vec<RenderedCell>,
+    /// Whether the last cell evaluation can be undone.
+    pub can_undo: bool,
+}
+
+/// API response for undoing the last cell evaluation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct UndoResponse {
+    /// The cell whose evaluation was undone.
+    pub undone_cell_id: String,
+    /// Whether another undo is available.
+    pub can_undo: bool,
 }
 
 /// API response data for a newly created cell.
@@ -191,10 +204,11 @@ pub struct CreateCellData {
 }
 
 /// Produce the full notebook response for the API.
-pub fn notebook_response(notebook: &Notebook) -> NotebookResponse {
+pub fn notebook_response(notebook: &Notebook, can_undo: bool) -> NotebookResponse {
     NotebookResponse {
         title: notebook.metadata.title.clone(),
         cells: render_notebook(notebook),
+        can_undo,
     }
 }
 
@@ -302,8 +316,9 @@ mod tests {
     #[test]
     fn notebook_response_includes_title() {
         let nb = Notebook::new("Hello");
-        let resp = notebook_response(&nb);
+        let resp = notebook_response(&nb, false);
         assert_eq!(resp.title, "Hello");
         assert!(resp.cells.is_empty());
+        assert!(!resp.can_undo);
     }
 }

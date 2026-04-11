@@ -113,6 +113,7 @@ body {
   position: relative;
 }
 .toolbar-btn:hover { color: var(--gold); background: var(--gold-glow); }
+.toolbar-btn:disabled { opacity: 0.25; cursor: default; pointer-events: none; }
 .toolbar-btn svg { width: 16px; height: 16px; }
 
 .toolbar-sep {
@@ -343,6 +344,24 @@ body {
 .cell-output.error .cell-output-content {
   color: var(--error);
   background: var(--error-bg);
+}
+
+/* Inline undo button (shown in error outputs) */
+.undo-inline-btn {
+  display: block;
+  margin-top: 0.5rem;
+  padding: 0.2rem 0.6rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--gold);
+  background: transparent;
+  border: 1px solid var(--gold-dim, #6b5c2a);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.undo-inline-btn:hover {
+  background: var(--gold-glow);
+  border-color: var(--gold);
 }
 
 /* Markdown rendered */

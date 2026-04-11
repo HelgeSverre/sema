@@ -84,6 +84,9 @@ enum EngineRequest {
     Save {
         reply: oneshot::Sender<EngineResult<String>>,
     },
+    UndoCell {
+        reply: oneshot::Sender<EngineResult<render::UndoResponse>>,
+    },
 }
 
 // ── Engine handle ───────────────────────────────────────────────
@@ -111,7 +114,10 @@ impl EngineHandle {
             while let Some(req) = rt.block_on(rx.recv()) {
                 match req {
                     EngineRequest::GetNotebook { reply } => {
-                        let _ = reply.send(render::notebook_response(&engine.notebook));
+                        let _ = reply.send(render::notebook_response(
+                            &engine.notebook,
+                            engine.can_undo(),
+                        ));
                     }
                     EngineRequest::CreateCell {
                         cell_type,
@@ -210,6 +216,7 @@ impl EngineHandle {
                                 id: id.clone(),
                                 output,
                                 stdout: r.stdout,
+                                can_undo: engine.can_undo(),
                             }
                         });
                         let _ = reply.send(result);
@@ -251,6 +258,7 @@ impl EngineHandle {
                             }
                         }
                         let results = engine.eval_all();
+                        let can_undo = engine.can_undo();
                         let responses = results
                             .into_iter()
                             .map(|(id, result)| {
@@ -266,7 +274,12 @@ impl EngineHandle {
                                         String::new(),
                                     ),
                                 };
-                                render::EvalResponse { id, output, stdout }
+                                render::EvalResponse {
+                                    id,
+                                    output,
+                                    stdout,
+                                    can_undo,
+                                }
                             })
                             .collect();
                         let _ = reply.send(responses);
@@ -288,6 +301,13 @@ impl EngineHandle {
                                 .map(|_| path.display().to_string()),
                             None => Err("No file path".to_string()),
                         };
+                        let _ = reply.send(result);
+                    }
+                    EngineRequest::UndoCell { reply } => {
+                        let result = engine.undo_last_cell().map(|info| render::UndoResponse {
+                            undone_cell_id: info.cell_id,
+                            can_undo: engine.can_undo(),
+                        });
                         let _ = reply.send(result);
                     }
                 }
@@ -391,6 +411,12 @@ impl EngineHandle {
 
     pub async fn save(&self) -> Result<String, BridgeError> {
         self.send(|reply| EngineRequest::Save { reply })
+            .await?
+            .map_err(BridgeError::Request)
+    }
+
+    pub async fn undo_cell(&self) -> Result<render::UndoResponse, BridgeError> {
+        self.send(|reply| EngineRequest::UndoCell { reply })
             .await?
             .map_err(BridgeError::Request)
     }
