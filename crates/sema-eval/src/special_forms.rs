@@ -1548,23 +1548,22 @@ fn collect_module_exports(
     module_env: &Env,
     declared: Option<&[String]>,
 ) -> std::collections::BTreeMap<String, Value> {
-    let bindings = module_env.bindings.borrow();
     match declared {
         Some(names) => {
             let mut exports = std::collections::BTreeMap::new();
             for name in names {
                 let spur = intern(name);
-                if let Some(val) = bindings.get(&spur) {
-                    exports.insert(name.clone(), val.clone());
+                if let Some(val) = module_env.get_local(spur) {
+                    exports.insert(name.clone(), val);
                 }
             }
             exports
         }
         None => {
             let mut exports = std::collections::BTreeMap::new();
-            for (spur, val) in bindings.iter() {
-                exports.insert(resolve(*spur), val.clone());
-            }
+            module_env.iter_bindings(|spur, val| {
+                exports.insert(resolve(spur), val.clone());
+            });
             exports
         }
     }

@@ -53,7 +53,10 @@ lint-links:
 examples: build
 	@echo "=== Running examples ==="
 	@for f in examples/*.sema; do \
-		case "$$(basename $$f)" in web-server.sema) echo "  SKIP $$f (server)"; continue;; esac; \
+		case "$$(basename $$f)" in \
+			web-server.sema|eliza-web.sema) echo "  SKIP $$f (server)"; continue;; \
+			eliza.sema) echo "  SKIP $$f (interactive)"; continue;; \
+		esac; \
 		echo "--- $$f ---"; \
 		timeout 30 cargo run --quiet -- --no-llm "$$f" || true; \
 	done
@@ -67,7 +70,10 @@ examples-vm: build
 	@echo "=== Running examples (--vm) ==="
 	@failed=""; \
 	for f in examples/*.sema; do \
-		case "$$(basename $$f)" in web-server.sema) echo "  SKIP $$f (server)"; continue;; esac; \
+		case "$$(basename $$f)" in \
+			web-server.sema|eliza-web.sema) echo "  SKIP $$f (server)"; continue;; \
+			eliza.sema) echo "  SKIP $$f (interactive)"; continue;; \
+		esac; \
 		echo "--- $$f ---"; \
 		if ! timeout 30 cargo run --quiet -- --vm --no-llm "$$f"; then \
 			failed="$$failed $$f"; \
@@ -89,6 +95,17 @@ examples-vm: build
 		echo ""; \
 		echo "=== ALL PASSED (--vm) ==="; \
 	fi
+
+example-notebook: build
+	@echo "=== Running example notebook ==="
+	cargo run --quiet -- notebook run examples/notebook/demo.sema-nb || true
+
+test-notebook-e2e: build
+	@echo "=== Running notebook E2E tests ==="
+	cd crates/sema-notebook/tests/e2e && npx playwright test
+
+example-notebook-serve: build
+	cargo run --quiet -- notebook serve examples/notebook/demo.sema-nb
 
 smoke-bytecode: build
 	@./scripts/smoke-bytecode.sh ./target/debug/sema

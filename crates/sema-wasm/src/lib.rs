@@ -2380,21 +2380,22 @@ impl WasmInterpreter {
             }
 
             let declared = self.inner.ctx.take_module_exports();
-            let bindings = module_env.bindings.borrow();
             let exports: BTreeMap<String, Value> = match declared {
                 Some(names) => names
                     .iter()
                     .filter_map(|n| {
                         let spur = intern(n);
-                        bindings.get(&spur).map(|v| (n.clone(), v.clone()))
+                        module_env.get_local(spur).map(|v| (n.clone(), v))
                     })
                     .collect(),
-                None => bindings
-                    .iter()
-                    .map(|(k, v)| (resolve(*k), v.clone()))
-                    .collect(),
+                None => {
+                    let mut map = BTreeMap::new();
+                    module_env.iter_bindings(|k, v| {
+                        map.insert(resolve(k), v.clone());
+                    });
+                    map
+                }
             };
-            drop(bindings);
 
             self.inner
                 .ctx

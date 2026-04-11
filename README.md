@@ -273,6 +273,21 @@ All editors provide syntax highlighting for builtins, special forms, keyword lit
 
 > 📖 Full installation instructions: **[sema-lang.com/docs/editors](https://sema-lang.com/docs/editors.html)**
 
+### Notebook
+
+Sema includes a Jupyter-inspired notebook interface with a browser UI:
+
+```bash
+sema notebook new my-notebook.sema-nb        # Create a notebook
+sema notebook serve my-notebook.sema-nb      # Open in browser (localhost:8888)
+sema notebook run my-notebook.sema-nb        # Run all cells headlessly
+sema notebook export my-notebook.sema-nb     # Export to Markdown
+```
+
+Cells share a persistent environment — definitions in earlier cells are visible in later ones. Notebooks are saved as `.sema-nb` JSON files.
+
+> 📖 Full notebook documentation: **[sema-lang.com/docs/notebook](https://sema-lang.com/docs/notebook.html)**
+
 ## Example Programs
 
 The [`examples/`](https://github.com/helgesverre/sema/tree/main/examples) directory has 50+ programs:
@@ -329,6 +344,7 @@ crates/
   sema-eval/     Trampoline-based evaluator, special forms, modules
   sema-stdlib/   Built-in functions across many modules
   sema-llm/      LLM provider trait + multi-provider clients
+  sema-notebook/ Jupyter-inspired notebook interface with browser UI
   sema-wasm/     WebAssembly build for sema.run playground
   sema/          CLI binary: REPL + file runner + standalone builder
 ```

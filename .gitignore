@@ -24,6 +24,16 @@
 # Coverage
 lcov.info
 
+# Node / JS
+node_modules/
+dist/
+
+# Test artifacts
+test-results/
+
+# Prototypes
+prototypes/
+
 # Misc
 wip/
 benchmarks/data/

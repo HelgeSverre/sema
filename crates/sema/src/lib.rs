@@ -239,21 +239,22 @@ impl Interpreter {
         let declared = self.inner.ctx.take_module_exports();
 
         // Collect exports: if (export ...) was used, only those; else all bindings.
-        let bindings = module_env.bindings.borrow();
         let exports: BTreeMap<String, Value> = match declared {
             Some(names) => names
                 .iter()
                 .filter_map(|n| {
                     let spur = intern(n);
-                    bindings.get(&spur).map(|v| (n.clone(), v.clone()))
+                    module_env.get_local(spur).map(|v| (n.clone(), v))
                 })
                 .collect(),
-            None => bindings
-                .iter()
-                .map(|(spur, val)| (resolve(*spur), val.clone()))
-                .collect(),
+            None => {
+                let mut map = BTreeMap::new();
+                module_env.iter_bindings(|spur, val| {
+                    map.insert(resolve(spur), val.clone());
+                });
+                map
+            }
         };
-        drop(bindings);
 
         // Cache under the bare name so `(import "name")` resolves it
         // before attempting to canonicalize a real file path.

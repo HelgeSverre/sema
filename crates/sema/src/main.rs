@@ -153,13 +153,12 @@ impl SemaCompleter {
     }
 
     fn collect_env_bindings(&self, env: &Env, prefix: &str, candidates: &mut Vec<String>) {
-        let bindings = env.bindings.borrow();
-        for (spur, _) in bindings.iter() {
-            let name = sema_core::resolve(*spur);
+        env.iter_bindings(|spur, _| {
+            let name = sema_core::resolve(spur);
             if name.starts_with(prefix) {
                 candidates.push(name);
             }
-        }
+        });
         if let Some(parent) = &env.parent {
             self.collect_env_bindings(parent, prefix, candidates);
         }
@@ -383,6 +382,11 @@ enum Commands {
     Lsp,
     /// Start the Debug Adapter Protocol server
     Dap,
+    /// Notebook interface — cell-based evaluation with browser UI
+    Notebook {
+        #[command(subcommand)]
+        command: NotebookCommands,
+    },
     /// Evaluate code and return results (designed for machine consumption by editors/LSP)
     Eval {
         /// Read program from stdin instead of --expr
@@ -502,6 +506,54 @@ enum PkgCommands {
         /// Registry URL override
         #[arg(long)]
         registry: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum NotebookCommands {
+    /// Start the notebook server with browser UI
+    Serve {
+        /// Path to .sema-nb file (created if absent)
+        file: Option<String>,
+
+        /// Host address to bind to
+        #[arg(long, default_value = "127.0.0.1")]
+        host: String,
+
+        /// Port to listen on
+        #[arg(short, long, default_value = "8888")]
+        port: u16,
+    },
+    /// Run all cells in a notebook headlessly
+    Run {
+        /// Path to .sema-nb file
+        file: String,
+
+        /// Only run specific cells (1-based, comma-separated)
+        #[arg(long)]
+        cells: Option<String>,
+    },
+    /// Export a notebook to Markdown
+    Export {
+        /// Path to .sema-nb file
+        file: String,
+
+        /// Output format
+        #[arg(long, default_value = "md")]
+        format: String,
+
+        /// Output file (default: stdout)
+        #[arg(short, long)]
+        output: Option<String>,
+    },
+    /// Create a new empty notebook
+    New {
+        /// Path to create the .sema-nb file
+        file: String,
+
+        /// Notebook title
+        #[arg(short, long)]
+        title: Option<String>,
     },
 }
 
@@ -654,6 +706,9 @@ fn main() {
                     .build()
                     .expect("Failed to create tokio runtime")
                     .block_on(sema_dap::run_server());
+            }
+            Commands::Notebook { command } => {
+                run_notebook_command(command);
             }
             Commands::Eval {
                 stdin,
@@ -827,6 +882,115 @@ fn eval_with_mode(
         interpreter.eval_str_compiled(input)
     } else {
         interpreter.eval_str(input)
+    }
+}
+
+fn run_notebook_command(command: NotebookCommands) {
+    match command {
+        NotebookCommands::Serve { file, host, port } => {
+            let path = file.map(std::path::PathBuf::from);
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create tokio runtime")
+                .block_on(sema_notebook::serve(path, &host, port));
+        }
+        NotebookCommands::Run { file, cells } => {
+            let path = std::path::Path::new(&file);
+            let mut engine = match sema_notebook::Engine::from_file(path) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let results = if let Some(cell_spec) = cells {
+                let indices: Vec<usize> = cell_spec
+                    .split(',')
+                    .filter_map(|s| s.trim().parse().ok())
+                    .collect();
+                engine.eval_cells(&indices)
+            } else {
+                engine.eval_all()
+            };
+
+            let mut had_error = false;
+            for (id, result) in &results {
+                match result {
+                    Ok(r) => {
+                        if !r.output.display.is_empty() {
+                            println!("[{id}] {}", r.output.display);
+                        }
+                        if r.output.output_type == sema_notebook::format::OutputType::Error {
+                            had_error = true;
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[{id}] Error: {e}");
+                        had_error = true;
+                    }
+                }
+            }
+
+            // Save updated outputs back to the file
+            if let Err(e) = engine.notebook.save(path) {
+                eprintln!("Warning: failed to save: {e}");
+            }
+
+            if had_error {
+                std::process::exit(1);
+            }
+        }
+        NotebookCommands::Export {
+            file,
+            format,
+            output,
+        } => {
+            let path = std::path::Path::new(&file);
+            let notebook = match sema_notebook::Notebook::load(path) {
+                Ok(nb) => nb,
+                Err(e) => {
+                    eprintln!("Error: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let content = match format.as_str() {
+                "md" | "markdown" => sema_notebook::render::export_markdown(&notebook),
+                other => {
+                    eprintln!("Unknown export format: {other}. Supported: md");
+                    std::process::exit(1);
+                }
+            };
+
+            match output {
+                Some(out_path) => {
+                    if let Err(e) = std::fs::write(&out_path, &content) {
+                        eprintln!("Error writing {out_path}: {e}");
+                        std::process::exit(1);
+                    }
+                    eprintln!("Exported to {out_path}");
+                }
+                None => print!("{content}"),
+            }
+        }
+        NotebookCommands::New { file, title } => {
+            let path = std::path::Path::new(&file);
+            let title = title.as_deref().unwrap_or_else(|| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("Untitled")
+            });
+            let mut notebook = sema_notebook::Notebook::new(title);
+            // Add a starter code cell
+            notebook.add_code_cell("; Welcome to your Sema notebook!\n(+ 1 2)");
+            if let Err(e) = notebook.save(path) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+            eprintln!("Created notebook: {file}");
+        }
     }
 }
 
@@ -2696,29 +2860,29 @@ fn print_help() {
 }
 
 fn print_env(interpreter: &Interpreter) {
-    let bindings = interpreter.global_env.bindings.borrow();
-    let mut user_bindings: Vec<_> = bindings
-        .iter()
-        .filter(|(_, v)| v.as_native_fn_rc().is_none())
-        .collect();
-    user_bindings.sort_by_key(|(k, _)| *k);
+    let mut user_bindings: Vec<(String, String)> = Vec::new();
+    interpreter.global_env.iter_bindings(|spur, val| {
+        if val.as_native_fn_rc().is_none() {
+            user_bindings.push((sema_core::resolve(spur), format!("{val}")));
+        }
+    });
+    user_bindings.sort_by(|(a, _), (b, _)| a.cmp(b));
     if user_bindings.is_empty() {
         println!("(no user-defined bindings)");
     } else {
-        for (spur, val) in user_bindings {
-            let name = sema_core::resolve(*spur);
+        for (name, val) in &user_bindings {
             println!("  {name} = {val}");
         }
     }
 }
 
 fn print_builtins(interpreter: &Interpreter) {
-    let bindings = interpreter.global_env.bindings.borrow();
-    let mut names: Vec<_> = bindings
-        .iter()
-        .filter(|(_, v)| v.as_native_fn_rc().is_some())
-        .map(|(spur, _)| sema_core::resolve(*spur))
-        .collect();
+    let mut names: Vec<String> = Vec::new();
+    interpreter.global_env.iter_bindings(|spur, val| {
+        if val.as_native_fn_rc().is_some() {
+            names.push(sema_core::resolve(spur));
+        }
+    });
     names.sort();
 
     if names.is_empty() {
