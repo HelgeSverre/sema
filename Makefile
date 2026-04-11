@@ -100,6 +100,10 @@ example-notebook: build
 	@echo "=== Running example notebook ==="
 	cargo run --quiet -- notebook run examples/notebook/demo.sema-nb || true
 
+test-notebook-e2e: build
+	@echo "=== Running notebook E2E tests ==="
+	cd crates/sema-notebook/tests/e2e && npx playwright test
+
 example-notebook-serve: build
 	cargo run --quiet -- notebook serve examples/notebook/demo.sema-nb
 
