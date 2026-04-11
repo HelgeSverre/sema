@@ -49,17 +49,23 @@ const Notebook = (() => {
   }
 
   function renderOutputHTML(output) {
-    if (!output || !output.content) return '';
+    if (!output) return '';
     const isError = output.output_type === 'error';
+    const isStdout = output.output_type === 'stdout';
+    const isValue = output.output_type === 'value';
+
+    // Skip empty value outputs (e.g. nil return from println)
+    if (isValue && !output.content) return '';
+
     const cls = isError ? 'cell-output error' : 'cell-output';
 
     let displayContent = '';
-    if (output.content) {
-      if (isError) {
-        displayContent = escapeHtml(output.content);
-      } else {
-        displayContent = '<span style="color:var(--gold)">' + escapeHtml(output.content) + '</span>';
-      }
+    if (isError) {
+      displayContent = escapeHtml(output.content);
+    } else if (isStdout) {
+      displayContent = escapeHtml(output.content);
+    } else if (output.content) {
+      displayContent = '<span style="color:var(--gold)">' + escapeHtml(output.content) + '</span>';
     }
 
     let metaParts = [];

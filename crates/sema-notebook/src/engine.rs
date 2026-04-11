@@ -5,6 +5,7 @@
 //! in earlier cells are visible to later ones.
 
 use std::collections::BTreeMap;
+use std::io::Read as _;
 use std::time::Instant;
 
 use chrono::Utc;
@@ -18,6 +19,8 @@ use crate::format::{CellOutput, CellType, Notebook, OutputType};
 pub struct EvalResult {
     /// The output to store in the cell.
     pub output: CellOutput,
+    /// Captured stdout from println/display/print calls.
+    pub stdout: String,
 }
 
 /// The notebook evaluation engine. Wraps an `Interpreter` and a `Notebook`.
@@ -62,19 +65,46 @@ impl Engine {
         // Mark downstream cells as stale
         self.notebook.mark_downstream_stale(idx);
 
-        // Update the cell with the result
+        // Update the cell with outputs: stdout first (if any), then value/error
         let cell = &mut self.notebook.cells[idx];
-        cell.outputs = vec![result.output.clone()];
+        cell.outputs.clear();
+        if !result.stdout.is_empty() {
+            cell.outputs.push(CellOutput {
+                output_type: OutputType::Stdout,
+                display: result.stdout.clone(),
+                sema_value: None,
+                timestamp: Utc::now(),
+                cost_usd: None,
+                requires_reeval: false,
+                duration_ms: None,
+            });
+        }
+        cell.outputs.push(result.output.clone());
         cell.stale = false;
 
         Ok(result)
     }
 
     /// Evaluate raw source code in the notebook's environment.
+    ///
+    /// Captures stdout during evaluation so that `println`/`display`/`print`
+    /// output is available in the result rather than going to the server's
+    /// terminal.
     pub fn eval_source(&mut self, source: &str) -> EvalResult {
         let start = Instant::now();
 
-        let eval_result = self.interpreter.eval_str_in_global(source);
+        // Capture stdout during evaluation
+        let mut captured = String::new();
+        let eval_result = if let Ok(mut redirect) = gag::BufferRedirect::stdout() {
+            let result = self.interpreter.eval_str_in_global(source);
+            let _ = redirect.read_to_string(&mut captured);
+            drop(redirect);
+            result
+        } else {
+            // Fallback: eval without capture (shouldn't happen)
+            self.interpreter.eval_str_in_global(source)
+        };
+
         let duration_ms = start.elapsed().as_millis() as u64;
 
         match eval_result {
@@ -83,6 +113,7 @@ impl Engine {
                 let sema_value = value_to_sexp(&value);
 
                 EvalResult {
+                    stdout: captured,
                     output: CellOutput {
                         output_type: OutputType::Value,
                         display,
@@ -95,6 +126,7 @@ impl Engine {
                 }
             }
             Err(err) => EvalResult {
+                stdout: captured,
                 output: CellOutput {
                     output_type: OutputType::Error,
                     display: format_error(&err),
