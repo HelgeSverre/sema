@@ -209,6 +209,7 @@ impl EngineHandle {
                             render::EvalResponse {
                                 id: id.clone(),
                                 output,
+                                stdout: r.stdout,
                             }
                         });
                         let _ = reply.send(result);
@@ -253,16 +254,19 @@ impl EngineHandle {
                         let responses = results
                             .into_iter()
                             .map(|(id, result)| {
-                                let output = match result {
-                                    Ok(r) => render::render_output(&r.output),
-                                    Err(e) => render::RenderedOutput {
-                                        output_type: crate::format::OutputType::Error,
-                                        content: e,
-                                        mime_type: "text/x-sema-error".to_string(),
-                                        meta: render::OutputMeta::default(),
-                                    },
+                                let (output, stdout) = match result {
+                                    Ok(r) => (render::render_output(&r.output), r.stdout),
+                                    Err(e) => (
+                                        render::RenderedOutput {
+                                            output_type: crate::format::OutputType::Error,
+                                            content: e,
+                                            mime_type: "text/x-sema-error".to_string(),
+                                            meta: render::OutputMeta::default(),
+                                        },
+                                        String::new(),
+                                    ),
                                 };
-                                render::EvalResponse { id, output }
+                                render::EvalResponse { id, output, stdout }
                             })
                             .collect();
                         let _ = reply.send(responses);

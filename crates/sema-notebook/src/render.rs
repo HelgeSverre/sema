@@ -164,6 +164,9 @@ pub fn export_markdown(notebook: &Notebook) -> String {
 pub struct EvalResponse {
     pub id: String,
     pub output: RenderedOutput,
+    /// Captured stdout from println/display/print calls.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub stdout: String,
 }
 
 /// API response for listing environment bindings.
