@@ -53,3 +53,4 @@ node_modules/
 
 # Test artifacts
 test-results/
+mutants.out/
