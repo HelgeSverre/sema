@@ -1,0 +1,125 @@
+;; Pico Piano — 3-button musical instrument
+;;
+;; GP20 (Button 1) = note DOWN (lower pitch)
+;; GP21 (Button 2) = PLAY current note (hold to sustain)
+;; GP22 (wired externally or use GP21 double-tap) = note UP
+;;
+;; Actually: Maker Pi Pico only has GP20 + GP21 buttons.
+;; So: GP20 = pitch DOWN, GP21 = PLAY note, both = pitch UP
+;;
+;; GP18 = piezo buzzer
+;; GP0-GP7 = indicator LEDs (shows current note position)
+;; GP28 = RGB NeoPixels (color mapped to pitch)
+
+(define pico (serial/open "/dev/tty.usbmodem1201" 115200 3000))
+
+;; Drain any buffered ready message, then sync with PING
+(define (cmd s) (serial/send pico s))
+(try (serial/read-line pico) (catch e nil))  ; drain stale ready msg if present
+(let ((resp (cmd "PING")))
+  (println (str "Connected: " (get resp :msg))))
+
+;; Watch buttons
+(cmd "WATCH 20 pullup")
+(cmd "WATCH 21 pullup")
+
+;; Chromatic scale: C4 to C6 (25 notes)
+(define note-names (vector
+  "C4" "C#4" "D4" "D#4" "E4" "F4" "F#4" "G4" "G#4" "A4" "A#4" "B4"
+  "C5" "C#5" "D5" "D#5" "E5" "F5" "F#5" "G5" "G#5" "A5" "A#5" "B5" "C6"))
+
+(define note-freqs (vector
+  262 277 294 311 330 349 370 392 415 440 466 494
+  523 554 587 622 659 698 740 784 831 880 932 988 1047))
+
+(define num-notes 25)
+(define note-idx 12)  ; start at C5
+
+;; Map pitch to RGB color (low=red, mid=green, high=blue)
+(define (pitch-color idx)
+  (let ((t (/ (* idx 255) (- num-notes 1))))  ; 0-255
+    (cond
+      ((< t 85)  (list (* t 3) (- 255 (* t 3)) 0))        ; red->green
+      ((< t 170) (list (- 255 (* (- t 85) 3)) 0 (* (- t 85) 3)))  ; green->blue
+      (else      (list 0 (* (- t 170) 3) (- 255 (* (- t 170) 3)))))))  ; blue->cyan
+
+(define (show-state)
+  ;; LED bar: light up proportional LEDs
+  (let ((lit (/ (* note-idx 8) (- num-notes 1))))
+    (dotimes (i 8)
+      (cmd (str "PIN_SET " i " " (if (<= i lit) 1 0)))))
+  ;; NeoPixel color from pitch
+  (let ((rgb (pitch-color note-idx)))
+    (let ((r (nth rgb 0)) (g (nth rgb 1)) (b (nth rgb 2)))
+      (cmd (str "NEOPIXEL 3 0 " r " " g " " b))
+      (cmd (str "NEOPIXEL 3 1 " r " " g " " b))
+      (cmd (str "NEOPIXEL 3 2 " r " " g " " b)))))
+
+(define (play)
+  (let ((freq (nth note-freqs note-idx)))
+    (show-state)
+    (cmd (str "TONE_ON 18 " freq))
+    (println (str "  ♪ " (nth note-names note-idx) " (" freq " Hz)"))))
+
+(define (stop)
+  (cmd "TONE_OFF 18"))
+
+(define (lights-off)
+  (dotimes (i 8) (cmd (str "PIN_SET " i " 0")))
+  (cmd "NEOPIXEL 3 0 0 0 0")
+  (cmd "NEOPIXEL 3 1 0 0 0")
+  (cmd "NEOPIXEL 3 2 0 0 0"))
+
+;; Show initial state
+(show-state)
+(println "Pico Piano ready!")
+(println "  GP20 (left)  = pitch DOWN")
+(println "  GP21 (right) = PLAY note")
+(println "  Both pressed = pitch UP")
+(println (str "  Starting at: " (nth note-names note-idx)))
+(println "  Ctrl-C to exit")
+
+;; Event loop
+(define btn20 #f)
+(define btn21 #f)
+(define playing #f)
+
+(define (poll-loop)
+  (let ((resp (cmd "POLL")))
+    (for-each (fn (ev)
+      (let ((gpio (get ev :gpio))
+            (edge (get ev :edge)))
+        (cond
+          ;; GP20 press = pitch down (or pitch up if GP21 held)
+          ((and (= gpio 20) (equal? edge "fall"))
+           (set! btn20 #t)
+           (if btn21
+             (begin  ; both held = pitch UP
+               (set! note-idx (min (- num-notes 1) (+ note-idx 1)))
+               (when playing (play)))
+             (begin  ; just GP20 = pitch DOWN
+               (set! note-idx (max 0 (- note-idx 1)))
+               (show-state)
+               (when playing (play)))))
+          ((and (= gpio 20) (equal? edge "rise"))
+           (set! btn20 #f))
+
+          ;; GP21 press = play note
+          ((and (= gpio 21) (equal? edge "fall"))
+           (set! btn21 #t)
+           (if btn20
+             (begin  ; both held = pitch UP
+               (set! note-idx (min (- num-notes 1) (+ note-idx 1)))
+               (play))
+             (begin
+               (set! playing #t)
+               (play))))
+          ((and (= gpio 21) (equal? edge "rise"))
+           (set! btn21 #f)
+           (set! playing #f)
+           (stop)))))
+      (get resp :events)))
+  (sleep 50)
+  (poll-loop))
+
+(poll-loop)

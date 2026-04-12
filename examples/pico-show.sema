@@ -1,0 +1,125 @@
+;; Pico Light & Sound Show
+;; Generative sequences computed in Sema, streamed to hardware
+
+(define pico (serial/open "/dev/tty.usbmodem1201" 115200 3000))
+(define (cmd s) (serial/send pico s))
+(try (serial/read-line pico) (catch e nil))
+(cmd "PING")
+
+(println "=== Sema Light & Sound Show ===")
+
+;; ── Helpers ─────────────────────────────────────────────
+
+(define (led! pin val) (cmd (str "PIN_SET " pin " " val)))
+(define (leds-off) (dotimes (i 8) (led! i 0)))
+(define (all-leds val) (dotimes (i 8) (led! i val)))
+(define (neo! idx r g b) (cmd (str "NEOPIXEL 3 " idx " " r " " g " " b)))
+(define (neos-off) (dotimes (i 3) (neo! i 0 0 0)))
+(define (tone! freq ms) (cmd (str "TONE 18 " freq " " ms)))
+
+;; ── Act 1: Boot Sequence ────────────────────────────────
+
+(println "Act 1: Boot sequence")
+(dotimes (i 8)
+  (led! i 1)
+  (tone! (+ 200 (* i 100)) 50)
+  (sleep 80))
+(sleep 200)
+(leds-off)
+
+;; ── Act 2: Rainbow NeoPixels + arpeggios ────────────────
+
+(println "Act 2: Rainbow arpeggios")
+
+;; Generate a pentatonic scale arpeggio pattern
+(define penta '(262 330 392 523 659 784 659 523 392 330))
+
+(define (hsv->rgb h)
+  ;; h = 0-360, returns (r g b) each 0-255
+  (let ((s 1.0) (v 255.0)
+        (c (* v s))
+        (x (* c (- 1.0 (abs (- (mod (/ h 60.0) 2.0) 1.0)))))
+        (m (- v c)))
+    (cond
+      ((< h 60)  (list (floor (+ c m)) (floor (+ x m)) (floor m)))
+      ((< h 120) (list (floor (+ x m)) (floor (+ c m)) (floor m)))
+      ((< h 180) (list (floor m) (floor (+ c m)) (floor (+ x m))))
+      ((< h 240) (list (floor m) (floor (+ x m)) (floor (+ c m))))
+      ((< h 300) (list (floor (+ x m)) (floor m) (floor (+ c m))))
+      (else      (list (floor (+ c m)) (floor m) (floor (+ x m)))))))
+
+(dotimes (cycle 3)
+  (dotimes (i 10)
+    (let ((freq (nth penta i))
+          (hue (mod (+ (* cycle 120) (* i 36)) 360)))
+      (let ((rgb (hsv->rgb hue)))
+        (neo! 0 (nth rgb 0) (nth rgb 1) (nth rgb 2))
+        (neo! 1 (nth rgb 1) (nth rgb 2) (nth rgb 0))
+        (neo! 2 (nth rgb 2) (nth rgb 0) (nth rgb 1))
+        (led! (mod i 8) 1)
+        (tone! freq 80)
+        (sleep 30)
+        (led! (mod i 8) 0)))))
+
+(neos-off)
+
+;; ── Act 3: Binary counter on LEDs ───────────────────────
+
+(println "Act 3: Binary counter")
+(dotimes (n 32)
+  (dotimes (bit 8)
+    (led! bit (if (> (mod (/ n (pow 2 bit)) 2) 0) 1 0)))
+  (tone! (+ 100 (* n 25)) 30)
+  (sleep 60))
+(leds-off)
+
+;; ── Act 4: Ping pong bounce ────────────────────────────
+
+(println "Act 4: Ping pong")
+(define pos 0)
+(define dir 1)
+(dotimes (step 32)
+  (leds-off)
+  (led! pos 1)
+  (neo! 0 (if (= dir 1) 0 255) (if (= dir 1) 255 0) 0)
+  (neo! 1 0 0 (* pos 30))
+  (neo! 2 (if (= dir 1) 255 0) 0 (if (= dir 1) 0 255))
+  (tone! (+ 300 (* pos 80)) 30)
+  (sleep 50)
+  (set! pos (+ pos dir))
+  (when (>= pos 7) (set! dir -1))
+  (when (<= pos 0) (set! dir 1)))
+
+;; ── Act 5: Dramatic finale ─────────────────────────────
+
+(println "Act 5: Finale")
+(define chord '(262 330 392 523))
+(dotimes (burst 4)
+  (all-leds 1)
+  (neo! 0 255 0 0)
+  (neo! 1 0 255 0)
+  (neo! 2 0 0 255)
+  (tone! (nth chord burst) 200)
+  (sleep 100)
+  (leds-off)
+  (neos-off)
+  (sleep 100))
+
+;; Grand finale — rapid ascending scale
+(for-each (fn (f)
+  (all-leds 1)
+  (neo! 0 255 255 255)
+  (neo! 1 255 255 255)
+  (neo! 2 255 255 255)
+  (tone! f 50)
+  (sleep 20)
+  (leds-off)
+  (neos-off)
+  (sleep 20))
+  '(262 294 330 349 392 440 494 523 587 659 784 880 988 1047))
+
+;; Lights out
+(leds-off)
+(neos-off)
+(serial/close pico)
+(println "=== Show complete! ===")

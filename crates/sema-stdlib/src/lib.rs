@@ -24,6 +24,8 @@ mod pio;
 mod predicates;
 mod regex_ops;
 #[cfg(not(target_arch = "wasm32"))]
+mod serial;
+#[cfg(not(target_arch = "wasm32"))]
 mod server;
 #[cfg(not(target_arch = "wasm32"))]
 mod sqlite;
@@ -79,6 +81,7 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     pdf::register(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]
     sqlite::register(env, sandbox);
+    serial::register(env);
 }
 
 fn register_fn_gated(

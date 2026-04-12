@@ -1,0 +1,89 @@
+;; Pico 2 + Maker Pi Pico — blink LEDs and play tones via sema-bridge
+;;
+;; Hardware:
+;;   GP25  = onboard LED
+;;   GP18  = piezo buzzer
+;;   GP0-7 = GPIO indicator LEDs on Maker Pi Pico
+;;
+;; Requires: MicroPython with sema-bridge main.py on Pico 2
+
+;; Connect to the Pico
+(define pico (serial/open "/dev/tty.usbmodem1201" 115200))
+
+;; Read the "ready" message
+(define ready (serial/read-line pico))
+(print "Bridge:" ready)
+
+;; Helper: send command and check response
+(define (pico-cmd cmd)
+  (let ((resp (serial/send pico cmd)))
+    (when (not (get resp :ok))
+      (print "Error:" (get resp :error)))
+    resp))
+
+;; ── Blink the onboard LED ──────────────────────────────────
+
+(print "\n--- Blinking onboard LED (GP25) ---")
+(dotimes (i 6)
+  (pico-cmd "PIN_SET 25 1")
+  (sleep 150)
+  (pico-cmd "PIN_SET 25 0")
+  (sleep 150))
+
+;; ── Chase the GPIO indicator LEDs ──────────────────────────
+
+(print "\n--- LED chase (GP0-GP7) ---")
+(dotimes (round 3)
+  (for-each (fn (pin)
+    (pico-cmd (string-append "PIN_SET " (number->string pin) " 1"))
+    (sleep 60)
+    (pico-cmd (string-append "PIN_SET " (number->string pin) " 0")))
+    '(0 1 2 3 4 5 6 7)))
+
+;; ── Play a melody on the piezo buzzer ──────────────────────
+
+(print "\n--- Playing melody on buzzer (GP18) ---")
+
+;; Note frequencies (Hz)
+(define notes
+  {:C4 262  :D4 294  :E4 330  :F4 349
+   :G4 392  :A4 440  :B4 494  :C5 523
+   :D5 587  :E5 659  :rest 0})
+
+;; Simple melody: Twinkle Twinkle Little Star
+(define melody
+  (list (list :C4 300) (list :C4 300) (list :G4 300) (list :G4 300)
+        (list :A4 300) (list :A4 300) (list :G4 500) (list :rest 100)
+        (list :F4 300) (list :F4 300) (list :E4 300) (list :E4 300)
+        (list :D4 300) (list :D4 300) (list :C4 500)))
+
+(for-each (fn (note-pair)
+  (let ((n (car note-pair))
+        (dur (cadr note-pair)))
+    (let ((freq (get notes n)))
+      (if (= freq 0)
+        (sleep dur)
+        (pico-cmd (string-append "TONE 18 "
+                                 (number->string freq) " "
+                                 (number->string dur))))
+      (sleep 50))))
+  melody)
+
+;; ── Set RGB NeoPixels ──────────────────────────────────────
+
+(print "\n--- NeoPixel colors (GP28) ---")
+(pico-cmd "NEOPIXEL 3 0 255 0 0")    ; red
+(sleep 500)
+(pico-cmd "NEOPIXEL 3 1 0 255 0")    ; green
+(sleep 500)
+(pico-cmd "NEOPIXEL 3 2 0 0 255")    ; blue
+(sleep 1000)
+
+;; Turn off NeoPixels
+(pico-cmd "NEOPIXEL 3 0 0 0 0")
+(pico-cmd "NEOPIXEL 3 1 0 0 0")
+(pico-cmd "NEOPIXEL 3 2 0 0 0")
+
+;; Clean up
+(serial/close pico)
+(print "\nDone!")
