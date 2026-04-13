@@ -466,3 +466,20 @@ crates/sema/src/
 - Fixed two classes of bugs: self-reference slot corruption (Bug 1) and missing upvalue/func_id support (Bug 3)
 - The `NamedLet` variant, `resolve_named_let`, and `compile_named_let` have been fully removed from the codebase
 - Tail position flag propagated correctly to the initial `(loop init ...)` call
+
+### 53. VM-per-Task cooperative async
+
+- Each `async/spawn` creates a new VM instance sharing `Rc<Env>` globals and `Rc<Vec<Rc<Function>>>` with the parent
+- A cooperative scheduler in `sema-vm/src/scheduler.rs` manages tasks with round-robin execution
+- Yield is signaled via thread-local `YIELD_SIGNAL` in `sema-core/src/async_signal.rs`, not via error variants
+- The VM checks the yield signal after every native function call (CALL_NATIVE, CALL_GLOBAL)
+- On yield, the VM leaves a nil placeholder on the stack and advances PC past the call. On resume, the scheduler replaces the placeholder with the wake value via `replace_stack_top()`
+- Replaces the replay model from PR #29 which re-executed entire task bodies, corrupting side effects
+
+### 54. Async is VM-only, VM is default backend
+
+- The bytecode VM is the default execution backend (CLI, REPL, notebook, playground)
+- The tree-walker is available via `--tw` flag for backwards compatibility
+- Async features (async/await, channels, task scheduler) require the VM backend
+- The tree-walker returns a clear error: "async requires the VM backend (do not use --tw)"
+- This acknowledges the tree-walker's deprecation path and avoids maintaining two async implementations
