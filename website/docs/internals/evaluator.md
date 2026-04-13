@@ -211,6 +211,10 @@ The function returns `Option<Result<...>>` — `None` means "not a special form,
 
 **Literature:** This is essentially the same optimization that McCarthy's LISP 1.5 used in 1962 — special forms were identified by their atom pointer, not by string comparison. The `Spur` is Sema's version of the atom pointer.
 
+### VM-Only Special Forms
+
+`async` and `await` are special forms recognized only by the bytecode VM compiler. The tree-walking evaluator returns an error if it encounters them — these forms require the VM's cooperative scheduler. In the VM compiler (`lower.rs`), `async` and `await` are desugared to stdlib function calls (`async/spawn`, `async/await`), so no new evaluator mechanics are needed.
+
 ## Function Application
 
 There are four callable types, each handled differently:

@@ -258,6 +258,8 @@ The following `ValueView` variants are **runtime-only** and must never appear in
 - `ToolDef` / `Agent` — constructed via `__vm-deftool` / `__vm-defagent`
 - `Thunk` — created by `delay`
 - `Record` — constructed by `define-record-type`
+- `AsyncPromise` (tag 28) — created by `async/spawn`, runtime-only
+- `Channel` (tag 29) — created by `chan/new`, runtime-only
 
 If the serializer encounters any of these in a constant pool, it should emit a compile error.
 
