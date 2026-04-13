@@ -105,6 +105,7 @@ export default defineConfig({
             { text: 'System', link: '/docs/stdlib/system' },
             { text: 'Bytevectors', link: '/docs/stdlib/bytevectors' },
             { text: 'Streams', link: '/docs/stdlib/streams' },
+            { text: 'Concurrency', link: '/docs/stdlib/concurrency' },
             { text: 'Records', link: '/docs/stdlib/records' },
             { text: 'Text Processing', link: '/docs/stdlib/text-processing' },
             { text: 'Key-Value Store', link: '/docs/stdlib/kv-store' },
