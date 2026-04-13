@@ -258,9 +258,9 @@ struct Cli {
     #[arg(long, value_name = "DIRS")]
     allowed_paths: Option<String>,
 
-    /// Use bytecode VM instead of tree-walker
+    /// Use tree-walker interpreter instead of bytecode VM
     #[arg(long)]
-    vm: bool,
+    tw: bool,
 
     /// Arguments passed to the script (after --)
     #[arg(last = true)]
@@ -417,9 +417,9 @@ enum Commands {
         #[arg(long)]
         no_llm: bool,
 
-        /// Use bytecode VM instead of tree-walker
+        /// Use tree-walker interpreter instead of bytecode VM
         #[arg(long)]
-        vm: bool,
+        tw: bool,
     },
 }
 
@@ -718,9 +718,9 @@ fn main() {
                 timeout: _timeout,
                 sandbox,
                 no_llm,
-                vm,
+                tw,
             } => {
-                run_eval(stdin, expr, json, path, sandbox, no_llm, vm);
+                run_eval(stdin, expr, json, path, sandbox, no_llm, !tw);
             }
         }
         return;
@@ -762,7 +762,7 @@ fn main() {
             Ok(content) => {
                 LAST_SOURCE.with(|s| *s.borrow_mut() = Some(content.clone()));
                 LAST_FILE.with(|f| *f.borrow_mut() = Some(PathBuf::from(load_file)));
-                match eval_with_mode(&interpreter, &content, cli.vm) {
+                match eval_with_mode(&interpreter, &content, !cli.tw) {
                     Ok(_) => {
                         interpreter.ctx.pop_file_path();
                     }
@@ -785,7 +785,7 @@ fn main() {
     if let Some(expr) = &cli.eval {
         LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.clone()));
         LAST_FILE.with(|f| *f.borrow_mut() = None);
-        match eval_with_mode(&interpreter, expr, cli.vm) {
+        match eval_with_mode(&interpreter, expr, !cli.tw) {
             Ok(val) => {
                 if !val.is_nil() {
                     println!("{}", pretty_print(&val, 80));
@@ -797,7 +797,7 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
         }
         return;
     }
@@ -806,7 +806,7 @@ fn main() {
     if let Some(expr) = &cli.print {
         LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.clone()));
         LAST_FILE.with(|f| *f.borrow_mut() = None);
-        match eval_with_mode(&interpreter, expr, cli.vm) {
+        match eval_with_mode(&interpreter, expr, !cli.tw) {
             Ok(val) => println!("{val}"),
             Err(e) => {
                 print_error(&e);
@@ -814,7 +814,7 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
         }
         return;
     }
@@ -834,7 +834,7 @@ fn main() {
                     }
                 }
                 if cli.interactive {
-                    repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
+                    repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
                 }
                 return;
             }
@@ -847,7 +847,7 @@ fn main() {
             Ok(content) => {
                 LAST_SOURCE.with(|s| *s.borrow_mut() = Some(content.clone()));
                 LAST_FILE.with(|f| *f.borrow_mut() = Some(PathBuf::from(file)));
-                match eval_with_mode(&interpreter, &content, cli.vm) {
+                match eval_with_mode(&interpreter, &content, !cli.tw) {
                     Ok(_) => {
                         interpreter.ctx.pop_file_path();
                     }
@@ -864,13 +864,13 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
+            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
         }
         return;
     }
 
     // REPL mode
-    repl(interpreter, cli.quiet, cli.sandbox.as_deref(), cli.vm);
+    repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
 }
 
 fn eval_with_mode(

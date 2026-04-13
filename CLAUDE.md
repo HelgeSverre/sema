@@ -22,8 +22,8 @@ cargo test -p sema-reader                                # test single crate
 cargo test -p sema --test integration_test -- test_name  # single integration test
 cargo test -p sema --test dual_eval_test -- test_name    # single dual-eval test
 cargo test -p sema -- --ignored                          # run any ignored tests
-cargo run -- examples/hello.sema                         # run file
-cargo run -- --vm examples/hello.sema                    # run file with VM backend
+cargo run -- examples/hello.sema                         # run file (VM backend, default)
+cargo run -- --tw examples/hello.sema                    # run file with tree-walker backend
 cargo run -- -e "(+ 1 2)"                                # eval expression
 ```
 

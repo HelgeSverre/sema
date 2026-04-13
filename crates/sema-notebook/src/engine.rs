@@ -130,13 +130,13 @@ impl Engine {
         // Capture stdout during evaluation
         let mut captured = String::new();
         let eval_result = if let Ok(mut redirect) = gag::BufferRedirect::stdout() {
-            let result = self.interpreter.eval_str_in_global(source);
+            let result = self.interpreter.eval_str_compiled(source);
             let _ = redirect.read_to_string(&mut captured);
             drop(redirect);
             result
         } else {
             // Fallback: eval without capture (shouldn't happen)
-            self.interpreter.eval_str_in_global(source)
+            self.interpreter.eval_str_compiled(source)
         };
 
         let duration_ms = start.elapsed().as_millis() as u64;

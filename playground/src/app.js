@@ -377,7 +377,7 @@ backendToggle.addEventListener('change', async (e) => {
 
 // ── Engine toggle ──
 
-let useVM = false;
+let useVM = true;
 document.getElementById('engine-toggle').addEventListener('change', (e) => {
   useVM = e.target.value === 'vm';
   document.querySelectorAll('#engine-toggle label').forEach(l => {
