@@ -53,6 +53,14 @@ struct VmClosurePayload {
     functions: Rc<Vec<Rc<Function>>>,
 }
 
+/// Extract a VM closure from a Value, if it wraps a VmClosurePayload.
+/// Returns the closure and the function table needed to create a task VM.
+pub fn extract_vm_closure(val: &Value) -> Option<(Rc<Closure>, Rc<Vec<Rc<Function>>>)> {
+    let nf = val.as_native_fn_ref()?;
+    let payload = nf.payload.as_ref()?.downcast_ref::<VmClosurePayload>()?;
+    Some((payload.closure.clone(), payload.functions.clone()))
+}
+
 /// A call frame in the VM's call stack.
 struct CallFrame {
     closure: Rc<Closure>,
@@ -192,6 +200,27 @@ impl VM {
         }
     }
 
+    /// Create a new VM for an async task, sharing globals and functions with the parent.
+    pub fn new_for_task(
+        globals: Rc<Env>,
+        functions: Rc<Vec<Rc<Function>>>,
+        native_spurs: &[Spur],
+    ) -> Result<Self, SemaError> {
+        let native_fns = Self::resolve_native_table(&globals, native_spurs)?;
+        let total_cache_slots: usize = functions
+            .iter()
+            .map(|f| f.chunk.n_global_cache_slots as usize)
+            .sum();
+        Ok(VM {
+            stack: Vec::with_capacity(256),
+            frames: Vec::with_capacity(64),
+            globals,
+            functions,
+            inline_cache: vec![(u32::MAX, 0, Value::nil()); total_cache_slots],
+            native_fns,
+        })
+    }
+
     pub fn execute(&mut self, closure: Rc<Closure>, ctx: &EvalContext) -> Result<Value, SemaError> {
         self.ensure_cache_space(&closure.func);
         let base = self.stack.len();
@@ -230,6 +259,9 @@ impl VM {
             match self.run_inner(ctx, Some(debug))? {
                 crate::debug::VmExecResult::Finished(v) => return Ok(v),
                 crate::debug::VmExecResult::Yielded => continue,
+                crate::debug::VmExecResult::AsyncYield(_) => {
+                    return Err(SemaError::eval("async yield outside of scheduler context".to_string()));
+                }
                 crate::debug::VmExecResult::Stopped(info) => {
                     let _ = debug.event_tx.send(crate::debug::DebugEvent::Stopped {
                         reason: info.reason,
@@ -331,7 +363,32 @@ impl VM {
             crate::debug::VmExecResult::Stopped(_) | crate::debug::VmExecResult::Yielded => {
                 unreachable!("Stopped/Yielded without debug state")
             }
+            crate::debug::VmExecResult::AsyncYield(_) => {
+                Err(SemaError::eval("async yield outside of scheduler context".to_string()))
+            }
         }
+    }
+
+    /// Run the VM without debug state, returning the raw VmExecResult.
+    /// Used by the async scheduler for task execution and resume.
+    pub fn run_async(&mut self, ctx: &EvalContext) -> Result<crate::debug::VmExecResult, SemaError> {
+        self.run_inner(ctx, None)
+    }
+
+    /// Execute a closure and return the raw VmExecResult (for async scheduler).
+    pub fn execute_async(&mut self, closure: Rc<Closure>, ctx: &EvalContext) -> Result<crate::debug::VmExecResult, SemaError> {
+        self.ensure_cache_space(&closure.func);
+        let base = self.stack.len();
+        let n_locals = closure.func.chunk.n_locals as usize;
+        self.stack.resize(base + n_locals, Value::nil());
+        self.frames.push(CallFrame {
+            cache_base: closure.func.cache_offset,
+            closure,
+            pc: 0,
+            base,
+            open_upvalues: None,
+        });
+        self.run_inner(ctx, None)
     }
 
     fn run_inner(
@@ -787,7 +844,16 @@ impl VM {
                         let result = (native.func)(ctx, &self.stack[args_start..]);
                         self.stack.truncate(args_start);
                         match result {
-                            Ok(val) => self.stack.push(val),
+                            Ok(val) => {
+                                // Check if the native function signaled an async yield
+                                if let Some(reason) = sema_core::take_yield_signal() {
+                                    // Don't push the placeholder value — the resume will re-execute
+                                    // Save PC pointing at the CALL_NATIVE instruction for replay
+                                    self.frames[fi].pc = saved_pc;
+                                    return Ok(crate::debug::VmExecResult::AsyncYield(reason));
+                                }
+                                self.stack.push(val);
+                            }
                             Err(err) => {
                                 handle_err!(self, fi, pc, err, saved_pc, 'dispatch);
                             }
@@ -1142,6 +1208,14 @@ impl VM {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             }
+                        }
+                        // Check if a native function (called via call_value_with) signaled async yield
+                        if let Some(reason) = sema_core::take_yield_signal() {
+                            // Pop the placeholder value that call_value_with pushed
+                            self.stack.pop();
+                            // Save PC pointing at the CALL_GLOBAL instruction for replay
+                            self.frames[fi].pc = saved_pc;
+                            return Ok(crate::debug::VmExecResult::AsyncYield(reason));
                         }
                         continue 'dispatch;
                     }

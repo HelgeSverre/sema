@@ -2023,6 +2023,9 @@ impl WasmInterpreter {
             Ok(sema_vm::VmExecResult::Finished(v)) => {
                 attach_bp_info(self.debug_finished_result(&v))
             }
+            Ok(sema_vm::VmExecResult::AsyncYield(_)) => {
+                attach_bp_info(self.debug_yielded_result())
+            }
             Err(e) => self.debug_maybe_http_error(&e),
         }
     }
@@ -2076,6 +2079,7 @@ impl WasmInterpreter {
             match sess.vm.run_cooperative(&self.inner.ctx, &mut sess.debug) {
                 Ok(sema_vm::VmExecResult::Stopped(info)) => self.debug_stopped_result(&info),
                 Ok(sema_vm::VmExecResult::Yielded) => self.debug_yielded_result(),
+                Ok(sema_vm::VmExecResult::AsyncYield(_)) => self.debug_yielded_result(),
                 Ok(sema_vm::VmExecResult::Finished(v)) => {
                     let result = self.debug_finished_result(&v);
                     *session = None;
@@ -2600,6 +2604,7 @@ impl WasmInterpreter {
             match sess.vm.run_cooperative(&self.inner.ctx, &mut sess.debug) {
                 Ok(sema_vm::VmExecResult::Stopped(info)) => self.debug_stopped_result(&info),
                 Ok(sema_vm::VmExecResult::Yielded) => self.debug_yielded_result(),
+                Ok(sema_vm::VmExecResult::AsyncYield(_)) => self.debug_yielded_result(),
                 Ok(sema_vm::VmExecResult::Finished(v)) => {
                     let result = self.debug_finished_result(&v);
                     *session = None;
