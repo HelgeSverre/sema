@@ -1,4 +1,5 @@
 #![allow(clippy::mutable_key_type)]
+pub mod async_signal;
 pub mod context;
 pub mod error;
 pub mod home;
@@ -8,6 +9,11 @@ pub mod sandbox;
 pub mod value;
 pub mod vfs;
 
+pub use async_signal::{
+    call_run_scheduler, call_spawn_callback, in_async_context, set_async_context,
+    set_resume_value, set_run_scheduler_callback, set_spawn_callback, set_yield_signal,
+    take_resume_value, take_yield_signal, RunSchedulerCallbackFn, SpawnCallbackFn, YieldReason,
+};
 pub use context::{
     call_callback, eval_callback, set_call_callback, set_eval_callback, with_stdlib_ctx,
     CallCallbackFn, EvalCallbackFn, EvalContext,
