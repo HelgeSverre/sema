@@ -31,6 +31,8 @@ Sema has a rich set of built-in data types covering numbers, text, collections, 
 | Promise      | `(delay expr)`       | Lazy evaluation                                                    |
 | Record       | `define-record-type` | `(define-record-type point ...)`                                   |
 | Bytevector   | `#u8(...)` literal   | `#u8(1 2 3)`, `#u8()`                                              |
+| Async Promise | `(async expr)` or `(async/resolved val)` | An async task result (pending, resolved, or rejected) |
+| Channel      | `(channel/new)` or `(channel/new capacity)` | Bounded FIFO channel for inter-task communication |
 
 ## Scalars
 
