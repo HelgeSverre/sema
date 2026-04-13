@@ -154,6 +154,14 @@ impl Interpreter {
             &prog.native_table,
             prog.main_cache_slots,
         )?;
+        // Initialize the async scheduler with shared globals and native spurs.
+        // The function table is extracted from each thunk at spawn time, so we
+        // pass an empty placeholder here.
+        sema_vm::init_scheduler(
+            self.global_env.clone(),
+            std::rc::Rc::new(Vec::new()),
+            prog.native_table.clone(),
+        );
         vm.execute(prog.closure, &self.ctx)
     }
 

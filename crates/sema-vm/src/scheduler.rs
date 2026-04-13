@@ -91,7 +91,7 @@ impl Scheduler {
         thunk: Value,
         _ctx: &EvalContext,
     ) -> Result<Rc<AsyncPromise>, SemaError> {
-        let (closure, _functions) = vm::extract_vm_closure(&thunk).ok_or_else(|| {
+        let (closure, functions) = vm::extract_vm_closure(&thunk).ok_or_else(|| {
             SemaError::eval(
                 "async/spawn: argument must be a function (compiled VM closure)",
             )
@@ -107,9 +107,11 @@ impl Scheduler {
             task_id: std::cell::Cell::new(id),
         });
 
+        // Use the function table from the thunk's own compilation context,
+        // not the scheduler's — each eval_str_compiled produces different functions.
         let vm = VM::new_for_task(
             self.globals.clone(),
-            self.functions.clone(),
+            functions,
             &self.native_spurs,
         )?;
 
