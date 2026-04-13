@@ -10,6 +10,7 @@ pub mod opcodes;
 pub mod optimize;
 pub mod resolve;
 pub mod serialize;
+pub mod scheduler;
 pub mod vm;
 
 pub use chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
@@ -28,7 +29,8 @@ pub use opcodes::Op;
 pub use optimize::optimize as optimize_expr;
 pub use resolve::resolve_with_locals;
 pub use serialize::{deserialize_from_bytes, is_bytecode_file, serialize_to_bytes};
+pub use scheduler::init_scheduler;
 pub use vm::{
-    compile_program, compile_program_with_spans, snap_breakpoint_line, valid_breakpoint_lines,
-    Closure, CompiledProgram, UpvalueCell, UpvalueState, VM,
+    compile_program, compile_program_with_spans, extract_vm_closure, snap_breakpoint_line,
+    valid_breakpoint_lines, Closure, CompiledProgram, UpvalueCell, UpvalueState, VM,
 };
