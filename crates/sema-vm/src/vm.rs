@@ -375,6 +375,15 @@ impl VM {
         self.run_inner(ctx, None)
     }
 
+    /// Replace the top of the stack with a value.
+    /// Used by the scheduler to set the resume value before continuing
+    /// a yielded task (the yield left a nil placeholder on the stack).
+    pub fn replace_stack_top(&mut self, val: Value) {
+        if let Some(top) = self.stack.last_mut() {
+            *top = val;
+        }
+    }
+
     /// Execute a closure and return the raw VmExecResult (for async scheduler).
     pub fn execute_async(&mut self, closure: Rc<Closure>, ctx: &EvalContext) -> Result<crate::debug::VmExecResult, SemaError> {
         self.ensure_cache_space(&closure.func);
@@ -847,9 +856,12 @@ impl VM {
                             Ok(val) => {
                                 // Check if the native function signaled an async yield
                                 if let Some(reason) = sema_core::take_yield_signal() {
-                                    // Don't push the placeholder value — the resume will re-execute
-                                    // Save PC pointing at the CALL_NATIVE instruction for replay
-                                    self.frames[fi].pc = saved_pc;
+                                    // Args are already truncated. Push nil as a placeholder
+                                    // for the call result slot. On resume, the scheduler will
+                                    // pop this and push the actual resume value before
+                                    // continuing execution.
+                                    self.stack.push(Value::nil());
+                                    self.frames[fi].pc = pc; // PC already past CALL_NATIVE
                                     return Ok(crate::debug::VmExecResult::AsyncYield(reason));
                                 }
                                 self.stack.push(val);
@@ -1211,10 +1223,13 @@ impl VM {
                         }
                         // Check if a native function (called via call_value_with) signaled async yield
                         if let Some(reason) = sema_core::take_yield_signal() {
-                            // Pop the placeholder value that call_value_with pushed
-                            self.stack.pop();
-                            // Save PC pointing at the CALL_GLOBAL instruction for replay
-                            self.frames[fi].pc = saved_pc;
+                            // call_value_with already pushed a result value. Replace it
+                            // with nil placeholder. On resume, the scheduler replaces
+                            // this with the actual resume value.
+                            if let Some(top) = self.stack.last_mut() {
+                                *top = Value::nil();
+                            }
+                            self.frames[fi].pc = pc; // PC already past CALL_GLOBAL
                             return Ok(crate::debug::VmExecResult::AsyncYield(reason));
                         }
                         continue 'dispatch;

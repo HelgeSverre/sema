@@ -15,8 +15,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use sema_core::{
-    set_async_context, set_resume_value, set_run_scheduler_callback, set_spawn_callback,
-    AsyncPromise, Env, EvalContext, PromiseState, SemaError, Spur, Value, YieldReason,
+    set_async_context, set_run_scheduler_callback, set_spawn_callback, AsyncPromise, Env,
+    EvalContext, PromiseState, SemaError, Spur, Value, YieldReason,
 };
 
 use crate::chunk::Function;
@@ -181,9 +181,10 @@ impl Scheduler {
     fn run_task(&mut self, idx: usize, ctx: &EvalContext) -> Result<bool, SemaError> {
         let task = &mut self.tasks[idx];
 
-        // Supply the resume value (if any) before re-entering the VM.
+        // Supply the resume value (if any) by replacing the nil placeholder
+        // that the VM left on the stack when it yielded.
         if let Some(val) = task.resume_value.take() {
-            set_resume_value(val);
+            task.vm.replace_stack_top(val);
         }
 
         set_async_context(true);
