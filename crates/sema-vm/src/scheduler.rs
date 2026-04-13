@@ -15,8 +15,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use sema_core::{
-    set_async_context, set_run_scheduler_callback, set_spawn_callback, AsyncPromise, Env,
-    EvalContext, PromiseState, SemaError, Spur, Value, YieldReason,
+    in_async_context, set_async_context, set_run_scheduler_callback, set_spawn_callback,
+    AsyncPromise, Env, EvalContext, PromiseState, SemaError, Spur, Value, YieldReason,
 };
 
 use crate::debug::VmExecResult;
@@ -117,44 +117,67 @@ impl Scheduler {
     /// Check blocked tasks and transition them to Ready if their
     /// blocking condition has been satisfied.
     fn wake_blocked_tasks(&mut self) {
+        /// Result of checking a blocked task's wake condition.
+        enum WakeAction {
+            /// Still blocked — no change.
+            Pending,
+            /// Resume the task with this value.
+            Resume(Value),
+            /// Fail the task with this rejection message.
+            Fail(String),
+        }
+
         for task in &mut self.tasks {
             if let TaskState::Blocked(ref reason) = task.state {
-                let resume = match reason {
+                let action = match reason {
                     YieldReason::AwaitPromise(p) => {
                         let state = p.state.borrow();
                         match &*state {
-                            PromiseState::Resolved(v) => Some(v.clone()),
-                            PromiseState::Rejected(_) => Some(Value::nil()),
-                            PromiseState::Pending => None,
+                            PromiseState::Resolved(v) => WakeAction::Resume(v.clone()),
+                            PromiseState::Rejected(e) => WakeAction::Fail(e.clone()),
+                            PromiseState::Pending => WakeAction::Pending,
                         }
                     }
                     YieldReason::ChannelRecv(ch) => {
                         let mut buf = ch.buffer.borrow_mut();
                         if let Some(v) = buf.pop_front() {
-                            Some(v)
+                            WakeAction::Resume(v)
                         } else if ch.closed.get() {
-                            Some(Value::nil())
+                            WakeAction::Resume(Value::nil())
                         } else {
-                            None
+                            WakeAction::Pending
                         }
                     }
                     YieldReason::ChannelSend(ch, val) => {
-                        let mut buf = ch.buffer.borrow_mut();
-                        if buf.len() < ch.capacity {
-                            buf.push_back(val.clone());
-                            Some(Value::nil())
+                        if ch.closed.get() {
+                            WakeAction::Fail(
+                                "channel/send: channel closed while send was pending".to_string(),
+                            )
                         } else {
-                            None
+                            let mut buf = ch.buffer.borrow_mut();
+                            if buf.len() < ch.capacity {
+                                buf.push_back(val.clone());
+                                WakeAction::Resume(Value::nil())
+                            } else {
+                                WakeAction::Pending
+                            }
                         }
                     }
                     // Sleep yields resume immediately — the scheduler does not
                     // track real time, so sleeps are effectively zero-duration.
-                    YieldReason::Sleep(_) => Some(Value::nil()),
+                    YieldReason::Sleep(_) => WakeAction::Resume(Value::nil()),
                 };
 
-                if let Some(val) = resume {
-                    task.resume_value = Some(val);
-                    task.state = TaskState::Ready;
+                match action {
+                    WakeAction::Resume(val) => {
+                        task.resume_value = Some(val);
+                        task.state = TaskState::Ready;
+                    }
+                    WakeAction::Fail(msg) => {
+                        *task.promise.state.borrow_mut() = PromiseState::Rejected(msg);
+                        task.state = TaskState::Failed;
+                    }
+                    WakeAction::Pending => {}
                 }
             }
         }
@@ -260,6 +283,7 @@ fn run_until_reentrant(
         if let Some(val) = task.resume_value.take() {
             task.vm.replace_stack_top(val);
         }
+        let prev_async = in_async_context();
         set_async_context(true);
         let result = if !task.started {
             task.started = true;
@@ -267,7 +291,7 @@ fn run_until_reentrant(
         } else {
             task.vm.run_async(ctx)
         };
-        set_async_context(false);
+        set_async_context(prev_async);
 
         match result {
             Ok(VmExecResult::Finished(val)) => {

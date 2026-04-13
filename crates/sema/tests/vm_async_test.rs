@@ -292,6 +292,48 @@ fn triple_nested_async() {
     );
 }
 
+// === Bug regression tests ===
+
+#[test]
+fn await_rejected_propagates() {
+    let err = eval_vm_err(r#"(await (async (await (async (/ 1 0)))))"#);
+    assert!(!err.is_empty(), "should propagate inner rejection");
+}
+
+#[test]
+fn async_context_preserved_after_nested_run() {
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1)))
+              (await (async
+                (async/run)
+                (channel/send ch 42)
+                (channel/recv ch))))
+        "#
+        ),
+        Value::int(42)
+    );
+}
+
+#[test]
+fn channel_close_rejects_pending_send() {
+    let err = eval_vm_err(
+        r#"
+        (let ((ch (channel/new 1)))
+          (channel/send ch :fill)
+          (let ((sender (async (channel/send ch :blocked))))
+            (channel/close ch)
+            (channel/recv ch)
+            (await sender)))
+    "#,
+    );
+    assert!(
+        err.contains("closed") || err.contains("rejected"),
+        "should reject pending send on closed channel, got: {err}"
+    );
+}
+
 #[test]
 fn nested_async_with_channel() {
     assert_eq!(
