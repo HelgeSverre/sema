@@ -43,7 +43,9 @@ fn async_multi_body() {
 #[test]
 fn async_all() {
     assert_eq!(
-        eval_vm(r#"(let ((p1 (async (+ 1 1))) (p2 (async (+ 2 2))) (p3 (async (+ 3 3)))) (async/all (list p1 p2 p3)))"#),
+        eval_vm(
+            r#"(let ((p1 (async (+ 1 1))) (p2 (async (+ 2 2))) (p3 (async (+ 3 3)))) (async/all (list p1 p2 p3)))"#
+        ),
         Value::list(vec![Value::int(2), Value::int(4), Value::int(6)])
     );
 }
@@ -140,10 +142,7 @@ fn channel_empty() {
 
 #[test]
 fn channel_predicate() {
-    assert_eq!(
-        eval_vm("(channel? (channel/new 1))"),
-        Value::bool(true)
-    );
+    assert_eq!(eval_vm("(channel? (channel/new 1))"), Value::bool(true));
 }
 
 #[test]
@@ -161,10 +160,7 @@ fn channel_close() {
 
 #[test]
 fn channel_try_recv_empty() {
-    assert_eq!(
-        eval_vm("(channel/try-recv (channel/new 1))"),
-        Value::nil()
-    );
+    assert_eq!(eval_vm("(channel/try-recv (channel/new 1))"), Value::nil());
 }
 
 #[test]
@@ -236,31 +232,20 @@ fn async_sleep_returns_nil() {
 
 #[test]
 fn channel_send_closed_error() {
-    let err =
-        eval_vm_err("(let ((ch (channel/new 1))) (channel/close ch) (channel/send ch 1))");
-    assert!(
-        err.contains("closed"),
-        "expected closed error, got: {err}"
-    );
+    let err = eval_vm_err("(let ((ch (channel/new 1))) (channel/close ch) (channel/send ch 1))");
+    assert!(err.contains("closed"), "expected closed error, got: {err}");
 }
 
 #[test]
 fn channel_recv_empty_error() {
     let err = eval_vm_err("(channel/recv (channel/new 1))");
-    assert!(
-        err.contains("empty"),
-        "expected empty error, got: {err}"
-    );
+    assert!(err.contains("empty"), "expected empty error, got: {err}");
 }
 
 #[test]
 fn channel_send_full_error() {
-    let err =
-        eval_vm_err("(let ((ch (channel/new 1))) (channel/send ch 1) (channel/send ch 2))");
-    assert!(
-        err.contains("full"),
-        "expected full error, got: {err}"
-    );
+    let err = eval_vm_err("(let ((ch (channel/new 1))) (channel/send ch 1) (channel/send ch 2))");
+    assert!(err.contains("full"), "expected full error, got: {err}");
 }
 
 #[test]
@@ -277,12 +262,48 @@ fn channel_zero_capacity_error() {
 #[test]
 fn tree_walker_rejects_async() {
     let interp = sema_eval::Interpreter::new();
-    let err = interp
-        .eval_str("(async (+ 1 2))")
-        .unwrap_err()
-        .to_string();
+    let err = interp.eval_str("(async (+ 1 2))").unwrap_err().to_string();
     assert!(
         err.contains("VM backend"),
         "expected VM backend error, got: {err}"
+    );
+}
+
+// ── Nested async ──────────────────────────────────────────────────
+
+#[test]
+fn nested_async_await() {
+    assert_eq!(eval_vm("(await (async (await (async 7))))"), Value::int(7),);
+}
+
+#[test]
+fn nested_async_multiple_awaits() {
+    assert_eq!(
+        eval_vm("(await (async (+ (await (async 3)) (await (async 4)))))"),
+        Value::int(7),
+    );
+}
+
+#[test]
+fn triple_nested_async() {
+    assert_eq!(
+        eval_vm("(await (async (await (async (await (async 42))))))"),
+        Value::int(42),
+    );
+}
+
+#[test]
+fn nested_async_with_channel() {
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1)))
+              (await (async
+                (let ((inner (async (channel/recv ch))))
+                  (channel/send ch 99)
+                  (await inner)))))
+        "#
+        ),
+        Value::int(99),
     );
 }

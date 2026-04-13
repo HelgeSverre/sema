@@ -2023,9 +2023,7 @@ impl WasmInterpreter {
             Ok(sema_vm::VmExecResult::Finished(v)) => {
                 attach_bp_info(self.debug_finished_result(&v))
             }
-            Ok(sema_vm::VmExecResult::AsyncYield(_)) => {
-                attach_bp_info(self.debug_yielded_result())
-            }
+            Ok(sema_vm::VmExecResult::AsyncYield(_)) => attach_bp_info(self.debug_yielded_result()),
             Err(e) => self.debug_maybe_http_error(&e),
         }
     }

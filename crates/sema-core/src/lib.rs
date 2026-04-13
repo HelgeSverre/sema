@@ -10,9 +10,9 @@ pub mod value;
 pub mod vfs;
 
 pub use async_signal::{
-    call_run_scheduler, call_spawn_callback, in_async_context, set_async_context,
-    set_resume_value, set_run_scheduler_callback, set_spawn_callback, set_yield_signal,
-    take_resume_value, take_yield_signal, RunSchedulerCallbackFn, SpawnCallbackFn, YieldReason,
+    call_run_scheduler, call_spawn_callback, in_async_context, set_async_context, set_resume_value,
+    set_run_scheduler_callback, set_spawn_callback, set_yield_signal, take_resume_value,
+    take_yield_signal, RunSchedulerCallbackFn, SpawnCallbackFn, YieldReason,
 };
 pub use context::{
     call_callback, eval_callback, set_call_callback, set_eval_callback, with_stdlib_ctx,
@@ -26,7 +26,7 @@ pub use sandbox::{Caps, Sandbox};
 pub use value::{
     compare_spurs, intern, interner_stats, next_gensym, pretty_print, resolve, with_resolved,
     Agent, AsyncPromise, Channel, Conversation, Env, ImageAttachment, Lambda, Macro, Message,
-    MultiMethod, NativeFn, Prompt, PromiseState, Record, Role, SemaStream, StreamBox, Thunk,
+    MultiMethod, NativeFn, PromiseState, Prompt, Record, Role, SemaStream, StreamBox, Thunk,
     ToolDefinition, Value, ValueView, NAN_INT_SIGN_BIT, NAN_INT_SMALL_PATTERN, NAN_PAYLOAD_BITS,
     NAN_PAYLOAD_MASK, NAN_TAG_MASK, TAG_NATIVE_FN,
 };

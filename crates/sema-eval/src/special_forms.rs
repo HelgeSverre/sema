@@ -296,9 +296,13 @@ pub fn try_eval_special(
 
     // Async (VM-only)
     } else if head_spur == sf.async_ {
-        Some(Err(SemaError::eval("async requires the VM backend (do not use --tw)".to_string())))
+        Some(Err(SemaError::eval(
+            "async requires the VM backend (do not use --tw)".to_string(),
+        )))
     } else if head_spur == sf.await_ {
-        Some(Err(SemaError::eval("await requires the VM backend (do not use --tw)".to_string())))
+        Some(Err(SemaError::eval(
+            "await requires the VM backend (do not use --tw)".to_string(),
+        )))
     } else {
         None
     }

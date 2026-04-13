@@ -19,7 +19,6 @@ use sema_core::{
     EvalContext, PromiseState, SemaError, Spur, Value, YieldReason,
 };
 
-use crate::chunk::Function;
 use crate::debug::VmExecResult;
 use crate::vm::{self, Closure, VM};
 
@@ -59,24 +58,17 @@ pub struct Scheduler {
     next_id: u64,
     /// Shared global environment for spawning child VMs.
     globals: Rc<Env>,
-    /// Shared function table from the parent compilation.
-    functions: Rc<Vec<Rc<Function>>>,
     /// Native function spurs for resolving the native dispatch table in child VMs.
     native_spurs: Vec<Spur>,
 }
 
 impl Scheduler {
     /// Create a new scheduler with shared state from the parent VM.
-    pub fn new(
-        globals: Rc<Env>,
-        functions: Rc<Vec<Rc<Function>>>,
-        native_spurs: Vec<Spur>,
-    ) -> Self {
+    pub fn new(globals: Rc<Env>, native_spurs: Vec<Spur>) -> Self {
         Scheduler {
             tasks: Vec::new(),
             next_id: 1,
             globals,
-            functions,
             native_spurs,
         }
     }
@@ -92,9 +84,7 @@ impl Scheduler {
         _ctx: &EvalContext,
     ) -> Result<Rc<AsyncPromise>, SemaError> {
         let (closure, functions) = vm::extract_vm_closure(&thunk).ok_or_else(|| {
-            SemaError::eval(
-                "async/spawn: argument must be a function (compiled VM closure)",
-            )
+            SemaError::eval("async/spawn: argument must be a function (compiled VM closure)")
         })?;
 
         let id = self.next_id;
@@ -109,11 +99,7 @@ impl Scheduler {
 
         // Use the function table from the thunk's own compilation context,
         // not the scheduler's — each eval_str_compiled produces different functions.
-        let vm = VM::new_for_task(
-            self.globals.clone(),
-            functions,
-            &self.native_spurs,
-        )?;
+        let vm = VM::new_for_task(self.globals.clone(), functions, &self.native_spurs)?;
 
         self.tasks.push(Task {
             id,
@@ -173,109 +159,6 @@ impl Scheduler {
             }
         }
     }
-
-    /// Execute one step of a single task.
-    ///
-    /// Returns `Ok(true)` if progress was made, `Ok(false)` if the task
-    /// produced an unexpected result (should not happen in practice).
-    fn run_task(&mut self, idx: usize, ctx: &EvalContext) -> Result<bool, SemaError> {
-        let task = &mut self.tasks[idx];
-
-        // Supply the resume value (if any) by replacing the nil placeholder
-        // that the VM left on the stack when it yielded.
-        if let Some(val) = task.resume_value.take() {
-            task.vm.replace_stack_top(val);
-        }
-
-        set_async_context(true);
-
-        let result = if !task.started {
-            task.started = true;
-            task.vm.execute_async(task.closure.clone(), ctx)
-        } else {
-            task.vm.run_async(ctx)
-        };
-
-        set_async_context(false);
-
-        match result {
-            Ok(VmExecResult::Finished(val)) => {
-                *task.promise.state.borrow_mut() = PromiseState::Resolved(val);
-                task.state = TaskState::Done;
-                Ok(true)
-            }
-            Ok(VmExecResult::AsyncYield(reason)) => {
-                task.state = TaskState::Blocked(reason);
-                Ok(true)
-            }
-            // Stopped (debug breakpoint) or Yielded (budget exhausted) should
-            // not occur during async scheduling.
-            Ok(_) => Ok(false),
-            Err(e) => {
-                *task.promise.state.borrow_mut() =
-                    PromiseState::Rejected(format!("{e}"));
-                task.state = TaskState::Failed;
-                Ok(true)
-            }
-        }
-    }
-
-    /// Run the scheduler event loop until the target promise resolves
-    /// (or all tasks complete if `target` is `None`).
-    ///
-    /// Uses round-robin scheduling with a hard upper bound on total
-    /// ticks to prevent infinite loops.
-    pub fn run_until(
-        &mut self,
-        ctx: &EvalContext,
-        target: Option<&Rc<AsyncPromise>>,
-    ) -> Result<(), SemaError> {
-        const MAX_TICKS: u64 = 1_000_000;
-
-        for _ in 0..MAX_TICKS {
-            // Check if the target promise has been resolved/rejected.
-            if let Some(t) = target {
-                if !matches!(&*t.state.borrow(), PromiseState::Pending) {
-                    return Ok(());
-                }
-            }
-
-            // Try to wake any blocked tasks whose conditions are met.
-            self.wake_blocked_tasks();
-
-            // Find the next ready task (round-robin by position).
-            let ready_idx = self
-                .tasks
-                .iter()
-                .position(|t| matches!(t.state, TaskState::Ready));
-
-            let Some(idx) = ready_idx else {
-                // No ready tasks — check if any are still blocked.
-                let has_blocked = self
-                    .tasks
-                    .iter()
-                    .any(|t| matches!(t.state, TaskState::Blocked(_)));
-                if has_blocked {
-                    return Err(SemaError::eval(
-                        "async scheduler: all tasks blocked (deadlock detected)",
-                    ));
-                }
-                // All tasks are Done or Failed — nothing left to do.
-                return Ok(());
-            };
-
-            self.run_task(idx, ctx)?;
-        }
-
-        Err(SemaError::eval(
-            "async scheduler: exceeded maximum ticks (possible infinite loop)",
-        ))
-    }
-
-    /// Run all tasks to completion (convenience wrapper around `run_until`).
-    pub fn run_all(&mut self, ctx: &EvalContext) -> Result<(), SemaError> {
-        self.run_until(ctx, None)
-    }
 }
 
 // ── Thread-local scheduler ─────────────────────────────────────────
@@ -284,48 +167,132 @@ thread_local! {
     static SCHEDULER: RefCell<Option<Scheduler>> = const { RefCell::new(None) };
 }
 
-/// Access the thread-local scheduler. Panics if no scheduler is initialized.
-fn with_scheduler<F, R>(f: F) -> R
-where
-    F: FnOnce(&mut Scheduler) -> R,
-{
-    SCHEDULER.with(|s| {
-        let mut borrow = s.borrow_mut();
-        let sched = borrow
-            .as_mut()
-            .expect("async scheduler not initialized (call init_scheduler first)");
-        f(sched)
+/// Take the scheduler out of the thread-local temporarily.
+/// The caller MUST put it back via `put_scheduler`.
+fn take_scheduler() -> Result<Scheduler, SemaError> {
+    SCHEDULER.with(|s| s.borrow_mut().take()).ok_or_else(|| {
+        SemaError::eval("async scheduler not initialized (call init_scheduler first)")
     })
+}
+
+/// Put the scheduler back into the thread-local.
+fn put_scheduler(sched: Scheduler) {
+    SCHEDULER.with(|s| *s.borrow_mut() = Some(sched));
 }
 
 /// Spawn callback registered via `sema_core::set_spawn_callback`.
 ///
-/// Called by the `async/spawn` stdlib function. Delegates to the
-/// thread-local scheduler's `spawn` method and returns the promise
-/// wrapped as a `Value`.
+/// Called by the `async/spawn` stdlib function. Takes the scheduler
+/// briefly to add the task, then puts it back immediately.
 fn spawn_callback(ctx: &EvalContext, thunk: Value) -> Result<Value, SemaError> {
-    let promise = with_scheduler(|sched| sched.spawn(thunk, ctx))?;
+    let mut sched = take_scheduler()?;
+    let result = sched.spawn(thunk, ctx);
+    put_scheduler(sched);
+    let promise = result?;
     Ok(Value::async_promise_from_rc(promise))
 }
 
 /// Run-scheduler callback registered via `sema_core::set_run_scheduler_callback`.
 ///
-/// Called by the `async/await` and `async/run` stdlib functions.
-/// Runs the scheduler event loop until the target promise resolves
-/// (or all tasks complete if `target` is `None`).
+/// Takes the scheduler out of the thread-local, runs it, puts it back.
+/// During task execution, the scheduler is put back temporarily so that
+/// re-entrant calls (nested async/spawn) can access it.
 fn run_scheduler_callback(
     ctx: &EvalContext,
     target: Option<Rc<AsyncPromise>>,
 ) -> Result<(), SemaError> {
-    SCHEDULER.with(|s| {
-        let mut borrow = s.borrow_mut();
-        let sched = borrow.as_mut().ok_or_else(|| {
-            SemaError::eval(
-                "async scheduler not initialized (call init_scheduler first)",
-            )
-        })?;
-        sched.run_until(ctx, target.as_ref())
-    })
+    let mut sched = take_scheduler()?;
+    let result = run_until_reentrant(&mut sched, ctx, target.as_ref());
+    put_scheduler(sched);
+    result
+}
+
+/// Run the scheduler event loop with re-entrant safety.
+///
+/// Before each task step, the scheduler is put back into the thread-local
+/// so that nested `async/spawn` and `async/await` calls from within
+/// task VMs can access it. After each step, the scheduler is taken back
+/// out (it may have new tasks added by the step).
+fn run_until_reentrant(
+    sched: &mut Scheduler,
+    ctx: &EvalContext,
+    target: Option<&Rc<AsyncPromise>>,
+) -> Result<(), SemaError> {
+    const MAX_TICKS: u64 = 1_000_000;
+
+    for _ in 0..MAX_TICKS {
+        if let Some(t) = target {
+            if !matches!(&*t.state.borrow(), PromiseState::Pending) {
+                return Ok(());
+            }
+        }
+
+        sched.wake_blocked_tasks();
+
+        let ready_idx = sched
+            .tasks
+            .iter()
+            .position(|t| matches!(t.state, TaskState::Ready));
+
+        let Some(idx) = ready_idx else {
+            let has_blocked = sched
+                .tasks
+                .iter()
+                .any(|t| matches!(t.state, TaskState::Blocked(_)));
+            if has_blocked {
+                return Err(SemaError::eval(
+                    "async scheduler: all tasks blocked (deadlock detected)",
+                ));
+            }
+            return Ok(());
+        };
+
+        // Extract the task from the scheduler, put the scheduler back
+        // into the thread-local, then run the task. This allows nested
+        // async/spawn and async/await inside the task VM to access the
+        // scheduler via the thread-local.
+        let mut task = sched.tasks.swap_remove(idx);
+
+        let taken = std::mem::replace(sched, Scheduler::new(Rc::new(Env::new()), Vec::new()));
+        put_scheduler(taken);
+
+        // Run the extracted task
+        if let Some(val) = task.resume_value.take() {
+            task.vm.replace_stack_top(val);
+        }
+        set_async_context(true);
+        let result = if !task.started {
+            task.started = true;
+            task.vm.execute_async(task.closure.clone(), ctx)
+        } else {
+            task.vm.run_async(ctx)
+        };
+        set_async_context(false);
+
+        match result {
+            Ok(VmExecResult::Finished(val)) => {
+                *task.promise.state.borrow_mut() = PromiseState::Resolved(val);
+                task.state = TaskState::Done;
+            }
+            Ok(VmExecResult::AsyncYield(reason)) => {
+                task.state = TaskState::Blocked(reason);
+            }
+            Ok(_) => {}
+            Err(e) => {
+                *task.promise.state.borrow_mut() = PromiseState::Rejected(format!("{e}"));
+                task.state = TaskState::Failed;
+            }
+        }
+
+        // Take scheduler back, put the task back in
+        let mut s = take_scheduler()?;
+        s.tasks.push(task);
+        *sched = s;
+    }
+
+    Err(SemaError::eval(
+        "async scheduler: exceeded maximum ticks (possible infinite loop)",
+    ))
 }
 
 /// Initialize the thread-local scheduler and register the spawn/run callbacks.
@@ -333,13 +300,9 @@ fn run_scheduler_callback(
 /// Must be called before any async operations. Typically called once
 /// during VM startup with the global environment and function table
 /// from the compiled program.
-pub fn init_scheduler(
-    globals: Rc<Env>,
-    functions: Rc<Vec<Rc<Function>>>,
-    native_spurs: Vec<Spur>,
-) {
+pub fn init_scheduler(globals: Rc<Env>, native_spurs: Vec<Spur>) {
     SCHEDULER.with(|s| {
-        *s.borrow_mut() = Some(Scheduler::new(globals, functions, native_spurs));
+        *s.borrow_mut() = Some(Scheduler::new(globals, native_spurs));
     });
     set_spawn_callback(spawn_callback);
     set_run_scheduler_callback(run_scheduler_callback);

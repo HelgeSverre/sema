@@ -104,9 +104,7 @@ fn register_promise_ops(env: &Env) {
             match &*state {
                 PromiseState::Resolved(v) => return Ok(v.clone()),
                 PromiseState::Rejected(e) => {
-                    return Err(SemaError::eval(format!(
-                        "async/await: task rejected: {e}"
-                    )))
+                    return Err(SemaError::eval(format!("async/await: task rejected: {e}")))
                 }
                 PromiseState::Pending => {}
             }
@@ -123,9 +121,9 @@ fn register_promise_ops(env: &Env) {
         let state = promise.state.borrow();
         match &*state {
             PromiseState::Resolved(v) => Ok(v.clone()),
-            PromiseState::Rejected(e) => Err(SemaError::eval(format!(
-                "async/await: task rejected: {e}"
-            ))),
+            PromiseState::Rejected(e) => {
+                Err(SemaError::eval(format!("async/await: task rejected: {e}")))
+            }
             PromiseState::Pending => Err(SemaError::eval(
                 "async/await: still pending after scheduler run",
             )),
@@ -205,14 +203,10 @@ fn register_promise_ops(env: &Env) {
             match &*state {
                 PromiseState::Resolved(v) => results.push(v.clone()),
                 PromiseState::Rejected(e) => {
-                    return Err(SemaError::eval(format!(
-                        "async/all: task rejected: {e}"
-                    )))
+                    return Err(SemaError::eval(format!("async/all: task rejected: {e}")))
                 }
                 PromiseState::Pending => {
-                    return Err(SemaError::eval(
-                        "async/all: task still pending",
-                    ))
+                    return Err(SemaError::eval("async/all: task still pending"))
                 }
             }
         }
@@ -225,9 +219,7 @@ fn register_promise_ops(env: &Env) {
         let items = expect_list_or_vector(&args[0], "async/race")?;
 
         if items.is_empty() {
-            return Err(SemaError::eval(
-                "async/race: requires at least one promise",
-            ));
+            return Err(SemaError::eval("async/race: requires at least one promise"));
         }
 
         // Collect promises
@@ -256,9 +248,7 @@ fn register_promise_ops(env: &Env) {
         // Check for rejections
         for p in &promises {
             if let PromiseState::Rejected(e) = &*p.state.borrow() {
-                return Err(SemaError::eval(format!(
-                    "async/race: task rejected: {e}"
-                )));
+                return Err(SemaError::eval(format!("async/race: task rejected: {e}")));
             }
         }
 
@@ -295,7 +285,7 @@ fn register_promise_ops(env: &Env) {
 fn register_channel_ops(env: &Env) {
     // channel/new — create a bounded channel
     register_fn(env, "channel/new", |args| {
-        check_arity!(args, "channel/new", 0 ..= 1);
+        check_arity!(args, "channel/new", 0..=1);
         let capacity = if args.is_empty() {
             1
         } else {
@@ -303,9 +293,7 @@ fn register_channel_ops(env: &Env) {
                 .as_int()
                 .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
             if n <= 0 {
-                return Err(SemaError::eval(
-                    "channel/new: capacity must be at least 1",
-                ));
+                return Err(SemaError::eval("channel/new: capacity must be at least 1"));
             }
             n as usize
         };
@@ -321,9 +309,7 @@ fn register_channel_ops(env: &Env) {
         check_arity!(args, "channel/send", 2);
         let ch = expect_channel(args, "channel/send", 0)?;
         if ch.closed.get() {
-            return Err(SemaError::eval(
-                "channel/send: channel is closed",
-            ));
+            return Err(SemaError::eval("channel/send: channel is closed"));
         }
         if in_async_context() {
             if let Some(cached) = take_resume_value() {

@@ -53,9 +53,12 @@ struct VmClosurePayload {
     functions: Rc<Vec<Rc<Function>>>,
 }
 
+/// Extracted VM closure: the closure itself and the function table from its compilation context.
+pub type VmClosureInfo = (Rc<Closure>, Rc<Vec<Rc<Function>>>);
+
 /// Extract a VM closure from a Value, if it wraps a VmClosurePayload.
 /// Returns the closure and the function table needed to create a task VM.
-pub fn extract_vm_closure(val: &Value) -> Option<(Rc<Closure>, Rc<Vec<Rc<Function>>>)> {
+pub fn extract_vm_closure(val: &Value) -> Option<VmClosureInfo> {
     let nf = val.as_native_fn_ref()?;
     let payload = nf.payload.as_ref()?.downcast_ref::<VmClosurePayload>()?;
     Some((payload.closure.clone(), payload.functions.clone()))
@@ -260,7 +263,9 @@ impl VM {
                 crate::debug::VmExecResult::Finished(v) => return Ok(v),
                 crate::debug::VmExecResult::Yielded => continue,
                 crate::debug::VmExecResult::AsyncYield(_) => {
-                    return Err(SemaError::eval("async yield outside of scheduler context".to_string()));
+                    return Err(SemaError::eval(
+                        "async yield outside of scheduler context".to_string(),
+                    ));
                 }
                 crate::debug::VmExecResult::Stopped(info) => {
                     let _ = debug.event_tx.send(crate::debug::DebugEvent::Stopped {
@@ -363,15 +368,18 @@ impl VM {
             crate::debug::VmExecResult::Stopped(_) | crate::debug::VmExecResult::Yielded => {
                 unreachable!("Stopped/Yielded without debug state")
             }
-            crate::debug::VmExecResult::AsyncYield(_) => {
-                Err(SemaError::eval("async yield outside of scheduler context".to_string()))
-            }
+            crate::debug::VmExecResult::AsyncYield(_) => Err(SemaError::eval(
+                "async yield outside of scheduler context".to_string(),
+            )),
         }
     }
 
     /// Run the VM without debug state, returning the raw VmExecResult.
     /// Used by the async scheduler for task execution and resume.
-    pub fn run_async(&mut self, ctx: &EvalContext) -> Result<crate::debug::VmExecResult, SemaError> {
+    pub fn run_async(
+        &mut self,
+        ctx: &EvalContext,
+    ) -> Result<crate::debug::VmExecResult, SemaError> {
         self.run_inner(ctx, None)
     }
 
@@ -385,7 +393,11 @@ impl VM {
     }
 
     /// Execute a closure and return the raw VmExecResult (for async scheduler).
-    pub fn execute_async(&mut self, closure: Rc<Closure>, ctx: &EvalContext) -> Result<crate::debug::VmExecResult, SemaError> {
+    pub fn execute_async(
+        &mut self,
+        closure: Rc<Closure>,
+        ctx: &EvalContext,
+    ) -> Result<crate::debug::VmExecResult, SemaError> {
         self.ensure_cache_space(&closure.func);
         let base = self.stack.len();
         let n_locals = closure.func.chunk.n_locals as usize;
