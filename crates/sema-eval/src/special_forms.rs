@@ -63,6 +63,10 @@ struct SpecialFormSpurs {
     message: Spur,
     prompt: Spur,
 
+    // Async (VM-only, tree-walker returns error)
+    async_: Spur,
+    await_: Spur,
+
     // Silent aliases for other Lisp dialects
     def: Spur,
     defn: Spur,
@@ -119,6 +123,10 @@ impl SpecialFormSpurs {
             message: intern("message"),
             prompt: intern("prompt"),
 
+            // Async (VM-only)
+            async_: intern("async"),
+            await_: intern("await"),
+
             // Silent aliases
             def: intern("def"),
             defn: intern("defn"),
@@ -149,6 +157,8 @@ fn special_forms() -> &'static SpecialFormSpurs {
 pub const SPECIAL_FORM_NAMES: &[&str] = &[
     // Core language
     "and",
+    "async",
+    "await",
     "begin",
     "case",
     "cond",
@@ -283,6 +293,12 @@ pub fn try_eval_special(
         Some(eval_message(args, env, ctx))
     } else if head_spur == sf.prompt {
         Some(eval_prompt(args, env, ctx))
+
+    // Async (VM-only)
+    } else if head_spur == sf.async_ {
+        Some(Err(SemaError::eval("async requires the VM backend (do not use --tw)".to_string())))
+    } else if head_spur == sf.await_ {
+        Some(Err(SemaError::eval("await requires the VM backend (do not use --tw)".to_string())))
     } else {
         None
     }
