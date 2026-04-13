@@ -1,6 +1,8 @@
 # VM-per-Task Async Concurrency
 
 > **Initiated**: 2026-04-13 · **Last touched**: 2026-04-13 · **Status**: Draft
+>
+> **Prerequisite**: VM is now the default backend (commit `72e9ae9` on main). CLI uses `--tw` to opt into tree-walker. Notebook and playground also default to VM.
 
 ## Decision Question
 
@@ -23,7 +25,7 @@ How should Sema implement cooperative async concurrency without the side-effect 
 
 Replace PR #29's replay-based async scheduler with a VM-per-Task model where each spawned task gets its own VM instance sharing globals and the compiled function table. This eliminates the fundamental flaw of the replay model (re-execution of side effects) while keeping the same user-facing API.
 
-Secondary goal: make async VM-only and remove the dual-eval requirement for async features, acknowledging the tree-walker's eventual deprecation.
+Secondary goal: make async VM-only and remove the dual-eval requirement for async features. The VM is already the default backend (as of `72e9ae9`), so async will "just work" for all users without any flag.
 
 ---
 
@@ -59,7 +61,7 @@ PR #29 (branch `feature/async-concurrency`, open) adds:
 | `sema-core` | `src/async_signal.rs` | Create | YieldReason enum, YIELD_SIGNAL/RESUME_VALUE/IN_ASYNC_CONTEXT thread-locals, set/take functions |
 | `sema-core` | `src/value.rs` | No change | AsyncPromise, Channel types stay as-is |
 | `sema-eval` | `src/eval.rs` | Modify | Remove 3 Yield propagation guards |
-| `sema-eval` | `src/special_forms.rs` | Modify | `async`/`await` return error "async requires --vm flag" |
+| `sema-eval` | `src/special_forms.rs` | Modify | `async`/`await` return error "async requires the VM backend (do not use --tw)" |
 | `sema-vm` | `src/vm.rs` | Modify | Add `VM::new_for_task()` constructor, add `AsyncYield` to `VmExecResult`, modify native call dispatch to handle yield signal |
 | `sema-vm` | `src/debug.rs` | Modify | Add `AsyncYield(YieldReason)` variant to `VmExecResult` |
 | `sema-vm` | `src/lower.rs` | No change | `async`/`await` lowering stays (already desugars to async/spawn and async/await calls) |
@@ -159,9 +161,9 @@ enum TaskState {
 
 ### 6. Tree-walker async deprecation
 
-**What**: `eval_async` and `eval_await` in `special_forms.rs` return `SemaError::eval("async/await requires the VM backend. Use --vm flag.")`.
+**What**: `eval_async` and `eval_await` in `special_forms.rs` return `SemaError::eval("async/await requires the VM backend (do not use --tw)")`.
 
-**Why**: The tree-walker cannot support real coroutines without continuations. Since it's being deprecated, a clear error is better than a broken replay model.
+**Why**: The tree-walker cannot support real coroutines without continuations. Since VM is now the default, this only affects users who explicitly opt into `--tw`. A clear error guides them back.
 
 ### 7. Update CLAUDE.md and test infrastructure
 
@@ -270,13 +272,13 @@ enum TaskState {
    - Do: Migrate all 62 async tests from the old dual-eval block. Run through VM backend only. Add new tests for side-effect correctness (println, set!, file operations don't repeat on resume).
    - Verify: `cargo test -p sema --test vm_async_test`
 
-4. **End-to-end integration**
+3. **End-to-end integration**
    - Crate: `sema`
    - Files: `src/main.rs`
-   - Do: Ensure `--vm` flag runs async correctly. Ensure tree-walker gives clear error on async. Wire up scheduler initialization in the VM execution path.
-   - Verify: `cargo run -- --vm -e "(let ((p (async (+ 1 2)))) (await p))"`
+   - Do: Ensure default (VM) runs async correctly. Ensure `--tw` gives clear error on async. Wire up scheduler initialization in the VM execution path.
+   - Verify: `cargo run -- -e "(let ((p (async (+ 1 2)))) (await p))"` (no flag needed — VM is default)
 
-**Phase exit criteria**: All 62 async tests pass (VM-only). New side-effect correctness tests pass. `make test` fully green. Tree-walker gives clear error on async forms.
+**Phase exit criteria**: All 62 async tests pass (VM-only). New side-effect correctness tests pass. `make test` fully green. `--tw` gives clear error on async forms.
 
 ### Phase 4: Documentation and cleanup
 
@@ -366,8 +368,8 @@ Each `async/spawn` creates a new VM instance with its own stack and frames, shar
 - [ ] **Serialization updated** — No changes needed
 
 ### Compatibility
-- [x] **Breaking changes documented** — async/await no longer works in tree-walker (returns error with guidance)
-- [x] **Migration path described** — Use `--vm` flag or set VM as default
+- [x] **Breaking changes documented** — async/await only works with VM backend (default). `--tw` users get clear error.
+- [x] **Migration path described** — No migration needed; VM is already the default. Only `--tw` users are affected.
 - [x] **Naming convention followed** — All existing names preserved (async/spawn, channel/recv, etc.)
 
 ### Testing
