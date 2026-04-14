@@ -218,6 +218,25 @@ fn async_race_first_wins() {
     );
 }
 
+#[test]
+fn async_race_returns_first_resolved_in_list_order() {
+    // With cooperative round-robin: first yields on recv, second sends + completes,
+    // first resumes and gets :sent. Both resolve. Race returns first in list order.
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1)))
+              (let ((first (async (channel/recv ch)))
+                    (second (async
+                              (channel/send ch :sent)
+                              :sender-done)))
+                (async/race (list first second))))
+        "#
+        ),
+        Value::keyword("sent")
+    );
+}
+
 // === async/sleep ===
 
 #[test]

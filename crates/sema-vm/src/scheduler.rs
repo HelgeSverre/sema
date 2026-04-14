@@ -48,6 +48,9 @@ struct Task {
     started: bool,
     /// Value to pass to the VM on resume (set by `wake_blocked_tasks`).
     resume_value: Option<Value>,
+    /// Deadline for sleep-blocked tasks (None if not sleeping).
+    #[cfg(not(target_arch = "wasm32"))]
+    sleep_deadline: Option<std::time::Instant>,
 }
 
 // ── Scheduler ──────────────────────────────────────────────────────
@@ -109,6 +112,8 @@ impl Scheduler {
             state: TaskState::Ready,
             started: false,
             resume_value: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            sleep_deadline: None,
         });
 
         Ok(promise)
@@ -163,9 +168,31 @@ impl Scheduler {
                             }
                         }
                     }
-                    // Sleep yields resume immediately — the scheduler does not
-                    // track real time, so sleeps are effectively zero-duration.
-                    YieldReason::Sleep(_) => WakeAction::Resume(Value::nil()),
+                    YieldReason::Sleep(_ms) => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            // Set deadline on first check if not already set
+                            if task.sleep_deadline.is_none() {
+                                task.sleep_deadline = Some(
+                                    std::time::Instant::now()
+                                        + std::time::Duration::from_millis(*_ms),
+                                );
+                            }
+                            if task
+                                .sleep_deadline
+                                .map_or(true, |d| std::time::Instant::now() >= d)
+                            {
+                                task.sleep_deadline = None;
+                                WakeAction::Resume(Value::nil())
+                            } else {
+                                WakeAction::Pending
+                            }
+                        }
+                        #[cfg(target_arch = "wasm32")]
+                        {
+                            WakeAction::Resume(Value::nil())
+                        }
+                    }
                 };
 
                 match action {
@@ -263,6 +290,31 @@ fn run_until_reentrant(
                 .iter()
                 .any(|t| matches!(t.state, TaskState::Blocked(_)));
             if has_blocked {
+                // Check if all blocked tasks are sleeping — if so, wait for
+                // the nearest deadline instead of reporting deadlock.
+                let all_sleeping = sched
+                    .tasks
+                    .iter()
+                    .filter(|t| matches!(t.state, TaskState::Blocked(_)))
+                    .all(|t| matches!(t.state, TaskState::Blocked(YieldReason::Sleep(_))));
+                if all_sleeping {
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        // Find the nearest sleep deadline and wait
+                        let nearest = sched
+                            .tasks
+                            .iter()
+                            .filter_map(|t| t.sleep_deadline)
+                            .min();
+                        if let Some(deadline) = nearest {
+                            let now = std::time::Instant::now();
+                            if deadline > now {
+                                std::thread::sleep(deadline - now);
+                            }
+                        }
+                    }
+                    continue; // Re-check after sleeping
+                }
                 return Err(SemaError::eval(
                     "async scheduler: all tasks blocked (deadlock detected)",
                 ));
