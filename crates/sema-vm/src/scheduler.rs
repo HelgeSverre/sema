@@ -15,8 +15,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use sema_core::{
-    in_async_context, set_async_context, set_run_scheduler_callback, set_spawn_callback,
-    AsyncPromise, Env, EvalContext, PromiseState, SemaError, Spur, Value, YieldReason,
+    in_async_context, set_async_context, set_cancel_callback, set_run_scheduler_callback,
+    set_spawn_callback, AsyncPromise, Env, EvalContext, PromiseState, SemaError, Spur, Value,
+    YieldReason,
 };
 
 use crate::debug::VmExecResult;
@@ -46,6 +47,8 @@ struct Task {
     state: TaskState,
     /// Whether `execute_async` has been called (false = first run).
     started: bool,
+    /// Whether this task has been cancelled.
+    cancelled: bool,
     /// Value to pass to the VM on resume (set by `wake_blocked_tasks`).
     resume_value: Option<Value>,
     /// Deadline for sleep-blocked tasks (None if not sleeping).
@@ -111,6 +114,7 @@ impl Scheduler {
             promise: promise.clone(),
             state: TaskState::Ready,
             started: false,
+            cancelled: false,
             resume_value: None,
             #[cfg(not(target_arch = "wasm32"))]
             sleep_deadline: None,
@@ -133,6 +137,13 @@ impl Scheduler {
         }
 
         for task in &mut self.tasks {
+            if task.cancelled {
+                if !matches!(task.state, TaskState::Done | TaskState::Failed) {
+                    *task.promise.state.borrow_mut() = PromiseState::Rejected("cancelled".to_string());
+                    task.state = TaskState::Failed;
+                }
+                continue;
+            }
             if let TaskState::Blocked(ref reason) = task.state {
                 let action = match reason {
                     YieldReason::AwaitPromise(p) => {
@@ -208,6 +219,22 @@ impl Scheduler {
                 }
             }
         }
+    }
+
+    /// Mark a task as cancelled and immediately reject its promise.
+    /// No-op if the task is already Done or Failed.
+    fn cancel_task(&mut self, task_id: u64) -> Result<(), SemaError> {
+        let task = self.tasks.iter_mut().find(|t| t.id == task_id).ok_or_else(|| {
+            SemaError::eval(format!("async/cancel: no task with id {task_id}"))
+        })?;
+        // No-op for already completed or already cancelled tasks
+        if matches!(task.state, TaskState::Done | TaskState::Failed) || task.cancelled {
+            return Ok(());
+        }
+        task.cancelled = true;
+        *task.promise.state.borrow_mut() = PromiseState::Rejected("cancelled".to_string());
+        task.state = TaskState::Failed;
+        Ok(())
     }
 }
 
@@ -328,6 +355,14 @@ fn run_until_reentrant(
         // scheduler via the thread-local.
         let mut task = sched.tasks.swap_remove(idx);
 
+        // Check if task was cancelled before running it
+        if task.cancelled {
+            *task.promise.state.borrow_mut() = PromiseState::Rejected("cancelled".to_string());
+            task.state = TaskState::Failed;
+            sched.tasks.push(task);
+            continue;
+        }
+
         let taken = std::mem::replace(sched, Scheduler::new(Rc::new(Env::new()), Vec::new()));
         put_scheduler(taken);
 
@@ -371,6 +406,17 @@ fn run_until_reentrant(
     ))
 }
 
+/// Cancel callback registered via `sema_core::set_cancel_callback`.
+///
+/// Called by the `async/cancel` stdlib function. Takes the scheduler
+/// briefly to cancel the task, then puts it back immediately.
+fn cancel_callback(task_id: u64) -> Result<(), SemaError> {
+    let mut sched = take_scheduler()?;
+    let result = sched.cancel_task(task_id);
+    put_scheduler(sched);
+    result
+}
+
 /// Initialize the thread-local scheduler and register the spawn/run callbacks.
 ///
 /// Must be called before any async operations. Typically called once
@@ -382,4 +428,5 @@ pub fn init_scheduler(globals: Rc<Env>, native_spurs: Vec<Spur>) {
     });
     set_spawn_callback(spawn_callback);
     set_run_scheduler_callback(run_scheduler_callback);
+    set_cancel_callback(cancel_callback);
 }

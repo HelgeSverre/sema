@@ -123,6 +123,28 @@ pub fn set_run_scheduler_callback(f: RunSchedulerCallbackFn) {
     RUN_SCHEDULER_CALLBACK.with(|cb| cb.set(Some(f)));
 }
 
+// ── Cancel callback ─────────────────────────────────────────────
+
+/// Callback type for cancelling an async task by its task ID.
+pub type CancelCallbackFn = fn(u64) -> Result<(), SemaError>;
+
+thread_local! {
+    static CANCEL_CALLBACK: Cell<Option<CancelCallbackFn>> = const { Cell::new(None) };
+}
+
+/// Register the cancel callback. Called by the scheduler during init.
+pub fn set_cancel_callback(f: CancelCallbackFn) {
+    CANCEL_CALLBACK.with(|cb| cb.set(Some(f)));
+}
+
+/// Cancel an async task by its task ID.
+pub fn call_cancel_callback(task_id: u64) -> Result<(), SemaError> {
+    let f = CANCEL_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
+        SemaError::eval("async/cancel: no async scheduler registered".to_string())
+    })?;
+    f(task_id)
+}
+
 /// Run the scheduler, optionally waiting for a specific promise.
 pub fn call_run_scheduler(
     ctx: &EvalContext,

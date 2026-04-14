@@ -187,6 +187,29 @@ fn register_promise_ops(env: &Env) {
         Ok(Value::bool(pending))
     });
 
+    // async/cancel — cancel a spawned async task
+    register_fn(env, "async/cancel", |args| {
+        check_arity!(args, "async/cancel", 1);
+        let promise = expect_promise(args, "async/cancel", 0)?;
+        let task_id = promise.task_id.get();
+        if task_id == 0 {
+            return Err(SemaError::eval(
+                "async/cancel: cannot cancel a non-spawned promise".to_string(),
+            ));
+        }
+        sema_core::call_cancel_callback(task_id)?;
+        Ok(Value::nil())
+    });
+
+    // async/cancelled? — check if promise was cancelled
+    register_fn(env, "async/cancelled?", |args| {
+        check_arity!(args, "async/cancelled?", 1);
+        let promise = expect_promise(args, "async/cancelled?", 0)?;
+        let state = promise.state.borrow();
+        let is_cancelled = matches!(&*state, PromiseState::Rejected(msg) if msg == "cancelled");
+        Ok(Value::bool(is_cancelled))
+    });
+
     // async/all — run scheduler and collect results from all promises
     register_fn_ctx(env, "async/all", |ctx, args| {
         check_arity!(args, "async/all", 1);
@@ -253,6 +276,69 @@ fn register_promise_ops(env: &Env) {
         }
 
         Err(SemaError::eval("async/race: no promise resolved"))
+    });
+
+    // async/timeout — race a promise against a deadline
+    register_fn_ctx(env, "async/timeout", |ctx, args| {
+        check_arity!(args, "async/timeout", 2);
+        let ms = args[0]
+            .as_int()
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+        if ms < 0 {
+            return Err(SemaError::eval(
+                "async/timeout: duration must be non-negative",
+            ));
+        }
+        let promise = expect_promise(args, "async/timeout", 1)?;
+
+        // If already resolved/rejected, return immediately
+        {
+            let state = promise.state.borrow();
+            match &*state {
+                PromiseState::Resolved(v) => return Ok(v.clone()),
+                PromiseState::Rejected(e) => {
+                    return Err(SemaError::eval(format!(
+                        "async/timeout: task rejected: {e}"
+                    )))
+                }
+                PromiseState::Pending => {}
+            }
+        }
+
+        // Run the scheduler until the promise resolves or timeout
+        #[cfg(not(target_arch = "wasm32"))]
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_millis(ms as u64);
+
+        // Run scheduler to try to resolve the promise
+        let _ = call_run_scheduler(ctx, Some(promise.clone()));
+
+        // Check if resolved
+        {
+            let state = promise.state.borrow();
+            match &*state {
+                PromiseState::Resolved(v) => return Ok(v.clone()),
+                PromiseState::Rejected(e) => {
+                    return Err(SemaError::eval(format!(
+                        "async/timeout: task rejected: {e}"
+                    )))
+                }
+                PromiseState::Pending => {}
+            }
+        }
+
+        // If still pending after scheduler run, it's a timeout
+        #[cfg(not(target_arch = "wasm32"))]
+        if std::time::Instant::now() >= deadline {
+            return Err(SemaError::eval(
+                "async/timeout: operation timed out",
+            ));
+        }
+
+        // Fallback: just report timeout
+        Err(SemaError::eval(
+            "async/timeout: operation timed out",
+        ))
     });
 
     // async/sleep — yield for a duration in milliseconds

@@ -368,3 +368,98 @@ fn nested_async_with_channel() {
         Value::int(99),
     );
 }
+
+// === async/timeout ===
+
+#[test]
+fn timeout_resolved_in_time() {
+    assert_eq!(
+        eval_vm("(async/timeout 1000 (async/resolved 42))"),
+        Value::int(42),
+    );
+}
+
+#[test]
+fn timeout_task_completes_in_time() {
+    assert_eq!(
+        eval_vm("(async/timeout 1000 (async (+ 1 2)))"),
+        Value::int(3),
+    );
+}
+
+#[test]
+fn timeout_already_rejected() {
+    let err = eval_vm_err(r#"(async/timeout 1000 (async/rejected "oops"))"#);
+    assert!(err.contains("rejected"), "expected rejection, got: {err}");
+}
+
+#[test]
+fn timeout_negative_duration_error() {
+    let err = eval_vm_err("(async/timeout -1 (async/resolved 1))");
+    assert!(
+        err.contains("non-negative"),
+        "expected non-negative error, got: {err}"
+    );
+}
+
+#[test]
+fn timeout_expires() {
+    let err = eval_vm_err(
+        r#"
+        (let ((ch (channel/new 1)))
+          (async/timeout 50 (async (channel/recv ch))))
+    "#,
+    );
+    assert!(
+        err.contains("timed out"),
+        "expected timeout, got: {err}"
+    );
+}
+
+// === Task cancellation ===
+
+#[test]
+fn cancel_pending_task() {
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1)))
+              (let ((p (async (channel/recv ch))))
+                (async/cancel p)
+                (async/cancelled? p)))
+        "#
+        ),
+        Value::bool(true),
+    );
+}
+
+#[test]
+fn cancel_awaited_task_rejects() {
+    let err = eval_vm_err(
+        r#"
+        (let ((ch (channel/new 1)))
+          (let ((p (async (channel/recv ch))))
+            (async/cancel p)
+            (await p)))
+    "#,
+    );
+    assert!(
+        err.contains("cancelled"),
+        "expected cancellation error, got: {err}"
+    );
+}
+
+#[test]
+fn cancel_completed_task_is_noop() {
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((p (async 42)))
+              (await p)
+              (async/cancel p)
+              (async/resolved? p))
+        "#
+        ),
+        Value::bool(true),
+    );
+}
