@@ -1,7 +1,7 @@
 mod common;
 
 use common::eval_vm;
-use sema_core::Value;
+use sema_core::{Caps, Sandbox, Value};
 
 fn eval_vm_err(input: &str) -> String {
     let interp = sema_eval::Interpreter::new();
@@ -220,8 +220,8 @@ fn async_race_first_wins() {
 
 #[test]
 fn async_race_returns_first_resolved_in_list_order() {
-    // With cooperative round-robin: first yields on recv, second sends + completes,
-    // first resumes and gets :sent. Both resolve. Race returns first in list order.
+    // With real race semantics, the sender settles first after sending. The
+    // blocked receiver is only woken on a later scheduler turn.
     assert_eq!(
         eval_vm(
             r#"
@@ -233,7 +233,7 @@ fn async_race_returns_first_resolved_in_list_order() {
                 (async/race (list first second))))
         "#
         ),
-        Value::keyword("sent")
+        Value::keyword("sender-done")
     );
 }
 
@@ -410,9 +410,64 @@ fn timeout_expires() {
           (async/timeout 50 (async (channel/recv ch))))
     "#,
     );
+    assert!(err.contains("timed out"), "expected timeout, got: {err}");
+}
+
+#[test]
+fn timeout_beats_sleeping_task() {
+    let err = eval_vm_err("(async/timeout 10 (async (async/sleep 100) 42))");
     assert!(
         err.contains("timed out"),
-        "expected timeout, got: {err}"
+        "expected timeout before sleep completion, got: {err}"
+    );
+}
+
+#[test]
+fn async_race_returns_first_to_settle_not_list_order() {
+    assert_eq!(
+        eval_vm("(async/race (list (async (async/sleep 100) :slow) (async :fast)))"),
+        Value::keyword("fast"),
+    );
+}
+
+#[test]
+fn async_all_ignores_unrelated_blocked_task() {
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1)))
+              (let ((bg (async (channel/recv ch)))
+                    (p (async 1)))
+                (async/all (list p))))
+        "#
+        ),
+        Value::list(vec![Value::int(1)]),
+    );
+}
+
+#[test]
+fn async_task_survives_separate_vm_evals() {
+    let interp = sema_eval::Interpreter::new();
+    interp
+        .eval_str_compiled("(define p (async (async/sleep 1) 42))")
+        .unwrap();
+    assert_eq!(
+        interp.eval_str_compiled("(await p)").unwrap(),
+        Value::int(42)
+    );
+}
+
+#[test]
+fn serial_list_respects_sandbox() {
+    let sandbox = Sandbox::deny(Caps::SERIAL);
+    let interp = sema_eval::Interpreter::new_with_sandbox(&sandbox);
+    let err = interp
+        .eval_str_compiled("(serial/list)")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("Permission denied") && err.contains("serial"),
+        "expected serial sandbox denial, got: {err}"
     );
 }
 

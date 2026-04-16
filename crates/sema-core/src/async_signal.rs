@@ -27,6 +27,28 @@ pub enum YieldReason {
     Sleep(u64),
 }
 
+/// What condition the scheduler should run until.
+#[derive(Clone)]
+pub enum SchedulerTarget {
+    /// Run all currently scheduled work until no ready tasks remain.
+    All,
+    /// Run until one promise is no longer pending.
+    One(Rc<AsyncPromise>),
+    /// Run until all promises are complete, or any one rejects.
+    AllOf(Vec<Rc<AsyncPromise>>),
+    /// Run until any promise completes.
+    AnyOf(Vec<Rc<AsyncPromise>>),
+    /// Run until one promise completes or the duration elapses.
+    Timeout(Rc<AsyncPromise>, u64),
+}
+
+/// Result of a scheduler run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SchedulerRunResult {
+    Complete,
+    TimedOut,
+}
+
 thread_local! {
     /// Set by native functions that need to yield. Checked by the VM after
     /// each native call. If set, the VM suspends the current task.
@@ -112,7 +134,7 @@ pub fn call_spawn_callback(ctx: &EvalContext, thunk: Value) -> Result<Value, Sem
 /// Callback type for running the scheduler until a promise resolves.
 /// Takes an optional promise to wait for (None = run all tasks).
 pub type RunSchedulerCallbackFn =
-    fn(&EvalContext, Option<Rc<AsyncPromise>>) -> Result<(), SemaError>;
+    fn(&EvalContext, SchedulerTarget) -> Result<SchedulerRunResult, SemaError>;
 
 thread_local! {
     static RUN_SCHEDULER_CALLBACK: Cell<Option<RunSchedulerCallbackFn>> = const { Cell::new(None) };
@@ -155,5 +177,49 @@ pub fn call_run_scheduler(
             "async: no async scheduler registered (async requires the VM backend)".to_string(),
         )
     })?;
-    f(ctx, target)
+    let target = match target {
+        Some(promise) => SchedulerTarget::One(promise),
+        None => SchedulerTarget::All,
+    };
+    f(ctx, target).map(|_| ())
+}
+
+/// Run the scheduler until all target promises complete, or any target rejects.
+pub fn call_run_scheduler_all_of(
+    ctx: &EvalContext,
+    targets: Vec<Rc<AsyncPromise>>,
+) -> Result<(), SemaError> {
+    let f = RUN_SCHEDULER_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
+        SemaError::eval(
+            "async: no async scheduler registered (async requires the VM backend)".to_string(),
+        )
+    })?;
+    f(ctx, SchedulerTarget::AllOf(targets)).map(|_| ())
+}
+
+/// Run the scheduler until any target promise completes.
+pub fn call_run_scheduler_any_of(
+    ctx: &EvalContext,
+    targets: Vec<Rc<AsyncPromise>>,
+) -> Result<(), SemaError> {
+    let f = RUN_SCHEDULER_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
+        SemaError::eval(
+            "async: no async scheduler registered (async requires the VM backend)".to_string(),
+        )
+    })?;
+    f(ctx, SchedulerTarget::AnyOf(targets)).map(|_| ())
+}
+
+/// Run the scheduler until the target promise completes or the duration elapses.
+pub fn call_run_scheduler_timeout(
+    ctx: &EvalContext,
+    target: Rc<AsyncPromise>,
+    timeout_ms: u64,
+) -> Result<SchedulerRunResult, SemaError> {
+    let f = RUN_SCHEDULER_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
+        SemaError::eval(
+            "async: no async scheduler registered (async requires the VM backend)".to_string(),
+        )
+    })?;
+    f(ctx, SchedulerTarget::Timeout(target, timeout_ms))
 }

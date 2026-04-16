@@ -3,9 +3,10 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 
 use sema_core::{
-    call_run_scheduler, call_spawn_callback, check_arity, in_async_context, set_yield_signal,
-    take_resume_value, AsyncPromise, Channel, Env, EvalContext, NativeFn, PromiseState, SemaError,
-    Value, ValueView, YieldReason,
+    call_run_scheduler, call_run_scheduler_all_of, call_run_scheduler_any_of,
+    call_run_scheduler_timeout, call_spawn_callback, check_arity, in_async_context,
+    set_yield_signal, take_resume_value, AsyncPromise, Channel, Env, EvalContext, NativeFn,
+    PromiseState, SchedulerRunResult, SemaError, Value, ValueView, YieldReason,
 };
 
 use crate::register_fn;
@@ -215,19 +216,28 @@ fn register_promise_ops(env: &Env) {
         check_arity!(args, "async/all", 1);
         let items = expect_list_or_vector(&args[0], "async/all")?;
 
-        // Run scheduler to resolve all
-        call_run_scheduler(ctx, None)?;
+        let promises: Vec<Rc<AsyncPromise>> = items
+            .iter()
+            .map(|item| expect_promise(std::slice::from_ref(item), "async/all", 0))
+            .collect::<Result<_, _>>()?;
+
+        // Run scheduler until the requested promises settle. Unrelated
+        // background tasks must not make this combinator report deadlock.
+        call_run_scheduler_all_of(ctx, promises.clone())?;
 
         // Collect results
         let mut results = Vec::with_capacity(items.len());
-        for item in items.iter() {
-            let p = expect_promise(std::slice::from_ref(item), "async/all", 0)?;
+        if let Some(err) = promises.iter().find_map(|p| match &*p.state.borrow() {
+            PromiseState::Rejected(e) => Some(e.clone()),
+            _ => None,
+        }) {
+            return Err(SemaError::eval(format!("async/all: task rejected: {err}")));
+        }
+        for p in promises {
             let state = p.state.borrow();
             match &*state {
                 PromiseState::Resolved(v) => results.push(v.clone()),
-                PromiseState::Rejected(e) => {
-                    return Err(SemaError::eval(format!("async/all: task rejected: {e}")))
-                }
+                PromiseState::Rejected(_) => unreachable!("rejections handled above"),
                 PromiseState::Pending => {
                     return Err(SemaError::eval("async/all: task still pending"))
                 }
@@ -258,8 +268,9 @@ fn register_promise_ops(env: &Env) {
             }
         }
 
-        // Run scheduler
-        call_run_scheduler(ctx, None)?;
+        // Run scheduler until one requested promise settles. Unrelated
+        // background tasks must not make this combinator report deadlock.
+        call_run_scheduler_any_of(ctx, promises.clone())?;
 
         // Find first resolved
         for p in &promises {
@@ -305,13 +316,12 @@ fn register_promise_ops(env: &Env) {
             }
         }
 
-        // Run the scheduler until the promise resolves or timeout
-        #[cfg(not(target_arch = "wasm32"))]
-        let deadline =
-            std::time::Instant::now() + std::time::Duration::from_millis(ms as u64);
-
-        // Run scheduler to try to resolve the promise
-        let _ = call_run_scheduler(ctx, Some(promise.clone()));
+        // Run scheduler until the promise resolves or the timeout elapses.
+        if call_run_scheduler_timeout(ctx, promise.clone(), ms as u64)?
+            == SchedulerRunResult::TimedOut
+        {
+            return Err(SemaError::eval("async/timeout: operation timed out"));
+        }
 
         // Check if resolved
         {
@@ -327,17 +337,8 @@ fn register_promise_ops(env: &Env) {
             }
         }
 
-        // If still pending after scheduler run, it's a timeout
-        #[cfg(not(target_arch = "wasm32"))]
-        if std::time::Instant::now() >= deadline {
-            return Err(SemaError::eval(
-                "async/timeout: operation timed out",
-            ));
-        }
-
-        // Fallback: just report timeout
         Err(SemaError::eval(
-            "async/timeout: operation timed out",
+            "async/timeout: operation is still pending after scheduler run",
         ))
     });
 

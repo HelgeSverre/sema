@@ -16,8 +16,8 @@ use std::rc::Rc;
 
 use sema_core::{
     in_async_context, set_async_context, set_cancel_callback, set_run_scheduler_callback,
-    set_spawn_callback, AsyncPromise, Env, EvalContext, PromiseState, SemaError, Spur, Value,
-    YieldReason,
+    set_spawn_callback, AsyncPromise, Env, EvalContext, PromiseState, SchedulerRunResult,
+    SchedulerTarget, SemaError, Spur, Value, YieldReason,
 };
 
 use crate::debug::VmExecResult;
@@ -77,6 +77,11 @@ impl Scheduler {
             globals,
             native_spurs,
         }
+    }
+
+    /// Update shared VM context for future tasks without discarding existing tasks.
+    fn update_context(&mut self, native_spurs: Vec<Spur>) {
+        self.native_spurs = native_spurs;
     }
 
     /// Spawn a new async task from a thunk (zero-argument VM closure).
@@ -139,7 +144,8 @@ impl Scheduler {
         for task in &mut self.tasks {
             if task.cancelled {
                 if !matches!(task.state, TaskState::Done | TaskState::Failed) {
-                    *task.promise.state.borrow_mut() = PromiseState::Rejected("cancelled".to_string());
+                    *task.promise.state.borrow_mut() =
+                        PromiseState::Rejected("cancelled".to_string());
                     task.state = TaskState::Failed;
                 }
                 continue;
@@ -191,7 +197,7 @@ impl Scheduler {
                             }
                             if task
                                 .sleep_deadline
-                                .map_or(true, |d| std::time::Instant::now() >= d)
+                                .is_none_or(|d| std::time::Instant::now() >= d)
                             {
                                 task.sleep_deadline = None;
                                 WakeAction::Resume(Value::nil())
@@ -224,9 +230,11 @@ impl Scheduler {
     /// Mark a task as cancelled and immediately reject its promise.
     /// No-op if the task is already Done or Failed.
     fn cancel_task(&mut self, task_id: u64) -> Result<(), SemaError> {
-        let task = self.tasks.iter_mut().find(|t| t.id == task_id).ok_or_else(|| {
-            SemaError::eval(format!("async/cancel: no task with id {task_id}"))
-        })?;
+        let task = self
+            .tasks
+            .iter_mut()
+            .find(|t| t.id == task_id)
+            .ok_or_else(|| SemaError::eval(format!("async/cancel: no task with id {task_id}")))?;
         // No-op for already completed or already cancelled tasks
         if matches!(task.state, TaskState::Done | TaskState::Failed) || task.cancelled {
             return Ok(());
@@ -276,12 +284,90 @@ fn spawn_callback(ctx: &EvalContext, thunk: Value) -> Result<Value, SemaError> {
 /// re-entrant calls (nested async/spawn) can access it.
 fn run_scheduler_callback(
     ctx: &EvalContext,
-    target: Option<Rc<AsyncPromise>>,
-) -> Result<(), SemaError> {
+    target: SchedulerTarget,
+) -> Result<SchedulerRunResult, SemaError> {
     let mut sched = take_scheduler()?;
-    let result = run_until_reentrant(&mut sched, ctx, target.as_ref());
+    let result = run_until_reentrant(&mut sched, ctx, &target);
     put_scheduler(sched);
     result
+}
+
+struct RunGoal<'a> {
+    target: &'a SchedulerTarget,
+    #[cfg(not(target_arch = "wasm32"))]
+    deadline: Option<std::time::Instant>,
+}
+
+impl<'a> RunGoal<'a> {
+    fn new(target: &'a SchedulerTarget) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        let deadline = match target {
+            SchedulerTarget::Timeout(_, ms) => {
+                Some(std::time::Instant::now() + std::time::Duration::from_millis(*ms))
+            }
+            _ => None,
+        };
+        RunGoal {
+            target,
+            #[cfg(not(target_arch = "wasm32"))]
+            deadline,
+        }
+    }
+
+    fn status(&self) -> Option<SchedulerRunResult> {
+        match self.target {
+            SchedulerTarget::All => None,
+            SchedulerTarget::One(promise) => {
+                (!matches!(&*promise.state.borrow(), PromiseState::Pending))
+                    .then_some(SchedulerRunResult::Complete)
+            }
+            SchedulerTarget::AllOf(promises) => {
+                let any_rejected = promises
+                    .iter()
+                    .any(|p| matches!(&*p.state.borrow(), PromiseState::Rejected(_)));
+                let all_done = promises
+                    .iter()
+                    .all(|p| !matches!(&*p.state.borrow(), PromiseState::Pending));
+                (any_rejected || all_done).then_some(SchedulerRunResult::Complete)
+            }
+            SchedulerTarget::AnyOf(promises) => promises
+                .iter()
+                .any(|p| !matches!(&*p.state.borrow(), PromiseState::Pending))
+                .then_some(SchedulerRunResult::Complete),
+            SchedulerTarget::Timeout(promise, _) => {
+                if !matches!(&*promise.state.borrow(), PromiseState::Pending) {
+                    return Some(SchedulerRunResult::Complete);
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                if self
+                    .deadline
+                    .is_some_and(|deadline| std::time::Instant::now() >= deadline)
+                {
+                    return Some(SchedulerRunResult::TimedOut);
+                }
+                None
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn sleep_limit(&self) -> Option<std::time::Instant> {
+        self.deadline
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn has_timeout(&self) -> bool {
+        self.deadline.is_some()
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn pending_timeout_target(&self) -> bool {
+        matches!(
+            self.target,
+            SchedulerTarget::Timeout(promise, _)
+                if matches!(&*promise.state.borrow(), PromiseState::Pending)
+        )
+    }
 }
 
 /// Run the scheduler event loop with re-entrant safety.
@@ -293,18 +379,21 @@ fn run_scheduler_callback(
 fn run_until_reentrant(
     sched: &mut Scheduler,
     ctx: &EvalContext,
-    target: Option<&Rc<AsyncPromise>>,
-) -> Result<(), SemaError> {
+    target: &SchedulerTarget,
+) -> Result<SchedulerRunResult, SemaError> {
     const MAX_TICKS: u64 = 1_000_000;
+    let goal = RunGoal::new(target);
 
     for _ in 0..MAX_TICKS {
-        if let Some(t) = target {
-            if !matches!(&*t.state.borrow(), PromiseState::Pending) {
-                return Ok(());
-            }
+        if let Some(result) = goal.status() {
+            return Ok(result);
         }
 
         sched.wake_blocked_tasks();
+
+        if let Some(result) = goal.status() {
+            return Ok(result);
+        }
 
         let ready_idx = sched
             .tasks
@@ -324,15 +413,18 @@ fn run_until_reentrant(
                     .iter()
                     .filter(|t| matches!(t.state, TaskState::Blocked(_)))
                     .all(|t| matches!(t.state, TaskState::Blocked(YieldReason::Sleep(_))));
+                #[cfg(target_arch = "wasm32")]
+                if goal.pending_timeout_target() {
+                    return Ok(SchedulerRunResult::TimedOut);
+                }
                 if all_sleeping {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         // Find the nearest sleep deadline and wait
-                        let nearest = sched
-                            .tasks
-                            .iter()
-                            .filter_map(|t| t.sleep_deadline)
-                            .min();
+                        let mut nearest = sched.tasks.iter().filter_map(|t| t.sleep_deadline).min();
+                        if let Some(timeout) = goal.sleep_limit() {
+                            nearest = Some(nearest.map_or(timeout, |sleep| sleep.min(timeout)));
+                        }
                         if let Some(deadline) = nearest {
                             let now = std::time::Instant::now();
                             if deadline > now {
@@ -342,11 +434,25 @@ fn run_until_reentrant(
                     }
                     continue; // Re-check after sleeping
                 }
+                #[cfg(not(target_arch = "wasm32"))]
+                if goal.has_timeout() {
+                    if let Some(deadline) = goal.sleep_limit() {
+                        let now = std::time::Instant::now();
+                        if deadline > now {
+                            std::thread::sleep(deadline - now);
+                        }
+                    }
+                    continue;
+                }
                 return Err(SemaError::eval(
                     "async scheduler: all tasks blocked (deadlock detected)",
                 ));
             }
-            return Ok(());
+            #[cfg(target_arch = "wasm32")]
+            if goal.pending_timeout_target() {
+                return Ok(SchedulerRunResult::TimedOut);
+            }
+            return Ok(SchedulerRunResult::Complete);
         };
 
         // Extract the task from the scheduler, put the scheduler back
@@ -424,7 +530,15 @@ fn cancel_callback(task_id: u64) -> Result<(), SemaError> {
 /// from the compiled program.
 pub fn init_scheduler(globals: Rc<Env>, native_spurs: Vec<Spur>) {
     SCHEDULER.with(|s| {
-        *s.borrow_mut() = Some(Scheduler::new(globals, native_spurs));
+        let mut slot = s.borrow_mut();
+        match slot.as_mut() {
+            Some(sched) if Rc::ptr_eq(&sched.globals, &globals) => {
+                sched.update_context(native_spurs);
+            }
+            _ => {
+                *slot = Some(Scheduler::new(globals, native_spurs));
+            }
+        }
     });
     set_spawn_callback(spawn_callback);
     set_run_scheduler_callback(run_scheduler_callback);
