@@ -190,8 +190,6 @@ pub enum PromiseState {
 /// An async promise: represents a value that will be available in the future.
 pub struct AsyncPromise {
     pub state: RefCell<PromiseState>,
-    pub body: Value,
-    pub env: Env,
     pub task_id: Cell<u64>,
 }
 
@@ -209,8 +207,6 @@ impl Clone for AsyncPromise {
     fn clone(&self) -> Self {
         AsyncPromise {
             state: RefCell::new(self.state.borrow().clone()),
-            body: self.body.clone(),
-            env: self.env.clone(),
             task_id: Cell::new(self.task_id.get()),
         }
     }

@@ -103,8 +103,6 @@ impl Scheduler {
 
         let promise = Rc::new(AsyncPromise {
             state: RefCell::new(PromiseState::Pending),
-            body: Value::nil(),
-            env: Env::new(),
             task_id: std::cell::Cell::new(id),
         });
 

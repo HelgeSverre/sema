@@ -143,8 +143,6 @@ fn register_promise_ops(env: &Env) {
         check_arity!(args, "async/resolved", 1);
         Ok(Value::async_promise(AsyncPromise {
             state: RefCell::new(PromiseState::Resolved(args[0].clone())),
-            body: Value::nil(),
-            env: Env::new(),
             task_id: Cell::new(0),
         }))
     });
@@ -158,8 +156,6 @@ fn register_promise_ops(env: &Env) {
             .to_string();
         Ok(Value::async_promise(AsyncPromise {
             state: RefCell::new(PromiseState::Rejected(msg)),
-            body: Value::nil(),
-            env: Env::new(),
             task_id: Cell::new(0),
         }))
     });
