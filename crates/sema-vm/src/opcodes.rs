@@ -338,6 +338,7 @@ pub mod op {
     /// Size of an instruction with a u16 operand (e.g., CALL, LOAD_LOCAL): 1 + 2 = 3
     pub const SIZE_OP_U16: usize = 3;
     /// Size of an instruction with a u32 operand (e.g., STORE_GLOBAL, DEFINE_GLOBAL): 1 + 4 = 5
+    #[allow(dead_code)]
     pub const SIZE_OP_U32: usize = 5;
     /// Size of LOAD_GLOBAL: 1 + u32 spur + u16 cache_slot = 7
     pub const SIZE_LOAD_GLOBAL: usize = 7;

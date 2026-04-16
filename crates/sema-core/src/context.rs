@@ -515,21 +515,19 @@ pub fn set_call_callback(ctx: &EvalContext, f: CallCallbackFn) {
 }
 
 /// Evaluate an expression using the registered evaluator.
-/// Panics if no evaluator has been registered (programming error).
+/// Returns an error if no evaluator has been registered.
 pub fn eval_callback(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
-    let f = ctx
-        .eval_fn
-        .get()
-        .expect("eval callback not registered — Interpreter::new() must be called first");
+    let f = ctx.eval_fn.get().ok_or_else(|| {
+        SemaError::eval("eval callback not registered — Interpreter::new() must be called first")
+    })?;
     f(ctx, expr, env)
 }
 
 /// Call a function value with arguments using the registered callback.
-/// Panics if no callback has been registered (programming error).
+/// Returns an error if no callback has been registered.
 pub fn call_callback(ctx: &EvalContext, func: &Value, args: &[Value]) -> Result<Value, SemaError> {
-    let f = ctx
-        .call_fn
-        .get()
-        .expect("call callback not registered — Interpreter::new() must be called first");
+    let f = ctx.call_fn.get().ok_or_else(|| {
+        SemaError::eval("call callback not registered — Interpreter::new() must be called first")
+    })?;
     f(ctx, func, args)
 }

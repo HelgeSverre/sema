@@ -1,17 +1,17 @@
 #![allow(clippy::mutable_key_type)]
-pub mod chunk;
-pub mod compiler;
-pub mod core_expr;
+mod chunk;
+mod compiler;
+mod core_expr;
 pub mod debug;
-pub mod disasm;
-pub mod emit;
-pub mod lower;
-pub mod opcodes;
-pub mod optimize;
-pub mod resolve;
-pub mod scheduler;
-pub mod serialize;
-pub mod vm;
+mod disasm;
+mod emit;
+mod lower;
+mod opcodes;
+mod optimize;
+mod resolve;
+mod scheduler;
+mod serialize;
+mod vm;
 
 pub use chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
 pub use compiler::{compile, CompileResult};
