@@ -518,3 +518,186 @@ fn cancel_completed_task_is_noop() {
         Value::bool(true),
     );
 }
+
+// === Bug regression: yield signal through op::CALL ===
+
+#[test]
+fn channel_recv_via_local_variable_yields_correctly() {
+    // channel/recv called through a local variable binding goes through
+    // op::CALL (not CALL_NATIVE or CALL_GLOBAL). The yield signal must
+    // still be checked after call_value returns.
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1))
+                  (recv channel/recv))
+              (let ((producer (async (channel/send ch 42)))
+                    (consumer (async (recv ch))))
+                (await consumer)))
+        "#
+        ),
+        Value::int(42),
+    );
+}
+
+#[test]
+fn channel_send_via_local_variable_yields_correctly() {
+    // Same bug but for channel/send through a local binding
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1))
+                  (send channel/send))
+              (let ((consumer (async (channel/recv ch))))
+                (send ch 99)
+                (await consumer)))
+        "#
+        ),
+        Value::int(99),
+    );
+}
+
+// === Bug regression: false deadlock with mixed blocked tasks ===
+
+#[test]
+fn sleeping_task_unblocks_channel_recv() {
+    // A sleeping task will eventually send to a channel. The scheduler
+    // must not report deadlock when one task sleeps and another waits
+    // on channel/recv.
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1)))
+              (async/spawn (fn () (async/sleep 1) (channel/send ch 42)))
+              (let ((consumer (async (channel/recv ch))))
+                (await consumer)))
+        "#
+        ),
+        Value::int(42),
+    );
+}
+
+// === async/all error handling ===
+
+#[test]
+fn async_all_rejects_on_any_failure() {
+    let err = eval_vm_err(
+        r#"(async/all (list (async 1) (async (/ 1 0)) (async 3)))"#,
+    );
+    assert!(
+        err.contains("rejected") || err.contains("division") || err.contains("zero"),
+        "expected rejection from division error, got: {err}"
+    );
+}
+
+#[test]
+fn async_all_empty_list() {
+    assert_eq!(eval_vm("(async/all (list))"), Value::list(vec![]));
+}
+
+// === async/race edge cases ===
+
+#[test]
+fn async_race_empty_list_errors() {
+    let err = eval_vm_err("(async/race (list))");
+    assert!(
+        err.contains("requires at least one"),
+        "expected arity error, got: {err}"
+    );
+}
+
+#[test]
+fn async_race_all_rejected() {
+    let err = eval_vm_err(
+        r#"(async/race (list (async (error "a")) (async (error "b"))))"#,
+    );
+    assert!(!err.is_empty(), "expected rejection error, got empty");
+}
+
+// === Channel close semantics ===
+
+#[test]
+fn channel_recv_closed_empty_returns_nil() {
+    assert_eq!(
+        eval_vm("(let ((ch (channel/new 1))) (channel/close ch) (channel/recv ch))"),
+        Value::nil(),
+    );
+}
+
+#[test]
+fn channel_recv_wakes_on_close_with_nil() {
+    // An async task blocked on recv should be woken with nil when
+    // the channel is closed.
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1)))
+              (let ((consumer (async (channel/recv ch))))
+                (channel/close ch)
+                (await consumer)))
+        "#
+        ),
+        Value::nil(),
+    );
+}
+
+// === Timeout edge cases ===
+
+#[test]
+fn timeout_zero_expires_immediately() {
+    let err = eval_vm_err(
+        r#"(async/timeout 0 (async (channel/recv (channel/new 1))))"#,
+    );
+    assert!(
+        err.contains("timed out"),
+        "expected timeout error, got: {err}"
+    );
+}
+
+// === Deadlock detection ===
+
+#[test]
+fn deadlock_detected_two_tasks_waiting() {
+    let err = eval_vm_err(
+        r#"
+        (let ((ch1 (channel/new 1))
+              (ch2 (channel/new 1)))
+          (let ((t1 (async (channel/recv ch1)))
+                (t2 (async (channel/recv ch2))))
+            (async/all (list t1 t2))))
+    "#,
+    );
+    assert!(
+        err.contains("deadlock") || err.contains("blocked"),
+        "expected deadlock error, got: {err}"
+    );
+}
+
+// === Strengthen weak assertion ===
+
+#[test]
+fn await_rejected_propagates_division_error() {
+    let err = eval_vm_err(r#"(await (async (await (async (/ 1 0)))))"#);
+    assert!(
+        err.contains("division") || err.contains("zero"),
+        "should propagate division-by-zero cause, got: {err}"
+    );
+}
+
+// === Multiple senders ===
+
+#[test]
+fn channel_two_senders_one_receiver() {
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 2)))
+              (let ((s1 (async (channel/send ch 10)))
+                    (s2 (async (channel/send ch 20)))
+                    (r  (async (+ (channel/recv ch) (channel/recv ch)))))
+                (await r)))
+        "#
+        ),
+        Value::int(30),
+    );
+}

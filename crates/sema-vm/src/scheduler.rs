@@ -230,11 +230,10 @@ impl Scheduler {
     /// Mark a task as cancelled and immediately reject its promise.
     /// No-op if the task is already Done or Failed.
     fn cancel_task(&mut self, task_id: u64) -> Result<(), SemaError> {
-        let task = self
-            .tasks
-            .iter_mut()
-            .find(|t| t.id == task_id)
-            .ok_or_else(|| SemaError::eval(format!("async/cancel: no task with id {task_id}")))?;
+        let Some(task) = self.tasks.iter_mut().find(|t| t.id == task_id) else {
+            // Task already completed and was pruned — no-op
+            return Ok(());
+        };
         // No-op for already completed or already cancelled tasks
         if matches!(task.state, TaskState::Done | TaskState::Failed) || task.cancelled {
             return Ok(());
@@ -406,18 +405,18 @@ fn run_until_reentrant(
                 .iter()
                 .any(|t| matches!(t.state, TaskState::Blocked(_)));
             if has_blocked {
-                // Check if all blocked tasks are sleeping — if so, wait for
-                // the nearest deadline instead of reporting deadlock.
-                let all_sleeping = sched
+                // Check if any blocked task is sleeping — if so, wait for
+                // its deadline. A sleeping task may unblock channel/promise
+                // waiters when it resumes, so we must not declare deadlock.
+                let any_sleeping = sched
                     .tasks
                     .iter()
-                    .filter(|t| matches!(t.state, TaskState::Blocked(_)))
-                    .all(|t| matches!(t.state, TaskState::Blocked(YieldReason::Sleep(_))));
+                    .any(|t| matches!(t.state, TaskState::Blocked(YieldReason::Sleep(_))));
                 #[cfg(target_arch = "wasm32")]
                 if goal.pending_timeout_target() {
                     return Ok(SchedulerRunResult::TimedOut);
                 }
-                if all_sleeping {
+                if any_sleeping {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         // Find the nearest sleep deadline and wait
@@ -501,9 +500,14 @@ fn run_until_reentrant(
             }
         }
 
-        // Take scheduler back, put the task back in
+        // Take scheduler back; only keep active tasks
         let mut s = take_scheduler()?;
-        s.tasks.push(task);
+        if !matches!(task.state, TaskState::Done | TaskState::Failed) {
+            s.tasks.push(task);
+        }
+        // Also drop terminal tasks left by cancelled tasks pushed earlier
+        s.tasks
+            .retain(|t| !matches!(t.state, TaskState::Done | TaskState::Failed));
         *sched = s;
     }
 

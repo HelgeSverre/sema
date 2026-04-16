@@ -798,6 +798,15 @@ impl VM {
                                 ExceptionAction::Propagate(e) => return Err(e),
                             }
                         }
+                        // Check if a native function (dispatched via call_value)
+                        // signaled an async yield
+                        if let Some(reason) = sema_core::take_yield_signal() {
+                            if let Some(top) = self.stack.last_mut() {
+                                *top = Value::nil();
+                            }
+                            self.frames[fi].pc = pc;
+                            return Ok(crate::debug::VmExecResult::AsyncYield(reason));
+                        }
                         continue 'dispatch;
                     }
                     op::TAIL_CALL => {
@@ -809,6 +818,15 @@ impl VM {
                                 ExceptionAction::Handled => {}
                                 ExceptionAction::Propagate(e) => return Err(e),
                             }
+                        }
+                        // Check if a native function (dispatched via tail_call_value
+                        // → call_value) signaled an async yield
+                        if let Some(reason) = sema_core::take_yield_signal() {
+                            if let Some(top) = self.stack.last_mut() {
+                                *top = Value::nil();
+                            }
+                            self.frames[fi].pc = pc;
+                            return Ok(crate::debug::VmExecResult::AsyncYield(reason));
                         }
                         continue 'dispatch;
                     }
