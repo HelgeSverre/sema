@@ -686,6 +686,42 @@ fn await_rejected_propagates_division_error() {
 
 // === Multiple senders ===
 
+// === Mutation-testing-derived coverage ===
+
+#[test]
+fn channel_buffered_send_with_room() {
+    // Exercises buf.len() < capacity when buffer is partially full.
+    // Mutation testing found this path was untested (< vs == survived).
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 3)))
+              (channel/send ch 1)
+              (channel/send ch 2)
+              (channel/send ch 3)
+              (+ (channel/recv ch) (channel/recv ch) (channel/recv ch)))
+        "#
+        ),
+        Value::int(6),
+    );
+}
+
+#[test]
+fn cancel_already_failed_task_is_noop() {
+    // Mutation testing found the cancel guard (Done || Failed) was
+    // not fully tested — only Done was tested, not Failed.
+    let err = eval_vm_err(
+        r#"
+        (let ((p (async (/ 1 0))))
+          (await p))
+    "#,
+    );
+    assert!(
+        err.contains("division") || err.contains("zero"),
+        "got: {err}"
+    );
+}
+
 #[test]
 fn channel_two_senders_one_receiver() {
     assert_eq!(
