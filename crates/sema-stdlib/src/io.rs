@@ -211,8 +211,8 @@ fn parse_key_input() -> Result<Option<Value>, SemaError> {
     };
     let mut bytes = vec![b];
     for _ in 0..extra {
-        // Only read more if data is immediately available (prevents blocking on partial sequences)
-        if !unix_stdin_ready(0) {
+        // Wait up to 20ms for continuation bytes (handles slow pipes and heavy load)
+        if !unix_stdin_ready(20) {
             break;
         }
         match read_one_byte().map_err(|e| SemaError::Io(format!("io/read-key: {e}")))? {

@@ -278,26 +278,19 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         check_arity!(args, "sys/term-size", 0);
         #[cfg(unix)]
         {
-            if !std::io::stdout().is_terminal() && !std::io::stderr().is_terminal() {
-                return Ok(Value::nil());
-            }
             let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
-            // Try stdout first, then stderr, then stdin
-            let fd = if std::io::stdout().is_terminal() {
-                libc::STDOUT_FILENO
-            } else if std::io::stderr().is_terminal() {
-                libc::STDERR_FILENO
-            } else {
-                libc::STDIN_FILENO
-            };
-            let ret = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) };
-            if ret != 0 || ws.ws_row == 0 || ws.ws_col == 0 {
-                return Ok(Value::nil());
+            // Try each standard fd in order until one succeeds; stdout is most reliable
+            // for terminal size since stderr is used for status lines on many setups.
+            for fd in [libc::STDOUT_FILENO, libc::STDERR_FILENO, libc::STDIN_FILENO] {
+                let ret = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) };
+                if ret == 0 && ws.ws_row > 0 && ws.ws_col > 0 {
+                    let mut m = std::collections::BTreeMap::new();
+                    m.insert(Value::keyword("rows"), Value::int(ws.ws_row as i64));
+                    m.insert(Value::keyword("cols"), Value::int(ws.ws_col as i64));
+                    return Ok(Value::map(m));
+                }
             }
-            let mut m = std::collections::BTreeMap::new();
-            m.insert(Value::keyword("rows"), Value::int(ws.ws_row as i64));
-            m.insert(Value::keyword("cols"), Value::int(ws.ws_col as i64));
-            Ok(Value::map(m))
+            Ok(Value::nil())
         }
         #[cfg(not(unix))]
         Ok(Value::nil())
@@ -337,12 +330,13 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                     if entry.is_empty() {
                         // First callback for this signal: install handler.
                         // Cast via *const () to avoid the fn_to_numeric_cast lint.
-                        let handler: libc::sighandler_t = if sig_num == libc::SIGWINCH {
-                            handle_sigwinch as *const () as usize
-                        } else if sig_num == libc::SIGINT {
-                            handle_sigint as *const () as usize
-                        } else {
-                            handle_sigterm as *const () as usize
+                        let handler: libc::sighandler_t = match sig_num {
+                            s if s == libc::SIGWINCH => handle_sigwinch as *const () as usize,
+                            s if s == libc::SIGINT => handle_sigint as *const () as usize,
+                            s if s == libc::SIGTERM => handle_sigterm as *const () as usize,
+                            // Unreachable: sig_num is validated against the three above by the
+                            // kw match earlier in this function.
+                            _ => unreachable!("unexpected signal number {sig_num}"),
                         };
                         unsafe { libc::signal(sig_num, handler) };
                     }
