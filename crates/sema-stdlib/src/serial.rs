@@ -42,7 +42,8 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
         let baud = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))? as u32;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
+            as u32;
         let timeout_ms = if args.len() == 3 {
             args[2]
                 .as_int()
@@ -57,7 +58,7 @@ pub fn register(env: &sema_core::Env) {
             .open()
             .map_err(|e| {
                 SemaError::eval(format!("serial/open: {e}"))
-                    .with_hint(&format!("path={path}, baud={baud}"))
+                    .with_hint(format!("path={path}, baud={baud}"))
             })?;
 
         let handle = next_handle();
@@ -95,9 +96,9 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         PORTS.with(|ports| {
             let mut ports = ports.borrow_mut();
-            let reader = ports.get_mut(&handle).ok_or_else(|| {
-                SemaError::eval(format!("serial/write: invalid handle {handle}"))
-            })?;
+            let reader = ports
+                .get_mut(&handle)
+                .ok_or_else(|| SemaError::eval(format!("serial/write: invalid handle {handle}")))?;
             let port = reader.get_mut();
             port.write_all(data.as_bytes())
                 .map_err(|e| SemaError::eval(format!("serial/write: {e}")))?;
@@ -143,9 +144,9 @@ pub fn register(env: &sema_core::Env) {
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
         PORTS.with(|ports| {
             let mut ports = ports.borrow_mut();
-            let reader = ports.get_mut(&handle).ok_or_else(|| {
-                SemaError::eval(format!("serial/send: invalid handle {handle}"))
-            })?;
+            let reader = ports
+                .get_mut(&handle)
+                .ok_or_else(|| SemaError::eval(format!("serial/send: invalid handle {handle}")))?;
 
             // Write command + newline
             let port = reader.get_mut();

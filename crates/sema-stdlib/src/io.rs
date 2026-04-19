@@ -1,3 +1,4 @@
+use std::cell::{Cell, RefCell};
 use std::io::BufRead;
 use std::io::Read as _;
 use std::io::Write as _;
@@ -5,6 +6,228 @@ use std::io::Write as _;
 use sema_core::{check_arity, Caps, EvalContext, NativeFn, SemaError, Value, ValueView};
 
 use crate::register_fn;
+
+// Thread-local EOF flag: set when any stdin read returns 0 bytes (EOF)
+thread_local! {
+    static STDIN_EOF: Cell<bool> = const { Cell::new(false) };
+}
+
+// TTY restore-token store (unix only)
+#[cfg(unix)]
+thread_local! {
+    static TTY_STORE: RefCell<std::collections::BTreeMap<i64, libc::termios>> =
+        const { RefCell::new(std::collections::BTreeMap::new()) };
+    static TTY_COUNTER: Cell<i64> = const { Cell::new(0) };
+}
+
+// Returns true if stdin has data ready to read within `timeout_ms` milliseconds (0 = non-blocking).
+#[cfg(unix)]
+fn unix_stdin_ready(timeout_ms: u64) -> bool {
+    unsafe {
+        let mut readfds: libc::fd_set = std::mem::zeroed();
+        libc::FD_ZERO(&mut readfds);
+        libc::FD_SET(libc::STDIN_FILENO, &mut readfds);
+        let mut tv = libc::timeval {
+            tv_sec: (timeout_ms / 1000) as libc::time_t,
+            tv_usec: ((timeout_ms % 1000) * 1000) as libc::suseconds_t,
+        };
+        libc::select(
+            libc::STDIN_FILENO + 1,
+            &mut readfds,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut tv,
+        ) > 0
+    }
+}
+
+// Read exactly one byte from stdin. Returns None on EOF.
+#[cfg(unix)]
+fn read_one_byte() -> std::io::Result<Option<u8>> {
+    let mut buf = [0u8; 1];
+    match std::io::stdin().read(&mut buf) {
+        Ok(0) => Ok(None),
+        Ok(_) => Ok(Some(buf[0])),
+        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+// Parse a key event from stdin (assuming raw mode).
+// Returns Ok(None) on EOF, Ok(Some(value)) on success.
+#[cfg(unix)]
+fn parse_key_input() -> Result<Option<Value>, SemaError> {
+    let b = match read_one_byte().map_err(|e| SemaError::Io(format!("io/read-key: {e}")))? {
+        None => return Ok(None),
+        Some(b) => b,
+    };
+
+    // ESC or escape sequence
+    if b == 0x1b {
+        if !unix_stdin_ready(50) {
+            // Plain ESC key
+            let mut m = std::collections::BTreeMap::new();
+            m.insert(Value::keyword("kind"), Value::keyword("key"));
+            m.insert(Value::keyword("name"), Value::keyword("esc"));
+            return Ok(Some(Value::map(m)));
+        }
+        let b2 = match read_one_byte().map_err(|e| SemaError::Io(format!("io/read-key: {e}")))? {
+            None => {
+                let mut m = std::collections::BTreeMap::new();
+                m.insert(Value::keyword("kind"), Value::keyword("key"));
+                m.insert(Value::keyword("name"), Value::keyword("esc"));
+                return Ok(Some(Value::map(m)));
+            }
+            Some(b) => b,
+        };
+
+        if b2 == b'[' {
+            // CSI sequence: read until final byte (0x40–0x7e)
+            let mut csi: Vec<u8> = Vec::new();
+            loop {
+                match read_one_byte().map_err(|e| SemaError::Io(format!("io/read-key: {e}")))? {
+                    None => break,
+                    Some(ch) => {
+                        csi.push(ch);
+                        if (0x40..=0x7e).contains(&ch) {
+                            break;
+                        }
+                    }
+                }
+            }
+            let name = match csi.as_slice() {
+                b"A" => "up",
+                b"B" => "down",
+                b"C" => "right",
+                b"D" => "left",
+                b"H" => "home",
+                b"F" => "end",
+                b"Z" => "shift-tab",
+                b"3~" => "delete",
+                b"5~" => "page-up",
+                b"6~" => "page-down",
+                _ => "unknown",
+            };
+            let mut m = std::collections::BTreeMap::new();
+            m.insert(Value::keyword("kind"), Value::keyword("key"));
+            m.insert(Value::keyword("name"), Value::keyword(name));
+            return Ok(Some(Value::map(m)));
+        }
+
+        // ESC O sequences (SS3, e.g. function keys on some terminals)
+        if b2 == b'O' {
+            let b3 = read_one_byte()
+                .map_err(|e| SemaError::Io(format!("io/read-key: {e}")))?
+                .unwrap_or(0);
+            let name = match b3 {
+                b'A' => "up",
+                b'B' => "down",
+                b'C' => "right",
+                b'D' => "left",
+                b'H' => "home",
+                b'F' => "end",
+                b'P' => "f1",
+                b'Q' => "f2",
+                b'R' => "f3",
+                b'S' => "f4",
+                _ => "unknown",
+            };
+            let mut m = std::collections::BTreeMap::new();
+            m.insert(Value::keyword("kind"), Value::keyword("key"));
+            m.insert(Value::keyword("name"), Value::keyword(name));
+            return Ok(Some(Value::map(m)));
+        }
+
+        // Alt + char  (ESC followed by a regular character)
+        let alt_char = char::from(b2);
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(Value::keyword("kind"), Value::keyword("alt"));
+        m.insert(Value::keyword("char"), Value::string(&alt_char.to_string()));
+        return Ok(Some(Value::map(m)));
+    }
+
+    // DEL / Backspace (0x7f)
+    if b == 0x7f {
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(Value::keyword("kind"), Value::keyword("key"));
+        m.insert(Value::keyword("name"), Value::keyword("backspace"));
+        return Ok(Some(Value::map(m)));
+    }
+
+    // Control characters (0x00–0x1f, excluding ESC already handled)
+    if b < 0x20 {
+        match b {
+            0x08 => {
+                // Ctrl-H = backspace
+                let mut m = std::collections::BTreeMap::new();
+                m.insert(Value::keyword("kind"), Value::keyword("key"));
+                m.insert(Value::keyword("name"), Value::keyword("backspace"));
+                return Ok(Some(Value::map(m)));
+            }
+            0x09 => {
+                let mut m = std::collections::BTreeMap::new();
+                m.insert(Value::keyword("kind"), Value::keyword("key"));
+                m.insert(Value::keyword("name"), Value::keyword("tab"));
+                return Ok(Some(Value::map(m)));
+            }
+            0x0a | 0x0d => {
+                let mut m = std::collections::BTreeMap::new();
+                m.insert(Value::keyword("kind"), Value::keyword("key"));
+                m.insert(Value::keyword("name"), Value::keyword("enter"));
+                return Ok(Some(Value::map(m)));
+            }
+            _ => {
+                // 0x01–0x1a → Ctrl-A through Ctrl-Z; map to letter
+                let ctrl_char = char::from(b.wrapping_add(0x60));
+                let mut m = std::collections::BTreeMap::new();
+                m.insert(Value::keyword("kind"), Value::keyword("ctrl"));
+                m.insert(
+                    Value::keyword("char"),
+                    Value::string(&ctrl_char.to_string()),
+                );
+                return Ok(Some(Value::map(m)));
+            }
+        }
+    }
+
+    // Regular ASCII (0x20–0x7e)
+    if b < 0x80 {
+        let ch = char::from(b);
+        let mut m = std::collections::BTreeMap::new();
+        m.insert(Value::keyword("kind"), Value::keyword("char"));
+        m.insert(Value::keyword("char"), Value::string(&ch.to_string()));
+        return Ok(Some(Value::map(m)));
+    }
+
+    // Multi-byte UTF-8 character (b >= 0x80)
+    let extra = if b & 0xe0 == 0xc0 {
+        1usize
+    } else if b & 0xf0 == 0xe0 {
+        2
+    } else if b & 0xf8 == 0xf0 {
+        3
+    } else {
+        0
+    };
+    let mut bytes = vec![b];
+    for _ in 0..extra {
+        // Only read more if data is immediately available (prevents blocking on partial sequences)
+        if !unix_stdin_ready(0) {
+            break;
+        }
+        match read_one_byte().map_err(|e| SemaError::Io(format!("io/read-key: {e}")))? {
+            None => break,
+            Some(ch) => bytes.push(ch),
+        }
+    }
+    let ch_str = std::str::from_utf8(&bytes)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|_| "?".to_string());
+    let mut m = std::collections::BTreeMap::new();
+    m.insert(Value::keyword("kind"), Value::keyword("char"));
+    m.insert(Value::keyword("char"), Value::string(&ch_str));
+    Ok(Some(Value::map(m)))
+}
 
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     register_fn(env, "display", |args| {
@@ -144,9 +367,14 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     register_fn(env, "read-line", |args| {
         check_arity!(args, "read-line", 0);
         let mut input = String::new();
-        std::io::stdin()
+        let n = std::io::stdin()
             .read_line(&mut input)
             .map_err(|e| SemaError::Io(format!("read-line: {e}")))?;
+        if n == 0 {
+            // EOF: stdin was closed (piped input exhausted or Ctrl-D in raw mode)
+            STDIN_EOF.with(|f| f.set(true));
+            return Ok(Value::nil());
+        }
         // Remove trailing newline
         if input.ends_with('\n') {
             input.pop();
@@ -640,8 +868,107 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         std::io::stdin()
             .read_to_string(&mut buf)
             .map_err(|e| SemaError::Io(format!("read-stdin: {e}")))?;
+        STDIN_EOF.with(|f| f.set(true));
         Ok(Value::string(&buf))
     });
+
+    // io/flush — flush stdout
+    register_fn(env, "io/flush", |args| {
+        check_arity!(args, "io/flush", 0);
+        std::io::stdout()
+            .flush()
+            .map_err(|e| SemaError::Io(format!("io/flush: {e}")))?;
+        Ok(Value::nil())
+    });
+
+    // io/eof? — true after stdin has returned EOF (set by read-line / read-stdin / read-key returning nil)
+    register_fn(env, "io/eof?", |args| {
+        check_arity!(args, "io/eof?", 0);
+        Ok(Value::bool(STDIN_EOF.with(|f| f.get())))
+    });
+
+    // ─── TTY / raw-mode + keystroke reader (Unix only) ───────────────────────
+    #[cfg(unix)]
+    {
+        use std::io::IsTerminal;
+
+        // io/tty-raw! — put the controlling TTY into raw mode.
+        // Returns a restore-token (integer) on success, nil if stdin is not a TTY.
+        register_fn(env, "io/tty-raw!", |args| {
+            check_arity!(args, "io/tty-raw!", 0);
+            if !std::io::stdin().is_terminal() {
+                return Ok(Value::nil());
+            }
+            let mut orig: libc::termios = unsafe { std::mem::zeroed() };
+            if unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut orig) } != 0 {
+                return Ok(Value::nil());
+            }
+            let id = TTY_COUNTER.with(|c| {
+                let n = c.get();
+                c.set(n + 1);
+                n
+            });
+            TTY_STORE.with(|s| s.borrow_mut().insert(id, orig));
+            let mut raw = orig;
+            unsafe { libc::cfmakeraw(&mut raw) };
+            raw.c_cc[libc::VMIN] = 1;
+            raw.c_cc[libc::VTIME] = 0;
+            unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw) };
+            Ok(Value::int(id))
+        });
+
+        // io/tty-restore! — restore the TTY to cooked mode using the given restore-token.
+        register_fn(env, "io/tty-restore!", |args| {
+            check_arity!(args, "io/tty-restore!", 1);
+            let id = args[0]
+                .as_int()
+                .ok_or_else(|| SemaError::type_error("integer", args[0].type_name()))?;
+            TTY_STORE.with(|s| {
+                if let Some(orig) = s.borrow_mut().remove(&id) {
+                    unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &orig) };
+                }
+            });
+            Ok(Value::nil())
+        });
+
+        // io/read-key — blocking; reads one keypress and returns a map describing it.
+        // Returns nil on EOF.
+        // Map shapes:
+        //   {:kind :char   :char "a"}         regular printable character
+        //   {:kind :ctrl   :char "c"}         Ctrl-C (ctrl + letter)
+        //   {:kind :key    :name :enter}      named key (:enter :backspace :tab :esc :up …)
+        //   {:kind :alt    :char "x"}         Alt + character
+        register_fn(env, "io/read-key", |args| {
+            check_arity!(args, "io/read-key", 0);
+            match parse_key_input()? {
+                None => {
+                    STDIN_EOF.with(|f| f.set(true));
+                    Ok(Value::nil())
+                }
+                Some(v) => Ok(v),
+            }
+        });
+
+        // io/read-key-timeout — like io/read-key but returns nil if no key arrives within
+        // `timeout-ms` milliseconds.
+        register_fn(env, "io/read-key-timeout", |args| {
+            check_arity!(args, "io/read-key-timeout", 1);
+            let ms = args[0]
+                .as_int()
+                .ok_or_else(|| SemaError::type_error("integer", args[0].type_name()))?
+                as u64;
+            if !unix_stdin_ready(ms) {
+                return Ok(Value::nil());
+            }
+            match parse_key_input()? {
+                None => {
+                    STDIN_EOF.with(|f| f.set(true));
+                    Ok(Value::nil())
+                }
+                Some(v) => Ok(v),
+            }
+        });
+    }
 
     // module/function aliases for legacy names
     if let Some(v) = env.get(sema_core::intern("read-line")) {
