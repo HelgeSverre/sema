@@ -1,0 +1,259 @@
+# LLM Proxy
+
+The `@sema-lang/llm-proxy` package is a server-side proxy that sits between Sema Web in the browser and LLM providers. It holds your API keys, translates requests into provider-native formats, and streams responses back.
+
+## Why a Proxy?
+
+LLM API keys are secrets. Shipping them in browser JavaScript means anyone can extract them from DevTools and use them at your expense. The proxy keeps keys server-side while exposing a simple, uniform API to the browser.
+
+The proxy also normalizes the differences between providers -- your Sema code does not change when switching from OpenAI to Anthropic to Gemini.
+
+## Installation
+
+```bash
+npm install @sema-lang/llm-proxy
+```
+
+## Supported Providers
+
+| Provider | Identifier | Default Model | Embeddings |
+|----------|-----------|---------------|------------|
+| OpenAI | `"openai"` | `gpt-4o-mini` | `text-embedding-3-small` |
+| Anthropic | `"anthropic"` | `claude-sonnet-4-20250514` | Not supported |
+| Google Gemini | `"gemini"` | `gemini-2.0-flash` | `text-embedding-004` |
+| Ollama | `"ollama"` | `llama3.2` | `nomic-embed-text` |
+| Groq | `"groq"` | `llama-3.3-70b-versatile` | Not supported |
+| Mistral | `"mistral"` | `mistral-small-latest` | `mistral-embed` |
+| xAI | `"xai"` | `grok-3-mini` | Not supported |
+
+Groq, Mistral, and xAI use the OpenAI-compatible API format internally.
+
+## Platform Adapters
+
+Each adapter wraps the core handler for a specific deployment platform. They convert platform-specific request/response objects to the internal `ProxyRequest`/`ProxyResponse` format.
+
+### Vercel (Edge Functions / Serverless)
+
+```ts
+// api/llm/[...path].ts
+import { createVercelHandler } from "@sema-lang/llm-proxy/vercel";
+
+export default createVercelHandler({
+  provider: "openai",
+  apiKey: process.env.OPENAI_API_KEY!,
+  defaultModel: "gpt-4o",
+  cors: "*",
+});
+```
+
+### Netlify (Edge Functions)
+
+```ts
+// netlify/edge-functions/llm.ts
+import { createNetlifyHandler } from "@sema-lang/llm-proxy/netlify";
+
+export default createNetlifyHandler({
+  provider: "anthropic",
+  apiKey: Deno.env.get("ANTHROPIC_API_KEY")!,
+  defaultModel: "claude-sonnet-4-20250514",
+});
+
+export const config = { path: "/api/llm/*" };
+```
+
+### Cloudflare Workers
+
+```ts
+// src/worker.ts
+import { createCloudflareHandler } from "@sema-lang/llm-proxy/cloudflare";
+
+const handler = createCloudflareHandler({
+  provider: "openai",
+  apiKey: "", // Set at runtime from env
+});
+
+export default {
+  async fetch(request: Request, env: any) {
+    // Override apiKey from Worker environment binding
+    return handler(request, {
+      apiKey: env.OPENAI_API_KEY,
+    });
+  },
+};
+```
+
+### Node.js (Express / standalone)
+
+```ts
+import express from "express";
+import { createNodeHandler } from "@sema-lang/llm-proxy/node";
+
+const app = express();
+const llmHandler = createNodeHandler({
+  provider: "openai",
+  apiKey: process.env.OPENAI_API_KEY!,
+});
+
+app.use("/api/llm", llmHandler);
+app.listen(3001);
+```
+
+## Configuration Reference
+
+The `ProxyConfig` object is shared across all adapters:
+
+```ts
+interface ProxyConfig {
+  /** Provider name or full config object. */
+  provider: "openai" | "anthropic" | "gemini" | "ollama"
+           | "groq" | "mistral" | "xai" | ProviderConfig;
+
+  /** API key (shorthand when provider is a string). */
+  apiKey?: string;
+
+  /** Override the provider's base URL. */
+  baseUrl?: string;
+
+  /** Default model when request doesn't specify one. */
+  defaultModel?: string;
+
+  /** Authentication for incoming browser requests. */
+  auth?: AuthConfig;
+
+  /** CORS origin. Default: "*". */
+  cors?: string;
+
+  /** Max request body size in bytes. Default: 1MB. */
+  maxBodySize?: number;
+
+  /** Rate limiting. */
+  rateLimit?: RateLimitConfig;
+}
+```
+
+### Provider Config (advanced)
+
+When you need full control, pass a `ProviderConfig` object instead of a string:
+
+```ts
+createVercelHandler({
+  provider: {
+    provider: "openai",
+    apiKey: process.env.OPENAI_API_KEY!,
+    baseUrl: "https://my-azure-openai.openai.azure.com/v1",
+    defaultModel: "gpt-4o",
+  },
+});
+```
+
+### Authentication
+
+Protect your proxy from unauthorized access. Two modes are available:
+
+**Shared token** -- simple, good for prototypes:
+
+```ts
+createVercelHandler({
+  provider: "openai",
+  apiKey: process.env.OPENAI_API_KEY!,
+  auth: {
+    token: process.env.PROXY_SECRET!,
+  },
+});
+```
+
+The browser must send `Authorization: Bearer {token}` on every request. Configure this in `SemaWeb.create()`:
+
+```js
+SemaWeb.create({
+  llmProxy: {
+    url: "/api/llm",
+    token: "the-shared-secret",
+  },
+});
+```
+
+**Custom verification** -- for JWT validation, session checks, etc.:
+
+```ts
+createVercelHandler({
+  provider: "openai",
+  apiKey: process.env.OPENAI_API_KEY!,
+  auth: {
+    verify: async (authHeader) => {
+      // Validate JWT, check session, etc.
+      const token = authHeader?.replace("Bearer ", "");
+      return await validateSession(token);
+    },
+  },
+});
+```
+
+### Rate Limiting
+
+The proxy includes an in-memory sliding-window rate limiter. Requests are keyed by the `Authorization` header value (or `"anonymous"` if none).
+
+```ts
+createVercelHandler({
+  provider: "openai",
+  apiKey: process.env.OPENAI_API_KEY!,
+  rateLimit: {
+    windowMs: 60_000,   // 1 minute window (default)
+    maxRequests: 20,     // 20 requests per window (default: 60)
+  },
+});
+```
+
+::: warning
+The rate limiter is in-memory and per-instance. In serverless environments where each invocation may run in a separate container, this provides a best-effort limit rather than a hard guarantee. For strict rate limiting, use an external store (Redis, etc.) via the `auth.verify` callback.
+:::
+
+## Endpoints
+
+The proxy exposes these endpoints (relative to the base URL):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/chat` | Chat completion with messages |
+| POST | `/complete` | Simple text completion |
+| POST | `/stream` | Streaming chat (SSE response) |
+| POST | `/extract` | Structured data extraction |
+| POST | `/classify` | Text classification |
+| POST | `/embed` | Text embeddings |
+| GET | `/models` | List available models |
+
+## Error Codes
+
+All errors return a structured JSON body:
+
+```json
+{
+  "error": "Human-readable message",
+  "code": "ERROR_CODE",
+  "details": "Optional extra context"
+}
+```
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `AUTH_FAILED` | 401 | Missing or invalid authorization |
+| `RATE_LIMITED` | 429 | Too many requests in the current window |
+| `BODY_TOO_LARGE` | 413 | Request body exceeds `maxBodySize` |
+| `INVALID_REQUEST` | 404 | Unknown endpoint path |
+| `PROVIDER_ERROR` | 502 | The upstream LLM provider returned an error |
+
+## SSE Streaming Protocol
+
+The `/stream` endpoint returns a normalized `text/event-stream` response. Each event is a `data:` line containing a small JSON object.
+
+```
+data: {"type":"token","text":"Hello"}
+
+data: {"type":"token","text":" world"}
+
+data: {"type":"done"}
+```
+
+If a stream fails after it has started, the proxy emits `data: {"type":"error","error":"..."}` before closing the stream.
+
+The `llm/chat-stream` function in Sema Web handles this protocol automatically. You only need to parse it yourself when building a custom client.

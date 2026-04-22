@@ -5,8 +5,8 @@ mod prelude;
 mod special_forms;
 
 pub use eval::{
-    call_value, create_module_env, eval, eval_string, eval_value, EvalResult, Interpreter,
-    Trampoline,
+    call_value, create_module_env, eval, eval_string, eval_value, execute_compile_result,
+    EvalResult, Interpreter, Trampoline,
 };
 pub use sema_core::EvalContext;
 pub use special_forms::SPECIAL_FORM_NAMES;

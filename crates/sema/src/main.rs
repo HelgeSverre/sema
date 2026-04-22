@@ -8,7 +8,7 @@ use rustyline::completion::Completer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-use sema_core::{intern, pretty_print, Env, SemaError, Value, ValueView};
+use sema_core::{archive, intern, pretty_print, Env, SemaError, Value, ValueView};
 use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
 use serde::Deserialize;
 
@@ -60,7 +60,6 @@ fn find_config() -> Option<SemaConfig> {
     }
 }
 
-mod archive;
 mod cross_compile;
 mod import_tracer;
 mod pkg;
@@ -336,7 +335,7 @@ enum Commands {
         #[arg(long, conflicts_with = "target")]
         runtime: Option<String>,
 
-        /// Target platform triple or alias (e.g. linux, macos, windows, or a full triple).
+        /// Target platform triple or alias (e.g. linux, macos, windows, web, or a full triple).
         /// Use "all" to build for all supported targets.
         #[arg(long)]
         target: Option<String>,
@@ -858,8 +857,12 @@ fn main() {
                     }
                 }
             }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                eprintln!("error: '{file}' not found (not a file or command)\n\nRun 'sema --help' for available commands.");
+                std::process::exit(1);
+            }
             Err(e) => {
-                eprintln!("Error reading {file}: {e}");
+                eprintln!("error: could not read '{file}': {e}");
                 std::process::exit(1);
             }
         }
@@ -1414,6 +1417,10 @@ fn run_build(
         return Ok(());
     }
 
+    if target == Some("web") {
+        return run_build_web(file, output, includes);
+    }
+
     let path = std::path::Path::new(file);
 
     // Validate input file exists
@@ -1636,6 +1643,173 @@ fn run_build(
             );
         }
     }
+
+    Ok(())
+}
+
+fn compile_source_to_bytecode(source: &str) -> Result<Vec<u8>, String> {
+    let source_hash = crc32fast::hash(source.as_bytes());
+    let sandbox = sema_core::Sandbox::allow_all();
+    let interpreter = Interpreter::new_with_sandbox(&sandbox);
+    interpreter
+        .eval_str_in_global(include_str!("web_prelude.sema"))
+        .map_err(|e| format!("web prelude error: {}", e.inner()))?;
+    let result = interpreter
+        .compile_to_bytecode(source)
+        .map_err(|e| format!("compile error: {}", e.inner()))?;
+    sema_vm::serialize_to_bytes(&result, source_hash)
+        .map_err(|e| format!("serialization error: {}", e.inner()))
+}
+
+fn should_compile_traced_import(rel_path: &str) -> bool {
+    rel_path.ends_with(".sema") || sema_core::resolve::is_package_import(rel_path)
+}
+
+fn web_output_path(input: &std::path::Path, output: Option<&str>) -> std::path::PathBuf {
+    let default_name = format!(
+        "{}.vfs",
+        input
+            .file_stem()
+            .unwrap_or(input.as_os_str())
+            .to_string_lossy()
+    );
+
+    match output {
+        Some(raw) => {
+            let path = std::path::PathBuf::from(raw);
+            if path.is_dir() || raw.ends_with(std::path::MAIN_SEPARATOR) {
+                path.join(default_name)
+            } else if path.extension().is_none() {
+                path.with_extension("vfs")
+            } else {
+                path
+            }
+        }
+        None => std::path::PathBuf::from(default_name),
+    }
+}
+
+fn run_build_web(file: &str, output: Option<&str>, includes: &[String]) -> Result<(), String> {
+    let path = std::path::Path::new(file);
+    if !path.exists() {
+        return Err(format!("source file not found: {file}"));
+    }
+
+    let source = std::fs::read_to_string(path).map_err(|e| format!("reading {file}: {e}"))?;
+
+    eprintln!("[1/5] Compiling {file} for web...");
+
+    let entry_bytecode = compile_source_to_bytecode(&source)?;
+
+    eprintln!("[2/5] Tracing imports...");
+
+    let imports =
+        import_tracer::trace_imports(path).map_err(|e| format!("tracing imports: {e}"))?;
+
+    eprintln!("[3/5] Compiling traced modules...");
+
+    let mut files = std::collections::HashMap::new();
+    files.insert("__main__.semac".to_string(), entry_bytecode);
+
+    for (rel_path, contents) in &imports {
+        if let Err(e) = sema_core::vfs::validate_vfs_path(rel_path) {
+            eprintln!("Warning: skipping import with invalid VFS path: {e}");
+            continue;
+        }
+
+        let bundled = if should_compile_traced_import(rel_path) {
+            let import_source = String::from_utf8(contents.clone()).map_err(|e| {
+                format!("compile error in {rel_path}: import is not valid UTF-8: {e}")
+            })?;
+            compile_source_to_bytecode(&import_source).map_err(|e| format!("{e} in {rel_path}"))?
+        } else {
+            contents.clone()
+        };
+
+        files.insert(rel_path.clone(), bundled);
+    }
+
+    for include in includes {
+        let inc_path = std::path::Path::new(include);
+        if inc_path.is_dir() {
+            let base = inc_path
+                .file_name()
+                .unwrap_or(inc_path.as_os_str())
+                .to_string_lossy()
+                .to_string();
+            collect_directory_files(inc_path, &base, &mut files);
+        } else if inc_path.is_file() {
+            let rel = inc_path
+                .file_name()
+                .unwrap_or(inc_path.as_os_str())
+                .to_string_lossy()
+                .to_string();
+            if let Err(e) = sema_core::vfs::validate_vfs_path(&rel) {
+                eprintln!("Warning: skipping {include}: {e}");
+                continue;
+            }
+            match std::fs::read(inc_path) {
+                Ok(data) => {
+                    files.insert(rel, data);
+                }
+                Err(e) => {
+                    eprintln!("Warning: cannot read {include}: {e}");
+                }
+            }
+        } else {
+            eprintln!("Warning: --include path not found: {include}");
+        }
+    }
+
+    eprintln!("[4/5] Building web archive ({} files)...", files.len());
+
+    let mut metadata = std::collections::HashMap::new();
+    metadata.insert(
+        "sema-version".to_string(),
+        env!("CARGO_PKG_VERSION").as_bytes().to_vec(),
+    );
+    metadata.insert(
+        "build-timestamp".to_string(),
+        build_timestamp().into_bytes(),
+    );
+    metadata.insert("entry-point".to_string(), b"__main__.semac".to_vec());
+    metadata.insert("build-target".to_string(), b"web".to_vec());
+
+    let canonical_root = path
+        .parent()
+        .and_then(|p| p.canonicalize().ok())
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    metadata.insert(
+        "build-root".to_string(),
+        canonical_root.to_string_lossy().into_owned().into_bytes(),
+    );
+
+    let archive_bytes = archive::serialize_archive(&metadata, &files);
+
+    eprintln!("[5/5] Writing web archive...");
+
+    let output_path = web_output_path(path, output);
+    if let Some(parent) = output_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| format!("creating output directory {}: {e}", parent.display()))?;
+        }
+    }
+    std::fs::write(&output_path, &archive_bytes)
+        .map_err(|e| format!("writing {}: {e}", output_path.display()))?;
+
+    eprintln!(
+        "Built web archive: {} ({} bytes, {} bundled files)",
+        output_path.display(),
+        std::fs::metadata(&output_path)
+            .map(|m| m.len())
+            .unwrap_or(0),
+        files.len()
+    );
+    eprintln!(
+        "  Load with <script type=\"text/sema\" src=\"{}\"></script>",
+        output_path.display()
+    );
 
     Ok(())
 }
@@ -2008,31 +2182,7 @@ fn run_bytecode_bytes(
     bytes: &[u8],
 ) -> Result<sema_core::Value, SemaError> {
     let result = sema_vm::deserialize_from_bytes(bytes)?;
-
-    let functions: Vec<std::rc::Rc<sema_vm::Function>> =
-        result.functions.into_iter().map(std::rc::Rc::new).collect();
-    let main_cache_slots = result.chunk.n_global_cache_slots;
-    let closure = std::rc::Rc::new(sema_vm::Closure {
-        func: std::rc::Rc::new(sema_vm::Function {
-            name: None,
-            chunk: result.chunk,
-            upvalue_descs: Vec::new(),
-            arity: 0,
-            has_rest: false,
-            local_names: Vec::new(),
-            source_file: None,
-            cache_offset: 0,
-        }),
-        upvalues: Vec::new(),
-    });
-
-    let mut vm = sema_vm::VM::new(
-        interpreter.global_env.clone(),
-        functions,
-        &[],
-        main_cache_slots,
-    )?;
-    vm.execute(closure, &interpreter.ctx)
+    sema_eval::execute_compile_result(&interpreter.ctx, interpreter.global_env.clone(), result)
 }
 
 fn run_fmt(
@@ -2952,4 +3102,81 @@ fn install_completions(shell: Shell) {
 
 fn dirs_path() -> std::path::PathBuf {
     sema_core::sema_home()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::compile_source_to_bytecode;
+    use sema_core::{intern, NativeFn, Sandbox, Value};
+    use sema_eval::Interpreter;
+
+    #[test]
+    fn web_build_prelude_expands_defcomponent_into_callable_global() {
+        let source = r##"
+            (defcomponent counter-view ()
+              [:div "ok"])
+            (mount! "#app" counter-view)
+        "##;
+
+        let bytes = compile_source_to_bytecode(source).expect("compile should succeed");
+        let compiled = sema_vm::deserialize_from_bytes(&bytes).expect("bytecode should deserialize");
+
+        let interp = Interpreter::new_with_sandbox(&Sandbox::allow_all());
+        interp.global_env.set(
+            intern("component/mount!"),
+            Value::native_fn(NativeFn::simple("component/mount!", |_args| Ok(Value::nil()))),
+        );
+
+        sema_eval::execute_compile_result(&interp.ctx, interp.global_env.clone(), compiled)
+            .expect("compiled program should execute");
+
+        let counter_view = interp
+            .global_env
+            .get(intern("counter-view"))
+            .expect("defcomponent should define counter-view");
+        let rendered =
+            sema_eval::call_value(&interp.ctx, &counter_view, &[]).expect("counter-view should be callable");
+
+        assert!(!rendered.is_nil(), "component should return SIP markup");
+    }
+
+    #[test]
+    fn web_build_prelude_expands_reactive_macros() {
+        let source = r#"
+            (def doubled (computed 42))
+            (def batched (batch 1 2 3))
+        "#;
+
+        let bytes = compile_source_to_bytecode(source).expect("compile should succeed");
+        let compiled = sema_vm::deserialize_from_bytes(&bytes).expect("bytecode should deserialize");
+
+        let interp = Interpreter::new_with_sandbox(&Sandbox::allow_all());
+        interp.global_env.set(
+            intern("__state/computed-create"),
+            Value::native_fn(NativeFn::simple("__state/computed-create", |args| {
+                Ok(Value::string("computed-ok"))
+            })),
+        );
+        interp.global_env.set(
+            intern("__state/batch-run"),
+            Value::native_fn(NativeFn::simple("__state/batch-run", |args| {
+                Ok(Value::string("batch-ok"))
+            })),
+        );
+
+        sema_eval::execute_compile_result(&interp.ctx, interp.global_env.clone(), compiled)
+            .expect("compiled program should execute");
+
+        let doubled = interp
+            .global_env
+            .get(intern("doubled"))
+            .expect("computed should define doubled");
+        let batched = interp
+            .global_env
+            .get(intern("batched"))
+            .expect("batch should define batched");
+
+        assert_eq!(doubled, Value::string("computed-ok"));
+        assert_eq!(batched, Value::string("batch-ok"));
+    }
 }

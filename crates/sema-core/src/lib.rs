@@ -1,4 +1,5 @@
 #![allow(clippy::mutable_key_type)]
+pub mod archive;
 pub mod context;
 pub mod error;
 pub mod home;
