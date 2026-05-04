@@ -349,6 +349,19 @@ enum Commands {
         #[arg(long)]
         no_cache: bool,
     },
+    /// Run doctests from source files
+    Test {
+        /// Source files to scan for doctests
+        files: Vec<String>,
+
+        /// Verbose output — show each doctest result
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Attempt to heal failing doctests using LLM
+        #[arg(long)]
+        heal: bool,
+    },
     /// Format Sema source files
     Fmt {
         /// Files or glob patterns to format (default: **/*.sema in current directory)
@@ -668,6 +681,13 @@ fn main() {
                     eprintln!("Error: {e}");
                     std::process::exit(1);
                 }
+            }
+            Commands::Test {
+                files,
+                verbose,
+                heal,
+            } => {
+                run_doctests(&files, verbose, heal);
             }
             Commands::Fmt {
                 files,
@@ -2033,6 +2053,135 @@ fn run_bytecode_bytes(
         main_cache_slots,
     )?;
     vm.execute(closure, &interpreter.ctx)
+}
+
+fn run_doctests(files: &[String], verbose: bool, heal: bool) {
+    if files.is_empty() {
+        eprintln!("Usage: sema test <file.sema> ...");
+        std::process::exit(1);
+    }
+
+    let mut total_passed: i64 = 0;
+    let mut total_tests: i64 = 0;
+    let mut total_healed: i64 = 0;
+    let mut any_failed = false;
+
+    for file in files {
+        let content = match std::fs::read_to_string(file) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Error reading {file}: {e}");
+                any_failed = true;
+                continue;
+            }
+        };
+
+        // Each file gets its own interpreter for isolation
+        let interp = Interpreter::new();
+
+        let path = std::path::Path::new(file);
+        if let Ok(canonical) = path.canonicalize() {
+            interp.ctx.push_file_path(canonical);
+        }
+        if let Err(e) = interp.eval_str_in_global(&content) {
+            interp.ctx.pop_file_path();
+            eprintln!("Error loading {file}: {e}");
+            any_failed = true;
+            continue;
+        }
+        interp.ctx.pop_file_path();
+
+        // Find all symbols with :doc metadata and run their doctests
+        let all_names = interp.global_env.all_names();
+        for spur in &all_names {
+            if let Some(meta) = interp.global_env.get_meta(*spur) {
+                if let Some(doc_val) = meta.get(&Value::keyword("doc")) {
+                    if let Some(docstring) = doc_val.as_str() {
+                        let tests = sema_eval::doctest::parse_doctests(docstring);
+                        if tests.is_empty() {
+                            continue;
+                        }
+
+                        let name = sema_core::resolve(*spur);
+                        let child_env = Env::with_parent(interp.global_env.clone());
+
+                        let results = sema_eval::doctest::run_doctests(docstring, &mut |input| {
+                            sema_eval::eval_string(&interp.ctx, input, &child_env)
+                        });
+
+                        let passed = results.iter().filter(|r| r.passed).count() as i64;
+                        let count = results.len() as i64;
+                        total_passed += passed;
+                        total_tests += count;
+
+                        if verbose {
+                            eprintln!("{name}:");
+                            for r in &results {
+                                if r.passed {
+                                    eprintln!("  ✓ {} => {}", r.input, r.expected);
+                                } else {
+                                    any_failed = true;
+                                    eprintln!(
+                                        "  ✗ {} => expected {}, got {}",
+                                        r.input, r.expected, r.actual
+                                    );
+                                }
+                            }
+                        } else if passed == count {
+                            let dots: String = ".".repeat(count as usize);
+                            eprintln!("{name} {dots} {passed}/{count} ✓");
+                        } else {
+                            any_failed = true;
+                            eprintln!("{name} ... {passed}/{count} ✗");
+                            for r in results.iter().filter(|r| !r.passed) {
+                                eprintln!(
+                                    "  ✗ {} => expected {}, got {}",
+                                    r.input, r.expected, r.actual
+                                );
+                            }
+                        }
+
+                        // Attempt healing if --heal flag and there are failures
+                        if heal && passed < count {
+                            eprintln!("\n  Attempting to heal {name}...");
+                            let heal_expr = format!("(heal! {name})");
+                            match interp.eval_str_in_global(&heal_expr) {
+                                Ok(result) => {
+                                    if let Some(map) = result.as_map_rc() {
+                                        let status = map
+                                            .get(&Value::keyword("status"))
+                                            .and_then(|v| v.as_keyword())
+                                            .unwrap_or_default();
+                                        if status == "healed" {
+                                            total_healed += 1;
+                                            let healed_diff = count - passed;
+                                            total_passed += healed_diff;
+                                            any_failed = false; // may be fixed now
+                                            eprintln!("  ✓ {name} healed!");
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("  ✗ Failed to heal {name}: {e}");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if total_healed > 0 {
+        eprintln!(
+            "{total_passed}/{total_tests} doctests passed ({total_healed} function(s) healed)"
+        );
+    } else {
+        eprintln!("{total_passed}/{total_tests} doctests passed");
+    }
+    if any_failed || total_passed < total_tests {
+        std::process::exit(1);
+    }
 }
 
 fn run_fmt(

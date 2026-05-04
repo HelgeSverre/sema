@@ -596,7 +596,7 @@ The REPL supports tab completion for:
 The REPL automatically detects incomplete expressions (unbalanced parentheses) and continues on the next line:
 
 ```
-sema> (define (factorial n)
+sema> (defn factorial (n)
   ...   (if (= n 0)
   ...     1
   ...     (* n (factorial (- n 1)))))
@@ -655,11 +655,11 @@ When you pass the wrong number of arguments, the error shows what you called:
 
 ```
 Error: Arity error: f expects 1 args, got 3
-  --> <input>:1:18
+  --> <input>:1:17
    |
- 1 | (define (f x) x) (f 1 2 3)
-   |                  ^
-  at f (<input>:1:18)
+ 1 | (defn f (x) x) (f 1 2 3)
+   |                 ^
+  at f (<input>:1:17)
   note: in: (f 1 2 3)
 ```
 

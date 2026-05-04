@@ -54,7 +54,7 @@ sema -p '(map sqr (range 5))' # Evaluate and always print
 
 ```sema
 ;; In the REPL:
-sema> (define (greet name) f"Hello, ${name}!")
+sema> (defn greet (name) f"Hello, ${name}!")
 sema> (greet "world")
 "Hello, world!"
 
@@ -87,7 +87,7 @@ sema> (:name person)
   (println f"${name} is ${age} years old"))
 
 ;; Pattern matching
-(define (describe person)
+(defn describe (person)
   (match person
     ({:keys [name age]} when (> age 40)
       f"${name} is experienced")

@@ -312,10 +312,10 @@ Multiple spinners can run concurrently — each gets a unique ID:
 ### Colored Log Levels
 
 ```sema
-(define (log-error msg)   (println (term/style "✗ ERROR" :bold :red) " " msg))
-(define (log-warn msg)    (println (term/style "⚠ WARN " :bold :yellow) " " msg))
-(define (log-info msg)    (println (term/style "ℹ INFO " :bold :blue) " " msg))
-(define (log-success msg) (println (term/style "✔ OK   " :bold :green) " " msg))
+(defn log-error (msg)   (println (term/style "✗ ERROR" :bold :red) " " msg))
+(defn log-warn (msg)    (println (term/style "⚠ WARN " :bold :yellow) " " msg))
+(defn log-info (msg)    (println (term/style "ℹ INFO " :bold :blue) " " msg))
+(defn log-success (msg) (println (term/style "✔ OK   " :bold :green) " " msg))
 
 (log-error "Connection refused")
 (log-warn "Retrying in 5s")
@@ -326,7 +326,7 @@ Multiple spinners can run concurrently — each gets a unique ID:
 ### CLI Status Output
 
 ```sema
-(define (print-step label detail)
+(defn print-step (label detail)
   (println (term/style label :bold :cyan) " " (term/dim detail)))
 
 (print-step "Compile" "src/main.sema")
@@ -351,7 +351,7 @@ Multiple spinners can run concurrently — each gets a unique ID:
 ### Conditional Styling
 
 ```sema
-(define (color-status code)
+(defn color-status (code)
   (cond
     ((< code 300) (term/green (number/to-string code)))
     ((< code 400) (term/yellow (number/to-string code)))

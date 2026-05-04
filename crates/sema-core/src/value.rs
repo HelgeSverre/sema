@@ -2059,6 +2059,7 @@ impl fmt::Debug for Value {
 #[derive(Debug, Clone)]
 pub struct Env {
     pub bindings: Rc<RefCell<SpurMap<Spur, Value>>>,
+    pub metadata: Rc<RefCell<SpurMap<Spur, BTreeMap<Value, Value>>>>,
     pub parent: Option<Rc<Env>>,
     pub version: Cell<u64>,
 }
@@ -2067,6 +2068,7 @@ impl Env {
     pub fn new() -> Self {
         Env {
             bindings: Rc::new(RefCell::new(SpurMap::new())),
+            metadata: Rc::new(RefCell::new(SpurMap::new())),
             parent: None,
             version: Cell::new(0),
         }
@@ -2075,6 +2077,7 @@ impl Env {
     pub fn with_parent(parent: Rc<Env>) -> Self {
         Env {
             bindings: Rc::new(RefCell::new(SpurMap::new())),
+            metadata: Rc::new(RefCell::new(SpurMap::new())),
             parent: Some(parent),
             version: Cell::new(0),
         }
@@ -2155,6 +2158,26 @@ impl Env {
             } else {
                 false
             }
+        }
+    }
+
+    /// Set a metadata entry for a binding.
+    pub fn set_meta(&self, name: Spur, key: Value, val: Value) {
+        self.metadata
+            .borrow_mut()
+            .entry(name)
+            .or_default()
+            .insert(key, val);
+    }
+
+    /// Get metadata for a binding, searching parent scopes.
+    pub fn get_meta(&self, name: Spur) -> Option<BTreeMap<Value, Value>> {
+        if let Some(meta) = self.metadata.borrow().get(&name) {
+            Some(meta.clone())
+        } else if let Some(parent) = &self.parent {
+            parent.get_meta(name)
+        } else {
+            None
         }
     }
 

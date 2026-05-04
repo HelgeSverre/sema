@@ -195,7 +195,7 @@ Note: `tail` is a **list**, not a vector.
 `match` supports vector patterns:
 
 ```sema
-(define (describe-point p)
+(defn describe-point (p)
   (match p
     ([0 0] "origin")
     ([x 0] (string/append "on x-axis at " (number/to-string x)))
@@ -213,7 +213,7 @@ Note: `tail` is a **list**, not a vector.
 Vectors are great for fixed-arity return values:
 
 ```sema
-(define (min-max xs)
+(defn min-max (xs)
   [(list/min xs) (list/max xs)])
 
 (min-max '(3 1 4 1 5))

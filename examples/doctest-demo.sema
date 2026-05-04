@@ -1,0 +1,27 @@
+(defn factorial
+  "Computes factorial of n.
+
+   >>> (factorial 0)
+   1
+
+   >>> (factorial 5)
+   120
+
+   >>> (factorial 1)
+   1"
+  (n)
+  (if (<= n 1) 1 (* n (factorial (- n 1)))))
+
+(defn fibonacci
+  "Returns the nth Fibonacci number.
+
+   >>> (fibonacci 0)
+   0
+
+   >>> (fibonacci 1)
+   1
+
+   >>> (fibonacci 10)
+   55"
+  (n)
+  (if (< n 2) n (+ (fibonacci (- n 1)) (fibonacci (- n 2)))))

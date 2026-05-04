@@ -65,6 +65,7 @@ export default defineConfig({
             { text: 'Data Types', link: '/docs/language/data-types' },
             { text: 'Special Forms', link: '/docs/language/special-forms' },
             { text: 'Macros & Modules', link: '/docs/language/macros-modules' },
+            { text: 'Metaprogramming', link: '/docs/language/metaprogramming' },
           ],
         },
         {
@@ -76,6 +77,7 @@ export default defineConfig({
             { text: 'Conversations', link: '/docs/llm/conversations' },
             { text: 'Structured Extraction', link: '/docs/llm/extraction' },
             { text: 'Tools & Agents', link: '/docs/llm/tools-agents' },
+            { text: 'Living Code', link: '/docs/llm/living-code' },
             { text: 'Embeddings', link: '/docs/llm/embeddings' },
             { text: 'Vector Store & Math', link: '/docs/llm/vector-store' },
             { text: 'Caching', link: '/docs/llm/caching' },

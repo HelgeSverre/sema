@@ -257,7 +257,7 @@ Use `preloadModule` to inject virtual modules that can be imported with `(import
 const interp = new SemaInterpreter();
 
 interp.preloadModule('utils', `
-  (define (double x) (* x 2))
+  (defn double (x) (* x 2))
   (define pi 3.14159)
 `);
 
@@ -274,8 +274,8 @@ Use `(module ...)` with `(export ...)` to control which bindings are visible:
 ```js
 interp.preloadModule('math', `
   (module math (export square cube)
-    (define (square x) (* x x))
-    (define (cube x) (* x x x))
+    (defn square (x) (* x x))
+    (defn cube (x) (* x x x))
     (define internal-helper 42))
 `);
 
@@ -292,7 +292,7 @@ Use `evalGlobal` to build up state across multiple calls — this is the key pat
 ```js
 // Define functions
 interp.evalGlobal(`
-  (define (greet name)
+  (defn greet (name)
     (string/append "Hello, " name "!"))
 `);
 
@@ -327,7 +327,7 @@ The VFS can also be accessed directly from JavaScript, enabling file browser UIs
 const sema = new SemaInterpreter();
 
 // Write files from JS
-sema.writeFile("/lib/math.sema", "(define (square x) (* x x))");
+sema.writeFile("/lib/math.sema", "(defn square (x) (* x x))");
 sema.writeFile("/main.sema", '(import "/lib/math") (square 7)');
 
 // Run the script
@@ -492,7 +492,7 @@ A web application that lets users write Sema scripts to customize behavior. The 
 ```html
 <div id="app">
   <textarea id="script" rows="8" cols="60">
-(define (transform items)
+(defn transform (items)
   (filter (lambda (item) (> (:score item) 50))
     (map (lambda (item)
            (assoc item :label

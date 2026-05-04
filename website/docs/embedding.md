@@ -242,7 +242,7 @@ fn make_record(name: &str, age: i64, dept: &str) -> Value {
 ### User Script (`transform.sema`)
 
 ```sema
-(define (transform record)
+(defn transform (record)
   (log (format "Processing: ~a" (:name record)))
   (if (> (:age record) 30)
       (assoc record :senior #t)
@@ -324,15 +324,15 @@ let interp = Interpreter::new();
 
 // All top-level definitions are exported by default
 interp.preload_module("utils", r#"
-    (define (double x) (* x 2))
+    (defn double (x) (* x 2))
     (define pi 3.14159)
 "#)?;
 
 // Use `(module ...)` with `(export ...)` for selective exports
 interp.preload_module("math", r#"
     (module math (export square cube)
-      (define (square x) (* x x))
-      (define (cube x) (* x x x))
+      (defn square (x) (* x x))
+      (defn cube (x) (* x x x))
       (define internal-helper 42))
 "#)?;
 ```

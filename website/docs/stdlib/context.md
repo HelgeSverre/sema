@@ -212,7 +212,7 @@ Hidden context is **not** included in log output.
 ### Pipeline breadcrumbs
 
 ```sema
-(define (process-document doc)
+(defn process-document (doc)
   (context/push :steps "parse")
   (let ((parsed (parse doc)))
     (context/push :steps "validate")

@@ -174,6 +174,150 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::list(exprs))
     });
 
+    crate::register_fn_path_gated(env, sandbox, Caps::FS_READ, "read-source", &[0], |args| {
+        check_arity!(args, "read-source", 1);
+        let path_str = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+
+        let paths: Vec<String> = if path_str.contains('*') {
+            glob::glob(path_str)
+                .map_err(|e| SemaError::eval(format!("read-source: invalid glob: {e}")))?
+                .filter_map(|r| r.ok())
+                .map(|p| p.to_string_lossy().to_string())
+                .collect()
+        } else {
+            vec![path_str.to_string()]
+        };
+
+        let mut all_defs = Vec::new();
+        for path in &paths {
+            let content = std::fs::read_to_string(path)
+                .map_err(|e| SemaError::Io(format!("read-source {path}: {e}")))?;
+            let (exprs, _spans, directives) = sema_reader::read_many_with_directives(&content)?;
+
+            let dir_map: std::collections::HashMap<
+                usize,
+                &std::collections::BTreeMap<String, String>,
+            > = directives.iter().map(|(idx, dirs)| (*idx, dirs)).collect();
+
+            for (i, expr) in exprs.iter().enumerate() {
+                let mut entry = std::collections::BTreeMap::new();
+                let source_text = expr.to_string();
+
+                if let Some(list) = expr.as_list() {
+                    if let Some(head) = list.first().and_then(|v| v.as_symbol()) {
+                        match head.as_str() {
+                            "defn" | "defun" if list.len() >= 4 => {
+                                entry.insert(Value::keyword("type"), Value::keyword("defn"));
+                                let name = list.get(1).map(|v| v.to_string()).unwrap_or_default();
+                                entry.insert(Value::keyword("name"), Value::string(&name));
+                                let (doc, params_idx) =
+                                    if list.get(2).and_then(|v| v.as_str()).is_some() {
+                                        (list[2].as_str().map(|s| s.to_string()), 3)
+                                    } else {
+                                        (None, 2)
+                                    };
+                                if let Some(d) = &doc {
+                                    entry.insert(Value::keyword("doc"), Value::string(d));
+                                }
+                                if let Some(params) = list.get(params_idx) {
+                                    entry.insert(Value::keyword("params"), params.clone());
+                                }
+                                if list.len() > params_idx + 1 {
+                                    entry.insert(
+                                        Value::keyword("body"),
+                                        Value::list(list[params_idx + 1..].to_vec()),
+                                    );
+                                }
+                            }
+                            "define" if list.len() >= 3 => {
+                                if let Some(sig) = list.get(1).and_then(|v| v.as_list()) {
+                                    entry.insert(Value::keyword("type"), Value::keyword("defn"));
+                                    let name =
+                                        sig.first().map(|v| v.to_string()).unwrap_or_default();
+                                    entry.insert(Value::keyword("name"), Value::string(&name));
+                                    entry.insert(
+                                        Value::keyword("params"),
+                                        Value::list(sig[1..].to_vec()),
+                                    );
+                                    let body_start = if list
+                                        .get(2)
+                                        .and_then(|v| v.as_str())
+                                        .is_some()
+                                    {
+                                        if let Some(d) = list[2].as_str() {
+                                            entry.insert(Value::keyword("doc"), Value::string(d));
+                                        }
+                                        3
+                                    } else {
+                                        2
+                                    };
+                                    if list.len() > body_start {
+                                        entry.insert(
+                                            Value::keyword("body"),
+                                            Value::list(list[body_start..].to_vec()),
+                                        );
+                                    }
+                                } else {
+                                    entry.insert(Value::keyword("type"), Value::keyword("define"));
+                                    let name =
+                                        list.get(1).map(|v| v.to_string()).unwrap_or_default();
+                                    entry.insert(Value::keyword("name"), Value::string(&name));
+                                }
+                            }
+                            "defmacro" if list.len() >= 4 => {
+                                entry.insert(Value::keyword("type"), Value::keyword("defmacro"));
+                                let name = list.get(1).map(|v| v.to_string()).unwrap_or_default();
+                                entry.insert(Value::keyword("name"), Value::string(&name));
+                                let (doc, params_idx) =
+                                    if list.get(2).and_then(|v| v.as_str()).is_some() {
+                                        (list[2].as_str().map(|s| s.to_string()), 3)
+                                    } else {
+                                        (None, 2)
+                                    };
+                                if let Some(d) = &doc {
+                                    entry.insert(Value::keyword("doc"), Value::string(d));
+                                }
+                                if let Some(params) = list.get(params_idx) {
+                                    entry.insert(Value::keyword("params"), params.clone());
+                                }
+                                if list.len() > params_idx + 1 {
+                                    entry.insert(
+                                        Value::keyword("body"),
+                                        Value::list(list[params_idx + 1..].to_vec()),
+                                    );
+                                }
+                            }
+                            _ => {
+                                entry.insert(Value::keyword("type"), Value::keyword("expr"));
+                            }
+                        }
+                    } else {
+                        entry.insert(Value::keyword("type"), Value::keyword("expr"));
+                    }
+                } else {
+                    entry.insert(Value::keyword("type"), Value::keyword("expr"));
+                }
+
+                entry.insert(Value::keyword("source"), Value::string(&source_text));
+                entry.insert(Value::keyword("file"), Value::string(path));
+
+                if let Some(dirs) = dir_map.get(&i) {
+                    let mut dir_entries = std::collections::BTreeMap::new();
+                    for (k, v) in *dirs {
+                        dir_entries.insert(Value::keyword(k), Value::string(v));
+                    }
+                    entry.insert(Value::keyword("directives"), Value::map(dir_entries));
+                }
+
+                all_defs.push(Value::map(entry));
+            }
+        }
+
+        Ok(Value::list(all_defs))
+    });
+
     register_fn(env, "error", |args| {
         if args.is_empty() {
             return Err(SemaError::eval("error called with no message"));

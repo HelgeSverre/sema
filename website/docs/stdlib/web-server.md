@@ -9,7 +9,7 @@ Sema includes a built-in HTTP server powered by [axum](https://github.com/tokio-
 ## Quick Start
 
 ```sema
-(define (handler req)
+(defn handler (req)
   (http/ok {:message "Hello from Sema!"}))
 
 (http/serve handler {:port 3000})
@@ -68,7 +68,7 @@ Use `:param` syntax to capture path segments. Extracted values appear in the req
 ;; Route: [:get "/users/:id" handle-user]
 ;; Request: GET /users/42
 
-(define (handle-user req)
+(defn handle-user (req)
   (let ((id (:id (:params req))))
     (http/ok {:user-id id})))
 ; => {"user-id":"42"}
@@ -273,7 +273,7 @@ Middleware in Sema is just function composition — a function that takes a hand
 
 ```sema
 ;; Logging middleware
-(define (with-logging handler)
+(defn with-logging (handler)
   (fn (req)
     (let ((resp (handler req)))
       (println (:method req) (:path req) "->" (:status resp))
@@ -282,7 +282,7 @@ Middleware in Sema is just function composition — a function that takes a hand
 
 ```sema
 ;; CORS middleware
-(define (with-cors handler)
+(defn with-cors (handler)
   (fn (req)
     (let ((resp (handler req)))
       (assoc resp :headers
@@ -293,7 +293,7 @@ Middleware in Sema is just function composition — a function that takes a hand
 
 ```sema
 ;; Auth middleware
-(define (with-auth handler)
+(defn with-auth (handler)
   (fn (req)
     (let ((token (get (:headers req) "authorization")))
       (if token
@@ -332,7 +332,7 @@ Or use the threading macro for a cleaner pipeline:
 Return a Server-Sent Events stream. Takes a handler function that receives a `send` callback.
 
 ```sema
-(define (handle-events req)
+(defn handle-events (req)
   (http/stream
     (fn (send)
       (send "connected")
@@ -364,7 +364,7 @@ data: update 2
 SSE is particularly useful for streaming LLM completions to the browser:
 
 ```sema
-(define (handle-chat req)
+(defn handle-chat (req)
   (http/stream
     (fn (send)
       (let ((prompt (:prompt (:json req))))
@@ -380,7 +380,7 @@ SSE is particularly useful for streaming LLM completions to the browser:
 Handle bidirectional WebSocket connections. Takes a handler function that receives a connection map with `:send`, `:recv`, and `:close` functions.
 
 ```sema
-(define (handle-ws conn)
+(defn handle-ws (conn)
   (let ((msg ((:recv conn))))
     (when msg
       ((:send conn) (string/append "echo: " msg))
@@ -412,11 +412,11 @@ Use the `:ws` method in the router:
 ```sema
 (define clients (atom '()))
 
-(define (broadcast msg)
+(defn broadcast (msg)
   (for-each (fn (send) (send msg))
             @clients))
 
-(define (handle-ws conn)
+(defn handle-ws (conn)
   ;; Add this client's send function to the list
   (swap! clients (fn (lst) (cons (:send conn) lst)))
   ;; Read loop
@@ -442,41 +442,41 @@ A JSON API with CRUD operations, middleware, and error handling.
 (define db (atom {}))
 (define next-id (atom 0))
 
-(define (gen-id)
+(defn gen-id ()
   (swap! next-id (fn (n) (+ n 1)))
   @next-id)
 
 ;; Handlers
-(define (list-users _)
+(defn list-users (_)
   (http/ok (vals @db)))
 
-(define (get-user req)
+(defn get-user (req)
   (let ((id (:id (:params req)))
         (user (get @db id)))
     (if user
       (http/ok user)
       (http/not-found {:error "User not found"}))))
 
-(define (create-user req)
+(defn create-user (req)
   (let ((data (:json req))
         (id   (str (gen-id)))
         (user (assoc data :id id)))
     (swap! db (fn (d) (assoc d id user)))
     (http/created user)))
 
-(define (delete-user req)
+(defn delete-user (req)
   (let ((id (:id (:params req))))
     (swap! db (fn (d) (dissoc d id)))
     (http/no-content)))
 
 ;; Middleware
-(define (with-json-errors handler)
+(defn with-json-errors (handler)
   (fn (req)
     (let ((resp (handler req)))
       (if (map? resp) resp
         (http/error 500 {:error "Internal server error"})))))
 
-(define (with-cors handler)
+(defn with-cors (handler)
   (fn (req)
     (let ((resp (handler req)))
       (assoc resp :headers
@@ -505,13 +505,13 @@ A JSON API with CRUD operations, middleware, and error handling.
 An API endpoint that uses Sema's built-in LLM primitives to generate responses.
 
 ```sema
-(define (handle-summarize req)
+(defn handle-summarize (req)
   (let ((text (:text (:json req))))
     (if text
       (http/ok {:summary (llm/chat (str "Summarize this:\n\n" text))})
       (http/error 400 {:error "Missing 'text' field"}))))
 
-(define (handle-extract req)
+(defn handle-extract (req)
   (let ((text (:text (:json req))))
     (http/ok (llm/extract text {:name "string"
                                  :date "string"
@@ -530,16 +530,16 @@ An API endpoint that uses Sema's built-in LLM primitives to generate responses.
 Serve dynamic HTML pages.
 
 ```sema
-(define (page title body)
+(defn page (title body)
   (http/html
     (str "<!DOCTYPE html><html><head><title>" title "</title>"
          "<style>body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:2rem}</style>"
          "</head><body>" body "</body></html>")))
 
-(define (handle-home _)
+(defn handle-home (_)
   (page "Home" "<h1>Welcome</h1><p>Built with Sema.</p>"))
 
-(define (handle-greet req)
+(defn handle-greet (req)
   (let ((name (or (:name (:params req)) "world")))
     (page "Greeting" (str "<h1>Hello, " name "!</h1>"))))
 

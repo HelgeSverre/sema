@@ -654,6 +654,58 @@ pub fn read_many_with_spans_recover(
     (exprs, parser.span_map, parser.symbol_spans, errors)
 }
 
+/// Directives parsed from `;;@key value` comments, associated with form indices.
+pub type Directives = Vec<(usize, BTreeMap<String, String>)>;
+
+/// Read all s-expressions, returning spans and directive comments (`;;@key value`).
+///
+/// Directive comments are lines starting with `;;@`. They are associated with
+/// the next top-level form that follows them. Returns a vec of
+/// (form_index, directives) pairs.
+pub fn read_many_with_directives(
+    input: &str,
+) -> Result<(Vec<Value>, SpanMap, Directives), SemaError> {
+    let tokens = tokenize(input)?;
+    let mut parser = Parser::new(tokens);
+    let mut exprs = Vec::new();
+    let mut all_directives: Vec<(usize, BTreeMap<String, String>)> = Vec::new();
+    let mut pending_directives: BTreeMap<String, String> = BTreeMap::new();
+
+    loop {
+        // Manually handle trivia to capture directive comments
+        while let Some(t) = parser.tokens.get(parser.pos) {
+            match &t.token {
+                Token::Comment(text) => {
+                    if let Some(directive) = text.strip_prefix(";;@") {
+                        let directive = directive.trim();
+                        if let Some((key, value)) = directive.split_once(' ') {
+                            pending_directives.insert(key.to_string(), value.trim().to_string());
+                        } else if !directive.is_empty() {
+                            // Boolean directive like ;;@adaptive
+                            pending_directives.insert(directive.to_string(), String::new());
+                        }
+                    }
+                    parser.pos += 1;
+                }
+                Token::Newline => {
+                    parser.pos += 1;
+                }
+                _ => break,
+            }
+        }
+        if parser.peek().is_none() {
+            break;
+        }
+        let form_index = exprs.len();
+        exprs.push(parser.parse_expr()?);
+        if !pending_directives.is_empty() {
+            all_directives.push((form_index, std::mem::take(&mut pending_directives)));
+        }
+    }
+
+    Ok((exprs, parser.span_map, all_directives))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1931,5 +1983,79 @@ mod tests {
         // "nil" parses as Value::nil(), not a symbol — should not be in symbol_spans
         let (_, _, sym_spans) = read_many_with_symbol_spans("nil").unwrap();
         assert!(sym_spans.is_empty());
+    }
+
+    // ── directive tests ──
+
+    #[test]
+    fn test_read_directives_basic() {
+        let input = ";;@since 1.8.0\n;;@deprecated Use bar instead\n(defn foo (x) x)";
+        let (exprs, _, directives) = read_many_with_directives(input).unwrap();
+        assert_eq!(exprs.len(), 1);
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].0, 0);
+        assert_eq!(directives[0].1.get("since").unwrap(), "1.8.0");
+        assert_eq!(
+            directives[0].1.get("deprecated").unwrap(),
+            "Use bar instead"
+        );
+    }
+
+    #[test]
+    fn test_read_directives_multiple_forms() {
+        let input = ";;@since 1.0.0\n(defn a () 1)\n\n;;@since 2.0.0\n;;@tags math\n(defn b () 2)\n\n(defn c () 3)";
+        let (exprs, _, directives) = read_many_with_directives(input).unwrap();
+        assert_eq!(exprs.len(), 3);
+        assert_eq!(directives.len(), 2);
+        assert_eq!(directives[0].0, 0);
+        assert_eq!(directives[0].1.get("since").unwrap(), "1.0.0");
+        assert_eq!(directives[1].0, 1);
+        assert_eq!(directives[1].1.get("since").unwrap(), "2.0.0");
+        assert_eq!(directives[1].1.get("tags").unwrap(), "math");
+    }
+
+    #[test]
+    fn test_read_directives_none() {
+        let input = "(+ 1 2)";
+        let (exprs, _, directives) = read_many_with_directives(input).unwrap();
+        assert_eq!(exprs.len(), 1);
+        assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn test_read_directives_boolean() {
+        let input = ";;@adaptive\n;;@self-heal\n(defn foo (x) x)";
+        let (exprs, _, directives) = read_many_with_directives(input).unwrap();
+        assert_eq!(exprs.len(), 1);
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].1.get("adaptive").unwrap(), "");
+        assert_eq!(directives[0].1.get("self-heal").unwrap(), "");
+    }
+
+    #[test]
+    fn test_read_directives_regular_comments_ignored() {
+        let input =
+            ";; This is a regular comment\n;;@since 1.0.0\n; Another comment\n(defn foo (x) x)";
+        let (exprs, _, directives) = read_many_with_directives(input).unwrap();
+        assert_eq!(exprs.len(), 1);
+        assert_eq!(directives.len(), 1);
+        assert_eq!(directives[0].1.len(), 1);
+        assert_eq!(directives[0].1.get("since").unwrap(), "1.0.0");
+    }
+
+    #[test]
+    fn test_read_directives_empty_input() {
+        let (exprs, _, directives) = read_many_with_directives("").unwrap();
+        assert!(exprs.is_empty());
+        assert!(directives.is_empty());
+    }
+
+    #[test]
+    fn test_read_directives_orphaned() {
+        // Directives at end of file with no following form should be discarded
+        let input = "(defn a () 1)\n;;@orphaned true";
+        let (exprs, _, directives) = read_many_with_directives(input).unwrap();
+        assert_eq!(exprs.len(), 1);
+        assert!(directives.is_empty());
     }
 }

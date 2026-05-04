@@ -21,7 +21,7 @@ The core idea: build small prompt pieces, compose them together, fill in templat
 
 ;; Compose, fill, and send
 (define p (prompt/concat safety domain task))
-(define ready (prompt/fill p {:code "(define (f x) (+ x 1))"}))
+(define ready (prompt/fill p {:code "(defn f (x) (+ x 1))"}))
 (llm/send ready {:max-tokens 300})
 ```
 

@@ -62,7 +62,7 @@ The [IBM 704](http://bitsavers.informatik.uni-stuttgart.de/pdf/ibm/704/24-6661-2
 Consider this tail-recursive loop:
 
 ```sema
-(define (loop n)
+(defn loop (n)
   (if (= n 0)
     "done"
     (loop (- n 1))))
