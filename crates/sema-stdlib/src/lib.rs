@@ -1,5 +1,6 @@
 #![allow(clippy::mutable_key_type, clippy::cloned_ref_to_slice_refs)]
 mod arithmetic;
+mod async_ops;
 mod bitwise;
 mod bytevector;
 mod comparison;
@@ -39,9 +40,14 @@ mod text;
 mod toml_ops;
 mod typed_array;
 
-use sema_core::{Caps, Env, Sandbox, Value};
+#[cfg(not(target_arch = "wasm32"))]
+use sema_core::Caps;
+use sema_core::{Env, Sandbox, Value};
 
 pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
+    #[cfg(target_arch = "wasm32")]
+    let _ = sandbox;
+
     arithmetic::register(env);
     comparison::register(env);
     context::register(env);
@@ -73,6 +79,7 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     stream::register(env);
     pio::register(env);
     typed_array::register(env);
+    async_ops::register(env);
     #[cfg(not(target_arch = "wasm32"))]
     stream::register_io(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]
@@ -81,9 +88,11 @@ pub fn register_stdlib(env: &Env, sandbox: &Sandbox) {
     pdf::register(env, sandbox);
     #[cfg(not(target_arch = "wasm32"))]
     sqlite::register(env, sandbox);
-    serial::register(env);
+    #[cfg(not(target_arch = "wasm32"))]
+    serial::register(env, sandbox);
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn register_fn_gated(
     env: &Env,
     sandbox: &Sandbox,
@@ -103,6 +112,7 @@ fn register_fn_gated(
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn register_fn_path_gated(
     env: &Env,
     sandbox: &Sandbox,

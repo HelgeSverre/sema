@@ -179,6 +179,63 @@ impl Clone for Thunk {
     }
 }
 
+/// State of an async promise/future.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromiseState {
+    Pending,
+    Resolved(Value),
+    Rejected(String),
+}
+
+/// An async promise: represents a value that will be available in the future.
+pub struct AsyncPromise {
+    pub state: RefCell<PromiseState>,
+    pub task_id: Cell<u64>,
+}
+
+impl fmt::Debug for AsyncPromise {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &*self.state.borrow() {
+            PromiseState::Pending => write!(f, "<async-promise pending>"),
+            PromiseState::Resolved(_) => write!(f, "<async-promise resolved>"),
+            PromiseState::Rejected(e) => write!(f, "<async-promise rejected: {e}>"),
+        }
+    }
+}
+
+impl Clone for AsyncPromise {
+    fn clone(&self) -> Self {
+        AsyncPromise {
+            state: RefCell::new(self.state.borrow().clone()),
+            task_id: Cell::new(self.task_id.get()),
+        }
+    }
+}
+
+/// A bounded async channel for communication between coroutines.
+pub struct Channel {
+    pub buffer: RefCell<std::collections::VecDeque<Value>>,
+    pub capacity: usize,
+    pub closed: Cell<bool>,
+}
+
+impl fmt::Debug for Channel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let len = self.buffer.borrow().len();
+        write!(f, "<channel {len}/{}>", self.capacity)
+    }
+}
+
+impl Clone for Channel {
+    fn clone(&self) -> Self {
+        Channel {
+            buffer: RefCell::new(self.buffer.borrow().clone()),
+            capacity: self.capacity,
+            closed: Cell::new(self.closed.get()),
+        }
+    }
+}
+
 /// A record: tagged product type created by define-record-type.
 #[derive(Debug, Clone)]
 pub struct Record {
@@ -438,6 +495,8 @@ const TAG_MULTIMETHOD: u64 = 24;
 const TAG_STREAM: u64 = 25;
 const TAG_F64_ARRAY: u64 = 26;
 const TAG_I64_ARRAY: u64 = 27;
+const TAG_ASYNC_PROMISE: u64 = 28;
+const TAG_CHANNEL: u64 = 29;
 
 /// Small-int range: [-2^44, 2^44 - 1] = [-17_592_186_044_416, +17_592_186_044_415]
 const SMALL_INT_MIN: i64 = -(1i64 << 44);
@@ -531,6 +590,8 @@ pub enum ValueView {
     Stream(Rc<StreamBox>),
     F64Array(Rc<Vec<f64>>),
     I64Array(Rc<Vec<i64>>),
+    AsyncPromise(Rc<AsyncPromise>),
+    Channel(Rc<Channel>),
 }
 
 // ── The NaN-boxed Value type ──────────────────────────────────────
@@ -793,6 +854,19 @@ impl Value {
     pub fn stream_from_rc(rc: Rc<StreamBox>) -> Value {
         Value::from_rc_ptr(TAG_STREAM, rc)
     }
+
+    pub fn async_promise(promise: AsyncPromise) -> Value {
+        Value::from_rc_ptr(TAG_ASYNC_PROMISE, Rc::new(promise))
+    }
+    pub fn async_promise_from_rc(rc: Rc<AsyncPromise>) -> Value {
+        Value::from_rc_ptr(TAG_ASYNC_PROMISE, rc)
+    }
+    pub fn channel(ch: Channel) -> Value {
+        Value::from_rc_ptr(TAG_CHANNEL, Rc::new(ch))
+    }
+    pub fn channel_from_rc(rc: Rc<Channel>) -> Value {
+        Value::from_rc_ptr(TAG_CHANNEL, rc)
+    }
 }
 
 // Const-compatible boxed encoding (no function calls)
@@ -929,6 +1003,8 @@ impl Value {
             TAG_STREAM => ValueView::Stream(unsafe { self.get_rc::<StreamBox>() }),
             TAG_F64_ARRAY => ValueView::F64Array(unsafe { self.get_rc::<Vec<f64>>() }),
             TAG_I64_ARRAY => ValueView::I64Array(unsafe { self.get_rc::<Vec<i64>>() }),
+            TAG_ASYNC_PROMISE => ValueView::AsyncPromise(unsafe { self.get_rc::<AsyncPromise>() }),
+            TAG_CHANNEL => ValueView::Channel(unsafe { self.get_rc::<Channel>() }),
             _ => unreachable!("invalid NaN-boxed tag: {}", tag),
         }
     }
@@ -966,6 +1042,8 @@ impl Value {
             TAG_STREAM => "stream",
             TAG_F64_ARRAY => "f64-array",
             TAG_I64_ARRAY => "i64-array",
+            TAG_ASYNC_PROMISE => "async-promise",
+            TAG_CHANNEL => "channel",
             _ => "unknown",
         }
     }
@@ -1047,6 +1125,15 @@ impl Value {
     #[inline(always)]
     pub fn is_thunk(&self) -> bool {
         is_boxed(self.0) && get_tag(self.0) == TAG_THUNK
+    }
+
+    #[inline(always)]
+    pub fn is_async_promise(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_ASYNC_PROMISE
+    }
+    #[inline(always)]
+    pub fn is_channel(&self) -> bool {
+        is_boxed(self.0) && get_tag(self.0) == TAG_CHANNEL
     }
 
     #[inline(always)]
@@ -1504,6 +1591,8 @@ impl Clone for Value {
                         TAG_STREAM => Rc::increment_strong_count(ptr as *const StreamBox),
                         TAG_F64_ARRAY => Rc::increment_strong_count(ptr as *const Vec<f64>),
                         TAG_I64_ARRAY => Rc::increment_strong_count(ptr as *const Vec<i64>),
+                        TAG_ASYNC_PROMISE => Rc::increment_strong_count(ptr as *const AsyncPromise),
+                        TAG_CHANNEL => Rc::increment_strong_count(ptr as *const Channel),
                         _ => unreachable!("invalid heap tag in clone: {}", tag),
                     }
                 }
@@ -1554,6 +1643,8 @@ impl Drop for Value {
                         TAG_STREAM => drop(Rc::from_raw(ptr as *const StreamBox)),
                         TAG_F64_ARRAY => drop(Rc::from_raw(ptr as *const Vec<f64>)),
                         TAG_I64_ARRAY => drop(Rc::from_raw(ptr as *const Vec<i64>)),
+                        TAG_ASYNC_PROMISE => drop(Rc::from_raw(ptr as *const AsyncPromise)),
+                        TAG_CHANNEL => drop(Rc::from_raw(ptr as *const Channel)),
                         _ => {} // unreachable, but don't panic in drop
                     }
                 }
@@ -1607,6 +1698,8 @@ impl PartialEq for Value {
             }
             (ValueView::I64Array(a), ValueView::I64Array(b)) => a == b,
             (ValueView::Stream(a), ValueView::Stream(b)) => Rc::ptr_eq(&a, &b),
+            (ValueView::AsyncPromise(a), ValueView::AsyncPromise(b)) => Rc::ptr_eq(&a, &b),
+            (ValueView::Channel(a), ValueView::Channel(b)) => Rc::ptr_eq(&a, &b),
             _ => false,
         }
     }
@@ -1680,6 +1773,14 @@ impl Hash for Value {
             ValueView::Stream(s) => {
                 25u8.hash(state);
                 (Rc::as_ptr(&s) as usize).hash(state);
+            }
+            ValueView::AsyncPromise(p) => {
+                28u8.hash(state);
+                (Rc::as_ptr(&p) as usize).hash(state);
+            }
+            ValueView::Channel(c) => {
+                29u8.hash(state);
+                (Rc::as_ptr(&c) as usize).hash(state);
             }
             _ => {}
         }
@@ -1889,6 +1990,19 @@ impl fmt::Display for Value {
             }
             ValueView::MultiMethod(m) => with_resolved(m.name, |n| write!(f, "<multimethod {n}>")),
             ValueView::Stream(s) => write!(f, "<stream:{}>", s.stream_type()),
+            ValueView::AsyncPromise(p) => match &*p.state.borrow() {
+                PromiseState::Pending => write!(f, "<async-promise pending>"),
+                PromiseState::Resolved(v) => write!(f, "<async-promise resolved: {v}>"),
+                PromiseState::Rejected(e) => write!(f, "<async-promise rejected: {e}>"),
+            },
+            ValueView::Channel(c) => {
+                let len = c.buffer.borrow().len();
+                if c.closed.get() {
+                    write!(f, "<channel {len}/{} closed>", c.capacity)
+                } else {
+                    write!(f, "<channel {len}/{}>", c.capacity)
+                }
+            }
         }
     }
 }
@@ -2049,6 +2163,8 @@ impl fmt::Debug for Value {
             ValueView::I64Array(arr) => write!(f, "I64Array({arr:?})"),
             ValueView::MultiMethod(m) => write!(f, "{m:?}"),
             ValueView::Stream(s) => write!(f, "Stream({:?})", s.stream_type()),
+            ValueView::AsyncPromise(p) => write!(f, "{p:?}"),
+            ValueView::Channel(c) => write!(f, "{c:?}"),
         }
     }
 }

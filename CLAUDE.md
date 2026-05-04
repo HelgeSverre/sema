@@ -103,9 +103,10 @@ Stdlib higher-order functions (map, filter, foldl, sort-by) call through `sema_c
 
 ## Testing — Dual Eval (Tree-walker + VM)
 
-Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. Both must produce identical results. **Any new language feature must be tested through both backends.**
+Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. The VM is the default backend. Most language features must produce identical results across both backends (tested via `dual_eval_test.rs`). **Async features (async/await, channels) are VM-only** — tests go in `vm_async_test.rs`.
 
 - **Dual-eval test file**: `crates/sema/tests/dual_eval_test.rs` — use `dual_eval_tests!` and `dual_eval_error_tests!` macros
+- **VM-only async tests**: `crates/sema/tests/vm_async_test.rs` — async/channel tests that only run on the VM backend
 - **Legacy files**: `integration_test.rs` (tree-walker only), `vm_integration_test.rs` (VM equivalence)
 - **New tests go in `dual_eval_test.rs`** — the macros generate `_tw` and `_vm` variants automatically
 - I/O, LLM, sandbox, CLI, module/import, server tests → tree-walker only (`integration_test.rs`)
@@ -116,6 +117,7 @@ Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. Both 
 - **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in that module's `register()` fn, add dual-eval test.
 - **Special form**: add in `try_eval_special()` (tree-walker) AND `lower_list()` in `lower.rs` (VM), add dual-eval test.
 - **Prelude macro**: add to `crates/sema-eval/src/prelude.rs` (Sema code evaluated at startup).
+- **Async feature**: implement in stdlib (`async_ops.rs`) using yield signal mechanism, add VM-only test in `vm_async_test.rs`. Async features do NOT need tree-walker implementation.
 
 ## Release Procedure
 

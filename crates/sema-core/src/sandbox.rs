@@ -16,6 +16,7 @@ impl Caps {
     pub const ENV_WRITE: Caps = Caps(1 << 5);
     pub const PROCESS: Caps = Caps(1 << 6);
     pub const LLM: Caps = Caps(1 << 7);
+    pub const SERIAL: Caps = Caps(1 << 8);
 
     pub const ALL: Caps = Caps(
         Self::FS_READ.0
@@ -25,7 +26,8 @@ impl Caps {
             | Self::ENV_READ.0
             | Self::ENV_WRITE.0
             | Self::PROCESS.0
-            | Self::LLM.0,
+            | Self::LLM.0
+            | Self::SERIAL.0,
     );
 
     pub const STRICT: Caps = Caps(
@@ -34,7 +36,8 @@ impl Caps {
             | Self::NETWORK.0
             | Self::ENV_WRITE.0
             | Self::PROCESS.0
-            | Self::LLM.0,
+            | Self::LLM.0
+            | Self::SERIAL.0,
     );
 
     pub fn contains(self, other: Caps) -> bool {
@@ -56,6 +59,7 @@ impl Caps {
             Caps::ENV_WRITE => "env-write",
             Caps::PROCESS => "process",
             Caps::LLM => "llm",
+            Caps::SERIAL => "serial",
             Caps::ALL => "all",
             Caps::STRICT => "strict",
             _ => "unknown",
@@ -73,6 +77,7 @@ impl Caps {
             "env-write" => Some(Caps::ENV_WRITE),
             "process" => Some(Caps::PROCESS),
             "llm" => Some(Caps::LLM),
+            "serial" => Some(Caps::SERIAL),
             "all" => Some(Caps::ALL),
             "strict" => Some(Caps::STRICT),
             _ => None,
@@ -265,6 +270,7 @@ mod tests {
         assert!(Caps::ALL.contains(Caps::ENV_WRITE));
         assert!(Caps::ALL.contains(Caps::PROCESS));
         assert!(Caps::ALL.contains(Caps::LLM));
+        assert!(Caps::ALL.contains(Caps::SERIAL));
     }
 
     #[test]
@@ -275,6 +281,7 @@ mod tests {
         assert!(Caps::STRICT.contains(Caps::ENV_WRITE));
         assert!(Caps::STRICT.contains(Caps::PROCESS));
         assert!(Caps::STRICT.contains(Caps::LLM));
+        assert!(Caps::STRICT.contains(Caps::SERIAL));
         // strict does NOT deny read-only operations
         assert!(!Caps::STRICT.contains(Caps::FS_READ));
         assert!(!Caps::STRICT.contains(Caps::ENV_READ));
@@ -291,6 +298,7 @@ mod tests {
             Caps::ENV_WRITE,
             Caps::PROCESS,
             Caps::LLM,
+            Caps::SERIAL,
         ];
         for cap in caps {
             let name = cap.name();
@@ -313,6 +321,7 @@ mod tests {
         assert_eq!(format!("{}", Caps::SHELL), "shell");
         assert_eq!(format!("{}", Caps::NETWORK), "network");
         assert_eq!(format!("{}", Caps::FS_READ), "fs-read");
+        assert_eq!(format!("{}", Caps::SERIAL), "serial");
     }
 
     #[test]
@@ -377,6 +386,7 @@ mod tests {
         assert!(sb.check(Caps::SHELL, "shell").is_err());
         assert!(sb.check(Caps::FS_WRITE, "file/write").is_err());
         assert!(sb.check(Caps::NETWORK, "http/get").is_err());
+        assert!(sb.check(Caps::SERIAL, "serial/list").is_err());
         // strict allows reads
         assert!(sb.check(Caps::FS_READ, "file/read").is_ok());
         assert!(sb.check(Caps::ENV_READ, "env").is_ok());
@@ -388,6 +398,7 @@ mod tests {
         assert!(sb.check(Caps::SHELL, "shell").is_err());
         assert!(sb.check(Caps::FS_READ, "file/read").is_err());
         assert!(sb.check(Caps::ENV_READ, "env").is_err());
+        assert!(sb.check(Caps::SERIAL, "serial/list").is_err());
     }
 
     #[test]

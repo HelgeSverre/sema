@@ -3,9 +3,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::time::Duration;
 
-use sema_core::{check_arity, SemaError, Value};
-
-use crate::register_fn;
+use sema_core::{check_arity, Caps, SemaError, Value};
 
 // Thread-local serial port storage, keyed by an incrementing handle ID.
 thread_local! {
@@ -21,9 +19,9 @@ fn next_handle() -> u64 {
     })
 }
 
-pub fn register(env: &sema_core::Env) {
+pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     // (serial/list) => list of available port names
-    register_fn(env, "serial/list", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::SERIAL, "serial/list", |args| {
         check_arity!(args, "serial/list", 0);
         let ports = serialport::available_ports()
             .map_err(|e| SemaError::eval(format!("serial/list: {e}")))?;
@@ -33,7 +31,7 @@ pub fn register(env: &sema_core::Env) {
 
     // (serial/open path baud) => handle (int)
     // (serial/open path baud timeout_ms) => handle (int)
-    register_fn(env, "serial/open", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::SERIAL, "serial/open", |args| {
         if args.len() < 2 || args.len() > 3 {
             return Err(SemaError::arity("serial/open", "2-3", args.len()));
         }
@@ -68,7 +66,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     // (serial/close handle) => nil
-    register_fn(env, "serial/close", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::SERIAL, "serial/close", |args| {
         check_arity!(args, "serial/close", 1);
         let handle = args[0]
             .as_int()
@@ -85,7 +83,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     // (serial/write handle string) => nil
-    register_fn(env, "serial/write", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::SERIAL, "serial/write", |args| {
         check_arity!(args, "serial/write", 2);
         let handle = args[0]
             .as_int()
@@ -109,7 +107,7 @@ pub fn register(env: &sema_core::Env) {
     });
 
     // (serial/read-line handle) => string (reads until \n)
-    register_fn(env, "serial/read-line", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::SERIAL, "serial/read-line", |args| {
         check_arity!(args, "serial/read-line", 1);
         let handle = args[0]
             .as_int()
@@ -133,7 +131,7 @@ pub fn register(env: &sema_core::Env) {
     // (serial/send handle command) => parsed JSON response
     // Sends command + \n, reads one line back, parses as JSON.
     // Convenience for the sema-bridge protocol.
-    register_fn(env, "serial/send", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::SERIAL, "serial/send", |args| {
         check_arity!(args, "serial/send", 2);
         let handle = args[0]
             .as_int()

@@ -226,6 +226,18 @@ Sema's stdlib follows consistent naming patterns:
 | `*stdin*`, `*stdout*`, `*stderr*`                                     | Standard I/O globals     |
 | `with-stream`                                                         | Resource management macro |
 
+### [Concurrency](./concurrency)
+
+| Function                                                              | Description              |
+| --------------------------------------------------------------------- | ------------------------ |
+| `async/spawn`, `async/await`, `async/all`, `async/race`               | Async task management    |
+| `async/resolved`, `async/rejected`                                     | Pre-settled promises     |
+| `async/run`, `async/sleep`                                             | Scheduler control        |
+| `async/promise?`, `async/resolved?`, `async/rejected?`, `async/pending?` | Promise predicates       |
+| `channel/new`, `channel/send`, `channel/recv`, `channel/try-recv`      | Channel operations       |
+| `channel/close`                                                        | Channel lifecycle        |
+| `channel?`, `channel/closed?`, `channel/empty?`, `channel/full?`, `channel/count` | Channel predicates       |
+
 ### [Records](./records)
 
 | Function             | Description          |

@@ -204,6 +204,10 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             return lower_defmulti(args);
         } else if s == sf("defmethod") {
             return lower_defmethod(args);
+        } else if s == sf("async") {
+            return lower_async(args);
+        } else if s == sf("await") {
+            return lower_await(args);
         }
     }
 
@@ -884,6 +888,43 @@ fn lower_defmethod(args: &[Value]) -> Result<CoreExpr, SemaError> {
     Ok(CoreExpr::Call {
         func: Box::new(CoreExpr::Var(intern("__vm-defmethod"))),
         args: vec![CoreExpr::Var(name), dispatch_val, handler],
+        tail: false,
+    })
+}
+
+/// (async body ...) → wrap body in zero-arg lambda, call async/spawn
+fn lower_async(args: &[Value]) -> Result<CoreExpr, SemaError> {
+    if args.is_empty() {
+        return Err(SemaError::arity("async", "1+", 0));
+    }
+    let body = args
+        .iter()
+        .map(|a| lower_expr(a, false))
+        .collect::<Result<Vec<_>, _>>()?;
+    let thunk = CoreExpr::Lambda(LambdaDef {
+        name: None,
+        params: vec![],
+        rest: None,
+        body,
+        upvalues: vec![],
+        n_locals: 0,
+    });
+    Ok(CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(intern("async/spawn"))),
+        args: vec![thunk],
+        tail: false,
+    })
+}
+
+/// (await expr) → call async/await with the expression
+fn lower_await(args: &[Value]) -> Result<CoreExpr, SemaError> {
+    if args.len() != 1 {
+        return Err(SemaError::arity("await", "1", args.len()));
+    }
+    let expr = lower_expr(&args[0], false)?;
+    Ok(CoreExpr::Call {
+        func: Box::new(CoreExpr::Var(intern("async/await"))),
+        args: vec![expr],
         tail: false,
     })
 }

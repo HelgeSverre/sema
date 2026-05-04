@@ -89,7 +89,8 @@ pub struct Value(u64);
 //
 // Heap types (Rc pointer in 45-bit payload):
 //   String, List, Vector, Map, HashMap, Lambda, Macro, NativeFn,
-//   Prompt, Message, Conversation, ToolDef, Agent, Thunk, Record, Bytevector
+//   Prompt, Message, Conversation, ToolDef, Agent, Thunk, Record, Bytevector,
+//   AsyncPromise, Channel
 //
 // Pattern matching via val.view() → ValueView enum
 ```

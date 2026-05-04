@@ -53,10 +53,11 @@
 
 ## Testing — Dual Eval (Tree-walker + VM)
 
-Sema has **two evaluators**: a tree-walking interpreter (`sema-eval`) and a bytecode VM (`sema-vm`). Both must produce identical results for all pure-computation features. **Any new language feature must be tested through both backends.**
+Sema has **two evaluators**: a tree-walking interpreter (`sema-eval`) and a bytecode VM (`sema-vm`). The VM is the default backend. Most language features must produce identical results across both backends. **Async features (async/await, channels) are VM-only** — tests go in `vm_async_test.rs`.
 
 - **Dual-eval test file**: `crates/sema/tests/dual_eval_test.rs` — use `dual_eval_tests!` and `dual_eval_error_tests!` macros
 - **Shared harness**: `crates/sema/tests/common/mod.rs` — provides `eval_tw()`, `eval_vm()`, `eval_both()`
+- **VM-only async tests**: `crates/sema/tests/vm_async_test.rs` — async/channel tests (VM backend only)
 - **Legacy files**: `integration_test.rs` (tree-walker only), `vm_integration_test.rs` (VM equivalence)
 - **New tests go in `dual_eval_test.rs`** — the macros generate `_tw` and `_vm` variants automatically
 
@@ -64,6 +65,7 @@ Sema has **two evaluators**: a tree-walking interpreter (`sema-eval`) and a byte
 - Any new special form, destructuring, pattern, or evaluator change → `dual_eval_tests!`
 - Pure stdlib functions (no I/O) → `dual_eval_tests!`
 - I/O, LLM, sandbox, CLI, module/import, server tests → tree-walker only (`integration_test.rs`)
+- Async features (async/await, channels) → VM-only (`vm_async_test.rs`)
 
 ### Adding VM support for a new special form
 1. Add handler in `try_eval_special()` in `special_forms.rs` (tree-walker)
@@ -76,4 +78,5 @@ Sema has **two evaluators**: a tree-walking interpreter (`sema-eval`) and a byte
 
 - **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in `register()`, add dual-eval test.
 - **Special form**: add in `try_eval_special()` (tree-walker) AND `lower_list()` (VM), add dual-eval test.
+- **Async feature**: implement in `async_ops.rs` using yield signal mechanism, add VM-only test in `vm_async_test.rs`. Async features do NOT need tree-walker implementation.
 - **Prelude macro**: add to `crates/sema-eval/src/prelude.rs` (Sema code evaluated at startup).

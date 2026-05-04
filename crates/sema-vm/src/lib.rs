@@ -1,16 +1,17 @@
 #![allow(clippy::mutable_key_type)]
-pub mod chunk;
-pub mod compiler;
-pub mod core_expr;
+mod chunk;
+mod compiler;
+mod core_expr;
 pub mod debug;
-pub mod disasm;
-pub mod emit;
-pub mod lower;
-pub mod opcodes;
-pub mod optimize;
-pub mod resolve;
-pub mod serialize;
-pub mod vm;
+mod disasm;
+mod emit;
+mod lower;
+mod opcodes;
+mod optimize;
+mod resolve;
+mod scheduler;
+mod serialize;
+mod vm;
 
 pub use chunk::{Chunk, ExceptionEntry, Function, UpvalueDesc};
 pub use compiler::{compile, CompileResult};
@@ -27,8 +28,9 @@ pub use lower::lower;
 pub use opcodes::Op;
 pub use optimize::optimize as optimize_expr;
 pub use resolve::resolve_with_locals;
+pub use scheduler::init_scheduler;
 pub use serialize::{deserialize_from_bytes, is_bytecode_file, serialize_to_bytes};
 pub use vm::{
-    compile_program, compile_program_with_spans, snap_breakpoint_line, valid_breakpoint_lines,
-    Closure, CompiledProgram, UpvalueCell, UpvalueState, VM,
+    compile_program, compile_program_with_spans, extract_vm_closure, snap_breakpoint_line,
+    valid_breakpoint_lines, Closure, CompiledProgram, UpvalueCell, UpvalueState, VM,
 };

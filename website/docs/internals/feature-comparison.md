@@ -88,6 +88,7 @@ This is Sema's primary differentiator. No other Lisp has LLM primitives as first
 | Pattern matching | ✅ `match` | ✅ | ✅ | ⚠️ via core.match | ✅ | ✅ | ⚠️ via library |
 | Modules | ✅ | ✅ | ✅ | ✅ namespaces | ✅ via Lua `require` | ✅ | ✅ packages |
 | Continuations | ❌ | ⚠️ fibers | ✅ `call/cc` | ❌ | ❌ | ✅ `call/cc` | ❌ |
+| Async/Channels | ✅ cooperative | ❌ | ❌ | ✅ core.async | ❌ | ❌ | ⚠️ via library |
 | Multithreading | ❌ | ✅ | ✅ | ✅ | ✅ via Lua | ✅ | ✅ |
 | Persistent data structures | ⚠️ COW maps | ❌ | ❌ | ✅ core design | ❌ | ❌ | ❌ |
 | Keywords | ✅ `:foo` | ✅ `:foo` | ✅ `#:foo` | ✅ `:foo` | ✅ `:foo` | ✅ `#:foo` | ✅ `:foo` |

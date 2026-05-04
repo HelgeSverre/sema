@@ -601,3 +601,40 @@ Throw any value as an error.
 (throw "something went wrong")
 (throw {:code 404 :reason "not found"})
 ```
+
+## Async / Await
+
+### `async`
+
+Create an async task that evaluates `body` concurrently and returns a promise.
+
+```
+(async body ...)
+```
+
+The task runs on the VM's cooperative scheduler. Multiple async tasks interleave at yield points (channel operations, await, sleep).
+
+```sema
+(define p (async (+ 1 2)))
+(await p)  ; => 3
+```
+
+### `await`
+
+Wait for an async promise to resolve and return its value.
+
+```
+(await promise)
+```
+
+If the promise was rejected, raises an error. Inside an async task, `await` yields to the scheduler allowing other tasks to run. At the top level, `await` runs the scheduler until the promise resolves.
+
+```sema
+(let ((p1 (async (* 3 3)))
+      (p2 (async (* 4 4))))
+  (+ (await p1) (await p2)))  ; => 25
+```
+
+::: info VM only
+`async` and `await` require the VM backend (default). The tree-walker interpreter returns an error.
+:::

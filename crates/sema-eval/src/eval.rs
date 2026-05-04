@@ -154,6 +154,9 @@ impl Interpreter {
             &prog.native_table,
             prog.main_cache_slots,
         )?;
+        // Initialize the async scheduler with shared globals and native spurs.
+        // The function table is extracted from each thunk at spawn time.
+        sema_vm::init_scheduler(self.global_env.clone(), prog.native_table.clone());
         vm.execute(prog.closure, &self.ctx)
     }
 
