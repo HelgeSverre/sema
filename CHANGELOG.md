@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.14.2
+
+### Fixed
+
+- **npm publish workflow** — switched the GitHub Actions runner to Node 24.x so npm has a working `arborist`. Node 22.22.2's bundled npm was missing `promise-retry`, causing every `npm install` / `npm publish` to fail since v1.13.0. Identical source to v1.14.1; this release exists to ship the four missing npm versions (`1.12.3`, `1.13.0`, `1.14.0`, `1.14.1`, `1.14.2`) by getting the workflow green again.
+
 ## 1.14.1
 
 ### Fixed
