@@ -154,6 +154,72 @@ Return the system temporary directory.
 (sys/temp-dir)   ; => "/tmp"
 ```
 
+## Terminal
+
+### `sys/term-size`
+
+Return the terminal's current size as a map `{:rows N :cols M}`, or `nil` when no controlling TTY is attached (e.g., when stdout is redirected to a file). Queries `ioctl(TIOCGWINSZ)` against stdout, then stderr, then stdin.
+
+```sema
+(sys/term-size)
+;; => {:rows 47 :cols 180}
+```
+
+Pair with `sys/on-signal :winch` to redraw on terminal resize:
+
+```sema
+(define (redraw size)
+  ;; ... layout for size ...
+  )
+
+(redraw (sys/term-size))
+(sys/on-signal :winch (fn () (redraw (sys/term-size))))
+```
+
+::: warning Unix only
+Returns `nil` on Windows and any non-Unix target.
+:::
+
+## Signals
+
+Async-signal-safe handlers backed by atomic flags. Signal handlers themselves only flip a flag — your callbacks run later, in the main thread, when you call `sys/check-signals`. This keeps the single-threaded `Rc`-based runtime intact.
+
+::: warning Unix only
+Signal hooks are no-ops on Windows.
+:::
+
+### `sys/on-signal`
+
+Register a callback for a signal. Multiple callbacks per signal are supported; they fire in registration order.
+
+Supported signals:
+
+| Keyword  | Signal     | Typical use                          |
+|----------|------------|--------------------------------------|
+| `:winch` | `SIGWINCH` | Terminal resize — redraw the UI      |
+| `:int`   | `SIGINT`   | Ctrl-C — clean shutdown              |
+| `:term`  | `SIGTERM`  | Termination request — clean shutdown |
+
+```sema
+(sys/on-signal :int (fn ()
+  (println "interrupted, cleaning up")
+  (exit 0)))
+```
+
+### `sys/check-signals`
+
+Dispatch any pending signal callbacks. Call this from your event loop (typically right after `io/read-key` / `io/read-key-timeout` returns) so handlers run in a predictable place rather than asynchronously interrupting Sema code.
+
+```sema
+(let loop ()
+  (sys/check-signals)
+  (let ((key (io/read-key-timeout 50)))
+    (when key (handle-key key))
+    (loop)))
+```
+
+If no signals are pending, this is essentially free — it just checks three atomic booleans.
+
 ## Shell & Process Control
 
 ### `shell`

@@ -122,7 +122,7 @@ Sema's stdlib follows consistent naming patterns:
 
 | Function                                                                                                      | Description                  |
 | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| `display`, `println`, `pprint`, `print`, `io/print-error`, `io/println-error`, `newline`, `io/read-line`, `io/read-stdin` | Console I/O                  |
+| `display`, `println`, `pprint`, `print`, `io/print-error`, `io/println-error`, `newline`, `io/read-line`, `io/read-stdin`, `io/eof?`, `io/flush` | Console I/O                  |
 | `file/read`, `file/write`, `file/append`                                                                      | File read/write              |
 | `file/read-bytes`, `file/write-bytes`                                                                         | Binary file I/O              |
 | `file/read-lines`, `file/write-lines`                                                                         | Line-based I/O               |
@@ -199,6 +199,8 @@ Sema's stdlib follows consistent naming patterns:
 | `sys/pid`, `sys/tty`, `sys/which`, `sys/elapsed`            | Process info          |
 | `sys/interactive?`, `sys/hostname`, `sys/user`              | Session info          |
 | `sys/home-dir`, `sys/temp-dir`                              | Directory paths       |
+| `sys/term-size`                                             | Terminal size (Unix)  |
+| `sys/on-signal`, `sys/check-signals`                        | Signal hooks (Unix)   |
 | `shell`                                                     | Run shell commands    |
 | `exit`                                                      | Exit process          |
 
@@ -232,7 +234,8 @@ Sema's stdlib follows consistent naming patterns:
 | --------------------------------------------------------------------- | ------------------------ |
 | `async/spawn`, `async/await`, `async/all`, `async/race`               | Async task management    |
 | `async/resolved`, `async/rejected`                                     | Pre-settled promises     |
-| `async/run`, `async/sleep`                                             | Scheduler control        |
+| `async/run`, `async/sleep`, `async/timeout`                            | Scheduler control & deadlines |
+| `async/cancel`, `async/cancelled?`                                     | Cancellation             |
 | `async/promise?`, `async/resolved?`, `async/rejected?`, `async/pending?` | Promise predicates       |
 | `channel/new`, `channel/send`, `channel/recv`, `channel/try-recv`      | Channel operations       |
 | `channel/close`                                                        | Channel lifecycle        |
@@ -255,6 +258,8 @@ Sema's stdlib follows consistent naming patterns:
 | `term/rgb`                                                       | 24-bit true color                   |
 | `term/strip`                                                     | Remove ANSI escape codes            |
 | `term/spinner-start`, `term/spinner-stop`, `term/spinner-update` | Animated spinners                   |
+| `io/tty-raw!`, `io/tty-restore!`                                 | Raw-mode TTY (Unix)                 |
+| `io/read-key`, `io/read-key-timeout`                             | Per-keystroke input (Unix)          |
 
 ### [Text Processing](./text-processing)
 

@@ -91,7 +91,38 @@ Run all pending async tasks to completion.
 (async/sleep ms)
 ```
 
-Inside an async task, yield for `ms` milliseconds (cooperative -- actual timing not enforced). Outside async, calls `thread::sleep`.
+Inside an async task, yield for at least `ms` milliseconds (real timing — the scheduler will not wake the task until the deadline elapses). Outside async, calls `thread::sleep`.
+
+### `async/timeout`
+
+```sema
+(async/timeout ms promise) → value
+```
+
+Wait for `promise` to resolve, but raise an error if it takes longer than `ms` milliseconds. The underlying task is **not** automatically cancelled; pair with `async/cancel` if you need to free its resources.
+
+```sema
+(async/timeout 100 (async (do-slow-work)))
+;; raises: async/timeout: operation timed out
+```
+
+`ms = 0` causes an immediate timeout if the promise has not already resolved.
+
+### `async/cancel`
+
+```sema
+(async/cancel promise)
+```
+
+Request cancellation of a spawned task. The next time the task hits a yield point, it rejects with `"cancelled"`. Errors if called on a non-spawned promise (e.g., `async/resolved`). Always pair with cleanup that doesn't depend on the task finishing.
+
+### `async/cancelled?`
+
+```sema
+(async/cancelled? promise) → bool
+```
+
+`#t` if `promise` was cancelled (rejected with `"cancelled"`).
 
 ### Promise predicates
 
@@ -101,6 +132,7 @@ Inside an async task, yield for `ms` milliseconds (cooperative -- actual timing 
 | `(async/resolved? p)` | Is promise `p` resolved? |
 | `(async/rejected? p)` | Is promise `p` rejected? |
 | `(async/pending? p)` | Is promise `p` still pending? |
+| `(async/cancelled? p)` | Was promise `p` cancelled? |
 
 ## Channels
 

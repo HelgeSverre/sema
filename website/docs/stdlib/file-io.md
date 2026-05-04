@@ -58,11 +58,26 @@ Print a newline character.
 
 ### `io/read-line`
 
-Read a line of input from stdin.
+Read a line of input from stdin (trailing `\n` / `\r\n` stripped).
 
 ```sema
 (define name (io/read-line))
 ```
+
+Returns `nil` when stdin is closed (Ctrl-D in cooked mode, end of a piped file). Use this to distinguish "user pressed Enter on an empty line" (returns `""`) from "stdin is exhausted" (returns `nil`).
+
+```sema
+(let loop ()
+  (let ((line (io/read-line)))
+    (cond
+      ((nil? line)         (println "(eof)"))
+      ((= line "")         (loop))            ; blank line, keep reading
+      (else                (println "got: " line) (loop)))))
+```
+
+::: warning Breaking change in 1.14.0
+Previously `io/read-line` returned `""` on both EOF and empty input, making them indistinguishable. It now returns `nil` on EOF. If you don't want to refactor for this, use `io/eof?` after the call instead.
+:::
 
 ### `io/read-stdin`
 
@@ -70,6 +85,26 @@ Read all of stdin as a string (until EOF).
 
 ```sema
 (define input (io/read-stdin))
+```
+
+### `io/eof?`
+
+Return `#t` after any stdin read (`io/read-line`, `io/read-stdin`, `io/read-key`) has signalled EOF. Non-breaking alternative to checking `io/read-line` for `nil`.
+
+```sema
+(define line (io/read-line))
+(when (io/eof?)
+  (println "stdin closed"))
+```
+
+### `io/flush`
+
+Flush stdout. Useful when writing a prompt without a trailing newline before reading input.
+
+```sema
+(display "name> ")
+(io/flush)
+(define name (io/read-line))
 ```
 
 ## File Operations

@@ -307,6 +307,97 @@ Multiple spinners can run concurrently — each gets a unique ID:
 (term/spinner-stop s2 {:symbol "✔" :text "Task B done"})
 ```
 
+## Raw-Mode Input
+
+Primitives for building interactive TUIs: per-keystroke input, EOF detection, and signal-aware event loops. **Unix only** — these functions are no-op stubs on Windows.
+
+In cooked mode (the default), the terminal driver buffers a whole line and only delivers it to your program when the user hits Enter. Raw mode disables that — every key press, including Ctrl-C and arrow keys, is delivered as it happens. Pair these with `sys/term-size` and `sys/on-signal` (in the [System](system) docs) to build full TUIs.
+
+### `io/tty-raw!`
+
+Put stdin into raw mode. Returns an **integer restore-token** on success, or `nil` if stdin is not a TTY (e.g., when input is piped from a file). Always pair with `io/tty-restore!` so the user's shell isn't left in raw mode if your program crashes.
+
+```sema
+(define tok (io/tty-raw!))
+(when tok
+  ;; ... read keys, draw UI ...
+  (io/tty-restore! tok))
+```
+
+### `io/tty-restore!`
+
+Restore the TTY to cooked mode using the token returned by `io/tty-raw!`.
+
+```sema
+(io/tty-restore! tok)
+```
+
+### `io/read-key`
+
+Block until a single keypress arrives, then return a map describing it. Returns `nil` on EOF (after which `io/eof?` returns `#t`).
+
+```sema
+(io/read-key)
+;; => {:kind :char :char "a"}
+```
+
+The map's `:kind` field is one of:
+
+| `:kind`   | Other keys              | Meaning                                         |
+|-----------|-------------------------|-------------------------------------------------|
+| `:char`   | `:char` (string)        | A printable character (UTF-8 multi-byte handled) |
+| `:ctrl`   | `:char` (string)        | Ctrl + letter (e.g., Ctrl-C → `{:kind :ctrl :char "c"}`) |
+| `:alt`    | `:char` (string)        | Alt/Meta + character (ESC + char sequence)      |
+| `:key`    | `:name` (keyword)       | Named key — see table below                     |
+
+Named keys (`:kind :key`) currently emitted:
+
+`:enter` `:tab` `:backspace` `:esc` `:up` `:down` `:left` `:right` `:home` `:end` `:delete` `:page-up` `:page-down` `:f1` `:f2` `:f3` `:f4`
+
+CSI/SS3 escape sequences (arrow keys, F1–F4, Page Up/Down, Delete) and UTF-8 continuation bytes are decoded for you with a 20 ms continuation-byte window. F5–F12 and Insert use longer escape sequences that aren't decoded yet — they fall through as raw characters.
+
+### `io/read-key-timeout`
+
+Like `io/read-key`, but returns `nil` after `timeout-ms` milliseconds with no input. Backed by `select(2)`, so it doesn't burn CPU.
+
+```sema
+(io/read-key-timeout 100)   ; => key map, or nil after 100ms
+```
+
+Use this to drive an animation loop or to poll signals between renders:
+
+```sema
+(let loop ()
+  (sys/check-signals)
+  (let ((key (io/read-key-timeout 50)))
+    (when key (handle-key key))
+    (loop)))
+```
+
+### Minimal TUI skeleton
+
+Assumes interactive stdin — `io/tty-raw!` returns `nil` when stdin isn't a TTY, so guard with `when tok` if the program may run with input piped from a file.
+
+```sema
+(define tok (io/tty-raw!))
+
+(when tok
+  (sys/on-signal :winch (fn () (redraw (sys/term-size))))
+  (sys/on-signal :int   (fn () (io/tty-restore! tok) (exit 0)))
+
+  (let loop ()
+    (sys/check-signals)
+    (let ((key (io/read-key)))
+      (cond
+        ((nil? key)                                          ; EOF
+          (io/tty-restore! tok))
+        ((and (= (:kind key) :ctrl) (= (:char key) "c"))     ; Ctrl-C
+          (io/tty-restore! tok))
+        (else
+          (handle-key key)
+          (loop))))))
+```
+
 ## Common Patterns
 
 ### Colored Log Levels

@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.14.0
+
+### Added
+
+- **VM async concurrency** — cooperative VM-per-task scheduler with promises and channels. Each `(async/spawn fn)` creates a dedicated VM sharing globals/functions with the parent; round-robin scheduling, no replay, side effects execute exactly once. Async features are **VM-only** (tree-walker returns a clear error).
+  - **Special forms**: `(async body...)`, `(await promise)`
+  - **Promise stdlib**: `async/spawn`, `async/await`, `async/all`, `async/race`, `async/sleep` (real timing), `async/timeout`, `async/resolved`, `async/rejected`, plus predicates
+  - **Channel stdlib**: `channel/new`, `channel/send`, `channel/recv`, `channel/try-recv`, `channel/close`, `channel/closed?`, `channel/count`, `channel/empty?`, `channel/full?`
+  - **Cancellation**: `async/timeout` enforces real deadlines; tasks cancel cleanly
+  - **Yield mechanism**: thread-local signal checked after every native call; on yield the VM leaves a placeholder on the stack and resumes when the scheduler wakes the task
+  - **Re-entrant scheduler**: nested `async/spawn` and `async/await` inside tasks work correctly
+  - **New value types**: `AsyncPromise` (tag 28), `Channel` (tag 29) with full NaN-box support
+  - **Docs**: new `/docs/stdlib/concurrency.html` reference page; `async`/`await` in special-forms docs
+- **Interactive CLI primitives** — terminal UI building blocks (Unix-only, no-op stubs elsewhere):
+  - **EOF detection**: `io/read-line` now returns `nil` on EOF (was `""`); new `io/eof?` predicate; `io/flush` for explicit stdout flush
+  - **Raw-mode TTY**: `io/tty-raw!` / `io/tty-restore! token` via `cfmakeraw`/`tcsetattr`
+  - **Keystroke reader**: `io/read-key` and `io/read-key-timeout ms` returning a map (`:char` / `:ctrl` / `:key` / `:alt`); handles CSI/SS3 escape sequences (arrow keys, F-keys, Page Up/Down, Delete), UTF-8 multi-byte chars with continuation timeout, and control characters
+  - **Terminal size**: `sys/term-size` → `{:rows N :cols M}` via `ioctl(TIOCGWINSZ)`
+  - **Signal hooks**: `sys/on-signal :winch|:int|:term callback` + `sys/check-signals` (async-signal-safe handlers, callbacks invoked from event loop)
+
+### Changed
+
+- **`io/read-line` returns `nil` on EOF** instead of `""` — programs can now distinguish closed stdin from empty input. Use `io/eof?` for non-breaking checks.
+
 ## 1.13.0
 
 ### Added
