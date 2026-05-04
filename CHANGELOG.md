@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.14.1
+
+### Fixed
+
+- **Linux release builds** — added `libudev-dev` to the cargo-dist apt dependency list so the `serialport` crate (transitive `libudev-sys`) compiles on the GitHub Actions Linux runners. Without this, the `Release` workflow's `build-local-artifacts (x86_64-unknown-linux-gnu)` and `(aarch64-unknown-linux-gnu)` jobs failed during 1.14.0, blocking the GitHub release page, Homebrew tap update, and binary uploads. 1.14.0 was published successfully to crates.io but had no downloadable binaries; 1.14.1 is the same code with a working binary release.
+
 ## 1.14.0
 
 ### Added

@@ -15,3 +15,7 @@ tap = "helgesverre/homebrew-tap"
 publish-jobs = ["homebrew"]
 # Target platforms to build apps for (Rust target-triple syntax)
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"]
+
+# System dependencies — libudev is required by `serialport` (transitively libudev-sys) on Linux.
+[dist.dependencies.apt]
+libudev-dev = "*"
