@@ -34,10 +34,22 @@ run_test() {
             echo "  SKIP  $f (slow meta-eval)"
             return
             ;;
-        web-server.sema)
+        web-server.sema|eliza-web.sema)
             # Starts a blocking server — cannot smoke test
             skipped=$((skipped + 1))
             echo "  SKIP  $f (starts server)"
+            return
+            ;;
+        eliza.sema)
+            # Reads from stdin in a loop — would block the smoke test
+            skipped=$((skipped + 1))
+            echo "  SKIP  $f (interactive)"
+            return
+            ;;
+        pico-*.sema)
+            # Pico 2 hardware examples — require a serial port to a real device
+            skipped=$((skipped + 1))
+            echo "  SKIP  $f (requires serial-attached Pico hardware)"
             return
             ;;
         glados-downloads.sema)
