@@ -38,6 +38,9 @@ dual_eval_tests! {
     sys_args: "(list? (sys/args))" => Value::bool(true),
     sys_env_all: "(map? (sys/env-all))" => Value::bool(true),
     sys_elapsed: "(>= (sys/elapsed) 0)" => Value::bool(true),
+    // sys/term-size returns nil when not a TTY (test environment has no TTY)
+    sys_term_size_nil_or_map: "(let ((ts (sys/term-size))) (or (nil? ts) (map? ts)))" => Value::bool(true),
+    sys_check_signals_noop: "(nil? (sys/check-signals))" => Value::bool(true),
 }
 
 // Unix-only: sys/which assumes `sh` exists on PATH
@@ -147,4 +150,20 @@ dual_eval_tests! {
     str_chop_end: r#"(string/chop-end "hello world" " world")"# => Value::string("hello"),
     str_wrap: r#"(string/wrap "hello" "[" "]")"# => Value::string("[hello]"),
     str_unwrap: r#"(string/unwrap "[hello]" "[" "]")"# => Value::string("hello"),
+}
+
+// ============================================================
+// New interactive-CLI functions — dual eval
+// ============================================================
+
+dual_eval_tests! {
+    // io/flush: should return nil and not error
+    io_flush_returns_nil: "(nil? (io/flush))" => Value::bool(true),
+    // io/eof? starts false in a normal eval context
+    io_eof_initially_false: "(io/eof?)" => Value::bool(false),
+    // io/tty-raw! returns nil (not a TTY) or an integer token (is a TTY); if a token is returned,
+    // restore it so we don't leave the terminal in raw mode.
+    io_tty_raw_returns_nil_or_int: "(let ((tok (io/tty-raw!))) (if (nil? tok) #t (begin (io/tty-restore! tok) #t)))" => Value::bool(true),
+    // io/read-key-timeout with 0ms returns nil immediately (no key available)
+    io_read_key_timeout_zero: "(nil? (io/read-key-timeout 0))" => Value::bool(true),
 }

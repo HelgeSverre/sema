@@ -437,7 +437,10 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         let msg = err.to_string();
-        assert!(msg.contains("cyclic import"), "error should mention cyclic import: {msg}");
+        assert!(
+            msg.contains("cyclic import"),
+            "error should mention cyclic import: {msg}"
+        );
     }
 
     #[test]
@@ -462,7 +465,10 @@ mod tests {
         let result = ctx.begin_module_load(&a);
         assert!(result.is_err());
         let msg = result.unwrap_err().to_string();
-        assert!(msg.contains("cyclic import"), "A should still be loading: {msg}");
+        assert!(
+            msg.contains("cyclic import"),
+            "A should still be loading: {msg}"
+        );
     }
 
     // --- Sandbox integration ---
