@@ -1916,7 +1916,7 @@ impl fmt::Display for Value {
             }
             ValueView::HashMap(map) => {
                 let mut entries: Vec<_> = map.iter().collect();
-                entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+                entries.sort_by_key(|(k1, _)| *k1);
                 write!(f, "{{")?;
                 for (i, (k, v)) in entries.iter().enumerate() {
                     if i > 0 {

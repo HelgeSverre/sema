@@ -246,21 +246,11 @@ fn body_first_line_count(head_name: &str, semantic: &[&Node]) -> usize {
         // deftool/defagent: only head + name on first line (docstring goes on its own line)
         "deftool" | "defagent" => 2.min(semantic.len()),
         // fn/lambda: head + params
-        "fn" | "lambda" => {
-            if semantic.len() > 1 {
-                2
-            } else {
-                1
-            }
-        }
+        "fn" | "lambda" if semantic.len() > 1 => 2,
+        "fn" | "lambda" => 1,
         // when/unless/while: head + condition on first line
-        "when" | "unless" | "while" => {
-            if semantic.len() > 1 {
-                2
-            } else {
-                1
-            }
-        }
+        "when" | "unless" | "while" if semantic.len() > 1 => 2,
+        "when" | "unless" | "while" => 1,
         _ => 1,
     }
 }

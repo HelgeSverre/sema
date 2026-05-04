@@ -926,11 +926,10 @@ async fn bridge_websocket(
     let recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = ws_stream.next().await {
             match msg {
-                Message::Text(text) => {
-                    if incoming_tx_clone.send(text.to_string()).await.is_err() {
-                        break;
-                    }
+                Message::Text(text) if incoming_tx_clone.send(text.to_string()).await.is_err() => {
+                    break;
                 }
+                Message::Text(_) => {}
                 Message::Close(_) => break,
                 _ => {} // ignore binary, ping, pong
             }

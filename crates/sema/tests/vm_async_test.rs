@@ -581,9 +581,7 @@ fn sleeping_task_unblocks_channel_recv() {
 
 #[test]
 fn async_all_rejects_on_any_failure() {
-    let err = eval_vm_err(
-        r#"(async/all (list (async 1) (async (/ 1 0)) (async 3)))"#,
-    );
+    let err = eval_vm_err(r#"(async/all (list (async 1) (async (/ 1 0)) (async 3)))"#);
     assert!(
         err.contains("rejected") || err.contains("division") || err.contains("zero"),
         "expected rejection from division error, got: {err}"
@@ -608,9 +606,7 @@ fn async_race_empty_list_errors() {
 
 #[test]
 fn async_race_all_rejected() {
-    let err = eval_vm_err(
-        r#"(async/race (list (async (error "a")) (async (error "b"))))"#,
-    );
+    let err = eval_vm_err(r#"(async/race (list (async (error "a")) (async (error "b"))))"#);
     assert!(!err.is_empty(), "expected rejection error, got empty");
 }
 
@@ -645,9 +641,7 @@ fn channel_recv_wakes_on_close_with_nil() {
 
 #[test]
 fn timeout_zero_expires_immediately() {
-    let err = eval_vm_err(
-        r#"(async/timeout 0 (async (channel/recv (channel/new 1))))"#,
-    );
+    let err = eval_vm_err(r#"(async/timeout 0 (async (channel/recv (channel/new 1))))"#);
     assert!(
         err.contains("timed out"),
         "expected timeout error, got: {err}"

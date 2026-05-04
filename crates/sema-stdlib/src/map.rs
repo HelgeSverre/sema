@@ -238,7 +238,7 @@ pub fn register(env: &sema_core::Env) {
             }
             ValueView::HashMap(map) => {
                 let mut entries: Vec<_> = map.iter().collect();
-                entries.sort_by(|(k1, _), (k2, _)| k1.cmp(k2));
+                entries.sort_by_key(|(k, _)| *k);
                 let entries: Vec<Value> = entries
                     .into_iter()
                     .map(|(k, v)| Value::list(vec![k.clone(), v.clone()]))
@@ -543,7 +543,7 @@ pub fn register(env: &sema_core::Env) {
             _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
         };
         let mut map = BTreeMap::new();
-        for (k, v) in keys.into_iter().zip(vals.into_iter()) {
+        for (k, v) in keys.into_iter().zip(vals) {
             map.insert(k, v);
         }
         Ok(Value::map(map))
