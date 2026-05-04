@@ -23,11 +23,17 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          # Node 24 bundles npm 11.x — supports `--provenance` and trusted
+          # publishing. Earlier runner images (Node 22.22.2) shipped a
+          # corrupted bundled npm whose `arborist` was missing `promise-retry`,
+          # making both `npm install -g npm@latest` and `npm publish` fail.
+          node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Install latest npm (required for trusted publishing)
-        run: npm install -g npm@latest
+      - name: Verify npm is functional
+        run: |
+          node --version
+          npm --version
 
       - name: Get version from tag
         id: version
