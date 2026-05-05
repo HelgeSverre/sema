@@ -1,0 +1,23 @@
+;; `async/timeout` races a promise against a deadline. If the task hasn't
+;; resolved when the timer fires, an error is raised — let try/catch handle it.
+
+(define (slow-task ms result)
+  (async
+    (async/sleep ms)
+    result))
+
+;; This finishes inside the budget.
+(println "fast:" (async/timeout 100 (slow-task 20 :done)))
+
+;; This blows past the budget — caught and reported.
+(try
+  (async/timeout 50 (slow-task 200 :too-late))
+  (catch e
+    (println "timed out:" (:message e))))
+
+;; race returns whichever promise resolves first.
+(define winner (async/race
+                 (list (slow-task 30 :a)
+                       (slow-task 60 :b)
+                       (slow-task 90 :c))))
+(println "race winner:" winner)

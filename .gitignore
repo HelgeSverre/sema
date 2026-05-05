@@ -55,3 +55,4 @@ node_modules/
 test-results/
 mutants.out/
 mutants.out.old/
+.vercel

@@ -502,6 +502,7 @@ The `--sandbox` flag restricts access to dangerous operations. Functions remain 
 | `env-write` | `sys/set-env`                                                              |
 | `process`   | `exit`, `sys/pid`, `sys/args`, `sys/which`                                 |
 | `llm`       | `llm/complete`, `llm/chat`, `llm/send`                                     |
+| `serial`    | `serial/open`, `serial/list`, `serial/write`, `serial/read-line`, `serial/send`, `serial/close` |
 
 Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, etc.) are never restricted.
 

@@ -204,6 +204,15 @@ Sema's stdlib follows consistent naming patterns:
 | `shell`                                                     | Run shell commands    |
 | `exit`                                                      | Exit process          |
 
+### [Serial Ports](./serial)
+
+| Function                                                   | Description                              |
+| ---------------------------------------------------------- | ---------------------------------------- |
+| `serial/list`                                              | List available device paths              |
+| `serial/open`, `serial/close`                              | Open/close a port (returns int handle)   |
+| `serial/write`, `serial/read-line`                         | Raw I/O                                  |
+| `serial/send`                                              | Write line + read JSON response          |
+
 ### [Bytevectors](./bytevectors)
 
 | Function                                                       | Description       |

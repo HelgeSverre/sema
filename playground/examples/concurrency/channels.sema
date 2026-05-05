@@ -1,0 +1,25 @@
+;; Channels are bounded FIFO queues for talking between async tasks.
+;; A producer fills the channel; a consumer reads until it's closed.
+
+(define ch (channel/new 1))   ; capacity 1 — backpressure on send
+
+(define producer
+  (async
+    (channel/send ch 10)
+    (channel/send ch 20)
+    (channel/send ch 30)
+    (channel/send ch 40)
+    (channel/close ch)))
+
+(define consumer
+  (async
+    (let loop ((sum 0))
+      (let ((v (channel/recv ch)))
+        ;; recv returns nil once the channel is closed and drained.
+        (if (nil? v)
+          sum
+          (begin
+            (println "got:" v)
+            (loop (+ sum v))))))))
+
+(println "total:" (await consumer))

@@ -103,6 +103,7 @@ export default defineConfig({
             { text: 'TOML', link: '/docs/stdlib/toml' },
             { text: 'Date & Time', link: '/docs/stdlib/datetime' },
             { text: 'System', link: '/docs/stdlib/system' },
+            { text: 'Serial Ports', link: '/docs/stdlib/serial' },
             { text: 'Bytevectors', link: '/docs/stdlib/bytevectors' },
             { text: 'Streams', link: '/docs/stdlib/streams' },
             { text: 'Concurrency', link: '/docs/stdlib/concurrency' },

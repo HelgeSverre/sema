@@ -1,0 +1,21 @@
+;; Async tasks run cooperatively on the VM scheduler.
+;; `(async expr)` spawns a task; `(await p)` waits for its result.
+
+(define (slow-square n)
+  (async/sleep 50)        ; pretend this is real work
+  (* n n))
+
+(define p1 (async (slow-square 7)))
+(define p2 (async (slow-square 8)))
+(define p3 (async (slow-square 9)))
+
+;; All three tasks run interleaved. await blocks until each resolves.
+(println "results:" (await p1) (await p2) (await p3))
+(println "sum:    " (+ (await p1) (await p2) (await p3)))
+
+;; async/all is a convenient combinator for "run all, collect results"
+(define winners (async/all
+                  (list (async (slow-square 10))
+                        (async (slow-square 11))
+                        (async (slow-square 12)))))
+(println "all:    " winners)

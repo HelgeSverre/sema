@@ -10,6 +10,7 @@ const DIST_DIR = 'dist';
 const categoryNames = {
   'getting-started': 'Getting Started',
   'functional': 'Functional',
+  'concurrency': 'Concurrency',
   'data': 'Data & Text',
   'filesystem': 'Filesystem',
   'patterns': 'Patterns',
@@ -22,6 +23,7 @@ const categoryNames = {
 const categoryOrder = [
   'getting-started',
   'functional',
+  'concurrency',
   'data',
   'filesystem',
   'http',
