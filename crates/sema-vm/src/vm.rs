@@ -412,6 +412,63 @@ impl VM {
         self.run_inner(ctx, None)
     }
 
+    /// Prepare the VM to run `closure` with `args` already bound to its
+    /// parameters, but do not run it. The scheduler uses this to register
+    /// a closure-as-task whose first call will be `run_async`.
+    pub fn setup_for_call(
+        &mut self,
+        closure: Rc<Closure>,
+        args: &[Value],
+    ) -> Result<(), SemaError> {
+        let func = &closure.func;
+        let arity = func.arity as usize;
+        let has_rest = func.has_rest;
+        let n_locals = func.chunk.n_locals as usize;
+
+        if has_rest {
+            if args.len() < arity {
+                return Err(SemaError::arity(
+                    func.name
+                        .map(resolve_spur)
+                        .unwrap_or_else(|| "<lambda>".to_string()),
+                    format!("{}+", arity),
+                    args.len(),
+                ));
+            }
+        } else if args.len() != arity {
+            return Err(SemaError::arity(
+                func.name
+                    .map(resolve_spur)
+                    .unwrap_or_else(|| "<lambda>".to_string()),
+                arity.to_string(),
+                args.len(),
+            ));
+        }
+
+        self.ensure_cache_space(func);
+        let base = self.stack.len();
+        self.stack.resize(base + n_locals, Value::nil());
+        if has_rest {
+            for i in 0..arity {
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
+            }
+            let rest: Vec<Value> = args[arity..].to_vec();
+            self.stack[base + arity] = Value::list(rest);
+        } else {
+            for i in 0..arity {
+                self.stack[base + i] = args.get(i).cloned().unwrap_or(Value::nil());
+            }
+        }
+        self.frames.push(CallFrame {
+            cache_base: func.cache_offset,
+            closure,
+            pc: 0,
+            base,
+            open_upvalues: None,
+        });
+        Ok(())
+    }
+
     fn run_inner(
         &mut self,
         ctx: &EvalContext,
@@ -1963,54 +2020,22 @@ impl VM {
                 .unwrap_or_else(|| "<vm-closure>".to_string()),
             payload,
             move |ctx, args| {
+                // Inside an async task, route through the scheduler so any
+                // yield in the inner closure (channel/send, channel/recv,
+                // await, sleep) suspends cleanly. Otherwise the inner VM's
+                // AsyncYield would surface as "async yield outside of
+                // scheduler context" and crash the calling HOF.
+                if sema_core::in_async_context() {
+                    return crate::scheduler::run_closure_as_inline_task(
+                        ctx,
+                        closure_for_fallback.clone(),
+                        functions.clone(),
+                        args,
+                    );
+                }
+
                 let mut vm = VM::new_with_rc_functions(globals.clone(), functions.clone());
-                let func = &closure_for_fallback.func;
-                let arity = func.arity as usize;
-                let has_rest = func.has_rest;
-                let n_locals = func.chunk.n_locals as usize;
-
-                if has_rest {
-                    if args.len() < arity {
-                        return Err(SemaError::arity(
-                            func.name
-                                .map(resolve_spur)
-                                .unwrap_or_else(|| "<lambda>".to_string()),
-                            format!("{}+", arity),
-                            args.len(),
-                        ));
-                    }
-                } else if args.len() != arity {
-                    return Err(SemaError::arity(
-                        func.name
-                            .map(resolve_spur)
-                            .unwrap_or_else(|| "<lambda>".to_string()),
-                        arity.to_string(),
-                        args.len(),
-                    ));
-                }
-
-                vm.stack.resize(n_locals, Value::nil());
-
-                if has_rest {
-                    for i in 0..arity {
-                        vm.stack[i] = args.get(i).cloned().unwrap_or(Value::nil());
-                    }
-                    let rest: Vec<Value> = args[arity..].to_vec();
-                    vm.stack[arity] = Value::list(rest);
-                } else {
-                    for i in 0..arity {
-                        vm.stack[i] = args.get(i).cloned().unwrap_or(Value::nil());
-                    }
-                }
-
-                vm.ensure_cache_space(&closure_for_fallback.func);
-                vm.frames.push(CallFrame {
-                    cache_base: closure_for_fallback.func.cache_offset,
-                    closure: closure_for_fallback.clone(),
-                    pc: 0,
-                    base: 0,
-                    open_upvalues: None,
-                });
+                vm.setup_for_call(closure_for_fallback.clone(), args)?;
                 vm.run(ctx)
             },
         )));

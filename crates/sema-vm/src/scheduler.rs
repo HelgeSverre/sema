@@ -274,6 +274,76 @@ fn spawn_callback(ctx: &EvalContext, thunk: Value) -> Result<Value, SemaError> {
     Ok(Value::async_promise_from_rc(promise))
 }
 
+/// Spawn `closure` with pre-bound `args` as a scheduled task and run the
+/// scheduler until it completes. Returns the closure's resolved value, or
+/// propagates a rejection as `Err`.
+///
+/// Used by the VM closure fallback when invoked from a stdlib HOF inside
+/// an async task: the inner closure has to run as a real task so its async
+/// yield points (channel/send, channel/recv, await, sleep) can suspend
+/// cleanly. Without this, the fallback's plain `vm.run` would translate the
+/// yield into an "async yield outside of scheduler context" error and the
+/// owning task would fail.
+pub(crate) fn run_closure_as_inline_task(
+    ctx: &EvalContext,
+    closure: Rc<crate::vm::Closure>,
+    functions: Rc<Vec<Rc<crate::chunk::Function>>>,
+    args: &[Value],
+) -> Result<Value, SemaError> {
+    let mut sched = take_scheduler()?;
+
+    let id = sched.next_id;
+    sched.next_id += 1;
+    let promise = Rc::new(AsyncPromise {
+        state: RefCell::new(PromiseState::Pending),
+        task_id: std::cell::Cell::new(id),
+    });
+
+    let mut vm = match VM::new_for_task(sched.globals.clone(), functions, &sched.native_spurs) {
+        Ok(vm) => vm,
+        Err(e) => {
+            put_scheduler(sched);
+            return Err(e);
+        }
+    };
+    if let Err(e) = vm.setup_for_call(closure.clone(), args) {
+        put_scheduler(sched);
+        return Err(e);
+    }
+
+    sched.tasks.push(Task {
+        id,
+        vm,
+        closure,
+        promise: promise.clone(),
+        // Frame already pushed by setup_for_call — scheduler should call
+        // run_async (not execute_async) on the first tick.
+        started: true,
+        state: TaskState::Ready,
+        cancelled: false,
+        resume_value: None,
+        #[cfg(not(target_arch = "wasm32"))]
+        sleep_deadline: None,
+    });
+
+    // Re-enter the scheduler with this promise as the wait target. The
+    // scheduler is re-entrant: it puts itself back into the thread-local
+    // before each task step so nested HOF-callback yields work too.
+    let target = sema_core::SchedulerTarget::One(promise.clone());
+    let run_result = run_until_reentrant(&mut sched, ctx, &target);
+    put_scheduler(sched);
+    run_result?;
+
+    let state = promise.state.borrow();
+    match &*state {
+        PromiseState::Resolved(v) => Ok(v.clone()),
+        PromiseState::Rejected(e) => Err(SemaError::eval(e.clone())),
+        PromiseState::Pending => Err(SemaError::eval(
+            "HOF callback did not complete after scheduler run",
+        )),
+    }
+}
+
 /// Run-scheduler callback registered via `sema_core::set_run_scheduler_callback`.
 ///
 /// Takes the scheduler out of the thread-local, runs it, puts it back.

@@ -85,7 +85,7 @@ Notebooks are saved as `.sema-nb` files in JSON format:
     "title": "My Notebook",
     "created": "2026-01-01T00:00:00Z",
     "modified": "2026-01-01T12:00:00Z",
-    "sema_version": "1.12.0"
+    "sema_version": "1.14.2"
   },
   "cells": [
     {

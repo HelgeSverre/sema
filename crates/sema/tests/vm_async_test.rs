@@ -731,3 +731,51 @@ fn channel_two_senders_one_receiver() {
         Value::int(30),
     );
 }
+
+// === Async ops inside higher-order stdlib callbacks ===
+//
+// HOFs (for-each, map, filter, foldl, sort-by, ...) invoke VM closures
+// through the closure's NativeFn fallback path. That fallback creates a
+// fresh VM, so any async yield inside the callback used to fail with
+// "async yield outside of scheduler context". Now resolved by spawning
+// the callback as a real task and awaiting it inline.
+
+#[test]
+fn for_each_callback_can_yield_on_full_channel() {
+    // Producer's for-each tries to send 5 values into a capacity-3 channel.
+    // The 4th send must yield (buffer full) and resume after the consumer
+    // drains. Sum should be 1+2+3+4+5 = 15.
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 3)))
+              (let ((producer (async
+                                (for-each (fn (n) (channel/send ch n))
+                                          (list 1 2 3 4 5))
+                                (channel/close ch)))
+                    (consumer (async
+                                (let loop ((sum 0))
+                                  (let ((v (channel/recv ch)))
+                                    (if (nil? v) sum (loop (+ sum v))))))))
+                (await consumer)))
+        "#
+        ),
+        Value::int(15),
+    );
+}
+
+#[test]
+fn map_callback_can_await_promise() {
+    // map's callback awaits a per-item promise. All items should resolve.
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((p (async
+                       (map (fn (n) (await (async (* n n))))
+                            (list 2 3 4)))))
+              (await p))
+        "#
+        ),
+        Value::list(vec![Value::int(4), Value::int(9), Value::int(16)]),
+    );
+}
