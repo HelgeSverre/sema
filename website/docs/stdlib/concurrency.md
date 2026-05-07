@@ -218,3 +218,29 @@ Close the channel. Subsequent sends will error. Blocked receivers will wake with
 ```
 
 Note: tasks are cooperative, not parallel. They interleave at yield points, not at arbitrary instructions. CPU-bound tasks without yield points run to completion before other tasks get a turn.
+
+## Async ops inside higher-order functions
+
+Stdlib higher-order functions like `for-each`, `map`, `filter`, `foldl`, `sort-by`, `apply`, `reduce`, `partition`, `any`, `every` can call **lambdas** that perform async operations (`channel/send`, `channel/recv`, `await`, `async/sleep`). The yield suspends inside the callback and resumes correctly:
+
+```sema
+(let ((ch (channel/new 3)))
+  (let ((producer (async
+                    (for-each (fn (n) (channel/send ch n))
+                              (list 1 2 3 4 5 6 7))
+                    (channel/close ch)))
+        (consumer (async (foldl (fn (sum _) (+ sum (channel/recv ch)))
+                                 0
+                                 (list 1 2 3 4 5 6 7)))))
+    (await consumer)))   ; => 28
+```
+
+Yielding **native** functions (e.g., `channel/recv`, `async/sleep`) passed *directly* as the callback produce a clear error pointing to the workaround:
+
+```sema
+;; Error: yielding native passed directly to a higher-order function — wrap in a lambda
+(map channel/recv (list ch ch ch))
+
+;; Correct: wrap the native in a lambda
+(map (fn (c) (channel/recv c)) (list ch ch ch))
+```

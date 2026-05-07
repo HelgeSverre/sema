@@ -1216,10 +1216,28 @@ fn num_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
 
 /// Call a Sema function (lambda or native) with given args.
 /// Delegates to the real evaluator via the registered callback.
+///
+/// VM closures called from inside an async task route through the scheduler
+/// (see `run_closure_as_inline_task` in sema-vm), so yields suspend cleanly.
+/// Plain native callbacks (e.g. `(map channel/recv ...)`) don't have that
+/// affordance — their yield signal would be silently dropped or coalesced
+/// with subsequent calls, producing wrong results. Surface that case as an
+/// explicit error pointing to the lambda-wrap workaround.
 pub fn call_function(func: &Value, args: &[Value]) -> Result<Value, SemaError> {
-    if let Some(native) = func.as_native_fn_rc() {
+    let result = if let Some(native) = func.as_native_fn_rc() {
         sema_core::with_stdlib_ctx(|ctx| (native.func)(ctx, args))
     } else {
         sema_core::with_stdlib_ctx(|ctx| sema_core::call_callback(ctx, func, args))
+    };
+
+    if sema_core::in_async_context() && sema_core::take_yield_signal().is_some() {
+        return Err(SemaError::eval(
+            "yielding native passed directly to a higher-order function — \
+             wrap it in a lambda so the yield can suspend cleanly. \
+             For example, `(map (fn (x) (channel/recv x)) ...)` instead of \
+             `(map channel/recv ...)`.",
+        ));
     }
+
+    result
 }

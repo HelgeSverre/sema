@@ -765,6 +765,29 @@ fn for_each_callback_can_yield_on_full_channel() {
 }
 
 #[test]
+fn native_callback_passed_directly_raises_clear_error() {
+    // A yielding native fn (channel/recv) passed directly as a HOF callback
+    // can't propagate its yield through the HOF's Rust loop. Instead of
+    // silently dropping yields and producing wrong results, surface a clear
+    // error that tells the user to wrap in a lambda.
+    let err = eval_vm_err(
+        r#"
+        (let ((ch (channel/new 1)))
+          (let ((producer (async
+                            (channel/send ch 1)
+                            (channel/send ch 2)
+                            (channel/close ch)))
+                (consumer (async (map channel/recv (list ch ch ch)))))
+            (await consumer)))
+        "#,
+    );
+    assert!(
+        err.contains("wrap it in a lambda") || err.contains("wrap in a lambda"),
+        "expected lambda-wrap hint, got: {err}"
+    );
+}
+
+#[test]
 fn map_callback_can_await_promise() {
     // map's callback awaits a per-item promise. All items should resolve.
     assert_eq!(
