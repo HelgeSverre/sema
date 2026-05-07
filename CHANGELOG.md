@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.14.3
+
+### Fixed
+
+- **Stdlib higher-order functions can now yield** — `for-each`, `map`, `filter`, `foldl`, `foldr`, `reduce`, `sort-by`, `partition`, `any`, `every`, `apply`, etc. now correctly suspend when their lambda callback performs an async operation (`channel/send` on a full buffer, `channel/recv` on an empty one, `await`, `async/sleep`). Previously, the inner closure's `AsyncYield` was translated to `"async yield outside of scheduler context"` and surfaced as a deadlock in the owning task, because VM closures called from outside the VM hit a fallback path that ran them on a fresh VM with `vm.run` (which can't yield). The fallback now routes through the scheduler when in async context, registering the closure as a real task and re-entering the (already re-entrant) scheduler until it completes.
+- **Yielding native passed directly to a HOF now errors clearly** — patterns like `(map channel/recv (list ch ch ch))` previously silently coalesced yields across iterations and produced wrong results (sometimes returning a single value instead of a list). They now raise an explicit error pointing to the lambda-wrap workaround: `(map (fn (c) (channel/recv c)) ...)`.
+
+### Added
+
+- `website/docs/stdlib/concurrency.md` — new "Async ops inside higher-order functions" section explaining the lambda-wrap idiom.
+
 ## 1.14.2
 
 ### Fixed
