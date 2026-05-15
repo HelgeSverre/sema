@@ -19,7 +19,7 @@
 - **sema-dap** → Debug Adapter Protocol server. Breakpoints, stepping (in/over/out), stack traces, variable inspection. Communicates with the bytecode VM via debug hooks.
 - **sema-fmt** → Code formatter for Sema source files.
 - **sema-wasm** → WASM bindings for browser playground
-- **sema** → Binary (clap CLI + rustyline REPL) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + `sema lsp` + `sema dap` + `sema fmt` + integration tests
+- **sema** → Binary (clap CLI + reedline REPL) + `sema build` (standalone executables) + `sema compile`/`sema disasm` + `sema lsp` + `sema dap` + `sema fmt` + integration tests
 - Dep flow: `sema-core ← sema-reader ← sema-vm ← sema-eval ← sema-stdlib/sema-llm ← sema`. **Critical**: stdlib/llm depend on core, NOT eval. Stdlib calls eval via thread-local callbacks registered by sema-eval.
 
 ## Code Style

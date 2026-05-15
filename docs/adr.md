@@ -116,7 +116,7 @@ crates/sema-llm/src/
                     # message-*, llm/last-usage, llm/session-usage, llm/reset-usage
 
 crates/sema/src/
-  main.rs           # CLI (clap) + REPL (rustyline) + file runner
+  main.rs           # CLI (clap) + file runner (REPL lives under crates/sema/src/repl/, reedline-based)
 ```
 
 ## Phase 4 Decisions
