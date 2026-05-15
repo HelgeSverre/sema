@@ -435,7 +435,8 @@ fn lower_cond_clauses(
     }
     let clause = require_list(&clauses[idx], "cond")?;
     if clause.is_empty() {
-        return Err(SemaError::eval("cond clause must not be empty"));
+        return Err(SemaError::eval("cond: clause must not be empty")
+            .with_hint("each clause is (test body...) or (else body...)"));
     }
 
     let is_else = clause[0].as_symbol_spur().is_some_and(|s| s == else_spur);

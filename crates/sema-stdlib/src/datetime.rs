@@ -33,8 +33,11 @@ pub fn register(env: &sema_core::Env) {
         let fmt = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        let naive = NaiveDateTime::parse_from_str(s, fmt)
-            .map_err(|e| SemaError::eval(format!("time/parse: {e}")))?;
+        let naive = NaiveDateTime::parse_from_str(s, fmt).map_err(|e| {
+            SemaError::eval(format!("time/parse: parse error: {e}")).with_hint(
+                "time/parse uses chrono format specifiers like %Y-%m-%d %H:%M:%S (see https://docs.rs/chrono/latest/chrono/format/strftime/index.html)",
+            )
+        })?;
         let dt: DateTime<Utc> = Utc.from_utc_datetime(&naive);
         Ok(Value::float(dt.timestamp() as f64))
     });

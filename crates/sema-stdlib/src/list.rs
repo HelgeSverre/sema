@@ -4,9 +4,10 @@ use crate::register_fn;
 
 fn repeat_impl(args: &[Value]) -> Result<Value, SemaError> {
     check_arity!(args, "list/repeat", 2);
-    let n = args[0]
-        .as_int()
-        .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))? as usize;
+    let n = args[0].as_int().ok_or_else(|| {
+        SemaError::type_error("int", args[0].type_name())
+            .with_hint("list/repeat: argument 1 must be an integer count")
+    })? as usize;
     let val = args[1].clone();
     Ok(Value::list(vec![val; n]))
 }
@@ -57,7 +58,8 @@ pub fn register(env: &sema_core::Env) {
             Err(SemaError::type_error(
                 "list, vector, string, map, bytevector, or typed array",
                 args[0].type_name(),
-            ))
+            )
+            .with_hint("length: expected a sequence or collection"))
         }
     });
 
@@ -69,7 +71,8 @@ pub fn register(env: &sema_core::Env) {
             } else if let Some(v) = arg.as_vector() {
                 result.extend(v.iter().cloned());
             } else {
-                return Err(SemaError::type_error("list or vector", arg.type_name()));
+                return Err(SemaError::type_error("list or vector", arg.type_name())
+                    .with_hint("append: every argument must be a list or vector"));
             }
         }
         Ok(Value::list(result))
@@ -86,15 +89,17 @@ pub fn register(env: &sema_core::Env) {
             items.reverse();
             Ok(Value::vector(items))
         } else {
-            Err(SemaError::type_error("list or vector", args[0].type_name()))
+            Err(SemaError::type_error("list or vector", args[0].type_name())
+                .with_hint("reverse: argument 1 must be a list or vector"))
         }
     });
 
     register_fn(env, "nth", |args| {
         check_arity!(args, "nth", 2);
-        let idx_i = args[1]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        let idx_i = args[1].as_int().ok_or_else(|| {
+            SemaError::type_error("int", args[1].type_name())
+                .with_hint("nth: argument 2 must be an integer index")
+        })?;
         if idx_i < 0 {
             return Err(
                 SemaError::eval(format!("nth: index must be non-negative, got {idx_i}"))
@@ -111,7 +116,8 @@ pub fn register(env: &sema_core::Env) {
                 SemaError::eval(format!("index {idx} out of bounds (length {})", v.len()))
             })
         } else {
-            Err(SemaError::type_error("list or vector", args[0].type_name()))
+            Err(SemaError::type_error("list or vector", args[0].type_name())
+                .with_hint("nth: argument 1 must be a list or vector"))
         }
     });
 
@@ -236,9 +242,10 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "take", |args| {
         check_arity!(args, "take", 2);
-        let n_i = args[0]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+        let n_i = args[0].as_int().ok_or_else(|| {
+            SemaError::type_error("int", args[0].type_name())
+                .with_hint("take: argument 1 must be an integer count")
+        })?;
         if n_i < 0 {
             return Err(
                 SemaError::eval(format!("take: count must be non-negative, got {n_i}")).with_hint(
@@ -254,9 +261,10 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "drop", |args| {
         check_arity!(args, "drop", 2);
-        let n_i = args[0]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+        let n_i = args[0].as_int().ok_or_else(|| {
+            SemaError::type_error("int", args[0].type_name())
+                .with_hint("drop: argument 1 must be an integer count")
+        })?;
         if n_i < 0 {
             return Err(
                 SemaError::eval(format!("drop: count must be non-negative, got {n_i}"))
@@ -536,7 +544,8 @@ pub fn register(env: &sema_core::Env) {
         if let Some(l) = args[0].as_list() {
             Ok(Value::vector(l.to_vec()))
         } else {
-            Err(SemaError::type_error("list", args[0].type_name()))
+            Err(SemaError::type_error("list", args[0].type_name())
+                .with_hint("list->vector: argument 1 must be a list"))
         }
     });
 
@@ -545,7 +554,8 @@ pub fn register(env: &sema_core::Env) {
         if let Some(v) = args[0].as_vector() {
             Ok(Value::list(v.to_vec()))
         } else {
-            Err(SemaError::type_error("vector", args[0].type_name()))
+            Err(SemaError::type_error("vector", args[0].type_name())
+                .with_hint("vector->list: argument 1 must be a vector"))
         }
     });
 
@@ -1175,7 +1185,8 @@ fn first(args: &[Value]) -> Result<Value, SemaError> {
             Ok(v[0].clone())
         }
     } else {
-        Err(SemaError::type_error("list or vector", args[0].type_name()))
+        Err(SemaError::type_error("list or vector", args[0].type_name())
+            .with_hint("first: argument 1 must be a list or vector"))
     }
 }
 
@@ -1194,7 +1205,8 @@ fn rest(args: &[Value]) -> Result<Value, SemaError> {
             Ok(Value::vector(v[1..].to_vec()))
         }
     } else {
-        Err(SemaError::type_error("list or vector", args[0].type_name()))
+        Err(SemaError::type_error("list or vector", args[0].type_name())
+            .with_hint("rest: argument 1 must be a list or vector"))
     }
 }
 
@@ -1204,10 +1216,10 @@ fn get_sequence(val: &Value, ctx: &str) -> Result<Vec<Value>, SemaError> {
     } else if let Some(v) = val.as_vector() {
         Ok(v.to_vec())
     } else {
-        Err(SemaError::type_error(
-            "list or vector",
-            format!("{} in {ctx}", val.type_name()),
-        ))
+        Err(
+            SemaError::type_error("list or vector", format!("{} in {ctx}", val.type_name()))
+                .with_hint(format!("{ctx}: expected a list or vector to iterate over")),
+        )
     }
 }
 

@@ -334,9 +334,10 @@ fn eval_cond(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline,
     for clause in args {
         let items = clause
             .as_list()
-            .ok_or_else(|| SemaError::eval("cond clause must be a list"))?;
+            .ok_or_else(|| SemaError::eval("cond: clause must be a list"))?;
         if items.is_empty() {
-            return Err(SemaError::eval("cond clause must not be empty"));
+            return Err(SemaError::eval("cond: clause must not be empty")
+                .with_hint("each clause is (test body...) or (else body...)"));
         }
         // (else body...) or (test body...)
         let is_else = items[0].as_symbol_spur().is_some_and(|s| s == sf.else_);

@@ -10,9 +10,11 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let table: toml::Table = s
-            .parse()
-            .map_err(|e| SemaError::eval(format!("toml/decode: {e}")))?;
+        let table: toml::Table = s.parse().map_err(|e| {
+            SemaError::eval(format!("toml/decode: parse error: {e}")).with_hint(
+                "toml/decode expects a TOML document (keys use = not :, strings use double quotes)",
+            )
+        })?;
         Ok(toml_table_to_value(&table))
     });
 

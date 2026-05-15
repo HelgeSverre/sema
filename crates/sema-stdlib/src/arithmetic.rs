@@ -7,7 +7,8 @@ fn mod_impl(args: &[Value]) -> Result<Value, SemaError> {
     match (args[0].view(), args[1].view()) {
         (ValueView::Int(a), ValueView::Int(b)) => {
             if b == 0 {
-                Err(SemaError::eval("modulo by zero"))
+                Err(SemaError::eval("mod: modulo by zero")
+                    .with_hint("mod: ensure the divisor is non-zero"))
             } else {
                 Ok(Value::int(a % b))
             }
@@ -149,7 +150,8 @@ pub fn register(env: &sema_core::Env) {
                 _ => return Err(SemaError::type_error("number", arg.type_name())),
             };
             if divisor == 0.0 {
-                return Err(SemaError::eval("division by zero"));
+                return Err(SemaError::eval("/: division by zero")
+                    .with_hint("/: guard with (if (zero? d) ... (/ n d))"));
             }
             result /= divisor;
         }

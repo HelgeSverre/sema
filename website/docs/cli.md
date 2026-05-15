@@ -493,19 +493,23 @@ The `--sandbox` flag restricts access to dangerous operations. Functions remain 
 
 ### Capabilities
 
+The table below lists every function gated by each capability. It mirrors the `register_fn_gated` / `register_fn_path_gated` call sites in the stdlib — if a function is not listed it is never sandboxed.
+
 | Capability  | Functions affected                                                         |
 | ----------- | -------------------------------------------------------------------------- |
-| `shell`     | `shell`                                                                    |
-| `fs-read`   | `file/read`, `file/exists?`, `file/list`, `file/info`, `load`, `http/file`, `db/query`, `db/query-one`, `db/last-insert-id`, `db/tables`, ... |
-| `fs-write`  | `file/write`, `file/append`, `file/delete`, `file/mkdir`, `file/copy`, `db/exec`, `db/exec-batch`, ... |
-| `network`   | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`         |
-| `env-read`  | `env`, `sys/env-all`                                                       |
+| `shell`     | `shell` (also requires `process`)                                          |
+| `fs-read`   | `file/read`, `file/read-bytes`, `file/read-lines`, `file/for-each-line`, `file/fold-lines`, `file/exists?`, `file/list`, `file/info`, `file/is-file?`, `file/is-directory?`, `file/is-symlink?`, `file/glob`, `path/absolute`, `load`, `pdf/extract-text`, `pdf/extract-text-pages`, `pdf/page-count`, `pdf/metadata`, `stream/open-input`, `http/file`, `db/query`, `db/query-one`, `db/last-insert-id`, `db/tables`, `db/open-memory` |
+| `fs-write`  | `file/write`, `file/write-bytes`, `file/write-lines`, `file/append`, `file/delete`, `file/rename`, `file/mkdir`, `file/copy`, `stream/open-output`, `kv/open`, `kv/set`, `kv/delete`, `db/open`, `db/exec`, `db/exec-batch` |
+| `network`   | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`, `http/serve` |
+| `env-read`  | `env`, `sys/env-all`, `sys/cwd`, `sys/home-dir`, `sys/user`, `sys/temp-dir` |
 | `env-write` | `sys/set-env`                                                              |
-| `process`   | `exit`, `sys/pid`, `sys/args`, `sys/which`                                 |
-| `llm`       | `llm/complete`, `llm/chat`, `llm/send`                                     |
-| `serial`    | `serial/open`, `serial/list`, `serial/write`, `serial/read-line`, `serial/send`, `serial/close` |
+| `process`   | `exit`, `sys/pid`, `sys/args`, `sys/which`, `shell`                        |
+| `llm`       | `llm/complete`, `llm/chat`, `llm/send`, `llm/extract-from-image`           |
+| `serial`    | `serial/list`, `serial/open`, `serial/close`, `serial/write`, `serial/read-line`, `serial/send` |
 
-Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, etc.) are never restricted.
+`shell` is the only function gated by two capabilities — it requires both `shell` (to launch a system shell) and `process` (because it spawns a child process). Denying either blocks it.
+
+Functions not listed (arithmetic, strings, lists, maps, `println`, `path/join`, `sys/platform`, `sys/arch`, `sys/os`, `sys/hostname`, `sys/sema-home`, `time/now-ms`, etc.) are never restricted.
 
 ### Path Restrictions
 

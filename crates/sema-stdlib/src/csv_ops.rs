@@ -15,7 +15,11 @@ pub fn register(env: &sema_core::Env) {
             .from_reader(s.as_bytes());
         let mut rows = Vec::new();
         for result in rdr.records() {
-            let record = result.map_err(|e| SemaError::eval(format!("csv/parse: {e}")))?;
+            let record = result.map_err(|e| {
+                SemaError::eval(format!("csv/parse: parse error: {e}")).with_hint(
+                    "csv/parse expects comma-separated values; check delimiters and quoting",
+                )
+            })?;
             let row: Vec<Value> = record.iter().map(Value::string).collect();
             rows.push(Value::list(row));
         }
@@ -32,13 +36,21 @@ pub fn register(env: &sema_core::Env) {
             .from_reader(s.as_bytes());
         let headers: Vec<String> = rdr
             .headers()
-            .map_err(|e| SemaError::eval(format!("csv/parse-maps: {e}")))?
+            .map_err(|e| {
+                SemaError::eval(format!("csv/parse-maps: parse error: {e}")).with_hint(
+                    "csv/parse-maps expects a header row followed by comma-separated values",
+                )
+            })?
             .iter()
             .map(|h| h.to_string())
             .collect();
         let mut rows = Vec::new();
         for result in rdr.records() {
-            let record = result.map_err(|e| SemaError::eval(format!("csv/parse-maps: {e}")))?;
+            let record = result.map_err(|e| {
+                SemaError::eval(format!("csv/parse-maps: parse error: {e}")).with_hint(
+                    "csv/parse-maps expects comma-separated values; check delimiters and quoting",
+                )
+            })?;
             let mut map = BTreeMap::new();
             for (i, field) in record.iter().enumerate() {
                 if let Some(header) = headers.get(i) {

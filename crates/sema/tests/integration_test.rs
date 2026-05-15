@@ -6593,6 +6593,53 @@ fn test_sandbox_env_read_denied() {
 }
 
 #[test]
+fn test_sandbox_env_read_denies_implicit_env_readers() {
+    // sys/home-dir, sys/user, sys/cwd, sys/temp-dir all read process env state
+    // (HOME/USER/PWD/TMPDIR) and must be gated by ENV_READ for consistency with
+    // (env "...") and (sys/env-all).
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ENV_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    for expr in [
+        "(sys/home-dir)",
+        "(sys/user)",
+        "(sys/cwd)",
+        "(sys/temp-dir)",
+    ] {
+        let result = interp.eval_str(expr);
+        assert!(result.is_err(), "{expr} should be denied under ENV_READ");
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Permission denied"),
+            "{expr} should report Permission denied"
+        );
+    }
+}
+
+#[test]
+fn test_sandbox_shell_denied_by_process_only() {
+    // shell launches a child process, so denying PROCESS must block it even when
+    // SHELL is allowed.
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::PROCESS);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(shell "echo hi")"#);
+    assert!(
+        result.is_err(),
+        "shell should be denied when PROCESS is denied"
+    );
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("Permission denied"),
+        "expected Permission denied, got: {err}"
+    );
+    assert!(
+        err.contains("shell"),
+        "error should mention shell function: {err}"
+    );
+}
+
+#[test]
 fn test_sandbox_env_write_denied() {
     let sandbox = sema_core::Sandbox::deny(sema_core::Caps::ENV_WRITE);
     let interp = Interpreter::new_with_sandbox(&sandbox);
@@ -6963,11 +7010,12 @@ fn test_sandbox_all_denied_safe_functions_comprehensive() {
     );
     // time (ungated)
     assert!(interp.eval_str("(time-ms)").is_ok());
-    // sys info (ungated)
+    // sys info (ungated — pure constants)
     assert!(interp.eval_str("(sys/platform)").is_ok());
     assert!(interp.eval_str("(sys/arch)").is_ok());
     assert!(interp.eval_str("(sys/os)").is_ok());
-    assert!(interp.eval_str("(sys/cwd)").is_ok());
+    // sys/cwd is ENV_READ-gated (it leaks $PWD), so it must NOT be in the safe list.
+    assert!(interp.eval_str("(sys/cwd)").is_err());
     // regex
     assert!(interp.eval_str(r#"(regex/match "\\d+" "abc123")"#).is_ok());
     // json

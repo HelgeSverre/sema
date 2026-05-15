@@ -46,7 +46,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         }
     });
 
-    crate::register_fn_gated(env, sandbox, Caps::SHELL, "shell", |args| {
+    // shell requires both SHELL (to launch a shell) AND PROCESS (it spawns a child
+    // process). Gate on SHELL via the helper, and check PROCESS inline so either
+    // denial blocks the call.
+    let shell_sandbox = sandbox.clone();
+    crate::register_fn_gated(env, sandbox, Caps::SHELL, "shell", move |args| {
+        shell_sandbox.check(Caps::PROCESS, "shell")?;
         check_arity!(args, "shell", 1..);
         let cmd = args[0]
             .as_str()
@@ -119,7 +124,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::list(args_list))
     });
 
-    register_fn(env, "sys/cwd", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "sys/cwd", |args| {
         check_arity!(args, "sys/cwd", 0);
         let cwd = std::env::current_dir().map_err(|e| SemaError::Io(format!("sys/cwd: {e}")))?;
         Ok(Value::string(&cwd.to_string_lossy()))
@@ -162,7 +167,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::map(map))
     });
 
-    register_fn(env, "sys/home-dir", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "sys/home-dir", |args| {
         check_arity!(args, "sys/home-dir", 0);
         match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
             Ok(home) => Ok(Value::string(&home)),
@@ -175,7 +180,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(&sema_core::sema_home().to_string_lossy()))
     });
 
-    register_fn(env, "sys/temp-dir", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "sys/temp-dir", |args| {
         check_arity!(args, "sys/temp-dir", 0);
         Ok(Value::string(&std::env::temp_dir().to_string_lossy()))
     });
@@ -188,7 +193,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         }
     });
 
-    register_fn(env, "sys/user", |args| {
+    crate::register_fn_gated(env, sandbox, Caps::ENV_READ, "sys/user", |args| {
         check_arity!(args, "sys/user", 0);
         match std::env::var("USER").or_else(|_| std::env::var("USERNAME")) {
             Ok(user) => Ok(Value::string(&user)),

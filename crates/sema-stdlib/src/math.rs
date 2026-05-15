@@ -168,7 +168,8 @@ pub fn register(env: &sema_core::Env) {
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
         if b == 0 {
-            return Err(SemaError::eval("math/quotient: division by zero"));
+            return Err(SemaError::eval("math/quotient: division by zero")
+                .with_hint("math/quotient: ensure the divisor is non-zero"));
         }
         Ok(Value::int(a.wrapping_div(b)))
     });
@@ -182,7 +183,8 @@ pub fn register(env: &sema_core::Env) {
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
         if b == 0 {
-            return Err(SemaError::eval("math/remainder: division by zero"));
+            return Err(SemaError::eval("math/remainder: division by zero")
+                .with_hint("math/remainder: ensure the divisor is non-zero"));
         }
         Ok(Value::int(a % b))
     });

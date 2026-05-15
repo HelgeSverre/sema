@@ -35,7 +35,8 @@ pub fn register(env: &sema_core::Env) {
         if let Some(map) = args[0].as_map_ref() {
             return Ok(map.get(&args[1]).cloned().unwrap_or(default));
         }
-        Err(SemaError::type_error("map or hashmap", args[0].type_name()))
+        Err(SemaError::type_error("map or hashmap", args[0].type_name())
+            .with_hint("get: expected a map as the first argument"))
     });
 
     register_fn(env, "assoc", |args| {
@@ -91,7 +92,8 @@ pub fn register(env: &sema_core::Env) {
             }
             return Ok(Value::map(map));
         }
-        Err(SemaError::type_error("map or hashmap", args[0].type_name()))
+        Err(SemaError::type_error("map or hashmap", args[0].type_name())
+            .with_hint("assoc: expected a map as the first argument, then key/value pairs"))
     });
 
     register_fn(env, "dissoc", |args| {
@@ -124,7 +126,8 @@ pub fn register(env: &sema_core::Env) {
             }
             return Ok(Value::map(map));
         }
-        Err(SemaError::type_error("map or hashmap", args[0].type_name()))
+        Err(SemaError::type_error("map or hashmap", args[0].type_name())
+            .with_hint("dissoc: expected a map as the first argument, then keys to remove"))
     });
 
     register_fn(env, "keys", |args| {
@@ -132,7 +135,8 @@ pub fn register(env: &sema_core::Env) {
         match args[0].view() {
             ValueView::Map(map) => Ok(Value::list(map.keys().cloned().collect())),
             ValueView::HashMap(map) => Ok(Value::list(map.keys().cloned().collect())),
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("keys: expected a map; returns its keys as a list")),
         }
     });
 
@@ -141,7 +145,8 @@ pub fn register(env: &sema_core::Env) {
         match args[0].view() {
             ValueView::Map(map) => Ok(Value::list(map.values().cloned().collect())),
             ValueView::HashMap(map) => Ok(Value::list(map.values().cloned().collect())),
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("vals: expected a map; returns its values as a list")),
         }
     });
 
@@ -164,7 +169,10 @@ pub fn register(env: &sema_core::Env) {
                                 result.insert(k.clone(), v.clone());
                             }
                         }
-                        _ => return Err(SemaError::type_error("map or hashmap", arg.type_name())),
+                        _ => {
+                            return Err(SemaError::type_error("map or hashmap", arg.type_name())
+                                .with_hint("merge: every argument must be a map or hashmap"))
+                        }
                     }
                 }
                 Ok(Value::hashmap_from_rc(Rc::new(result)))
@@ -183,12 +191,16 @@ pub fn register(env: &sema_core::Env) {
                                 result.insert(k.clone(), v.clone());
                             }
                         }
-                        _ => return Err(SemaError::type_error("map or hashmap", arg.type_name())),
+                        _ => {
+                            return Err(SemaError::type_error("map or hashmap", arg.type_name())
+                                .with_hint("merge: every argument must be a map or hashmap"))
+                        }
                     }
                 }
                 Ok(Value::map(result))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("merge: every argument must be a map or hashmap")),
         }
     });
 
@@ -197,7 +209,8 @@ pub fn register(env: &sema_core::Env) {
         match args[0].view() {
             ValueView::Map(map) => Ok(Value::bool(map.contains_key(&args[1]))),
             ValueView::HashMap(map) => Ok(Value::bool(map.contains_key(&args[1]))),
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("contains?: argument 1 must be a map; checks for the given key")),
         }
     });
 
@@ -210,7 +223,8 @@ pub fn register(env: &sema_core::Env) {
             ValueView::Vector(v) => Ok(Value::int(v.len() as i64)),
             ValueView::String(s) => Ok(Value::int(s.chars().count() as i64)),
             ValueView::Nil => Ok(Value::int(0)),
-            _ => Err(SemaError::type_error("collection", args[0].type_name())),
+            _ => Err(SemaError::type_error("collection", args[0].type_name())
+                .with_hint("count: expected a list, vector, map, or string")),
         }
     });
 
@@ -223,7 +237,8 @@ pub fn register(env: &sema_core::Env) {
             ValueView::Vector(v) => Ok(Value::bool(v.is_empty())),
             ValueView::String(s) => Ok(Value::bool(s.is_empty())),
             ValueView::Nil => Ok(Value::bool(true)),
-            _ => Err(SemaError::type_error("collection", args[0].type_name())),
+            _ => Err(SemaError::type_error("collection", args[0].type_name())
+                .with_hint("empty?: expected a list, vector, map, or string")),
         }
     });
 
@@ -246,7 +261,8 @@ pub fn register(env: &sema_core::Env) {
                     .collect();
                 Ok(Value::list(entries))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("map/entries: expected a map; returns a list of [key value] pairs")),
         }
     });
 
@@ -269,7 +285,8 @@ pub fn register(env: &sema_core::Env) {
                 }
                 Ok(Value::hashmap_from_rc(Rc::new(result)))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[1].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[1].type_name())
+                .with_hint("map/map-vals: argument 2 must be a map; applies fn to each value")),
         }
     });
 
@@ -296,7 +313,8 @@ pub fn register(env: &sema_core::Env) {
                 }
                 Ok(Value::hashmap_from_rc(Rc::new(result)))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[1].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[1].type_name())
+                .with_hint("map/filter: argument 2 must be a map; predicate receives (key value)")),
         }
     });
 
@@ -305,7 +323,10 @@ pub fn register(env: &sema_core::Env) {
         let keys = match args[1].view() {
             ValueView::List(l) => l.as_ref().clone(),
             ValueView::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list", args[1].type_name())),
+            _ => {
+                return Err(SemaError::type_error("list", args[1].type_name())
+                    .with_hint("map/select-keys: argument 2 must be a list of keys to keep"))
+            }
         };
         match args[0].view() {
             ValueView::Map(map) => {
@@ -326,7 +347,8 @@ pub fn register(env: &sema_core::Env) {
                 }
                 Ok(Value::hashmap_from_rc(Rc::new(result)))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("map/select-keys: argument 1 must be a map")),
         }
     });
 
@@ -349,7 +371,8 @@ pub fn register(env: &sema_core::Env) {
                 }
                 Ok(Value::hashmap_from_rc(Rc::new(result)))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[1].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[1].type_name())
+                .with_hint("map/map-keys: argument 2 must be a map; applies fn to each key")),
         }
     });
 
@@ -358,14 +381,20 @@ pub fn register(env: &sema_core::Env) {
         let entries = match args[0].view() {
             ValueView::List(l) => l.as_ref().clone(),
             ValueView::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
+            _ => {
+                return Err(SemaError::type_error("list or vector", args[0].type_name())
+                    .with_hint("map/from-entries: expected a list of [key value] pairs"))
+            }
         };
         let mut map = BTreeMap::new();
         for entry in &entries {
             let pair = match entry.view() {
                 ValueView::List(l) => l.as_ref().clone(),
                 ValueView::Vector(v) => v.as_ref().clone(),
-                _ => return Err(SemaError::type_error("list or vector", entry.type_name())),
+                _ => {
+                    return Err(SemaError::type_error("list or vector", entry.type_name())
+                        .with_hint("map/from-entries: each entry must be a [key value] pair"))
+                }
             };
             if pair.len() != 2 {
                 return Err(SemaError::eval(
@@ -402,7 +431,8 @@ pub fn register(env: &sema_core::Env) {
                 map.insert(key.clone(), new_val);
                 Ok(Value::hashmap_from_rc(Rc::new(map)))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("map/update: argument 1 must be a map; applies fn to the value at key")),
         }
     });
 
@@ -432,7 +462,8 @@ pub fn register(env: &sema_core::Env) {
         if let Some(map) = args[0].as_map_ref() {
             return Ok(map.get(&args[1]).cloned().unwrap_or(default));
         }
-        Err(SemaError::type_error("hashmap", args[0].type_name()))
+        Err(SemaError::type_error("hashmap", args[0].type_name())
+            .with_hint("hashmap/get: argument 1 must be a hashmap"))
     });
 
     register_fn(env, "hashmap/assoc", |args| {
@@ -451,7 +482,8 @@ pub fn register(env: &sema_core::Env) {
         let mut map = if let Some(m) = args[0].as_hashmap_ref() {
             m.clone()
         } else {
-            return Err(SemaError::type_error("hashmap", args[0].type_name()));
+            return Err(SemaError::type_error("hashmap", args[0].type_name())
+                .with_hint("hashmap/assoc: argument 1 must be a hashmap"));
         };
         for pair in args[1..].chunks(2) {
             map.insert(pair[0].clone(), pair[1].clone());
@@ -467,7 +499,8 @@ pub fn register(env: &sema_core::Env) {
                     hm.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 Ok(Value::map(map))
             }
-            _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("hashmap", args[0].type_name())
+                .with_hint("hashmap/to-map: argument 1 must be a hashmap")),
         }
     });
 
@@ -475,7 +508,8 @@ pub fn register(env: &sema_core::Env) {
         check_arity!(args, "hashmap/keys", 1);
         match args[0].view() {
             ValueView::HashMap(map) => Ok(Value::list(map.keys().cloned().collect())),
-            _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("hashmap", args[0].type_name())
+                .with_hint("hashmap/keys: argument 1 must be a hashmap")),
         }
     });
 
@@ -483,7 +517,8 @@ pub fn register(env: &sema_core::Env) {
         check_arity!(args, "hashmap/contains?", 2);
         match args[0].view() {
             ValueView::HashMap(map) => Ok(Value::bool(map.contains_key(&args[1]))),
-            _ => Err(SemaError::type_error("hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("hashmap", args[0].type_name())
+                .with_hint("hashmap/contains?: argument 1 must be a hashmap")),
         }
     });
 
@@ -496,7 +531,8 @@ pub fn register(env: &sema_core::Env) {
                     m.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
                 Ok(Value::map(sorted))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("map/sort-keys: argument 1 must be a map; returns it with keys sorted")),
         }
     });
 
@@ -505,7 +541,10 @@ pub fn register(env: &sema_core::Env) {
         let keys_to_remove = match args[1].view() {
             ValueView::List(l) => l.as_ref().clone(),
             ValueView::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+            _ => {
+                return Err(SemaError::type_error("list or vector", args[1].type_name())
+                    .with_hint("map/except: argument 2 must be a list of keys to exclude"))
+            }
         };
         let key_set: std::collections::BTreeSet<Value> = keys_to_remove.into_iter().collect();
         match args[0].view() {
@@ -527,7 +566,8 @@ pub fn register(env: &sema_core::Env) {
                 }
                 Ok(Value::hashmap_from_rc(Rc::new(result)))
             }
-            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())),
+            _ => Err(SemaError::type_error("map or hashmap", args[0].type_name())
+                .with_hint("map/except: argument 1 must be a map")),
         }
     });
 
@@ -536,12 +576,18 @@ pub fn register(env: &sema_core::Env) {
         let keys = match args[0].view() {
             ValueView::List(l) => l.as_ref().clone(),
             ValueView::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[0].type_name())),
+            _ => {
+                return Err(SemaError::type_error("list or vector", args[0].type_name())
+                    .with_hint("map/zip: argument 1 must be a list of keys"))
+            }
         };
         let vals = match args[1].view() {
             ValueView::List(l) => l.as_ref().clone(),
             ValueView::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+            _ => {
+                return Err(SemaError::type_error("list or vector", args[1].type_name())
+                    .with_hint("map/zip: argument 2 must be a list of values"))
+            }
         };
         let mut map = BTreeMap::new();
         for (k, v) in keys.into_iter().zip(vals) {
@@ -555,7 +601,10 @@ pub fn register(env: &sema_core::Env) {
         let path = match args[1].view() {
             ValueView::List(l) => l.as_ref().clone(),
             ValueView::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+            _ => {
+                return Err(SemaError::type_error("list or vector", args[1].type_name())
+                    .with_hint("get-in: argument 2 must be a list/vector path of keys"))
+            }
         };
         let default = if args.len() == 3 {
             args[2].clone()
@@ -583,7 +632,10 @@ pub fn register(env: &sema_core::Env) {
         let path = match args[1].view() {
             ValueView::List(l) => l.as_ref().clone(),
             ValueView::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+            _ => {
+                return Err(SemaError::type_error("list or vector", args[1].type_name())
+                    .with_hint("assoc-in: argument 2 must be a list/vector path of keys"))
+            }
         };
         if path.is_empty() {
             return Ok(args[2].clone());
@@ -642,7 +694,10 @@ pub fn register(env: &sema_core::Env) {
         let path = match args[1].view() {
             ValueView::List(l) => l.as_ref().clone(),
             ValueView::Vector(v) => v.as_ref().clone(),
-            _ => return Err(SemaError::type_error("list or vector", args[1].type_name())),
+            _ => {
+                return Err(SemaError::type_error("list or vector", args[1].type_name())
+                    .with_hint("update-in: argument 2 must be a list/vector path of keys"))
+            }
         };
         if path.is_empty() {
             return call_function(&args[2], &[args[0].clone()]);
