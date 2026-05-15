@@ -185,7 +185,7 @@ fn register_promise_ops(env: &Env) {
         Ok(Value::bool(resolved))
     });
 
-    // async/rejected? — true iff the promise is in the Rejected state.
+    // async/rejected? — true exactly when the promise is in the Rejected state.
     // Excludes Cancelled (which is its own peer variant) so the predicates
     // partition the terminal states cleanly: a promise is at most one of
     // resolved? / rejected? / cancelled?.
@@ -223,7 +223,7 @@ fn register_promise_ops(env: &Env) {
         Ok(Value::bool(transitioned))
     });
 
-    // async/cancelled? — true iff the promise is in the Cancelled state.
+    // async/cancelled? — true exactly when the promise is in the Cancelled state.
     // Distinct from async/rejected? — a cancelled promise is not a normal
     // rejection (which a user might catch and recover from). Matches the
     // PromiseState::Cancelled variant directly so a user manually rejecting

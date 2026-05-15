@@ -502,8 +502,8 @@ Evaluator:      Evaluates the returned named-let / do expansion
 ```scheme
 (loop ... while cond ...)              ;; stop when cond becomes nil
 (loop ... until cond ...)              ;; stop when cond becomes non-nil
-(loop ... always cond)                 ;; #t iff cond never nil
-(loop ... never cond)                  ;; #t iff cond never non-nil
+(loop ... always cond)                 ;; #t when cond is never nil
+(loop ... never cond)                  ;; #t when cond is never non-nil
 (loop ... thereis expr)                ;; return first truthy value
 (loop repeat n ...)                    ;; fixed iteration count
 ```

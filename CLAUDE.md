@@ -147,7 +147,10 @@ Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. The V
 ## Design Docs
 
 - `docs/adr.md` — numbered design decisions with rationale
-- `docs/plan.md` — high-level implementation plan
+- `docs/wip.md` — open threads / work-in-progress with full context
 - `docs/limitations.md` — known gaps and limitations
 - `docs/deferred.md` — items parked with rationale (won't-fix or revisit-later)
 - `docs/plans/` — individual implementation plans, named `YYYY-MM-DD-<slug>.md`
+- `docs/vm-status.md`, `docs/vm-improvements.md`, `docs/performance-roadmap.md` — VM internals reference
+- `docs/IDEAS.md` — feature tracker (consolidated from issues)
+- `docs/bugs/` — short write-ups of specific known test/code issues

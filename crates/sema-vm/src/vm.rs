@@ -1279,7 +1279,7 @@ impl VM {
                         if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                             && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                         {
-                            // Small ints: equal iff same bits
+                            // Small ints: equal exactly when their bits match
                             unsafe {
                                 std::ptr::write(
                                     self.stack.as_mut_ptr().add(len - 2),

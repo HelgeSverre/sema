@@ -92,6 +92,16 @@ Pattern can mirror the diagnostic-waiting in `test_diagnostics.py`.
 
 ---
 
+## VFS — clones on every read
+
+**Today:** `vfs_read` returns `Option<Vec<u8>>`, cloning file contents on each call (`crates/sema-notebook/src/vfs.rs`). For large assets or hot paths this is wasteful.
+
+**Proposed fix:** return `Cow<'_, [u8]>` so cached reads can be borrowed, or back the VFS with `Arc<HashMap>` so the file table can hand out cheap reference-counted handles.
+
+**Why deferred:** identified in PR #14 review (severity: medium). VFS read isn't a current hotspot — the notebook is interactive, not a high-throughput file server. Revisit if the notebook starts serving real bundles.
+
+---
+
 ## A note on the truly long-term language design items
 
-These are not deferred — they're design questions that need a deliberate decision before any code lands. They're tracked in `WIP.md` (the "Wave 6c" cluster), not here.
+These are not deferred — they're design questions that need a deliberate decision before any code lands. They're tracked in `docs/wip.md` (the "Wave 6c" cluster), not here.
