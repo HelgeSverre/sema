@@ -1,19 +1,108 @@
 # Changelog
 
-## Unreleased
+## 1.15.0
 
-### Changed (async semantics pass)
+Big quality-sweep release. ~120 audit findings triaged across six waves, of which ~60 shipped here. No new headline features — this release is about hardening, consistency, and error UX in the v1.14 async / sandbox / REPL surface.
 
-- `(async/cancel p)` now returns a boolean: `#t` if the call actually transitioned the promise into `Cancelled`, `#f` if there was nothing to cancel (already resolved/rejected/cancelled, or never spawned via `async/resolved`/`async/rejected`). Previously: returned `nil` on success and **errored** with `"async/cancel: cannot cancel a non-spawned promise"` for never-spawned promises. Cancellation is now strictly best-effort and never raises.
-- Cancellation is now a peer `PromiseState::Cancelled` variant instead of `Rejected("cancelled")`. `(async/cancelled? p)` matches the variant directly — a user `(async/rejected "cancelled")` no longer fools the predicate. `(async/rejected? p)` returns `#f` for cancelled promises (the four state predicates now cleanly partition the terminal states).
-- Awaiting a cancelled promise raises `"async/await: task was cancelled"` (with a `with_hint`) instead of surfacing as `"task rejected: cancelled"`.
-- Scheduler ready-task pickup is now **strictly FIFO**. Previously `swap_remove` rearranged the queue and produced a LIFO-feeling surface under contention: three sequential channel sends followed by three sequential receives returned `(1 3 2)` instead of `(1 2 3)`. The fix uses `Vec::remove` (O(n) per pickup, negligible for typical task counts).
-- `async/all` and `async/timeout` now distinguish cancellation from rejection in their error messages (`"task was cancelled"` vs `"task rejected: …"`).
+### Fixed (correctness)
+
+- **Top-level `(async ...)` side effects no longer vanish.** The CLI now drains pending tasks at exit. Previously a top-level spawned task whose promise wasn't awaited would be silently dropped along with its side effects.
+- **`channel/close` reports the lost value** when called on a channel with a blocked sender. Previously: a generic "channel closed" error after the pending send was already lost.
+- **`async/timeout` clamps absurd durations.** `(async/timeout 9999999999999 …)` now errors with a clear "exceeds maximum" message instead of waiting ~317 years.
+- **Doubled error prefix on nested awaits removed.** `(await (async (await (async/rejected "boom"))))` now reports `async/await: task rejected: boom` instead of `Eval error: async/await: task rejected: Eval error: async/await: task rejected: boom`.
+- **`http/file` is now sandbox-gated** (`FS_READ` + path-check). Previously it canonicalized arbitrary host paths and served them to network clients even under `--sandbox=strict --allowed-paths=./data`.
+- **`db/exec` / `db/exec-batch` / `db/query` / `db/query-one` / `db/last-insert-id` / `db/tables` are now sandbox-gated** (`FS_WRITE` / `FS_READ`). SQL `ATTACH DATABASE` could previously bypass `--allowed-paths`.
+- **`sys/home-dir` / `sys/user` / `sys/temp-dir` / `sys/cwd` now require `ENV_READ`.** They were leaking environment values while sibling `env` / `sys/env-all` were already gated — inconsistent surface.
+- **`shell` now requires both `SHELL` and `PROCESS`.** Subprocess execution is properly classified as a process operation.
+- **`string/repeat` validates count `>= 0`** before the `usize` cast (was a user-input panic on negative).
+- **`abs i64::MIN` errors** via `checked_abs` (was returning `i64::MIN`).
+- **`nth` / `take` / `drop` reject negative indices** with a clear error + hint (were silently casting i64 → huge usize, producing confusing errors or returning wrong results).
+- **Notebook engine now honors a wall-clock per-cell deadline** (env `SEMA_NOTEBOOK_TIMEOUT_MS`, default 30 s). `(while #t)` and infinite recursion no longer brick the server.
+- **Notebook `undo_last_cell` restores downstream stale flags** it marked. Previously the documented "downstream stale markers are reverted on undo" behavior was false; downstream cells stayed stale forever after undo.
+- **VM closures called from stdlib HOFs can now yield** (fix shipped in 1.14.3, listed here for completeness with the rest of the audit work). See 1.14.3 entry for details.
+
+### Changed (async semantics pass — A1 + A4 + D2)
+
+- **`(async/cancel p)` returns a boolean** — `#t` if the call actually transitioned the promise into `Cancelled`, `#f` if there was nothing to cancel (already resolved / rejected / cancelled, or never spawned via `async/resolved` / `async/rejected`). Previously: returned `nil` on success and **errored** with `"async/cancel: cannot cancel a non-spawned promise"` for never-spawned promises. Cancellation is now strictly best-effort and never raises.
+- **Cancellation is now a peer `PromiseState::Cancelled` variant** instead of `Rejected("cancelled")`. `(async/cancelled? p)` matches the variant directly — a user `(async/rejected "cancelled")` no longer fools the predicate. `(async/rejected? p)` returns `#f` for cancelled promises (the four state predicates now cleanly partition the terminal states).
+- **Awaiting a cancelled promise** raises `"async/await: task was cancelled"` (with a hint) instead of surfacing as `"task rejected: cancelled"`. `async/all` and `async/timeout` also distinguish cancellation from rejection in their error messages.
+- **Scheduler ready-task pickup is now strictly FIFO.** Previously `swap_remove` rearranged the queue and produced a LIFO-feeling surface under contention: three sequential channel sends followed by three sequential receives returned `(1 3 2)` instead of `(1 2 3)`. The fix uses `Vec::remove` (O(n) per pickup, negligible for typical task counts).
+- **`(force x)` on a non-thunk now errors** instead of silently passing the value through.
+
+### Changed (canonical naming, Decision #59)
+
+Legacy names stay registered as aliases; new code should prefer the canonical form.
+
+| Legacy | Canonical |
+|---|---|
+| `any` | `any?` |
+| `every` | `every?` |
+| `time-ms` | `time/now-ms` |
+| `hash-map` | `map/new` |
+| `promise-forced?` | `async/forced?` |
+| `tools->routes` | `route/from-tools` |
+| `make-bytevector` | `bytevector/make` |
+| `bytevector-{length,u8-ref,u8-set!,copy,append,->list}` | `bytevector/{length,u8-ref,u8-set!,copy,append,to-list}` |
+| `list->bytevector` | `bytevector/from-list` |
+
+**Path operations consolidated.** `path/dirname` / `path/dir`, `path/basename` / `path/filename`, `path/ext` / `path/extension` are no longer independent registrations with divergent edge-case behavior — they share a single implementation. Behavior is now uniform: no-parent / no-extension returns `""` (was `nil` for the legacy names). Canonical names are `path/dir`, `path/filename`, `path/extension`.
+
+### Changed (error UX)
+
+- 52 stdlib functions now attach a `.with_hint(…)` to their type errors pointing at the expected argument shape (`get`, `assoc`, `dissoc`, `map`, `filter`, `foldl`, `for-each`, `sort-by`, `partition`, `nth`, `take`, `drop`, `json/decode`, arithmetic, etc.).
+- `cond` clause errors now use the `cond:` prefix matching the rest of the special-form family (`case:`, `match:`, `do:`, `let:`).
+- `/`, `mod` divide-by-zero errors carry function prefix + hint (`"/: guard with (if (zero? d) ... (/ n d))"`).
+- `json/decode`, `toml/decode`, `csv/parse`, `time/parse` parse errors now include line/column where available + actionable hints.
+- `string-ref` out-of-bounds errors include the string length and a 0-based-indexing hint.
+
+### Changed (CLI / REPL)
+
+- **`sema notebook run` prints captured stdout** (was swallowing it for headless runs).
+- **`sema` file-not-found wording unified** across `--load`, `<file>`, `compile`, `build`, `fmt`, `ast`. Now: `error: file not found: <path>` (was three different shapes, some leaking `(os error 2)`).
+- **`sema notebook` (no subcommand) prints a proper error line** before help. Previously: exited 2 with help text and no `error:` line.
+- **`sema build` pre-flights `--output` writability.** Previously it ran four of five steps before failing on permission denied.
+- **`sema -e EXPR <FILE>` is now an explicit clap conflict.** Previously the positional file was silently dropped.
+- **`--vm` is a hidden no-op alias** so muscle memory from older docs doesn't get "unexpected argument" (VM is the default since v1.13).
+- **REPL silent-define fixed.** `(define x …)` now prints `; defined x` (dim) instead of nothing.
+- **REPL EOF on unterminated input** now reports `error: unterminated input at EOF` and exits 1 (was: silently dropped the buffered form).
+- **REPL `,env`** snapshots prelude keys at start and filters them out — shows only user-added bindings.
+- **REPL `,doc` reports VM closures correctly** (`square : lambda (arg0)` instead of `native-fn`) and falls back to builtin docstrings for natives and special forms.
+- **REPL accepts bare `quit` / `exit` / `:q`** alongside `,quit` / `,exit` / `,q`.
+
+### Changed (LSP)
+
+- **`workspace/symbols` now iterates the workspace scanner's `import_cache`** in addition to open documents. Previously the workspace scanner ran but its results were invisible to Ctrl+T.
+- **Code lens / executeCommand handlers use the parse cache.** Previously they re-parsed the document on every keystroke-driven request.
+- **Folding ranges require `>= 2` visible lines** — cuts the per-paren noise that was clogging the gutter for any nested list.
+- LSP shutdown 2-second force-exit now carries a `TODO(tower-lsp#399)` comment with the upstream link.
+
+### Changed (docs & website)
+
+- Stdlib doc pages corrected for ~12 documented inaccuracies: `(/ 10 3)` returns float not int; `list/index-of` returns `nil` not `-1`; `print` is not an alias for `display`; the `foldl` consumer example in concurrency.md actually works; `path/extension` of `"Makefile"` returns `""`; `(type X)` returns keyword not string; `while` is now documented; `1e10` was removed (reader doesn't accept scientific notation); etc.
+- Sandbox capability table in `cli.md` regenerated from actual `register_fn_gated` / `register_fn_path_gated` call sites (was missing ~15 gated functions across `fs-read`, `fs-write`, `network`, `process`, and the `serial` capability for `--sandbox=strict`).
+- `sema fmt --json` flag documented; the bogus `sema notebook export -f` short flag removed.
+- New "Scheduling guarantees" section in `concurrency.md` documenting FIFO pickup + wake order + cooperation.
+- New `website/docs/stdlib/serial.md` covering the `serial/*` functions (added in v1.13 but undocumented).
+- Notebook docs got a "REST API" section + VFS scope warning.
+
+### Added
+
+- `PromiseState::Cancelled` variant in `sema-core`.
+- `EvalContext::eval_deadline` (Cell<Option<Instant>>) honored by both the trampoline and the VM dispatch loop. The notebook engine uses it via `SEMA_NOTEBOOK_TIMEOUT_MS`.
+- New dual-eval / vm-async tests across the audit (~30 net new tests pinning post-fix behavior, including 8 for the async semantics pass alone, 5 for the input-validation cluster, regression tests for T2 undo, etc.).
+- New playground examples in a `Concurrency` category (`channels.sema`, `parallel-tasks.sema`, `timeout.sema`).
+- 12 `// SAFETY:` blocks added to previously-unjustified `unsafe { … }` blocks in the VM and `Value::view` heap-tag dispatch.
+
+### Internal
+
+- `get_sequence` in stdlib HOFs returns `&[Value]` instead of allocating a fresh `Vec<Value>` per call. No measurable perf change on the HOF benchmark — kept as a code-quality improvement.
+- `dual_eval_error_tests!` macro extended with a `name : input => "expected_substr"` form. 58 of 59 existing call sites migrated to assert specific error substrings instead of just `.is_err()`.
+- `MAKE_LIST` / `MAKE_VECTOR` opcodes use `Vec::split_off` instead of `drain(start..).collect()`.
 
 ### Known Limitations
 
-- **VM `set!` through stdlib HOF callbacks is silently lost** (audit finding C1). `(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)` returns `0` on the VM backend and `6` on the tree-walker. Root cause is the eager-close + dual-write upvalue model; the planned fix is an open-upvalue runtime (see `docs/adr.md` ADR #55 and `docs/limitations.md` #31). Workaround: use `--tw`, or refactor to thread state via `foldl` instead of captured `set!`. Related symptoms: `(type (fn (x) x))` returns `:native-fn` on VM vs `:lambda` on TW; VM caught-error maps are missing `:stack-trace`; `+`/`-` type-error messages differ between backends.
-- **`.semac` bytecode loading is unsafe from untrusted sources** (audit finding C11). The deserializer's `validate_bytecode` does not abstract-interpret the instruction stream for stack balance. The VM's `pop_unchecked` (90+ call sites) assumes stack-balanced bytecode; a crafted `.semac` with a leading `Pop` or unbalanced sequence triggers UB (`set_len(usize::MAX)`) in release builds. Treat `.semac` files as trusted-source-only until the stack-depth verifier lands (see `docs/adr.md` ADR #56 and `docs/limitations.md` #32).
+- **VM `set!` through stdlib HOF callbacks is silently lost** (audit finding C1). `(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)` returns `0` on the VM and `6` on the tree-walker. Root cause is the eager-close + dual-write upvalue model; the planned fix is an open-upvalue runtime (see `docs/adr.md` #55 and `docs/limitations.md` #31). Workaround: use `--tw`, or thread state via `foldl` instead of captured `set!`. Related symptoms: `(type (fn (x) x))` is `:native-fn` on VM vs `:lambda` on TW; VM caught-error maps are missing `:stack-trace`.
+- **`.semac` bytecode loading is unsafe from untrusted sources** (audit finding C11). `validate_bytecode` does not abstract-interpret the instruction stream for stack balance; the VM's `pop_unchecked` (90+ call sites) assumes stack-balanced bytecode, so a hand-crafted `.semac` with a leading `Pop` triggers UB in release builds. Treat `.semac` files as trusted-source-only until the stack-depth verifier in `docs/adr.md` #56 lands.
 
 ## 1.14.3
 
