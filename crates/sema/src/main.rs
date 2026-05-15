@@ -1,16 +1,12 @@
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use rustyline::completion::Completer;
-use rustyline::error::ReadlineError;
-use rustyline::Editor;
 
-use sema_core::{intern, pretty_print, Env, SemaError, Value, ValueView};
-use sema_eval::{Interpreter, SPECIAL_FORM_NAMES};
+use sema_core::{pretty_print, SemaError, Value, ValueView};
+use sema_eval::Interpreter;
 use serde::Deserialize;
 
 #[derive(Debug, Default, Deserialize)]
@@ -62,46 +58,11 @@ fn find_config() -> Option<SemaConfig> {
 }
 
 mod archive;
+mod colors;
 mod cross_compile;
 mod import_tracer;
 mod pkg;
-
-mod colors {
-    use std::io::IsTerminal;
-
-    fn enabled() -> bool {
-        std::io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none()
-    }
-
-    pub fn red_bold(s: &str) -> String {
-        if enabled() {
-            format!("\x1b[1;31m{s}\x1b[0m")
-        } else {
-            s.to_string()
-        }
-    }
-    pub fn yellow(s: &str) -> String {
-        if enabled() {
-            format!("\x1b[33m{s}\x1b[0m")
-        } else {
-            s.to_string()
-        }
-    }
-    pub fn cyan(s: &str) -> String {
-        if enabled() {
-            format!("\x1b[36m{s}\x1b[0m")
-        } else {
-            s.to_string()
-        }
-    }
-    pub fn dim(s: &str) -> String {
-        if enabled() {
-            format!("\x1b[2m{s}\x1b[0m")
-        } else {
-            s.to_string()
-        }
-    }
-}
+mod repl;
 
 /// Read a source file with consistent, friendly error messages.
 ///
@@ -120,96 +81,11 @@ fn read_source_file(path: impl AsRef<Path>) -> Result<String, String> {
 }
 
 thread_local! {
-    static LAST_SOURCE: RefCell<Option<String>> = const { RefCell::new(None) };
-    static LAST_FILE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    pub(crate) static LAST_SOURCE: RefCell<Option<String>> = const { RefCell::new(None) };
+    pub(crate) static LAST_FILE: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
 
-const REPL_COMMANDS: &[&str] = &[
-    ",quit",
-    ",exit",
-    ",q",
-    ",help",
-    ",h",
-    ",env",
-    ",builtins",
-    ",type",
-    ",time",
-    ",doc",
-];
-
-struct SemaCompleter {
-    env: Rc<Env>,
-}
-
-impl SemaCompleter {
-    fn all_completions(&self, prefix: &str) -> Vec<String> {
-        let mut candidates = Vec::new();
-
-        // Collect all env bindings (walk parent chain)
-        self.collect_env_bindings(&self.env, prefix, &mut candidates);
-
-        // Special forms
-        for &sf in SPECIAL_FORM_NAMES {
-            if sf.starts_with(prefix) {
-                candidates.push(sf.to_string());
-            }
-        }
-
-        // REPL commands
-        if prefix.starts_with(',') {
-            for &cmd in REPL_COMMANDS {
-                if cmd.starts_with(prefix) {
-                    candidates.push(cmd.to_string());
-                }
-            }
-        }
-
-        candidates.sort();
-        candidates.dedup();
-        candidates
-    }
-
-    fn collect_env_bindings(&self, env: &Env, prefix: &str, candidates: &mut Vec<String>) {
-        env.iter_bindings(|spur, _| {
-            let name = sema_core::resolve(spur);
-            if name.starts_with(prefix) {
-                candidates.push(name);
-            }
-        });
-        if let Some(parent) = &env.parent {
-            self.collect_env_bindings(parent, prefix, candidates);
-        }
-    }
-}
-
-impl Completer for SemaCompleter {
-    type Candidate = String;
-
-    fn complete(
-        &self,
-        line: &str,
-        pos: usize,
-        _ctx: &rustyline::Context<'_>,
-    ) -> rustyline::Result<(usize, Vec<String>)> {
-        let before = &line[..pos];
-        let start = before
-            .rfind(|c: char| c.is_whitespace() || c == '(' || c == '[' || c == '{' || c == '\'')
-            .map(|i| i + 1)
-            .unwrap_or(0);
-        let prefix = &before[start..];
-        if prefix.is_empty() {
-            return Ok((start, vec![]));
-        }
-        Ok((start, self.all_completions(prefix)))
-    }
-}
-
-impl rustyline::hint::Hinter for SemaCompleter {
-    type Hint = String;
-}
-impl rustyline::highlight::Highlighter for SemaCompleter {}
-impl rustyline::validate::Validator for SemaCompleter {}
-impl rustyline::Helper for SemaCompleter {}
+// REPL completer, command set, and trait impls have moved to `src/repl/`.
 
 #[derive(Parser)]
 #[command(name = "sema", about = "Sema: A Lisp with LLM primitives", version)]
@@ -822,7 +698,7 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
+            repl::run(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
         }
         return;
     }
@@ -842,7 +718,7 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
+            repl::run(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
         }
         return;
     }
@@ -864,7 +740,7 @@ fn main() {
                     }
                 }
                 if cli.interactive {
-                    repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
+                    repl::run(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
                 }
                 return;
             }
@@ -895,13 +771,13 @@ fn main() {
             }
         }
         if cli.interactive {
-            repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
+            repl::run(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
         }
         return;
     }
 
     // REPL mode
-    repl(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
+    repl::run(interpreter, cli.quiet, cli.sandbox.as_deref(), !cli.tw);
 }
 
 fn eval_with_mode(
@@ -918,7 +794,7 @@ fn eval_with_mode(
 
 /// REPL eval. Tree-walker variant runs in the global env so top-level `define`s
 /// persist across REPL lines. VM variant already updates the global env.
-fn eval_with_mode_repl(
+pub(crate) fn eval_with_mode_repl(
     interpreter: &Interpreter,
     input: &str,
     use_vm: bool,
@@ -940,7 +816,7 @@ fn eval_with_mode_repl(
 /// so we silently ignore the "no async scheduler registered" error from the
 /// tree-walker path. Other scheduler errors are reported to stderr as
 /// warnings but do not fail the program — the side effects already ran.
-fn drain_async_scheduler(interpreter: &Interpreter) {
+pub(crate) fn drain_async_scheduler(interpreter: &Interpreter) {
     if let Err(e) = sema_core::call_run_scheduler(&interpreter.ctx, None) {
         let msg = e.to_string();
         if msg.contains("no async scheduler registered") {
@@ -2627,7 +2503,7 @@ fn print_ast(val: &Value, indent: usize) {
     }
 }
 
-fn format_source_snippet(
+pub(crate) fn format_source_snippet(
     span: &sema_core::Span,
     file_override: Option<&std::path::Path>,
 ) -> Option<String> {
@@ -2671,7 +2547,7 @@ fn format_source_snippet(
     Some(out)
 }
 
-fn print_error(e: &SemaError) {
+pub(crate) fn print_error(e: &SemaError) {
     let inner = e.inner();
     eprintln!("{} {}", colors::red_bold("Error:"), inner);
 
@@ -2724,423 +2600,6 @@ fn print_error(e: &SemaError) {
     }
 }
 
-fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_vm: bool) {
-    let env = interpreter.global_env.clone();
-    // Snapshot all bindings present before user input — these are the prelude /
-    // builtins / history slots. `,env` will hide anything in this set so it
-    // only shows what the user actually defined this session.
-    let mut prelude_keys: HashSet<sema_core::Spur> = HashSet::new();
-    env.iter_bindings(|spur, _| {
-        prelude_keys.insert(spur);
-    });
-    env.set(intern("*1"), Value::nil());
-    env.set(intern("*2"), Value::nil());
-    env.set(intern("*3"), Value::nil());
-    env.set(intern("*e"), Value::nil());
-    // Track the history-slot names so they don't leak into `,env`.
-    prelude_keys.insert(intern("*1"));
-    prelude_keys.insert(intern("*2"));
-    prelude_keys.insert(intern("*3"));
-    prelude_keys.insert(intern("*e"));
-    interpreter.ctx.interactive.set(true);
-    let mut rl = Editor::new().expect("failed to create editor");
-    rl.set_helper(Some(SemaCompleter { env: env.clone() }));
-    let history_path = dirs_path().join("history.txt");
-    let _ = rl.load_history(&history_path);
-
-    if !quiet {
-        println!(
-            "Sema v{} — A Lisp with LLM primitives",
-            env!("CARGO_PKG_VERSION")
-        );
-        if let Some(mode) = sandbox_mode {
-            println!("Sandbox: {mode}");
-        }
-        println!("Type ,help for help, ,quit to exit\n");
-    }
-
-    let mut buffer = String::new();
-    let mut in_multiline = false;
-
-    loop {
-        let prompt = if in_multiline { "  ... " } else { "sema> " };
-        match rl.readline(prompt) {
-            Ok(line) => {
-                let trimmed = line.trim();
-
-                // Handle REPL commands
-                if !in_multiline {
-                    match trimmed {
-                        // Accept both comma-prefixed forms and the bare words /
-                        // common short-forms users habitually type from other
-                        // REPLs (Python, Node, vim).
-                        ",quit" | ",exit" | ",q" | "quit" | "exit" | ":q" => break,
-                        ",help" | ",h" => {
-                            print_help();
-                            continue;
-                        }
-                        ",env" => {
-                            print_env(&interpreter, &prelude_keys);
-                            continue;
-                        }
-                        ",builtins" => {
-                            print_builtins(&interpreter);
-                            continue;
-                        }
-                        _ => {}
-                    }
-
-                    if trimmed == ",doc" || trimmed == ",type" || trimmed == ",time" {
-                        println!("Usage: {trimmed} <expr>");
-                        continue;
-                    }
-
-                    if let Some(stripped) = trimmed.strip_prefix(",doc ") {
-                        let name = stripped.trim();
-                        let spur = sema_core::intern(name);
-                        let builtin_docs = sema_lsp::builtin_docs::build_builtin_docs();
-                        match env.get(spur) {
-                            Some(val) => {
-                                // Detect VM closures (wrapped as NativeFn fallback) before
-                                // falling through to the generic NativeFn branch.
-                                if let Some((closure, _funcs)) = sema_vm::extract_vm_closure(&val) {
-                                    let arity = closure.func.arity;
-                                    let rest = if closure.func.has_rest { " . rest" } else { "" };
-                                    let params: Vec<String> =
-                                        (0..arity).map(|i| format!("arg{i}")).collect();
-                                    println!(
-                                        "  {} {} lambda ({}{})",
-                                        colors::cyan(name),
-                                        colors::dim(":"),
-                                        params.join(" "),
-                                        rest
-                                    );
-                                } else {
-                                    match val.view() {
-                                        ValueView::NativeFn(_f) => {
-                                            println!(
-                                                "  {} {} native-fn",
-                                                colors::cyan(name),
-                                                colors::dim(":"),
-                                            );
-                                            if let Some(doc) = builtin_docs.get(name) {
-                                                println!("{doc}");
-                                            }
-                                        }
-                                        ValueView::Lambda(l) => {
-                                            let params: Vec<String> = l
-                                                .params
-                                                .iter()
-                                                .map(|s| sema_core::resolve(*s))
-                                                .collect();
-                                            let rest = l
-                                                .rest_param
-                                                .map(|s| format!(" . {}", sema_core::resolve(s)))
-                                                .unwrap_or_default();
-                                            println!(
-                                                "  {} {} lambda ({}{})",
-                                                colors::cyan(name),
-                                                colors::dim(":"),
-                                                params.join(" "),
-                                                rest
-                                            );
-                                        }
-                                        _ => {
-                                            println!(
-                                                "  {} {} {} = {}",
-                                                colors::cyan(name),
-                                                colors::dim(":"),
-                                                val.type_name(),
-                                                val
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            None => {
-                                if SPECIAL_FORM_NAMES.contains(&name) {
-                                    println!(
-                                        "  {} {} special form",
-                                        colors::cyan(name),
-                                        colors::dim(":")
-                                    );
-                                    if let Some(doc) = builtin_docs.get(name) {
-                                        println!("{doc}");
-                                    }
-                                } else if let Some(doc) = builtin_docs.get(name) {
-                                    println!(
-                                        "  {} {} builtin",
-                                        colors::cyan(name),
-                                        colors::dim(":")
-                                    );
-                                    println!("{doc}");
-                                } else {
-                                    eprintln!("  {} {name}", colors::red_bold("not found:"));
-                                }
-                            }
-                        }
-                        continue;
-                    }
-
-                    if let Some(expr) = trimmed.strip_prefix(",type ") {
-                        LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.to_string()));
-                        LAST_FILE.with(|f| *f.borrow_mut() = None);
-                        match eval_with_mode_repl(&interpreter, expr, use_vm) {
-                            Ok(val) => {
-                                let type_name = match val.view() {
-                                    ValueView::Record(r) => {
-                                        format!(":{}", sema_core::resolve(r.type_tag))
-                                    }
-                                    _ => format!(":{}", val.type_name()),
-                                };
-                                println!("{}", colors::dim(&type_name));
-                            }
-                            Err(e) => print_error(&e),
-                        }
-                        continue;
-                    }
-                    if let Some(expr) = trimmed.strip_prefix(",time ") {
-                        LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.to_string()));
-                        LAST_FILE.with(|f| *f.borrow_mut() = None);
-                        let start = std::time::Instant::now();
-                        match eval_with_mode_repl(&interpreter, expr, use_vm) {
-                            Ok(val) => {
-                                let elapsed = start.elapsed();
-                                if !val.is_nil() {
-                                    println!("{}", pretty_print(&val, 80));
-                                }
-                                eprintln!("{} {elapsed:.3?}", colors::dim("elapsed:"));
-                            }
-                            Err(e) => {
-                                let elapsed = start.elapsed();
-                                print_error(&e);
-                                eprintln!("{} {elapsed:.3?}", colors::dim("elapsed:"));
-                            }
-                        }
-                        continue;
-                    }
-                }
-
-                if in_multiline {
-                    buffer.push('\n');
-                    buffer.push_str(&line);
-                } else {
-                    buffer = line.clone();
-                }
-
-                // Check if parens are balanced
-                if !is_balanced(&buffer) {
-                    in_multiline = true;
-                    continue;
-                }
-
-                in_multiline = false;
-                let input = buffer.trim().to_string();
-                buffer.clear();
-
-                if input.is_empty() {
-                    continue;
-                }
-
-                let _ = rl.add_history_entry(&input);
-
-                LAST_SOURCE.with(|s| *s.borrow_mut() = Some(input.clone()));
-                LAST_FILE.with(|f| *f.borrow_mut() = None);
-                match eval_with_mode_repl(&interpreter, &input, use_vm) {
-                    Ok(val) => {
-                        drain_async_scheduler(&interpreter);
-                        if let Some(v1) = env.get(intern("*1")) {
-                            if let Some(v2) = env.get(intern("*2")) {
-                                env.set(intern("*3"), v2);
-                            }
-                            env.set(intern("*2"), v1);
-                        }
-                        env.set(intern("*1"), val.clone());
-                        if !val.is_nil() {
-                            println!("{}", pretty_print(&val, 80));
-                        } else if let Some(name) = top_level_define_name(&input) {
-                            // Give visible feedback for top-level define / defun /
-                            // defmacro forms, which otherwise evaluate to nil and
-                            // look like they did nothing.
-                            println!("{}", colors::dim(&format!("; defined {name}")));
-                        }
-                    }
-                    Err(e) => {
-                        env.set(intern("*e"), Value::string(&e.to_string()));
-                        print_error(&e);
-                    }
-                }
-            }
-            Err(ReadlineError::Interrupted) => {
-                if in_multiline {
-                    buffer.clear();
-                    in_multiline = false;
-                    println!("^C");
-                    continue;
-                }
-                break;
-            }
-            Err(ReadlineError::Eof) => {
-                // If the user pressed Ctrl-D in the middle of an unterminated
-                // form, surface that rather than silently dropping their input.
-                if in_multiline || !buffer.trim().is_empty() {
-                    eprintln!("error: unterminated input at EOF: {}", buffer.trim());
-                    std::process::exit(1);
-                }
-                break;
-            }
-            Err(e) => {
-                eprintln!("Error: {e}");
-                break;
-            }
-        }
-    }
-
-    let _ = std::fs::create_dir_all(dirs_path());
-    let _ = rl.save_history(&history_path);
-    println!("Goodbye!");
-}
-
-fn is_balanced(input: &str) -> bool {
-    let mut depth = 0i32;
-    let mut in_string = false;
-    let mut escape = false;
-    for ch in input.chars() {
-        if escape {
-            escape = false;
-            continue;
-        }
-        if ch == '\\' && in_string {
-            escape = true;
-            continue;
-        }
-        if ch == '"' {
-            in_string = !in_string;
-            continue;
-        }
-        if in_string {
-            continue;
-        }
-        match ch {
-            '(' | '[' | '{' => depth += 1,
-            ')' | ']' | '}' => depth -= 1,
-            _ => {}
-        }
-    }
-    depth <= 0 && !in_string
-}
-
-/// If `input` is a top-level definition form like `(define x ...)`,
-/// `(defun foo ...)`, or `(defmacro bar ...)`, return the defined name.
-/// Returns `None` for anything else, including nested defines.
-fn top_level_define_name(input: &str) -> Option<String> {
-    let trimmed = input.trim_start();
-    // Each prefix and how many leading tokens to skip to reach the name.
-    // For `(define`, `(defun`, `(defmacro`, the next token is the name (or for
-    // `(define (foo ...) ...)`, the name is the first symbol inside the form).
-    for kw in ["(define", "(defun", "(defmacro"] {
-        if let Some(rest) = trimmed.strip_prefix(kw) {
-            // The character after the keyword must be whitespace or `(` to
-            // avoid matching `(definer ...)` etc.
-            let next = rest.chars().next()?;
-            if !next.is_whitespace() && next != '(' {
-                continue;
-            }
-            let mut after = rest.trim_start();
-            // Support `(define (foo args...) body)` — strip the leading `(`.
-            if let Some(stripped) = after.strip_prefix('(') {
-                after = stripped.trim_start();
-            }
-            let name: String = after
-                .chars()
-                .take_while(|c| !c.is_whitespace() && *c != '(' && *c != ')')
-                .collect();
-            if !name.is_empty() {
-                return Some(name);
-            }
-        }
-    }
-    None
-}
-
-fn print_help() {
-    println!("Sema REPL Commands:");
-    println!("  ,quit / ,q    Exit the REPL");
-    println!("  ,help / ,h    Show this help");
-    println!("  ,env          Show defined variables");
-    println!("  ,builtins     List all builtin functions");
-    println!("  ,type EXPR    Show the type of a value");
-    println!("  ,time EXPR    Evaluate and show elapsed time");
-    println!("  ,doc NAME     Show info about a binding");
-    println!();
-    println!("LLM Quick Start:");
-    println!("  Set ANTHROPIC_API_KEY or OPENAI_API_KEY env var, then:");
-    println!("  (llm/complete \"Hello!\")");
-    println!("  (llm/chat [(message :user \"Hi\")] {{:model \"claude-haiku-4-5-20251001\"}})");
-    println!();
-    println!("History Variables:");
-    println!("  *1, *2, *3   Last three results (most recent first)");
-    println!("  *e           Last error message");
-    println!();
-    println!("Core Forms:");
-    println!("  define/defun, lambda/fn, if, cond, let, let*, begin/do");
-    println!("  quote, quasiquote, defmacro, and, or, when, unless");
-}
-
-fn print_env(interpreter: &Interpreter, prelude_keys: &HashSet<sema_core::Spur>) {
-    let mut user_bindings: Vec<(String, String)> = Vec::new();
-    interpreter.global_env.iter_bindings(|spur, val| {
-        if val.as_native_fn_rc().is_some() {
-            return;
-        }
-        // Skip anything that was already present at REPL start (the prelude).
-        if prelude_keys.contains(&spur) {
-            return;
-        }
-        let name = sema_core::resolve(spur);
-        // Skip history slots (*1, *2, *3, *e) — they're REPL bookkeeping noise.
-        if name.starts_with('*') {
-            return;
-        }
-        user_bindings.push((name, format!("{val}")));
-    });
-    user_bindings.sort_by(|(a, _), (b, _)| a.cmp(b));
-    if user_bindings.is_empty() {
-        println!("(no user-defined bindings)");
-    } else {
-        for (name, val) in &user_bindings {
-            println!("  {name} = {val}");
-        }
-    }
-}
-
-fn print_builtins(interpreter: &Interpreter) {
-    let mut names: Vec<String> = Vec::new();
-    interpreter.global_env.iter_bindings(|spur, val| {
-        if val.as_native_fn_rc().is_some() {
-            names.push(sema_core::resolve(spur));
-        }
-    });
-    names.sort();
-
-    if names.is_empty() {
-        println!("(no builtin functions)");
-        return;
-    }
-
-    let max_width = names.iter().map(|n| n.len()).max().unwrap_or(0) + 2;
-    let term_width = 80;
-    let cols = (term_width / max_width).max(1);
-
-    for chunk in names.chunks(cols) {
-        for name in chunk {
-            print!("{name:<max_width$}");
-        }
-        println!();
-    }
-    println!("\n{} builtin functions", names.len());
-}
-
 fn install_completions(shell: Shell) {
     let home = match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         Ok(h) => PathBuf::from(h),
@@ -3186,8 +2645,4 @@ fn install_completions(shell: Shell) {
     if shell == Shell::Zsh {
         println!("  Add to ~/.zshrc (before compinit): fpath=(~/.zsh/completions $fpath)");
     }
-}
-
-fn dirs_path() -> std::path::PathBuf {
-    sema_core::sema_home()
 }
