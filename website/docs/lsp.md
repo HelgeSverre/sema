@@ -10,6 +10,10 @@ Sema includes a built-in [Language Server Protocol](https://microsoft.github.io/
 sema lsp
 ```
 
+::: warning VS Code users
+The VS Code extension for Sema currently provides **syntax highlighting only** and does not yet wire up the language server. The features documented below are available today in any editor that speaks LSP directly (Neovim, Helix, Emacs `eglot`/`lsp-mode`, Zed, Sublime LSP). VS Code LSP integration is planned.
+:::
+
 ## Features
 
 ### Diagnostics

@@ -208,7 +208,7 @@ Uses the `ESC[38;2;r;g;bm` escape sequence format, which is supported by most mo
 ;; Build a gradient
 (for-each
   (lambda (i)
-    (print (term/rgb "█" (* i 25) 50 (- 255 (* i 25)))))
+    (display (term/rgb "█" (* i 25) 50 (- 255 (* i 25)))))
   (range 11))
 (println)
 ```

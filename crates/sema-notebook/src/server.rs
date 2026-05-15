@@ -65,6 +65,13 @@ pub async fn serve(notebook_path: Option<PathBuf>, host: &str, port: u16) {
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
+    if notebook_path.is_none() {
+        eprintln!(
+            "warning: VFS root is current working directory ({}); use --notebook <file> to scope it",
+            vfs_root.display()
+        );
+    }
+
     let engine = EngineHandle::spawn(notebook, nb_path);
     let state = Arc::new(AppState { engine, vfs_root });
 

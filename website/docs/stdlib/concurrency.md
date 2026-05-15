@@ -229,10 +229,11 @@ Stdlib higher-order functions like `for-each`, `map`, `filter`, `foldl`, `sort-b
                     (for-each (fn (n) (channel/send ch n))
                               (list 1 2 3 4 5 6 7))
                     (channel/close ch)))
-        (consumer (async (foldl (fn (sum _) (+ sum (channel/recv ch)))
-                                 0
-                                 (list 1 2 3 4 5 6 7)))))
-    (await consumer)))   ; => 28
+        (consumer (async
+                    (let loop ((sum 0))
+                      (let ((v (channel/recv ch)))
+                        (if (nil? v) sum (loop (+ sum v))))))))
+    (await consumer)))   ;; => 28
 ```
 
 Yielding **native** functions (e.g., `channel/recv`, `async/sleep`) passed *directly* as the callback produce a clear error pointing to the workaround:

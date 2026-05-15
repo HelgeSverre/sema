@@ -128,6 +128,77 @@ sema notebook export my-notebook.sema-nb -o output.md
 
 The export includes code blocks with output, markdown sections, and error messages.
 
+## REST API
+
+The notebook server exposes a JSON HTTP API on the same port as the browser UI. Everything the UI does goes through these endpoints — they're stable enough to script against from external tools.
+
+### Notebook & cells
+
+| Method | Path                       | Description                                        |
+| ------ | -------------------------- | -------------------------------------------------- |
+| GET    | `/api/notebook`            | Return the full notebook (cells + metadata)        |
+| POST   | `/api/cells`               | Create a new cell                                  |
+| GET    | `/api/cells/{id}`          | Fetch a single rendered cell                       |
+| POST   | `/api/cells/{id}`          | Update a cell's source or type                     |
+| DELETE | `/api/cells/{id}`          | Delete a cell                                      |
+| POST   | `/api/cells/{id}/eval`     | Evaluate a single cell                             |
+| POST   | `/api/cells/reorder`       | Reorder cells by id                                |
+| POST   | `/api/eval-all`            | Evaluate all cells (optionally with edited source) |
+| GET    | `/api/env`                 | Inspect the current shared cell environment       |
+| POST   | `/api/reset`               | Reset the evaluation environment                   |
+| POST   | `/api/undo`                | Undo the last cell edit/delete                     |
+| POST   | `/api/save`                | Save the notebook to disk                          |
+
+Create cell request:
+
+```json
+{ "type": "code", "source": "(+ 1 2)", "after": "<cell-id?>" }
+```
+
+Update cell request:
+
+```json
+{ "source": "(+ 1 2)", "type": "code" }
+```
+
+Reorder request:
+
+```json
+{ "cell_ids": ["id-1", "id-2", "id-3"] }
+```
+
+Eval-all request (optional — pass currently-edited sources without saving first):
+
+```json
+{ "sources": [["cell-id", "(println \"hi\")"]] }
+```
+
+### VFS
+
+The notebook server exposes a small virtual filesystem so the browser UI can read and write files alongside the notebook.
+
+| Method | Path         | Description                                  |
+| ------ | ------------ | -------------------------------------------- |
+| GET    | `/vfs/read`  | Read a file: `?path=foo.txt` → text body     |
+| POST   | `/vfs/write` | Write a file (JSON body, see below)          |
+| GET    | `/vfs/list`  | List a directory: `?path=.` → JSON entries   |
+
+Write request:
+
+```json
+{ "path": "notes.txt", "content": "hello" }
+```
+
+List response (`FileEntry[]`):
+
+```json
+[{ "name": "notes.txt", "is_dir": false, "size": 5 }]
+```
+
+::: warning VFS scope
+VFS endpoints are sandboxed to the **parent directory of the notebook file**. When `sema notebook serve` is started **without** a `--notebook` path, the VFS root falls back to the current working directory (`$PWD`). The server prints a warning at startup in that case — prefer passing a notebook path if you don't want the whole `$PWD` to be reachable.
+:::
+
 ## CLI Reference
 
 See [`sema notebook`](/docs/cli.html#sema-notebook) in the CLI reference for all flags and options.

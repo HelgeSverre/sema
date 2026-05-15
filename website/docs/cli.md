@@ -23,7 +23,7 @@ sema [OPTIONS] [FILE] [-- SCRIPT_ARGS...]
 | `--chat-provider <NAME>`    | Set chat provider                     |
 | `--embedding-model <NAME>`  | Set embedding model                   |
 | `--embedding-provider <NAME>` | Set embedding provider              |
-| `--tw`               | Use tree-walker interpreter instead of bytecode VM (legacy) |
+| `--tw`               | Use tree-walker interpreter instead of bytecode VM (legacy; VM is the default) |
 | `--sandbox <MODE>`   | Restrict dangerous operations (see below)    |
 | `-V, --version`      | Print version                                |
 | `-h, --help`         | Print help                                   |
@@ -151,7 +151,7 @@ sema compile --check script.semac
 Build a standalone executable from a Sema source file. The resulting binary embeds the compiled bytecode, all transitive imports, and any explicitly included assets into a self-contained executable. See [Executable Format](./internals/executable-format.md) for details on the binary format.
 
 ```
-sema build [OPTIONS] <FILE>
+sema build [OPTIONS] [FILE]
 ```
 
 | Flag                     | Description                                               |
@@ -235,7 +235,7 @@ sema pkg <COMMAND>
 | --------------------------- | --------------------------------------------------- |
 | `init`                      | Initialize a new `sema.toml` in the current directory |
 | `add <spec> [--registry]`   | Add a package from the registry or git              |
-| `install`                   | Install all deps from `sema.toml`                   |
+| `install [--locked]`        | Install all deps from `sema.toml` (`--locked` fails if `sema.lock` is missing or out of sync — for CI) |
 | `update [name]`             | Update packages (all or specific)                   |
 | `remove <name>`             | Remove an installed package                         |
 | `list`                      | List installed packages                             |
@@ -304,6 +304,7 @@ sema fmt [OPTIONS] [FILES...]
 | `--width <N>` | Max line width (default: `80`) |
 | `--indent <N>` | Indentation width (default: `2`) |
 | `--align` | Align consecutive similar forms |
+| `--json` | Output result as JSON (useful for editor integrations) |
 
 ```bash
 # Format all .sema files recursively
@@ -370,7 +371,7 @@ sema notebook export [OPTIONS] <FILE>
 
 | Flag                  | Description                           |
 | --------------------- | ------------------------------------- |
-| `-f, --format <FMT>`  | Output format (default: `md`)         |
+| `--format <FMT>`      | Output format (default: `md`)         |
 | `-o, --output <FILE>` | Output file (default: stdout)         |
 
 #### `sema notebook new`
@@ -447,7 +448,7 @@ sema --sandbox=no-shell script.sema
 # Deny multiple capabilities
 sema --sandbox=no-shell,no-network,no-fs-write script.sema
 
-# Strict mode (no shell, fs-write, network, env-write, process, llm)
+# Strict mode (no shell, fs-write, network, env-write, process, llm, serial)
 sema --sandbox=strict script.sema
 
 # Maximum restriction (deny all dangerous operations)
@@ -486,7 +487,7 @@ The `--sandbox` flag restricts access to dangerous operations. Functions remain 
 
 | Mode            | Description                                                            |
 | --------------- | ---------------------------------------------------------------------- |
-| `strict`        | Deny shell, fs-write, network, env-write, process, llm (reads allowed) |
+| `strict`        | Deny shell, fs-write, network, env-write, process, llm, serial (reads allowed) |
 | `all`           | Deny all capabilities                                                  |
 | Comma-separated | e.g. `no-shell,no-network` — deny specific capabilities                |
 

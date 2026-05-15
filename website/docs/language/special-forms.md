@@ -416,6 +416,20 @@ Short-circuit logical OR. Returns the first truthy value or `#f`.
 
 ## Iteration
 
+### `while`
+
+Loop while a condition is truthy. Returns `nil`. Use `set!` to mutate loop state.
+
+```sema
+(let ((n 0))
+  (while (< n 3)
+    (println n)
+    (set! n (+ n 1)))
+  n)
+;; prints 0, 1, 2
+;; => 3
+```
+
 ### `do`
 
 Scheme `do` loop with variable bindings, step expressions, and a termination test.
@@ -604,6 +618,10 @@ Throw any value as an error.
 
 ## Async / Await
 
+::: info VM only
+`async` and `await` require the VM backend (default). The tree-walker interpreter returns an error.
+:::
+
 ### `async`
 
 Create an async task that evaluates `body` concurrently and returns a promise.
@@ -634,7 +652,3 @@ If the promise was rejected, raises an error. Inside an async task, `await` yiel
       (p2 (async (* 4 4))))
   (+ (await p1) (await p2)))  ; => 25
 ```
-
-::: info VM only
-`async` and `await` require the VM backend (default). The tree-walker interpreter returns an error.
-:::

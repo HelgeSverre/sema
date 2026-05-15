@@ -202,14 +202,15 @@ struct Cli {
     command: Option<Commands>,
 
     /// File to execute
+    #[arg(conflicts_with_all = ["eval", "print"])]
     file: Option<String>,
 
     /// Evaluate an expression and print result (if non-nil)
-    #[arg(short, long, conflicts_with = "print")]
+    #[arg(short, long, conflicts_with_all = ["print", "file"])]
     eval: Option<String>,
 
     /// Evaluate an expression and always print result
-    #[arg(short, long, conflicts_with = "eval")]
+    #[arg(short, long, conflicts_with_all = ["eval", "file"])]
     print: Option<String>,
 
     /// Load file(s) before executing
@@ -234,7 +235,7 @@ struct Cli {
 
     /// Sandbox mode: restrict dangerous operations.
     /// Values: "strict", "all", or comma-separated list like "no-shell,no-network,no-fs-write"
-    /// Available capabilities: shell, fs-read, fs-write, network, env-read, env-write, process, llm
+    /// Available capabilities: shell, fs-read, fs-write, network, env-read, env-write, process, llm, serial
     #[arg(long)]
     sandbox: Option<String>,
 
@@ -258,9 +259,13 @@ struct Cli {
     #[arg(long, value_name = "DIRS")]
     allowed_paths: Option<String>,
 
-    /// Use tree-walker interpreter instead of bytecode VM
+    /// Use tree-walker interpreter instead of bytecode VM (VM is the default)
     #[arg(long)]
     tw: bool,
+
+    /// No-op: use the bytecode VM (this is already the default). Accepted for compatibility.
+    #[arg(long, hide = true)]
+    vm: bool,
 
     /// Arguments passed to the script (after --)
     #[arg(last = true)]
@@ -362,11 +367,11 @@ enum Commands {
         #[arg(long)]
         diff: bool,
 
-        /// Max line width
+        /// Max line width (default: 80, or value from sema.toml)
         #[arg(long)]
         width: Option<usize>,
 
-        /// Indentation width for body forms
+        /// Indentation width for body forms (default: 2, or value from sema.toml)
         #[arg(long)]
         indent: Option<usize>,
 
@@ -890,6 +895,20 @@ fn eval_with_mode(
         interpreter.eval_str_compiled(input)
     } else {
         interpreter.eval_str(input)
+    }
+}
+
+/// REPL eval. Tree-walker variant runs in the global env so top-level `define`s
+/// persist across REPL lines. VM variant already updates the global env.
+fn eval_with_mode_repl(
+    interpreter: &Interpreter,
+    input: &str,
+    use_vm: bool,
+) -> Result<sema_core::Value, sema_core::SemaError> {
+    if use_vm {
+        interpreter.eval_str_compiled(input)
+    } else {
+        interpreter.eval_str_in_global(input)
     }
 }
 
@@ -2683,22 +2702,16 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                     if let Some(stripped) = trimmed.strip_prefix(",doc ") {
                         let name = stripped.trim();
                         let spur = sema_core::intern(name);
+                        let builtin_docs = sema_lsp::builtin_docs::build_builtin_docs();
                         match env.get(spur) {
-                            Some(val) => match val.view() {
-                                ValueView::NativeFn(_f) => {
-                                    println!(
-                                        "  {} {} native-fn",
-                                        colors::cyan(name),
-                                        colors::dim(":"),
-                                    );
-                                }
-                                ValueView::Lambda(l) => {
+                            Some(val) => {
+                                // Detect VM closures (wrapped as NativeFn fallback) before
+                                // falling through to the generic NativeFn branch.
+                                if let Some((closure, _funcs)) = sema_vm::extract_vm_closure(&val) {
+                                    let arity = closure.func.arity;
+                                    let rest = if closure.func.has_rest { " . rest" } else { "" };
                                     let params: Vec<String> =
-                                        l.params.iter().map(|s| sema_core::resolve(*s)).collect();
-                                    let rest = l
-                                        .rest_param
-                                        .map(|s| format!(" . {}", sema_core::resolve(s)))
-                                        .unwrap_or_default();
+                                        (0..arity).map(|i| format!("arg{i}")).collect();
                                     println!(
                                         "  {} {} lambda ({}{})",
                                         colors::cyan(name),
@@ -2706,17 +2719,48 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                                         params.join(" "),
                                         rest
                                     );
+                                } else {
+                                    match val.view() {
+                                        ValueView::NativeFn(_f) => {
+                                            println!(
+                                                "  {} {} native-fn",
+                                                colors::cyan(name),
+                                                colors::dim(":"),
+                                            );
+                                            if let Some(doc) = builtin_docs.get(name) {
+                                                println!("{doc}");
+                                            }
+                                        }
+                                        ValueView::Lambda(l) => {
+                                            let params: Vec<String> = l
+                                                .params
+                                                .iter()
+                                                .map(|s| sema_core::resolve(*s))
+                                                .collect();
+                                            let rest = l
+                                                .rest_param
+                                                .map(|s| format!(" . {}", sema_core::resolve(s)))
+                                                .unwrap_or_default();
+                                            println!(
+                                                "  {} {} lambda ({}{})",
+                                                colors::cyan(name),
+                                                colors::dim(":"),
+                                                params.join(" "),
+                                                rest
+                                            );
+                                        }
+                                        _ => {
+                                            println!(
+                                                "  {} {} {} = {}",
+                                                colors::cyan(name),
+                                                colors::dim(":"),
+                                                val.type_name(),
+                                                val
+                                            );
+                                        }
+                                    }
                                 }
-                                _ => {
-                                    println!(
-                                        "  {} {} {} = {}",
-                                        colors::cyan(name),
-                                        colors::dim(":"),
-                                        val.type_name(),
-                                        val
-                                    );
-                                }
-                            },
+                            }
                             None => {
                                 if SPECIAL_FORM_NAMES.contains(&name) {
                                     println!(
@@ -2724,6 +2768,16 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                                         colors::cyan(name),
                                         colors::dim(":")
                                     );
+                                    if let Some(doc) = builtin_docs.get(name) {
+                                        println!("{doc}");
+                                    }
+                                } else if let Some(doc) = builtin_docs.get(name) {
+                                    println!(
+                                        "  {} {} builtin",
+                                        colors::cyan(name),
+                                        colors::dim(":")
+                                    );
+                                    println!("{doc}");
                                 } else {
                                     eprintln!("  {} {name}", colors::red_bold("not found:"));
                                 }
@@ -2735,7 +2789,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                     if let Some(expr) = trimmed.strip_prefix(",type ") {
                         LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.to_string()));
                         LAST_FILE.with(|f| *f.borrow_mut() = None);
-                        match eval_with_mode(&interpreter, expr, use_vm) {
+                        match eval_with_mode_repl(&interpreter, expr, use_vm) {
                             Ok(val) => {
                                 let type_name = match val.view() {
                                     ValueView::Record(r) => {
@@ -2753,7 +2807,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                         LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.to_string()));
                         LAST_FILE.with(|f| *f.borrow_mut() = None);
                         let start = std::time::Instant::now();
-                        match eval_with_mode(&interpreter, expr, use_vm) {
+                        match eval_with_mode_repl(&interpreter, expr, use_vm) {
                             Ok(val) => {
                                 let elapsed = start.elapsed();
                                 if !val.is_nil() {
@@ -2796,7 +2850,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
 
                 LAST_SOURCE.with(|s| *s.borrow_mut() = Some(input.clone()));
                 LAST_FILE.with(|f| *f.borrow_mut() = None);
-                match eval_with_mode(&interpreter, &input, use_vm) {
+                match eval_with_mode_repl(&interpreter, &input, use_vm) {
                     Ok(val) => {
                         drain_async_scheduler(&interpreter);
                         if let Some(v1) = env.get(intern("*1")) {

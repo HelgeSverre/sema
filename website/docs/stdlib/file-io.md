@@ -4,6 +4,10 @@ outline: [2, 3]
 
 # File I/O & Paths
 
+::: tip Sandbox capability
+`file/*` functions require the `FS_READ` capability (for reads, listings, predicates) or `FS_WRITE` capability (for writes, deletes, renames, mkdir). They run unrestricted under `sema` by default, but are gated in sandboxed environments (e.g., the WASM playground). A sandboxed script that attempts to use them without the capability will receive an error.
+:::
+
 ## Console I/O
 
 ### `display`
@@ -26,10 +30,11 @@ Print a value followed by a newline.
 
 ### `print`
 
-Alias for `display`. Print without a trailing newline.
+Write values in read-syntax form (strings are quoted) like Scheme's `write`. No trailing newline. Use `display` for human-readable output without quotes.
 
 ```sema
-(print "also no newline")
+(print "hello")   ;; outputs: "hello"
+(display "hello") ;; outputs: hello
 ```
 
 ### `io/print-error`
@@ -294,28 +299,32 @@ Join path components.
 
 ### `path/dirname`
 
-Return the directory portion of a path.
+Alias of `path/dir`. Return the directory portion of a path.
 
 ```sema
-(path/dirname "/a/b/c.txt")   ; => "/a/b"
+(path/dirname "/a/b/c.txt")   ;; => "/a/b"
 ```
 
 ### `path/basename`
 
-Return the filename portion of a path.
+Alias of `path/filename`. Return the filename portion of a path.
 
 ```sema
-(path/basename "/a/b/c.txt")   ; => "c.txt"
+(path/basename "/a/b/c.txt")   ;; => "c.txt"
 ```
 
 ### `path/extension`
 
-Return the file extension (without the dot).
+Return the file extension (without the dot), or `nil` if the path has no extension.
 
 ```sema
-(path/extension "file.rs")     ; => "rs"
-(path/extension "Makefile")    ; => ""
+(path/extension "file.rs")     ;; => "rs"
+(path/extension "Makefile")    ;; => nil
 ```
+
+::: tip Path aliases — subtle differences
+`path/dir`/`path/dirname`, `path/filename`/`path/basename`, and `path/extension`/`path/ext` are independent registrations with subtly different return values for the no-extension/no-parent cases (e.g., `path/extension "Makefile"` returns `nil`, while `path/ext "Makefile"` returns `""`). Prefer `path/dir`, `path/filename`, `path/extension` going forward — the others are kept for back-compat.
+:::
 
 ### `path/absolute`
 
@@ -327,11 +336,11 @@ Return the absolute path.
 
 ### `path/ext`
 
-Return the file extension (without the dot).
+Alias of `path/extension`, but returns `""` (not `nil`) when the path has no extension.
 
 ```sema
-(path/ext "file.rs")     ; => "rs"
-(path/ext "Makefile")    ; => ""
+(path/ext "file.rs")     ;; => "rs"
+(path/ext "Makefile")    ;; => ""
 ```
 
 ### `path/stem`

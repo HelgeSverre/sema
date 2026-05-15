@@ -9,7 +9,7 @@ use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use sema_core::{Caps, Sandbox, Span, SpanMap};
 
-mod builtin_docs;
+pub mod builtin_docs;
 pub(crate) mod helpers;
 pub mod scope;
 
@@ -2057,12 +2057,14 @@ impl BackendState {
     fn handle_workspace_symbols(&self, query: &str) -> Vec<SymbolInformation> {
         let mut results = Vec::new();
         let query_lower = query.to_lowercase();
+        let mut searched_uris: HashSet<String> = HashSet::new();
 
         for (doc_uri_str, cached) in &self.cached_parses {
             let doc_uri = match Url::parse(doc_uri_str) {
                 Ok(u) => u,
                 Err(_) => continue,
             };
+            searched_uris.insert(doc_uri_str.clone());
 
             let symbols =
                 document_symbols_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
@@ -2076,6 +2078,40 @@ impl BackendState {
                         deprecated: None,
                         location: Location {
                             uri: doc_uri.clone(),
+                            range: sym.selection_range,
+                        },
+                        container_name: None,
+                    });
+                }
+            }
+        }
+
+        // Also search workspace files not currently open (import_cache)
+        for (path, import_cached) in &self.import_cache {
+            let import_uri = match Url::from_file_path(path) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            // Skip files already returned via cached_parses
+            if searched_uris.contains(import_uri.as_str()) {
+                continue;
+            }
+
+            let symbols = document_symbols_from_ast(
+                &import_cached.ast,
+                &import_cached.span_map,
+                &import_cached.symbol_spans,
+            );
+
+            for sym in symbols {
+                if query.is_empty() || sym.name.to_lowercase().contains(&query_lower) {
+                    results.push(SymbolInformation {
+                        name: sym.name,
+                        kind: sym.kind,
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: import_uri.clone(),
                             range: sym.selection_range,
                         },
                         container_name: None,

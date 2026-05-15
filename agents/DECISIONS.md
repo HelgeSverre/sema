@@ -569,3 +569,55 @@ Trade-offs:
 Once this lands, `.semac` files from untrusted sources can be loaded safely. Until it does, see `agents/LIMITATIONS.md` #32 for the trust-model caveat.
 
 References: `crates/sema-vm/src/vm.rs::pop_unchecked` (the unsafe site), `crates/sema-vm/src/serialize.rs::validate_bytecode` (where the new pass plugs in), `crates/sema-vm/src/opcodes.rs` (canonical opcode list), `agents/LIMITATIONS.md` #32.
+
+### 57. Propagate source spans through runtime errors (PROPOSED)
+
+Tracks LIMITATIONS.md #H13. Today the **reader** has perfect span info (used in syntax-error diagnostics like `--> path:line:col`), but **eval/VM** runtime errors emit bare messages: `type error: + expected number, got string` with no location. For anything beyond a one-liner this makes debugging needlessly hard — the user sees the error but has to grep the file to find the offending call site.
+
+Plumbing-heavy but well-localized; both backends already carry the information internally and just don't surface it on errors.
+
+**Tree-walker side (eval).** `EvalContext` already maintains a `current_file` stack and a `call_stack` used to build the trace printed by `print_error`. What's missing is per-call-site span propagation into `NativeFn` dispatch:
+
+- Thread the current expression's `Span` through `eval_step`'s recursive dispatch. The reader's `SpanMap` already maps each `Value` AST node to a `Span`; the evaluator just doesn't read it on the hot path.
+- When `eval_step` calls a `NativeFn`, attach the call-site span to any `SemaError` raised from inside (`SemaError::with_location(file, span)` or similar). Today native fns construct `SemaError::type_error()` / `::arity()` with no location attached.
+- For user lambdas, the existing `call_stack` push already captures `(name, file, span)` — keep that, but extend so that arity/destructuring failures attach the *call site* rather than the lambda's *definition site*.
+
+**VM side.** `ChunkDebugInfo` (in `crates/sema-vm/src/debug.rs`) already stores per-instruction spans — used today to build stack traces in `crates/sema/src/main.rs::print_error`. What's missing is using those spans when a `CallNative` / `CallGlobal` / arithmetic op raises an error:
+
+- At the `CALL_NATIVE` / `CALL_GLOBAL` dispatch sites in `vm.rs`, look up the current `pc`'s span via the frame's `Chunk::debug_info` and attach it to the returned `SemaError` before propagating.
+- Same for the binary-op opcodes (`Add`, `Sub`, …) when they raise `type_error` — these are the worst offenders for "where did this happen?" pain.
+
+**Formatting.** Reuse the existing `--> path:line:col` formatter from `sema-reader` so runtime errors look like syntax errors. Stack-frame rendering in `print_error` already does this for frames that carry `(file, span)`; the gap is at the *innermost* error site, which today only has a message.
+
+Trade-offs:
+
+- Spreads `Span` through every native-fn signature or every `SemaError::*` constructor. Likely cleaner to store an optional `Span` on `SemaError` itself and have the *caller* (eval/VM dispatch) attach it on the way out, rather than every native fn doing it.
+- Hot path: tree-walker already reads `SpanMap` for some operations; VM already touches `debug_info` for stack-trace construction. Adding the lookup on the *error path* only is essentially free.
+- Behaviour change for downstream tools that parse error strings — keep the message stable, add the location as a separate formatted line (matches what `print_error` already does for stack frames).
+
+References: `crates/sema-eval/src/eval.rs` (eval_step, NativeFn dispatch), `crates/sema-vm/src/vm.rs` (CALL_NATIVE / CALL_GLOBAL, binary-op error sites), `crates/sema-vm/src/debug.rs::ChunkDebugInfo`, `crates/sema-core/src/error.rs` (SemaError + location plumbing), `crates/sema-reader/src/span.rs` (span formatter reused for `--> path:line:col`), `agents/LIMITATIONS.md` #H13.
+
+### 58. Thread-local writer hook for stdout capture (replaces gag::BufferRedirect) (PROPOSED)
+
+Tracks LIMITATIONS.md #H17. The notebook engine currently captures cell stdout with `gag::BufferRedirect::stdout()` — a process-wide file-descriptor swap. This works for the common case but composes poorly:
+
+- A `cargo test` run that exercises notebook code also redirects test-harness output.
+- Concurrent evaluations (e.g. two notebook server requests, or a future parallel eval-all) race on the single global fd.
+- Certain consoles / Windows / non-tty environments mishandle the dup2 dance.
+- The WASM build cannot do this at all and already uses an in-process buffer via `OUTPUT.with(...)` in stdlib `io.rs`.
+
+**Plan.** Move stdout capture out of the OS layer and into the interpreter:
+
+- Add a thread-local writer hook in `crates/sema-stdlib/src/io.rs` — something like `thread_local! { static OUTPUT_WRITER: RefCell<Option<Box<dyn Write>>> = RefCell::new(None) }`.
+- `println`, `display`, `print`, `newline`, `print-string` (anything that today writes to `stdout`) goes through this hook: if `Some`, write to the user-supplied sink; otherwise fall through to real `std::io::stdout()`.
+- Notebook engine (`crates/sema-notebook/src/engine.rs`) sets the hook to a `Vec<u8>` buffer for the duration of each cell eval and reads it back. No more `gag`.
+- The WASM build already does the equivalent via a separate code path; this consolidates both backends behind one mechanism.
+
+Trade-offs:
+
+- Captures stdout from **Sema code** only. Native functions that write directly to `std::io::stdout()` (e.g. an LLM streaming print) bypass the hook. That's actually correct — the notebook only cares about user-program output, not interpreter chatter — but documented behaviour change vs. today's "everything inside `BufferRedirect` is captured".
+- Per-thread, so concurrent evals naturally isolate without locking.
+- Removes the `gag` dependency from `sema-notebook`.
+- Cooperates with the WASM `OUTPUT.with(...)` pattern (currently a parallel-but-divergent capture mechanism) — long term, both can use the same hook.
+
+References: `crates/sema-stdlib/src/io.rs` (println/display/print sites, and the WASM `OUTPUT` thread-local), `crates/sema-notebook/src/engine.rs` (current `BufferRedirect` use), `agents/LIMITATIONS.md` #H17.

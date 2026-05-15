@@ -4,6 +4,10 @@ outline: [2, 3]
 
 # System
 
+::: tip Sandbox capability
+Several `sys/*` functions are gated by sandbox capabilities: environment access (`env`, `sys/env-all`, `sys/set-env`) requires `ENV_READ` or `ENV_WRITE`, and process operations (`shell`, `sys/which`, signal hooks, `exit`) require `PROCESS`. They run unrestricted under `sema` by default but are restricted in sandboxed environments (e.g., the WASM playground). A sandboxed script that attempts to use them without the capability will receive an error.
+:::
+
 ## Environment Variables
 
 ### `env`

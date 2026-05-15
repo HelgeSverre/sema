@@ -76,7 +76,7 @@ This prevents **variable capture** — a common bug where macro-introduced bindi
 
 Sema includes several macros that are auto-loaded at startup. These don't need to be defined or imported:
 
-- `->`, `->>`, `as->`, `some->` — [Threading macros](./special-forms.html#thread-first)
+- `->`, `->>`, `as->`, `some->` — [Threading macros](./special-forms.html#threading-macros)
 - `when-let`, `if-let` — [Conditional binding](./special-forms.html#when-let)
 
 See [Special Forms](./special-forms.html) for full documentation.
@@ -109,13 +109,20 @@ Parse a string containing multiple forms.
 
 ### `type`
 
-Return the type of a value as a string.
+Return the type of a value as a keyword.
 
 ```sema
-(type 42)              ; => "integer"
-(type "hi")            ; => "string"
-(type :foo)            ; => "keyword"
+(type 42)              ; => :int
+(type 3.14)            ; => :float
+(type "hi")            ; => :string
+(type :foo)            ; => :keyword
+(type 'foo)            ; => :symbol
+(type '(1 2 3))        ; => :list
+(type [1 2 3])         ; => :vector
+(type {:a 1})          ; => :map
 ```
+
+For records, `type` returns the record type tag as a keyword (e.g. `:point`).
 
 ### Type Conversion Functions
 

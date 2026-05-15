@@ -17,7 +17,7 @@ Streams are first-class byte-oriented I/O handles for reading and writing data i
 ;; In-memory buffer
 (let ((buf (stream/byte-buffer)))
   (stream/write-string buf "hello")
-  (stream/to-string buf))  ; => "hello"
+  (stream/to-string buf))  ;; => "hello"
 ```
 
 ## Creating Streams
@@ -27,9 +27,9 @@ Streams are first-class byte-oriented I/O handles for reading and writing data i
 Create a read-only stream from a string's UTF-8 bytes.
 
 ```sema
-(def s (stream/from-string "hello world"))
-(stream/read-byte s)    ; => 104 (ASCII 'h')
-(stream/read s 5)       ; => #u8(101 108 108 111 32) ("ello ")
+(define s (stream/from-string "hello world"))
+(stream/read-byte s)    ;; => 104 (ASCII 'h')
+(stream/read s 5)       ;; => #u8(101 108 108 111 32) ("ello ")
 ```
 
 ### `stream/from-bytes`
@@ -37,9 +37,9 @@ Create a read-only stream from a string's UTF-8 bytes.
 Create a readable stream from a bytevector.
 
 ```sema
-(def s (stream/from-bytes (bytevector 1 2 3)))
-(stream/read-byte s)    ; => 1
-(stream/read-byte s)    ; => 2
+(define s (stream/from-bytes (bytevector 1 2 3)))
+(stream/read-byte s)    ;; => 1
+(stream/read-byte s)    ;; => 2
 ```
 
 ### `stream/byte-buffer`
@@ -47,9 +47,9 @@ Create a readable stream from a bytevector.
 Create a read/write in-memory buffer. Writes append to the buffer; reads consume from the current position.
 
 ```sema
-(def buf (stream/byte-buffer))
+(define buf (stream/byte-buffer))
 (stream/write buf (string->utf8 "hello"))
-(stream/to-string buf)  ; => "hello"
+(stream/to-string buf)  ;; => "hello"
 ```
 
 ### `stream/open-input`
@@ -57,8 +57,8 @@ Create a read/write in-memory buffer. Writes append to the buffer; reads consume
 Open a file for reading. Returns a buffered input stream. Sandbox-gated (`FS_READ`).
 
 ```sema
-(def s (stream/open-input "data.csv"))
-(def contents (stream/read-all s))
+(define s (stream/open-input "data.csv"))
+(define contents (stream/read-all s))
 (stream/close s)
 ```
 
@@ -67,7 +67,7 @@ Open a file for reading. Returns a buffered input stream. Sandbox-gated (`FS_REA
 Open (or create) a file for writing. Returns a buffered output stream. Sandbox-gated (`FS_WRITE`).
 
 ```sema
-(def s (stream/open-output "output.txt"))
+(define s (stream/open-output "output.txt"))
 (stream/write-string s "hello world\n")
 (stream/close s)
 ```
@@ -79,7 +79,7 @@ Open (or create) a file for writing. Returns a buffered output stream. Sandbox-g
 Read up to `n` bytes, returning a bytevector. Returns fewer bytes at EOF.
 
 ```sema
-(stream/read s 1024)   ; => bytevector (up to 1024 bytes)
+(stream/read s 1024)   ;; => bytevector (up to 1024 bytes)
 ```
 
 ### `stream/read-byte`
@@ -87,7 +87,7 @@ Read up to `n` bytes, returning a bytevector. Returns fewer bytes at EOF.
 Read a single byte. Returns an integer 0–255, or `nil` at EOF.
 
 ```sema
-(stream/read-byte s)   ; => 65 (or nil at EOF)
+(stream/read-byte s)   ;; => 65 (or nil at EOF)
 ```
 
 ### `stream/read-line`
@@ -95,7 +95,7 @@ Read a single byte. Returns an integer 0–255, or `nil` at EOF.
 Read until newline (`\n`), returning a string without the newline. Strips trailing `\r` for Windows line endings. Returns `nil` at EOF.
 
 ```sema
-(stream/read-line s)   ; => "first line" (or nil)
+(stream/read-line s)   ;; => "first line" (or nil)
 ```
 
 ### `stream/read-all`
@@ -103,7 +103,7 @@ Read until newline (`\n`), returning a string without the newline. Strips traili
 Read the entire stream into a bytevector.
 
 ```sema
-(def data (stream/read-all s))
+(define data (stream/read-all s))
 (utf8->string data)    ; convert to string if text
 ```
 
@@ -114,7 +114,7 @@ Read the entire stream into a bytevector.
 Write a bytevector. Returns the number of bytes written.
 
 ```sema
-(stream/write s (bytevector 72 101 108 108 111))  ; => 5
+(stream/write s (bytevector 72 101 108 108 111))  ;; => 5
 ```
 
 ### `stream/write-byte`
@@ -130,7 +130,7 @@ Write a single byte (integer 0–255).
 Write a string as UTF-8 bytes. Returns the number of bytes written.
 
 ```sema
-(stream/write-string s "hello")   ; => 5
+(stream/write-string s "hello")   ;; => 5
 ```
 
 ## Control
@@ -159,7 +159,7 @@ Copy all bytes from one stream to another. Returns total bytes copied.
 ```sema
 (with-stream (in (stream/open-input "src.bin"))
   (with-stream (out (stream/open-output "dst.bin"))
-    (stream/copy in out)))   ; => bytes copied
+    (stream/copy in out)))   ;; => bytes copied
 ```
 
 ## Introspection
@@ -169,8 +169,8 @@ Copy all bytes from one stream to another. Returns total bytes copied.
 Type predicate — returns `#t` if the value is a stream.
 
 ```sema
-(stream? (stream/byte-buffer))    ; => #t
-(stream? 42)                      ; => #f
+(stream? (stream/byte-buffer))    ;; => #t
+(stream? 42)                      ;; => #f
 ```
 
 ### `stream/readable?`, `stream/writable?`
@@ -178,9 +178,9 @@ Type predicate — returns `#t` if the value is a stream.
 Check the direction of a stream.
 
 ```sema
-(stream/readable? (stream/from-string "x"))   ; => #t
-(stream/writable? (stream/from-string "x"))   ; => #f
-(stream/writable? (stream/byte-buffer))       ; => #t
+(stream/readable? (stream/from-string "x"))   ;; => #t
+(stream/writable? (stream/from-string "x"))   ;; => #f
+(stream/writable? (stream/byte-buffer))       ;; => #t
 ```
 
 ### `stream/available?`
@@ -188,8 +188,8 @@ Check the direction of a stream.
 Returns `#t` if data is ready to read without blocking.
 
 ```sema
-(stream/available? (stream/from-string "x"))  ; => #t
-(stream/available? (stream/from-string ""))   ; => #f
+(stream/available? (stream/from-string "x"))  ;; => #t
+(stream/available? (stream/from-string ""))   ;; => #f
 ```
 
 ### `stream/type`
@@ -197,10 +197,10 @@ Returns `#t` if data is ready to read without blocking.
 Returns a string describing the stream implementation.
 
 ```sema
-(stream/type (stream/byte-buffer))         ; => "byte-buffer"
-(stream/type (stream/from-string "x"))     ; => "string"
-(stream/type (stream/open-input "f.txt"))  ; => "file-input"
-(stream/type *stdout*)                     ; => "stdout"
+(stream/type (stream/byte-buffer))         ;; => "byte-buffer"
+(stream/type (stream/from-string "x"))     ;; => "string"
+(stream/type (stream/open-input "f.txt"))  ;; => "file-input"
+(stream/type *stdout*)                     ;; => "stdout"
 ```
 
 ## Extraction (Byte Buffers)
@@ -212,7 +212,7 @@ Extract the accumulated contents of a byte-buffer stream as a bytevector.
 ```sema
 (let ((s (stream/byte-buffer)))
   (stream/write s (bytevector 1 2 3))
-  (stream/to-bytes s))   ; => #u8(1 2 3)
+  (stream/to-bytes s))   ;; => #u8(1 2 3)
 ```
 
 ### `stream/to-string`
@@ -222,7 +222,7 @@ Extract the contents of a byte-buffer stream as a UTF-8 string.
 ```sema
 (let ((s (stream/byte-buffer)))
   (stream/write-string s "hello")
-  (stream/to-string s))   ; => "hello"
+  (stream/to-string s))   ;; => "hello"
 ```
 
 ## Standard I/O
@@ -279,7 +279,7 @@ Macro that binds a stream, executes the body, and automatically closes the strea
   (stream/write-string buf "{")
   (stream/write-string buf "\"key\": \"value\"")
   (stream/write-string buf "}")
-  (stream/to-string buf))   ; => "{\"key\": \"value\"}"
+  (stream/to-string buf))   ;; => "{\"key\": \"value\"}"
 ```
 
 ### File Copy

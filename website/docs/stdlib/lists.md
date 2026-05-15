@@ -326,11 +326,11 @@ Test if all elements satisfy a predicate.
 
 ### `list/index-of`
 
-Return the index of the first occurrence of a value, or -1 if not found.
+Return the index of the first occurrence of a value, or `nil` if not found.
 
 ```sema
-(list/index-of '(10 20 30) 20)   ; => 1
-(list/index-of '(10 20 30) 99)   ; => -1
+(list/index-of '(10 20 30) 20)   ;; => 1
+(list/index-of '(10 20 30) 99)   ;; => nil
 ```
 
 ### `list/unique`

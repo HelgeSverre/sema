@@ -38,12 +38,12 @@ Multiply numbers together.
 
 ### `/`
 
-Divide numbers. Integer division when both operands are integers.
+Divide numbers. Returns a float when the division is not exact (so `(/ 10 3)` is `3.3333...`, not `3`). For truncated integer division use [`math/quotient`](#math-quotient).
 
 ```sema
-(/ 10 2)      ; => 5
-(/ 10 3)      ; => 3
-(/ 10.0 3)    ; => 3.333...
+(/ 10 2)      ;; => 5
+(/ 10 3)      ;; => 3.3333333333333335
+(/ 10.0 3)    ;; => 3.3333333333333335
 ```
 
 ### `mod`
@@ -117,20 +117,22 @@ Absolute value.
 
 ### `min`
 
-Return the smallest of one or more numbers.
+Return the smallest of 1 or more numbers (the no-arg case errors).
 
 ```sema
-(min 1 2 3)   ; => 1
-(min 5)       ; => 5
+(min 1 2 3)   ;; => 1
+(min 5)       ;; => 5
+(min)         ;; error: Arity error: min expects 1+ args, got 0
 ```
 
 ### `max`
 
-Return the largest of one or more numbers.
+Return the largest of 1 or more numbers (the no-arg case errors).
 
 ```sema
-(max 1 2 3)   ; => 3
-(max 5)       ; => 5
+(max 1 2 3)   ;; => 3
+(max 5)       ;; => 5
+(max)         ;; error: Arity error: max expects 1+ args, got 0
 ```
 
 ### `pow`
