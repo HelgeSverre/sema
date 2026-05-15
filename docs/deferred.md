@@ -50,7 +50,7 @@ Things that came out of the May 2026 quality sweep (Wave 6 audit) but were inten
 
 **Why deferred:** medium-effort polish — needs `print_error` to take `&Interpreter` (currently takes only `&SemaError`), adjust signature at every call site. Not blocking anything; just nice-to-have.
 
-**Workaround today:** users notice the typo on the next iteration. The auto-completer at the REPL prompt (rustyline) does suggest names on Tab, which catches some cases.
+**Workaround today:** users notice the typo on the next iteration. The auto-completer at the REPL prompt (reedline) does suggest names on Tab, which catches some cases.
 
 ---
 

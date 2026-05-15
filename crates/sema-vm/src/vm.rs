@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use sema_core::{
+    error::{suggest_similar, veteran_hint},
     resolve as resolve_spur, Env, EvalContext, NativeFn, SemaError, Spur, Value,
     NAN_INT_SMALL_PATTERN, NAN_PAYLOAD_BITS, NAN_PAYLOAD_MASK, NAN_TAG_MASK, TAG_NATIVE_FN,
 };
@@ -62,6 +63,29 @@ pub fn extract_vm_closure(val: &Value) -> Option<VmClosureInfo> {
     let nf = val.as_native_fn_ref()?;
     let payload = nf.payload.as_ref()?.downcast_ref::<VmClosurePayload>()?;
     Some((payload.closure.clone(), payload.functions.clone()))
+}
+
+/// Build an `Unbound` error decorated with a "Did you mean ...?" hint
+/// when the name closely matches one in `globals`. Mirrors the tree-walker
+/// path in `sema-eval/src/eval.rs::eval_step` so users get the same
+/// suggestions regardless of backend.
+fn unbound_global_error(name_spur: Spur, globals: &Env) -> SemaError {
+    let name = resolve_spur(name_spur);
+    let mut err = SemaError::Unbound(name.clone());
+    if let Some(hint) = veteran_hint(&name) {
+        err = err.with_hint(hint);
+    } else {
+        let all_names: Vec<String> = globals
+            .all_names()
+            .iter()
+            .map(|s| resolve_spur(*s))
+            .collect();
+        let candidates: Vec<&str> = all_names.iter().map(|s| s.as_str()).collect();
+        if let Some(suggestion) = suggest_similar(&name, &candidates) {
+            err = err.with_hint(format!("Did you mean '{suggestion}'?"));
+        }
+    }
+    err
 }
 
 /// A call frame in the VM's call stack.
@@ -830,7 +854,7 @@ impl VM {
                                     self.stack.push(val);
                                 }
                                 None => {
-                                    let err = SemaError::Unbound(resolve_spur(spur));
+                                    let err = unbound_global_error(spur, &self.globals);
                                     handle_err!(self, fi, pc, err, pc - op::SIZE_LOAD_GLOBAL, 'dispatch);
                                 }
                             }
@@ -1333,7 +1357,7 @@ impl VM {
                                     val
                                 }
                                 None => {
-                                    let err = SemaError::Unbound(resolve_spur(spur));
+                                    let err = unbound_global_error(spur, &self.globals);
                                     handle_err!(self, fi, pc, err, saved_pc, 'dispatch);
                                 }
                             }

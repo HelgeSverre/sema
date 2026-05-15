@@ -45,7 +45,6 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net"] }
 reqwest = { version = "0.13", features = ["json", "stream", "blocking", "multipart"] }
 futures = "0.3"
-rustyline = "17"
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 rand = "0.10"

@@ -69,7 +69,7 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-fmt**    | Formatter                       | Code formatter for `.sema` files (`sema fmt`)                                                                                             |
 | **sema-notebook** | Notebook interface       | `.sema-nb` JSON format, evaluation engine, HTTP server with REST API, embedded browser UI, Markdown export                                 |
 | **sema-wasm**  | WASM bindings             | Browser playground bindings, JS interop via `wasm-bindgen`                                                                                |
-| **sema**        | Binary                          | clap CLI, rustyline REPL, `InterpreterBuilder` embedding API                                                                              |
+| **sema**        | Binary                          | clap CLI, reedline REPL (highlighter / hinter / inspector live in `crates/sema/src/repl/`), `InterpreterBuilder` embedding API             |
 
 ## The Value Type
 
