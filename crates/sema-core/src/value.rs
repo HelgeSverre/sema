@@ -180,11 +180,18 @@ impl Clone for Thunk {
 }
 
 /// State of an async promise/future.
+///
+/// `Cancelled` is a peer of `Rejected`, not a sub-kind of it: a promise that
+/// the user explicitly cancels via `async/cancel` is *not* a normal rejection
+/// (which a user might catch and recover from). Keeping the two distinct lets
+/// `async/cancelled?` be precise without string-matching, and lets
+/// `async/rejected?` honestly report `#f` for cancelled promises.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PromiseState {
     Pending,
     Resolved(Value),
     Rejected(String),
+    Cancelled,
 }
 
 /// An async promise: represents a value that will be available in the future.
@@ -199,6 +206,7 @@ impl fmt::Debug for AsyncPromise {
             PromiseState::Pending => write!(f, "<async-promise pending>"),
             PromiseState::Resolved(_) => write!(f, "<async-promise resolved>"),
             PromiseState::Rejected(e) => write!(f, "<async-promise rejected: {e}>"),
+            PromiseState::Cancelled => write!(f, "<async-promise cancelled>"),
         }
     }
 }
@@ -2015,6 +2023,7 @@ impl fmt::Display for Value {
                 PromiseState::Pending => write!(f, "<async-promise pending>"),
                 PromiseState::Resolved(v) => write!(f, "<async-promise resolved: {v}>"),
                 PromiseState::Rejected(e) => write!(f, "<async-promise rejected: {e}>"),
+                PromiseState::Cancelled => write!(f, "<async-promise cancelled>"),
             },
             ValueView::Channel(c) => {
                 let len = c.buffer.borrow().len();

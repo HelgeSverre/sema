@@ -855,3 +855,123 @@ fn async_timeout_rejects_huge_duration() {
         "expected 'exceeds maximum' error, got: {err}"
     );
 }
+
+// === Async semantics pass: A1 + A4 + D2 ===========================
+
+// A1: scheduler picks ready tasks in spawn order, not swap-remove order.
+#[test]
+fn scheduler_picks_ready_tasks_in_spawn_order() {
+    // Three sequential channel sends followed by three receives on a
+    // capacity-1 channel. Before A1 (swap_remove): (1 3 2). Now: (1 2 3).
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((ch (channel/new 1)))
+              (let ((s1 (async (channel/send ch 1)))
+                    (s2 (async (channel/send ch 2)))
+                    (s3 (async (channel/send ch 3)))
+                    (r  (async (list (channel/recv ch)
+                                     (channel/recv ch)
+                                     (channel/recv ch)))))
+                (await r)))
+        "#
+        ),
+        Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
+    );
+}
+
+// A4: async/cancel returns a boolean.
+#[test]
+fn async_cancel_returns_true_when_transitioning_pending() {
+    assert_eq!(
+        eval_vm(r#"(let ((p (async (async/sleep 100)))) (async/cancel p))"#),
+        Value::bool(true),
+    );
+}
+
+#[test]
+fn async_cancel_returns_false_for_never_spawned_promise() {
+    assert_eq!(
+        eval_vm(r#"(async/cancel (async/resolved 42))"#),
+        Value::bool(false),
+    );
+    assert_eq!(
+        eval_vm(r#"(async/cancel (async/rejected "x"))"#),
+        Value::bool(false),
+    );
+}
+
+#[test]
+fn async_cancel_returns_false_for_already_resolved_spawn() {
+    assert_eq!(
+        eval_vm(r#"(let ((p (async 42))) (await p) (async/cancel p))"#),
+        Value::bool(false),
+    );
+}
+
+#[test]
+fn async_cancel_returns_false_on_double_cancel() {
+    assert_eq!(
+        eval_vm(
+            r#"(let ((p (async (async/sleep 100))))
+                 (async/cancel p)
+                 (async/cancel p))"#
+        ),
+        Value::bool(false),
+    );
+}
+
+// D2: PromiseState::Cancelled is a peer variant, not a magic string.
+#[test]
+fn async_cancelled_is_distinct_from_rejected_with_same_string() {
+    // (async/rejected "cancelled") no longer fools async/cancelled?.
+    assert_eq!(
+        eval_vm(r#"(async/cancelled? (async/rejected "cancelled"))"#),
+        Value::bool(false),
+    );
+    // It IS a real rejection though.
+    assert_eq!(
+        eval_vm(r#"(async/rejected? (async/rejected "cancelled"))"#),
+        Value::bool(true),
+    );
+}
+
+#[test]
+fn cancelled_promise_classifies_correctly() {
+    // Cancelled is neither resolved nor rejected nor pending — they partition.
+    assert_eq!(
+        eval_vm(
+            r#"
+            (let ((p (async (async/sleep 100))))
+              (async/cancel p)
+              (list (async/cancelled? p)
+                    (async/rejected? p)
+                    (async/resolved? p)
+                    (async/pending? p)))
+        "#
+        ),
+        Value::list(vec![
+            Value::bool(true),
+            Value::bool(false),
+            Value::bool(false),
+            Value::bool(false),
+        ]),
+    );
+}
+
+#[test]
+fn awaiting_cancelled_promise_reports_cancellation_distinctly() {
+    let err = eval_vm_err(
+        r#"(let ((p (async (async/sleep 100))))
+             (async/cancel p)
+             (await p))"#,
+    );
+    assert!(
+        err.contains("cancelled"),
+        "expected cancellation in error, got: {err}"
+    );
+    assert!(
+        !err.contains("task rejected"),
+        "cancellation should NOT surface as 'task rejected': {err}"
+    );
+}

@@ -1225,7 +1225,7 @@ fn alias_time_now_ms_vm() {
 // place and these tests are un-ignored they will act as confirmation that the
 // fix landed.
 //
-// See agents/LIMITATIONS.md #31 (C1) and agents/DECISIONS.md ADR #55.
+// See docs/limitations.md #31 (C1) and docs/adr.md ADR #55.
 
 /// C1: `set!` on a let-bound variable from a closure called via a stdlib HOF
 /// (here `map`) is silently lost on the VM backend due to the eager-close
@@ -1235,7 +1235,7 @@ fn alias_time_now_ms_vm() {
 ///   sema --tw -e '(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)'  -> 6
 ///   sema      -e '(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)'  -> 0
 #[test]
-#[ignore = "C1: VM upvalue model — see agents/LIMITATIONS.md #31"]
+#[ignore = "C1: VM upvalue model — see docs/limitations.md #31"]
 fn vm_set_through_map_hof_propagates() {
     let src = "(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)";
     // TW must already produce 6 (sanity check):
@@ -1250,7 +1250,7 @@ fn vm_set_through_map_hof_propagates() {
 
 /// C1 related: same issue surfaces with `for-each`.
 #[test]
-#[ignore = "C1: VM upvalue model — see agents/LIMITATIONS.md #31"]
+#[ignore = "C1: VM upvalue model — see docs/limitations.md #31"]
 fn vm_set_through_for_each_hof_propagates() {
     let src = "(let ((c 0)) (for-each (fn (x) (set! c (+ c x))) (list 1 2 3)) c)";
     assert_eq!(common::eval_tw(src), Value::int(6), "TW oracle");
@@ -1266,7 +1266,7 @@ fn vm_set_through_for_each_hof_propagates() {
 /// for stdlib HOF interop (Decision #50). Once the open-upvalue model removes
 /// the cross-VM-copy hack, this should unify.
 #[test]
-#[ignore = "C1 related: VM type reflection — see agents/LIMITATIONS.md #31"]
+#[ignore = "C1 related: VM type reflection — see docs/limitations.md #31"]
 fn vm_type_of_lambda_is_lambda() {
     let src = "(type (fn (x) x))";
     let tw_result = common::eval_tw(src);

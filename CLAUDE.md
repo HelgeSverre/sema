@@ -146,6 +146,8 @@ Sema has **two evaluators**: a tree-walking interpreter and a bytecode VM. The V
 
 ## Design Docs
 
-- `agents/DECISIONS.md` — numbered design decisions with rationale
-- `agents/PLAN.md` — implementation plan
-- `agents/LIMITATIONS.md` — known gaps and limitations
+- `docs/adr.md` — numbered design decisions with rationale
+- `docs/plan.md` — high-level implementation plan
+- `docs/limitations.md` — known gaps and limitations
+- `docs/deferred.md` — items parked with rationale (won't-fix or revisit-later)
+- `docs/plans/` — individual implementation plans, named `YYYY-MM-DD-<slug>.md`

@@ -11,6 +11,25 @@ use sema_core::{
 
 use crate::register_fn;
 
+/// Format a normal task rejection as an `async/await` error, stripping
+/// any already-present `async/await: task rejected:` prefix so that
+/// chained awaits don't quadratically nest the prefix.
+fn rejected_error(e: &str) -> SemaError {
+    let core = e
+        .strip_prefix("Eval error: async/await: task rejected: ")
+        .or_else(|| e.strip_prefix("async/await: task rejected: "))
+        .unwrap_or(e);
+    SemaError::eval(format!("async/await: task rejected: {core}"))
+}
+
+/// Format the `await`-on-cancelled-promise error. Distinct from a
+/// normal rejection so users can branch on `:type :cancelled` once
+/// we expose that.
+fn cancelled_error() -> SemaError {
+    SemaError::eval("async/await: task was cancelled")
+        .with_hint("the task was cancelled via async/cancel before it produced a value")
+}
+
 // ── Helpers ──────────────────────────────────────────────────────
 
 fn register_fn_ctx(
@@ -104,16 +123,8 @@ fn register_promise_ops(env: &Env) {
             let state = promise.state.borrow();
             match &*state {
                 PromiseState::Resolved(v) => return Ok(v.clone()),
-                PromiseState::Rejected(e) => {
-                    let msg = e.to_string();
-                    let core = msg
-                        .strip_prefix("Eval error: async/await: task rejected: ")
-                        .or_else(|| msg.strip_prefix("async/await: task rejected: "))
-                        .unwrap_or(&msg);
-                    return Err(SemaError::eval(format!(
-                        "async/await: task rejected: {core}"
-                    )));
-                }
+                PromiseState::Rejected(e) => return Err(rejected_error(e)),
+                PromiseState::Cancelled => return Err(cancelled_error()),
                 PromiseState::Pending => {}
             }
         }
@@ -129,16 +140,8 @@ fn register_promise_ops(env: &Env) {
         let state = promise.state.borrow();
         match &*state {
             PromiseState::Resolved(v) => Ok(v.clone()),
-            PromiseState::Rejected(e) => {
-                let msg = e.to_string();
-                let core = msg
-                    .strip_prefix("Eval error: async/await: task rejected: ")
-                    .or_else(|| msg.strip_prefix("async/await: task rejected: "))
-                    .unwrap_or(&msg);
-                Err(SemaError::eval(format!(
-                    "async/await: task rejected: {core}"
-                )))
-            }
+            PromiseState::Rejected(e) => Err(rejected_error(e)),
+            PromiseState::Cancelled => Err(cancelled_error()),
             PromiseState::Pending => Err(SemaError::eval(
                 "async/await: still pending after scheduler run",
             )),
@@ -182,7 +185,10 @@ fn register_promise_ops(env: &Env) {
         Ok(Value::bool(resolved))
     });
 
-    // async/rejected? — check if promise is rejected
+    // async/rejected? — true iff the promise is in the Rejected state.
+    // Excludes Cancelled (which is its own peer variant) so the predicates
+    // partition the terminal states cleanly: a promise is at most one of
+    // resolved? / rejected? / cancelled?.
     register_fn(env, "async/rejected?", |args| {
         check_arity!(args, "async/rejected?", 1);
         let promise = expect_promise(args, "async/rejected?", 0)?;
@@ -198,26 +204,34 @@ fn register_promise_ops(env: &Env) {
         Ok(Value::bool(pending))
     });
 
-    // async/cancel — cancel a spawned async task
+    // async/cancel — request cancellation of a spawned async task.
+    // Returns #t if this call actually transitioned the promise into
+    // Cancelled, #f if the promise was already terminal (resolved,
+    // rejected, or previously cancelled) or was never spawned in the
+    // first place (e.g. created via async/resolved). Never errors on
+    // a non-spawned promise — cancellation is best-effort.
     register_fn(env, "async/cancel", |args| {
         check_arity!(args, "async/cancel", 1);
         let promise = expect_promise(args, "async/cancel", 0)?;
         let task_id = promise.task_id.get();
         if task_id == 0 {
-            return Err(SemaError::eval(
-                "async/cancel: cannot cancel a non-spawned promise".to_string(),
-            ));
+            // Never-spawned promise (async/resolved / async/rejected).
+            // There's nothing to cancel; report no transition.
+            return Ok(Value::bool(false));
         }
-        sema_core::call_cancel_callback(task_id)?;
-        Ok(Value::nil())
+        let transitioned = sema_core::call_cancel_callback(task_id)?;
+        Ok(Value::bool(transitioned))
     });
 
-    // async/cancelled? — check if promise was cancelled
+    // async/cancelled? — true iff the promise is in the Cancelled state.
+    // Distinct from async/rejected? — a cancelled promise is not a normal
+    // rejection (which a user might catch and recover from). Matches the
+    // PromiseState::Cancelled variant directly so a user manually rejecting
+    // with the string "cancelled" no longer fools this predicate.
     register_fn(env, "async/cancelled?", |args| {
         check_arity!(args, "async/cancelled?", 1);
         let promise = expect_promise(args, "async/cancelled?", 0)?;
-        let state = promise.state.borrow();
-        let is_cancelled = matches!(&*state, PromiseState::Rejected(msg) if msg == "cancelled");
+        let is_cancelled = matches!(&*promise.state.borrow(), PromiseState::Cancelled);
         Ok(Value::bool(is_cancelled))
     });
 
@@ -235,19 +249,27 @@ fn register_promise_ops(env: &Env) {
         // background tasks must not make this combinator report deadlock.
         call_run_scheduler_all_of(ctx, promises.clone())?;
 
-        // Collect results
+        // Collect results — propagate the first non-resolved settlement.
+        // Cancellation is reported distinctly from regular rejection.
         let mut results = Vec::with_capacity(items.len());
-        if let Some(err) = promises.iter().find_map(|p| match &*p.state.borrow() {
-            PromiseState::Rejected(e) => Some(e.clone()),
-            _ => None,
-        }) {
-            return Err(SemaError::eval(format!("async/all: task rejected: {err}")));
+        for p in &promises {
+            match &*p.state.borrow() {
+                PromiseState::Rejected(e) => {
+                    return Err(SemaError::eval(format!("async/all: task rejected: {e}")))
+                }
+                PromiseState::Cancelled => {
+                    return Err(SemaError::eval("async/all: task was cancelled"))
+                }
+                _ => {}
+            }
         }
         for p in promises {
             let state = p.state.borrow();
             match &*state {
                 PromiseState::Resolved(v) => results.push(v.clone()),
-                PromiseState::Rejected(_) => unreachable!("rejections handled above"),
+                PromiseState::Rejected(_) | PromiseState::Cancelled => {
+                    unreachable!("non-resolved states handled above")
+                }
                 PromiseState::Pending => {
                     return Err(SemaError::eval("async/all: task still pending"))
                 }
@@ -329,6 +351,9 @@ fn register_promise_ops(env: &Env) {
                         "async/timeout: task rejected: {e}"
                     )))
                 }
+                PromiseState::Cancelled => {
+                    return Err(SemaError::eval("async/timeout: task was cancelled"))
+                }
                 PromiseState::Pending => {}
             }
         }
@@ -349,6 +374,9 @@ fn register_promise_ops(env: &Env) {
                     return Err(SemaError::eval(format!(
                         "async/timeout: task rejected: {e}"
                     )))
+                }
+                PromiseState::Cancelled => {
+                    return Err(SemaError::eval("async/timeout: task was cancelled"))
                 }
                 PromiseState::Pending => {}
             }

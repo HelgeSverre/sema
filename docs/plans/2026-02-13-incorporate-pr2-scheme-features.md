@@ -24,7 +24,7 @@
 
 **Auto-merged cleanly (no manual work needed):**
 
-- `README.md`, `agents/LIMITATIONS.md`, `crates/sema-eval/src/eval.rs`, `crates/sema-llm/src/builtins.rs`, `crates/sema-reader/src/reader.rs`, `crates/sema-stdlib/src/map.rs`, `crates/sema-stdlib/src/string.rs`, `website/index.html`
+- `README.md`, `docs/limitations.md`, `crates/sema-eval/src/eval.rs`, `crates/sema-llm/src/builtins.rs`, `crates/sema-reader/src/reader.rs`, `crates/sema-stdlib/src/map.rs`, `crates/sema-stdlib/src/string.rs`, `website/index.html`
 
 **Files only in PR (new/trivially applicable):**
 
@@ -555,8 +555,8 @@ git commit -m "test: add integration tests for all 5 Scheme features"
 
 - Create: `examples/scheme-basics.sema`
 - Modify: `examples/text-processing.sema` (update caesar cipher to use chars)
-- Modify: `agents/LIMITATIONS.md`
-- Modify: `agents/DECISIONS.md` (add decision #46+)
+- Modify: `docs/limitations.md`
+- Modify: `docs/adr.md` (add decision #46+)
 - Modify: `CHANGELOG.md`
 - Modify: `README.md`
 - Modify: `website/index.html`

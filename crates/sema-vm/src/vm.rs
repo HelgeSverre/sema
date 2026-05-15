@@ -526,7 +526,7 @@ impl VM {
         // unbalanced sequence will reach this function with an empty stack and
         // trigger UB in release builds (`set_len(usize::MAX)` after underflow).
         // Treat .semac as trusted-source-only until a stack-depth verifier lands.
-        // See `agents/LIMITATIONS.md` #32 and `agents/DECISIONS.md` ADR #56.
+        // See `docs/limitations.md` #32 and `docs/adr.md` ADR #56.
         #[inline(always)]
         unsafe fn pop_unchecked(stack: &mut Vec<Value>) -> Value {
             let len = stack.len();

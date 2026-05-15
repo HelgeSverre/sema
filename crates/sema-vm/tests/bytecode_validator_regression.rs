@@ -4,8 +4,8 @@
 //! underflowing sequence) causes UB in release builds.
 //!
 //! These tests are **ignored** until the stack-depth verifier lands. See:
-//!   - `agents/LIMITATIONS.md` #32
-//!   - `agents/DECISIONS.md` ADR #56
+//!   - `docs/limitations.md` #32
+//!   - `docs/adr.md` ADR #56
 //!   - FIXME(C11) comment above `pop_unchecked` in `crates/sema-vm/src/vm.rs`
 //!
 //! When the verifier is implemented, un-ignore these tests; they should pass
@@ -25,7 +25,7 @@
 /// Once ADR #56 lands and exposes the verifier entry point, replace this
 /// stub with the actual rejection assertion.
 #[test]
-#[ignore = "C11: bytecode validator — see agents/LIMITATIONS.md #32"]
+#[ignore = "C11: bytecode validator — see docs/limitations.md #32"]
 fn semac_leading_pop_rejected_at_load() {
     // TODO(C11): craft a CompileResult with a chunk that starts with `Op::Pop`,
     // serialize it via `serialize_compile_result`, then attempt to deserialize
@@ -48,7 +48,7 @@ fn semac_leading_pop_rejected_at_load() {
 /// `Const 0; Pop; Pop` underflows on the second `Pop`. The verifier should
 /// reject this via abstract interpretation of stack depth per instruction.
 #[test]
-#[ignore = "C11: bytecode validator — see agents/LIMITATIONS.md #32"]
+#[ignore = "C11: bytecode validator — see docs/limitations.md #32"]
 fn semac_mid_chunk_underflow_rejected() {
     // TODO(C11): see notes on `semac_leading_pop_rejected_at_load`.
     panic!("stub — verifier not yet implemented (see ADR #56)");
@@ -57,7 +57,7 @@ fn semac_mid_chunk_underflow_rejected() {
 /// A function whose body does not leave exactly one value on the stack at
 /// `Return` should also be rejected (e.g. `Return` with depth 0 or 2+).
 #[test]
-#[ignore = "C11: bytecode validator — see agents/LIMITATIONS.md #32"]
+#[ignore = "C11: bytecode validator — see docs/limitations.md #32"]
 fn semac_unbalanced_return_rejected() {
     // TODO(C11): see notes on `semac_leading_pop_rejected_at_load`.
     panic!("stub — verifier not yet implemented (see ADR #56)");

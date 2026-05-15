@@ -142,8 +142,7 @@ impl Scheduler {
         for task in &mut self.tasks {
             if task.cancelled {
                 if !matches!(task.state, TaskState::Done | TaskState::Failed) {
-                    *task.promise.state.borrow_mut() =
-                        PromiseState::Rejected("cancelled".to_string());
+                    *task.promise.state.borrow_mut() = PromiseState::Cancelled;
                     task.state = TaskState::Failed;
                 }
                 continue;
@@ -155,6 +154,9 @@ impl Scheduler {
                         match &*state {
                             PromiseState::Resolved(v) => WakeAction::Resume(v.clone()),
                             PromiseState::Rejected(e) => WakeAction::Fail(e.clone()),
+                            PromiseState::Cancelled => {
+                                WakeAction::Fail("awaited task was cancelled".to_string())
+                            }
                             PromiseState::Pending => WakeAction::Pending,
                         }
                     }
@@ -225,21 +227,22 @@ impl Scheduler {
         }
     }
 
-    /// Mark a task as cancelled and immediately reject its promise.
-    /// No-op if the task is already Done or Failed.
-    fn cancel_task(&mut self, task_id: u64) -> Result<(), SemaError> {
+    /// Mark a task as cancelled and transition its promise into `Cancelled`.
+    /// Returns true if this call actually transitioned the task into the
+    /// cancelled state, false if the task was already terminal (Done /
+    /// Failed / previously Cancelled) or if no task with that id exists.
+    fn cancel_task(&mut self, task_id: u64) -> Result<bool, SemaError> {
         let Some(task) = self.tasks.iter_mut().find(|t| t.id == task_id) else {
-            // Task already completed and was pruned — no-op
-            return Ok(());
+            // Task already completed and was pruned — no transition.
+            return Ok(false);
         };
-        // No-op for already completed or already cancelled tasks
         if matches!(task.state, TaskState::Done | TaskState::Failed) || task.cancelled {
-            return Ok(());
+            return Ok(false);
         }
         task.cancelled = true;
-        *task.promise.state.borrow_mut() = PromiseState::Rejected("cancelled".to_string());
+        *task.promise.state.borrow_mut() = PromiseState::Cancelled;
         task.state = TaskState::Failed;
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -338,6 +341,7 @@ pub(crate) fn run_closure_as_inline_task(
     match &*state {
         PromiseState::Resolved(v) => Ok(v.clone()),
         PromiseState::Rejected(e) => Err(SemaError::eval(e.clone())),
+        PromiseState::Cancelled => Err(SemaError::eval("HOF callback task was cancelled")),
         PromiseState::Pending => Err(SemaError::eval(
             "HOF callback did not complete after scheduler run",
         )),
@@ -526,11 +530,19 @@ fn run_until_reentrant(
         // into the thread-local, then run the task. This allows nested
         // async/spawn and async/await inside the task VM to access the
         // scheduler via the thread-local.
-        let mut task = sched.tasks.swap_remove(idx);
+        //
+        // We use `Vec::remove` (O(n)) rather than `swap_remove` (O(1)) so
+        // that ready-task pickup preserves spawn order. swap_remove rotates
+        // the queue and produces a LIFO-ish surface that surprises users
+        // writing FIFO pipelines (e.g. (1 3 2) instead of (1 2 3) for three
+        // sequential channel sends followed by sequential receives).
+        // Task lists are typically small (<100 tasks), so the O(n) cost
+        // is negligible.
+        let mut task = sched.tasks.remove(idx);
 
         // Check if task was cancelled before running it
         if task.cancelled {
-            *task.promise.state.borrow_mut() = PromiseState::Rejected("cancelled".to_string());
+            *task.promise.state.borrow_mut() = PromiseState::Cancelled;
             task.state = TaskState::Failed;
             sched.tasks.push(task);
             continue;
@@ -588,7 +600,7 @@ fn run_until_reentrant(
 ///
 /// Called by the `async/cancel` stdlib function. Takes the scheduler
 /// briefly to cancel the task, then puts it back immediately.
-fn cancel_callback(task_id: u64) -> Result<(), SemaError> {
+fn cancel_callback(task_id: u64) -> Result<bool, SemaError> {
     let mut sched = take_scheduler()?;
     let result = sched.cancel_task(task_id);
     put_scheduler(sched);

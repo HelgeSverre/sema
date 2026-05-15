@@ -8,6 +8,12 @@ Cooperative async concurrency with promises and channels. Tasks run on the VM's 
 
 Async features require the VM backend (default since v1.13). The tree-walker returns an error.
 
+## Scheduling guarantees
+
+- **Spawn order is preserved.** When several tasks are simultaneously ready to run, the scheduler picks them in the order they were spawned. A pipeline of `(async (send-1)) (async (send-2)) (async (send-3))` followed by sequential receives yields `1 2 3`, not a reordered surface.
+- **Wake order is FIFO.** When a value becomes available on a channel, the longest-waiting receiver is woken first.
+- **Cooperation, not parallelism.** Tasks interleave at yield points (channel ops, `await`, `sleep`). CPU-bound tasks without yield points run to completion before other tasks get a turn.
+
 ## Promises
 
 ### `async/spawn`
@@ -111,10 +117,18 @@ Wait for `promise` to resolve, but raise an error if it takes longer than `ms` m
 ### `async/cancel`
 
 ```sema
-(async/cancel promise)
+(async/cancel promise) → bool
 ```
 
-Request cancellation of a spawned task. The next time the task hits a yield point, it rejects with `"cancelled"`. Errors if called on a non-spawned promise (e.g., `async/resolved`). Always pair with cleanup that doesn't depend on the task finishing.
+Request cancellation of a spawned task. Returns `#t` if the call actually transitioned the promise into the `Cancelled` state, `#f` if there was nothing to cancel — the promise was already terminal (resolved, rejected, previously cancelled) or was never spawned in the first place (e.g. created via `async/resolved`).
+
+Cancellation is best-effort and never errors. The next time the task hits a yield point, it transitions to `Cancelled`; subsequent `(await p)` raises `"async/await: task was cancelled"` (distinct from a normal rejection).
+
+```sema
+(async/cancel (async/resolved 1))                ;; => #f  (never spawned)
+(let ((p (async 42))) (await p) (async/cancel p)) ;; => #f  (already resolved)
+(let ((p (async (async/sleep 100)))) (async/cancel p)) ;; => #t
+```
 
 ### `async/cancelled?`
 
@@ -122,15 +136,21 @@ Request cancellation of a spawned task. The next time the task hits a yield poin
 (async/cancelled? promise) → bool
 ```
 
-`#t` if `promise` was cancelled (rejected with `"cancelled"`).
+`#t` if `promise` is in the `Cancelled` state — distinct from `async/rejected?`. Matches the state variant directly rather than the rejection message, so a user `(async/rejected "cancelled")` no longer aliases:
+
+```sema
+(async/cancelled? (async/rejected "cancelled"))  ;; => #f
+```
 
 ### Promise predicates
+
+The four predicates **partition** the terminal states: a promise is at most one of resolved / rejected / cancelled, and `pending?` is the complement of those three.
 
 | Function | Description |
 | --- | --- |
 | `(async/promise? x)` | Is `x` an async promise? |
 | `(async/resolved? p)` | Is promise `p` resolved? |
-| `(async/rejected? p)` | Is promise `p` rejected? |
+| `(async/rejected? p)` | Is promise `p` rejected? (excludes cancelled) |
 | `(async/pending? p)` | Is promise `p` still pending? |
 | `(async/cancelled? p)` | Was promise `p` cancelled? |
 
@@ -217,7 +237,7 @@ Close the channel. Subsequent sends will error. Blocked receivers will wake with
   (+ (await p1) (await p2)))
 ```
 
-Note: tasks are cooperative, not parallel. They interleave at yield points, not at arbitrary instructions. CPU-bound tasks without yield points run to completion before other tasks get a turn.
+See [Scheduling guarantees](#scheduling-guarantees) above for the full ordering / cooperation rules.
 
 ## Async ops inside higher-order functions
 

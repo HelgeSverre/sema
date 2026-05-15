@@ -290,7 +290,7 @@ enum TaskState {
    - Verify: Read the file, check accuracy
 
 2. **Update DECISIONS.md**
-   - File: `agents/DECISIONS.md`
+   - File: `docs/adr.md`
    - Do: Add Decision #53 (VM-per-Task async) and Decision #54 (async is VM-only)
    - Verify: Read the file
 

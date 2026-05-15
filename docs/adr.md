@@ -486,7 +486,7 @@ crates/sema/src/
 
 ### 55. Move VM upvalues to open-close-on-popframe model (PROPOSED)
 
-Status: **proposed** — fixes audit bug C1 (see `agents/LIMITATIONS.md` #31). Not yet implemented.
+Status: **proposed** — fixes audit bug C1 (see `docs/limitations.md` #31). Not yet implemented.
 
 Context: the current VM eagerly closes upvalues at `MakeClosure` time and dual-writes mutations to both the parent's local slot and the closure's upvalue cell. This breaks down when a closure is called *outside* the parent VM (stdlib HOFs like `map`, `filter`, `for-each`, `sort-by`, `retry` route through `NativeFn::func` on a fresh VM — Decision #50). The fresh VM has its own copy of the upvalue cell; mutations there never propagate back to the parent's slot, and `set!` is silently lost.
 
@@ -509,11 +509,11 @@ Trade-offs:
 
 Out of scope for this ADR: also unifies the fix for `(type (fn (x) x))` returning `:native-fn` from VM (because closures will no longer need the NativeFn-wrapping fallback in many cases) and missing `:stack-trace` in VM error maps (separate ADR).
 
-References: MEMORY.md (Upvalue model section), `crates/sema-vm/src/resolve.rs` (Lua-style resolution, already done), `crates/sema-vm/src/vm.rs` (Load/Store sites, `tail_call_vm_closure`), `agents/LIMITATIONS.md` #31.
+References: MEMORY.md (Upvalue model section), `crates/sema-vm/src/resolve.rs` (Lua-style resolution, already done), `crates/sema-vm/src/vm.rs` (Load/Store sites, `tail_call_vm_closure`), `docs/limitations.md` #31.
 
 ### 56. Bytecode stack-depth verifier for .semac loading (PROPOSED)
 
-Status: **proposed** — fixes audit bug C11 (see `agents/LIMITATIONS.md` #32). Not yet implemented.
+Status: **proposed** — fixes audit bug C11 (see `docs/limitations.md` #32). Not yet implemented.
 
 Context: the VM uses `pop_unchecked` at 90+ call sites in `crates/sema-vm/src/vm.rs`. This relies on the in-process compiler emitting stack-balanced bytecode. `.semac` files loaded via `crates/sema-vm/src/serialize.rs::validate_bytecode` are *not* verified for stack balance — only structural checks (magic, version, table bounds, jump targets). A crafted/corrupted `.semac` can cause UB in release: `set_len(usize::MAX)` after underflow, then OOB reads.
 
@@ -566,9 +566,9 @@ Trade-offs:
 - Verifier must agree with `vm.rs` dispatch exactly. Mismatches are bugs in *either* direction; adding `Op::stack_effect()` as a single source of truth (used by both verifier and any future fuzzer) reduces drift.
 - Does not catch type errors (e.g. `Add` on non-numbers) — those remain runtime checks. Only catches arithmetic-on-stack-depth violations.
 
-Once this lands, `.semac` files from untrusted sources can be loaded safely. Until it does, see `agents/LIMITATIONS.md` #32 for the trust-model caveat.
+Once this lands, `.semac` files from untrusted sources can be loaded safely. Until it does, see `docs/limitations.md` #32 for the trust-model caveat.
 
-References: `crates/sema-vm/src/vm.rs::pop_unchecked` (the unsafe site), `crates/sema-vm/src/serialize.rs::validate_bytecode` (where the new pass plugs in), `crates/sema-vm/src/opcodes.rs` (canonical opcode list), `agents/LIMITATIONS.md` #32.
+References: `crates/sema-vm/src/vm.rs::pop_unchecked` (the unsafe site), `crates/sema-vm/src/serialize.rs::validate_bytecode` (where the new pass plugs in), `crates/sema-vm/src/opcodes.rs` (canonical opcode list), `docs/limitations.md` #32.
 
 ### 57. Propagate source spans through runtime errors (PROPOSED)
 
@@ -595,7 +595,7 @@ Trade-offs:
 - Hot path: tree-walker already reads `SpanMap` for some operations; VM already touches `debug_info` for stack-trace construction. Adding the lookup on the *error path* only is essentially free.
 - Behaviour change for downstream tools that parse error strings — keep the message stable, add the location as a separate formatted line (matches what `print_error` already does for stack frames).
 
-References: `crates/sema-eval/src/eval.rs` (eval_step, NativeFn dispatch), `crates/sema-vm/src/vm.rs` (CALL_NATIVE / CALL_GLOBAL, binary-op error sites), `crates/sema-vm/src/debug.rs::ChunkDebugInfo`, `crates/sema-core/src/error.rs` (SemaError + location plumbing), `crates/sema-reader/src/span.rs` (span formatter reused for `--> path:line:col`), `agents/LIMITATIONS.md` #H13.
+References: `crates/sema-eval/src/eval.rs` (eval_step, NativeFn dispatch), `crates/sema-vm/src/vm.rs` (CALL_NATIVE / CALL_GLOBAL, binary-op error sites), `crates/sema-vm/src/debug.rs::ChunkDebugInfo`, `crates/sema-core/src/error.rs` (SemaError + location plumbing), `crates/sema-reader/src/span.rs` (span formatter reused for `--> path:line:col`), `docs/limitations.md` #H13.
 
 ### 58. Thread-local writer hook for stdout capture (replaces gag::BufferRedirect) (PROPOSED)
 
@@ -620,7 +620,7 @@ Trade-offs:
 - Removes the `gag` dependency from `sema-notebook`.
 - Cooperates with the WASM `OUTPUT.with(...)` pattern (currently a parallel-but-divergent capture mechanism) — long term, both can use the same hook.
 
-References: `crates/sema-stdlib/src/io.rs` (println/display/print sites, and the WASM `OUTPUT` thread-local), `crates/sema-notebook/src/engine.rs` (current `BufferRedirect` use), `agents/LIMITATIONS.md` #H17.
+References: `crates/sema-stdlib/src/io.rs` (println/display/print sites, and the WASM `OUTPUT` thread-local), `crates/sema-notebook/src/engine.rs` (current `BufferRedirect` use), `docs/limitations.md` #H17.
 
 ### 59. Canonical naming refinement (Wave 4 alias migration)
 

@@ -148,7 +148,12 @@ pub fn set_run_scheduler_callback(f: RunSchedulerCallbackFn) {
 // ── Cancel callback ─────────────────────────────────────────────
 
 /// Callback type for cancelling an async task by its task ID.
-pub type CancelCallbackFn = fn(u64) -> Result<(), SemaError>;
+///
+/// Returns `Ok(true)` if the call actually transitioned the task into
+/// `Cancelled`, `Ok(false)` if the task was already terminal (Done /
+/// Failed / Cancelled) or if no task with that id exists (e.g. a
+/// never-spawned promise like `async/resolved`).
+pub type CancelCallbackFn = fn(u64) -> Result<bool, SemaError>;
 
 thread_local! {
     static CANCEL_CALLBACK: Cell<Option<CancelCallbackFn>> = const { Cell::new(None) };
@@ -159,8 +164,9 @@ pub fn set_cancel_callback(f: CancelCallbackFn) {
     CANCEL_CALLBACK.with(|cb| cb.set(Some(f)));
 }
 
-/// Cancel an async task by its task ID.
-pub fn call_cancel_callback(task_id: u64) -> Result<(), SemaError> {
+/// Cancel an async task by its task ID. Returns true if the call
+/// actually transitioned the task to `Cancelled`; false otherwise.
+pub fn call_cancel_callback(task_id: u64) -> Result<bool, SemaError> {
     let f = CANCEL_CALLBACK.with(|cb| cb.get()).ok_or_else(|| {
         SemaError::eval("async/cancel: no async scheduler registered".to_string())
     })?;

@@ -2,7 +2,7 @@
 
 Status board for follow-up work that has been planned, partially explored, or that needs a design call before code can land. Each entry has enough context that you (or a future you / agent) can pick it up months from now without re-reading the audit.
 
-For items that have been *parked* with a clear "we're not doing this", see `agents/DEFERRED.md`. For items that are deemed shipped, see commits `09f6c21`, `01f250c`, `a5b37df`, `c2b551b`, `6c4086f`, `83cbd58`.
+For items that have been *parked* with a clear "we're not doing this", see `docs/deferred.md`. For items that are deemed shipped, see commits `09f6c21`, `01f250c`, `a5b37df`, `c2b551b`, `6c4086f`, `83cbd58`.
 
 ---
 
@@ -56,52 +56,13 @@ The clone exists solely to release the borrow on `self.native_fns` so we can als
 
 ## Wave 6c — Design-then-code (need an ADR before fixing)
 
-### A1 + A4 + D2 — Async semantics pass
+### A1 + A4 + D2 — Async semantics pass — SHIPPED
 
-Three related papercuts that all want to land together as one async-semantics commit, after a quick decision on each.
+Landed as one commit. See `docs/plans/2026-05-15-adr-async-semantics.md` (the accepted ADR) and the `CHANGELOG.md` "Unreleased" section. Summary:
 
-**A1 (FIFO scheduler):**
-```sema
-(let ((ch (channel/new 1)))
-  (let ((s1 (async (channel/send ch 1)))
-        (s2 (async (channel/send ch 2)))
-        (s3 (async (channel/send ch 3)))
-        (r  (async (list (channel/recv ch) (channel/recv ch) (channel/recv ch)))))
-    (await r)))
-;; => (1 3 2)   <-- LIFO; FIFO would be (1 2 3)
-```
-
-The scheduler's ready queue and per-channel/per-promise wake lists are `Vec` used as a stack. Switch to `VecDeque` with `push_back` + `pop_front` (and corresponding wake-list ops in `crates/sema-vm/src/scheduler.rs`'s `wake_blocked_tasks`). Document the FIFO guarantee in `website/docs/stdlib/concurrency.md`. Add a dual-eval test pinning `(1 2 3)`.
-
-**Why this needs a design call:** changing scheduler order is technically a behavior change. Anyone with code that relies on the current LIFO order would silently get different results. We don't think anyone does, but worth flagging in CHANGELOG.
-
-**A4 (`async/cancel` consistent semantics):**
-
-Today (verified against HEAD):
-- Cancel after-await of a resolved promise: silent no-op, exit 0
-- Cancel twice: silent no-op, exit 0
-- Cancel a never-spawned `async/resolved`: errors with "cannot cancel a non-spawned promise"
-- Cancel a still-pending spawn: marks it cancelled, returns nil
-
-Three different behaviors for the same operation. Code at `crates/sema-stdlib/src/async_ops.rs:187-198`.
-
-**Proposed fix:** make `async/cancel` always return a boolean — `#t` if the call actually transitioned the state to Cancelled, `#f` otherwise (resolved, rejected, already-cancelled, never-spawned). Drop the "non-spawned promise" error entirely. Update `async/cancelled?` accordingly.
-
-**Why this needs a design call:** changes `async/cancel` from `nil`/error → `#t`/`#f`. Existing callers that ignore the return value still work; callers that pattern-matched on the error will see a behavior change.
-
-**D2 (cancellation uses a structured value, not a magic string):**
-
-`async/cancelled?` does `matches!(&*state, PromiseState::Rejected(msg) if msg == "cancelled")`. If a user manually rejects with `"cancelled"`, `async/cancelled?` returns `#t` for the wrong reason.
-
-**Proposed fix:** add a `PromiseState::Cancelled` variant (or restructure `Rejected { reason: RejectionKind }` with `Cancelled` / `Error(String)` variants). Update `async/cancel` to set the new variant and `async/cancelled?` to pattern-match on it. Bump display/serialization paths.
-
-**Why this needs a design call:** changes the public shape of `PromiseState`. Affects WASM bindings (debug paths in sema-wasm), DAP debug snapshots if any, and any external code introspecting promise state. Tied to A4 — the cleanest commit does both at once.
-
-**Recommended sequence when picking this up:**
-1. Decide A1/A4/D2 together (1 short ADR, ~50 lines)
-2. Implement scheduler order change + cancellation refactor in one commit
-3. Update concurrency.md with the new guarantees
-4. Add 4-5 dual-eval tests pinning the new semantics
+- A1: ready-task pickup is now FIFO (`Vec::remove` instead of `swap_remove`). Snippet above now returns `(1 2 3)`.
+- A4: `async/cancel` returns `#t`/`#f` (transitioned vs no-op). Never errors.
+- D2: `PromiseState::Cancelled` is a peer variant; `async/cancelled?` matches it directly. `async/rejected?` excludes Cancelled. `await` on cancelled raises `"async/await: task was cancelled"`.
 
 ### D3 — `(match …)` should error on no-match
 
@@ -130,13 +91,13 @@ Three different error policies (raise / NaN sentinel / silent promotion) for sim
 - "Raise on all undefined domains" (Scheme-ish, predictable, breaks anyone relying on NaN)
 - "Always return IEEE specials; raise only on integer-divide-by-zero" (Python-ish, less predictable, doesn't break)
 
-**Why this needs a design call:** language-level decision. Document in `agents/DECISIONS.md` and `website/docs/stdlib/math.md`. Implementation is small once decided.
+**Why this needs a design call:** language-level decision. Document in `docs/adr.md` and `website/docs/stdlib/math.md`. Implementation is small once decided.
 
 ---
 
 ## Notes on what's NOT here
 
 - **Items that shipped:** see commits `09f6c21` (Wave 1) through `83cbd58` (Wave 6a) — git log + the per-wave commit messages have the full list.
-- **Items that are formally parked:** see `agents/DEFERRED.md`. Each entry there explains *why* we won't fix and what the workaround is.
-- **C1 (VM upvalue model)** and **C11 (.semac stack-balance verifier):** see `agents/LIMITATIONS.md` items #31/#32 and `agents/DECISIONS.md` ADRs #55/#56. Multi-week design work; tracked there, not here.
-- **#57 (source spans through runtime errors)** and **#58 (thread-local writer hook):** also in `agents/DECISIONS.md`. Pulled out of Wave 2 as too big for that pass.
+- **Items that are formally parked:** see `docs/deferred.md`. Each entry there explains *why* we won't fix and what the workaround is.
+- **C1 (VM upvalue model)** and **C11 (.semac stack-balance verifier):** see `docs/limitations.md` items #31/#32 and `docs/adr.md` ADRs #55/#56. Multi-week design work; tracked there, not here.
+- **#57 (source spans through runtime errors)** and **#58 (thread-local writer hook):** also in `docs/adr.md`. Pulled out of Wave 2 as too big for that pass.

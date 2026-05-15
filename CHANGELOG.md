@@ -2,10 +2,18 @@
 
 ## Unreleased
 
+### Changed (async semantics pass)
+
+- `(async/cancel p)` now returns a boolean: `#t` if the call actually transitioned the promise into `Cancelled`, `#f` if there was nothing to cancel (already resolved/rejected/cancelled, or never spawned via `async/resolved`/`async/rejected`). Previously: returned `nil` on success and **errored** with `"async/cancel: cannot cancel a non-spawned promise"` for never-spawned promises. Cancellation is now strictly best-effort and never raises.
+- Cancellation is now a peer `PromiseState::Cancelled` variant instead of `Rejected("cancelled")`. `(async/cancelled? p)` matches the variant directly — a user `(async/rejected "cancelled")` no longer fools the predicate. `(async/rejected? p)` returns `#f` for cancelled promises (the four state predicates now cleanly partition the terminal states).
+- Awaiting a cancelled promise raises `"async/await: task was cancelled"` (with a `with_hint`) instead of surfacing as `"task rejected: cancelled"`.
+- Scheduler ready-task pickup is now **strictly FIFO**. Previously `swap_remove` rearranged the queue and produced a LIFO-feeling surface under contention: three sequential channel sends followed by three sequential receives returned `(1 3 2)` instead of `(1 2 3)`. The fix uses `Vec::remove` (O(n) per pickup, negligible for typical task counts).
+- `async/all` and `async/timeout` now distinguish cancellation from rejection in their error messages (`"task was cancelled"` vs `"task rejected: …"`).
+
 ### Known Limitations
 
-- **VM `set!` through stdlib HOF callbacks is silently lost** (audit finding C1). `(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)` returns `0` on the VM backend and `6` on the tree-walker. Root cause is the eager-close + dual-write upvalue model; the planned fix is an open-upvalue runtime (see `agents/DECISIONS.md` ADR #55 and `agents/LIMITATIONS.md` #31). Workaround: use `--tw`, or refactor to thread state via `foldl` instead of captured `set!`. Related symptoms: `(type (fn (x) x))` returns `:native-fn` on VM vs `:lambda` on TW; VM caught-error maps are missing `:stack-trace`; `+`/`-` type-error messages differ between backends.
-- **`.semac` bytecode loading is unsafe from untrusted sources** (audit finding C11). The deserializer's `validate_bytecode` does not abstract-interpret the instruction stream for stack balance. The VM's `pop_unchecked` (90+ call sites) assumes stack-balanced bytecode; a crafted `.semac` with a leading `Pop` or unbalanced sequence triggers UB (`set_len(usize::MAX)`) in release builds. Treat `.semac` files as trusted-source-only until the stack-depth verifier lands (see `agents/DECISIONS.md` ADR #56 and `agents/LIMITATIONS.md` #32).
+- **VM `set!` through stdlib HOF callbacks is silently lost** (audit finding C1). `(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)` returns `0` on the VM backend and `6` on the tree-walker. Root cause is the eager-close + dual-write upvalue model; the planned fix is an open-upvalue runtime (see `docs/adr.md` ADR #55 and `docs/limitations.md` #31). Workaround: use `--tw`, or refactor to thread state via `foldl` instead of captured `set!`. Related symptoms: `(type (fn (x) x))` returns `:native-fn` on VM vs `:lambda` on TW; VM caught-error maps are missing `:stack-trace`; `+`/`-` type-error messages differ between backends.
+- **`.semac` bytecode loading is unsafe from untrusted sources** (audit finding C11). The deserializer's `validate_bytecode` does not abstract-interpret the instruction stream for stack balance. The VM's `pop_unchecked` (90+ call sites) assumes stack-balanced bytecode; a crafted `.semac` with a leading `Pop` or unbalanced sequence triggers UB (`set_len(usize::MAX)`) in release builds. Treat `.semac` files as trusted-source-only until the stack-depth verifier lands (see `docs/adr.md` ADR #56 and `docs/limitations.md` #32).
 
 ## 1.14.3
 
