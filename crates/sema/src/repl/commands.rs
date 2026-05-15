@@ -18,6 +18,7 @@ pub const REPL_COMMANDS: &[&str] = &[
     ",doc",
     ",disasm",
     ",apropos",
+    ",inspect",
 ];
 
 /// Outcome of dispatching a meta-command line.
@@ -57,7 +58,10 @@ pub fn dispatch(
         _ => {}
     }
 
-    if matches!(trimmed, ",doc" | ",type" | ",time" | ",disasm" | ",apropos") {
+    if matches!(
+        trimmed,
+        ",doc" | ",type" | ",time" | ",disasm" | ",apropos" | ",inspect"
+    ) {
         println!("Usage: {trimmed} <expr>");
         return CommandOutcome::Handled;
     }
@@ -74,6 +78,20 @@ pub fn dispatch(
 
     if let Some(rest) = trimmed.strip_prefix(",apropos ") {
         super::apropos::run(env, rest);
+        return CommandOutcome::Handled;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix(",inspect ") {
+        let rest = rest.trim();
+        record_source(rest);
+        match eval_with_mode_repl(interpreter, rest, use_vm) {
+            Ok(val) => {
+                if let Err(e) = super::inspector::run(val, rest) {
+                    eprintln!("inspector error: {e}");
+                }
+            }
+            Err(e) => print_error(&e),
+        }
         return CommandOutcome::Handled;
     }
 
@@ -200,6 +218,7 @@ fn print_help() {
     println!("  ,doc NAME        Show info about a binding");
     println!("  ,apropos PAT     Search names by pattern (substring + fuzzy)");
     println!("  ,disasm EXPR     Compile EXPR and print its bytecode");
+    println!("  ,inspect EXPR    Interactive arrow-key inspector for a value");
     println!();
     println!("LLM Quick Start:");
     println!("  Set ANTHROPIC_API_KEY or OPENAI_API_KEY env var, then:");

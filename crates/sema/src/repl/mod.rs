@@ -24,6 +24,7 @@ mod headless;
 mod highlighter;
 mod hinter;
 mod history;
+mod inspector;
 mod prompt;
 mod validator;
 
