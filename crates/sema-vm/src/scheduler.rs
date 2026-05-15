@@ -170,9 +170,9 @@ impl Scheduler {
                     }
                     YieldReason::ChannelSend(ch, val) => {
                         if ch.closed.get() {
-                            WakeAction::Fail(
-                                "channel/send: channel closed while send was pending".to_string(),
-                            )
+                            WakeAction::Fail(format!(
+                                "channel/send: closed while sending {val}; value dropped (send was pending)"
+                            ))
                         } else {
                             let mut buf = ch.buffer.borrow_mut();
                             if buf.len() < ch.capacity {

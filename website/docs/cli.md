@@ -495,8 +495,8 @@ The `--sandbox` flag restricts access to dangerous operations. Functions remain 
 | Capability  | Functions affected                                                         |
 | ----------- | -------------------------------------------------------------------------- |
 | `shell`     | `shell`                                                                    |
-| `fs-read`   | `file/read`, `file/exists?`, `file/list`, `file/info`, `load`, ...         |
-| `fs-write`  | `file/write`, `file/append`, `file/delete`, `file/mkdir`, `file/copy`, ... |
+| `fs-read`   | `file/read`, `file/exists?`, `file/list`, `file/info`, `load`, `http/file`, `db/query`, `db/query-one`, `db/last-insert-id`, `db/tables`, ... |
+| `fs-write`  | `file/write`, `file/append`, `file/delete`, `file/mkdir`, `file/copy`, `db/exec`, `db/exec-batch`, ... |
 | `network`   | `http/get`, `http/post`, `http/put`, `http/delete`, `http/request`         |
 | `env-read`  | `env`, `sys/env-all`                                                       |
 | `env-write` | `sys/set-env`                                                              |

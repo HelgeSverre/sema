@@ -156,53 +156,60 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::map(result))
     });
 
-    register_fn(env, "http/file", |args| {
-        if args.is_empty() || args.len() > 2 {
-            return Err(SemaError::arity("http/file", "1-2", args.len()));
-        }
-        let file_path = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-
-        // Resolve to absolute path
-        let path = std::path::Path::new(file_path);
-        let abs_path = if path.is_absolute() {
-            path.to_path_buf()
-        } else {
-            std::env::current_dir()
-                .map_err(|e| SemaError::eval(format!("http/file: {e}")))?
-                .join(path)
-        };
-
-        // Canonicalize to resolve symlinks and ..
-        let abs_path = abs_path
-            .canonicalize()
-            .map_err(|e| SemaError::eval(format!("http/file: {}: {e}", abs_path.display())))?;
-
-        // Determine content type: explicit override or guess from extension
-        let content_type = if args.len() == 2 {
-            args[1]
+    crate::register_fn_path_gated(
+        env,
+        sandbox,
+        sema_core::Caps::FS_READ,
+        "http/file",
+        &[0],
+        |args| {
+            if args.is_empty() || args.len() > 2 {
+                return Err(SemaError::arity("http/file", "1-2", args.len()));
+            }
+            let file_path = args[0]
                 .as_str()
-                .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?
-                .to_string()
-        } else {
-            mime_guess::from_path(&abs_path)
-                .first_or_octet_stream()
-                .to_string()
-        };
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
 
-        let mut map = BTreeMap::new();
-        map.insert(Value::keyword("__file"), Value::bool(true));
-        map.insert(
-            Value::keyword("__file_path"),
-            Value::string(&abs_path.to_string_lossy()),
-        );
-        map.insert(
-            Value::keyword("__file_content_type"),
-            Value::string(&content_type),
-        );
-        Ok(Value::map(map))
-    });
+            // Resolve to absolute path
+            let path = std::path::Path::new(file_path);
+            let abs_path = if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .map_err(|e| SemaError::eval(format!("http/file: {e}")))?
+                    .join(path)
+            };
+
+            // Canonicalize to resolve symlinks and ..
+            let abs_path = abs_path
+                .canonicalize()
+                .map_err(|e| SemaError::eval(format!("http/file: {}: {e}", abs_path.display())))?;
+
+            // Determine content type: explicit override or guess from extension
+            let content_type = if args.len() == 2 {
+                args[1]
+                    .as_str()
+                    .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?
+                    .to_string()
+            } else {
+                mime_guess::from_path(&abs_path)
+                    .first_or_octet_stream()
+                    .to_string()
+            };
+
+            let mut map = BTreeMap::new();
+            map.insert(Value::keyword("__file"), Value::bool(true));
+            map.insert(
+                Value::keyword("__file_path"),
+                Value::string(&abs_path.to_string_lossy()),
+            );
+            map.insert(
+                Value::keyword("__file_content_type"),
+                Value::string(&content_type),
+            );
+            Ok(Value::map(map))
+        },
+    );
 
     register_fn(env, "http/stream", |args| {
         check_arity!(args, "http/stream", 1);

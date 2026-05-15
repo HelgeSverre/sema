@@ -512,6 +512,14 @@ impl VM {
         }
 
         // Unsafe unchecked pop — valid when compiler guarantees stack correctness.
+        //
+        // FIXME(C11): this is safe for in-process compilation, but `.semac` files
+        // deserialized via `crate::serialize::deserialize_compile_result` are NOT
+        // verified for stack balance. A crafted .semac with a leading `Pop` or
+        // unbalanced sequence will reach this function with an empty stack and
+        // trigger UB in release builds (`set_len(usize::MAX)` after underflow).
+        // Treat .semac as trusted-source-only until a stack-depth verifier lands.
+        // See `agents/LIMITATIONS.md` #32 and `agents/DECISIONS.md` ADR #56.
         #[inline(always)]
         unsafe fn pop_unchecked(stack: &mut Vec<Value>) -> Value {
             let len = stack.len();
@@ -550,6 +558,14 @@ impl VM {
                 }
             }
             dispatch_count += 1;
+            // Wall-clock deadline check on every frame transition. Catches
+            // infinite tail recursion like `(define (loop) (loop))` which
+            // re-enters this outer loop on every TailCall.
+            if ctx.deadline_exceeded() {
+                return Err(SemaError::eval(
+                    "evaluation exceeded time budget (looks like an infinite loop?)".to_string(),
+                ));
+            }
             let fi = self.frames.len() - 1;
             let frame = &self.frames[fi];
             let code = frame.closure.func.chunk.code.as_ptr();
@@ -828,12 +844,27 @@ impl VM {
                     op::JUMP => {
                         let offset = read_i32!(code, pc);
                         pc = (pc as i64 + offset as i64) as usize;
+                        // Backward jump: this is a loop iteration boundary.
+                        // Check the wall-clock deadline so tight loops like
+                        // `(while #t)` can be interrupted.
+                        if offset < 0 && ctx.deadline_exceeded() {
+                            return Err(SemaError::eval(
+                                "evaluation exceeded time budget (looks like an infinite loop?)"
+                                    .to_string(),
+                            ));
+                        }
                     }
                     op::JUMP_IF_FALSE => {
                         let offset = read_i32!(code, pc);
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         if !val.is_truthy() {
                             pc = (pc as i64 + offset as i64) as usize;
+                            if offset < 0 && ctx.deadline_exceeded() {
+                                return Err(SemaError::eval(
+                                    "evaluation exceeded time budget (looks like an infinite loop?)"
+                                        .to_string(),
+                                ));
+                            }
                         }
                     }
                     op::JUMP_IF_TRUE => {
@@ -841,6 +872,12 @@ impl VM {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         if val.is_truthy() {
                             pc = (pc as i64 + offset as i64) as usize;
+                            if offset < 0 && ctx.deadline_exceeded() {
+                                return Err(SemaError::eval(
+                                    "evaluation exceeded time budget (looks like an infinite loop?)"
+                                        .to_string(),
+                                ));
+                            }
                         }
                     }
 

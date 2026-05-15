@@ -144,6 +144,43 @@ The stdlib mini-eval (`call_function` in `list.rs`) doesn't support mutual tail 
 
 ---
 
+## Known Backend Bugs (Audit Findings)
+
+### 31. VM `set!` through stdlib HOF callbacks loses the mutation (C1, HIGH)
+
+When a closure captures a let-bound variable and that closure is invoked via a stdlib higher-order function (`map`, `filter`, `for-each`, `sort-by`, `retry`, etc.), `set!` performed inside the closure is **silently dropped on the VM backend**. The tree-walker behaves correctly.
+
+Reproduction:
+
+```
+$ sema --tw -e '(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)'
+6
+$ sema      -e '(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)'
+0
+```
+
+Root cause: the VM uses an **eager-close + dual-write upvalue model**. When a closure is created, captured locals are *copied* into upvalue cells; the parent's slot keeps its own copy. The resolution pass is already Lua-style (`ParentLocal` / `ParentUpvalue`), but the runtime never opens upvalues that point back at a live parent stack slot. When the closure is then handed to a stdlib HOF, that HOF runs the closure via `NativeFn::func` on a *fresh* VM (see Decision #50). The closure's local mutation lands in the fresh VM's upvalue copy, which is discarded when control returns to the caller.
+
+Planned fix: move to an **open-upvalue runtime** (see MEMORY.md "Upvalue model: eager-close with dual-write … Runtime is what needs changing for open upvalues" and the ADR "Move VM upvalues to open-close-on-popframe model" in `agents/DECISIONS.md`). Note that `tail_call_vm_closure` must close upvalues before replacing the frame.
+
+Related symptoms surfaced by the same root cause:
+
+- `(type (fn (x) x))` returns `:lambda` in TW but `:native-fn` in VM (because VM closures wrap as `NativeFn` for stdlib HOF interop).
+- Caught error maps in the VM are missing `:stack-trace` (TW includes it).
+- Type-error message text for `+` / `-` differs between backends.
+
+Workaround: use tree-walker (`--tw`) for code that relies on `set!`-through-HOF, or refactor to use `foldl` with explicit accumulator threading (no captured mutation).
+
+### 32. Bytecode stack-balance validation gap (C11, HIGH)
+
+The VM's main dispatch loop uses `pop_unchecked` at 90+ call sites (`crates/sema-vm/src/vm.rs`). This is safe **only** because the in-process bytecode compiler is stack-balanced by construction (every emitted sequence pushes/pops by a known delta). The on-disk `.semac` format has no such guarantee: `validate_bytecode` (in `crates/sema-vm/src/serialize.rs`) currently checks magic, version, table bounds, and jump targets, but it does **not** abstract-interpret the instruction stream to verify stack balance.
+
+A hand-crafted (or corrupted) `.semac` file with a leading `Pop`, an unbalanced `Call`, or a missing push before a binary op causes undefined behavior in release builds: `pop_unchecked` reads `stack[len - 1]` after subtracting from an empty `Vec`, calls `set_len(usize::MAX)`, and subsequent pushes/pops corrupt arbitrary memory.
+
+**For now, `.semac` files should be treated as trusted-source-only.** Do not load `.semac` from network/untrusted sources without verification. The planned fix is a stack-depth verifier — see the ADR "Bytecode stack-depth verifier for .semac loading" in `agents/DECISIONS.md`.
+
+---
+
 ## Gap Analysis — Remaining Items
 
 | #   | Gap                                      | Priority | Effort    | Notes                                                                        |

@@ -92,10 +92,16 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "nth", |args| {
         check_arity!(args, "nth", 2);
-        let idx = args[1]
+        let idx_i = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        if idx_i < 0 {
+            return Err(
+                SemaError::eval(format!("nth: index must be non-negative, got {idx_i}"))
+                    .with_hint("indices are 0-based; use (last xs) for the last element"),
+            );
+        }
+        let idx = idx_i as usize;
         if let Some(l) = args[0].as_list() {
             l.get(idx).cloned().ok_or_else(|| {
                 SemaError::eval(format!("index {idx} out of bounds (length {})", l.len()))
@@ -230,10 +236,17 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "take", |args| {
         check_arity!(args, "take", 2);
-        let n = args[0]
+        let n_i = args[0]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-            as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+        if n_i < 0 {
+            return Err(
+                SemaError::eval(format!("take: count must be non-negative, got {n_i}")).with_hint(
+                    "pass 0 or a positive integer; use (reverse xs) before take for the tail",
+                ),
+            );
+        }
+        let n = n_i as usize;
         let items = get_sequence(&args[1], "take")?;
         let end = n.min(items.len());
         Ok(Value::list(items[..end].to_vec()))
@@ -241,10 +254,16 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "drop", |args| {
         check_arity!(args, "drop", 2);
-        let n = args[0]
+        let n_i = args[0]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-            as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?;
+        if n_i < 0 {
+            return Err(
+                SemaError::eval(format!("drop: count must be non-negative, got {n_i}"))
+                    .with_hint("pass 0 or a positive integer"),
+            );
+        }
+        let n = n_i as usize;
         let items = get_sequence(&args[1], "drop")?;
         let start = n.min(items.len());
         Ok(Value::list(items[start..].to_vec()))

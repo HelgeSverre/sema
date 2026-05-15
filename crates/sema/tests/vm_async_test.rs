@@ -256,6 +256,24 @@ fn channel_send_closed_error() {
 }
 
 #[test]
+fn channel_close_with_blocked_sender_reports_lost_value() {
+    // Regression for bug C3: closing a channel under a blocked sender silently
+    // dropped the pending value. The error should clearly indicate the send
+    // was pending and name the lost value.
+    let err = eval_vm_err(
+        "(let ((ch (channel/new 1))) \
+           (channel/send ch 1) \
+           (let ((p (async (channel/send ch 2)))) \
+             (channel/close ch) \
+             (await p)))",
+    );
+    assert!(
+        err.contains("closed") && (err.contains("send was pending") || err.contains("2")),
+        "expected pending-send closed error mentioning the lost value, got: {err}"
+    );
+}
+
+#[test]
 fn channel_recv_empty_error() {
     let err = eval_vm_err("(channel/recv (channel/new 1))");
     assert!(err.contains("empty"), "expected empty error, got: {err}");

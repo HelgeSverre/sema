@@ -483,3 +483,89 @@ crates/sema/src/
 - Async features (async/await, channels, task scheduler) require the VM backend
 - The tree-walker returns a clear error: "async requires the VM backend (do not use --tw)"
 - This acknowledges the tree-walker's deprecation path and avoids maintaining two async implementations
+
+### 55. Move VM upvalues to open-close-on-popframe model (PROPOSED)
+
+Status: **proposed** — fixes audit bug C1 (see `agents/LIMITATIONS.md` #31). Not yet implemented.
+
+Context: the current VM eagerly closes upvalues at `MakeClosure` time and dual-writes mutations to both the parent's local slot and the closure's upvalue cell. This breaks down when a closure is called *outside* the parent VM (stdlib HOFs like `map`, `filter`, `for-each`, `sort-by`, `retry` route through `NativeFn::func` on a fresh VM — Decision #50). The fresh VM has its own copy of the upvalue cell; mutations there never propagate back to the parent's slot, and `set!` is silently lost.
+
+Decision: switch to a Lua/Crafting-Interpreters-style **open upvalue runtime**:
+
+1. **Heap-allocated upvalue cells.** Each upvalue is `Rc<RefCell<UpvalueCell>>` where `UpvalueCell` is either `Open { stack_addr: *mut Value /* logical slot id */ }` or `Closed { value: Value }`. While open, reads/writes go through the parent's stack slot; closed upvalues own their value.
+2. **`open_upvalues` per `CallFrame`.** An intrusive list (sorted by stack slot, descending) of open upvalues pointing into this frame. Created lazily on `MakeClosure` — if a captured slot already has an open upvalue, reuse it.
+3. **Close on frame exit.** `Return`, `Throw`-unwind, and `tail_call_vm_closure` must walk `open_upvalues` and mutate each cell from `Open` to `Closed`, copying the current slot value. **Critically:** `tail_call_vm_closure` currently sets `open_upvalues = None` before truncating the stack — this must become "close, then replace" (see MEMORY.md "Tail call frame replacement … must close upvalues before replacing frame").
+4. **Affected opcodes.** All Load/Store local variants must branch on `has_open_upvalues`:
+   - `LoadLocal`, `LoadLocal0..3`, `StoreLocal`, `StoreLocal0..3` (10 ops total — already enumerated in MEMORY.md)
+   - `MakeClosure` — capture path changes from "copy value" to "find-or-create open upvalue for slot"
+   - `LoadUpvalue` / `StoreUpvalue` — go through the cell (open: read parent slot; closed: read cell)
+5. **Cross-VM closures.** When a VM closure is wrapped as `NativeFn` for stdlib HOF interop (Decision #50), captured upvalues that are still open in the parent VM stay open. The fresh VM created by the HOF fallback reads/writes through the shared `Rc<RefCell<UpvalueCell>>`, so `set!` mutations land in the parent's slot via the open cell. This is the property that fixes C1.
+
+Trade-offs:
+
+- One extra branch on the hot Load/StoreLocal path (`has_open_upvalues`). MEMORY.md notes this is already considered; the inline-cache benchmarks should be the regression gate.
+- `MakeClosure` becomes O(captures) with one heap allocation per *new* upvalue (deduped per slot per frame).
+- Removes the dual-write fast path entirely — single source of truth simplifies reasoning.
+
+Out of scope for this ADR: also unifies the fix for `(type (fn (x) x))` returning `:native-fn` from VM (because closures will no longer need the NativeFn-wrapping fallback in many cases) and missing `:stack-trace` in VM error maps (separate ADR).
+
+References: MEMORY.md (Upvalue model section), `crates/sema-vm/src/resolve.rs` (Lua-style resolution, already done), `crates/sema-vm/src/vm.rs` (Load/Store sites, `tail_call_vm_closure`), `agents/LIMITATIONS.md` #31.
+
+### 56. Bytecode stack-depth verifier for .semac loading (PROPOSED)
+
+Status: **proposed** — fixes audit bug C11 (see `agents/LIMITATIONS.md` #32). Not yet implemented.
+
+Context: the VM uses `pop_unchecked` at 90+ call sites in `crates/sema-vm/src/vm.rs`. This relies on the in-process compiler emitting stack-balanced bytecode. `.semac` files loaded via `crates/sema-vm/src/serialize.rs::validate_bytecode` are *not* verified for stack balance — only structural checks (magic, version, table bounds, jump targets). A crafted/corrupted `.semac` can cause UB in release: `set_len(usize::MAX)` after underflow, then OOB reads.
+
+Decision: add an **abstract-interpretation pass** over every `Chunk` (main chunk + every `Function`) during `deserialize_compile_result`, before returning. The pass tracks min/max stack depth per opcode and rejects any chunk that:
+
+- can reach an opcode while `depth < pops_required`, or
+- exits a function with `depth != 1` (must leave a single return value), or
+- reaches `Return` with `depth < 1`, or
+- has any reachable code path leading to negative depth at any join point.
+
+**Algorithm sketch:**
+
+1. Build a CFG by scanning opcodes: linear flow + edges from `Jump`, `JumpIfFalse`, `JumpIfTrue`, fallthrough past conditional jumps. Block boundaries at jump targets and after `Return` / `Throw` / unconditional `Jump`.
+2. Fixed-point iterate: for each basic block, track entry depth (joined as `min` from all predecessors — using a single `i64` "entry depth" since well-formed code converges). Use a worklist algorithm.
+3. For each opcode, compute `pops` and `pushes` from a static table (`Op::stack_effect()` — to be added to `opcodes.rs`).
+4. Reject with `SemaError::eval("bytecode validation failed: stack underflow at op N (depth D, needs P)")`.
+
+**Static stack-effect table** (the source of truth — see `crates/sema-vm/src/opcodes.rs`):
+
+| Op | pops | pushes | notes |
+| --- | --- | --- | --- |
+| `Const`, `Nil`, `True`, `False` | 0 | 1 | |
+| `Pop` | 1 | 0 | |
+| `Dup` | 0 | 1 | (reads but doesn't pop TOS) |
+| `LoadLocal`, `LoadLocal0..3` | 0 | 1 | |
+| `StoreLocal`, `StoreLocal0..3` | 1 | 0 | |
+| `LoadUpvalue` | 0 | 1 | |
+| `StoreUpvalue` | 1 | 0 | |
+| `LoadGlobal` | 0 | 1 | |
+| `StoreGlobal`, `DefineGlobal` | 1 | 0 | |
+| `Jump` | 0 | 0 | unconditional; depth flows to target |
+| `JumpIfFalse`, `JumpIfTrue` | 1 | 0 | pop happens before branch |
+| `Call argc` | `argc + 1` | 1 | callee + args → result |
+| `TailCall argc` | `argc + 1` | 0 | exits frame |
+| `Return` | 1 | 0 | exits frame |
+| `MakeClosure func_id n_up` | 0 | 1 | upvalue descriptors are inline operands, not stack |
+| `CallNative argc` | `argc` | 1 | |
+| `CallGlobal argc` | `argc` | 1 | |
+| `MakeList n`, `MakeVector n` | `n` | 1 | |
+| `MakeMap n_pairs`, `MakeHashMap n_pairs` | `2 * n_pairs` | 1 | |
+| `Throw` | 1 | 0 | exits frame |
+| `Add`, `Sub`, `Mul`, `Div`, `Eq`, `Lt`, `Gt`, `Le`, `Ge`, `AddInt`, `SubInt`, `MulInt`, `LtInt`, `EqInt` | 2 | 1 | binary |
+| `Negate`, `Not` | 1 | 1 | unary |
+| `Car`, `Cdr`, `Length`, `IsNull`, `IsPair`, `IsList`, `IsNumber`, `IsString`, `IsSymbol` | 1 | 1 | |
+| `Cons`, `Append`, `Get`, `ContainsQ`, `Mod`, `Nth` | 2 | 1 | |
+
+Trade-offs:
+
+- Adds load-time CPU cost roughly proportional to bytecode size. Acceptable: `.semac` loading is rare relative to runtime opcode dispatch.
+- Verifier must agree with `vm.rs` dispatch exactly. Mismatches are bugs in *either* direction; adding `Op::stack_effect()` as a single source of truth (used by both verifier and any future fuzzer) reduces drift.
+- Does not catch type errors (e.g. `Add` on non-numbers) — those remain runtime checks. Only catches arithmetic-on-stack-depth violations.
+
+Once this lands, `.semac` files from untrusted sources can be loaded safely. Until it does, see `agents/LIMITATIONS.md` #32 for the trust-model caveat.
+
+References: `crates/sema-vm/src/vm.rs::pop_unchecked` (the unsafe site), `crates/sema-vm/src/serialize.rs::validate_bytecode` (where the new pass plugs in), `crates/sema-vm/src/opcodes.rs` (canonical opcode list), `agents/LIMITATIONS.md` #32.

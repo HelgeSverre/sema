@@ -1066,3 +1066,83 @@ dual_eval_tests! {
     filter_none_match: "(filter even? '(1 3 5))" => Value::list(vec![]),
     filter_all_match: "(filter odd? '(1 3 5))" => Value::list(vec![Value::int(1), Value::int(3), Value::int(5)]),
 }
+
+// ============================================================
+// Input validation — negative counts/indices (C7, C8, C9)
+// ============================================================
+
+dual_eval_error_tests! {
+    string_repeat_negative_errors: r#"(string/repeat "ab" -1)"#,
+    abs_i64_min_errors: "(abs -9223372036854775808)",
+    nth_negative_errors: "(nth (list 1 2 3) -1)",
+    take_negative_errors: "(take -1 (list 1 2 3))",
+    drop_negative_errors: "(drop -1 (list 1 2 3))",
+}
+
+// Integer arithmetic is intentionally wrapping; pin current semantics so a
+// future regression away from wrap is loud.
+dual_eval_tests! {
+    add_overflow_wraps: "(+ 9223372036854775807 1)" => Value::int(i64::MIN),
+    sub_underflow_wraps: "(- -9223372036854775808 1)" => Value::int(i64::MAX),
+}
+
+// ============================================================
+// Audit regressions — IGNORED until upvalue model lands
+// ============================================================
+// These tests document known bugs in the VM backend. They assert the *correct*
+// behavior (matching the tree-walker), so once the open-upvalue runtime is in
+// place and these tests are un-ignored they will act as confirmation that the
+// fix landed.
+//
+// See agents/LIMITATIONS.md #31 (C1) and agents/DECISIONS.md ADR #55.
+
+/// C1: `set!` on a let-bound variable from a closure called via a stdlib HOF
+/// (here `map`) is silently lost on the VM backend due to the eager-close
+/// upvalue model. The tree-walker handles this correctly.
+///
+/// Reproduction (from the audit):
+///   sema --tw -e '(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)'  -> 6
+///   sema      -e '(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)'  -> 0
+#[test]
+#[ignore = "C1: VM upvalue model — see agents/LIMITATIONS.md #31"]
+fn vm_set_through_map_hof_propagates() {
+    let src = "(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)";
+    // TW must already produce 6 (sanity check):
+    assert_eq!(common::eval_tw(src), Value::int(6), "TW oracle");
+    // VM is currently broken (returns 0). When the fix lands, this asserts 6:
+    assert_eq!(
+        common::eval_vm(src),
+        Value::int(6),
+        "VM after open-upvalue fix"
+    );
+}
+
+/// C1 related: same issue surfaces with `for-each`.
+#[test]
+#[ignore = "C1: VM upvalue model — see agents/LIMITATIONS.md #31"]
+fn vm_set_through_for_each_hof_propagates() {
+    let src = "(let ((c 0)) (for-each (fn (x) (set! c (+ c x))) (list 1 2 3)) c)";
+    assert_eq!(common::eval_tw(src), Value::int(6), "TW oracle");
+    assert_eq!(
+        common::eval_vm(src),
+        Value::int(6),
+        "VM after open-upvalue fix"
+    );
+}
+
+/// C1 related: `(type (fn (x) x))` should be `:lambda` on both backends.
+/// VM currently returns `:native-fn` because closures are wrapped as NativeFn
+/// for stdlib HOF interop (Decision #50). Once the open-upvalue model removes
+/// the cross-VM-copy hack, this should unify.
+#[test]
+#[ignore = "C1 related: VM type reflection — see agents/LIMITATIONS.md #31"]
+fn vm_type_of_lambda_is_lambda() {
+    let src = "(type (fn (x) x))";
+    let tw_result = common::eval_tw(src);
+    let vm_result = common::eval_vm(src);
+    assert_eq!(
+        vm_result, tw_result,
+        "backends should agree on (type (fn ...))"
+    );
+    assert_eq!(vm_result, Value::keyword("lambda"));
+}

@@ -765,6 +765,7 @@ fn main() {
                 match eval_with_mode(&interpreter, &content, !cli.tw) {
                     Ok(_) => {
                         interpreter.ctx.pop_file_path();
+                        drain_async_scheduler(&interpreter);
                     }
                     Err(e) => {
                         interpreter.ctx.pop_file_path();
@@ -787,6 +788,7 @@ fn main() {
         LAST_FILE.with(|f| *f.borrow_mut() = None);
         match eval_with_mode(&interpreter, expr, !cli.tw) {
             Ok(val) => {
+                drain_async_scheduler(&interpreter);
                 if !val.is_nil() {
                     println!("{}", pretty_print(&val, 80));
                 }
@@ -807,7 +809,10 @@ fn main() {
         LAST_SOURCE.with(|s| *s.borrow_mut() = Some(expr.clone()));
         LAST_FILE.with(|f| *f.borrow_mut() = None);
         match eval_with_mode(&interpreter, expr, !cli.tw) {
-            Ok(val) => println!("{val}"),
+            Ok(val) => {
+                drain_async_scheduler(&interpreter);
+                println!("{val}");
+            }
             Err(e) => {
                 print_error(&e);
                 std::process::exit(1);
@@ -827,7 +832,9 @@ fn main() {
         if let Ok(bytes) = std::fs::read(path) {
             if sema_vm::is_bytecode_file(&bytes) {
                 match run_bytecode_bytes(&interpreter, &bytes) {
-                    Ok(_) => {}
+                    Ok(_) => {
+                        drain_async_scheduler(&interpreter);
+                    }
                     Err(e) => {
                         print_error(&e);
                         std::process::exit(1);
@@ -850,6 +857,7 @@ fn main() {
                 match eval_with_mode(&interpreter, &content, !cli.tw) {
                     Ok(_) => {
                         interpreter.ctx.pop_file_path();
+                        drain_async_scheduler(&interpreter);
                     }
                     Err(e) => {
                         interpreter.ctx.pop_file_path();
@@ -882,6 +890,26 @@ fn eval_with_mode(
         interpreter.eval_str_compiled(input)
     } else {
         interpreter.eval_str(input)
+    }
+}
+
+/// Drain any pending async tasks scheduled by a top-level form.
+///
+/// Top-level `(async ...)` forms spawn a task but don't implicitly await it,
+/// so their side effects would silently vanish on exit unless we explicitly
+/// run the scheduler. This drains all pending tasks (target = `All`).
+///
+/// The scheduler callback is only registered when the VM backend is active,
+/// so we silently ignore the "no async scheduler registered" error from the
+/// tree-walker path. Other scheduler errors are reported to stderr as
+/// warnings but do not fail the program — the side effects already ran.
+fn drain_async_scheduler(interpreter: &Interpreter) {
+    if let Err(e) = sema_core::call_run_scheduler(&interpreter.ctx, None) {
+        let msg = e.to_string();
+        if msg.contains("no async scheduler registered") {
+            return;
+        }
+        eprintln!("warning: background task error: {msg}");
     }
 }
 
@@ -1100,6 +1128,9 @@ fn run_eval(
 
     let start = std::time::Instant::now();
     let result = eval_with_mode(&interpreter, &program, use_vm);
+    if result.is_ok() {
+        drain_async_scheduler(&interpreter);
+    }
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
     let stdout_text = captured_stdout.borrow();
@@ -2767,6 +2798,7 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                 LAST_FILE.with(|f| *f.borrow_mut() = None);
                 match eval_with_mode(&interpreter, &input, use_vm) {
                     Ok(val) => {
+                        drain_async_scheduler(&interpreter);
                         if let Some(v1) = env.get(intern("*1")) {
                             if let Some(v2) = env.get(intern("*2")) {
                                 env.set(intern("*3"), v2);

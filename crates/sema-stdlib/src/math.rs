@@ -33,7 +33,10 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "abs", |args| {
         check_arity!(args, "abs", 1);
         match args[0].view() {
-            ValueView::Int(n) => Ok(Value::int(n.wrapping_abs())),
+            ValueView::Int(n) => n.checked_abs().map(Value::int).ok_or_else(|| {
+                SemaError::eval("abs: |i64::MIN| overflows i64")
+                    .with_hint("convert to a float first, e.g. (abs (* 1.0 n))")
+            }),
             ValueView::Float(f) => Ok(Value::float(f.abs())),
             _ => Err(SemaError::type_error("number", args[0].type_name())),
         }

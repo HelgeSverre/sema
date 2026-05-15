@@ -392,7 +392,10 @@ fn register_channel_ops(env: &Env) {
         check_arity!(args, "channel/send", 2);
         let ch = expect_channel(args, "channel/send", 0)?;
         if ch.closed.get() {
-            return Err(SemaError::eval("channel/send: channel is closed"));
+            return Err(SemaError::eval(format!(
+                "channel/send: channel is closed; value {} was dropped",
+                args[1]
+            )));
         }
         if in_async_context() {
             if let Some(cached) = take_resume_value() {

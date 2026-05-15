@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crate::{CallFrame, Env, Sandbox, SemaError, Span, SpanMap, StackTrace, Value};
 
@@ -23,6 +24,11 @@ pub struct EvalContext {
     pub max_eval_depth: Cell<usize>,
     pub eval_step_limit: Cell<usize>,
     pub eval_steps: Cell<usize>,
+    /// Optional wall-clock deadline for evaluation. When set, both the
+    /// tree-walker and the bytecode VM periodically check whether the current
+    /// time has passed this instant and, if so, abort with an error. Used by
+    /// the notebook engine to bound how long a single cell evaluation can run.
+    pub eval_deadline: Cell<Option<Instant>>,
     pub sandbox: Sandbox,
     pub user_context: RefCell<Vec<BTreeMap<Value, Value>>>,
     pub hidden_context: RefCell<Vec<BTreeMap<Value, Value>>>,
@@ -45,6 +51,7 @@ impl EvalContext {
             max_eval_depth: Cell::new(0),
             eval_step_limit: Cell::new(0),
             eval_steps: Cell::new(0),
+            eval_deadline: Cell::new(None),
             sandbox: Sandbox::allow_all(),
             user_context: RefCell::new(vec![BTreeMap::new()]),
             hidden_context: RefCell::new(vec![BTreeMap::new()]),
@@ -67,6 +74,7 @@ impl EvalContext {
             max_eval_depth: Cell::new(0),
             eval_step_limit: Cell::new(0),
             eval_steps: Cell::new(0),
+            eval_deadline: Cell::new(None),
             sandbox,
             user_context: RefCell::new(vec![BTreeMap::new()]),
             hidden_context: RefCell::new(vec![BTreeMap::new()]),
@@ -176,6 +184,33 @@ impl EvalContext {
 
     pub fn set_eval_step_limit(&self, limit: usize) {
         self.eval_step_limit.set(limit);
+    }
+
+    /// Set a wall-clock deadline after which evaluation should abort.
+    /// Passing `None` clears any existing deadline.
+    pub fn set_eval_deadline(&self, deadline: Option<Instant>) {
+        self.eval_deadline.set(deadline);
+    }
+
+    /// Returns true if a deadline is set and has been exceeded.
+    #[inline]
+    pub fn deadline_exceeded(&self) -> bool {
+        match self.eval_deadline.get() {
+            Some(d) => Instant::now() >= d,
+            None => false,
+        }
+    }
+
+    /// Returns an `eval` error if a deadline is set and exceeded; otherwise Ok(()).
+    #[inline]
+    pub fn check_deadline(&self) -> Result<(), SemaError> {
+        if self.deadline_exceeded() {
+            Err(SemaError::eval(
+                "evaluation exceeded time budget (looks like an infinite loop?)".to_string(),
+            ))
+        } else {
+            Ok(())
+        }
     }
 
     // --- User context methods ---

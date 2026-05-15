@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Known Limitations
+
+- **VM `set!` through stdlib HOF callbacks is silently lost** (audit finding C1). `(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)` returns `0` on the VM backend and `6` on the tree-walker. Root cause is the eager-close + dual-write upvalue model; the planned fix is an open-upvalue runtime (see `agents/DECISIONS.md` ADR #55 and `agents/LIMITATIONS.md` #31). Workaround: use `--tw`, or refactor to thread state via `foldl` instead of captured `set!`. Related symptoms: `(type (fn (x) x))` returns `:native-fn` on VM vs `:lambda` on TW; VM caught-error maps are missing `:stack-trace`; `+`/`-` type-error messages differ between backends.
+- **`.semac` bytecode loading is unsafe from untrusted sources** (audit finding C11). The deserializer's `validate_bytecode` does not abstract-interpret the instruction stream for stack balance. The VM's `pop_unchecked` (90+ call sites) assumes stack-balanced bytecode; a crafted `.semac` with a leading `Pop` or unbalanced sequence triggers UB (`set_len(usize::MAX)`) in release builds. Treat `.semac` files as trusted-source-only until the stack-depth verifier lands (see `agents/DECISIONS.md` ADR #56 and `agents/LIMITATIONS.md` #32).
+
 ## 1.14.3
 
 ### Fixed

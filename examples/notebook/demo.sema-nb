@@ -3,8 +3,8 @@
   "metadata": {
     "title": "Sema Language Tour",
     "created": "2026-04-11T00:00:00Z",
-    "modified": "2026-04-11T00:00:00Z",
-    "sema_version": "1.12.2"
+    "modified": "2026-05-15T08:25:04.278949Z",
+    "sema_version": "1.14.3"
   },
   "cells": [
     {
@@ -20,12 +20,40 @@
     {
       "id": "c00000003",
       "type": "code",
-      "source": "; Bindings and arithmetic\n(define x 42)\n(define y 8)\n(println (format \"x = ~a, y = ~a\" x y))\n(println (format \"x + y = ~a\" (+ x y)))\n(println (format \"x * y = ~a\" (* x y)))\n(println (format \"x^2 = ~a\" (expt x 2)))"
+      "source": "; Bindings and arithmetic\n(define x 42)\n(define y 8)\n(println (format \"x = ~a, y = ~a\" x y))\n(println (format \"x + y = ~a\" (+ x y)))\n(println (format \"x * y = ~a\" (* x y)))\n(println (format \"x^2 = ~a\" (expt x 2)))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": "x = 42, y = 8\nx + y = 50\nx * y = 336\nx^2 = 1764\n",
+          "timestamp": "2026-05-15T08:25:04.252773Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.252765Z",
+          "duration_ms": 4
+        }
+      ]
     },
     {
       "id": "c00000004",
       "type": "code",
-      "source": "; Destructuring — vectors, maps, and rest args\n(let (([a b c] (list 10 20 30)))\n  (println (format \"Vector [a b c] = ~a, ~a, ~a\" a b c)))\n\n(let (({:keys [name age]} {:name \"Alice\" :age 30}))\n  (println (format \"Map {:keys} = ~a, age ~a\" name age)))\n\n(let (([first & rest] (list 1 2 3 4 5)))\n  (println (format \"first = ~a, rest = ~a\" first rest)))"
+      "source": "; Destructuring — vectors, maps, and rest args\n(let (([a b c] (list 10 20 30)))\n  (println (format \"Vector [a b c] = ~a, ~a, ~a\" a b c)))\n\n(let (({:keys [name age]} {:name \"Alice\" :age 30}))\n  (println (format \"Map {:keys} = ~a, age ~a\" name age)))\n\n(let (([first & rest] (list 1 2 3 4 5)))\n  (println (format \"first = ~a, rest = ~a\" first rest)))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": "Vector [a b c] = 10, 20, 30\nMap {:keys} = Alice, age 30\nfirst = 1, rest = (2 3 4 5)\n",
+          "timestamp": "2026-05-15T08:25:04.255828Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.255826Z",
+          "duration_ms": 2
+        }
+      ]
     },
     {
       "id": "c00000005",
@@ -35,17 +63,59 @@
     {
       "id": "c00000006",
       "type": "code",
-      "source": "; Threading macros — data transformation pipelines\n(println (format \"-> thread-first: ~a\" (-> 5 (+ 3) (* 2))))\n\n(println (format \"->> thread-last: ~a\"\n  (->> (range 1 21)\n       (filter odd?)\n       (map (fn (x) (* x x)))\n       (foldl + 0))))\n\n; Keywords as functions\n(define person {:name \"Ada\" :field \"Mathematics\"})\n(println (format \"(:name person) = ~a\" (:name person)))"
+      "source": "; Threading macros — data transformation pipelines\n(println (format \"-> thread-first: ~a\" (-> 5 (+ 3) (* 2))))\n\n(println (format \"->> thread-last: ~a\"\n  (->> (range 1 21)\n       (filter odd?)\n       (map (fn (x) (* x x)))\n       (foldl + 0))))\n\n; Keywords as functions\n(define person {:name \"Ada\" :field \"Mathematics\"})\n(println (format \"(:name person) = ~a\" (:name person)))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": "-> thread-first: 16\n->> thread-last: 1330\n(:name person) = Ada\n",
+          "timestamp": "2026-05-15T08:25:04.258640Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.258639Z",
+          "duration_ms": 2
+        }
+      ]
     },
     {
       "id": "c00000007",
       "type": "code",
-      "source": "; Lazy streams — infinite Fibonacci sequence\n(define (stream-cons h t) (list h t))\n(define (stream-car s) (car s))\n(define (stream-cdr s) ((cadr s)))\n(define (stream-take n s)\n  (let loop ((i n) (s s) (acc (list)))\n    (if (or (= i 0) (nil? s)) (reverse acc)\n      (loop (- i 1) (stream-cdr s) (cons (stream-car s) acc)))))\n\n(define fibs\n  (let ()\n    (define (fib a b)\n      (stream-cons a (fn () (fib b (+ a b)))))\n    (fib 0 1)))\n\n(println (format \"First 20 Fibonacci numbers:\\n~a\" (stream-take 20 fibs)))"
+      "source": "; Lazy streams — infinite Fibonacci sequence\n(define (stream-cons h t) (list h t))\n(define (stream-car s) (car s))\n(define (stream-cdr s) ((cadr s)))\n(define (stream-take n s)\n  (let loop ((i n) (s s) (acc (list)))\n    (if (or (= i 0) (nil? s)) (reverse acc)\n      (loop (- i 1) (stream-cdr s) (cons (stream-car s) acc)))))\n\n(define fibs\n  (let ()\n    (define (fib a b)\n      (stream-cons a (fn () (fib b (+ a b)))))\n    (fib 0 1)))\n\n(println (format \"First 20 Fibonacci numbers:\\n~a\" (stream-take 20 fibs)))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": "First 20 Fibonacci numbers:\n(0 1 1 2 3 5 8 13 21 34 55 89 144 233 377 610 987 1597 2584 4181)\n",
+          "timestamp": "2026-05-15T08:25:04.261740Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.261738Z",
+          "duration_ms": 3
+        }
+      ]
     },
     {
       "id": "c00000008",
       "type": "code",
-      "source": "; Higher-order functions — currying\n(define (curry2 f) (fn (a) (fn (b) (f a b))))\n(define add (curry2 +))\n(define mul (curry2 *))\n(define add5 (add 5))\n(define double (mul 2))\n\n(println (format \"add5(3)    = ~a\" (add5 3)))\n(println (format \"double(21) = ~a\" (double 21)))\n\n; Compose transformations\n(define transform\n  (fn (x) (add5 (double x))))\n(println (format \"double then add5 on 10 = ~a\" (transform 10)))"
+      "source": "; Higher-order functions — currying\n(define (curry2 f) (fn (a) (fn (b) (f a b))))\n(define add (curry2 +))\n(define mul (curry2 *))\n(define add5 (add 5))\n(define double (mul 2))\n\n(println (format \"add5(3)    = ~a\" (add5 3)))\n(println (format \"double(21) = ~a\" (double 21)))\n\n; Compose transformations\n(define transform\n  (fn (x) (add5 (double x))))\n(println (format \"double then add5 on 10 = ~a\" (transform 10)))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": "add5(3)    = 8\ndouble(21) = 42\ndouble then add5 on 10 = 25\n",
+          "timestamp": "2026-05-15T08:25:04.263483Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.263482Z",
+          "duration_ms": 1
+        }
+      ]
     },
     {
       "id": "c00000009",
@@ -55,12 +125,40 @@
     {
       "id": "c0000000a",
       "type": "code",
-      "source": "; ASCII sine wave\n(define width 60)\n(define height 15)\n(define mid (/ (- height 1) 2))\n(let row-loop ((row 0))\n  (when (< row height)\n    (let col-loop ((col 0) (line \"\"))\n      (if (>= col width)\n        (println line)\n        (let* ((x (* (/ col width) 4 3.14159))\n               (y (round (* (sin x) mid)))\n               (target (+ mid y)))\n          (col-loop (+ col 1)\n            (string-append line\n              (if (= row target) \"*\"\n                (if (= row mid) \"-\" \" \")))))))\n    (row-loop (+ row 1))))"
+      "source": "; ASCII sine wave\n(define width 60)\n(define height 15)\n(define mid (/ (- height 1) 2))\n(let row-loop ((row 0))\n  (when (< row height)\n    (let col-loop ((col 0) (line \"\"))\n      (if (>= col width)\n        (println line)\n        (let* ((x (* (/ col width) 4 3.14159))\n               (y (round (* (sin x) mid)))\n               (target (+ mid y)))\n          (col-loop (+ col 1)\n            (string-append line\n              (if (= row target) \"*\"\n                (if (= row mid) \"-\" \" \")))))))\n    (row-loop (+ row 1))))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": "                     ****                          ****     \n                    *    *                        *    *    \n                   *      *                      *      *   \n                  *        *                    *        *  \n                 *          *                  *          * \n                                                            \n                *            *                *            *\n*--------------*--------------*--------------*--------------\n *            *                *            *               \n                                                            \n  *          *                  *          *                \n   *        *                    *        *                 \n    *      *                      *      *                  \n     *    *                        *    *                   \n      ****                          ****                    \n",
+          "timestamp": "2026-05-15T08:25:04.269731Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.269730Z",
+          "duration_ms": 6
+        }
+      ]
     },
     {
       "id": "c0000000b",
       "type": "code",
-      "source": "; L-System string rewriting — Algae growth model\n; Rules: A -> AB, B -> A (models algal growth)\n(define (apply-rules str rules)\n  (string/join\n    (map (fn (ch)\n      (let* ((k (string->keyword (char->string ch)))\n             (r (get rules k)))\n        (if (nil? r) (char->string ch) r)))\n      (string->list str))\n    \"\"))\n\n(let loop ((s \"A\") (i 0))\n  (when (<= i 7)\n    (println (format \"Gen ~a (len ~a): ~a\" i (string-length s)\n      (if (> (string-length s) 55)\n        (string-append (substring s 0 55) \"...\")\n        s)))\n    (loop (apply-rules s {:A \"AB\" :B \"A\"}) (+ i 1))))"
+      "source": "; L-System string rewriting — Algae growth model\n; Rules: A -> AB, B -> A (models algal growth)\n(define (apply-rules str rules)\n  (string/join\n    (map (fn (ch)\n      (let* ((k (string->keyword (char->string ch)))\n             (r (get rules k)))\n        (if (nil? r) (char->string ch) r)))\n      (string->list str))\n    \"\"))\n\n(let loop ((s \"A\") (i 0))\n  (when (<= i 7)\n    (println (format \"Gen ~a (len ~a): ~a\" i (string-length s)\n      (if (> (string-length s) 55)\n        (string-append (substring s 0 55) \"...\")\n        s)))\n    (loop (apply-rules s {:A \"AB\" :B \"A\"}) (+ i 1))))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": "Gen 0 (len 1): A\nGen 1 (len 2): AB\nGen 2 (len 3): ABA\nGen 3 (len 5): ABAAB\nGen 4 (len 8): ABAABABA\nGen 5 (len 13): ABAABABAABAAB\nGen 6 (len 21): ABAABABAABAABABAABABA\nGen 7 (len 34): ABAABABAABAABABAABABAABAABABAABAAB\n",
+          "timestamp": "2026-05-15T08:25:04.272885Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.272884Z",
+          "duration_ms": 3
+        }
+      ]
     },
     {
       "id": "c0000000c",
@@ -70,12 +168,40 @@
     {
       "id": "c0000000d",
       "type": "code",
-      "source": "; Record types — structured data with accessors\n(define-record-type Point\n  (make-point x y)\n  point?\n  (x point-x)\n  (y point-y))\n\n(define p1 (make-point 3 4))\n(define p2 (make-point 7 1))\n(define origin (make-point 0 0))\n\n(define (distance a b)\n  (sqrt (+ (expt (- (point-x b) (point-x a)) 2)\n           (expt (- (point-y b) (point-y a)) 2))))\n\n(println (format \"p1 = (~a, ~a)\" (point-x p1) (point-y p1)))\n(println (format \"p2 = (~a, ~a)\" (point-x p2) (point-y p2)))\n(println (format \"distance(p1, p2) = ~a\" (distance p1 p2)))\n(println (format \"distance(p1, origin) = ~a\" (distance p1 origin)))"
+      "source": "; Record types — structured data with accessors\n(define-record-type Point\n  (make-point x y)\n  point?\n  (x point-x)\n  (y point-y))\n\n(define p1 (make-point 3 4))\n(define p2 (make-point 7 1))\n(define origin (make-point 0 0))\n\n(define (distance a b)\n  (sqrt (+ (expt (- (point-x b) (point-x a)) 2)\n           (expt (- (point-y b) (point-y a)) 2))))\n\n(println (format \"p1 = (~a, ~a)\" (point-x p1) (point-y p1)))\n(println (format \"p2 = (~a, ~a)\" (point-x p2) (point-y p2)))\n(println (format \"distance(p1, p2) = ~a\" (distance p1 p2)))\n(println (format \"distance(p1, origin) = ~a\" (distance p1 origin)))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": "p1 = (3, 4)\np2 = (7, 1)\ndistance(p1, p2) = 5.0\ndistance(p1, origin) = 5.0\n",
+          "timestamp": "2026-05-15T08:25:04.275516Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.275515Z",
+          "duration_ms": 2
+        }
+      ]
     },
     {
       "id": "c0000000e",
       "type": "code",
-      "source": "; Hashmaps — nested maps and keyword access\n(define team\n  {:lead {:name \"Grace Hopper\"    :role \"Architect\"  :years 15}\n   :dev  {:name \"Alan Turing\"     :role \"Developer\"  :years 8}\n   :ops  {:name \"Margaret Hamilton\" :role \"Operations\" :years 12}})\n\n(for-each\n  (fn (entry)\n    (let* ((role (car entry))\n           (info (cadr entry)))\n      (println (format \"~a: ~a (~a, ~a yrs)\"\n        role (:name info) (:role info) (:years info)))))\n  (map/entries team))"
+      "source": "; Hashmaps — nested maps and keyword access\n(define team\n  {:lead {:name \"Grace Hopper\"    :role \"Architect\"  :years 15}\n   :dev  {:name \"Alan Turing\"     :role \"Developer\"  :years 8}\n   :ops  {:name \"Margaret Hamilton\" :role \"Operations\" :years 12}})\n\n(for-each\n  (fn (entry)\n    (let* ((role (car entry))\n           (info (cadr entry)))\n      (println (format \"~a: ~a (~a, ~a yrs)\"\n        role (:name info) (:role info) (:years info)))))\n  (map/entries team))",
+      "outputs": [
+        {
+          "type": "stdout",
+          "display": ":dev: Alan Turing (Developer, 8 yrs)\n:lead: Grace Hopper (Architect, 15 yrs)\n:ops: Margaret Hamilton (Operations, 12 yrs)\n",
+          "timestamp": "2026-05-15T08:25:04.277496Z"
+        },
+        {
+          "type": "value",
+          "display": "",
+          "sema_value": "nil",
+          "timestamp": "2026-05-15T08:25:04.277496Z",
+          "duration_ms": 1
+        }
+      ]
     },
     {
       "id": "c0000000f",
@@ -85,7 +211,15 @@
     {
       "id": "c00000010",
       "type": "code",
-      "source": "; This cell intentionally errors to demonstrate error output\n(/ 1 0)"
+      "source": "; This cell intentionally errors to demonstrate error output\n(/ 1 0)",
+      "outputs": [
+        {
+          "type": "error",
+          "display": "Eval error: division by zero",
+          "timestamp": "2026-05-15T08:25:04.278906Z",
+          "duration_ms": 1
+        }
+      ]
     }
   ]
 }

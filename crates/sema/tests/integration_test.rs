@@ -13723,3 +13723,105 @@ fn test_db_foreign_keys() {
     assert!(result.is_err());
     interp.eval_str(r#"(db/close "fk")"#).unwrap();
 }
+
+// === Sandbox: http/file gated under fs-read (C5) ===
+
+#[test]
+fn test_sandbox_http_file_denied_under_fs_read() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(http/file "/tmp/anything")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+// === Sandbox: db/exec and friends gated (C6) ===
+
+#[test]
+fn test_sandbox_db_exec_denied_under_fs_write() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_WRITE);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(db/exec "nonexistent" "CREATE TABLE t (a INTEGER)")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+
+    let result = interp.eval_str(r#"(db/exec-batch "nonexistent" "SELECT 1")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+#[test]
+fn test_sandbox_db_query_denied_under_fs_read() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(db/query "nonexistent" "SELECT 1")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+
+    let result = interp.eval_str(r#"(db/query-one "nonexistent" "SELECT 1")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+
+    let result = interp.eval_str(r#"(db/tables "nonexistent")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+
+    let result = interp.eval_str(r#"(db/last-insert-id "nonexistent")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+// ── Regression: top-level (async ...) drains scheduler at exit (bug C2) ───────
+//
+// A top-level `(async ...)` form spawns a task whose side effects would
+// silently vanish on exit unless the scheduler is drained. The CLI now
+// invokes the scheduler after a successful top-level eval to flush any
+// pending work.
+#[test]
+fn test_cli_top_level_async_drains_scheduler() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args([
+            "--no-init",
+            "-e",
+            r#"(begin (async (println "side effect!")) :end)"#,
+        ])
+        .output()
+        .expect("failed to run sema");
+
+    assert!(
+        output.status.success(),
+        "sema -e exited non-zero: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("side effect!"),
+        "expected top-level async side effect to run, got stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains(":end"),
+        "expected final expression value, got stdout: {stdout}"
+    );
+}

@@ -405,7 +405,9 @@ fn call_multimethod(ctx: &EvalContext, mm: &Rc<MultiMethod>, args: &[Value]) -> 
 /// don't grow the Rust call stack for every evaluation step.
 fn run_trampoline(ctx: &EvalContext, trampoline: Trampoline) -> EvalResult {
     let limit = ctx.eval_step_limit.get();
+    let has_deadline = ctx.eval_deadline.get().is_some();
     let mut current = trampoline;
+    let mut deadline_tick: u32 = 0;
     loop {
         match current {
             Trampoline::Value(v) => return Ok(v),
@@ -415,6 +417,13 @@ fn run_trampoline(ctx: &EvalContext, trampoline: Trampoline) -> EvalResult {
                     ctx.eval_steps.set(v);
                     if v > limit {
                         return Err(SemaError::eval("eval step limit exceeded".to_string()));
+                    }
+                }
+                // Wall-clock deadline check (sampled every 1024 steps to keep cost low)
+                if has_deadline {
+                    deadline_tick = deadline_tick.wrapping_add(1);
+                    if (deadline_tick & 0x3FF) == 0 {
+                        ctx.check_deadline()?;
                     }
                 }
                 match eval_step(ctx, &expr, &env) {
@@ -468,12 +477,24 @@ fn eval_value_inner(ctx: &EvalContext, expr: &Value, env: &Env) -> EvalResult {
                 }
             }
 
+            let has_deadline = ctx.eval_deadline.get().is_some();
+            let mut deadline_tick: u32 = 0;
             loop {
                 if limit > 0 {
                     let v = ctx.eval_steps.get() + 1;
                     ctx.eval_steps.set(v);
                     if v > limit {
                         return Err(SemaError::eval("eval step limit exceeded".to_string()));
+                    }
+                }
+                if has_deadline {
+                    deadline_tick = deadline_tick.wrapping_add(1);
+                    if (deadline_tick & 0x3FF) == 0 && ctx.deadline_exceeded() {
+                        drop(guard);
+                        return Err(SemaError::eval(
+                            "evaluation exceeded time budget (looks like an infinite loop?)"
+                                .to_string(),
+                        ));
                     }
                 }
 

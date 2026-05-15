@@ -6,13 +6,31 @@
 
 use std::collections::BTreeMap;
 use std::io::Read as _;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use sema_core::{pretty_print, resolve, Spur, Value};
 use sema_eval::Interpreter;
 
 use crate::format::{CellOutput, CellType, Notebook, OutputType};
+
+/// Default wall-clock budget for a single cell evaluation.
+/// Override via the `SEMA_NOTEBOOK_TIMEOUT_MS` environment variable; set the
+/// variable to `0` to disable the timeout entirely.
+pub const DEFAULT_CELL_TIMEOUT_MS: u64 = 30_000;
+
+/// Resolve the configured cell evaluation timeout. Reads
+/// `SEMA_NOTEBOOK_TIMEOUT_MS` (milliseconds). Returns `None` to disable.
+fn resolve_cell_timeout() -> Option<Duration> {
+    match std::env::var("SEMA_NOTEBOOK_TIMEOUT_MS") {
+        Ok(s) => match s.trim().parse::<u64>() {
+            Ok(0) => None,
+            Ok(ms) => Some(Duration::from_millis(ms)),
+            Err(_) => Some(Duration::from_millis(DEFAULT_CELL_TIMEOUT_MS)),
+        },
+        Err(_) => Some(Duration::from_millis(DEFAULT_CELL_TIMEOUT_MS)),
+    }
+}
 
 /// Snapshot of the global environment bindings before a cell eval.
 struct EnvSnapshot {
@@ -48,6 +66,8 @@ pub struct Engine {
     pub notebook: Notebook,
     /// Snapshot from before the last cell eval (for single-step undo).
     snapshot: Option<EnvSnapshot>,
+    /// Per-cell wall-clock evaluation budget. `None` disables the limit.
+    cell_timeout: Option<Duration>,
 }
 
 impl Engine {
@@ -58,6 +78,7 @@ impl Engine {
             interpreter,
             notebook,
             snapshot: None,
+            cell_timeout: resolve_cell_timeout(),
         }
     }
 
@@ -65,6 +86,16 @@ impl Engine {
     pub fn from_file(path: &std::path::Path) -> Result<Self, String> {
         let notebook = Notebook::load(path)?;
         Ok(Self::new(notebook))
+    }
+
+    /// Override the per-cell wall-clock evaluation budget. Pass `None` to disable.
+    pub fn set_cell_timeout(&mut self, timeout: Option<Duration>) {
+        self.cell_timeout = timeout;
+    }
+
+    /// The currently configured per-cell evaluation budget.
+    pub fn cell_timeout(&self) -> Option<Duration> {
+        self.cell_timeout
     }
 
     /// Evaluate a single cell by ID. Returns the result and updates the notebook.
@@ -127,6 +158,17 @@ impl Engine {
     pub fn eval_source(&mut self, source: &str) -> EvalResult {
         let start = Instant::now();
 
+        // Apply the wall-clock deadline to the interpreter context so an
+        // infinite loop in a cell does not hang the engine thread forever.
+        // The deadline is cleared after the eval regardless of outcome.
+        if let Some(budget) = self.cell_timeout {
+            self.interpreter
+                .ctx
+                .set_eval_deadline(Some(Instant::now() + budget));
+        } else {
+            self.interpreter.ctx.set_eval_deadline(None);
+        }
+
         // Capture stdout during evaluation
         let mut captured = String::new();
         let eval_result = if let Ok(mut redirect) = gag::BufferRedirect::stdout() {
@@ -138,6 +180,10 @@ impl Engine {
             // Fallback: eval without capture (shouldn't happen)
             self.interpreter.eval_str_compiled(source)
         };
+
+        // Always clear the deadline so subsequent cells (and unrelated
+        // interpreter usage) are not poisoned by it.
+        self.interpreter.ctx.set_eval_deadline(None);
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -506,6 +552,78 @@ mod tests {
 
         engine.undo_last_cell().unwrap();
         assert!(!engine.can_undo());
+    }
+
+    // ── Infinite-loop / timeout tests ───────────────────────────
+
+    #[test]
+    fn infinite_recursion_aborts_within_budget() {
+        let mut engine = test_engine();
+        engine.set_cell_timeout(Some(Duration::from_millis(500)));
+
+        let start = Instant::now();
+        let (_, result) = engine
+            .create_and_eval("(define (loop) (loop)) (loop)")
+            .unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(
+            result.output.output_type,
+            OutputType::Error,
+            "infinite recursion should produce an Error output, got {:?}",
+            result.output
+        );
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "eval should abort well before 2s; took {elapsed:?}"
+        );
+        assert!(
+            result.output.display.to_lowercase().contains("time budget")
+                || result
+                    .output
+                    .display
+                    .to_lowercase()
+                    .contains("infinite loop"),
+            "error message should mention the time budget / infinite loop; got: {}",
+            result.output.display
+        );
+    }
+
+    #[test]
+    fn infinite_while_loop_aborts_within_budget() {
+        let mut engine = test_engine();
+        engine.set_cell_timeout(Some(Duration::from_millis(500)));
+
+        let start = Instant::now();
+        let (_, result) = engine.create_and_eval("(while #t 1)").unwrap();
+        let elapsed = start.elapsed();
+
+        assert_eq!(result.output.output_type, OutputType::Error);
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "while-loop eval should abort well before 2s; took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn engine_recovers_after_timeout() {
+        let mut engine = test_engine();
+        engine.set_cell_timeout(Some(Duration::from_millis(300)));
+
+        // First cell hangs and should time out
+        let (_, hang) = engine
+            .create_and_eval("(define (loop) (loop)) (loop)")
+            .unwrap();
+        assert_eq!(hang.output.output_type, OutputType::Error);
+
+        // Engine must still be usable for subsequent cells
+        let (_, ok) = engine.create_and_eval("(+ 1 2)").unwrap();
+        assert_eq!(ok.output.output_type, OutputType::Value);
+        assert_eq!(ok.output.display, "3");
+
+        // And undo should still work for the most recent cell
+        assert!(engine.can_undo());
+        engine.undo_last_cell().unwrap();
     }
 
     #[test]

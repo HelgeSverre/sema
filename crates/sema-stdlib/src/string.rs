@@ -360,10 +360,23 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let n = args[1]
+        let n_i = args[1]
             .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        if n_i < 0 {
+            return Err(SemaError::eval("string/repeat: count must be non-negative")
+                .with_hint(format!("got {n_i}; pass 0 or a positive integer")));
+        }
+        let n = n_i as usize;
+        if s.len().checked_mul(n).is_none() {
+            return Err(
+                SemaError::eval("string/repeat: result length overflows usize").with_hint(format!(
+                    "input length {} * count {} exceeds addressable memory",
+                    s.len(),
+                    n
+                )),
+            );
+        }
         Ok(Value::string(&s.repeat(n)))
     });
 

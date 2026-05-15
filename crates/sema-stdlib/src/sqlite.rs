@@ -107,7 +107,7 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     );
 
     // (db/exec handle sql ...params) -> int (affected rows)
-    crate::register_fn(env, "db/exec", |args| {
+    crate::register_fn_gated(env, sandbox, sema_core::Caps::FS_WRITE, "db/exec", |args| {
         if args.len() < 2 {
             return Err(SemaError::arity("db/exec", "2+", args.len()));
         }
@@ -132,28 +132,34 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     // (db/exec-batch handle sql) -> nil (execute multiple statements)
-    crate::register_fn(env, "db/exec-batch", |args| {
-        check_arity!(args, "db/exec-batch", 2);
-        let handle = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let sql = args[1]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+    crate::register_fn_gated(
+        env,
+        sandbox,
+        sema_core::Caps::FS_WRITE,
+        "db/exec-batch",
+        |args| {
+            check_arity!(args, "db/exec-batch", 2);
+            let handle = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let sql = args[1]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
 
-        DB_CONNECTIONS.with(|c| {
-            let c = c.borrow();
-            let conn = c.get(handle).ok_or_else(|| {
-                SemaError::eval(format!("db/exec-batch: no open database '{handle}'"))
-            })?;
-            conn.execute_batch(sql)
-                .map_err(|e| SemaError::eval(format!("db/exec-batch: {e}")))?;
-            Ok(Value::nil())
-        })
-    });
+            DB_CONNECTIONS.with(|c| {
+                let c = c.borrow();
+                let conn = c.get(handle).ok_or_else(|| {
+                    SemaError::eval(format!("db/exec-batch: no open database '{handle}'"))
+                })?;
+                conn.execute_batch(sql)
+                    .map_err(|e| SemaError::eval(format!("db/exec-batch: {e}")))?;
+                Ok(Value::nil())
+            })
+        },
+    );
 
     // (db/query handle sql ...params) -> list of maps
-    crate::register_fn(env, "db/query", |args| {
+    crate::register_fn_gated(env, sandbox, sema_core::Caps::FS_READ, "db/query", |args| {
         if args.len() < 2 {
             return Err(SemaError::arity("db/query", "2+", args.len()));
         }
@@ -198,73 +204,90 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     // (db/query-one handle sql ...params) -> map or nil
-    crate::register_fn(env, "db/query-one", |args| {
-        if args.len() < 2 {
-            return Err(SemaError::arity("db/query-one", "2+", args.len()));
-        }
-        let handle = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let sql = args[1]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
-        let params: Vec<SqlValue> = args[2..].iter().map(sema_to_sql).collect();
-
-        DB_CONNECTIONS.with(|c| {
-            let c = c.borrow();
-            let conn = c.get(handle).ok_or_else(|| {
-                SemaError::eval(format!("db/query-one: no open database '{handle}'"))
-            })?;
-            let mut stmt = conn
-                .prepare(sql)
-                .map_err(|e| SemaError::eval(format!("db/query-one: {e}")))?;
-            let col_count = stmt.column_count();
-            let col_names: Vec<String> = (0..col_count)
-                .map(|i| stmt.column_name(i).unwrap().to_string())
-                .collect();
-
-            let mut rows = stmt
-                .query_map(params_from_iter(params.iter()), |row| {
-                    let mut map = BTreeMap::new();
-                    for (i, name) in col_names.iter().enumerate() {
-                        let val: SqlValue = row.get(i)?;
-                        map.insert(Value::keyword(name), sql_to_sema(&val));
-                    }
-                    Ok(Value::map(map))
-                })
-                .map_err(|e| SemaError::eval(format!("db/query-one: {e}")))?;
-
-            match rows.next() {
-                Some(row) => row.map_err(|e| SemaError::eval(format!("db/query-one: {e}"))),
-                None => Ok(Value::nil()),
+    crate::register_fn_gated(
+        env,
+        sandbox,
+        sema_core::Caps::FS_READ,
+        "db/query-one",
+        |args| {
+            if args.len() < 2 {
+                return Err(SemaError::arity("db/query-one", "2+", args.len()));
             }
-        })
-    });
+            let handle = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let sql = args[1]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+            let params: Vec<SqlValue> = args[2..].iter().map(sema_to_sql).collect();
+
+            DB_CONNECTIONS.with(|c| {
+                let c = c.borrow();
+                let conn = c.get(handle).ok_or_else(|| {
+                    SemaError::eval(format!("db/query-one: no open database '{handle}'"))
+                })?;
+                let mut stmt = conn
+                    .prepare(sql)
+                    .map_err(|e| SemaError::eval(format!("db/query-one: {e}")))?;
+                let col_count = stmt.column_count();
+                let col_names: Vec<String> = (0..col_count)
+                    .map(|i| stmt.column_name(i).unwrap().to_string())
+                    .collect();
+
+                let mut rows = stmt
+                    .query_map(params_from_iter(params.iter()), |row| {
+                        let mut map = BTreeMap::new();
+                        for (i, name) in col_names.iter().enumerate() {
+                            let val: SqlValue = row.get(i)?;
+                            map.insert(Value::keyword(name), sql_to_sema(&val));
+                        }
+                        Ok(Value::map(map))
+                    })
+                    .map_err(|e| SemaError::eval(format!("db/query-one: {e}")))?;
+
+                match rows.next() {
+                    Some(row) => row.map_err(|e| SemaError::eval(format!("db/query-one: {e}"))),
+                    None => Ok(Value::nil()),
+                }
+            })
+        },
+    );
 
     // (db/last-insert-id handle) -> int
-    crate::register_fn(env, "db/last-insert-id", |args| {
-        check_arity!(args, "db/last-insert-id", 1);
-        let handle = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+    crate::register_fn_gated(
+        env,
+        sandbox,
+        sema_core::Caps::FS_READ,
+        "db/last-insert-id",
+        |args| {
+            check_arity!(args, "db/last-insert-id", 1);
+            let handle = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
 
-        DB_CONNECTIONS.with(|c| {
-            let c = c.borrow();
-            let conn = c.get(handle).ok_or_else(|| {
-                SemaError::eval(format!("db/last-insert-id: no open database '{handle}'"))
-            })?;
-            Ok(Value::int(conn.last_insert_rowid()))
-        })
-    });
+            DB_CONNECTIONS.with(|c| {
+                let c = c.borrow();
+                let conn = c.get(handle).ok_or_else(|| {
+                    SemaError::eval(format!("db/last-insert-id: no open database '{handle}'"))
+                })?;
+                Ok(Value::int(conn.last_insert_rowid()))
+            })
+        },
+    );
 
     // (db/tables handle) -> list of strings
-    crate::register_fn(env, "db/tables", |args| {
-        check_arity!(args, "db/tables", 1);
-        let handle = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+    crate::register_fn_gated(
+        env,
+        sandbox,
+        sema_core::Caps::FS_READ,
+        "db/tables",
+        |args| {
+            check_arity!(args, "db/tables", 1);
+            let handle = args[0]
+                .as_str()
+                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
 
-        DB_CONNECTIONS.with(|c| {
+            DB_CONNECTIONS.with(|c| {
             let c = c.borrow();
             let conn = c.get(handle).ok_or_else(|| {
                 SemaError::eval(format!("db/tables: no open database '{handle}'"))
@@ -284,7 +307,8 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 .collect();
             Ok(Value::list(names))
         })
-    });
+        },
+    );
 
     // (db/close handle) -> nil
     crate::register_fn(env, "db/close", |args| {
