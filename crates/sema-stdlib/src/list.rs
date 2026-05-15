@@ -1089,17 +1089,16 @@ pub fn register(env: &sema_core::Env) {
         if items.is_empty() {
             return Ok(Value::string(""));
         }
-        let strs: Vec<String> = items.iter().map(|v| format!("{}", v)).collect();
-        if strs.len() == 1 {
-            return Ok(Value::string(&strs[0]));
+        use std::fmt::Write;
+        let mut out = String::with_capacity(items.len().saturating_mul(8));
+        let last = items.len().saturating_sub(1);
+        for (i, v) in items.iter().enumerate() {
+            if i > 0 {
+                out.push_str(if i == last { &final_sep } else { &sep });
+            }
+            write!(&mut out, "{}", v).unwrap();
         }
-        let init = strs[..strs.len() - 1].join(&sep);
-        Ok(Value::string(&format!(
-            "{}{}{}",
-            init,
-            final_sep,
-            strs[strs.len() - 1]
-        )))
+        Ok(Value::string(&out))
     });
 
     // tap — side-effect then return original

@@ -475,7 +475,9 @@ fn assemble(args: &[Value]) -> Result<Value, SemaError> {
         if item.as_symbol().is_some() || item.as_keyword().is_some() {
             continue;
         }
-        let map = item.as_map_ref().unwrap();
+        let map = item
+            .as_map_ref()
+            .ok_or_else(|| SemaError::eval("pio/assemble: internal: instruction must be a map"))?;
         let word = encode_instruction(map, &labels, delay_bits, side_set_bits, side_set_opt)?;
         words.push(word);
     }

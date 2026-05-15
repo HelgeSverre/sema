@@ -1,5 +1,6 @@
 use std::cell::RefCell;
-use std::path::PathBuf;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -100,6 +101,22 @@ mod colors {
             s.to_string()
         }
     }
+}
+
+/// Read a source file with consistent, friendly error messages.
+///
+/// Standardises the wording across all subcommands so users see the same
+/// phrasing for not-found / permission-denied errors regardless of which
+/// command they ran.
+fn read_source_file(path: impl AsRef<Path>) -> Result<String, String> {
+    let p = path.as_ref();
+    std::fs::read_to_string(p).map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => format!("file not found: {}", p.display()),
+        std::io::ErrorKind::PermissionDenied => {
+            format!("permission denied: {}", p.display())
+        }
+        _ => format!("reading {}: {}", p.display(), e),
+    })
 }
 
 thread_local! {
@@ -515,6 +532,7 @@ enum PkgCommands {
 }
 
 #[derive(Subcommand)]
+#[command(subcommand_required = true, arg_required_else_help = true)]
 enum NotebookCommands {
     /// Start the notebook server with browser UI
     Serve {
@@ -763,7 +781,7 @@ fn main() {
         if let Ok(canonical) = path.canonicalize() {
             interpreter.ctx.push_file_path(canonical);
         }
-        match std::fs::read_to_string(load_file) {
+        match read_source_file(load_file) {
             Ok(content) => {
                 LAST_SOURCE.with(|s| *s.borrow_mut() = Some(content.clone()));
                 LAST_FILE.with(|f| *f.borrow_mut() = Some(PathBuf::from(load_file)));
@@ -780,8 +798,8 @@ fn main() {
                     }
                 }
             }
-            Err(e) => {
-                eprintln!("Error reading {load_file}: {e}");
+            Err(msg) => {
+                eprintln!("error: {msg}");
                 std::process::exit(1);
             }
         }
@@ -855,7 +873,7 @@ fn main() {
         if let Ok(canonical) = path.canonicalize() {
             interpreter.ctx.push_file_path(canonical);
         }
-        match std::fs::read_to_string(file) {
+        match read_source_file(file) {
             Ok(content) => {
                 LAST_SOURCE.with(|s| *s.borrow_mut() = Some(content.clone()));
                 LAST_FILE.with(|f| *f.borrow_mut() = Some(PathBuf::from(file)));
@@ -871,8 +889,8 @@ fn main() {
                     }
                 }
             }
-            Err(e) => {
-                eprintln!("Error reading {file}: {e}");
+            Err(msg) => {
+                eprintln!("error: {msg}");
                 std::process::exit(1);
             }
         }
@@ -966,6 +984,9 @@ fn run_notebook_command(command: NotebookCommands) {
             for (id, result) in &results {
                 match result {
                     Ok(r) => {
+                        if !r.stdout.is_empty() {
+                            print!("[{id}] (stdout) {}", r.stdout);
+                        }
                         if !r.output.display.is_empty() {
                             println!("[{id}] {}", r.output.display);
                         }
@@ -1315,10 +1336,10 @@ fn print_eval_json(r: &EvalJsonResult) {
 
 fn run_compile(file: &str, output: Option<&str>) {
     let path = std::path::Path::new(file);
-    let source = match std::fs::read_to_string(path) {
+    let source = match read_source_file(path) {
         Ok(s) => s,
-        Err(e) => {
-            eprintln!("Error reading {file}: {e}");
+        Err(msg) => {
+            eprintln!("error: {msg}");
             std::process::exit(1);
         }
     };
@@ -1466,17 +1487,28 @@ fn run_build(
 
     let path = std::path::Path::new(file);
 
-    // Validate input file exists
-    if !path.exists() {
-        return Err(format!("source file not found: {file}"));
-    }
+    let source = read_source_file(path)?;
 
-    let source = match std::fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) => {
-            return Err(format!("reading {file}: {e}"));
+    // Pre-flight: resolve output path now so we can probe the parent directory
+    // for writability before running any compilation steps. This avoids the
+    // frustrating "failed at step 5 of 5" experience when the user gave an
+    // unwritable -o path.
+    let output_path: std::path::PathBuf = match output {
+        Some(o) => std::path::PathBuf::from(o),
+        None => {
+            let stem = path.file_stem().unwrap_or(path.as_os_str());
+            let needs_exe = target
+                .and_then(|t| cross_compile::resolve_target(t).ok())
+                .is_some_and(cross_compile::is_windows_target)
+                || (target.is_none() && cfg!(windows));
+            if needs_exe {
+                std::path::PathBuf::from(format!("{}.exe", stem.to_string_lossy()))
+            } else {
+                std::path::PathBuf::from(stem)
+            }
         }
     };
+    probe_output_writable(&output_path)?;
 
     eprintln!("[1/5] Compiling {file}...");
 
@@ -1586,23 +1618,6 @@ fn run_build(
 
     eprintln!("[5/5] Writing executable...");
 
-    // Determine output path
-    let output_path = match output {
-        Some(o) => std::path::PathBuf::from(o),
-        None => {
-            let stem = path.file_stem().unwrap_or(path.as_os_str());
-            let needs_exe = target
-                .and_then(|t| cross_compile::resolve_target(t).ok())
-                .is_some_and(cross_compile::is_windows_target)
-                || (target.is_none() && cfg!(windows));
-            if needs_exe {
-                std::path::PathBuf::from(format!("{}.exe", stem.to_string_lossy()))
-            } else {
-                std::path::PathBuf::from(stem)
-            }
-        }
-    };
-
     // Check that output doesn't overwrite the source file
     let input_canonical = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let output_canonical =
@@ -1688,6 +1703,67 @@ fn run_build(
     }
 
     Ok(())
+}
+
+/// Probe whether we can write to the directory that will hold `output_path`.
+///
+/// Creates and immediately deletes a tiny probe file in the parent directory.
+/// Returns a clear error before the build commits to any work if the directory
+/// doesn't exist or denies writes (e.g. /readonly/sema, /no/such/dir/sema).
+fn probe_output_writable(output_path: &Path) -> Result<(), String> {
+    let parent = output_path.parent().unwrap_or_else(|| Path::new("."));
+    let parent = if parent.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        parent
+    };
+    if !parent.exists() {
+        return Err(format!(
+            "output directory does not exist: {}",
+            parent.display()
+        ));
+    }
+    let probe_name = format!(
+        ".sema-build-probe-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0)
+    );
+    let probe = parent.join(probe_name);
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            Ok(())
+        }
+        Err(e) => match e.kind() {
+            std::io::ErrorKind::PermissionDenied => Err(format!(
+                "permission denied writing to {} (for output {})",
+                parent.display(),
+                output_path.display()
+            )),
+            std::io::ErrorKind::NotFound => Err(format!(
+                "output directory does not exist: {}",
+                parent.display()
+            )),
+            _ => Err(format!(
+                "cannot write to {}: {}",
+                parent.display(),
+                strip_os_error(&e.to_string())
+            )),
+        },
+    }
+}
+
+/// Strip trailing " (os error N)" from a system error string for nicer output.
+fn strip_os_error(s: &str) -> String {
+    if let Some(idx) = s.rfind(" (os error ") {
+        if s.ends_with(')') {
+            return s[..idx].to_string();
+        }
+    }
+    s.to_string()
 }
 
 /// Write the executable using format-aware injection.
@@ -1851,7 +1927,12 @@ fn run_disasm(file: &str, json: bool) {
     let bytes = match std::fs::read(file) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("Error reading {file}: {e}");
+            let msg = match e.kind() {
+                std::io::ErrorKind::NotFound => format!("file not found: {file}"),
+                std::io::ErrorKind::PermissionDenied => format!("permission denied: {file}"),
+                _ => format!("reading {file}: {e}"),
+            };
+            eprintln!("error: {msg}");
             std::process::exit(1);
         }
     };
@@ -2191,20 +2272,20 @@ fn run_fmt(
     let mut errors = 0;
 
     for file in &files {
-        let source = match std::fs::read_to_string(file) {
+        let source = match read_source_file(file) {
             Ok(s) => s,
-            Err(e) => {
+            Err(msg) => {
                 if json {
                     println!(
                         "{}",
                         serde_json::json!({
                             "file": file,
                             "formatted": false,
-                            "error": format!("Error reading {file}: {e}")
+                            "error": msg,
                         })
                     );
                 } else {
-                    eprintln!("Error reading {file}: {e}");
+                    eprintln!("error: {msg}");
                 }
                 errors += 1;
                 continue;
@@ -2327,10 +2408,10 @@ fn print_simple_diff(filename: &str, old: &str, new: &str) {
 
 fn run_ast(file: Option<String>, eval: Option<String>, json: bool) {
     let source = match (&file, &eval) {
-        (Some(path), None) => match std::fs::read_to_string(path) {
+        (Some(path), None) => match read_source_file(path) {
             Ok(content) => content,
-            Err(e) => {
-                eprintln!("Error reading {path}: {e}");
+            Err(msg) => {
+                eprintln!("error: {msg}");
                 std::process::exit(1);
             }
         },
@@ -2645,10 +2726,22 @@ fn print_error(e: &SemaError) {
 
 fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_vm: bool) {
     let env = interpreter.global_env.clone();
+    // Snapshot all bindings present before user input — these are the prelude /
+    // builtins / history slots. `,env` will hide anything in this set so it
+    // only shows what the user actually defined this session.
+    let mut prelude_keys: HashSet<sema_core::Spur> = HashSet::new();
+    env.iter_bindings(|spur, _| {
+        prelude_keys.insert(spur);
+    });
     env.set(intern("*1"), Value::nil());
     env.set(intern("*2"), Value::nil());
     env.set(intern("*3"), Value::nil());
     env.set(intern("*e"), Value::nil());
+    // Track the history-slot names so they don't leak into `,env`.
+    prelude_keys.insert(intern("*1"));
+    prelude_keys.insert(intern("*2"));
+    prelude_keys.insert(intern("*3"));
+    prelude_keys.insert(intern("*e"));
     interpreter.ctx.interactive.set(true);
     let mut rl = Editor::new().expect("failed to create editor");
     rl.set_helper(Some(SemaCompleter { env: env.clone() }));
@@ -2678,13 +2771,16 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                 // Handle REPL commands
                 if !in_multiline {
                     match trimmed {
-                        ",quit" | ",exit" | ",q" => break,
+                        // Accept both comma-prefixed forms and the bare words /
+                        // common short-forms users habitually type from other
+                        // REPLs (Python, Node, vim).
+                        ",quit" | ",exit" | ",q" | "quit" | "exit" | ":q" => break,
                         ",help" | ",h" => {
                             print_help();
                             continue;
                         }
                         ",env" => {
-                            print_env(&interpreter);
+                            print_env(&interpreter, &prelude_keys);
                             continue;
                         }
                         ",builtins" => {
@@ -2862,6 +2958,11 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                         env.set(intern("*1"), val.clone());
                         if !val.is_nil() {
                             println!("{}", pretty_print(&val, 80));
+                        } else if let Some(name) = top_level_define_name(&input) {
+                            // Give visible feedback for top-level define / defun /
+                            // defmacro forms, which otherwise evaluate to nil and
+                            // look like they did nothing.
+                            println!("{}", colors::dim(&format!("; defined {name}")));
                         }
                     }
                     Err(e) => {
@@ -2879,7 +2980,15 @@ fn repl(interpreter: Interpreter, quiet: bool, sandbox_mode: Option<&str>, use_v
                 }
                 break;
             }
-            Err(ReadlineError::Eof) => break,
+            Err(ReadlineError::Eof) => {
+                // If the user pressed Ctrl-D in the middle of an unterminated
+                // form, surface that rather than silently dropping their input.
+                if in_multiline || !buffer.trim().is_empty() {
+                    eprintln!("error: unterminated input at EOF: {}", buffer.trim());
+                    std::process::exit(1);
+                }
+                break;
+            }
             Err(e) => {
                 eprintln!("Error: {e}");
                 break;
@@ -2921,6 +3030,39 @@ fn is_balanced(input: &str) -> bool {
     depth <= 0 && !in_string
 }
 
+/// If `input` is a top-level definition form like `(define x ...)`,
+/// `(defun foo ...)`, or `(defmacro bar ...)`, return the defined name.
+/// Returns `None` for anything else, including nested defines.
+fn top_level_define_name(input: &str) -> Option<String> {
+    let trimmed = input.trim_start();
+    // Each prefix and how many leading tokens to skip to reach the name.
+    // For `(define`, `(defun`, `(defmacro`, the next token is the name (or for
+    // `(define (foo ...) ...)`, the name is the first symbol inside the form).
+    for kw in ["(define", "(defun", "(defmacro"] {
+        if let Some(rest) = trimmed.strip_prefix(kw) {
+            // The character after the keyword must be whitespace or `(` to
+            // avoid matching `(definer ...)` etc.
+            let next = rest.chars().next()?;
+            if !next.is_whitespace() && next != '(' {
+                continue;
+            }
+            let mut after = rest.trim_start();
+            // Support `(define (foo args...) body)` — strip the leading `(`.
+            if let Some(stripped) = after.strip_prefix('(') {
+                after = stripped.trim_start();
+            }
+            let name: String = after
+                .chars()
+                .take_while(|c| !c.is_whitespace() && *c != '(' && *c != ')')
+                .collect();
+            if !name.is_empty() {
+                return Some(name);
+            }
+        }
+    }
+    None
+}
+
 fn print_help() {
     println!("Sema REPL Commands:");
     println!("  ,quit / ,q    Exit the REPL");
@@ -2945,12 +3087,22 @@ fn print_help() {
     println!("  quote, quasiquote, defmacro, and, or, when, unless");
 }
 
-fn print_env(interpreter: &Interpreter) {
+fn print_env(interpreter: &Interpreter, prelude_keys: &HashSet<sema_core::Spur>) {
     let mut user_bindings: Vec<(String, String)> = Vec::new();
     interpreter.global_env.iter_bindings(|spur, val| {
-        if val.as_native_fn_rc().is_none() {
-            user_bindings.push((sema_core::resolve(spur), format!("{val}")));
+        if val.as_native_fn_rc().is_some() {
+            return;
         }
+        // Skip anything that was already present at REPL start (the prelude).
+        if prelude_keys.contains(&spur) {
+            return;
+        }
+        let name = sema_core::resolve(spur);
+        // Skip history slots (*1, *2, *3, *e) — they're REPL bookkeeping noise.
+        if name.starts_with('*') {
+            return;
+        }
+        user_bindings.push((name, format!("{val}")));
     });
     user_bindings.sort_by(|(a, _), (b, _)| a.cmp(b));
     if user_bindings.is_empty() {

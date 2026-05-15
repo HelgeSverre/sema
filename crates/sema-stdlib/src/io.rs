@@ -887,6 +887,8 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             if !std::io::stdin().is_terminal() {
                 return Ok(Value::nil());
             }
+            // SAFETY: termios is a POD C struct; zero-init is the standard idiom.
+            // tcgetattr (called next) overwrites if successful; we short-circuit if it fails.
             let mut orig: libc::termios = unsafe { std::mem::zeroed() };
             if unsafe { libc::tcgetattr(libc::STDIN_FILENO, &mut orig) } != 0 {
                 return Ok(Value::nil());
@@ -901,7 +903,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
             unsafe { libc::cfmakeraw(&mut raw) };
             raw.c_cc[libc::VMIN] = 1;
             raw.c_cc[libc::VTIME] = 0;
-            unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw) };
+            if unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &raw) } != 0 {
+                return Err(SemaError::eval(format!(
+                    "io/tty-raw!: tcsetattr failed: {}",
+                    std::io::Error::last_os_error()
+                )));
+            }
             Ok(Value::int(id))
         });
 
@@ -913,7 +920,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
                 .ok_or_else(|| SemaError::type_error("integer", args[0].type_name()))?;
             TTY_STORE.with(|s| {
                 if let Some(orig) = s.borrow_mut().remove(&id) {
-                    unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &orig) };
+                    if unsafe { libc::tcsetattr(libc::STDIN_FILENO, libc::TCSANOW, &orig) } != 0 {
+                        eprintln!(
+                            "io/tty-restore!: tcsetattr failed: {}",
+                            std::io::Error::last_os_error()
+                        );
+                    }
                 }
             });
             Ok(Value::nil())

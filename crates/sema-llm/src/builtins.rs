@@ -1011,8 +1011,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                     }
                 }
             }
-            // Try Ollama (local, no auth)
-            if std::env::var("OLLAMA_HOST").is_ok() {
+            // Ollama (local, no auth) — always register; defaults to http://localhost:11434
+            {
                 let provider = OllamaProvider::new(None, model_for!("ollama"))
                     .map_err(|e| SemaError::Llm(e.to_string()))?;
                 reg.register(Box::new(provider));

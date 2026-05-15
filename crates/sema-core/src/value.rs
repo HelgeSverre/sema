@@ -669,6 +669,7 @@ impl Value {
 
     #[inline(always)]
     pub fn symbol_from_spur(spur: Spur) -> Value {
+        // SAFETY: Spur (NonZeroU32) layout-compatible with u32; downcast is always safe.
         let bits: u32 = unsafe { std::mem::transmute(spur) };
         Value(make_boxed(TAG_SYMBOL, bits as u64))
     }
@@ -679,6 +680,7 @@ impl Value {
 
     #[inline(always)]
     pub fn keyword_from_spur(spur: Spur) -> Value {
+        // SAFETY: Spur (NonZeroU32) layout-compatible with u32; downcast is always safe.
         let bits: u32 = unsafe { std::mem::transmute(spur) };
         Value(make_boxed(TAG_KEYWORD, bits as u64))
     }
@@ -969,11 +971,17 @@ impl Value {
             }
             TAG_SYMBOL => {
                 let payload = get_payload(self.0);
+                // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. The payload was
+                // stored via Value::symbol_from_spur from a valid (non-zero) Spur, so the
+                // truncated u32 bits remain non-zero and layout-compatible with Spur.
                 let spur: Spur = unsafe { std::mem::transmute(payload as u32) };
                 ValueView::Symbol(spur)
             }
             TAG_KEYWORD => {
                 let payload = get_payload(self.0);
+                // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. The payload was
+                // stored via Value::keyword_from_spur from a valid (non-zero) Spur, so the
+                // truncated u32 bits remain non-zero and layout-compatible with Spur.
                 let spur: Spur = unsafe { std::mem::transmute(payload as u32) };
                 ValueView::Keyword(spur)
             }
@@ -981,6 +989,11 @@ impl Value {
                 let val = unsafe { *self.borrow_ref::<i64>() };
                 ValueView::Int(val)
             }
+            // SAFETY: every TAG_X arm below calls `get_rc::<T>()` where T matches the
+            // type stored by the corresponding Value::<x>() constructor. The Clone and
+            // Drop impls elsewhere in this file mirror this dispatch table — when adding
+            // a new tag here, update both. The tag check above each branch is what makes
+            // the transmute inside get_rc sound.
             TAG_STRING => ValueView::String(unsafe { self.get_rc::<String>() }),
             TAG_LIST => ValueView::List(unsafe { self.get_rc::<Vec<Value>>() }),
             TAG_VECTOR => ValueView::Vector(unsafe { self.get_rc::<Vec<Value>>() }),
@@ -1215,6 +1228,10 @@ impl Value {
     pub fn as_symbol_spur(&self) -> Option<Spur> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_SYMBOL {
             let payload = get_payload(self.0);
+            // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. TAG_SYMBOL check
+            // above guarantees the payload originated from Value::symbol_from_spur
+            // with a valid (non-zero) Spur, so the u32 bits are non-zero and
+            // layout-compatible with Spur.
             Some(unsafe { std::mem::transmute::<u32, Spur>(payload as u32) })
         } else {
             None
@@ -1228,6 +1245,10 @@ impl Value {
     pub fn as_keyword_spur(&self) -> Option<Spur> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_KEYWORD {
             let payload = get_payload(self.0);
+            // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. TAG_KEYWORD check
+            // above guarantees the payload originated from Value::keyword_from_spur
+            // with a valid (non-zero) Spur, so the u32 bits are non-zero and
+            // layout-compatible with Spur.
             Some(unsafe { std::mem::transmute::<u32, Spur>(payload as u32) })
         } else {
             None

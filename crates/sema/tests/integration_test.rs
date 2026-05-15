@@ -1198,6 +1198,19 @@ fn test_string_ref() {
 }
 
 #[test]
+fn test_string_ref_out_of_bounds_includes_length() {
+    let err = eval_err(r#"(string-ref "hello" 10)"#).to_string();
+    assert!(
+        err.contains("out of bounds"),
+        "expected 'out of bounds', got: {err}"
+    );
+    assert!(
+        err.contains("string length 5"),
+        "expected string length in error, got: {err}"
+    );
+}
+
+#[test]
 fn test_substring() {
     assert_eq!(eval(r#"(substring "hello" 1 3)"#), Value::string("el"));
     assert_eq!(eval(r#"(substring "hello" 0 5)"#), Value::string("hello"));
@@ -4980,9 +4993,19 @@ fn test_delay_memoization() {
 
 #[test]
 fn test_force_non_promise() {
-    // force on non-promise returns value as-is (R7RS compatible)
-    assert_eq!(eval("(force 42)"), Value::int(42));
-    assert_eq!(eval(r#"(force "hello")"#), Value::string("hello"));
+    // Calling `force` on a non-promise is now an error (D4): previously the
+    // tree-walker silently returned the argument as-is, but this hid bugs and
+    // diverged from the VM intrinsic. Both backends now reject non-promises.
+    let err = eval_err("(force 42)");
+    assert!(
+        format!("{err}").contains("thunk"),
+        "expected type-error mentioning 'thunk', got: {err}"
+    );
+    let err = eval_err(r#"(force "hello")"#);
+    assert!(
+        format!("{err}").contains("thunk"),
+        "expected type-error mentioning 'thunk', got: {err}"
+    );
 }
 
 #[test]
@@ -14045,4 +14068,207 @@ fn test_io_read_stdin_empty_returns_empty_string_and_sets_eof() {
         stdout.contains("#t"),
         "expected (io/eof?) to be #t after read-stdin on empty input, got: {stdout}"
     );
+}
+
+// ===========================================================================
+// Wave 6 polish: CLI / REPL ergonomics
+// ===========================================================================
+
+/// Spawn the REPL with a piped stdin payload and the `-q` (quiet) flag.
+fn run_repl_with_input(input: &str) -> std::process::Output {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args(["--no-init", "-q"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn sema");
+    child
+        .stdin
+        .as_mut()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .expect("failed to write stdin");
+    drop(child.stdin.take());
+    child.wait_with_output().expect("failed to wait for sema")
+}
+
+#[test]
+fn test_t3_notebook_run_prints_stdout() {
+    // Create a tiny notebook that prints to stdout via println.
+    let dir = std::env::temp_dir().join(format!("sema-t3-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let nb = dir.join("nb.sema-nb");
+    let body = r#"{
+      "version": 1,
+      "metadata": {"title": "t3", "created": "2026-05-04T00:00:00Z", "modified": "2026-05-04T00:00:00Z", "sema_version": "1.14.3"},
+      "cells": [
+        {"id": "c1", "type": "code", "source": "(println \"hello-from-notebook\")"}
+      ]
+    }"#;
+    std::fs::write(&nb, body).unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args(["notebook", "run", nb.to_str().unwrap()])
+        .output()
+        .expect("failed to spawn sema notebook run");
+    assert!(
+        output.status.success(),
+        "exited non-zero: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("(stdout)") && stdout.contains("hello-from-notebook"),
+        "expected captured stdout to appear in `notebook run` output, got: {stdout}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_u1_file_not_found_wording() {
+    // Compile / run / disasm / fmt / ast: each should produce a consistent
+    // `file not found:` message rather than a raw OS error.
+    let missing = "/tmp/this-file-definitely-does-not-exist-sema-u1.sema";
+
+    for subcmd in &["compile", "fmt", "disasm"] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+            .args([subcmd, missing])
+            .output()
+            .expect("failed to spawn sema");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("file not found"),
+            "{subcmd}: expected consistent 'file not found' wording, got: {stderr}"
+        );
+    }
+
+    // `run` (default file mode) is also covered.
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args(["--no-init", missing])
+        .output()
+        .expect("failed to spawn sema");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("file not found"),
+        "default-run: expected 'file not found' wording, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_u2_notebook_without_subcommand_shows_error_and_help() {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("notebook")
+        .output()
+        .expect("failed to spawn sema");
+    assert!(
+        !output.status.success(),
+        "expected non-zero exit when invoking `sema notebook` with no subcommand"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.to_lowercase().contains("error")
+            || stderr.contains("Usage")
+            || stderr.contains("usage"),
+        "expected clap to emit an error/usage message, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_u3_build_preflight_permission_denied() {
+    // Use a path that almost certainly cannot be written from a normal user
+    // process: /sema-u3-output. On a sandboxed test runner /no-such-parent
+    // returning "output directory does not exist" is equivalent — either
+    // message should be emitted before any [1/5] step.
+    let dir = std::env::temp_dir().join(format!("sema-u3-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("hello.sema");
+    std::fs::write(&src, r#"(println "x")"#).unwrap();
+
+    let unwritable_out = "/no/such/parent/dir/u3-out";
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args(["build", src.to_str().unwrap(), "-o", unwritable_out])
+        .output()
+        .expect("failed to spawn sema build");
+    assert!(
+        !output.status.success(),
+        "expected non-zero exit when output dir is unwritable"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("output directory does not exist") || stderr.contains("permission denied"),
+        "expected pre-flight write error, got: {stderr}"
+    );
+    // Pre-flight must happen before any compile step, so we shouldn't see "[5/5]".
+    assert!(
+        !stderr.contains("[5/5]"),
+        "expected pre-flight to fire before step 5, got: {stderr}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_u4_repl_eof_unterminated() {
+    // Pipe an unterminated form then EOF.  REPL must complain and exit
+    // non-zero rather than silently dropping the input.
+    let output = run_repl_with_input("(+ 1\n");
+    assert!(
+        !output.status.success(),
+        "expected non-zero exit on unterminated EOF"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("unterminated input at EOF"),
+        "expected unterminated-input error, got: {stderr}"
+    );
+}
+
+#[test]
+fn test_u5_repl_define_feedback() {
+    // Top-level `(define x 1)` evaluates to nil; the REPL should still print
+    // `; defined x` so the user knows something happened.
+    let output = run_repl_with_input("(define x 41)\n,quit\n");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("defined x"),
+        "expected '; defined x' feedback, got stdout: {stdout}"
+    );
+}
+
+#[test]
+fn test_u7_repl_env_hides_prelude() {
+    // Define a single user binding and confirm `,env` shows it but not the
+    // hundreds of prelude / history entries.
+    let output = run_repl_with_input("(define my-thing 7)\n,env\n,quit\n");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("my-thing"),
+        "expected user binding to appear in ,env, got: {stdout}"
+    );
+    // History slots (*1, *2, *3, *e) must be hidden.
+    assert!(
+        !stdout.contains("*1 ="),
+        "expected ,env to hide history slot *1, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_u8_repl_bare_quit_exits() {
+    // `quit` (no comma) should exit the REPL the same way `,quit` does.
+    let output = run_repl_with_input("quit\n");
+    assert!(
+        output.status.success(),
+        "bare `quit` should exit cleanly, stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // Same for `exit` and `:q`.
+    let output = run_repl_with_input("exit\n");
+    assert!(output.status.success(), "bare `exit` should exit cleanly");
+    let output = run_repl_with_input(":q\n");
+    assert!(output.status.success(), ":q should exit cleanly");
 }

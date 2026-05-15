@@ -70,7 +70,7 @@ dual_eval_tests! {
     delay_basic: "(force (delay 42))" => Value::int(42),
     delay_is_promise: "(promise? (delay 42))" => Value::bool(true),
     delay_memoize: "(begin (define p (delay (+ 1 2))) (force p) (force p))" => Value::int(3),
-    force_non_promise: "(force 42)" => Value::int(42),
+    // (force 42) — non-promise — now errors (Wave 6a/D4); see dual_eval_test::force_non_promise_errors
     promise_forced: "(begin (define p (delay 99)) (force p) (promise-forced? p))" => Value::bool(true),
 }
 

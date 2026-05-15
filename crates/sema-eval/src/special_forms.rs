@@ -1969,7 +1969,9 @@ fn eval_force(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
         *thunk.forced.borrow_mut() = Some(result.clone());
         Ok(Trampoline::Value(result))
     } else {
-        Ok(Trampoline::Value(val))
+        Err(SemaError::type_error("thunk", val.type_name()).with_hint(
+            "force: argument must be a (delay ...) or promise — non-promise values are an error",
+        ))
     }
 }
 

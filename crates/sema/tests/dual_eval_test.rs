@@ -1162,6 +1162,7 @@ dual_eval_error_tests! {
     nth_negative_errors: "(nth (list 1 2 3) -1)",
     take_negative_errors: "(take -1 (list 1 2 3))" => "non-negative",
     drop_negative_errors: "(drop -1 (list 1 2 3))" => "non-negative",
+    force_non_promise_errors: "(force 42)" => "thunk",
 }
 
 // Integer arithmetic is intentionally wrapping; pin current semantics so a

@@ -40,6 +40,10 @@ struct EnvSnapshot {
     cell_id: String,
     /// The cell's outputs before evaluation (for restore).
     cell_outputs: Vec<CellOutput>,
+    /// IDs of downstream code cells that were freshly transitioned to `stale=true`
+    /// by this evaluation (i.e. they were `stale == false` with non-empty outputs
+    /// before `mark_downstream_stale` ran). Undo restores them to `stale = false`.
+    downstream_stale_ids: Vec<String>,
 }
 
 /// Result of evaluating a single cell.
@@ -113,15 +117,24 @@ impl Engine {
             return Err("Cannot evaluate a markdown cell".to_string());
         }
 
-        // Snapshot env + cell outputs before evaluation
+        // Snapshot env + cell outputs before evaluation.
         let mut bindings = Vec::new();
         self.interpreter
             .global_env
             .iter_bindings(|spur, value| bindings.push((spur, value.clone())));
+        // Record the downstream code cells that will be flipped to stale by
+        // `mark_downstream_stale` below — those are the ones currently
+        // `stale == false` with non-empty outputs.
+        let downstream_stale_ids: Vec<String> = self.notebook.cells[idx + 1..]
+            .iter()
+            .filter(|c| c.cell_type == CellType::Code && !c.stale && !c.outputs.is_empty())
+            .map(|c| c.id.clone())
+            .collect();
         self.snapshot = Some(EnvSnapshot {
             bindings,
             cell_id: cell_id.to_string(),
             cell_outputs: cell.outputs.clone(),
+            downstream_stale_ids,
         });
 
         let source = cell.source.clone();
@@ -298,6 +311,13 @@ impl Engine {
         // Restore the cell's outputs
         if let Some(cell) = self.notebook.cell_mut(&snapshot.cell_id) {
             cell.outputs = snapshot.cell_outputs;
+        }
+
+        // Revert the downstream `stale` flags that this evaluation flipped on.
+        for id in &snapshot.downstream_stale_ids {
+            if let Some(cell) = self.notebook.cell_mut(id) {
+                cell.stale = false;
+            }
         }
 
         Ok(UndoInfo {
@@ -624,6 +644,33 @@ mod tests {
         // And undo should still work for the most recent cell
         assert!(engine.can_undo());
         engine.undo_last_cell().unwrap();
+    }
+
+    #[test]
+    fn undo_reverts_downstream_stale() {
+        let mut engine = test_engine();
+        let id_a = engine.notebook.add_code_cell("(define x 1)");
+        let id_b = engine.notebook.add_code_cell("(* x 10)");
+
+        // Evaluate both cells.
+        engine.eval_cell(&id_a).unwrap();
+        engine.eval_cell(&id_b).unwrap();
+        assert!(!engine.notebook.cell(&id_b).unwrap().stale);
+
+        // Edit cell A and re-evaluate — cell B should be marked stale.
+        engine.notebook.cell_mut(&id_a).unwrap().source = "(define x 2)".to_string();
+        engine.eval_cell(&id_a).unwrap();
+        assert!(
+            engine.notebook.cell(&id_b).unwrap().stale,
+            "B should be stale after re-evaluating A"
+        );
+
+        // Undo the re-eval of A — B should no longer be stale.
+        engine.undo_last_cell().unwrap();
+        assert!(
+            !engine.notebook.cell(&id_b).unwrap().stale,
+            "undo must clear the stale flag it set on downstream cells"
+        );
     }
 
     #[test]

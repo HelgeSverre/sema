@@ -475,6 +475,13 @@ impl VM {
         mut debug: Option<&mut crate::debug::DebugState>,
     ) -> Result<crate::debug::VmExecResult, SemaError> {
         // Raw-pointer macros for reading operands without bounds checks in inner loop
+        //
+        // SAFETY for read_u16!/read_u32!/read_i32!: $pc..$pc+N must be in-bounds
+        // for $code. The in-process emitter (sema-vm/src/lower.rs) emits complete
+        // instructions where every opcode is followed by its full operand bytes.
+        // Deserialized bytecode is validated by advance_pc in serialize.rs, which
+        // rejects truncated chunks. See FIXME(C11) above pop_unchecked for the
+        // known gap with hand-crafted .semac files.
         macro_rules! read_u16 {
             ($code:expr, $pc:expr) => {{
                 let v = unsafe { u16::from_le_bytes([*$code.add($pc), *$code.add($pc + 1)]) };
@@ -812,6 +819,10 @@ impl VM {
                         if entry.0 == bits && entry.1 == version {
                             self.stack.push(entry.2.clone());
                         } else {
+                            // SAFETY: Spur is #[repr(transparent)] over NonZeroU32 (from lasso crate).
+                            // `bits` was emitted by the compiler as the u32 representation of an
+                            // interned Spur for this global name; it is therefore guaranteed
+                            // non-zero and layout-compatible with Spur.
                             let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
                             match self.globals.get(spur) {
                                 Some(val) => {
@@ -827,6 +838,9 @@ impl VM {
                     }
                     op::STORE_GLOBAL => {
                         let bits = read_u32!(code, pc);
+                        // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. `bits` was emitted
+                        // by the compiler from an interned Spur for this global name and is
+                        // therefore non-zero and layout-compatible with Spur.
                         let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         if !self.globals.set_existing(spur, val.clone()) {
@@ -835,6 +849,9 @@ impl VM {
                     }
                     op::DEFINE_GLOBAL => {
                         let bits = read_u32!(code, pc);
+                        // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. `bits` was emitted
+                        // by the compiler from an interned Spur for this global name and is
+                        // therefore non-zero and layout-compatible with Spur.
                         let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         self.globals.set(spur, val);
@@ -1007,13 +1024,13 @@ impl VM {
                     op::MAKE_LIST => {
                         let n = read_u16!(code, pc) as usize;
                         let start = self.stack.len() - n;
-                        let items: Vec<Value> = self.stack.drain(start..).collect();
+                        let items = self.stack.split_off(start);
                         self.stack.push(Value::list(items));
                     }
                     op::MAKE_VECTOR => {
                         let n = read_u16!(code, pc) as usize;
                         let start = self.stack.len() - n;
-                        let items: Vec<Value> = self.stack.drain(start..).collect();
+                        let items = self.stack.split_off(start);
                         self.stack.push(Value::vector(items));
                     }
                     op::MAKE_MAP => {
@@ -1134,6 +1151,12 @@ impl VM {
                     // These operate directly on raw u64 bits to avoid Clone/Drop overhead.
                     // Small ints are immediates (no heap pointer), so we can safely
                     // overwrite stack slots and adjust length without running destructors.
+                    //
+                    // SAFETY: *_INT opcodes are emitted only when the compiler has placed
+                    // two values on the stack (lower.rs guarantees this). The NAN_TAG_MASK
+                    // check confirms both slots hold small-int immediates — pure bit patterns
+                    // with no Rc to leak — so ptr::write skipping Drop is safe. The result
+                    // bits encode a valid small-int Value (NAN_INT_SMALL_PATTERN | 45-bit payload).
                     op::ADD_INT => {
                         let len = self.stack.len();
                         let a_bits = unsafe { (*self.stack.as_ptr().add(len - 2)).raw_bits() };
@@ -1300,6 +1323,9 @@ impl VM {
                         let func_val = if entry.0 == bits && entry.1 == version {
                             entry.2.clone()
                         } else {
+                            // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. `bits` was
+                            // emitted by the compiler from an interned Spur for the callee name
+                            // and is therefore non-zero and layout-compatible with Spur.
                             let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
                             match self.globals.get(spur) {
                                 Some(val) => {

@@ -822,9 +822,11 @@ pub fn apply_macro(
 /// the tree-walker for forms that cannot be fully compiled.
 /// Load built-in macros (threading, when-let, if-let) into the global environment.
 fn load_prelude(ctx: &EvalContext, env: &Rc<Env>) {
-    let exprs = sema_reader::read_many(crate::prelude::PRELUDE).expect("prelude parse error");
+    let exprs = sema_reader::read_many(crate::prelude::PRELUDE)
+        .unwrap_or_else(|e| panic!("internal: prelude failed to parse: {e}"));
     for expr in &exprs {
-        eval_value(ctx, expr, env).expect("prelude eval error");
+        eval_value(ctx, expr, env)
+            .unwrap_or_else(|e| panic!("internal: prelude failed to eval: {e}"));
     }
 }
 
@@ -1004,7 +1006,8 @@ fn register_vm_delegates(env: &Rc<Env>) {
                 *thunk.forced.borrow_mut() = Some(val.clone());
                 Ok(val)
             } else {
-                Ok(args[0].clone())
+                Err(SemaError::type_error("thunk", args[0].type_name())
+                    .with_hint("force: argument must be a (delay ...) or promise — non-promise values are an error"))
             }
         })),
     );

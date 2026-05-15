@@ -12,10 +12,10 @@ from helpers import open_doc
 
 @pytest.mark.asyncio
 async def test_folding_range_multiline(client: LanguageClient):
-    """Multi-line forms should produce folding ranges."""
+    """Forms spanning >=3 lines should produce folding ranges."""
     uri = await open_doc(
         client,
-        "(defun foo (x)\n  (+ x 1))",
+        "(defun foo (x)\n  (+ x 1\n     2))",
     )
     result = await client.text_document_folding_range_async(
         FoldingRangeParams(
@@ -42,11 +42,27 @@ async def test_folding_range_single_line(client: LanguageClient):
 
 
 @pytest.mark.asyncio
+async def test_folding_range_two_line_form_skipped(client: LanguageClient):
+    """Forms spanning only 2 lines are too small to fold (noise threshold)."""
+    uri = await open_doc(
+        client,
+        "(defun foo (x)\n  (+ x 1))",
+    )
+    result = await client.text_document_folding_range_async(
+        FoldingRangeParams(
+            text_document=TextDocumentIdentifier(uri=uri),
+        )
+    )
+    assert result is not None
+    assert len(result) == 0
+
+
+@pytest.mark.asyncio
 async def test_folding_range_nested(client: LanguageClient):
     """Nested multi-line forms should produce multiple fold ranges."""
     uri = await open_doc(
         client,
-        "(defun foo (x)\n  (let ((y 1))\n    (+ x y)))",
+        "(defun foo (x)\n  (let ((y 1))\n    (+ x y\n       (- x 1))))",
     )
     result = await client.text_document_folding_range_async(
         FoldingRangeParams(

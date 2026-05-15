@@ -824,3 +824,34 @@ fn map_callback_can_await_promise() {
         Value::list(vec![Value::int(4), Value::int(9), Value::int(16)]),
     );
 }
+
+// Regression: nested await on a rejected promise must not double the
+// "async/await: task rejected: " prefix in the error message (A2).
+#[test]
+fn nested_await_rejection_does_not_double_prefix() {
+    let err = eval_vm_err(
+        r#"
+        (let ((inner (async/rejected "boom")))
+          (let ((outer (async (await inner))))
+            (await outer)))
+        "#,
+    );
+    assert!(
+        !err.contains("task rejected: task rejected"),
+        "expected single prefix, got: {err}"
+    );
+    assert!(
+        err.contains("task rejected"),
+        "expected rejection message, got: {err}"
+    );
+}
+
+// Regression: async/timeout rejects unreasonably large durations (A3).
+#[test]
+fn async_timeout_rejects_huge_duration() {
+    let err = eval_vm_err(r#"(async/timeout 9999999999999 (async 1))"#);
+    assert!(
+        err.contains("exceeds maximum"),
+        "expected 'exceeds maximum' error, got: {err}"
+    );
+}

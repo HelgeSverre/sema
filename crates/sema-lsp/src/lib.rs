@@ -1488,17 +1488,22 @@ impl BackendState {
 
     fn handle_code_lens(&self, uri: &Url) -> Vec<CodeLens> {
         let uri_str = uri.as_str();
-        let text = match self.documents.get(uri_str) {
-            Some(t) => t,
-            None => return vec![],
-        };
 
-        let (exprs, span_map) = match sema_reader::read_many_with_spans(text) {
-            Ok(r) => r,
-            Err(_) => return vec![],
+        // Prefer the cached parse populated by didChange; only re-parse if
+        // the cache misses (should be rare for open documents).
+        let indexed_ranges = if let Some(cached) = self.cached_parses.get(uri_str) {
+            top_level_ranges(&cached.ast, &cached.span_map)
+        } else {
+            let text = match self.documents.get(uri_str) {
+                Some(t) => t,
+                None => return vec![],
+            };
+            let (exprs, span_map) = match sema_reader::read_many_with_spans(text) {
+                Ok(r) => r,
+                Err(_) => return vec![],
+            };
+            top_level_ranges(&exprs, &span_map)
         };
-
-        let indexed_ranges = top_level_ranges(&exprs, &span_map);
 
         indexed_ranges
             .into_iter()
@@ -1899,14 +1904,19 @@ impl BackendState {
             Err(_) => return,
         };
 
-        let text = match self.documents.get(uri_str) {
-            Some(t) => t.clone(),
-            None => return,
-        };
-
-        let (exprs, span_map) = match sema_reader::read_many_with_spans(&text) {
-            Ok(r) => r,
-            Err(_) => return,
+        // Prefer the cached parse populated by didChange; only re-parse if
+        // the cache misses (should be rare for open documents).
+        let (exprs, span_map) = if let Some(cached) = self.cached_parses.get(uri_str) {
+            (cached.ast.clone(), cached.span_map.clone())
+        } else {
+            let text = match self.documents.get(uri_str) {
+                Some(t) => t.clone(),
+                None => return,
+            };
+            match sema_reader::read_many_with_spans(&text) {
+                Ok(r) => r,
+                Err(_) => return,
+            }
         };
 
         if form_index >= exprs.len() {
@@ -2346,7 +2356,10 @@ impl BackendState {
         for expr in exprs {
             if let Some(items) = expr.as_list() {
                 if let Some(span) = expr_span(expr, span_map) {
-                    if span.end_line > span.line {
+                    // Only emit a fold when the form spans at least 2 visible
+                    // lines (`end_line - line >= 2`). Tiny 1-2-line forms add
+                    // folding noise without any benefit.
+                    if span.end_line.saturating_sub(span.line) >= 2 {
                         ranges.push(FoldingRange {
                             start_line: (span.line - 1) as u32,
                             start_character: Some((span.col - 1) as u32),
@@ -2869,11 +2882,10 @@ impl LanguageServer for Backend {
 
     async fn shutdown(&self) -> Result<()> {
         let _ = self.tx.send(LspRequest::Shutdown);
-        // Workaround for tower-lsp#399: `Server::serve()` may not return
-        // after the `exit` notification. Schedule a forced exit so the
-        // process doesn't hang indefinitely. The 2-second delay gives the
-        // client time to read any final responses before the process dies.
-        // Tradeoff: pending writes or cache flushes may be cut short.
+        // TODO(tower-lsp#399): drop this once the upstream bug is fixed.
+        // See https://github.com/ebkalderon/tower-lsp/issues/399 — without this
+        // force-exit, the LSP server can hang after shutdown when pending writes
+        // or cache flushes haven't been flushed.
         tokio::spawn(async {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             std::process::exit(0);

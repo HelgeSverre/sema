@@ -13,12 +13,13 @@ thread_local! {
 
 pub fn register(env: &sema_core::Env) {
     register_fn(env, "string-append", |args| {
+        use std::fmt::Write;
         let mut result = String::new();
         for arg in args {
             if let Some(s) = arg.as_str() {
                 result.push_str(s);
             } else {
-                result.push_str(&arg.to_string());
+                write!(&mut result, "{}", arg).unwrap();
             }
         }
         Ok(Value::string(&result))
@@ -46,10 +47,13 @@ pub fn register(env: &sema_core::Env) {
             )));
         }
         let idx = idx_signed as usize;
-        s.chars()
-            .nth(idx)
-            .map(Value::char)
-            .ok_or_else(|| SemaError::eval(format!("string-ref: index {idx} out of bounds")))
+        let len = s.chars().count();
+        s.chars().nth(idx).map(Value::char).ok_or_else(|| {
+            SemaError::eval(format!(
+                "string-ref: index {idx} out of bounds (string length {len})"
+            ))
+            .with_hint("indices are 0-based")
+        })
     });
 
     register_fn(env, "substring", |args| {
@@ -279,12 +283,13 @@ pub fn register(env: &sema_core::Env) {
     });
 
     register_fn(env, "str", |args| {
+        use std::fmt::Write;
         let mut result = String::new();
         for arg in args {
             if let Some(s) = arg.as_str() {
                 result.push_str(s);
             } else {
-                result.push_str(&arg.to_string());
+                write!(&mut result, "{}", arg).unwrap();
             }
         }
         Ok(Value::string(&result))

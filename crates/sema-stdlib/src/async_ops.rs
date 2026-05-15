@@ -105,7 +105,14 @@ fn register_promise_ops(env: &Env) {
             match &*state {
                 PromiseState::Resolved(v) => return Ok(v.clone()),
                 PromiseState::Rejected(e) => {
-                    return Err(SemaError::eval(format!("async/await: task rejected: {e}")))
+                    let msg = e.to_string();
+                    let core = msg
+                        .strip_prefix("Eval error: async/await: task rejected: ")
+                        .or_else(|| msg.strip_prefix("async/await: task rejected: "))
+                        .unwrap_or(&msg);
+                    return Err(SemaError::eval(format!(
+                        "async/await: task rejected: {core}"
+                    )));
                 }
                 PromiseState::Pending => {}
             }
@@ -123,7 +130,14 @@ fn register_promise_ops(env: &Env) {
         match &*state {
             PromiseState::Resolved(v) => Ok(v.clone()),
             PromiseState::Rejected(e) => {
-                Err(SemaError::eval(format!("async/await: task rejected: {e}")))
+                let msg = e.to_string();
+                let core = msg
+                    .strip_prefix("Eval error: async/await: task rejected: ")
+                    .or_else(|| msg.strip_prefix("async/await: task rejected: "))
+                    .unwrap_or(&msg);
+                Err(SemaError::eval(format!(
+                    "async/await: task rejected: {core}"
+                )))
             }
             PromiseState::Pending => Err(SemaError::eval(
                 "async/await: still pending after scheduler run",
@@ -295,6 +309,13 @@ fn register_promise_ops(env: &Env) {
             return Err(SemaError::eval(
                 "async/timeout: duration must be non-negative",
             ));
+        }
+        const MAX_TIMEOUT_MS: i64 = 86_400_000; // 1 day
+        if ms > MAX_TIMEOUT_MS {
+            return Err(SemaError::eval(format!(
+                "async/timeout: duration {ms} ms exceeds maximum {MAX_TIMEOUT_MS} ms (1 day)"
+            ))
+            .with_hint("split into smaller timeouts or remove the timeout entirely"));
         }
         let promise = expect_promise(args, "async/timeout", 1)?;
 
