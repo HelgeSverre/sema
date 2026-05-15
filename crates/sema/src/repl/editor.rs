@@ -1,10 +1,11 @@
 use reedline::{
-    default_emacs_keybindings, ColumnarMenu, DefaultHinter, Emacs, KeyCode, KeyModifiers,
-    MenuBuilder, Reedline, ReedlineEvent, ReedlineMenu,
+    default_emacs_keybindings, ColumnarMenu, Emacs, KeyCode, KeyModifiers, MenuBuilder, Reedline,
+    ReedlineEvent, ReedlineMenu,
 };
 
 use super::completer::SemaCompleter;
 use super::highlighter::SemaHighlighter;
+use super::hinter::SemaHinter;
 use super::history::build_history;
 use super::validator::SemaValidator;
 
@@ -16,7 +17,7 @@ pub fn build() -> Reedline {
     let completer = Box::new(SemaCompleter::new());
     let validator = Box::new(SemaValidator);
     let highlighter = Box::new(SemaHighlighter::new());
-    let hinter = Box::new(DefaultHinter::default());
+    let hinter = Box::new(SemaHinter::new());
 
     let completion_menu = Box::new(
         ColumnarMenu::default()

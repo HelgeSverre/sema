@@ -20,6 +20,7 @@ mod completer;
 mod editor;
 mod headless;
 mod highlighter;
+mod hinter;
 mod history;
 mod prompt;
 mod validator;

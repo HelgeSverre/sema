@@ -64,8 +64,7 @@ pub fn run<R: BufRead>(
                 continue;
             }
 
-            let outcome =
-                commands::dispatch(trimmed, interpreter, env, prelude_keys, use_vm);
+            let outcome = commands::dispatch(trimmed, interpreter, env, prelude_keys, use_vm);
             match outcome {
                 CommandOutcome::Quit => return Ok(()),
                 CommandOutcome::Handled => continue,

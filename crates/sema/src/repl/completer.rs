@@ -11,8 +11,10 @@ use super::commands::REPL_COMMANDS;
 // and is fundamentally !Send. The REPL only ever runs on a single thread
 // (the binary is single-threaded), so we stash the env in a thread-local
 // and give the completer a zero-sized struct that is trivially Send.
+// The hinter (sibling module) reads from this same slot to power the
+// completion-based fallback for ghost text.
 thread_local! {
-    static COMPLETER_ENV: RefCell<Option<Rc<Env>>> = const { RefCell::new(None) };
+    pub(super) static COMPLETER_ENV: RefCell<Option<Rc<Env>>> = const { RefCell::new(None) };
 }
 
 pub fn set_completer_env(env: Rc<Env>) {
@@ -28,32 +30,48 @@ impl SemaCompleter {
     }
 
     fn collect(&self, prefix: &str) -> Vec<String> {
-        let mut out = Vec::new();
-
         COMPLETER_ENV.with(|cell| {
             let borrow = cell.borrow();
-            if let Some(env) = borrow.as_ref() {
-                collect_env(env, prefix, &mut out);
+            match borrow.as_ref() {
+                Some(env) => collect_completions(env, prefix),
+                None => special_and_meta_completions(prefix),
             }
-        });
+        })
+    }
+}
 
-        for &sf in SPECIAL_FORM_NAMES {
-            if sf.starts_with(prefix) {
-                out.push(sf.to_string());
+/// Gather all completions (env bindings + special forms + `,commands`)
+/// for `prefix`, sorted and deduplicated. Exposed so the hinter can
+/// reuse the same name set for completion-based ghost text.
+pub(super) fn collect_completions(env: &Env, prefix: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_env(env, prefix, &mut out);
+    extend_with_meta(prefix, &mut out);
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn special_and_meta_completions(prefix: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    extend_with_meta(prefix, &mut out);
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn extend_with_meta(prefix: &str, out: &mut Vec<String>) {
+    for &sf in SPECIAL_FORM_NAMES {
+        if sf.starts_with(prefix) {
+            out.push(sf.to_string());
+        }
+    }
+    if prefix.starts_with(',') {
+        for &cmd in REPL_COMMANDS {
+            if cmd.starts_with(prefix) {
+                out.push(cmd.to_string());
             }
         }
-
-        if prefix.starts_with(',') {
-            for &cmd in REPL_COMMANDS {
-                if cmd.starts_with(prefix) {
-                    out.push(cmd.to_string());
-                }
-            }
-        }
-
-        out.sort();
-        out.dedup();
-        out
     }
 }
 
