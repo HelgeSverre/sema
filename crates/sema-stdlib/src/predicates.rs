@@ -131,13 +131,16 @@ pub fn register(env: &sema_core::Env) {
         Ok(Value::bool(args[0].as_thunk_rc().is_some()))
     });
 
-    register_fn(env, "promise-forced?", |args| {
+    fn promise_forced_impl(args: &[Value]) -> Result<Value, SemaError> {
         check_arity!(args, "promise-forced?", 1);
         match args[0].view() {
             ValueView::Thunk(t) => Ok(Value::bool(t.forced.borrow().is_some())),
             _ => Err(SemaError::type_error("promise", args[0].type_name())),
         }
-    });
+    }
+    register_fn(env, "promise-forced?", promise_forced_impl);
+    // Canonical slash-namespaced alias (Decision #24)
+    register_fn(env, "async/forced?", promise_forced_impl);
 
     // Silent aliases for other Lisp dialects (undocumented)
     if let Some(v) = env.get(sema_core::intern("type")) {

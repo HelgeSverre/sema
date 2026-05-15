@@ -229,6 +229,47 @@ fn parse_key_input() -> Result<Option<Value>, SemaError> {
     Ok(Some(Value::map(m)))
 }
 
+// Shared path-component implementations. Each is registered under both a canonical
+// slash-namespaced name and a legacy alias (see Decision #24). All return "" when the
+// corresponding component is absent (parent / file_name / extension), matching the
+// modern Rust/Node idiom and giving consistent behavior across canonical + legacy names.
+
+fn path_dir_impl(args: &[Value]) -> Result<Value, SemaError> {
+    check_arity!(args, "path/dir", 1);
+    let p = args[0]
+        .as_str()
+        .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+    let dir = std::path::Path::new(p)
+        .parent()
+        .and_then(|d| d.to_str())
+        .unwrap_or("");
+    Ok(Value::string(dir))
+}
+
+fn path_filename_impl(args: &[Value]) -> Result<Value, SemaError> {
+    check_arity!(args, "path/filename", 1);
+    let p = args[0]
+        .as_str()
+        .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+    let name = std::path::Path::new(p)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    Ok(Value::string(name))
+}
+
+fn path_extension_impl(args: &[Value]) -> Result<Value, SemaError> {
+    check_arity!(args, "path/extension", 1);
+    let p = args[0]
+        .as_str()
+        .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+    let ext = std::path::Path::new(p)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    Ok(Value::string(ext))
+}
+
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     register_fn(env, "display", |args| {
         for (i, arg) in args.iter().enumerate() {
@@ -559,38 +600,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(&path.to_string_lossy()))
     });
 
-    register_fn(env, "path/dirname", |args| {
-        check_arity!(args, "path/dirname", 1);
-        let s = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        match std::path::Path::new(s).parent() {
-            Some(p) => Ok(Value::string(&p.to_string_lossy())),
-            None => Ok(Value::nil()),
-        }
-    });
-
-    register_fn(env, "path/basename", |args| {
-        check_arity!(args, "path/basename", 1);
-        let s = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        match std::path::Path::new(s).file_name() {
-            Some(name) => Ok(Value::string(&name.to_string_lossy())),
-            None => Ok(Value::nil()),
-        }
-    });
-
-    register_fn(env, "path/extension", |args| {
-        check_arity!(args, "path/extension", 1);
-        let s = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        match std::path::Path::new(s).extension() {
-            Some(ext) => Ok(Value::string(&ext.to_string_lossy())),
-            None => Ok(Value::nil()),
-        }
-    });
+    // path/dirname is registered below as an alias of path/dir.
+    // path/basename is registered below as an alias of path/filename.
+    // path/extension is registered below as an alias of path/ext (canonical name: path/extension).
 
     crate::register_fn_path_gated(env, sandbox, Caps::FS_READ, "path/absolute", &[0], |args| {
         check_arity!(args, "path/absolute", 1);
@@ -617,17 +629,9 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::list(items))
     });
 
-    register_fn(env, "path/ext", |args| {
-        check_arity!(args, "path/ext", 1);
-        let p = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let ext = std::path::Path::new(p)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        Ok(Value::string(ext))
-    });
+    // path/extension (canonical) + path/ext (legacy alias) — both return "" for no extension.
+    register_fn(env, "path/extension", path_extension_impl);
+    register_fn(env, "path/ext", path_extension_impl);
 
     register_fn(env, "path/stem", |args| {
         check_arity!(args, "path/stem", 1);
@@ -641,29 +645,13 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::string(stem))
     });
 
-    register_fn(env, "path/dir", |args| {
-        check_arity!(args, "path/dir", 1);
-        let p = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let dir = std::path::Path::new(p)
-            .parent()
-            .and_then(|d| d.to_str())
-            .unwrap_or("");
-        Ok(Value::string(dir))
-    });
+    // path/dir (canonical) + path/dirname (legacy alias) — both return "" for no parent.
+    register_fn(env, "path/dir", path_dir_impl);
+    register_fn(env, "path/dirname", path_dir_impl);
 
-    register_fn(env, "path/filename", |args| {
-        check_arity!(args, "path/filename", 1);
-        let p = args[0]
-            .as_str()
-            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let name = std::path::Path::new(p)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("");
-        Ok(Value::string(name))
-    });
+    // path/filename (canonical) + path/basename (legacy alias) — both return "" when no file name.
+    register_fn(env, "path/filename", path_filename_impl);
+    register_fn(env, "path/basename", path_filename_impl);
 
     register_fn(env, "path/absolute?", |args| {
         check_arity!(args, "path/absolute?", 1);

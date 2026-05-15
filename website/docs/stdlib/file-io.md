@@ -297,33 +297,43 @@ Join path components.
 (path/join "a" "b" "c.txt")  ; => "a/b/c.txt"
 ```
 
-### `path/dirname`
+### `path/dir`
 
-Alias of `path/dir`. Return the directory portion of a path.
-
-```sema
-(path/dirname "/a/b/c.txt")   ;; => "/a/b"
-```
-
-### `path/basename`
-
-Alias of `path/filename`. Return the filename portion of a path.
+Return the directory portion of a path. Returns `""` when the path has no parent component.
 
 ```sema
-(path/basename "/a/b/c.txt")   ;; => "c.txt"
+(path/dir "/a/b/c.txt")   ;; => "/a/b"
+(path/dir "foo")          ;; => ""
 ```
+
+`path/dirname` is a legacy alias for `path/dir` — same implementation, same return value.
+
+### `path/filename`
+
+Return the filename portion of a path. Returns `""` when there is no filename component (e.g. for `""`).
+
+```sema
+(path/filename "/a/b/c.txt")   ;; => "c.txt"
+(path/filename "plain.rs")     ;; => "plain.rs"
+```
+
+`path/basename` is a legacy alias for `path/filename` — same implementation, same return value.
 
 ### `path/extension`
 
-Return the file extension (without the dot), or `nil` if the path has no extension.
+Return the file extension (without the dot). Returns `""` when the path has no extension.
 
 ```sema
-(path/extension "file.rs")     ;; => "rs"
-(path/extension "Makefile")    ;; => nil
+(path/extension "file.rs")        ;; => "rs"
+(path/extension "file.tar.gz")    ;; => "gz"
+(path/extension "Makefile")       ;; => ""
+(path/extension ".hidden")        ;; => ""
 ```
 
-::: tip Path aliases — subtle differences
-`path/dir`/`path/dirname`, `path/filename`/`path/basename`, and `path/extension`/`path/ext` are independent registrations with subtly different return values for the no-extension/no-parent cases (e.g., `path/extension "Makefile"` returns `nil`, while `path/ext "Makefile"` returns `""`). Prefer `path/dir`, `path/filename`, `path/extension` going forward — the others are kept for back-compat.
+`path/ext` is a legacy alias for `path/extension` — same implementation, same return value.
+
+::: warning Behavior change
+Previous versions registered `path/dirname`, `path/basename`, and `path/extension` as independent functions that returned `nil` on the no-parent / no-filename / no-extension case. As of the current release, all six names share one implementation per concept and consistently return `""` (matching `path/dir`, `path/filename`, `path/ext`).
 :::
 
 ### `path/absolute`
@@ -334,15 +344,6 @@ Return the absolute path.
 (path/absolute ".")   ; => "/full/path/to/current/dir"
 ```
 
-### `path/ext`
-
-Alias of `path/extension`, but returns `""` (not `nil`) when the path has no extension.
-
-```sema
-(path/ext "file.rs")     ;; => "rs"
-(path/ext "Makefile")    ;; => ""
-```
-
 ### `path/stem`
 
 Return the filename without extension.
@@ -350,22 +351,6 @@ Return the filename without extension.
 ```sema
 (path/stem "file.rs")      ; => "file"
 (path/stem "archive.tar.gz")  ; => "archive.tar"
-```
-
-### `path/dir`
-
-Return the directory portion of a path.
-
-```sema
-(path/dir "/a/b/c.txt")   ; => "/a/b"
-```
-
-### `path/filename`
-
-Return the filename portion of a path.
-
-```sema
-(path/filename "/a/b/c.txt")   ; => "c.txt"
 ```
 
 ### `path/absolute?`

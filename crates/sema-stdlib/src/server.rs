@@ -376,6 +376,11 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         Ok(Value::list(routes))
     });
 
+    // Canonical slash-namespaced alias (Decision #24)
+    if let Some(v) = env.get(sema_core::intern("tools->routes")) {
+        env.set(sema_core::intern("route/from-tools"), v);
+    }
+
     register_router(env);
     register_serve(env, sandbox);
 }

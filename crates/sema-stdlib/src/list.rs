@@ -338,6 +338,8 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::bool(true))
     });
+    // Note: canonical predicate-? aliases (`any?`, `every?`) are registered
+    // at the end of this fn (see below).
 
     register_fn(env, "reduce", |args| {
         check_arity!(args, "reduce", 2);

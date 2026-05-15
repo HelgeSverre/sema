@@ -969,7 +969,7 @@ fn test_path_operations() {
         Value::string("c.txt")
     );
     assert_eq!(eval(r#"(path/extension "foo.txt")"#), Value::string("txt"));
-    assert_eq!(eval(r#"(path/extension "no-ext")"#), Value::nil());
+    assert_eq!(eval(r#"(path/extension "no-ext")"#), Value::string(""));
     // path/absolute returns a real path — just check it doesn't error
     let result = eval(r#"(path/absolute ".")"#);
     assert!(result.is_string());
@@ -3167,9 +3167,9 @@ fn test_path_extension_extended() {
         eval(r#"(path/extension "file.tar.gz")"#),
         Value::string("gz")
     );
-    assert_eq!(eval(r#"(path/extension "Makefile")"#), Value::nil());
+    assert_eq!(eval(r#"(path/extension "Makefile")"#), Value::string(""));
     // ".hidden" has no extension in Rust's Path semantics
-    assert_eq!(eval(r#"(path/extension ".hidden")"#), Value::nil());
+    assert_eq!(eval(r#"(path/extension ".hidden")"#), Value::string(""));
 }
 
 #[test]

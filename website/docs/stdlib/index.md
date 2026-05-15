@@ -17,6 +17,32 @@ Sema's stdlib follows consistent naming patterns:
 | `type->type`      | Arrow conversions    | `string/to-symbol`, `list->vector`      |
 | `predicate?`      | Predicate suffix     | `null?`, `list?`, `even?`              |
 
+### Naming aliases
+
+Several functions are registered under both a legacy (Scheme-style) name and a canonical
+slash-namespaced or `predicate?` name (Decision #24). Both forms are kept for backward
+compatibility; new code should prefer the canonical form on the right.
+
+| Legacy name           | Canonical alias        |
+| --------------------- | ---------------------- |
+| `any`                 | `any?`                 |
+| `every`               | `every?`               |
+| `time-ms`             | `time/now-ms`          |
+| `hash-map`            | `map/new`              |
+| `promise-forced?`     | `async/forced?`        |
+| `tools->routes`       | `route/from-tools`     |
+| `make-bytevector`     | `bytevector/make` (also `bytevector/new`) |
+| `bytevector-length`   | `bytevector/length`    |
+| `bytevector-u8-ref`   | `bytevector/u8-ref` (also `bytevector/ref`) |
+| `bytevector-u8-set!`  | `bytevector/u8-set!` (also `bytevector/set!`) |
+| `bytevector-copy`     | `bytevector/copy`      |
+| `bytevector-append`   | `bytevector/append`    |
+| `bytevector->list`    | `bytevector/to-list`   |
+| `list->bytevector`    | `bytevector/from-list` (also `list/to-bytevector`) |
+
+Predicates (`bytevector?` etc.) and the bare `bytevector` varargs constructor keep their
+short canonical names — predicates always stay un-namespaced.
+
 ## Quick Reference
 
 ### [Math & Arithmetic](./math)

@@ -92,14 +92,17 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         std::process::exit(code);
     });
 
-    register_fn(env, "time-ms", |args| {
+    fn time_ms_impl(args: &[Value]) -> Result<Value, SemaError> {
         check_arity!(args, "time-ms", 0);
         let ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as i64;
         Ok(Value::int(ms))
-    });
+    }
+    register_fn(env, "time-ms", time_ms_impl);
+    // Canonical slash-namespaced alias (Decision #24)
+    register_fn(env, "time/now-ms", time_ms_impl);
 
     register_fn(env, "sleep", |args| {
         check_arity!(args, "sleep", 1);

@@ -1172,6 +1172,51 @@ dual_eval_tests! {
 }
 
 // ============================================================
+// Naming aliases — canonical slash/predicate-? names (Decision #24)
+// ============================================================
+// These tests guard against accidental removal of a canonical alias for an
+// existing legacy stdlib function. They spot-check that the alias is bound
+// and dispatches to the same implementation as the legacy name.
+
+dual_eval_tests! {
+    alias_any_question_true: "(any? odd? (list 1 2 3))" => Value::bool(true),
+    alias_any_question_false: "(any? odd? (list 2 4 6))" => Value::bool(false),
+    alias_every_question_true: "(every? odd? (list 1 3 5))" => Value::bool(true),
+    alias_every_question_false: "(every? odd? (list 1 2 3))" => Value::bool(false),
+    alias_map_new_basic: "(get (map/new :a 1 :b 2) :b)" => Value::int(2),
+    alias_async_forced_unforced: "(async/forced? (delay 1))" => Value::bool(false),
+    alias_async_forced_after_force: "(let ((p (delay 1))) (force p) (async/forced? p))" => Value::bool(true),
+    alias_bytevector_make: "(bytevector/length (bytevector/make 4 7))" => Value::int(4),
+    alias_bytevector_u8_ref: "(bytevector/u8-ref (bytevector 10 20 30) 1)" => Value::int(20),
+    alias_bytevector_u8_set: "(bytevector/u8-ref (bytevector/u8-set! (bytevector 0 0 0) 1 9) 1)" => Value::int(9),
+    alias_bytevector_from_list: "(bytevector/length (bytevector/from-list (list 1 2 3 4 5)))" => Value::int(5),
+    alias_bytevector_to_list: "(bytevector/to-list (bytevector 1 2 3))" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
+    alias_bytevector_length: "(bytevector/length (bytevector 1 2 3 4))" => Value::int(4),
+}
+
+/// `time/now-ms` is non-deterministic, so we can't use the dual_eval_tests! macro.
+/// Just confirm both backends bind the alias and it returns an int.
+#[test]
+fn alias_time_now_ms_tw() {
+    let v = common::eval_tw("(time/now-ms)");
+    assert!(
+        v.as_int().is_some(),
+        "time/now-ms (tw) should return int, got {v:?}"
+    );
+    assert!(v.as_int().unwrap() > 0);
+}
+
+#[test]
+fn alias_time_now_ms_vm() {
+    let v = common::eval_vm("(time/now-ms)");
+    assert!(
+        v.as_int().is_some(),
+        "time/now-ms (vm) should return int, got {v:?}"
+    );
+    assert!(v.as_int().unwrap() > 0);
+}
+
+// ============================================================
 // Audit regressions — IGNORED until upvalue model lands
 // ============================================================
 // These tests document known bugs in the VM backend. They assert the *correct*

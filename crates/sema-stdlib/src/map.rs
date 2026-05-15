@@ -20,6 +20,7 @@ pub fn register(env: &sema_core::Env) {
         }
         Ok(Value::map(map))
     });
+    // Note: `map/new` alias is registered at end of this fn (see below).
 
     register_fn(env, "get", |args| {
         check_arity!(args, "get", 2..=3);

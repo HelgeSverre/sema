@@ -795,64 +795,63 @@ fn register_wasm_io(env: &Env) {
         }),
     );
 
-    // path/dirname: parent directory of a path
-    register(
-        "path/dirname",
-        Box::new(|args: &[Value]| {
-            if args.len() != 1 {
-                return Err(SemaError::arity("path/dirname", "1", args.len()));
-            }
-            let s = args[0]
-                .as_str()
-                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let trimmed = s.trim_end_matches('/');
-            match trimmed.rfind('/') {
-                Some(0) => Ok(Value::string("/")),
-                Some(pos) => Ok(Value::string(&trimmed[..pos])),
-                None => Ok(Value::nil()),
-            }
-        }),
-    );
+    // path/dir (canonical) + path/dirname (legacy alias): parent directory of a path.
+    // Returns "" when there is no parent component.
+    fn wasm_path_dir(args: &[Value]) -> Result<Value, SemaError> {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/dir", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let trimmed = s.trim_end_matches('/');
+        match trimmed.rfind('/') {
+            Some(0) => Ok(Value::string("/")),
+            Some(pos) => Ok(Value::string(&trimmed[..pos])),
+            None => Ok(Value::string("")),
+        }
+    }
+    register("path/dir", Box::new(wasm_path_dir));
+    register("path/dirname", Box::new(wasm_path_dir));
 
-    // path/basename: filename component of a path
-    register(
-        "path/basename",
-        Box::new(|args: &[Value]| {
-            if args.len() != 1 {
-                return Err(SemaError::arity("path/basename", "1", args.len()));
-            }
-            let s = args[0]
-                .as_str()
-                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let trimmed = s.trim_end_matches('/');
-            match trimmed.rfind('/') {
-                Some(pos) => Ok(Value::string(&trimmed[pos + 1..])),
-                None => Ok(Value::string(trimmed)),
-            }
-        }),
-    );
+    // path/filename (canonical) + path/basename (legacy alias): filename component of a path.
+    fn wasm_path_filename(args: &[Value]) -> Result<Value, SemaError> {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/filename", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let trimmed = s.trim_end_matches('/');
+        match trimmed.rfind('/') {
+            Some(pos) => Ok(Value::string(&trimmed[pos + 1..])),
+            None => Ok(Value::string(trimmed)),
+        }
+    }
+    register("path/filename", Box::new(wasm_path_filename));
+    register("path/basename", Box::new(wasm_path_filename));
 
-    // path/extension: file extension (without dot)
-    register(
-        "path/extension",
-        Box::new(|args: &[Value]| {
-            if args.len() != 1 {
-                return Err(SemaError::arity("path/extension", "1", args.len()));
-            }
-            let s = args[0]
-                .as_str()
-                .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-            let trimmed = s.trim_end_matches('/');
-            let basename = match trimmed.rfind('/') {
-                Some(pos) => &trimmed[pos + 1..],
-                None => trimmed,
-            };
-            match basename.rfind('.') {
-                Some(0) | None => Ok(Value::nil()),
-                Some(pos) => Ok(Value::string(&basename[pos + 1..])),
-            }
-        }),
-    );
+    // path/extension (canonical) + path/ext (legacy alias): file extension (without dot).
+    // Returns "" when the path has no extension.
+    fn wasm_path_extension(args: &[Value]) -> Result<Value, SemaError> {
+        if args.len() != 1 {
+            return Err(SemaError::arity("path/extension", "1", args.len()));
+        }
+        let s = args[0]
+            .as_str()
+            .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+        let trimmed = s.trim_end_matches('/');
+        let basename = match trimmed.rfind('/') {
+            Some(pos) => &trimmed[pos + 1..],
+            None => trimmed,
+        };
+        match basename.rfind('.') {
+            Some(0) | None => Ok(Value::string("")),
+            Some(pos) => Ok(Value::string(&basename[pos + 1..])),
+        }
+    }
+    register("path/extension", Box::new(wasm_path_extension));
+    register("path/ext", Box::new(wasm_path_extension));
 
     // path/absolute: in WASM, just return the input unchanged
     register(

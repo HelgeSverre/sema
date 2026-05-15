@@ -621,3 +621,33 @@ Trade-offs:
 - Cooperates with the WASM `OUTPUT.with(...)` pattern (currently a parallel-but-divergent capture mechanism) — long term, both can use the same hook.
 
 References: `crates/sema-stdlib/src/io.rs` (println/display/print sites, and the WASM `OUTPUT` thread-local), `crates/sema-notebook/src/engine.rs` (current `BufferRedirect` use), `agents/LIMITATIONS.md` #H17.
+
+### 59. Canonical naming refinement (Wave 4 alias migration)
+
+Reaffirms Decision #24: new function groups are slash-namespaced (`file/`, `path/`, `regex/`, `http/`, `json/`, `string/`, …), predicates end in `?` (`null?`, `list?`, `pair?`), arrow conversions are reserved for type↔type coercions (`string->symbol`, `keyword->string`), and the small set of deeply-entrenched R7RS Scheme primitives (`string-append`, `string-length`, `string-ref`, `substring`) stays as-is.
+
+This pass closed several gaps where a canonical slash-namespaced form was missing or the legacy name was the only spelling. The canonical-vs-legacy pairs introduced (or formalized) in this wave:
+
+- `any?` (canonical) / `any` (legacy alias)
+- `every?` / `every`
+- `time/now-ms` / `time-ms`
+- `map/new` / `hash-map`
+- `async/forced?` / `promise-forced?`
+- `route/from-tools` / `tools->routes`
+- `bytevector/{make,length,u8-ref,u8-set!,copy,append,to-list,from-list}` / `make-bytevector` family
+- `path/{dir,filename,extension}` (canonical) / `path/{dirname,basename,ext}` (alias)
+
+**Alias policy:**
+
+- Legacy names remain registered indefinitely for back-compat — no breakage of existing scripts, notebooks, or playground examples.
+- New code (stdlib examples, docs, prelude, tests) should prefer the canonical form.
+- Documentation lists the canonical name as primary; aliases are noted but not promoted in tutorials.
+- No deprecation warnings emitted at compile or load time — revisit at the 2.0 boundary, where alias removal becomes a real option.
+
+**Items intentionally NOT consolidated this pass:**
+
+- `lambda` / `fn`, `defun` / `defn`, `begin` / `progn`: three spellings per concept, but each is short, idiomatic, and present in real code in the wild. Aliases stay; consolidation can be revisited at 2.0.
+- `async` (special form) and `async/spawn` (native function): semantically distinct (sugar form vs. explicit callback-with-options). Both kept.
+- `read-line` / `read-many` / `read-stdin`: already aliased to `io/*` at the bottom of `crates/sema-stdlib/src/io.rs::register`. Leaving as-is — the aliases there already satisfy the slash-namespace convention.
+
+This decision is informed by the agent quality-sweep audit, which catalogued the alias gaps and motivated the canonical names chosen above. The audit's full list lives separately; this entry records only the policy outcome.
