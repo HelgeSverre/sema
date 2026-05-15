@@ -331,11 +331,9 @@ fn triple_nested_async() {
 
 // === Bug regression tests ===
 
-#[test]
-fn await_rejected_propagates() {
-    let err = eval_vm_err(r#"(await (async (await (async (/ 1 0)))))"#);
-    assert!(!err.is_empty(), "should propagate inner rejection");
-}
+// `await_rejected_propagates` was removed: it is fully subsumed by
+// `await_rejected_propagates_division_error` below, which asserts the actual
+// inner-cause substring rather than just non-empty error text.
 
 #[test]
 fn async_context_preserved_after_nested_run() {
@@ -625,7 +623,13 @@ fn async_race_empty_list_errors() {
 #[test]
 fn async_race_all_rejected() {
     let err = eval_vm_err(r#"(async/race (list (async (error "a")) (async (error "b"))))"#);
-    assert!(!err.is_empty(), "expected rejection error, got empty");
+    assert!(
+        err.contains("\"a\"")
+            || err.contains("\"b\"")
+            || err.contains(": a")
+            || err.contains(": b"),
+        "expected rejection error mentioning \"a\" or \"b\", got: {err}"
+    );
 }
 
 // === Channel close semantics ===

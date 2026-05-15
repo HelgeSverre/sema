@@ -27,10 +27,10 @@ dual_eval_tests! {
 }
 
 dual_eval_error_tests! {
-    destructure_err_too_few: "(let (([a b c] '(1 2))) a)",
-    destructure_err_too_many: "(let (([a b] '(1 2 3))) a)",
-    destructure_err_non_list: "(let (([a b] 42)) a)",
-    destructure_err_non_map: "(let (({:keys [x]} '(1 2))) x)",
+    destructure_err_too_few: "(let (([a b c] '(1 2))) a)" => "destructure: expected 3",
+    destructure_err_too_many: "(let (([a b] '(1 2 3))) a)" => "destructure: expected 2",
+    destructure_err_non_list: "(let (([a b] 42)) a)" => "expected list or vector",
+    destructure_err_non_map: "(let (({:keys [x]} '(1 2))) x)" => "expected map",
 }
 
 // ============================================================
@@ -255,10 +255,10 @@ dual_eval_tests! {
 }
 
 dual_eval_error_tests! {
-    assert_false: "(assert #f)",
-    assert_nil: "(assert nil)",
-    assert_with_message: r#"(assert #f "custom error")"#,
-    assert_eq_mismatch: "(assert= 1 2)",
+    assert_false: "(assert #f)" => "assertion failed",
+    assert_nil: "(assert nil)" => "assertion failed",
+    assert_with_message: r#"(assert #f "custom error")"# => "custom error",
+    assert_eq_mismatch: "(assert= 1 2)" => "assertion failed",
 }
 
 // ============================================================
@@ -363,8 +363,8 @@ dual_eval_tests! {
 }
 
 dual_eval_error_tests! {
-    string_intern_wrong_type: "(string/intern 42)",
-    string_intern_no_args: "(string/intern)",
+    string_intern_wrong_type: "(string/intern 42)" => "expected string",
+    string_intern_no_args: "(string/intern)" => "string/intern expects 1",
 }
 
 // ============================================================
@@ -426,13 +426,13 @@ dual_eval_tests! {
 }
 
 dual_eval_error_tests! {
-    toml_decode_invalid_input: r#"(toml/decode "[invalid")"#,
+    toml_decode_invalid_input: r#"(toml/decode "[invalid")"# => "toml/decode",
 
-    toml_encode_non_map: r#"(toml/encode "not a map")"#,
+    toml_encode_non_map: r#"(toml/encode "not a map")"# => "top-level value must be a map",
 
-    toml_decode_wrong_type: r#"(toml/decode 42)"#,
+    toml_decode_wrong_type: r#"(toml/decode 42)"# => "expected string",
 
-    toml_encode_nil_value: r#"(toml/encode {:key nil})"#,
+    toml_encode_nil_value: r#"(toml/encode {:key nil})"# => "cannot encode nil",
 }
 
 dual_eval_error_tests! {
@@ -442,17 +442,17 @@ dual_eval_error_tests! {
           (defmulti f (fn (x) x))
           (defmethod f :a (fn (x) 1))
           (f :b))
-    "#,
+    "# => "no method",
     // defmethod on non-multimethod
     multi_defmethod_not_multi: r#"
         (begin
           (define x 42)
           (defmethod x :a (fn (x) 1)))
-    "#,
+    "# => "not a multimethod",
     // defmulti wrong arity
-    multi_defmulti_no_args: "(defmulti)",
+    multi_defmulti_no_args: "(defmulti)" => "defmulti expects 2",
     // defmethod wrong arity
-    multi_defmethod_no_args: "(defmethod)",
+    multi_defmethod_no_args: "(defmethod)" => "defmethod expects 3",
 }
 
 // ============================================================
@@ -957,54 +957,54 @@ dual_eval_tests! {
 
 dual_eval_error_tests! {
     // & without rest pattern name
-    destructure_err_amp_no_rest: "(let (([a &] '(1 2))) a)",
+    destructure_err_amp_no_rest: "(let (([a &] '(1 2))) a)" => "`&` must be followed by a rest pattern",
 
     // Multiple patterns after &
-    destructure_err_amp_multiple: "(let (([a & b c] '(1 2 3))) a)",
+    destructure_err_amp_multiple: "(let (([a & b c] '(1 2 3))) a)" => "only one pattern allowed after `&`",
 
     // Non-map value for map destructure
-    destructure_err_non_map_int: "(let (({:keys [x]} 42)) x)",
+    destructure_err_non_map_int: "(let (({:keys [x]} 42)) x)" => "expected map",
 
     // Nested destructure on nil value (key missing → nil, can't destructure nil as vector)
-    destructure_err_nested_nil: "(let (({:a [x y]} {})) x)",
+    destructure_err_nested_nil: "(let (({:a [x y]} {})) x)" => "expected list or vector",
 
     // --- stream errors ---
-    stream_read_wrong_type: "(stream/read 42 5)",
-    stream_write_wrong_type: "(stream/write 42 (bytevector 1))",
-    stream_write_to_readonly: r#"(stream/write (stream/from-string "x") (bytevector 1))"#,
-    stream_read_closed: r#"(let ((s (stream/from-string "hi"))) (stream/close s) (stream/read s 1))"#,
-    stream_write_closed: r#"(let ((s (stream/byte-buffer))) (stream/close s) (stream/write s (bytevector 1)))"#,
-    stream_read_byte_wrong_type: "(stream/read-byte 42)",
-    stream_write_byte_range: "(let ((s (stream/byte-buffer))) (stream/write-byte s 256))",
-    stream_write_byte_negative: "(let ((s (stream/byte-buffer))) (stream/write-byte s -1))",
-    stream_to_bytes_wrong_stream: r#"(stream/to-bytes (stream/from-string "x"))"#,
-    stream_to_string_wrong_stream: r#"(stream/to-string (stream/from-string "x"))"#,
-    stream_read_negative_count: "(stream/read (stream/from-string \"x\") -1)",
-    stream_from_string_wrong_type: "(stream/from-string 42)",
-    stream_from_bytes_wrong_type: "(stream/from-bytes 42)",
+    stream_read_wrong_type: "(stream/read 42 5)" => "expected stream",
+    stream_write_wrong_type: "(stream/write 42 (bytevector 1))" => "expected stream",
+    stream_write_to_readonly: r#"(stream/write (stream/from-string "x") (bytevector 1))"# => "read-only",
+    stream_read_closed: r#"(let ((s (stream/from-string "hi"))) (stream/close s) (stream/read s 1))"# => "stream is closed",
+    stream_write_closed: r#"(let ((s (stream/byte-buffer))) (stream/close s) (stream/write s (bytevector 1)))"# => "stream is closed",
+    stream_read_byte_wrong_type: "(stream/read-byte 42)" => "expected stream",
+    stream_write_byte_range: "(let ((s (stream/byte-buffer))) (stream/write-byte s 256))" => "out of range",
+    stream_write_byte_negative: "(let ((s (stream/byte-buffer))) (stream/write-byte s -1))" => "out of range",
+    stream_to_bytes_wrong_stream: r#"(stream/to-bytes (stream/from-string "x"))"# => "expected byte-buffer stream",
+    stream_to_string_wrong_stream: r#"(stream/to-string (stream/from-string "x"))"# => "expected byte-buffer stream",
+    stream_read_negative_count: "(stream/read (stream/from-string \"x\") -1)" => "non-negative",
+    stream_from_string_wrong_type: "(stream/from-string 42)" => "expected string",
+    stream_from_bytes_wrong_type: "(stream/from-bytes 42)" => "expected bytevector",
 
     // --- PIO errors ---
-    pio_err_undefined_label: r#"(pio/assemble (list (pio/jmp 'nowhere)))"#,
-    pio_err_duplicate_label: r#"(pio/assemble (list 'x (pio/nop) 'x (pio/nop)))"#,
-    pio_err_set_value_too_large: "(pio/set :pins 32)",
-    pio_err_set_invalid_dest: "(pio/set :foo 1)",
-    pio_err_jmp_target_not_symbol: "(pio/jmp 42)",
-    pio_err_delay_too_large: "(pio/delay 32 (pio/nop))",
-    pio_err_invalid_jmp_cond: "(pio/jmp :bogus 'x)",
-    pio_err_bit_count_zero: "(pio/in :pins 0)",
-    pio_err_bit_count_33: "(pio/out :pins 33)",
-    pio_err_invalid_in_source: "(pio/in :foo 8)",
-    pio_err_invalid_out_dest: "(pio/out :foo 8)",
-    pio_err_invalid_mov_dest: "(pio/mov :foo :y)",
-    pio_err_invalid_mov_source: "(pio/mov :x :foo)",
-    pio_err_irq_index_too_large: "(pio/irq :set 8)",
-    pio_err_wait_polarity: "(pio/wait 2 :gpio 0)",
-    pio_err_set_negative: "(pio/set :pins -1)",
-    pio_err_pull_bad_option: "(pio/pull :bogus)",
-    pio_err_push_bad_option: "(pio/push :bogus)",
-    pio_err_mov_bad_operation: "(pio/mov :x :y :bogus)",
-    pio_err_irq_bad_mode: "(pio/irq :bogus 0)",
-    pio_err_wait_bad_source: "(pio/wait 1 :bogus 0)",
+    pio_err_undefined_label: r#"(pio/assemble (list (pio/jmp 'nowhere)))"# => "undefined label",
+    pio_err_duplicate_label: r#"(pio/assemble (list 'x (pio/nop) 'x (pio/nop)))"# => "duplicate label",
+    pio_err_set_value_too_large: "(pio/set :pins 32)" => "out of range",
+    pio_err_set_invalid_dest: "(pio/set :foo 1)" => "unknown destination",
+    pio_err_jmp_target_not_symbol: "(pio/jmp 42)" => "expected symbol",
+    pio_err_delay_too_large: "(pio/delay 32 (pio/nop))" => "out of range",
+    pio_err_invalid_jmp_cond: "(pio/jmp :bogus 'x)" => "unknown condition",
+    pio_err_bit_count_zero: "(pio/in :pins 0)" => "bit count",
+    pio_err_bit_count_33: "(pio/out :pins 33)" => "bit count",
+    pio_err_invalid_in_source: "(pio/in :foo 8)" => "unknown source",
+    pio_err_invalid_out_dest: "(pio/out :foo 8)" => "unknown destination",
+    pio_err_invalid_mov_dest: "(pio/mov :foo :y)" => "unknown destination",
+    pio_err_invalid_mov_source: "(pio/mov :x :foo)" => "unknown source",
+    pio_err_irq_index_too_large: "(pio/irq :set 8)" => "out of range",
+    pio_err_wait_polarity: "(pio/wait 2 :gpio 0)" => "polarity must be 0 or 1",
+    pio_err_set_negative: "(pio/set :pins -1)" => "out of range",
+    pio_err_pull_bad_option: "(pio/pull :bogus)" => "unexpected option",
+    pio_err_push_bad_option: "(pio/push :bogus)" => "unexpected option",
+    pio_err_mov_bad_operation: "(pio/mov :x :y :bogus)" => "unknown operation",
+    pio_err_irq_bad_mode: "(pio/irq :bogus 0)" => "unknown mode",
+    pio_err_wait_bad_source: "(pio/wait 1 :bogus 0)" => "unknown source",
 }
 
 // ============================================================
@@ -1043,6 +1043,51 @@ dual_eval_tests! {
     // i64-array: from-list + sum
     i64_array_from_list_sum: "(i64-array/sum (i64-array/from-list '(10 20 30)))" => Value::int(60),
 
+    // i64-array: map (squares 1..4 → sum is 1+4+9+16 = 30)
+    i64_array_map_squares_sum: "(i64-array/sum (i64-array/map (fn (x) (* x x)) (i64-array 1 2 3 4)))" => Value::int(30),
+    i64_array_map_squares_len: "(i64-array/length (i64-array/map (fn (x) (* x x)) (i64-array 1 2 3 4)))" => Value::int(4),
+    i64_array_map_squares_first: "(i64-array/ref (i64-array/map (fn (x) (* x x)) (i64-array 1 2 3 4)) 0)" => Value::int(1),
+    i64_array_map_squares_last: "(i64-array/ref (i64-array/map (fn (x) (* x x)) (i64-array 1 2 3 4)) 3)" => Value::int(16),
+    i64_array_map_empty: "(i64-array/length (i64-array/map (fn (x) (* x x)) (i64-array)))" => Value::int(0),
+
+    // i64-array: fold
+    i64_array_fold_sum: "(i64-array/fold + 0 (i64-array 1 2 3))" => Value::int(6),
+    i64_array_fold_empty_returns_init: "(i64-array/fold + 42 (i64-array))" => Value::int(42),
+    i64_array_fold_mul: "(i64-array/fold (fn (acc x) (* acc x)) 1 (i64-array 2 3 4))" => Value::int(24),
+
+    // i64-array: range — 2-arg form
+    i64_array_range_2arg_len: "(i64-array/length (i64-array/range 0 5))" => Value::int(5),
+    i64_array_range_2arg_first: "(i64-array/ref (i64-array/range 0 5) 0)" => Value::int(0),
+    i64_array_range_2arg_last: "(i64-array/ref (i64-array/range 0 5) 4)" => Value::int(4),
+    i64_array_range_2arg_sum: "(i64-array/sum (i64-array/range 0 5))" => Value::int(10),
+
+    // i64-array: range — 3-arg form with step
+    i64_array_range_step2_len: "(i64-array/length (i64-array/range 0 10 2))" => Value::int(5),
+    i64_array_range_step2_first: "(i64-array/ref (i64-array/range 0 10 2) 0)" => Value::int(0),
+    i64_array_range_step2_last: "(i64-array/ref (i64-array/range 0 10 2) 4)" => Value::int(8),
+    i64_array_range_step2_sum: "(i64-array/sum (i64-array/range 0 10 2))" => Value::int(20),
+
+    // i64-array/range: start > end with positive step → empty
+    i64_array_range_start_gt_end_empty: "(i64-array/length (i64-array/range 5 0))" => Value::int(0),
+
+    // i64-array/range: negative step counts down
+    i64_array_range_negative_step_len: "(i64-array/length (i64-array/range 5 0 -1))" => Value::int(5),
+    i64_array_range_negative_step_first: "(i64-array/ref (i64-array/range 5 0 -1) 0)" => Value::int(5),
+    i64_array_range_negative_step_last: "(i64-array/ref (i64-array/range 5 0 -1) 4)" => Value::int(1),
+    // Negative step with start < end → empty
+    i64_array_range_negative_step_empty: "(i64-array/length (i64-array/range 0 5 -1))" => Value::int(0),
+
+    // i64-array/set!: in-bounds write observed via ref
+    i64_array_set_in_bounds_ref: "(i64-array/ref (i64-array/set! (i64-array 10 20 30) 1 99) 1)" => Value::int(99),
+    i64_array_set_other_indices_unchanged: "(i64-array/ref (i64-array/set! (i64-array 10 20 30) 1 99) 0)" => Value::int(10),
+    i64_array_set_last: "(i64-array/ref (i64-array/set! (i64-array 10 20 30) 2 7) 2)" => Value::int(7),
+
+    // f64-array/set!: in-bounds write observed via ref
+    f64_array_set_in_bounds_ref: "(f64-array/ref (f64-array/set! (f64-array 1.0 2.0 3.0) 1 9.5) 1)" => Value::float(9.5),
+    f64_array_set_other_indices_unchanged: "(f64-array/ref (f64-array/set! (f64-array 1.0 2.0 3.0) 1 9.5) 0)" => Value::float(1.0),
+    // f64-array/set! accepts int and coerces to float
+    f64_array_set_accepts_int: "(f64-array/ref (f64-array/set! (f64-array 1.0 2.0 3.0) 0 42) 0)" => Value::float(42.0),
+
     // type predicates
     f64_array_predicate_true: "(f64-array? (f64-array/make 1))" => Value::bool(true),
     f64_array_predicate_false: "(f64-array? 42)" => Value::bool(false),
@@ -1050,6 +1095,44 @@ dual_eval_tests! {
     i64_array_predicate_false: "(i64-array? \"hello\")" => Value::bool(false),
     f64_array_not_i64: "(i64-array? (f64-array/make 1))" => Value::bool(false),
     i64_array_not_f64: "(f64-array? (i64-array/make 1))" => Value::bool(false),
+}
+
+dual_eval_error_tests! {
+    // i64-array/map: callback must return integer
+    i64_array_map_callback_non_int: r#"(i64-array/map (fn (x) "oops") (i64-array 1 2 3))"#,
+    // i64-array/fold: wrong arity (no array argument)
+    i64_array_fold_arity_too_few: "(i64-array/fold + 0)",
+    i64_array_fold_arity_too_many: "(i64-array/fold + 0 (i64-array 1 2) 99)",
+
+    // i64-array/range: zero step is an error
+    i64_array_range_step_zero: "(i64-array/range 0 5 0)",
+
+    // i64-array/set!: out-of-bounds
+    i64_array_set_out_of_bounds: "(i64-array/set! (i64-array 1 2 3) 5 99)",
+    // i64-array/set!: wrong value type
+    i64_array_set_wrong_type: r#"(i64-array/set! (i64-array 1 2 3) 0 "oops")"#,
+
+    // f64-array/set!: out-of-bounds
+    f64_array_set_out_of_bounds: "(f64-array/set! (f64-array 1.0 2.0 3.0) 5 9.5)",
+    // f64-array/set!: wrong value type (string into f64-array)
+    f64_array_set_wrong_type: r#"(f64-array/set! (f64-array 1.0 2.0 3.0) 0 "oops")"#,
+}
+
+// ============================================================
+// procedure? / fn? — dual eval (tree-walker + VM)
+// ============================================================
+
+dual_eval_tests! {
+    procedure_pred_native_fn: "(procedure? +)" => Value::bool(true),
+    procedure_pred_lambda: "(procedure? (fn (x) x))" => Value::bool(true),
+    procedure_pred_int: "(procedure? 1)" => Value::bool(false),
+    procedure_pred_string: r#"(procedure? "abc")"# => Value::bool(false),
+    procedure_pred_nil: "(procedure? nil)" => Value::bool(false),
+    procedure_pred_list: "(procedure? '(1 2 3))" => Value::bool(false),
+    // fn? alias should behave identically
+    fn_pred_native_fn: "(fn? +)" => Value::bool(true),
+    fn_pred_lambda: "(fn? (fn (x) x))" => Value::bool(true),
+    fn_pred_int: "(fn? 42)" => Value::bool(false),
 }
 
 // ============================================================
@@ -1072,11 +1155,13 @@ dual_eval_tests! {
 // ============================================================
 
 dual_eval_error_tests! {
-    string_repeat_negative_errors: r#"(string/repeat "ab" -1)"#,
-    abs_i64_min_errors: "(abs -9223372036854775808)",
+    string_repeat_negative_errors: r#"(string/repeat "ab" -1)"# => "non-negative",
+    abs_i64_min_errors: "(abs -9223372036854775808)" => "overflows i64",
+    // TODO(test-strength): VM `nth` uses generic "out of bounds" while tree-walker
+    // says "non-negative" — strengthen after error UX wave unifies them.
     nth_negative_errors: "(nth (list 1 2 3) -1)",
-    take_negative_errors: "(take -1 (list 1 2 3))",
-    drop_negative_errors: "(drop -1 (list 1 2 3))",
+    take_negative_errors: "(take -1 (list 1 2 3))" => "non-negative",
+    drop_negative_errors: "(drop -1 (list 1 2 3))" => "non-negative",
 }
 
 // Integer arithmetic is intentionally wrapping; pin current semantics so a

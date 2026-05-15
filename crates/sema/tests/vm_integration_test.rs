@@ -26,23 +26,60 @@ fn assert_equiv(input: &str) {
     assert_eq!(tw, vm, "tree-walker vs VM mismatch for: {input}");
 }
 
+/// Assert tree-walker and VM agree AND that they both equal `expected`.
+///
+/// `assert_equiv` alone only catches cases where the two backends diverge —
+/// a regression that breaks both backends in the same way would pass. Pinning
+/// canonical cases against a literal `Value` catches that class of bug at the
+/// foundational level.
+fn assert_equiv_eq(input: &str, expected: Value) {
+    let tw = {
+        let interp = Interpreter::new();
+        interp
+            .eval_str(input)
+            .expect(&format!("tree-walker failed: {input}"))
+    };
+    let vm = {
+        let interp = Interpreter::new();
+        interp
+            .eval_str_compiled(input)
+            .expect(&format!("VM failed: {input}"))
+    };
+    assert_eq!(tw, vm, "tree-walker vs VM mismatch for: {input}");
+    assert_eq!(
+        tw, expected,
+        "tree-walker result mismatch for: {input} (vm matched tw)"
+    );
+}
+
 // === Equivalence tests ===
 
 #[test]
 fn test_equiv_arithmetic() {
-    assert_equiv("(+ 1 2)");
-    assert_equiv("(- 10 3)");
-    assert_equiv("(* 4 5)");
-    assert_equiv("(/ 10 2)");
-    assert_equiv("(+ 1 2.0)");
+    // Canonical arithmetic cases are pinned to literal expected values so a
+    // regression that breaks both backends identically is still caught here.
+    assert_equiv_eq("(+ 1 2)", Value::int(3));
+    assert_equiv_eq("(- 10 3)", Value::int(7));
+    assert_equiv_eq("(* 4 5)", Value::int(20));
+    assert_equiv_eq("(/ 10 2)", Value::int(5));
+    assert_equiv_eq("(+ 1 2.0)", Value::float(3.0));
+    assert_equiv_eq("(+ 1 2 3 4 5)", Value::int(15));
+    assert_equiv_eq("(* 2 3 4)", Value::int(24));
+    assert_equiv_eq("(- 100 1 2 3)", Value::int(94));
 }
 
 #[test]
 fn test_equiv_comparison() {
-    assert_equiv("(< 1 2)");
-    assert_equiv("(> 3 2)");
-    assert_equiv("(= 42 42)");
-    assert_equiv("(not #f)");
+    // Canonical predicate/comparison cases pinned to literal expected values.
+    assert_equiv_eq("(< 1 2)", Value::bool(true));
+    assert_equiv_eq("(> 3 2)", Value::bool(true));
+    assert_equiv_eq("(= 42 42)", Value::bool(true));
+    assert_equiv_eq("(not #f)", Value::bool(true));
+    assert_equiv_eq("(< 2 1)", Value::bool(false));
+    assert_equiv_eq("(= 1 2)", Value::bool(false));
+    assert_equiv_eq("(not #t)", Value::bool(false));
+    assert_equiv_eq("(<= 1 1)", Value::bool(true));
+    assert_equiv_eq("(>= 2 3)", Value::bool(false));
 }
 
 #[test]

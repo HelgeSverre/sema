@@ -2247,9 +2247,16 @@ fn test_sys_platform() {
 
 #[test]
 fn test_sys_args() {
-    // sys/args should return a list
+    // sys/args should return a list. Backed by `std::env::args()`, which is
+    // guaranteed to include at least argv[0] (the test binary's path) on
+    // every supported platform, so we can additionally assert non-empty.
     let result = eval("(sys/args)");
     assert!(result.is_list());
+    let items = result.as_list().expect("sys/args should be a list");
+    assert!(
+        !items.is_empty(),
+        "sys/args should contain at least argv[0]"
+    );
 }
 
 #[test]
@@ -5406,6 +5413,8 @@ fn test_sys_temp_dir() {
 fn test_sys_hostname() {
     let result = eval("(sys/hostname)");
     assert!(result.is_string());
+    let s = result.as_str().expect("hostname should be a string");
+    assert!(!s.is_empty(), "hostname should be non-empty, got: {s:?}");
 }
 
 #[test]
@@ -6300,7 +6309,13 @@ fn test_define_provider_uses_default_model() {
 fn test_define_provider_requires_complete() {
     let interp = Interpreter::new();
     let result = interp.eval_str(r#"(llm/define-provider :bad {:default-model "x"})"#);
-    assert!(result.is_err());
+    let err = result
+        .expect_err("missing :complete must error")
+        .to_string();
+    assert!(
+        err.contains("complete"),
+        "error should mention the missing :complete field, got: {err}"
+    );
 }
 
 #[test]
@@ -6308,7 +6323,17 @@ fn test_define_provider_validates_complete_is_function() {
     let interp = Interpreter::new();
     let result = interp
         .eval_str(r#"(llm/define-provider :bad {:complete "not a function" :default-model "x"})"#);
-    assert!(result.is_err());
+    let err = result
+        .expect_err(":complete must be a function or this must error")
+        .to_string();
+    let lowered = err.to_lowercase();
+    assert!(
+        (lowered.contains("complete") || lowered.contains("string"))
+            && (lowered.contains("function")
+                || lowered.contains("callable")
+                || lowered.contains("lambda")),
+        "error should explain that :complete must be a function, got: {err}"
+    );
 }
 
 #[test]
@@ -7426,17 +7451,29 @@ fn test_list_sole() {
 #[test]
 fn test_list_sole_multiple_error() {
     let interp = Interpreter::new();
-    assert!(interp
+    let err = interp
         .eval_str("(list/sole (fn (x) (> x 2)) (list 1 2 3 4))")
-        .is_err());
+        .expect_err("more than one match must error")
+        .to_string()
+        .to_lowercase();
+    assert!(
+        err.contains("more than one") || err.contains("multiple"),
+        "error should distinguish multi-match case, got: {err}"
+    );
 }
 
 #[test]
 fn test_list_sole_none_error() {
     let interp = Interpreter::new();
-    assert!(interp
+    let err = interp
         .eval_str("(list/sole (fn (x) (> x 10)) (list 1 2 3))")
-        .is_err());
+        .expect_err("no match must error")
+        .to_string()
+        .to_lowercase();
+    assert!(
+        err.contains("no match") || err.contains("no matching") || err.contains("none"),
+        "error should distinguish no-match case, got: {err}"
+    );
 }
 
 #[test]
@@ -8160,13 +8197,14 @@ fn test_llm_token_count_list() {
 
 // --- Rate limiting tests ---
 
-#[test]
-fn test_llm_with_rate_limit_type_check() {
-    let interp = Interpreter::new();
-    let result = interp.eval_str(r#"(llm/with-rate-limit 5 (lambda () 42))"#);
-    assert!(result.is_ok());
-    assert_eq!(result.unwrap(), Value::int(42));
-}
+// TODO: `llm/with-rate-limit` has no dedicated test of its rate-limiting
+// behavior. The previous `test_llm_with_rate_limit_type_check` only invoked
+// the wrapper once and asserted the inner result, which exercised neither the
+// interval enforcement nor any back-pressure path. A proper test would call
+// the wrapped fn repeatedly in tight succession and assert that the elapsed
+// `(time-ms)` between calls is >= the configured interval; that requires a
+// timing-stable harness we don't yet have here, so the weak test has been
+// removed rather than left as a false-positive.
 
 // --- Retry tests ---
 
@@ -10184,12 +10222,10 @@ fn test_pdf_page_count_arity() {
     assert!(interp.eval_str(r#"(pdf/page-count "a" "b")"#).is_err());
 }
 
-#[test]
-fn test_pdf_metadata_returns_map() {
-    let path = pdf_fixture("sample-invoice.pdf");
-    let result = eval(&format!(r#"(pdf/metadata "{path}")"#));
-    assert!(result.as_map_rc().is_some(), "should return a map");
-}
+// `test_pdf_metadata_returns_map` was removed: it only asserted that the
+// return value was a map, which is subsumed by `test_pdf_metadata_has_pages`
+// below (that test does a `(get ... :pages)`, which itself requires a map
+// AND verifies the expected field is present with the right value).
 
 #[test]
 fn test_pdf_metadata_has_pages() {
@@ -13823,5 +13859,142 @@ fn test_cli_top_level_async_drains_scheduler() {
     assert!(
         stdout.contains(":end"),
         "expected final expression value, got stdout: {stdout}"
+    );
+}
+
+// ── io/read-line and io/read-stdin: subprocess + piped stdin ──────────────
+//
+// These tests pin down the EOF-on-stdin contract:
+//   * (io/read-line) returns the next line without trailing newline, or
+//     nil on EOF.
+//   * (io/eof?) flips to #t after read-line / read-stdin observed EOF.
+//   * (io/read-stdin) consumes all remaining stdin into a string.
+
+fn run_sema_with_stdin(program: &str, stdin_input: &[u8]) -> std::process::Output {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_sema"))
+        .args(["--no-init", "-e", program])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn sema");
+    if !stdin_input.is_empty() {
+        child
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(stdin_input)
+            .expect("failed to write stdin");
+    }
+    // Drop stdin to signal EOF.
+    drop(child.stdin.take());
+    child.wait_with_output().expect("failed to wait for sema")
+}
+
+#[test]
+fn test_io_read_line_returns_string_without_newline() {
+    let output = run_sema_with_stdin(r#"(println (io/read-line))"#, b"hello world\n");
+    assert!(
+        output.status.success(),
+        "sema exited non-zero: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // println adds its own newline; read-line should have stripped the input \n.
+    assert_eq!(stdout.trim_end_matches('\n'), "hello world");
+}
+
+#[test]
+fn test_io_read_line_eof_returns_nil_and_sets_eof_flag() {
+    // Pipe EOF immediately: (io/read-line) should be nil; (io/eof?) should be #t.
+    let output = run_sema_with_stdin(
+        r#"(let ((v (io/read-line))) (println (if (nil? v) "nil-ok" "BAD")) (println (io/eof?)))"#,
+        b"",
+    );
+    assert!(
+        output.status.success(),
+        "sema exited non-zero: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("nil-ok"),
+        "expected nil-ok marker, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("#t"),
+        "expected (io/eof?) to be #t after EOF, got: {stdout}"
+    );
+}
+
+#[test]
+fn test_io_read_line_empty_line_then_eof() {
+    // First read returns "" (empty line), second read returns nil.
+    let output = run_sema_with_stdin(
+        r#"
+        (let ((first (io/read-line))
+              (second (io/read-line)))
+          (println (if (and (string? first) (= (string-length first) 0)) "empty-ok" "BAD-FIRST"))
+          (println (if (nil? second) "nil-ok" "BAD-SECOND")))
+        "#,
+        b"\n",
+    );
+    assert!(
+        output.status.success(),
+        "sema exited non-zero: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("empty-ok"), "got: {stdout}");
+    assert!(stdout.contains("nil-ok"), "got: {stdout}");
+}
+
+#[test]
+fn test_io_read_line_alias_legacy_name() {
+    // `read-line` is the canonical name with `io/read-line` as an alias.
+    // Pin that the alias resolves to the same function.
+    let output = run_sema_with_stdin(r#"(println (read-line))"#, b"alias-works\n");
+    assert!(
+        output.status.success(),
+        "sema exited non-zero: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout.trim_end_matches('\n'), "alias-works");
+}
+
+#[test]
+fn test_io_read_stdin_returns_full_input() {
+    let payload = "line1\nline2\nline3\n";
+    let output = run_sema_with_stdin(r#"(display (io/read-stdin))"#, payload.as_bytes());
+    assert!(
+        output.status.success(),
+        "sema exited non-zero: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert_eq!(stdout, payload);
+}
+
+#[test]
+fn test_io_read_stdin_empty_returns_empty_string_and_sets_eof() {
+    let output = run_sema_with_stdin(
+        r#"(let ((s (io/read-stdin)))
+             (println (if (and (string? s) (= (string-length s) 0)) "empty-ok" "BAD"))
+             (println (io/eof?)))"#,
+        b"",
+    );
+    assert!(
+        output.status.success(),
+        "sema exited non-zero: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("empty-ok"), "got: {stdout}");
+    assert!(
+        stdout.contains("#t"),
+        "expected (io/eof?) to be #t after read-stdin on empty input, got: {stdout}"
     );
 }
