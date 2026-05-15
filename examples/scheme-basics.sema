@@ -124,8 +124,9 @@
 (println (format "Second force: ~a" (force memo-p)))
 (println (format "Counter:      ~a (only incremented once)" counter))
 
-;; Force on non-promise passes through (R7RS)
-(println (format "\n(force 42):   ~a" (force 42)))
+;; (force x) now requires a thunk — non-promise values are an error since v1.15.
+;; To handle a value-or-promise input, wrap in a delay first:
+(println (format "\n(force (delay 42)):  ~a" (force (delay 42))))
 
 ;; Lazy fibonacci sequence element
 (define (lazy-add a b)  (delay (+ (force a) (force b))))
