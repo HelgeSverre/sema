@@ -16,6 +16,8 @@ pub const REPL_COMMANDS: &[&str] = &[
     ",type",
     ",time",
     ",doc",
+    ",disasm",
+    ",apropos",
 ];
 
 /// Outcome of dispatching a meta-command line.
@@ -55,13 +57,23 @@ pub fn dispatch(
         _ => {}
     }
 
-    if trimmed == ",doc" || trimmed == ",type" || trimmed == ",time" {
+    if matches!(trimmed, ",doc" | ",type" | ",time" | ",disasm" | ",apropos") {
         println!("Usage: {trimmed} <expr>");
         return CommandOutcome::Handled;
     }
 
     if let Some(stripped) = trimmed.strip_prefix(",doc ") {
         doc(env, stripped.trim());
+        return CommandOutcome::Handled;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix(",disasm ") {
+        super::disasm::run(interpreter, rest);
+        return CommandOutcome::Handled;
+    }
+
+    if let Some(rest) = trimmed.strip_prefix(",apropos ") {
+        super::apropos::run(env, rest);
         return CommandOutcome::Handled;
     }
 
@@ -179,13 +191,15 @@ fn doc(env: &Env, name: &str) {
 
 fn print_help() {
     println!("Sema REPL Commands:");
-    println!("  ,quit / ,q    Exit the REPL");
-    println!("  ,help / ,h    Show this help");
-    println!("  ,env          Show defined variables");
-    println!("  ,builtins     List all builtin functions");
-    println!("  ,type EXPR    Show the type of a value");
-    println!("  ,time EXPR    Evaluate and show elapsed time");
-    println!("  ,doc NAME     Show info about a binding");
+    println!("  ,quit / ,q       Exit the REPL");
+    println!("  ,help / ,h       Show this help");
+    println!("  ,env             Show defined variables");
+    println!("  ,builtins        List all builtin functions");
+    println!("  ,type EXPR       Show the type of a value");
+    println!("  ,time EXPR       Evaluate and show elapsed time");
+    println!("  ,doc NAME        Show info about a binding");
+    println!("  ,apropos PAT     Search names by pattern (substring + fuzzy)");
+    println!("  ,disasm EXPR     Compile EXPR and print its bytecode");
     println!();
     println!("LLM Quick Start:");
     println!("  Set ANTHROPIC_API_KEY or OPENAI_API_KEY env var, then:");

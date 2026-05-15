@@ -15,8 +15,10 @@ use sema_eval::Interpreter;
 
 use crate::{drain_async_scheduler, eval_with_mode_repl, print_error, LAST_FILE, LAST_SOURCE};
 
+mod apropos;
 mod commands;
 mod completer;
+mod disasm;
 mod editor;
 mod headless;
 mod highlighter;
