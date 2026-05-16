@@ -1,14 +1,14 @@
 # Bytecode VM
 
-::: tip Opt-In (Alpha)
-The bytecode VM is functional and available via the `--vm` CLI flag. The tree-walking interpreter remains the default execution path. Both runtimes coexist and share the global environment.
+::: tip Default Backend
+The bytecode VM is the default execution path as of v1.14.0. The tree-walking interpreter is still available via `--tw` for debugging and comparison. Both runtimes coexist and share the global environment.
 :::
 
 ## Overview
 
-Sema includes a bytecode VM alongside the existing tree-walking interpreter, enabled with the `--vm` CLI flag. The VM compiles Sema source code into stack-based bytecode for faster execution, delivering **up to 17× speedup** over the tree-walker on compute-heavy workloads (e.g., TAK benchmark: 1.25s vs 21.4s).
+Sema's default backend is a bytecode VM. The VM compiles Sema source code into stack-based bytecode for faster execution, delivering **up to 17× speedup** over the tree-walker on compute-heavy workloads (e.g., TAK benchmark: 1.25s vs 21.4s).
 
-The tree-walking interpreter (`sema-eval`) is preserved as the default execution path, the macro expansion engine, and `eval` fallback — the two runtimes coexist, sharing the global environment and `EvalContext`.
+The tree-walking interpreter (`sema-eval`) is preserved as the macro expansion engine and `eval` fallback, and remains user-accessible via `--tw` — the two runtimes coexist, sharing the global environment and `EvalContext`.
 
 ## Compilation Pipeline
 
@@ -242,14 +242,18 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 
 ## CLI Usage
 
-The `--vm` flag enables the bytecode compilation path. The tree-walker remains the default.
+The bytecode VM is the default. Pass `--tw` to opt back into the tree-walker.
 
 ```bash
-# Run a file with the bytecode VM
-sema --vm examples/hello.sema
+# Run a file with the bytecode VM (default)
+sema examples/hello.sema
 
-# Run in REPL with VM mode
-sema --vm
+# Run with the tree-walker for debugging/comparison
+sema --tw examples/hello.sema
+
+# REPL also defaults to VM; use --tw to switch
+sema
+sema --tw
 ```
 
 Both paths share the global `Env` and `EvalContext`.
