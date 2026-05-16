@@ -74,6 +74,8 @@ run_bench() {
         echo "{\"name\": \"$name\", \"best_ms\": null, \"error\": \"failed\"}" >> "$RESULTS_FILE.tmp"
     fi
     echo ""
+    # Cooldown between dialects to reduce thermal-induced variance under emulation.
+    sleep 5
 }
 
 echo "=== Running benchmarks (3 runs each, best of 3) ==="
@@ -93,8 +95,8 @@ run_bench "clojure"  clojure -M /bench/1brc.clj "$DATA_FILE"
 run_bench "kawa"     kawa --script /bench/1brc.kawa.scm "$DATA_FILE"
 
 # ── Tree-walking interpreters ──
-run_bench "sema"     sema --no-llm /bench/1brc.sema -- "$DATA_FILE"
-run_bench "sema-vm"  sema --no-llm --vm /bench/1brc.sema -- "$DATA_FILE"
+run_bench "sema"     sema --no-llm --tw /bench/1brc.sema -- "$DATA_FILE"
+run_bench "sema-vm"  sema --no-llm /bench/1brc.sema -- "$DATA_FILE"
 
 # ── Bytecode VMs / Interpreters ──
 run_bench "racket"   racket /bench/1brc.rkt "$DATA_FILE"

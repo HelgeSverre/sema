@@ -1,5 +1,8 @@
 # Stage 1: Build Sema from local source
 FROM rust:bookworm AS sema-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config libudev-dev libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
 COPY sema-src /sema-src
 WORKDIR /sema-src
 RUN cargo install --path crates/sema
