@@ -8,9 +8,6 @@
     "preview": "vitepress preview"
   },
   "devDependencies": {
-    "vitepress": "^1.6.4"
-  },
-  "overrides": {
-    "esbuild": ">=0.25.0"
+    "vitepress": "2.0.0-alpha.17"
   }
 }
