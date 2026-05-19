@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.16.0
+
+REPL-focused release. The REPL foundation moved from rustyline to reedline (no user-facing flag changes, no script breakage), and the interactive surface gained syntax highlighting, bracket matching, ghost-text completion hints, an arrow-key value inspector, and the `,disasm` / `,apropos` commands. Unbound-global errors from the VM now carry "Did you mean …?" hints, matching the tree-walker.
+
+### Added
+
+- **REPL syntax highlighting** with bracket matching as you type.
+- **Ghost-text inline hints** suggesting completions from history and the global environment.
+- **`,inspect <expr>`** opens an interactive arrow-key navigator for lists, vectors, and maps — drill into nested structures without re-typing accessors.
+- **`,disasm <fn>`** prints the bytecode for a named function or top-level form.
+- **`,apropos <pattern>`** searches global names by substring or regex.
+
+### Changed
+
+- **REPL foundation: rustyline → reedline.** No breaking changes to REPL commands or flags; the migration unlocks the highlighting/hinter/validator surface above. See PR #37.
+- **VM "unbound global" errors carry a `Did you mean …?` hint** when the name is close to an existing binding (matches the tree-walker's behaviour).
+
+### Security
+
+- **Dependency bumps to clear 19 Dependabot advisories** (PR #38): `rand` 0.9.2 → 0.9.3 and 0.10.0 → 0.10.1, `rustls-webpki` 0.103.10 → 0.103.13 in the root workspace; `openssl` 0.10.75 → 0.10.80, `rand` 0.8.5 → 0.8.6, `rustls-webpki` 0.103.9 → 0.103.13 in `pkg/`; `pytest` 9.0.2 → 9.0.3 and `Pygments` 2.19.2 → 2.20.0 in the LSP e2e harness; `postcss` and `rollup` in the website.
+- **VitePress 1.6.4 → 2.0.0-alpha.17** (PR #39) closes the vite `.map` path-traversal advisory (GHSA-4w7w-66w2-5vf9), which had no fix in the vite 5.x line vitepress 1 was pinned to.
+
+### Docs
+
+- The VM is now documented as the default backend across the website.
+- Refreshed 1brc benchmark numbers.
+- Added LSP audit harness design doc.
+- Pruned shipped items from `docs/wip.md`.
+
 ## 1.15.0
 
 Big quality-sweep release. ~120 audit findings triaged across six waves, of which ~60 shipped here. No new headline features — this release is about hardening, consistency, and error UX in the v1.14 async / sandbox / REPL surface.
