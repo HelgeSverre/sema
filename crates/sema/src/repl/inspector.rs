@@ -139,40 +139,32 @@ fn handle_key(key: KeyEvent, state: &mut InspectorState, rows: u16) -> Action {
                 return Action::Exit;
             }
         }
-        KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') => {
-            if child_count > 0 {
-                if let Some(child) = children.get(state.selected) {
-                    state.path.push(child.path_segment.clone());
-                    state.selected = 0;
-                    state.scroll = 0;
-                }
+        KeyCode::Enter | KeyCode::Right | KeyCode::Char('l') if child_count > 0 => {
+            if let Some(child) = children.get(state.selected) {
+                state.path.push(child.path_segment.clone());
+                state.selected = 0;
+                state.scroll = 0;
             }
         }
-        KeyCode::Up | KeyCode::Char('k') => {
-            if state.selected > 0 {
-                state.selected -= 1;
-                if state.selected < state.scroll {
-                    state.scroll = state.selected;
-                }
+        KeyCode::Up | KeyCode::Char('k') if state.selected > 0 => {
+            state.selected -= 1;
+            if state.selected < state.scroll {
+                state.scroll = state.selected;
             }
         }
-        KeyCode::Down | KeyCode::Char('j') => {
-            if state.selected + 1 < child_count {
-                state.selected += 1;
-                if state.selected >= state.scroll + visible {
-                    state.scroll = state.selected + 1 - visible;
-                }
+        KeyCode::Down | KeyCode::Char('j') if state.selected + 1 < child_count => {
+            state.selected += 1;
+            if state.selected >= state.scroll + visible {
+                state.scroll = state.selected + 1 - visible;
             }
         }
         KeyCode::Home | KeyCode::Char('g') => {
             state.selected = 0;
             state.scroll = 0;
         }
-        KeyCode::End | KeyCode::Char('G') => {
-            if child_count > 0 {
-                state.selected = child_count - 1;
-                state.scroll = state.selected.saturating_sub(visible.saturating_sub(1));
-            }
+        KeyCode::End | KeyCode::Char('G') if child_count > 0 => {
+            state.selected = child_count - 1;
+            state.scroll = state.selected.saturating_sub(visible.saturating_sub(1));
         }
         _ => {}
     }
