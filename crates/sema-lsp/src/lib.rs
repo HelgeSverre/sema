@@ -57,7 +57,7 @@ mod tests {
     #[test]
     fn span_to_range_converts_1_indexed_to_0() {
         let span = Span::new(1, 1, 1, 5);
-        let range = span_to_range(&span);
+        let range = span_to_range(&span, &[]);
         assert_eq!(range.start.line, 0);
         assert_eq!(range.start.character, 0);
         assert_eq!(range.end.line, 0);
@@ -67,11 +67,41 @@ mod tests {
     #[test]
     fn span_to_range_multiline() {
         let span = Span::new(3, 10, 5, 2);
-        let range = span_to_range(&span);
+        let range = span_to_range(&span, &[]);
         assert_eq!(range.start.line, 2);
         assert_eq!(range.start.character, 9);
         assert_eq!(range.end.line, 4);
         assert_eq!(range.end.character, 1);
+    }
+
+    // LSP-1: Sema spans count chars; LSP Position.character counts UTF-16 code
+    // units. On a line with an astral char (🎉 = 2 UTF-16 units) the two diverge,
+    // and an unconverted range points at the wrong column → rename corrupts source.
+    #[test]
+    fn span_to_range_maps_astral_line_to_utf16() {
+        // "(x 🎉 y)" — chars: ( x SPACE 🎉 SPACE y ) ; `y` is char col 6..7.
+        let lines = ["(x 🎉 y)"];
+        let span = Span::new(1, 6, 1, 7);
+
+        // Char-index fallback (no line context) is wrong by the emoji's extra unit.
+        assert_eq!(span_to_range(&span, &[]).start.character, 5);
+
+        // With the line, the emoji counts as 2 UTF-16 units → correct columns.
+        let r = span_to_range(&span, &lines);
+        assert_eq!(r.start.character, 6, "y should start at UTF-16 unit 6");
+        assert_eq!(r.end.character, 7);
+    }
+
+    #[test]
+    fn char_utf16_conversions_roundtrip_through_astral() {
+        let line = "(x 🎉 y)";
+        // Editor → Sema: UTF-16 character 6 is `y`, which is char col 6 (1-indexed).
+        assert_eq!(utf16_to_char_col(line, 6), 6);
+        // Sema → editor: char col 6 maps back to 6 UTF-16 units.
+        assert_eq!(char_col_to_utf16(Some(line), 6), 6);
+        // Pure ASCII is an identity mapping in both directions.
+        assert_eq!(utf16_to_char_col("abc", 2), 3);
+        assert_eq!(char_col_to_utf16(Some("abc"), 3), 2);
     }
 
     // ── parse_diagnostics ────────────────────────────────────────
@@ -377,7 +407,7 @@ mod tests {
             ("foo".to_string(), sema_core::Span::new(1, 9, 1, 12)),
         ];
         let form_span = sema_core::Span::new(1, 1, 1, 20);
-        let result = find_name_span("foo", &form_span, &sym_spans);
+        let result = find_name_span("foo", &form_span, &sym_spans, &[]);
         assert!(result.is_some());
         let range = result.unwrap();
         assert_eq!(range.start.line, 0); // LSP is 0-indexed
@@ -388,7 +418,7 @@ mod tests {
     fn find_name_span_not_in_form() {
         let sym_spans = vec![("foo".to_string(), sema_core::Span::new(5, 1, 5, 4))];
         let form_span = sema_core::Span::new(1, 1, 1, 20);
-        assert!(find_name_span("foo", &form_span, &sym_spans).is_none());
+        assert!(find_name_span("foo", &form_span, &sym_spans, &[]).is_none());
     }
 
     // ── precise name spans ─────────────────────────────────────
@@ -683,7 +713,7 @@ mod tests {
     fn doc_symbols_defun() {
         let src = "(defun foo (x) x)";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "foo");
         assert_eq!(symbols[0].kind, SymbolKind::FUNCTION);
@@ -694,7 +724,7 @@ mod tests {
     fn doc_symbols_define_variable() {
         let src = "(define x 42)";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "x");
         assert_eq!(symbols[0].kind, SymbolKind::VARIABLE);
@@ -705,7 +735,7 @@ mod tests {
     fn doc_symbols_define_function_shorthand() {
         let src = "(define (square x) (* x x))";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "square");
         assert_eq!(symbols[0].kind, SymbolKind::FUNCTION);
@@ -715,7 +745,7 @@ mod tests {
     fn doc_symbols_defmacro() {
         let src = "(defmacro unless (test body) `(if (not ,test) ,body))";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "unless");
         assert_eq!(symbols[0].kind, SymbolKind::OPERATOR);
@@ -725,7 +755,7 @@ mod tests {
     fn doc_symbols_multiple() {
         let src = "(define x 1)\n(defun f (a) a)\n(defmacro m (x) x)";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert_eq!(symbols.len(), 3);
         assert_eq!(symbols[0].name, "x");
         assert_eq!(symbols[1].name, "f");
@@ -736,7 +766,7 @@ mod tests {
     fn doc_symbols_no_defs() {
         let src = "(+ 1 2)\n(println \"hello\")";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert!(symbols.is_empty());
     }
 
@@ -744,7 +774,7 @@ mod tests {
     fn doc_symbols_selection_range_is_name() {
         let src = "(defun foo (x) x)";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert_eq!(symbols.len(), 1);
         // selection_range should be just "foo", not the whole form
         let sel = symbols[0].selection_range;
@@ -885,7 +915,7 @@ mod tests {
     fn top_level_ranges_basic() {
         let src = "(define x 1)\n(defun f (a) a)";
         let (ast, span_map) = sema_reader::read_many_with_spans(src).unwrap();
-        let ranges = top_level_ranges(&ast, &span_map);
+        let ranges = top_level_ranges(&ast, &span_map, &[]);
         assert_eq!(ranges.len(), 2);
         assert_eq!(ranges[0].0, 0); // first form
         assert_eq!(ranges[1].0, 1); // second form
@@ -897,7 +927,7 @@ mod tests {
     fn top_level_ranges_empty() {
         let src = "";
         let (ast, span_map) = sema_reader::read_many_with_spans(src).unwrap();
-        let ranges = top_level_ranges(&ast, &span_map);
+        let ranges = top_level_ranges(&ast, &span_map, &[]);
         assert!(ranges.is_empty());
     }
 
@@ -962,7 +992,7 @@ mod tests {
     fn doc_symbols_defagent() {
         let src = "(defagent my-agent :model \"claude\")";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "my-agent");
         assert_eq!(symbols[0].kind, SymbolKind::CLASS);
@@ -972,7 +1002,7 @@ mod tests {
     fn doc_symbols_deftool() {
         let src = "(deftool get-weather (location) \"Get weather\" location)";
         let (ast, span_map, sym_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
-        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans);
+        let symbols = document_symbols_from_ast(&ast, &span_map, &sym_spans, &[]);
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].name, "get-weather");
         assert_eq!(symbols[0].kind, SymbolKind::METHOD);
@@ -1257,6 +1287,9 @@ struct ImportCache {
     span_map: SpanMap,
     symbol_spans: Vec<(String, Span)>,
     scope_tree: scope::ScopeTree,
+    /// Source text, retained so cross-file ranges can be mapped from char
+    /// columns to UTF-16 code units (LSP `Position`). See `span_to_range`.
+    source: String,
     /// Modification time when we last read the file.
     mtime: std::time::SystemTime,
 }
@@ -1394,6 +1427,7 @@ impl BackendState {
                 span_map,
                 symbol_spans,
                 scope_tree,
+                source: text,
                 mtime,
             },
         );
@@ -1488,11 +1522,16 @@ impl BackendState {
 
     fn handle_code_lens(&self, uri: &Url) -> Vec<CodeLens> {
         let uri_str = uri.as_str();
+        let lines: Vec<&str> = self
+            .documents
+            .get(uri_str)
+            .map(|t| t.lines().collect())
+            .unwrap_or_default();
 
         // Prefer the cached parse populated by didChange; only re-parse if
         // the cache misses (should be rare for open documents).
         let indexed_ranges = if let Some(cached) = self.cached_parses.get(uri_str) {
-            top_level_ranges(&cached.ast, &cached.span_map)
+            top_level_ranges(&cached.ast, &cached.span_map, &lines)
         } else {
             let text = match self.documents.get(uri_str) {
                 Some(t) => t,
@@ -1502,7 +1541,7 @@ impl BackendState {
                 Ok(r) => r,
                 Err(_) => return vec![],
             };
-            top_level_ranges(&exprs, &span_map)
+            top_level_ranges(&exprs, &span_map, &lines)
         };
 
         indexed_ranges
@@ -1550,7 +1589,8 @@ impl BackendState {
         // Phase 3b: Check if cursor is on a user-defined symbol
         let line_idx = position.line as usize;
         let text = self.documents.get(uri_str)?;
-        let line = text.lines().nth(line_idx)?;
+        let lines: Vec<&str> = text.lines().collect();
+        let line = lines.get(line_idx).copied()?;
         let byte_offset = utf16_to_byte_offset(line, position.character);
         let symbol = extract_symbol_at(line, byte_offset).to_string();
         if symbol.is_empty() {
@@ -1560,11 +1600,11 @@ impl BackendState {
         // Check scope tree for binding definition (local + top-level)
         let cached = self.cached_parses.get(uri_str)?;
         let sema_line = position.line as usize + 1;
-        let sema_col = position.character as usize + 1;
+        let sema_col = utf16_to_char_col(line, position.character as usize);
         if let Some(resolved) = cached.scope_tree.resolve_at(&symbol, sema_line, sema_col) {
             return Some(GotoDefinitionResponse::Scalar(Location {
                 uri: uri.clone(),
-                range: span_to_range(&resolved.def_span),
+                range: span_to_range(&resolved.def_span, &lines),
             }));
         }
 
@@ -1579,8 +1619,13 @@ impl BackendState {
                 Some(c) => c,
                 None => continue,
             };
-            let target_defs =
-                user_definitions_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
+            let target_lines: Vec<&str> = cached.source.lines().collect();
+            let target_defs = user_definitions_from_ast(
+                &cached.ast,
+                &cached.span_map,
+                &cached.symbol_spans,
+                &target_lines,
+            );
             for (name, range) in &target_defs {
                 if name == &symbol {
                     if let Some(range) = range {
@@ -1604,8 +1649,9 @@ impl BackendState {
             None => return vec![],
         };
 
+        let lines: Vec<&str> = text.lines().collect();
         let line_idx = position.line as usize;
-        let line = match text.lines().nth(line_idx) {
+        let line = match lines.get(line_idx).copied() {
             Some(l) => l,
             None => return vec![],
         };
@@ -1617,7 +1663,7 @@ impl BackendState {
 
         // 1-indexed position for scope tree queries
         let sema_line = position.line as usize + 1;
-        let sema_col = position.character as usize + 1;
+        let sema_col = utf16_to_char_col(line, position.character as usize);
 
         // Check scope tree in the current document
         if let Some(cached) = self.cached_parses.get(uri_str) {
@@ -1636,7 +1682,7 @@ impl BackendState {
                     .into_iter()
                     .map(|span| Location {
                         uri: uri.clone(),
-                        range: span_to_range(&span),
+                        range: span_to_range(&span, &lines),
                     })
                     .collect();
             }
@@ -1653,6 +1699,11 @@ impl BackendState {
                 Err(_) => continue,
             };
             searched_uris.insert(doc_uri_str.clone());
+            let doc_lines: Vec<&str> = self
+                .documents
+                .get(doc_uri_str)
+                .map(|t| t.lines().collect())
+                .unwrap_or_default();
             for (name, span) in &cached.symbol_spans {
                 if name != symbol {
                     continue;
@@ -1665,7 +1716,7 @@ impl BackendState {
                 }
                 locations.push(Location {
                     uri: doc_uri.clone(),
-                    range: span_to_range(span),
+                    range: span_to_range(span, &doc_lines),
                 });
             }
         }
@@ -1680,6 +1731,7 @@ impl BackendState {
             if searched_uris.contains(import_uri.as_str()) {
                 continue;
             }
+            let import_lines: Vec<&str> = import_cached.source.lines().collect();
             for (name, span) in &import_cached.symbol_spans {
                 if name != symbol {
                     continue;
@@ -1693,7 +1745,7 @@ impl BackendState {
                 }
                 locations.push(Location {
                     uri: import_uri.clone(),
-                    range: span_to_range(span),
+                    range: span_to_range(span, &import_lines),
                 });
             }
         }
@@ -1708,8 +1760,9 @@ impl BackendState {
     ) -> Option<Vec<DocumentHighlight>> {
         let uri_str = uri.as_str();
         let text = self.documents.get(uri_str)?;
+        let lines: Vec<&str> = text.lines().collect();
         let line_idx = position.line as usize;
-        let line = text.lines().nth(line_idx)?;
+        let line = lines.get(line_idx).copied()?;
         let byte_offset = utf16_to_byte_offset(line, position.character);
         let symbol = extract_symbol_at(line, byte_offset);
         if symbol.is_empty() {
@@ -1718,7 +1771,7 @@ impl BackendState {
 
         let cached = self.cached_parses.get(uri_str)?;
         let sema_line = position.line as usize + 1;
-        let sema_col = position.character as usize + 1;
+        let sema_col = utf16_to_char_col(line, position.character as usize);
 
         // Use scope-aware references for locally scoped symbols
         if cached
@@ -1734,7 +1787,7 @@ impl BackendState {
             let highlights: Vec<DocumentHighlight> = refs
                 .into_iter()
                 .map(|span| DocumentHighlight {
-                    range: span_to_range(&span),
+                    range: span_to_range(&span, &lines),
                     kind: None,
                 })
                 .collect();
@@ -1756,7 +1809,7 @@ impl BackendState {
                 _ => {}
             }
             highlights.push(DocumentHighlight {
-                range: span_to_range(span),
+                range: span_to_range(span, &lines),
                 kind: None,
             });
         }
@@ -1795,8 +1848,10 @@ impl BackendState {
 
         // Check user definitions — show signature if available
         {
+            // Only names are used here (ranges discarded), so the line context
+            // is irrelevant — pass &[] to skip UTF-16 mapping.
             let defs =
-                user_definitions_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
+                user_definitions_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans, &[]);
             for (name, _) in &defs {
                 if name == &symbol {
                     let mut hover_text = format!("```sema\n({symbol}");
@@ -1850,10 +1905,12 @@ impl BackendState {
                     Some(c) => c,
                     None => continue,
                 };
+                // Names only; ranges discarded — &[] skips UTF-16 mapping.
                 let target_defs = user_definitions_from_ast(
                     &import_cached.ast,
                     &import_cached.span_map,
                     &import_cached.symbol_spans,
+                    &[],
                 );
                 if target_defs.iter().any(|(n, _)| n == &symbol) {
                     let module_name = Path::new(path_str)
@@ -1923,7 +1980,12 @@ impl BackendState {
             return;
         }
 
-        let indexed_ranges = top_level_ranges(&exprs, &span_map);
+        let lines: Vec<&str> = self
+            .documents
+            .get(uri_str)
+            .map(|t| t.lines().collect())
+            .unwrap_or_default();
+        let indexed_ranges = top_level_ranges(&exprs, &span_map, &lines);
         let form_range = indexed_ranges
             .iter()
             .find(|(i, _)| *i == form_index)
@@ -2058,8 +2120,13 @@ impl BackendState {
             Some(c) => c,
             None => return DocumentSymbolResponse::Nested(vec![]),
         };
+        let lines: Vec<&str> = self
+            .documents
+            .get(uri.as_str())
+            .map(|t| t.lines().collect())
+            .unwrap_or_default();
         let symbols =
-            document_symbols_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
+            document_symbols_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans, &lines);
         DocumentSymbolResponse::Nested(symbols)
     }
 
@@ -2076,8 +2143,17 @@ impl BackendState {
             };
             searched_uris.insert(doc_uri_str.clone());
 
-            let symbols =
-                document_symbols_from_ast(&cached.ast, &cached.span_map, &cached.symbol_spans);
+            let doc_lines: Vec<&str> = self
+                .documents
+                .get(doc_uri_str)
+                .map(|t| t.lines().collect())
+                .unwrap_or_default();
+            let symbols = document_symbols_from_ast(
+                &cached.ast,
+                &cached.span_map,
+                &cached.symbol_spans,
+                &doc_lines,
+            );
 
             for sym in symbols {
                 if query.is_empty() || sym.name.to_lowercase().contains(&query_lower) {
@@ -2107,10 +2183,12 @@ impl BackendState {
                 continue;
             }
 
+            let import_lines: Vec<&str> = import_cached.source.lines().collect();
             let symbols = document_symbols_from_ast(
                 &import_cached.ast,
                 &import_cached.span_map,
                 &import_cached.symbol_spans,
+                &import_lines,
             );
 
             for sym in symbols {
@@ -2617,8 +2695,9 @@ impl BackendState {
         position: &Position,
     ) -> Option<PrepareRenameResponse> {
         let text = self.documents.get(uri.as_str())?;
+        let lines: Vec<&str> = text.lines().collect();
         let line_idx = position.line as usize;
-        let line = text.lines().nth(line_idx)?;
+        let line = lines.get(line_idx).copied()?;
         let byte_offset = utf16_to_byte_offset(line, position.character);
         let symbol = extract_symbol_at(line, byte_offset);
         if symbol.is_empty() {
@@ -2634,7 +2713,7 @@ impl BackendState {
         let cached = self.cached_parses.get(uri.as_str())?;
         for (name, span) in &cached.symbol_spans {
             if name == symbol {
-                let range = span_to_range(span);
+                let range = span_to_range(span, &lines);
                 if position.line >= range.start.line
                     && position.line <= range.end.line
                     && position.character >= range.start.character
@@ -2658,8 +2737,9 @@ impl BackendState {
         new_name: &str,
     ) -> Option<WorkspaceEdit> {
         let text = self.documents.get(uri.as_str())?;
+        let lines: Vec<&str> = text.lines().collect();
         let line_idx = position.line as usize;
-        let line = text.lines().nth(line_idx)?;
+        let line = lines.get(line_idx).copied()?;
         let byte_offset = utf16_to_byte_offset(line, position.character);
         let symbol = extract_symbol_at(line, byte_offset);
         if symbol.is_empty() {
@@ -2673,7 +2753,7 @@ impl BackendState {
 
         // 1-indexed position for scope tree queries
         let sema_line = position.line as usize + 1;
-        let sema_col = position.character as usize + 1;
+        let sema_col = utf16_to_char_col(line, position.character as usize);
 
         let mut changes: HashMap<Url, Vec<TextEdit>> = HashMap::new();
 
@@ -2693,7 +2773,7 @@ impl BackendState {
                 let edits: Vec<TextEdit> = refs
                     .into_iter()
                     .map(|span| TextEdit {
-                        range: span_to_range(&span),
+                        range: span_to_range(&span, &lines),
                         new_text: new_name.to_string(),
                     })
                     .collect();
@@ -2719,6 +2799,11 @@ impl BackendState {
                 Err(_) => continue,
             };
             searched_uris.insert(doc_uri_str.clone());
+            let doc_lines: Vec<&str> = self
+                .documents
+                .get(doc_uri_str)
+                .map(|t| t.lines().collect())
+                .unwrap_or_default();
             let mut edits = Vec::new();
             for (name, span) in &cached.symbol_spans {
                 if name != symbol {
@@ -2729,7 +2814,7 @@ impl BackendState {
                     _ => {}
                 }
                 edits.push(TextEdit {
-                    range: span_to_range(span),
+                    range: span_to_range(span, &doc_lines),
                     new_text: new_name.to_string(),
                 });
             }
@@ -2747,6 +2832,7 @@ impl BackendState {
             if searched_uris.contains(import_uri.as_str()) {
                 continue;
             }
+            let import_lines: Vec<&str> = import_cached.source.lines().collect();
             let mut edits = Vec::new();
             for (name, span) in &import_cached.symbol_spans {
                 if name != symbol {
@@ -2760,7 +2846,7 @@ impl BackendState {
                     _ => {}
                 }
                 edits.push(TextEdit {
-                    range: span_to_range(span),
+                    range: span_to_range(span, &import_lines),
                     new_text: new_name.to_string(),
                 });
             }
@@ -3240,18 +3326,20 @@ pub async fn run_server() {
                     // Parse once, cache the result, and derive diagnostics
                     let (ast, span_map, symbol_spans, errors) =
                         sema_reader::read_many_with_spans_recover(&text);
+                    let lines: Vec<&str> = text.lines().collect();
 
                     let mut diags: Vec<Diagnostic> = errors
                         .iter()
-                        .map(|err| error_diagnostic(err, DiagnosticSeverity::ERROR))
+                        .map(|err| error_diagnostic(err, DiagnosticSeverity::ERROR, &lines))
                         .collect();
                     if diags.is_empty() {
-                        diags.extend(compile_diagnostics(&ast));
+                        diags.extend(compile_diagnostics(&ast, &lines));
                     }
 
                     let uri_str = uri.as_str().to_string();
+                    // Names only here; ranges discarded → &[] skips UTF-16 mapping.
                     let defs: Vec<String> =
-                        user_definitions_from_ast(&ast, &span_map, &symbol_spans)
+                        user_definitions_from_ast(&ast, &span_map, &symbol_spans, &[])
                             .into_iter()
                             .map(|(name, _)| name)
                             .collect();

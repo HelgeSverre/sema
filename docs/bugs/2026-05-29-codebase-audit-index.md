@@ -1,6 +1,6 @@
 # Whole-Codebase Bug Audit — 2026-05-29
 
-**Status:** Open (findings recorded, **no fixes applied**)
+**Status:** **All P0 and P1 findings fixed for 1.16.0** (2026-05-30); P2/P3 tracked below. See Resolution.
 **Method:** 13 parallel reviewer agents, one per subsystem, hunting real bugs only
 (correctness, panics, memory/UB, security, reliability). Cosmetic/structural concerns excluded.
 **Scope:** All 12 crates, ~78k production LOC (`tests/` excluded).
@@ -82,3 +82,40 @@ No parser recursion-depth limit (`sema-reader`), no HTTP request-body cap
   HTTP body `usize::MAX`. The rest carry reviewer confidence and should be re-checked at fix time.
 - Not deeply exercised: open-upvalue runtime under panic unwinding, full SSE/NDJSON multibyte
   stream reassembly, frontend JS.
+
+## Resolution (2026-05-30, for 1.16.0)
+
+Fixed across two passes. **Wave 0–4** (commits `f0a83b2`..`6e90380`) landed both P0s plus the
+systemic sweeps; the **P1 completion pass** landed the remaining high-severity findings with a
+red/green test each.
+
+### P0 — both fixed
+- **LLM-1** Gemini key-in-URL + model SSRF → header auth (`x-goog-api-key`) + validated `model`.
+- **VM-1** `CallNative` bounds → real runtime check (no longer `debug_assert!`).
+
+### P1 — all fixed
+- **LLM-2** multibyte tool-result slice → `truncate_chars` (Pattern B sweep).
+- **LLM-3** rate-limit clock underflow → `saturating_sub` (the thread::sleep runs on the sync
+  caller thread, not inside `block_on`, so no runtime starvation in practice).
+- **LLM-4** provider `base_url` SSRF → reject internal hosts when sandboxed (`is_internal_host`).
+- **VM-2** `DUP` empty-stack UB → runtime guard returning `SemaError`.
+- **VM-3** negative `i64`→`usize` in NTH; **VM-4** lambda rest-param shadowing → Pattern A sweep.
+- **STD-1..5** bit-shift / random-int / UTF-8 slice / pad / list-fn casts → Pattern A & B sweeps.
+- **STD-6** unbounded HTTP body → 16 MiB cap + `413`.
+- **STD-7** `ws/close` no-op → shared `Rc<RefCell<Option<Sender>>>`, take+drop on close.
+- **CORE-1** `&display[..39]` slice → `truncate_chars`. **READ-1** parser depth limit added.
+- **EVAL-1/2** quasiquote vector/map correctness. **WASM-1** `timeout_ms` cast → `clamp_timeout_ms`.
+- **LSP-1** char↔UTF-16 confusion → conversion in both directions (`char_col_to_utf16` /
+  `utf16_to_char_col`), threaded through `span_to_range` and all range producers + the incoming
+  `sema_col` sites; cross-file ranges use each file's source (now retained in `ImportCache`).
+- **DAP-1** running-VM poll loop now answers `GetStackTrace`/`GetScopes`/`GetVariables`.
+- **BIN-1** registry package-name traversal → `validate_package_spec` at install.
+
+### Deferred to a later release (P2/P3)
+Not blocking 1.16.0; still tracked in the per-crate files: VM-5 (scheduler panic-safety),
+VM-6/VM-7 (const/cache-slot u16 overflow), LLM-6 (cache key vs model resolution), LLM-7 (cosine
+dim mismatch), STD-8 (float→int saturation), STD-10 (`db/exec-batch` injection, by-design),
+STD-11 (static-file symlink escape), STD-12 (`set_env` race), EVAL-3 (`eval_import` FS_READ gate),
+LSP-2/LSP-3 (semantic-token UTF-16 length, named-let guard), FMT-1 (CRLF in string literals),
+NB-1/NB-2 (notebook dup-id, no-auth writes), WASM-2/3/4, BIN-2/3/4 (git ref flags, download cap,
+atomic extract).

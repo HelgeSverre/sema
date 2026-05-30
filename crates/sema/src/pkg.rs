@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use sema_core::resolve::packages_dir;
+use sema_core::resolve::{packages_dir, validate_package_spec};
 
 const DEFAULT_REGISTRY: &str = "https://pkg.sema-lang.com";
 const PKG_META_FILE: &str = ".sema-pkg.json";
@@ -989,6 +989,10 @@ fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), String> {
 
 /// Download and install a package from the registry. Returns the checksum.
 fn registry_install(name: &str, version: &str, registry_url: &str) -> Result<String, String> {
+    // Registry-only names skip the git-spec validator, so guard here before the
+    // name is used as a path component (`pkg_dir.join(name)`): a name like
+    // `../../etc/cron.d` would otherwise escape `~/.sema/packages/`.
+    validate_package_spec(name).map_err(|e| e.to_string())?;
     let (tarball, checksum) = registry_download(name, version, registry_url)?;
 
     // Extract to packages dir
@@ -1055,6 +1059,7 @@ fn registry_install_locked(
     registry_url: &str,
     expected_checksum: &str,
 ) -> Result<(), String> {
+    validate_package_spec(name).map_err(|e| e.to_string())?;
     let (tarball, checksum) = registry_download(name, version, registry_url)?;
 
     if checksum != expected_checksum {
@@ -1551,6 +1556,21 @@ mod tests {
     use serial_test::serial;
     use std::fs;
     use std::io::Write;
+
+    #[test]
+    fn registry_install_rejects_path_traversal_name() {
+        // Must fail at validation, before any network/filesystem work, so the
+        // name never reaches `pkg_dir.join(name)`.
+        for bad in ["../../etc/cron.d", "..", "/etc/passwd", "a/../../b"] {
+            let err = registry_install(bad, "1.0.0", "http://localhost:0").unwrap_err();
+            assert!(
+                err.contains("path traversal")
+                    || err.contains("absolute paths")
+                    || err.contains("invalid package spec"),
+                "name {bad:?} should be rejected, got: {err}"
+            );
+        }
+    }
 
     fn tmpdir(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("sema-pkg-test-{name}-{}", std::process::id()));

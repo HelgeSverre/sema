@@ -2,7 +2,7 @@
 
 ## 1.16.0
 
-REPL-focused release. The REPL foundation moved from rustyline to reedline (no user-facing flag changes, no script breakage), and the interactive surface gained syntax highlighting, bracket matching, ghost-text completion hints, an arrow-key value inspector, and the `,disasm` / `,apropos` commands. Unbound-global errors from the VM now carry "Did you mean …?" hints, matching the tree-walker.
+REPL + security-hardening release. The REPL foundation moved from rustyline to reedline (no user-facing flag changes, no script breakage), gaining syntax highlighting, bracket matching, ghost-text completion hints, an arrow-key value inspector, and the `,disasm` / `,apropos` commands. Alongside that, a whole-codebase security/correctness audit (`docs/bugs/2026-05-29-*`) was triaged and its P0 and P1 findings fixed — closing two denial-of-service / secret-leak P0s and a cluster of SSRF, path-traversal, UB, and editor-correctness P1s.
 
 ### Added
 
@@ -16,6 +16,23 @@ REPL-focused release. The REPL foundation moved from rustyline to reedline (no u
 
 - **REPL foundation: rustyline → reedline.** No breaking changes to REPL commands or flags; the migration unlocks the highlighting/hinter/validator surface above. See PR #37.
 - **VM "unbound global" errors carry a `Did you mean …?` hint** when the name is close to an existing binding (matches the tree-walker's behaviour).
+
+### Fixed (security)
+
+- **Gemini API key no longer sent in the URL query string** (P0). The key now travels in the `x-goog-api-key` header and the request-controlled `model` is validated before being interpolated into the path, closing both a key-leak-into-logs vector and an SSRF/path-injection vector.
+- **Untrusted `.semac` can no longer crash the VM via `CallNative`** (P0). The native-table bounds check is now a real runtime check (was `debug_assert!`, compiled out in release).
+- **Provider `base-url` SSRF blocked under the sandbox** (P1). When running untrusted/sandboxed code, `llm/configure` / `llm/configure-embeddings` reject base URLs pointing at loopback/private/link-local hosts (e.g. `169.254.169.254`); trusted CLI/REPL/notebook sessions keep full access so local proxies and Ollama still work.
+- **Registry package-name path traversal blocked** (P1). `sema pkg add` now validates registry names before joining them into `~/.sema/packages/`, so a name like `../../etc/cron.d` can no longer escape the packages dir.
+
+### Fixed (correctness & reliability)
+
+- **`display` / `print` output is no longer erased in the interactive REPL.** Output without a trailing newline was wiped by the prompt repaint under the old rustyline REPL; the reedline migration fixes it, now guarded by a pty-driven regression test.
+- **`DUP` on an empty operand stack returns a clean error instead of reading out of bounds** (P1, UB) — reachable only from crafted/corrupt bytecode.
+- **Unbounded HTTP request bodies are capped at 16 MiB** (P1). `http/serve` returns `413` instead of buffering an arbitrarily large body into memory.
+- **`ws/close` actually closes the socket** (P1). It now releases the sole outgoing sender (previously dropped a throwaway clone, so the connection stayed open until the handler returned).
+- **Rate-limit retry no longer panics on a backward clock adjustment** (P1) — the elapsed-time subtraction now saturates.
+- **The debugger no longer hangs on `stackTrace` while the program is running** (P1, DAP). State queries received mid-run are now answered instead of dropped, which previously leaked a blocking thread and froze the session.
+- **LSP positions are now correct on lines containing emoji / astral characters** (P1). Sema spans count characters while LSP counts UTF-16 code units; the two are now converted in both directions, so diagnostics, go-to-definition, references, document highlights, and **rename** land on the right columns (rename could previously edit the wrong span on such lines).
 
 ### Security
 

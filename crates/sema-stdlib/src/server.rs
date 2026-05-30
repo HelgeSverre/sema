@@ -834,14 +834,20 @@ async fn handle_axum_request(
         headers.push((n, v));
     }
 
-    // Read body (no size limit)
-    let body_bytes = match axum::body::to_bytes(req.into_body(), usize::MAX).await {
+    // Read body with a size cap so a client can't stream an unbounded body into
+    // memory and exhaust the process (DoS). `to_bytes` returns Err once the
+    // limit is exceeded; surface that as 413 rather than a generic read error.
+    const MAX_BODY_BYTES: usize = 16 * 1024 * 1024; // 16 MiB
+    let body_bytes = match axum::body::to_bytes(req.into_body(), MAX_BODY_BYTES).await {
         Ok(b) => b,
         Err(_) => {
             return raw_response_to_axum(&RawResponse {
-                status: 400,
+                status: 413,
                 headers: vec![("content-type".to_string(), "text/plain".to_string())],
-                body: "Failed to read request body".to_string(),
+                body: format!(
+                    "Request body too large or unreadable (max {} bytes)",
+                    MAX_BODY_BYTES
+                ),
             });
         }
     };
@@ -1103,14 +1109,23 @@ fn handle_ws_response(
     });
 
     // Build the connection map for the Sema handler: {:send fn :recv fn :close fn}
+    //
+    // Share a single outgoing sender between `send` and `close`. axum's send
+    // task only exits (and the socket only closes) when the *last* `Sender` is
+    // dropped, so `ws/close` must release the sole sender — not a throwaway
+    // clone. Mirrors the `in_rx` Option pattern below.
+    let out_tx = Rc::new(RefCell::new(Some(out_tx)));
     let out_tx_for_send = out_tx.clone();
     let send_fn = Value::native_fn(NativeFn::simple("ws/send", move |args| {
         check_arity!(args, "ws/send", 1);
         let msg = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        out_tx_for_send
-            .blocking_send(msg.to_string())
+        let guard = out_tx_for_send.borrow();
+        let tx = guard
+            .as_ref()
+            .ok_or_else(|| SemaError::eval("WebSocket closed"))?;
+        tx.blocking_send(msg.to_string())
             .map_err(|_| SemaError::eval("WebSocket closed"))?;
         Ok(Value::nil())
     }));
@@ -1139,9 +1154,10 @@ fn handle_ws_response(
     let in_rx_for_close = in_rx;
     let close_fn = Value::native_fn(NativeFn::simple("ws/close", move |args| {
         check_arity!(args, "ws/close", 0);
-        // Drop sender to signal close to the axum side
-        drop(out_tx_for_close.clone());
-        // Drop receiver
+        // Take + drop the sole outgoing sender: this closes `out_rx`, so axum's
+        // send task exits and the socket actually closes.
+        out_tx_for_close.borrow_mut().take();
+        // Drop the incoming receiver too.
         let mut rx_opt = in_rx_for_close.borrow_mut();
         *rx_opt = None;
         Ok(Value::nil())

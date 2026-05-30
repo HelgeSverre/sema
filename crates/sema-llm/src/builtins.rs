@@ -610,10 +610,82 @@ fn register_fn_ctx_gated(
     }
 }
 
+/// Extract the host from a provider `base-url`/`host` string without pulling in
+/// a URL-parsing dependency. Handles `scheme://`, userinfo, `[ipv6]`, and ports.
+fn url_host(url: &str) -> Option<String> {
+    let after = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
+    let authority = after.split(['/', '?', '#']).next().unwrap_or("");
+    let hostport = authority.rsplit('@').next().unwrap_or(authority);
+    if let Some(rest) = hostport.strip_prefix('[') {
+        // [::1]:port -> ::1
+        return rest.split(']').next().map(|s| s.to_string());
+    }
+    hostport.split(':').next().map(|s| s.to_string())
+}
+
+/// True if `host` points at the local machine or a private/internal network —
+/// the targets an SSRF would pivot to. Used to reject attacker-chosen provider
+/// `base-url`s when running untrusted (sandboxed) code.
+fn is_internal_host(host: &str) -> bool {
+    let h = host.trim().to_ascii_lowercase();
+    if h.is_empty() || h == "localhost" || h.ends_with(".localhost") {
+        return true;
+    }
+    match h.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(v4)) => {
+            v4.is_loopback()
+                || v4.is_private()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.octets()[0] == 0
+        }
+        Ok(std::net::IpAddr::V6(v6)) => {
+            if v6.is_loopback() || v6.is_unspecified() {
+                return true;
+            }
+            // IPv4-mapped (::ffff:a.b.c.d) — re-check against v4 rules.
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return v4.is_loopback()
+                    || v4.is_private()
+                    || v4.is_link_local()
+                    || v4.is_unspecified();
+            }
+            let seg0 = v6.segments()[0];
+            (seg0 & 0xfe00) == 0xfc00 // fc00::/7 unique-local
+                || (seg0 & 0xffc0) == 0xfe80 // fe80::/10 link-local
+        }
+        Err(_) => false, // a public hostname; DNS-rebinding is out of scope
+    }
+}
+
+/// Reject provider URLs that target internal hosts when running sandboxed.
+/// Trusted (unrestricted) sessions — the normal CLI/REPL/notebook — keep full
+/// access so local proxies and Ollama on `localhost` continue to work.
+fn guard_provider_url(unrestricted: bool, opts: &BTreeMap<Value, Value>) -> Result<(), SemaError> {
+    if unrestricted {
+        return Ok(());
+    }
+    let url = get_opt_string(opts, "base-url").or_else(|| get_opt_string(opts, "host"));
+    if let Some(url) = url {
+        if url_host(&url).is_some_and(|h| is_internal_host(&h)) {
+            return Err(SemaError::eval(format!(
+                "llm/configure: base-url '{url}' targets an internal/loopback host, \
+                 which is not allowed under the current sandbox"
+            ))
+            .with_hint(
+                "grant the network capability and run unsandboxed to use a local endpoint",
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
+    let unrestricted = sandbox.is_unrestricted();
     // (llm/configure :anthropic {:api-key "..." :default-model "..."})
     // (llm/configure :openai {:api-key "..." :base-url "..." :default-model "..."})
-    register_fn(env, "llm/configure", |args| {
+    register_fn(env, "llm/configure", move |args| {
         if args.len() != 2 {
             return Err(SemaError::arity("llm/configure", "2", args.len()));
         }
@@ -624,6 +696,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .as_map_rc()
             .ok_or_else(|| SemaError::type_error("map", args[1].type_name()))?;
         let opts = opts_rc.as_ref().clone();
+
+        guard_provider_url(unrestricted, &opts)?;
 
         let api_key = get_opt_string(&opts, "api-key");
 
@@ -2119,7 +2193,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
     // (llm/configure-embeddings :jina {:api-key "..."})
     // (llm/configure-embeddings :voyage {:api-key "..."})
     // (llm/configure-embeddings :cohere {:api-key "..."})
-    register_fn(env, "llm/configure-embeddings", |args| {
+    register_fn(env, "llm/configure-embeddings", move |args| {
         if args.len() != 2 {
             return Err(SemaError::arity(
                 "llm/configure-embeddings",
@@ -2134,6 +2208,8 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             .as_map_rc()
             .ok_or_else(|| SemaError::type_error("map", args[1].type_name()))?;
         let opts = opts_rc.as_ref().clone();
+
+        guard_provider_url(unrestricted, &opts)?;
 
         let api_key = get_opt_string(&opts, "api-key");
 
@@ -4024,8 +4100,14 @@ fn enforce_rate_limit() {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
         let last = RATE_LIMIT_LAST.with(|l| l.get());
-        if last > 0 && now - last < min_interval_ms {
-            let sleep_ms = min_interval_ms - (now - last);
+        // saturating_sub: a backward wall-clock adjustment makes `now < last`,
+        // which would panic (debug) or wrap to a huge value (release) on plain
+        // subtraction. Treat that as "no wait needed". This sleep runs on the
+        // synchronous caller thread (the provider's own block_on has already
+        // returned), so it does not stall a shared tokio runtime worker.
+        let elapsed = now.saturating_sub(last);
+        if last > 0 && elapsed < min_interval_ms {
+            let sleep_ms = min_interval_ms - elapsed;
             std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
         }
         let actual_now = std::time::SystemTime::now()
@@ -4425,6 +4507,95 @@ mod tests {
     use super::*;
     use sema_core::{intern, Lambda};
     use serde_json::json;
+
+    #[test]
+    fn enforce_rate_limit_survives_backward_clock() {
+        // A last-request timestamp in the future (wall clock jumped backward)
+        // must not panic on the `now - last` subtraction (debug overflow check)
+        // and must not produce a huge sleep.
+        RATE_LIMIT_RPS.with(|r| r.set(Some(10.0)));
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        RATE_LIMIT_LAST.with(|l| l.set(now + 1_000_000));
+        let start = std::time::Instant::now();
+        enforce_rate_limit();
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(1),
+            "backward clock should not cause a long sleep"
+        );
+        RATE_LIMIT_RPS.with(|r| r.set(None));
+        RATE_LIMIT_LAST.with(|l| l.set(0));
+    }
+
+    #[test]
+    fn url_host_extraction() {
+        assert_eq!(
+            url_host("https://api.openai.com/v1").as_deref(),
+            Some("api.openai.com")
+        );
+        assert_eq!(
+            url_host("http://localhost:11434").as_deref(),
+            Some("localhost")
+        );
+        assert_eq!(
+            url_host("http://user:pass@10.0.0.1:8080/x").as_deref(),
+            Some("10.0.0.1")
+        );
+        assert_eq!(url_host("http://[::1]:9200/").as_deref(), Some("::1"));
+        assert_eq!(
+            url_host("http://169.254.169.254/latest").as_deref(),
+            Some("169.254.169.254")
+        );
+    }
+
+    #[test]
+    fn internal_hosts_are_flagged() {
+        for h in [
+            "localhost",
+            "app.localhost",
+            "127.0.0.1",
+            "0.0.0.0",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254", // cloud metadata
+            "::1",
+            "fc00::1",
+            "fe80::1",
+            "::ffff:127.0.0.1", // ipv4-mapped loopback
+        ] {
+            assert!(is_internal_host(h), "{h} should be internal");
+        }
+    }
+
+    #[test]
+    fn public_hosts_are_allowed() {
+        for h in ["api.openai.com", "api.anthropic.com", "8.8.8.8", "1.1.1.1"] {
+            assert!(!is_internal_host(h), "{h} should be allowed");
+        }
+    }
+
+    #[test]
+    fn guard_blocks_internal_only_when_sandboxed() {
+        let mut opts = BTreeMap::new();
+        opts.insert(
+            Value::keyword("base-url"),
+            Value::string("http://169.254.169.254/"),
+        );
+        // Unrestricted (normal CLI/REPL): allowed — local proxies / Ollama work.
+        assert!(guard_provider_url(true, &opts).is_ok());
+        // Sandboxed: rejected.
+        assert!(guard_provider_url(false, &opts).is_err());
+
+        let mut public_opts = BTreeMap::new();
+        public_opts.insert(
+            Value::keyword("base-url"),
+            Value::string("https://api.openai.com/v1"),
+        );
+        assert!(guard_provider_url(false, &public_opts).is_ok());
+    }
 
     fn make_lambda(params: &[&str]) -> Value {
         Value::lambda(Lambda {

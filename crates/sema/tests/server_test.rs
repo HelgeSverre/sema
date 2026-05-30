@@ -62,6 +62,114 @@ fn test_http_serve_json_body_parsing() {
     child.wait().ok();
 }
 
+// STD-6: request body is capped (16 MiB) so a large body returns 413 instead of
+// being buffered unbounded into memory.
+#[test]
+#[ignore] // requires network
+fn test_http_serve_rejects_oversized_body() {
+    use std::process::{Command, Stdio};
+    use std::time::Duration;
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(r#"(http/serve (fn (req) (http/ok "ok")) {:port 19890})"#)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let client = reqwest::blocking::Client::new();
+
+    // A small body is accepted.
+    let ok = client
+        .post("http://127.0.0.1:19890/x")
+        .body("hello")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .expect("small POST failed");
+    assert_eq!(ok.status(), 200);
+
+    // A 17 MiB body exceeds the 16 MiB cap → 413.
+    let big = vec![b'a'; 17 * 1024 * 1024];
+    let resp = client
+        .post("http://127.0.0.1:19890/x")
+        .body(big)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .expect("large POST failed");
+    assert_eq!(resp.status(), 413, "oversized body should be rejected");
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
+// STD-7: (ws/close) actually closes the socket even while the handler is still
+// running. The handler sends a message, closes, then sleeps 3s; a correct close
+// drops the sole sender so the client observes closure well before the sleep
+// ends. (Before the fix, close dropped only a clone and the socket stayed open
+// until the handler returned.)
+#[test]
+#[ignore] // requires network
+fn test_ws_close_closes_socket_while_handler_runs() {
+    use std::net::TcpStream;
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sema"))
+        .arg("-e")
+        .arg(
+            r#"(http/serve
+                 (fn (req)
+                   (http/websocket
+                     (fn (conn)
+                       ((:send conn) "hi")
+                       ((:close conn))
+                       (sleep 3000))))
+                 {:port 19891})"#,
+        )
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("Failed to spawn sema");
+
+    std::thread::sleep(Duration::from_millis(1500));
+
+    let stream = TcpStream::connect("127.0.0.1:19891").expect("tcp connect");
+    // Read timeout MUST exceed the handler's 3s sleep, so that on the buggy
+    // (no-op close) path the read blocks until the real close at ~3s rather than
+    // timing out early and masquerading as a fast close.
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let (mut socket, _resp) =
+        tungstenite::client("ws://127.0.0.1:19891/", stream).expect("ws handshake");
+
+    let start = Instant::now();
+    let first = socket.read().expect("read first message");
+    assert_eq!(first.into_text().unwrap().as_str(), "hi");
+
+    // The next read must observe the close (Close frame or connection error)
+    // quickly — long before the handler's 3s sleep finishes.
+    let closed = loop {
+        match socket.read() {
+            Ok(msg) if msg.is_close() => break true,
+            Ok(_) => continue,
+            Err(_) => break true, // connection dropped == closed
+        }
+    };
+    let elapsed = start.elapsed();
+    assert!(closed, "socket should have closed");
+    assert!(
+        elapsed < Duration::from_millis(2500),
+        "close took {elapsed:?} — handler sleep was not bypassed (ws/close ineffective)"
+    );
+
+    child.kill().ok();
+    child.wait().ok();
+}
+
 #[test]
 #[ignore] // requires network
 fn test_http_serve_query_string() {
