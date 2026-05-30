@@ -358,10 +358,16 @@ fn apply_overlap(chunks: &[String], overlap: usize) -> Vec<String> {
     let mut result = vec![chunks[0].clone()];
     for i in 1..chunks.len() {
         let prev = &chunks[i - 1];
-        let ov = if prev.len() > overlap {
-            &prev[prev.len() - overlap..]
+        // `overlap` is a character count, so slice on a char boundary: take the
+        // last `overlap` chars of `prev`. A byte-offset slice (`&prev[len-overlap..]`)
+        // panics when the offset lands inside a multi-byte character.
+        let ov = if overlap == 0 {
+            ""
         } else {
-            prev.as_str()
+            match prev.char_indices().rev().nth(overlap - 1) {
+                Some((byte_idx, _)) => &prev[byte_idx..],
+                None => prev.as_str(),
+            }
         };
         result.push(format!("{}{}", ov, chunks[i]));
     }

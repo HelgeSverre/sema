@@ -310,6 +310,11 @@ pub fn register(env: &sema_core::Env) {
         let hi = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        if lo > hi {
+            return Err(SemaError::eval(format!(
+                "math/random-int: lo ({lo}) must be <= hi ({hi})"
+            )));
+        }
         use rand::RngExt;
         let val = rand::rng().random_range(lo..=hi);
         Ok(Value::int(val))

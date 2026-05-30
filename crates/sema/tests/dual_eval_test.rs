@@ -1277,3 +1277,59 @@ fn vm_type_of_lambda_is_lambda() {
     );
     assert_eq!(vm_result, Value::keyword("lambda"));
 }
+
+// ---------------------------------------------------------------------------
+// 2026-05-29 audit — Pattern A: negative/oversized int -> usize guards.
+// Each of these previously panicked (shift overflow / empty range), aborted
+// (OOM allocation), or returned a silently-wrong result. They must now error
+// cleanly on both backends.
+// ---------------------------------------------------------------------------
+dual_eval_error_tests! {
+    // STD-1
+    bit_shift_left_overflow: "(bit/shift-left 1 64)" => "shift",
+    bit_shift_left_negative: "(bit/shift-left 1 -1)" => "shift",
+    bit_shift_right_overflow: "(bit/shift-right 1 64)" => "shift",
+    bit_shift_right_negative: "(bit/shift-right 1 -1)" => "shift",
+    // STD-2
+    random_int_reversed_bounds: "(math/random-int 10 5)" => "math/random-int",
+    // STD-4
+    string_pad_left_negative: r#"(string/pad-left "x" -1)"# => "non-negative",
+    string_pad_right_negative: r#"(string/pad-right "x" -1)"# => "non-negative",
+    // STD-5
+    list_chunk_negative: "(list/chunk -1 (list 1 2 3))" => "non-negative",
+    list_split_at_negative: "(list/split-at (list 1 2 3) -1)" => "non-negative",
+    list_sliding_negative: "(list/sliding (list 1 2 3) -1)" => "non-negative",
+    list_times_negative: "(list/times -1 (lambda (i) i))" => "non-negative",
+    list_repeat_negative: "(list/repeat -1 0)" => "non-negative",
+    list_page_negative_per_page: "(list/page (list 1 2 3) 1 -1)" => "non-negative",
+    list_pad_negative_len: "(list/pad (list 1) -1 0)" => "non-negative",
+    // VM-3 (VM NTH opcode; tree-walker nth already guards)
+    nth_negative_index: "(nth (list 1 2 3) -1)" => "non-negative",
+}
+
+// 2026-05-29 audit — Pattern B: UTF-8 byte slicing must not split a char.
+// STD-3: text/chunk overlap on multibyte text previously panicked
+// ("byte index N is not a char boundary"). It must return a list of strings.
+dual_eval_tests! {
+    text_chunk_multibyte_overlap_no_panic:
+        r#"(list? (text/chunk "λλλ λλλ λλλ λλλ λλλ λλλ" {:size 12 :overlap 3}))"# => Value::bool(true),
+}
+
+// 2026-05-29 audit — Wave 4 quasiquote/optimizer correctness.
+dual_eval_tests! {
+    // EVAL-1: unquote-splicing must work inside vector templates.
+    quasiquote_vector_splice:
+        "(let ((xs (list 1 2))) `[0 ,@xs 3])"
+        => Value::vector(vec![Value::int(0), Value::int(1), Value::int(2), Value::int(3)]),
+    // EVAL-2: unquote must be honored inside map templates.
+    quasiquote_map_unquote:
+        r#"(let ((name "bob")) (:name `{:name ,name}))"# => Value::string("bob"),
+}
+
+dual_eval_error_tests! {
+    // VM-4: a rest param named after a foldable builtin lexically shadows it,
+    // so the optimizer must NOT constant-fold the body. Here the rest param `+`
+    // is bound to the list (5), and calling it errors on both backends; the VM
+    // previously folded `(+ 1 2)` to 3 and returned it.
+    optimizer_rest_param_shadows_builtin: "((lambda (x . +) (+ 1 2)) 9 5)",
+}

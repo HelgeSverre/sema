@@ -307,7 +307,7 @@ impl SemaError {
     ) -> Self {
         let display = format!("{value}");
         let truncated = if display.len() > 40 {
-            format!("{}…", &display[..39])
+            format!("{}…", crate::text_util::truncate_chars(&display, 39))
         } else {
             display
         };
@@ -458,6 +458,22 @@ mod tests {
     }
 
     // 3. SemaError::eval() constructor — verify variant/fields AND display
+    #[test]
+    fn type_error_with_value_does_not_split_multibyte_char() {
+        // A value whose display is > 40 bytes with a multi-byte char straddling
+        // byte 39 previously panicked ("byte index 39 is not a char boundary").
+        let value = Value::string(&format!("x{}", "λ".repeat(40)));
+        let e = SemaError::type_error_with_value("map", "string", &value);
+        // Must construct without panicking and carry a truncated display.
+        match e {
+            SemaError::Type { got_value, .. } => {
+                let gv = got_value.expect("got_value should be Some");
+                assert!(gv.ends_with('…'));
+            }
+            other => panic!("expected Type variant, got {other:?}"),
+        }
+    }
+
     #[test]
     fn eval_error() {
         let e = SemaError::eval("something broke");

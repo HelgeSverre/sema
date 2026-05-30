@@ -4,10 +4,7 @@ use crate::register_fn;
 
 fn repeat_impl(args: &[Value]) -> Result<Value, SemaError> {
     check_arity!(args, "list/repeat", 2);
-    let n = args[0].as_int().ok_or_else(|| {
-        SemaError::type_error("int", args[0].type_name())
-            .with_hint("list/repeat: argument 1 must be an integer count")
-    })? as usize;
+    let n = args[0].as_index("list/repeat")?;
     let val = args[1].clone();
     Ok(Value::list(vec![val; n]))
 }
@@ -242,18 +239,7 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "take", |args| {
         check_arity!(args, "take", 2);
-        let n_i = args[0].as_int().ok_or_else(|| {
-            SemaError::type_error("int", args[0].type_name())
-                .with_hint("take: argument 1 must be an integer count")
-        })?;
-        if n_i < 0 {
-            return Err(
-                SemaError::eval(format!("take: count must be non-negative, got {n_i}")).with_hint(
-                    "pass 0 or a positive integer; use (reverse xs) before take for the tail",
-                ),
-            );
-        }
-        let n = n_i as usize;
+        let n = args[0].as_index("take")?;
         let items = get_sequence(&args[1], "take")?;
         let end = n.min(items.len());
         Ok(Value::list(items[..end].to_vec()))
@@ -261,17 +247,7 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "drop", |args| {
         check_arity!(args, "drop", 2);
-        let n_i = args[0].as_int().ok_or_else(|| {
-            SemaError::type_error("int", args[0].type_name())
-                .with_hint("drop: argument 1 must be an integer count")
-        })?;
-        if n_i < 0 {
-            return Err(
-                SemaError::eval(format!("drop: count must be non-negative, got {n_i}"))
-                    .with_hint("pass 0 or a positive integer"),
-            );
-        }
-        let n = n_i as usize;
+        let n = args[0].as_index("drop")?;
         let items = get_sequence(&args[1], "drop")?;
         let start = n.min(items.len());
         Ok(Value::list(items[start..].to_vec()))
@@ -561,10 +537,7 @@ pub fn register(env: &sema_core::Env) {
 
     register_fn(env, "list/chunk", |args| {
         check_arity!(args, "list/chunk", 2);
-        let n = args[0]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-            as usize;
+        let n = args[0].as_index("list/chunk")?;
         if n == 0 {
             return Err(SemaError::eval("list/chunk: chunk size must be positive"));
         }
@@ -645,10 +618,7 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "list/split-at", |args| {
         check_arity!(args, "list/split-at", 2);
         let items = get_sequence(&args[0], "list/split-at")?;
-        let n = args[1]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+        let n = args[1].as_index("list/split-at")?;
         let n = n.min(items.len());
         let left = items[..n].to_vec();
         let right = items[n..].to_vec();
@@ -930,15 +900,9 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "list/sliding", |args| {
         check_arity!(args, "list/sliding", 2..=3);
         let items = get_sequence(&args[0], "list/sliding")?;
-        let size = args[1]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+        let size = args[1].as_index("list/sliding")?;
         let step = if args.len() == 3 {
-            args[2]
-                .as_int()
-                .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?
-                as usize
+            args[2].as_index("list/sliding")?
         } else {
             1
         };
@@ -972,10 +936,7 @@ pub fn register(env: &sema_core::Env) {
     // list/times — generate list by calling fn N times
     register_fn(env, "list/times", |args| {
         check_arity!(args, "list/times", 2);
-        let n = args[0]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[0].type_name()))?
-            as usize;
+        let n = args[0].as_index("list/times")?;
         let mut result = Vec::with_capacity(n);
         for i in 0..n {
             result.push(call_function(&args[1], &[Value::int(i as i64)])?);
@@ -1018,10 +979,7 @@ pub fn register(env: &sema_core::Env) {
         let page = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
-        let per_page = args[2]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[2].type_name()))?
-            as usize;
+        let per_page = args[2].as_index("list/page")?;
         if page < 1 {
             return Err(SemaError::eval("list/page: page must be >= 1"));
         }
@@ -1050,10 +1008,7 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "list/pad", |args| {
         check_arity!(args, "list/pad", 3);
         let mut items = get_sequence(&args[0], "list/pad")?.to_vec();
-        let target_len = args[1]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+        let target_len = args[1].as_index("list/pad")?;
         let fill = args[2].clone();
         while items.len() < target_len {
             items.push(fill.clone());

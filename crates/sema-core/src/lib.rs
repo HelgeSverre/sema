@@ -6,6 +6,7 @@ pub mod home;
 pub mod json;
 pub mod resolve;
 pub mod sandbox;
+pub mod text_util;
 pub mod value;
 pub mod vfs;
 
@@ -25,6 +26,7 @@ pub use home::sema_home;
 pub use json::{json_to_value, key_to_string, value_to_json, value_to_json_lossy};
 pub use lasso::Spur;
 pub use sandbox::{Caps, Sandbox};
+pub use text_util::truncate_chars;
 pub use value::{
     compare_spurs, intern, interner_stats, next_gensym, pretty_print, resolve, with_resolved,
     Agent, AsyncPromise, Channel, Conversation, Env, ImageAttachment, Lambda, Macro, Message,

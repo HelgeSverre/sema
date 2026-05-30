@@ -1,6 +1,22 @@
 use crate::provider::LlmProvider;
 use crate::types::{ChatRequest, ChatResponse, LlmError, ToolCall, Usage};
 
+/// Build the Gemini endpoint URL without embedding the API key (the key is sent
+/// via the `x-goog-api-key` header instead — see the call sites). Validates the
+/// request-controlled `model` so it cannot inject extra path segments or break
+/// out of the `/models/<model>:<action>` shape (SSRF / path injection).
+fn build_url(base_url: &str, model: &str, action: &str) -> Result<String, LlmError> {
+    if model.is_empty()
+        || model
+            .chars()
+            .any(|c| c == '/' || c == '?' || c == '#' || c == ':' || c.is_control())
+        || model.contains("..")
+    {
+        return Err(LlmError::Config(format!("invalid model name: {model:?}")));
+    }
+    Ok(format!("{base_url}/models/{model}:{action}"))
+}
+
 pub struct GeminiProvider {
     api_key: String,
     base_url: String,
@@ -31,10 +47,7 @@ impl GeminiProvider {
 
     async fn complete_async(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         let model = self.resolve_model(&request.model);
-        let url = format!(
-            "{}/models/{}:generateContent?key={}",
-            self.base_url, model, self.api_key
-        );
+        let url = build_url(&self.base_url, &model, "generateContent")?;
 
         let body = self.build_request_body(&request);
 
@@ -42,6 +55,7 @@ impl GeminiProvider {
             .client
             .post(&url)
             .header("Content-Type", "application/json")
+            .header("x-goog-api-key", &self.api_key)
             .json(&body)
             .send()
             .await
@@ -76,8 +90,8 @@ impl GeminiProvider {
     ) -> Result<ChatResponse, LlmError> {
         let model = self.resolve_model(&request.model);
         let url = format!(
-            "{}/models/{}:streamGenerateContent?key={}&alt=sse",
-            self.base_url, model, self.api_key
+            "{}?alt=sse",
+            build_url(&self.base_url, &model, "streamGenerateContent")?
         );
 
         let body = self.build_request_body(&request);
@@ -86,6 +100,7 @@ impl GeminiProvider {
             .client
             .post(&url)
             .header("Content-Type", "application/json")
+            .header("x-goog-api-key", &self.api_key)
             .json(&body)
             .send()
             .await
@@ -385,5 +400,38 @@ fn serialize_gemini_parts(content: &crate::types::MessageContent) -> serde_json:
                 .collect();
             serde_json::Value::Array(parts)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_url_omits_api_key() {
+        let url = build_url(
+            "https://generativelanguage.googleapis.com/v1beta",
+            "gemini-2.0-flash",
+            "generateContent",
+        )
+        .unwrap();
+        assert!(
+            !url.contains("key="),
+            "API key must not appear in URL: {url}"
+        );
+        assert!(url.contains("gemini-2.0-flash"));
+        assert!(url.ends_with(":generateContent"));
+    }
+
+    #[test]
+    fn build_url_rejects_path_injection_in_model() {
+        assert!(build_url(
+            "https://x/v1beta",
+            "../../v1/models/evil",
+            "generateContent"
+        )
+        .is_err());
+        assert!(build_url("https://x/v1beta", "a/b", "generateContent").is_err());
+        assert!(build_url("https://x/v1beta", "bad\nmodel", "generateContent").is_err());
     }
 }

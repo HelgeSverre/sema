@@ -651,6 +651,24 @@ impl VM {
                                     let ids = dbg.set_breakpoints(&file, &lines);
                                     let _ = reply.send(ids);
                                 }
+                                // State queries are valid while the program is
+                                // running. Reply with the current state instead
+                                // of dropping them: the DAP server blocks a
+                                // spawn_blocking thread on `reply_rx.recv()`, so
+                                // a dropped reply leaks that thread and hangs the
+                                // session (the `stackTrace`-while-running case).
+                                crate::debug::DebugCommand::GetStackTrace { reply } => {
+                                    self.frames[fi].pc = pc; // sync live pc for the trace
+                                    let _ = reply.send(self.debug_stack_trace());
+                                }
+                                crate::debug::DebugCommand::GetScopes { frame_id, reply } => {
+                                    let _ = reply.send(self.debug_scopes(frame_id));
+                                }
+                                crate::debug::DebugCommand::GetVariables { reference, reply } => {
+                                    let _ = reply.send(self.debug_variables(reference));
+                                }
+                                // Step/Continue have no paused frame to act on
+                                // while running; ignore them.
                                 _ => {}
                             }
                         }
@@ -788,8 +806,18 @@ impl VM {
                         unsafe { pop_unchecked(&mut self.stack) };
                     }
                     op::DUP => {
-                        let val =
-                            unsafe { &*self.stack.as_ptr().add(self.stack.len() - 1) }.clone();
+                        // `len() - 1` underflows to usize::MAX on an empty stack and
+                        // reads far out of bounds (UB). A crafted .semac can declare a
+                        // `max_stack` that doesn't match actual stack effects and lead
+                        // with a bare DUP, so guard rather than trust the verifier.
+                        let val = match self.stack.last() {
+                            Some(v) => v.clone(),
+                            None => {
+                                return Err(SemaError::eval(
+                                    "DUP on empty stack (corrupt or malicious bytecode)",
+                                ))
+                            }
+                        };
                         self.stack.push(val);
                     }
 
@@ -1004,10 +1032,16 @@ impl VM {
 
                         // Direct dispatch: index into pre-resolved native function table.
                         // No env lookup, no cache — resolved at VM creation.
-                        debug_assert!(
-                            native_id < self.native_fns.len(),
-                            "CallNative invalid native_id {native_id}"
-                        );
+                        // Real bounds check (not debug_assert!): a crafted .semac can
+                        // carry an out-of-range native_id that passes load-time
+                        // validation, and the index below would panic in release.
+                        if native_id >= self.native_fns.len() {
+                            return Err(SemaError::eval(format!(
+                                "CallNative: native_id {} out of range (table has {} entries)",
+                                native_id,
+                                self.native_fns.len()
+                            )));
+                        }
 
                         // Close open upvalues before non-VM call (native may invoke VM closures via callback)
                         if let Some(ref mut open) = self.frames[fi].open_upvalues {
@@ -1619,11 +1653,18 @@ impl VM {
                     op::NTH => {
                         let idx_val = unsafe { pop_unchecked(&mut self.stack) };
                         let coll = unsafe { pop_unchecked(&mut self.stack) };
-                        let idx = if let Some(i) = idx_val.as_int() {
-                            i as usize
-                        } else {
-                            let err = SemaError::type_error("int", idx_val.type_name());
-                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        let idx = match idx_val.as_int() {
+                            Some(i) if i >= 0 => i as usize,
+                            Some(i) => {
+                                let err = SemaError::eval(format!(
+                                    "nth: index must be non-negative, got {i}"
+                                ));
+                                handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                            }
+                            None => {
+                                let err = SemaError::type_error("int", idx_val.type_name());
+                                handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                            }
                         };
                         if let Some(l) = coll.as_list() {
                             match l.get(idx) {
@@ -2661,6 +2702,7 @@ pub fn compile_program(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chunk::{Chunk, Function};
     use sema_core::{intern, NativeFn};
 
     /// Convenience: compile and run a string expression in the VM.
@@ -2727,6 +2769,39 @@ mod tests {
         let globals = make_test_env();
         let ctx = EvalContext::new();
         eval_str(input, &globals, &ctx)
+    }
+
+    #[test]
+    fn dup_on_empty_stack_errors_instead_of_ub() {
+        // A crafted/corrupt .semac can declare a generous `max_stack` but lead
+        // with a bare DUP. Before the guard this read `stack[usize::MAX]` (UB);
+        // now it must return a clean error.
+        let mut chunk = Chunk::new();
+        chunk.code = vec![op::DUP, op::RETURN];
+        chunk.max_stack = 8;
+        let func = Rc::new(Function {
+            name: None,
+            chunk,
+            upvalue_descs: vec![],
+            arity: 0,
+            has_rest: false,
+            local_names: vec![],
+            source_file: None,
+            cache_offset: 0,
+        });
+        let closure = Rc::new(Closure {
+            func: func.clone(),
+            upvalues: vec![],
+        });
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        let mut vm = VM::new(globals, vec![func], &[], 0).unwrap();
+        let res = vm.execute(closure, &ctx);
+        let err = res.expect_err("DUP on empty stack must error, not panic/UB");
+        assert!(
+            err.to_string().contains("DUP on empty stack"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -3249,6 +3324,43 @@ mod tests {
     }
 
     #[test]
+    fn call_native_out_of_range_id_errors_not_panics() {
+        // A crafted .semac can carry a CALL_NATIVE whose native_id exceeds the
+        // resolved native table. In release builds the old debug_assert! was
+        // compiled out and the bounds-checked index panicked (DoS). It must now
+        // return a SemaError instead.
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+        let globals = Rc::new(Env::new());
+        let ctx = EvalContext::new();
+        let mut e = Emitter::new();
+        e.emit_op(Op::CallNative);
+        e.emit_u16(99); // native_id far past the (empty) table
+        e.emit_u16(0); // argc
+        e.emit_op(Op::Return);
+        let func = Rc::new(crate::chunk::Function {
+            name: None,
+            chunk: e.into_chunk(),
+            upvalue_descs: vec![],
+            arity: 0,
+            has_rest: false,
+            local_names: vec![],
+            source_file: None,
+            cache_offset: 0,
+        });
+        let closure = Rc::new(Closure {
+            func,
+            upvalues: vec![],
+        });
+        let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
+        let result = vm.execute(closure, &ctx);
+        assert!(
+            result.is_err(),
+            "out-of-range native_id must error, got {result:?}"
+        );
+    }
+
+    #[test]
     fn test_debug_hook_stops_at_span() {
         use crate::debug::{DebugCommand, DebugEvent, DebugState, StepMode};
         use std::sync::mpsc;
@@ -3285,6 +3397,48 @@ mod tests {
             DebugEvent::Stopped { .. } => {} // expected
             other => panic!("expected Stopped event, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn debug_get_stacktrace_while_running_replies() {
+        // DAP-1: a state query (GetStackTrace) sent while the program is still
+        // running must be answered by the running-VM poll loop, not dropped.
+        // A dropped reply leaves the DAP server's spawn_blocking thread blocked
+        // on recv() forever (session hang / leaked thread).
+        use crate::debug::{DebugCommand, DebugState, StepMode};
+        use std::sync::mpsc;
+
+        let globals = make_test_env();
+        let ctx = EvalContext::new();
+        // A loop long enough to cross the 128-instruction poll interval.
+        let input = "(define (loop n acc) (if (= n 0) acc (loop (- n 1) (+ acc n))))\n(loop 200 0)";
+        let (vals, span_map) = sema_reader::read_many_with_spans(input).unwrap();
+        let prog = compile_program_with_spans(&vals, &span_map, None).unwrap();
+
+        let (event_tx, _event_rx) = mpsc::channel();
+        let (cmd_tx, cmd_rx) = mpsc::channel();
+        let mut debug_state = DebugState::new(event_tx, cmd_rx);
+        debug_state.step_mode = StepMode::Continue; // run straight through, no stops
+
+        // Queue a stack-trace request to be serviced mid-run.
+        let (reply_tx, reply_rx) = mpsc::sync_channel(1);
+        cmd_tx
+            .send(DebugCommand::GetStackTrace { reply: reply_tx })
+            .unwrap();
+
+        let mut vm = VM::new(globals, prog.functions, &[], prog.main_cache_slots).unwrap();
+        let result = vm
+            .execute_debug(prog.closure, &ctx, &mut debug_state)
+            .unwrap();
+        assert_eq!(result, Value::int(20100)); // sum 1..=200
+
+        let frames = reply_rx
+            .try_recv()
+            .expect("GetStackTrace while running must receive a reply, not be dropped");
+        assert!(
+            !frames.is_empty(),
+            "stack trace should have at least one frame"
+        );
     }
 
     #[test]

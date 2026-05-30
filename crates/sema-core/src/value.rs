@@ -1182,6 +1182,25 @@ impl Value {
         }
     }
 
+    /// Convert a user-supplied integer to a `usize` index/count, rejecting
+    /// non-integers and negative values. Centralizes the negativity guard that
+    /// `list/take`, `list/drop`, `string/repeat` (and the Pattern-A audit sites)
+    /// all need — a bare `as usize` would wrap a negative `i64` to a huge value
+    /// and trigger an OOM allocation or out-of-bounds panic.
+    pub fn as_index(&self, name: &str) -> Result<usize, SemaError> {
+        let n = self.as_int().ok_or_else(|| {
+            SemaError::type_error("int", self.type_name())
+                .with_hint(format!("{name}: argument must be an integer"))
+        })?;
+        if n < 0 {
+            return Err(SemaError::eval(format!(
+                "{name}: expected a non-negative integer, got {n}"
+            ))
+            .with_hint("pass 0 or a positive integer"));
+        }
+        Ok(n as usize)
+    }
+
     #[inline(always)]
     pub fn as_float(&self) -> Option<f64> {
         if !is_boxed(self.0) {
@@ -2356,6 +2375,27 @@ mod tests {
     #[test]
     fn test_size_of_value() {
         assert_eq!(std::mem::size_of::<Value>(), 8);
+    }
+
+    #[test]
+    fn as_index_rejects_negative() {
+        let e = Value::int(-1).as_index("test").unwrap_err();
+        assert!(
+            matches!(e.inner(), SemaError::Eval(_)),
+            "expected Eval error, got {e:?}"
+        );
+        assert!(e.to_string().contains("test"));
+    }
+
+    #[test]
+    fn as_index_accepts_non_negative() {
+        assert_eq!(Value::int(0).as_index("test").unwrap(), 0);
+        assert_eq!(Value::int(5).as_index("test").unwrap(), 5);
+    }
+
+    #[test]
+    fn as_index_rejects_non_int() {
+        assert!(Value::string("x").as_index("test").is_err());
     }
 
     #[test]

@@ -52,6 +52,11 @@ pub fn register(env: &sema_core::Env) {
         let n = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        if !(0..64).contains(&n) {
+            return Err(SemaError::eval(format!(
+                "bit/shift-left: shift amount must be in 0..64, got {n}"
+            )));
+        }
         Ok(Value::int(a << n))
     });
 
@@ -63,6 +68,11 @@ pub fn register(env: &sema_core::Env) {
         let n = args[1]
             .as_int()
             .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?;
+        if !(0..64).contains(&n) {
+            return Err(SemaError::eval(format!(
+                "bit/shift-right: shift amount must be in 0..64, got {n}"
+            )));
+        }
         Ok(Value::int(a >> n))
     });
 }
