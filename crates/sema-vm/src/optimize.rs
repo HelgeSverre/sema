@@ -131,7 +131,13 @@ fn optimize_inner(expr: CoreExpr, shadowed: &[String]) -> CoreExpr {
             CoreExpr::Letrec { bindings, body }
         }
         CoreExpr::Lambda(mut def) => {
-            let param_names: Vec<String> = def.params.iter().map(|s| resolve_spur(*s)).collect();
+            let mut param_names: Vec<String> =
+                def.params.iter().map(|s| resolve_spur(*s)).collect();
+            // The rest param also lexically shadows any builtin of the same name;
+            // omitting it let the optimizer constant-fold a shadowed builtin (VM-4).
+            if let Some(rest) = def.rest {
+                param_names.push(resolve_spur(rest));
+            }
             let new_shadowed = extend_shadowed(shadowed, &param_names);
             def.body = def
                 .body

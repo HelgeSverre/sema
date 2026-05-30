@@ -1314,3 +1314,22 @@ dual_eval_tests! {
     text_chunk_multibyte_overlap_no_panic:
         r#"(list? (text/chunk "λλλ λλλ λλλ λλλ λλλ λλλ" {:size 12 :overlap 3}))"# => Value::bool(true),
 }
+
+// 2026-05-29 audit — Wave 4 quasiquote/optimizer correctness.
+dual_eval_tests! {
+    // EVAL-1: unquote-splicing must work inside vector templates.
+    quasiquote_vector_splice:
+        "(let ((xs (list 1 2))) `[0 ,@xs 3])"
+        => Value::vector(vec![Value::int(0), Value::int(1), Value::int(2), Value::int(3)]),
+    // EVAL-2: unquote must be honored inside map templates.
+    quasiquote_map_unquote:
+        r#"(let ((name "bob")) (:name `{:name ,name}))"# => Value::string("bob"),
+}
+
+dual_eval_error_tests! {
+    // VM-4: a rest param named after a foldable builtin lexically shadows it,
+    // so the optimizer must NOT constant-fold the body. Here the rest param `+`
+    // is bound to the list (5), and calling it errors on both backends; the VM
+    // previously folded `(+ 1 2)` to 3 and returned it.
+    optimizer_rest_param_shadows_builtin: "((lambda (x . +) (+ 1 2)) 9 5)",
+}

@@ -917,6 +917,42 @@ fn eval_quasiquote(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Tramp
     Ok(Trampoline::Value(result))
 }
 
+/// Expand a sequence of quasiquote template items, honoring `(unquote-splicing x)`
+/// by flattening its list value into the result. Shared by the list and vector
+/// branches so vectors get the same splicing behavior as lists.
+fn expand_quasiquote_items(
+    items: &[Value],
+    env: &Env,
+    ctx: &EvalContext,
+    gensym_map: &mut std::collections::HashMap<String, String>,
+) -> Result<Vec<Value>, SemaError> {
+    let mut result = Vec::new();
+    for item in items.iter() {
+        if let Some(inner) = item.as_list() {
+            if !inner.is_empty() {
+                if let Some(sym) = inner[0].as_symbol() {
+                    if sym == "unquote-splicing" {
+                        if inner.len() != 2 {
+                            return Err(SemaError::arity("unquote-splicing", "1", inner.len() - 1));
+                        }
+                        let splice_val = eval::eval_value(ctx, &inner[1], env)?;
+                        if let Some(splice_items) = splice_val.as_list() {
+                            result.extend(splice_items.iter().cloned());
+                        } else if let Some(splice_items) = splice_val.as_vector() {
+                            result.extend(splice_items.iter().cloned());
+                        } else {
+                            return Err(SemaError::type_error("list", splice_val.type_name()));
+                        }
+                        continue;
+                    }
+                }
+            }
+        }
+        result.push(expand_quasiquote(item, env, ctx, gensym_map)?);
+    }
+    Ok(result)
+}
+
 fn expand_quasiquote(
     val: &Value,
     env: &Env,
@@ -949,39 +985,22 @@ fn expand_quasiquote(
             }
         }
         // Expand each element, handling splicing
-        let mut result = Vec::new();
-        for item in items.iter() {
-            if let Some(inner) = item.as_list() {
-                if !inner.is_empty() {
-                    if let Some(sym) = inner[0].as_symbol() {
-                        if sym == "unquote-splicing" {
-                            if inner.len() != 2 {
-                                return Err(SemaError::arity(
-                                    "unquote-splicing",
-                                    "1",
-                                    inner.len() - 1,
-                                ));
-                            }
-                            let splice_val = eval::eval_value(ctx, &inner[1], env)?;
-                            if let Some(splice_items) = splice_val.as_list() {
-                                result.extend(splice_items.iter().cloned());
-                            } else {
-                                return Err(SemaError::type_error("list", splice_val.type_name()));
-                            }
-                            continue;
-                        }
-                    }
-                }
-            }
-            result.push(expand_quasiquote(item, env, ctx, gensym_map)?);
-        }
+        let result = expand_quasiquote_items(items, env, ctx, gensym_map)?;
         Ok(Value::list(result))
     } else if let Some(items) = val.as_vector() {
-        let mut result = Vec::new();
-        for item in items.iter() {
-            result.push(expand_quasiquote(item, env, ctx, gensym_map)?);
-        }
+        // Same splicing semantics as lists (EVAL-1): `[1 ,@xs 2]` must splice.
+        let result = expand_quasiquote_items(items, env, ctx, gensym_map)?;
         Ok(Value::vector(result))
+    } else if let Some(map) = val.as_map_rc() {
+        // Expand unquotes inside map keys and values (EVAL-2). Splicing into a
+        // map isn't meaningful, so only `(unquote x)` is handled (via recursion).
+        let mut out = std::collections::BTreeMap::new();
+        for (k, v) in map.iter() {
+            let ek = expand_quasiquote(k, env, ctx, gensym_map)?;
+            let ev = expand_quasiquote(v, env, ctx, gensym_map)?;
+            out.insert(ek, ev);
+        }
+        Ok(Value::map(out))
     } else {
         Ok(val.clone())
     }

@@ -972,84 +972,100 @@ fn expand_quasiquote(
                     return lower_expr(&items[1], false);
                 }
             }
-            // Expand each element, handling unquote-splicing
-            let mut has_splice = false;
-            for item in items.iter() {
-                if let Some(inner) = item.as_list() {
-                    if !inner.is_empty() {
-                        if let Some(sym) = inner[0].as_symbol() {
-                            if sym == "unquote-splicing" {
-                                has_splice = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if has_splice {
-                // Build using append: collect segments, splice where needed
-                let mut segments: Vec<CoreExpr> = Vec::new();
-                let mut current_list: Vec<CoreExpr> = Vec::new();
-
-                for item in items.iter() {
-                    if let Some(inner) = item.as_list() {
-                        if !inner.is_empty() {
-                            if let Some(sym) = inner[0].as_symbol() {
-                                if sym == "unquote-splicing" {
-                                    if inner.len() != 2 {
-                                        return Err(SemaError::arity(
-                                            "unquote-splicing",
-                                            "1",
-                                            inner.len() - 1,
-                                        ));
-                                    }
-                                    // Flush current_list as a MakeList segment
-                                    if !current_list.is_empty() {
-                                        segments.push(CoreExpr::MakeList(std::mem::take(
-                                            &mut current_list,
-                                        )));
-                                    }
-                                    // The spliced expr evaluates to a list
-                                    segments.push(lower_expr(&inner[1], false)?);
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                    current_list.push(expand_quasiquote(item, gensym_map)?);
-                }
-                if !current_list.is_empty() {
-                    segments.push(CoreExpr::MakeList(current_list));
-                }
-
-                // Build (append seg1 seg2 ...) call
-                if segments.len() == 1 {
-                    Ok(segments.into_iter().next().unwrap())
-                } else {
-                    Ok(CoreExpr::Call {
-                        func: Box::new(CoreExpr::Var(intern("append"))),
-                        args: segments,
-                        tail: false,
-                    })
-                }
-            } else {
-                // No splicing — just expand each element
-                let exprs = items
-                    .iter()
-                    .map(|item| expand_quasiquote(item, gensym_map))
-                    .collect::<Result<_, _>>()?;
-                Ok(CoreExpr::MakeList(exprs))
-            }
+            expand_quasiquote_seq(&items, gensym_map, false)
         }
         ValueView::Vector(items) => {
-            let exprs = items
+            // Same splicing semantics as lists (EVAL-1): `[1 ,@xs 2]` must splice.
+            expand_quasiquote_seq(&items, gensym_map, true)
+        }
+        ValueView::Map(map) => {
+            // Honor unquotes inside map keys/values (EVAL-2). Splicing into a map
+            // isn't meaningful, so only `(unquote x)` is handled (via recursion).
+            let entries = map
                 .iter()
-                .map(|item| expand_quasiquote(item, gensym_map))
-                .collect::<Result<_, _>>()?;
-            Ok(CoreExpr::MakeVector(exprs))
+                .map(|(k, v)| {
+                    Ok((
+                        expand_quasiquote(k, gensym_map)?,
+                        expand_quasiquote(v, gensym_map)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, SemaError>>()?;
+            Ok(CoreExpr::MakeMap(entries))
         }
         _ => Ok(CoreExpr::Quote(val.clone())),
+    }
+}
+
+/// Expand a quasiquote sequence (list or vector elements), handling
+/// `unquote-splicing`. When `as_vector` is set the result is converted to a
+/// vector (via `list->vector`) so vectors splice the same way lists do.
+fn expand_quasiquote_seq(
+    items: &[Value],
+    gensym_map: &mut HashMap<String, String>,
+    as_vector: bool,
+) -> Result<CoreExpr, SemaError> {
+    let has_splice = items.iter().any(|item| {
+        item.as_list()
+            .and_then(|inner| inner.first().and_then(|h| h.as_symbol()))
+            .is_some_and(|sym| sym == "unquote-splicing")
+    });
+
+    if !has_splice {
+        let exprs = items
+            .iter()
+            .map(|item| expand_quasiquote(item, gensym_map))
+            .collect::<Result<_, _>>()?;
+        return Ok(if as_vector {
+            CoreExpr::MakeVector(exprs)
+        } else {
+            CoreExpr::MakeList(exprs)
+        });
+    }
+
+    // Build using append: collect segments, splice where needed.
+    let mut segments: Vec<CoreExpr> = Vec::new();
+    let mut current_list: Vec<CoreExpr> = Vec::new();
+    for item in items.iter() {
+        if let Some(inner) = item.as_list() {
+            if !inner.is_empty() {
+                if let Some(sym) = inner[0].as_symbol() {
+                    if sym == "unquote-splicing" {
+                        if inner.len() != 2 {
+                            return Err(SemaError::arity("unquote-splicing", "1", inner.len() - 1));
+                        }
+                        if !current_list.is_empty() {
+                            segments.push(CoreExpr::MakeList(std::mem::take(&mut current_list)));
+                        }
+                        segments.push(lower_expr(&inner[1], false)?);
+                        continue;
+                    }
+                }
+            }
+        }
+        current_list.push(expand_quasiquote(item, gensym_map)?);
+    }
+    if !current_list.is_empty() {
+        segments.push(CoreExpr::MakeList(current_list));
+    }
+
+    let list_expr = if segments.len() == 1 {
+        segments.into_iter().next().unwrap()
+    } else {
+        CoreExpr::Call {
+            func: Box::new(CoreExpr::Var(intern("append"))),
+            args: segments,
+            tail: false,
+        }
+    };
+
+    if as_vector {
+        Ok(CoreExpr::Call {
+            func: Box::new(CoreExpr::Var(intern("list->vector"))),
+            args: vec![list_expr],
+            tail: false,
+        })
+    } else {
+        Ok(list_expr)
     }
 }
 

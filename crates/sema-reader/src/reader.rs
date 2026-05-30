@@ -5,11 +5,17 @@ use sema_core::{resolve, SemaError, Span, SpanMap, Value, ValueView};
 
 use crate::lexer::{tokenize, FStringPart, SpannedToken, Token};
 
+/// Maximum nesting depth for parsing. Untrusted input (files, the WASM
+/// playground, f-string interpolations) must not be able to overflow the thread
+/// stack via thousands of nested forms. 1024 is far beyond any real program.
+const MAX_PARSE_DEPTH: usize = 1024;
+
 struct Parser {
     tokens: Vec<SpannedToken>,
     pos: usize,
     span_map: SpanMap,
     symbol_spans: Vec<(String, Span)>,
+    depth: usize,
 }
 
 impl Parser {
@@ -19,6 +25,7 @@ impl Parser {
             pos: 0,
             span_map: SpanMap::new(),
             symbol_spans: Vec::new(),
+            depth: 0,
         }
     }
 
@@ -82,6 +89,23 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Value, SemaError> {
+        // Bound recursion depth on the single common entry point: every nested
+        // form (list/vector/map/short-lambda elements) recurses through here.
+        self.depth += 1;
+        if self.depth > MAX_PARSE_DEPTH {
+            self.depth -= 1;
+            return Err(SemaError::Reader {
+                message: format!("input nested too deeply (limit {MAX_PARSE_DEPTH})"),
+                span: self.span(),
+            }
+            .with_hint("reduce nesting depth"));
+        }
+        let result = self.parse_expr_inner();
+        self.depth -= 1;
+        result
+    }
+
+    fn parse_expr_inner(&mut self) -> Result<Value, SemaError> {
         let span = self.span();
         match self.peek() {
             None => Err(SemaError::Reader {
@@ -661,6 +685,28 @@ mod tests {
     #[test]
     fn test_read_int() {
         assert_eq!(read("42").unwrap(), Value::int(42));
+    }
+
+    #[test]
+    fn deeply_nested_input_errors_instead_of_overflowing() {
+        // Untrusted input with thousands of levels of nesting must return a
+        // reader error rather than recurse to a stack overflow. Run on a large
+        // stack so the result reflects the depth-limit check, not the small
+        // default test-thread stack (which would SIGSEGV either way).
+        let result = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let depth = 3000;
+                let src = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+                read(&src).is_err()
+            })
+            .unwrap()
+            .join()
+            .expect("parser must not overflow the stack on deeply nested input");
+        assert!(
+            result,
+            "expected a depth-limit error for deeply nested input"
+        );
     }
 
     #[test]
