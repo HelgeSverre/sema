@@ -1625,11 +1625,18 @@ impl VM {
                     op::NTH => {
                         let idx_val = unsafe { pop_unchecked(&mut self.stack) };
                         let coll = unsafe { pop_unchecked(&mut self.stack) };
-                        let idx = if let Some(i) = idx_val.as_int() {
-                            i as usize
-                        } else {
-                            let err = SemaError::type_error("int", idx_val.type_name());
-                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        let idx = match idx_val.as_int() {
+                            Some(i) if i >= 0 => i as usize,
+                            Some(i) => {
+                                let err = SemaError::eval(format!(
+                                    "nth: index must be non-negative, got {i}"
+                                ));
+                                handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                            }
+                            None => {
+                                let err = SemaError::type_error("int", idx_val.type_name());
+                                handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                            }
                         };
                         if let Some(l) = coll.as_list() {
                             match l.get(idx) {

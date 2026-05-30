@@ -360,7 +360,7 @@ async fn perform_fetch(
         });
         let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
             closure.as_ref().unchecked_ref(),
-            ms as i32,
+            clamp_timeout_ms(ms),
         );
         closure.forget();
     }
@@ -2768,4 +2768,25 @@ fn escape_json(s: &str) -> String {
         .replace('\n', "\\n")
         .replace('\r', "\\r")
         .replace('\t', "\\t")
+}
+
+/// Clamp a user-supplied timeout (milliseconds, u64) to a valid setTimeout
+/// delay. A bare `as i32` wrapped values > ~2.1e9 ms to negative/zero, which
+/// made the abort controller fire immediately and break the request.
+fn clamp_timeout_ms(ms: u64) -> i32 {
+    i32::try_from(ms).unwrap_or(i32::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clamp_timeout_ms_does_not_wrap_to_negative() {
+        // ~ 3 billion ms is well past i32::MAX; old `as i32` wrapped negative.
+        assert_eq!(clamp_timeout_ms(3_000_000_000), i32::MAX);
+        assert_eq!(clamp_timeout_ms(u64::MAX), i32::MAX);
+        assert_eq!(clamp_timeout_ms(5000), 5000);
+        assert!(clamp_timeout_ms(3_000_000_000) > 0);
+    }
 }

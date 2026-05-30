@@ -675,6 +675,19 @@ fn register_router(env: &sema_core::Env) {
 }
 
 /// Convert an HTTP method string (e.g. "GET") to a lowercase keyword Value (e.g. :get).
+/// Validate a user-supplied port number. A bare `as u16` silently wrapped
+/// out-of-range values (70000 -> 4464, -1 -> 65535), binding the wrong port
+/// while logging the original. Reject anything outside 1..=65535.
+fn parse_port(p: i64) -> Result<u16, SemaError> {
+    if (1..=65535).contains(&p) {
+        Ok(p as u16)
+    } else {
+        Err(SemaError::eval(format!(
+            "http/serve: port must be in 1..=65535, got {p}"
+        )))
+    }
+}
+
 fn method_keyword(method: &str) -> Value {
     Value::keyword(&method.to_ascii_lowercase())
 }
@@ -1191,7 +1204,7 @@ fn http_serve_impl(ctx: &sema_core::EvalContext, args: &[Value]) -> Result<Value
     if args.len() == 2 {
         if let Some(opts) = args[1].as_map_rc() {
             if let Some(p) = opts.get(&Value::keyword("port")).and_then(|v| v.as_int()) {
-                port = p as u16;
+                port = parse_port(p)?;
             }
             if let Some(h) = opts.get(&Value::keyword("host")).and_then(|v| v.as_str()) {
                 host = h.to_string();
@@ -1324,6 +1337,16 @@ mod tests {
         let params = match_path("/users", "/users");
         assert!(params.is_some());
         assert!(params.unwrap().is_empty());
+    }
+
+    #[test]
+    fn parse_port_rejects_out_of_range() {
+        // `p as u16` silently wrapped: 70000 -> 4464, -1 -> 65535. Must error now.
+        assert!(parse_port(70000).is_err());
+        assert!(parse_port(-1).is_err());
+        assert!(parse_port(0).is_err());
+        assert_eq!(parse_port(3000).unwrap(), 3000);
+        assert_eq!(parse_port(65535).unwrap(), 65535);
     }
 
     #[test]

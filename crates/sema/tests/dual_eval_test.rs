@@ -1277,3 +1277,32 @@ fn vm_type_of_lambda_is_lambda() {
     );
     assert_eq!(vm_result, Value::keyword("lambda"));
 }
+
+// ---------------------------------------------------------------------------
+// 2026-05-29 audit — Pattern A: negative/oversized int -> usize guards.
+// Each of these previously panicked (shift overflow / empty range), aborted
+// (OOM allocation), or returned a silently-wrong result. They must now error
+// cleanly on both backends.
+// ---------------------------------------------------------------------------
+dual_eval_error_tests! {
+    // STD-1
+    bit_shift_left_overflow: "(bit/shift-left 1 64)" => "shift",
+    bit_shift_left_negative: "(bit/shift-left 1 -1)" => "shift",
+    bit_shift_right_overflow: "(bit/shift-right 1 64)" => "shift",
+    bit_shift_right_negative: "(bit/shift-right 1 -1)" => "shift",
+    // STD-2
+    random_int_reversed_bounds: "(math/random-int 10 5)" => "math/random-int",
+    // STD-4
+    string_pad_left_negative: r#"(string/pad-left "x" -1)"# => "non-negative",
+    string_pad_right_negative: r#"(string/pad-right "x" -1)"# => "non-negative",
+    // STD-5
+    list_chunk_negative: "(list/chunk -1 (list 1 2 3))" => "non-negative",
+    list_split_at_negative: "(list/split-at (list 1 2 3) -1)" => "non-negative",
+    list_sliding_negative: "(list/sliding (list 1 2 3) -1)" => "non-negative",
+    list_times_negative: "(list/times -1 (lambda (i) i))" => "non-negative",
+    list_repeat_negative: "(list/repeat -1 0)" => "non-negative",
+    list_page_negative_per_page: "(list/page (list 1 2 3) 1 -1)" => "non-negative",
+    list_pad_negative_len: "(list/pad (list 1) -1 0)" => "non-negative",
+    // VM-3 (VM NTH opcode; tree-walker nth already guards)
+    nth_negative_index: "(nth (list 1 2 3) -1)" => "non-negative",
+}

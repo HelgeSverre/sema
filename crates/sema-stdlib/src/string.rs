@@ -408,10 +408,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let width = args[1]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+        let width = args[1].as_index("string/pad")?;
         let pad_char = if args.len() == 3 {
             let p = args[2]
                 .as_str()
@@ -434,10 +431,7 @@ pub fn register(env: &sema_core::Env) {
         let s = args[0]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
-        let width = args[1]
-            .as_int()
-            .ok_or_else(|| SemaError::type_error("int", args[1].type_name()))?
-            as usize;
+        let width = args[1].as_index("string/pad")?;
         let pad_char = if args.len() == 3 {
             let p = args[2]
                 .as_str()
