@@ -1004,10 +1004,16 @@ impl VM {
 
                         // Direct dispatch: index into pre-resolved native function table.
                         // No env lookup, no cache — resolved at VM creation.
-                        debug_assert!(
-                            native_id < self.native_fns.len(),
-                            "CallNative invalid native_id {native_id}"
-                        );
+                        // Real bounds check (not debug_assert!): a crafted .semac can
+                        // carry an out-of-range native_id that passes load-time
+                        // validation, and the index below would panic in release.
+                        if native_id >= self.native_fns.len() {
+                            return Err(SemaError::eval(format!(
+                                "CallNative: native_id {} out of range (table has {} entries)",
+                                native_id,
+                                self.native_fns.len()
+                            )));
+                        }
 
                         // Close open upvalues before non-VM call (native may invoke VM closures via callback)
                         if let Some(ref mut open) = self.frames[fi].open_upvalues {
@@ -3245,6 +3251,43 @@ mod tests {
             result,
             Value::bool(true),
             "Op::Eq should coerce int 1 == float 1.0"
+        );
+    }
+
+    #[test]
+    fn call_native_out_of_range_id_errors_not_panics() {
+        // A crafted .semac can carry a CALL_NATIVE whose native_id exceeds the
+        // resolved native table. In release builds the old debug_assert! was
+        // compiled out and the bounds-checked index panicked (DoS). It must now
+        // return a SemaError instead.
+        use crate::emit::Emitter;
+        use crate::opcodes::Op;
+        let globals = Rc::new(Env::new());
+        let ctx = EvalContext::new();
+        let mut e = Emitter::new();
+        e.emit_op(Op::CallNative);
+        e.emit_u16(99); // native_id far past the (empty) table
+        e.emit_u16(0); // argc
+        e.emit_op(Op::Return);
+        let func = Rc::new(crate::chunk::Function {
+            name: None,
+            chunk: e.into_chunk(),
+            upvalue_descs: vec![],
+            arity: 0,
+            has_rest: false,
+            local_names: vec![],
+            source_file: None,
+            cache_offset: 0,
+        });
+        let closure = Rc::new(Closure {
+            func,
+            upvalues: vec![],
+        });
+        let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
+        let result = vm.execute(closure, &ctx);
+        assert!(
+            result.is_err(),
+            "out-of-range native_id must error, got {result:?}"
         );
     }
 
