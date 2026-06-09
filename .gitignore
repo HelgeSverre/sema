@@ -37,8 +37,7 @@ prototypes/
 # Misc
 wip/
 benchmarks/data/
-tools/token-usage.html
-tools/token-data.json
+tools/
 
 reddit-scrutiny.json
 
