@@ -5,6 +5,11 @@ import semaLang from './sema.tmLanguage.json'
 export default defineConfig({
   title: 'Sema',
   description: 'A Lisp with first-class LLM primitives, implemented in Rust.',
+  appearance: 'force-dark',
+
+  sitemap: {
+    hostname: 'https://sema-lang.com'
+  },
 
   head: [
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
@@ -28,98 +33,124 @@ export default defineConfig({
     ['link', { href: 'https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,300;0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap', rel: 'stylesheet' }],
   ],
 
-  appearance: 'dark',
 
   themeConfig: {
-    logo: undefined,
-    siteTitle: 'Sema',
+    logo: '/logo.svg',
+    siteTitle: false,
 
     nav: [
-      { text: 'Home', link: '/' },
-      { text: 'Docs', link: '/docs/' },
-      { text: 'Stdlib', link: '/docs/stdlib/' },
-      { text: 'LLM', link: '/docs/llm/' },
-      { text: 'Playground', link: 'https://sema.run' },
+      { text: 'Guide', link: '/docs/' },
+      {
+        text: 'Reference',
+        items: [
+          { text: 'Standard Library', link: '/docs/stdlib/' },
+          { text: 'LLM Primitives', link: '/docs/llm/' },
+          { text: 'CLI & Tools', link: '/docs/cli' }
+        ]
+      },
+      { text: 'Internals', link: '/docs/internals/architecture' },
+      { text: 'Playground', link: 'https://sema.run', target: '_blank' }
     ],
 
     sidebar: {
-      '/docs/': [
+      '/docs/stdlib/': [
         {
-          text: 'Getting Started',
+          text: 'Standard Library Reference',
           items: [
-            { text: 'Introduction', link: '/docs/' },
-            { text: 'CLI Reference', link: '/docs/cli' },
-            { text: 'Formatter', link: '/docs/formatter' },
-            { text: 'Shell Completions', link: '/docs/shell-completions' },
-            { text: 'Editor Support', link: '/docs/editors' },
-            { text: 'Language Server (LSP)', link: '/docs/lsp' },
-            { text: 'Notebook', link: '/docs/notebook' },
-            { text: 'Embedding in Rust', link: '/docs/embedding' },
-            { text: 'Embedding in JavaScript', link: '/docs/embedding-js' },
-            { text: 'Packages', link: '/docs/packages' },
-          ],
+            { text: 'Overview', link: '/docs/stdlib/' }
+          ]
         },
         {
-          text: 'Language Reference',
+          text: 'Core Types',
+          collapsed: false,
           items: [
-            { text: 'Data Types', link: '/docs/language/data-types' },
-            { text: 'Special Forms', link: '/docs/language/special-forms' },
-            { text: 'Macros & Modules', link: '/docs/language/macros-modules' },
-          ],
-        },
-        {
-          text: 'LLM Primitives',
-          items: [
-            { text: 'Overview', link: '/docs/llm/' },
-            { text: 'Completion & Chat', link: '/docs/llm/completion' },
-            { text: 'Prompts & Messages', link: '/docs/llm/prompts' },
-            { text: 'Conversations', link: '/docs/llm/conversations' },
-            { text: 'Structured Extraction', link: '/docs/llm/extraction' },
-            { text: 'Tools & Agents', link: '/docs/llm/tools-agents' },
-            { text: 'Embeddings', link: '/docs/llm/embeddings' },
-            { text: 'Vector Store & Math', link: '/docs/llm/vector-store' },
-            { text: 'Caching', link: '/docs/llm/caching' },
-            { text: 'Resilience & Retry', link: '/docs/llm/resilience' },
-            { text: 'Providers', link: '/docs/llm/providers' },
-            { text: 'Cost & Budgets', link: '/docs/llm/cost' },
-          ],
-        },
-        {
-          text: 'Standard Library',
-          items: [
-            { text: 'Overview', link: '/docs/stdlib/' },
             { text: 'Math & Arithmetic', link: '/docs/stdlib/math' },
             { text: 'Strings & Characters', link: '/docs/stdlib/strings' },
             { text: 'Lists', link: '/docs/stdlib/lists' },
             { text: 'Vectors', link: '/docs/stdlib/vectors' },
             { text: 'Maps & HashMaps', link: '/docs/stdlib/maps' },
             { text: 'Predicates', link: '/docs/stdlib/predicates' },
+            { text: 'Bytevectors', link: '/docs/stdlib/bytevectors' },
+            { text: 'Typed Arrays', link: '/docs/stdlib/typed-arrays' }
+          ]
+        },
+        {
+          text: 'File & Data Formats',
+          collapsed: true,
+          items: [
             { text: 'File I/O & Paths', link: '/docs/stdlib/file-io' },
             { text: 'PDF Processing', link: '/docs/stdlib/pdf' },
+            { text: 'CSV Parsing', link: '/docs/stdlib/csv' },
+            { text: 'TOML Parsing', link: '/docs/stdlib/toml' }
+          ]
+        },
+        {
+          text: 'Networking & Web',
+          collapsed: true,
+          items: [
             { text: 'HTTP & JSON', link: '/docs/stdlib/http-json' },
-            { text: 'Web Server', link: '/docs/stdlib/web-server' },
-            { text: 'Regex', link: '/docs/stdlib/regex' },
-            { text: 'CSV', link: '/docs/stdlib/csv' },
-            { text: 'Crypto & Encoding', link: '/docs/stdlib/crypto' },
-            { text: 'TOML', link: '/docs/stdlib/toml' },
-            { text: 'Date & Time', link: '/docs/stdlib/datetime' },
+            { text: 'Web Server', link: '/docs/stdlib/web-server' }
+          ]
+        },
+        {
+          text: 'System & Databases',
+          collapsed: true,
+          items: [
             { text: 'System', link: '/docs/stdlib/system' },
+            { text: 'SQLite Database', link: '/docs/stdlib/sqlite' },
+            { text: 'Key-Value Store', link: '/docs/stdlib/kv-store' },
             { text: 'Serial Ports', link: '/docs/stdlib/serial' },
-            { text: 'Bytevectors', link: '/docs/stdlib/bytevectors' },
+            { text: 'Regex Engine', link: '/docs/stdlib/regex' },
+            { text: 'Crypto & Encoding', link: '/docs/stdlib/crypto' },
+            { text: 'Date & Time', link: '/docs/stdlib/datetime' },
+            { text: 'Context Manager', link: '/docs/stdlib/context' },
+            { text: 'Terminal Styling', link: '/docs/stdlib/terminal' },
+            { text: 'Playground & WASM', link: '/docs/stdlib/playground' }
+          ]
+        },
+        {
+          text: 'Concurrency & Streams',
+          collapsed: true,
+          items: [
             { text: 'Streams', link: '/docs/stdlib/streams' },
             { text: 'Concurrency', link: '/docs/stdlib/concurrency' },
             { text: 'Records', link: '/docs/stdlib/records' },
-            { text: 'Text Processing', link: '/docs/stdlib/text-processing' },
-            { text: 'Key-Value Store', link: '/docs/stdlib/kv-store' },
-            { text: 'SQLite', link: '/docs/stdlib/sqlite' },
-            { text: 'Typed Arrays', link: '/docs/stdlib/typed-arrays' },
-            { text: 'Context', link: '/docs/stdlib/context' },
-            { text: 'Terminal Styling', link: '/docs/stdlib/terminal' },
-            { text: 'Playground & WASM', link: '/docs/stdlib/playground' },
-          ],
+            { text: 'Text Processing', link: '/docs/stdlib/text-processing' }
+          ]
+        }
+      ],
+
+      '/docs/llm/': [
+        {
+          text: 'LLM Basics',
+          collapsed: false,
+          items: [
+            { text: 'Overview', link: '/docs/llm/' },
+            { text: 'Completion & Chat', link: '/docs/llm/completion' },
+            { text: 'Prompts & Messages', link: '/docs/llm/prompts' },
+            { text: 'Conversations', link: '/docs/llm/conversations' },
+            { text: 'Structured Extraction', link: '/docs/llm/extraction' },
+            { text: 'Tools & Agents', link: '/docs/llm/tools-agents' }
+          ]
         },
         {
-          text: 'Internals',
+          text: 'Advanced LLM Operations',
+          collapsed: false,
+          items: [
+            { text: 'Embeddings', link: '/docs/llm/embeddings' },
+            { text: 'Vector Store & Math', link: '/docs/llm/vector-store' },
+            { text: 'Caching', link: '/docs/llm/caching' },
+            { text: 'Resilience & Retry', link: '/docs/llm/resilience' },
+            { text: 'Providers', link: '/docs/llm/providers' },
+            { text: 'Cost & Budgets', link: '/docs/llm/cost' }
+          ]
+        }
+      ],
+
+      '/docs/internals/': [
+        {
+          text: 'Engine Internals',
+          collapsed: false,
           items: [
             { text: 'Architecture', link: '/docs/internals/architecture' },
             { text: 'Bytecode VM', link: '/docs/internals/bytecode-vm' },
@@ -129,10 +160,39 @@ export default defineConfig({
             { text: 'Reader & Spans', link: '/docs/internals/reader' },
             { text: 'Performance', link: '/docs/internals/performance' },
             { text: 'Lisp Dialect Benchmark', link: '/docs/internals/lisp-comparison' },
-            { text: 'Feature Comparison', link: '/docs/internals/feature-comparison' },
-          ],
-        },
+            { text: 'Feature Comparison', link: '/docs/internals/feature-comparison' }
+          ]
+        }
       ],
+
+      '/docs/': [
+        {
+          text: 'Getting Started',
+          collapsed: false,
+          items: [
+            { text: 'Introduction', link: '/docs/' },
+            { text: 'CLI Reference', link: '/docs/cli' },
+            { text: 'Formatter', link: '/docs/formatter' },
+            { text: 'Shell Completions', link: '/docs/shell-completions' },
+            { text: 'Editor Support', link: '/docs/editors' },
+            { text: 'Language Server (LSP)', link: '/docs/lsp' },
+            { text: 'Debugger (DAP)', link: '/docs/dap' },
+            { text: 'Notebook', link: '/docs/notebook' },
+            { text: 'Embedding in Rust', link: '/docs/embedding' },
+            { text: 'Embedding in JavaScript', link: '/docs/embedding-js' },
+            { text: 'Packages', link: '/docs/packages' }
+          ]
+        },
+        {
+          text: 'Language Reference',
+          collapsed: false,
+          items: [
+            { text: 'Data Types', link: '/docs/language/data-types' },
+            { text: 'Special Forms', link: '/docs/language/special-forms' },
+            { text: 'Macros & Modules', link: '/docs/language/macros-modules' }
+          ]
+        }
+      ]
     },
 
     search: {
@@ -143,7 +203,23 @@ export default defineConfig({
       { icon: 'github', link: 'https://github.com/HelgeSverre/sema' },
     ],
 
-    outline: { level: [2, 3] },
+    outline: {
+      level: [2, 3],
+      label: 'On this page'
+    },
+
+    editLink: {
+      pattern: 'https://github.com/HelgeSverre/sema/edit/main/website/:path',
+      text: 'Edit this page on GitHub'
+    },
+
+    lastUpdated: {
+      text: 'Updated at',
+      formatOptions: {
+        dateStyle: 'medium',
+        timeStyle: 'short'
+      }
+    },
   },
 
   srcExclude: ['**/node_modules/**'],

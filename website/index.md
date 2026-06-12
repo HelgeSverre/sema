@@ -1,6 +1,6 @@
 ---
-layout: page
+layout: false
 title: Sema — A Lisp with LLM Primitives
 ---
 
-<CustomHome />
+<HomepageV2 />

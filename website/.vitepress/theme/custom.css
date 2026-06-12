@@ -4,27 +4,20 @@
   --vp-c-brand-3: #c8a855;
   --vp-c-brand-soft: rgba(200, 168, 85, 0.14);
   --vp-font-family-mono: 'JetBrains Mono', monospace;
+  --vp-nav-logo-height: 24px;
 }
 
 .dark {
-  --vp-c-bg: #0c0c0c;
-  --vp-c-bg-alt: #141414;
-  --vp-c-bg-elv: #141414;
-  --vp-c-bg-soft: #1a1a1a;
-  --vp-sidebar-bg-color: #0c0c0c;
-  --vp-c-text-1: #d8d0c0;
-  --vp-c-text-2: #7a7468;
-  --vp-c-divider: #222;
-  --vp-code-bg: #0a0a0a;
-}
-
-/* Sema wordmark in navbar */
-.VPNavBarTitle .title {
-  font-family: 'Cormorant', 'Georgia', serif !important;
-  font-size: 1.4rem !important;
-  font-weight: 300 !important;
-  letter-spacing: 0.06em !important;
-  color: var(--vp-c-text-1) !important;
+  --vp-c-bg: #131110;
+  --vp-c-bg-alt: #181512;
+  --vp-c-bg-elv: #181512;
+  --vp-c-bg-soft: #1c1916;
+  --vp-sidebar-bg-color: #131110;
+  --vp-c-text-1: #e9e3d6;
+  --vp-c-text-2: #968c79;
+  --vp-c-text-3: #6b6354;
+  --vp-c-divider: #221e19;
+  --vp-code-bg: #181512;
 }
 
 /* Remove max-width constraint on page layout so homepage goes full-width */
