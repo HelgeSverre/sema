@@ -2,7 +2,8 @@ services:
   registry:
     build: .
     ports:
-      - "3000:3000"
+      # Host port is configurable (make dev-docker picks a free one); container stays 3000.
+      - "${PORT:-3000}:3000"
     volumes:
       - ./data:/app/data
     env_file:
@@ -11,4 +12,4 @@ services:
       RUST_LOG: info
       DATABASE_URL: sqlite://data/registry.db?mode=rwc
       BLOB_DIR: data/blobs
-      BASE_URL: http://localhost:3000
+      BASE_URL: ${BASE_URL:-http://localhost:3000}

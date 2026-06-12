@@ -1,18 +1,75 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Configuration ──
+#
+# This script seeds TWO things and they must line up:
+#   1. The HTTP API at $BASE_URL  (curl)        — users, tokens, packages, reports
+#   2. The SQLite database         (db_exec)    — promotes the first admin, which the
+#                                                 API cannot do (chicken-and-egg).
+#
+# SEED_MODE controls how the SQLite step reaches the database:
+#   local  (default) — server started with `cargo run`; DB is the local file $DB.
+#   docker           — server runs in the `registry` compose service; the SQL runs
+#                      *inside* that container so it shares the server's filesystem
+#                      (writing to a container-owned WAL DB from the host is unsafe).
+#
+# Usage:
+#   bash seed.sh                 # seed a registry that is already running
+#   bash seed.sh --wait          # wait for the server to come up first, then seed
+#   SEED_MODE=docker bash seed.sh --wait
 BASE="${BASE_URL:-http://localhost:3000}"
 DB="${DB_PATH:-data/registry.db}"
+SEED_MODE="${SEED_MODE:-local}"
+COMPOSE_SERVICE="${COMPOSE_SERVICE:-registry}"
+CONTAINER_DB="${CONTAINER_DB:-/app/data/registry.db}"
+WAIT_TIMEOUT="${WAIT_TIMEOUT:-180}"
+
+WAIT=0
+for arg in "$@"; do
+  case "$arg" in
+    --wait) WAIT=1 ;;
+    *) echo "Unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
+
+# Run a SQL statement against the registry database, routed by SEED_MODE.
+db_exec() {
+  case "$SEED_MODE" in
+    docker) docker compose exec -T "$COMPOSE_SERVICE" sqlite3 "$CONTAINER_DB" "$1" ;;
+    *)      sqlite3 "$DB" "$1" ;;
+  esac
+}
 
 echo "=== Sema Package Registry — Dev Seed ==="
-echo "Server: $BASE"
-echo "Database: $DB"
+echo "Server:   $BASE"
+echo "Mode:     $SEED_MODE"
+echo "Database: $([ "$SEED_MODE" = docker ] && echo "$COMPOSE_SERVICE:$CONTAINER_DB" || echo "$DB")"
 echo ""
 
-# Check server is running
-if ! curl -sf "$BASE/healthz" > /dev/null 2>&1; then
+# ── Wait for the server (or fail fast) ──
+wait_for_server() {
+  local deadline=$(( SECONDS + WAIT_TIMEOUT ))
+  if curl -sf "$BASE/healthz" > /dev/null 2>&1; then return 0; fi
+  [ "$WAIT" -eq 1 ] || return 1
+  echo "Waiting for server at $BASE (up to ${WAIT_TIMEOUT}s)..."
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    sleep 1
+    if curl -sf "$BASE/healthz" > /dev/null 2>&1; then
+      echo "Server is up."
+      return 0
+    fi
+  done
+  return 1
+}
+
+if ! wait_for_server; then
   echo "ERROR: Server not running at $BASE"
-  echo "Start it first: cargo run"
+  if [ "$SEED_MODE" = docker ]; then
+    echo "Start it first: docker compose up --build -d   (or: make dev-docker)"
+  else
+    echo "Start it first: cargo run   (or: make dev)"
+  fi
   exit 1
 fi
 
@@ -92,7 +149,7 @@ echo "  helge, kari, magnus, spambot"
 # ── Promote helge to admin ──
 
 echo "Promoting helge to admin..."
-sqlite3 "$DB" "UPDATE users SET is_admin = 1 WHERE username = 'helge'"
+db_exec "UPDATE users SET is_admin = 1 WHERE username = 'helge'"
 
 # ── Create API tokens ──
 
@@ -125,7 +182,7 @@ curl -sf -X POST "$BASE/api/v1/packages/sema-http/1.0.0/yank" \
 # ── Ban spambot ──
 
 echo "Banning spambot..."
-SPAM_ID=$(sqlite3 "$DB" "SELECT id FROM users WHERE username = 'spambot'")
+SPAM_ID=$(db_exec "SELECT id FROM users WHERE username = 'spambot'")
 # Need to re-login as admin since sessions are per-registration
 HELGE_SESSION=$(login "helge" "123123123")
 curl -sf -X POST "$BASE/api/v1/admin/users/$SPAM_ID/ban" \

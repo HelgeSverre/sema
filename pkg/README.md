@@ -5,15 +5,51 @@ Self-hostable package registry for the [Sema](https://sema-lang.com) programming
 ## Quick Start
 
 ```bash
-# Run locally
 cd pkg
-cargo run
 
-# Or with Docker
+make dev          # start locally (cargo) on a fresh DB and seed it
+make dev-docker   # build + start in Docker on a fresh DB and seed it
+```
+
+Both start the registry on [http://localhost:3000](http://localhost:3000) and load the
+demo data (see [Local Development](#local-development) below). If port 3000 is busy they
+bump to the next free port (and point the seed at the same one) — the chosen URL is
+printed at startup. Override with `make dev PORT=4000`. `make dev` runs the server in the
+foreground (Ctrl-C to stop); `make dev-docker` runs it detached and tails the logs
+(`make down` to stop the container).
+
+To run the server without seeding:
+
+```bash
+make run                 # locally, no reset/seed
 docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Run `make help` to list all targets.
+
+## Local Development
+
+`make dev` / `make dev-docker` reset the database, start the server, and run `seed.sh`
+once it is healthy. The seed creates a reproducible demo dataset:
+
+- **Users:** `helge` (admin), `kari`, `magnus`, `spambot` (banned). Every seeded user has the password `123123123`. Admin login: `helge` / `123123123`, panel at `/admin`.
+- **Packages:** `sema-http` (3 versions, 1 yanked), `sema-json` (2 versions), `sema-csv`, `sema-xml`, plus spam packages `free-robux` and `bitcoin-miner`.
+- **Reports:** 3 open moderation reports.
+
+`seed.sh` targets two things at once: it creates users, tokens, packages, and reports
+through the **HTTP API**, and it promotes the first admin directly in **SQLite** (the API
+has no way to create the first admin). `SEED_MODE` controls how that SQLite step runs:
+
+- `SEED_MODE=local` (default) — edits the local `data/registry.db` file.
+- `SEED_MODE=docker` — runs the SQL *inside* the `registry` container so it shares the
+  server's filesystem (this is why the Docker image bundles `sqlite3`).
+
+```bash
+make seed                       # seed a registry that is already running (no reset)
+make seed-stress                # seed + bulk synthetic data (local SQLite only)
+bash seed.sh --wait             # wait for the server, then seed
+SEED_MODE=docker bash seed.sh   # seed a running Docker registry
+```
 
 ## Configuration
 

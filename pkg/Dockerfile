@@ -7,7 +7,9 @@ COPY templates/ templates/
 RUN cargo build --release
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# sqlite3 lets `make dev-docker` seed the admin user from inside the container
+# (see seed.sh — the first admin cannot be created through the API).
+RUN apt-get update && apt-get install -y ca-certificates sqlite3 && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /build/target/release/sema-pkg /usr/local/bin/
 COPY templates/ templates/
