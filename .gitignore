@@ -45,7 +45,6 @@ reddit-scrutiny.json
 .worktrees/
 
 # Node
-node_modules/
 .nvmrc.local
 
 # Lockfiles (npm only — no bun, no yarn)
@@ -59,7 +58,6 @@ yarn-error.log
 **/storybook-static/
 
 # Test artifacts
-test-results/
 /ui/.vitest-attachments
 /ui/tests/__screenshots__
 mutants.out/
