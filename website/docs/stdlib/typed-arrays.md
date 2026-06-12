@@ -19,7 +19,7 @@ Both support copy-on-write mutation via `Rc::make_mut`.
 Create an f64 array from values.
 
 ```sema
-(f64-array 1.0 2.5 3.7)  ; => #f64(1.0 2.5 3.7)
+(f64-array 1.0 2.5 3.7)  ; => #f64(1 2.5 3.7)
 (f64-array)               ; => #f64()
 ```
 
@@ -37,7 +37,7 @@ Create an i64 array from values.
 Create an f64 array of a given length, optionally filled with a value (default `0.0`).
 
 ```sema
-(f64-array/make 5)       ; => #f64(0.0 0.0 0.0 0.0 0.0)
+(f64-array/make 5)       ; => #f64(0 0 0 0 0)
 (f64-array/make 3 1.5)   ; => #f64(1.5 1.5 1.5)
 ```
 
@@ -55,8 +55,8 @@ Create an i64 array of a given length, optionally filled with a value (default `
 Create an f64 array from a numeric range. `(f64-array/range start end)` or `(f64-array/range start end step)`.
 
 ```sema
-(f64-array/range 0 5)        ; => #f64(0.0 1.0 2.0 3.0 4.0)
-(f64-array/range 0 1 0.25)   ; => #f64(0.0 0.25 0.5 0.75)
+(f64-array/range 0 5)        ; => #f64(0 1 2 3 4)
+(f64-array/range 0 1 0.25)   ; => #f64(0 0.25 0.5 0.75)
 ```
 
 ### `i64-array/range`
@@ -73,7 +73,7 @@ Create an i64 array from an integer range.
 Convert a list of numbers to an f64 array.
 
 ```sema
-(f64-array/from-list '(1 2 3))  ; => #f64(1.0 2.0 3.0)
+(f64-array/from-list '(1 2 3))  ; => #f64(1 2 3)
 ```
 
 ### `i64-array/from-list`
@@ -100,7 +100,7 @@ Get the element at a given index.
 Set the element at a given index. Uses copy-on-write -- the original array is unchanged unless it has a single reference.
 
 ```sema
-(f64-array/set! (f64-array 1.0 2.0 3.0) 1 9.9)  ; => #f64(1.0 9.9 3.0)
+(f64-array/set! (f64-array 1.0 2.0 3.0) 1 9.9)  ; => #f64(1 9.9 3)
 (i64-array/set! (i64-array 10 20 30) 2 99)       ; => #i64(10 20 99)
 ```
 
@@ -141,7 +141,7 @@ Apply a function to each element, returning a new typed array. The callback must
 
 ```sema
 (f64-array/map (lambda (x) (* x 2.0)) (f64-array 1.0 2.0 3.0))
-; => #f64(2.0 4.0 6.0)
+; => #f64(2 4 6)
 
 (i64-array/map (lambda (x) (* x x)) (i64-array 1 2 3 4))
 ; => #i64(1 4 9 16)

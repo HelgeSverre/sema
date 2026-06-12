@@ -83,6 +83,26 @@ Rename a user-defined symbol across all open documents:
 
 Every top-level expression shows a **▶ Run** code lens above it. Clicking it evaluates all forms up to and including that expression in a sandboxed subprocess using `sema eval`, and reports the result (value, stdout, stderr, timing) back to the editor via a custom `sema/evalResult` notification.
 
+### Formatting
+
+Whole-document formatting (`textDocument/formatting`) powered by the same engine as the `sema fmt` CLI. Reformat Code normalizes spacing, indentation, and line breaks. Returns no edits when the source has syntax errors, so an unparseable buffer is never disturbed.
+
+### Selection Range
+
+Structural selection (`textDocument/selectionRange`) for Extend/Shrink Selection. Expands the selection outward through enclosing s-expressions — from the symbol under the cursor to its containing list and on up to the top-level form. Also backs code-block navigation.
+
+### Call Hierarchy
+
+`textDocument/prepareCallHierarchy` with incoming and outgoing calls. Incoming calls list every definition whose body invokes the target; outgoing calls list the known definitions invoked from the target's body.
+
+### Go to Declaration
+
+`textDocument/declaration` resolves to the same target as Go to Definition (Sema has no separate forward declarations).
+
+### Document Links
+
+`import` and `load` path strings are rendered as clickable links (`textDocument/documentLink`) that open the referenced file.
+
 ## Editor Setup
 
 ### Helix
