@@ -1,2 +1,8 @@
 [target.wasm32-unknown-unknown]
 rustflags = ["-C", "link-args=--stack-first -z stack-size=16777216"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,-headerpad,256"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-Wl,-headerpad,256"]
