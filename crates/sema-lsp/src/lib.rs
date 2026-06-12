@@ -52,6 +52,367 @@ impl Notification for EvalResultNotification {
 mod tests {
     use super::*;
 
+    // ── doc coverage gate ────────────────────────────────────────
+
+    /// Every registered builtin and special form must have a doc entry in the sema-docs index
+    /// (internal `__vm-*` helpers excluded). Always-on gate — if this fails, document the listed
+    /// names in `crates/sema-docs/stdlib/` (or `special-forms/`) and run `make docs`.
+    #[test]
+    fn builtin_doc_coverage() {
+        use std::collections::HashSet;
+        let sandbox = Sandbox::deny(Caps::ALL);
+        let interp = sema_eval::Interpreter::new_with_sandbox(&sandbox);
+        let mut names: HashSet<String> = HashSet::new();
+        interp.global_env.iter_bindings(|spur, _| {
+            names.insert(sema_core::resolve(spur));
+        });
+        for sf in sema_eval::SPECIAL_FORM_NAMES {
+            names.insert(sf.to_string());
+        }
+        let docs = builtin_docs::BuiltinDocs::load();
+        let mut missing: Vec<String> = names
+            .into_iter()
+            // Exclude internal VM helper forms (`__vm-*`, `__*`) — not user-facing.
+            .filter(|n| !n.starts_with("__"))
+            .filter(|n| !docs.contains(n))
+            .collect();
+        missing.sort();
+        assert!(
+            missing.is_empty(),
+            "{} builtins/special-forms lack docs:\n{}",
+            missing.len(),
+            missing.join("\n")
+        );
+    }
+
+    // ── formatting ───────────────────────────────────────────────
+
+    fn format_state(uri: &str, source: &str) -> (BackendState, Url) {
+        let mut docs = HashMap::new();
+        docs.insert(uri.to_string(), source.to_string());
+        let state = BackendState::new_without_builtins(docs, "sema".to_string());
+        (state, Url::parse(uri).unwrap())
+    }
+
+    #[test]
+    fn formatting_unformatted_doc_returns_full_document_edit() {
+        let (state, uri) = format_state("file:///fmt.sema", "(define   x    42)");
+        let opts = FormattingOptions {
+            tab_size: 2,
+            insert_spaces: true,
+            ..Default::default()
+        };
+        let edits = state
+            .handle_formatting(&uri, &opts)
+            .expect("should produce edits");
+        assert_eq!(edits.len(), 1);
+        // The edit must match what the formatter produces and start at the document origin.
+        let expected =
+            sema_fmt::format_source("(define   x    42)", &sema_fmt::FormatOptions::default())
+                .unwrap();
+        assert_eq!(edits[0].new_text, expected);
+        assert_eq!(
+            edits[0].range.start,
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
+    }
+
+    #[test]
+    fn formatting_already_formatted_doc_returns_no_edits() {
+        let formatted =
+            sema_fmt::format_source("(define x 42)", &sema_fmt::FormatOptions::default()).unwrap();
+        let (state, uri) = format_state("file:///clean.sema", &formatted);
+        let opts = FormattingOptions {
+            tab_size: 2,
+            insert_spaces: true,
+            ..Default::default()
+        };
+        let edits = state
+            .handle_formatting(&uri, &opts)
+            .expect("should return Some(empty)");
+        assert!(edits.is_empty());
+    }
+
+    #[test]
+    fn formatting_unparseable_doc_returns_none() {
+        let (state, uri) = format_state("file:///bad.sema", "(define x");
+        let opts = FormattingOptions {
+            tab_size: 2,
+            insert_spaces: true,
+            ..Default::default()
+        };
+        assert!(state.handle_formatting(&uri, &opts).is_none());
+    }
+
+    #[test]
+    fn formatting_unknown_uri_returns_none() {
+        let (state, _) = format_state("file:///known.sema", "(define x 1)");
+        let missing = Url::parse("file:///missing.sema").unwrap();
+        let opts = FormattingOptions::default();
+        assert!(state.handle_formatting(&missing, &opts).is_none());
+    }
+
+    // ── selection range ──────────────────────────────────────────
+
+    /// Build a state with a populated parse cache for `source`, mirroring the dispatch path.
+    fn parsed_state(uri: &str, source: &str) -> (BackendState, Url) {
+        let mut state = BackendState::new_without_builtins(HashMap::new(), "sema".to_string());
+        let (ast, span_map, symbol_spans) =
+            sema_reader::read_many_with_symbol_spans(source).unwrap();
+        let scope_tree = scope::ScopeTree::build(&ast, &span_map, &symbol_spans);
+        state.cached_parses.insert(
+            uri.to_string(),
+            CachedParse {
+                ast,
+                span_map,
+                symbol_spans,
+                scope_tree,
+                source: source.to_string(),
+            },
+        );
+        state.documents.insert(uri.to_string(), source.to_string());
+        (state, Url::parse(uri).unwrap())
+    }
+
+    /// Innermost → outermost chain of ranges for a SelectionRange.
+    fn selection_chain(sr: &SelectionRange) -> Vec<Range> {
+        let mut out = vec![sr.range];
+        let mut parent = sr.parent.as_ref();
+        while let Some(node) = parent {
+            out.push(node.range);
+            parent = node.parent.as_ref();
+        }
+        out
+    }
+
+    #[test]
+    fn selection_range_expands_from_symbol_outward() {
+        //                       0         1
+        //                       0123456789012345678
+        let src = "(define x (+ a b))";
+        let (state, uri) = parsed_state("file:///sel.sema", src);
+        // Cursor on the inner `a` (character 13).
+        let pos = Position {
+            line: 0,
+            character: 13,
+        };
+        let result = state.handle_selection_range(&uri, &[pos]).unwrap();
+        assert_eq!(result.len(), 1);
+
+        let chain = selection_chain(&result[0]);
+        assert!(
+            chain.len() >= 2,
+            "expected symbol + enclosing forms, got {chain:?}"
+        );
+
+        // Innermost covers the cursor; outermost is the whole top-level form starting at col 0.
+        assert!(position_in_range(&pos, &chain[0]));
+        let outer = chain.last().unwrap();
+        assert_eq!(
+            outer.start,
+            Position {
+                line: 0,
+                character: 0
+            }
+        );
+        assert_eq!(
+            outer.end,
+            Position {
+                line: 0,
+                character: 18
+            }
+        );
+
+        // Each parent strictly contains its child (monotonic growth).
+        for pair in chain.windows(2) {
+            let (child, parent) = (&pair[0], &pair[1]);
+            assert!(position_in_range(&child.start, parent));
+            assert!(position_in_range(&child.end, parent));
+            assert_ne!(child, parent);
+        }
+    }
+
+    #[test]
+    fn selection_range_unknown_uri_returns_none() {
+        let (state, _) = parsed_state("file:///known.sema", "(define x 1)");
+        let missing = Url::parse("file:///missing.sema").unwrap();
+        assert!(state
+            .handle_selection_range(
+                &missing,
+                &[Position {
+                    line: 0,
+                    character: 1
+                }]
+            )
+            .is_none());
+    }
+
+    // ── document links ───────────────────────────────────────────
+
+    #[test]
+    fn document_links_resolves_import_path() {
+        //                       0         1         2
+        //                       012345678901234567890
+        let src = "(import \"./foo.sema\")";
+        let (state, uri) = parsed_state("file:///proj/main.sema", src);
+        let links = state.handle_document_links(&uri).expect("links");
+        assert_eq!(links.len(), 1);
+        let link = &links[0];
+        // Range covers just the path literal (chars 9..19), not the whole form.
+        assert_eq!(link.range.start.character, 9);
+        assert_eq!(link.range.end.character, 19);
+        assert!(link.target.as_ref().unwrap().path().ends_with("foo.sema"));
+    }
+
+    #[test]
+    fn document_links_empty_when_no_imports() {
+        let (state, uri) = parsed_state("file:///proj/main.sema", "(define x 1)");
+        assert!(state.handle_document_links(&uri).unwrap().is_empty());
+    }
+
+    // ── call hierarchy ───────────────────────────────────────────
+
+    const CALL_SRC: &str = "(defun helper (x) (* x x))\n(defun main () (helper 5))";
+
+    #[test]
+    fn call_hierarchy_prepare_resolves_definition() {
+        let (state, uri) = parsed_state("file:///ch.sema", CALL_SRC);
+        // Cursor on "helper" in its definition (line 0, char 8).
+        let items = state
+            .handle_call_hierarchy_prepare(
+                &uri,
+                &Position {
+                    line: 0,
+                    character: 8,
+                },
+            )
+            .expect("prepare");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].name, "helper");
+    }
+
+    #[test]
+    fn call_hierarchy_incoming_finds_callers() {
+        let (state, uri) = parsed_state("file:///ch.sema", CALL_SRC);
+        let item = state
+            .handle_call_hierarchy_prepare(
+                &uri,
+                &Position {
+                    line: 0,
+                    character: 8,
+                },
+            )
+            .unwrap()
+            .remove(0);
+        let incoming = state
+            .handle_call_hierarchy_incoming(&item)
+            .expect("incoming");
+        assert_eq!(incoming.len(), 1);
+        assert_eq!(incoming[0].from.name, "main");
+        assert_eq!(incoming[0].from_ranges.len(), 1);
+    }
+
+    #[test]
+    fn call_hierarchy_outgoing_finds_callees() {
+        let (state, uri) = parsed_state("file:///ch.sema", CALL_SRC);
+        // Prepare on "main" (line 1, char 8).
+        let item = state
+            .handle_call_hierarchy_prepare(
+                &uri,
+                &Position {
+                    line: 1,
+                    character: 8,
+                },
+            )
+            .unwrap()
+            .remove(0);
+        assert_eq!(item.name, "main");
+        let outgoing = state
+            .handle_call_hierarchy_outgoing(&item)
+            .expect("outgoing");
+        assert_eq!(outgoing.len(), 1);
+        assert_eq!(outgoing[0].to.name, "helper");
+    }
+
+    // ── completion resolve ───────────────────────────────────────
+
+    #[test]
+    fn completion_resolve_enriches_user_definition() {
+        let (state, uri) = parsed_state("file:///c.sema", "(defun greet (name greeting) name)");
+        // A bare user-def completion item as produced by handle_complete (data = uri).
+        let item = CompletionItem {
+            label: "greet".to_string(),
+            kind: Some(CompletionItemKind::FUNCTION),
+            data: Some(serde_json::Value::String(uri.as_str().to_string())),
+            ..Default::default()
+        };
+        let resolved = state.handle_completion_resolve(item);
+        let doc = match resolved.documentation {
+            Some(Documentation::MarkupContent(c)) => c.value,
+            _ => panic!("expected markdown documentation"),
+        };
+        assert!(doc.contains("(greet name greeting)"), "got: {doc}");
+    }
+
+    #[test]
+    fn completion_special_form_carries_syntax_detail() {
+        // Special forms with a manual `syntax` label (sema-docs frontmatter) must surface it
+        // as the completion item's inline `detail`, same as builtins do via `signature()`.
+        let mut state = BackendState::new_without_builtins(HashMap::new(), "sema".to_string());
+        state.builtin_docs = builtin_docs::BuiltinDocs::load();
+        let uri = Url::parse("file:///sf.sema").unwrap();
+        state
+            .documents
+            .insert(uri.as_str().to_string(), "(le".to_string());
+        let items = state.handle_complete(
+            &uri,
+            &Position {
+                line: 0,
+                character: 3,
+            },
+        );
+        let item = items
+            .iter()
+            .find(|i| i.label == "let")
+            .expect("`let` completion item");
+        let entry = state.builtin_docs.get("let").expect("docs for `let`");
+        assert!(entry.syntax.is_some(), "`let` should carry a syntax label");
+        assert_eq!(
+            item.detail.as_deref(),
+            Some(builtin_docs::signature(entry).as_str())
+        );
+    }
+
+    #[test]
+    fn completion_resolve_keeps_existing_documentation() {
+        let state = BackendState::new_without_builtins(HashMap::new(), "sema".to_string());
+        let item = CompletionItem {
+            label: "already".to_string(),
+            documentation: Some(Documentation::String("kept".to_string())),
+            ..Default::default()
+        };
+        let resolved = state.handle_completion_resolve(item);
+        match resolved.documentation {
+            Some(Documentation::String(s)) => assert_eq!(s, "kept"),
+            _ => panic!("documentation should be preserved untouched"),
+        }
+    }
+
+    // ── default sema binary ──────────────────────────────────────
+
+    #[test]
+    fn default_sema_binary_prefers_current_exe() {
+        // In a test run, current_exe() is the test binary — so the default must
+        // resolve to that concrete path, never the bare "sema" PATH fallback.
+        let default = default_sema_binary();
+        let expected = std::env::current_exe().unwrap();
+        assert_eq!(default, expected.to_str().unwrap());
+        assert_ne!(default, "sema");
+    }
+
     // ── span_to_range ────────────────────────────────────────────
 
     #[test]
@@ -62,6 +423,17 @@ mod tests {
         assert_eq!(range.start.character, 0);
         assert_eq!(range.end.line, 0);
         assert_eq!(range.end.character, 4);
+    }
+
+    #[test]
+    fn shutdown_request_with_null_params_is_normalized() {
+        let body = br#"{"jsonrpc":"2.0","id":2,"method":"shutdown","params":null}"#;
+
+        let normalized = normalize_lsp_message_body(body);
+        let value: serde_json::Value = serde_json::from_slice(&normalized).unwrap();
+
+        assert_eq!(value["method"], "shutdown");
+        assert!(value.get("params").is_none());
     }
 
     #[test]
@@ -791,10 +1163,11 @@ mod tests {
     }
 
     #[test]
-    fn extract_params_from_doc_nested_parens() {
+    fn extract_params_from_doc_rejects_nested_parens() {
+        // Compound expressions like (+ 1 2) are not valid parameter names,
+        // so the whole call is skipped to avoid nonsensical inlay hints.
         let doc = "Doc.\n\n```sema\n(foo (+ 1 2) y)\n```";
-        let params = extract_params_from_doc(doc, "foo");
-        assert_eq!(params, Some(vec!["(+ 1 2)".into(), "y".into()]));
+        assert!(extract_params_from_doc(doc, "foo").is_none());
     }
 
     #[test]
@@ -817,10 +1190,57 @@ mod tests {
     }
 
     #[test]
-    fn extract_params_from_doc_string_arg() {
+    fn extract_params_from_doc_rejects_string_literal() {
+        // String literals are not valid parameter names, so the whole call is skipped.
         let doc = "Doc.\n\n```sema\n(foo \"hello\" x)\n```";
-        let params = extract_params_from_doc(doc, "foo");
-        assert_eq!(params, Some(vec!["\"hello\"".into(), "x".into()]));
+        assert!(extract_params_from_doc(doc, "foo").is_none());
+    }
+
+    #[test]
+    fn extract_params_from_doc_rejects_higher_order_call() {
+        // Higher-order function examples like (map (fn (x) x) lst) must not
+        // yield nonsensical hints like "(fn (x) x):" — skip the whole call.
+        let doc = "Doc.\n\n```sema\n(map (fn (x) (* x x)) '(1 2 3))\n```";
+        assert!(extract_params_from_doc(doc, "map").is_none());
+    }
+
+    #[test]
+    fn extract_params_from_doc_accepts_all_simple_names() {
+        // When every token looks like a parameter name, they are all returned.
+        let doc = "Doc.\n\n```sema\n(string/split s sep)\n```";
+        let params = extract_params_from_doc(doc, "string/split");
+        assert_eq!(params, Some(vec!["s".into(), "sep".into()]));
+    }
+
+    // ── extract_docstring_from_ast (user-fn docstring slice) ─────
+
+    fn ast_of(src: &str) -> Vec<sema_core::Value> {
+        sema_reader::read_many_with_symbol_spans(src).unwrap().0
+    }
+
+    #[test]
+    fn docstring_is_leading_string_with_more_body() {
+        let ast = ast_of("(defun square (x)\n  \"Return x squared.\"\n  (* x x))");
+        assert_eq!(
+            extract_docstring_from_ast(&ast, "square"),
+            Some("Return x squared.".to_string())
+        );
+    }
+
+    #[test]
+    fn lone_string_body_is_not_a_docstring() {
+        // The string is the return value, not documentation.
+        let ast = ast_of("(defun greeting () \"hello\")");
+        assert_eq!(extract_docstring_from_ast(&ast, "greeting"), None);
+    }
+
+    #[test]
+    fn docstring_handles_define_shorthand() {
+        let ast = ast_of("(define (f x) \"Doc.\" (+ x 1))");
+        assert_eq!(
+            extract_docstring_from_ast(&ast, "f"),
+            Some("Doc.".to_string())
+        );
     }
 
     // ── find_arg_positions_in_form ───────────────────────────────
@@ -1252,6 +1672,44 @@ enum LspRequest {
         uri: Url,
         reply: tokio::sync::oneshot::Sender<Vec<FoldingRange>>,
     },
+    /// Document formatting request.
+    Formatting {
+        uri: Url,
+        options: FormattingOptions,
+        reply: tokio::sync::oneshot::Sender<Option<Vec<TextEdit>>>,
+    },
+    /// Selection range request (structural s-expression selection).
+    SelectionRange {
+        uri: Url,
+        positions: Vec<Position>,
+        reply: tokio::sync::oneshot::Sender<Option<Vec<SelectionRange>>>,
+    },
+    /// Document links (import/load path → file).
+    DocumentLinks {
+        uri: Url,
+        reply: tokio::sync::oneshot::Sender<Option<Vec<DocumentLink>>>,
+    },
+    /// Prepare call hierarchy at a position.
+    CallHierarchyPrepare {
+        uri: Url,
+        position: Position,
+        reply: tokio::sync::oneshot::Sender<Option<Vec<CallHierarchyItem>>>,
+    },
+    /// Incoming calls for a call-hierarchy item.
+    CallHierarchyIncoming {
+        item: Box<CallHierarchyItem>,
+        reply: tokio::sync::oneshot::Sender<Option<Vec<CallHierarchyIncomingCall>>>,
+    },
+    /// Outgoing calls for a call-hierarchy item.
+    CallHierarchyOutgoing {
+        item: Box<CallHierarchyItem>,
+        reply: tokio::sync::oneshot::Sender<Option<Vec<CallHierarchyOutgoingCall>>>,
+    },
+    /// Resolve additional detail/documentation for a completion item.
+    CompletionResolve {
+        item: Box<CompletionItem>,
+        reply: tokio::sync::oneshot::Sender<CompletionItem>,
+    },
     /// Inlay hints request.
     InlayHints {
         uri: Url,
@@ -1346,14 +1804,169 @@ struct BackendState {
     /// Cached user definitions per document (from last successful parse).
     /// Avoids losing completions while the user is typing (syntax errors).
     cached_user_defs: HashMap<String, Vec<String>>,
-    /// Builtin documentation (name → markdown doc string).
-    builtin_docs: HashMap<String, String>,
+    /// Structured builtin/special-form documentation (from the sema-docs index).
+    builtin_docs: builtin_docs::BuiltinDocs,
     /// Cached parse results for imported files (by absolute path).
     import_cache: HashMap<PathBuf, ImportCache>,
     /// Cached parse results for open documents (updated on didChange).
     cached_parses: HashMap<String, CachedParse>,
     /// Path to the sema binary (from initializationOptions or default).
     sema_binary: String,
+}
+
+/// Resolve the default `sema` binary used by the eval subprocess.
+///
+/// The language server runs *as* the `sema` binary (`sema lsp`), so
+/// `std::env::current_exe()` is the most reliable self-reference: it points at the
+/// exact binary the user launched, regardless of name or whether `sema` is on `PATH`.
+/// Falls back to `"sema"` (a `PATH` lookup) if the current exe can't be determined.
+/// The client may still override this via `initializationOptions.semaPath`.
+fn default_sema_binary() -> String {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.to_str().map(str::to_string))
+        .unwrap_or_else(|| "sema".to_string())
+}
+
+/// Whether `pos` falls within `range` (inclusive), comparing (line, character) lexicographically.
+fn position_in_range(pos: &Position, range: &Range) -> bool {
+    let p = (pos.line, pos.character);
+    let start = (range.start.line, range.start.character);
+    let end = (range.end.line, range.end.character);
+    p >= start && p <= end
+}
+
+/// Build a nested [`SelectionRange`] (innermost first, parents pointing outward) from the set of
+/// ranges that contain the cursor. Falls back to a zero-width range at `pos` when nothing matches.
+fn build_selection_range(mut ranges: Vec<Range>, pos: &Position) -> SelectionRange {
+    // Sort outermost → innermost: smaller start first, then larger end first.
+    ranges.sort_by(|a, b| {
+        (a.start.line, a.start.character)
+            .cmp(&(b.start.line, b.start.character))
+            .then((b.end.line, b.end.character).cmp(&(a.end.line, a.end.character)))
+    });
+    ranges.dedup();
+    let mut node: Option<Box<SelectionRange>> = None;
+    for range in ranges {
+        node = Some(Box::new(SelectionRange {
+            range,
+            parent: node,
+        }));
+    }
+    node.map(|b| *b).unwrap_or(SelectionRange {
+        range: Range {
+            start: *pos,
+            end: *pos,
+        },
+        parent: None,
+    })
+}
+
+/// Heads that introduce a top-level named definition.
+const DEFINITION_HEADS: &[&str] = &["define", "defun", "defn", "defmacro", "defagent", "deftool"];
+
+/// If `expr` is a definition form, return its `(name, full-form range, name range)`.
+fn def_of_form(
+    expr: &sema_core::Value,
+    span_map: &SpanMap,
+    symbol_spans: &[(String, Span)],
+    lines: &[&str],
+) -> Option<(String, Range, Range)> {
+    let items = expr.as_list()?;
+    if items.len() < 2 {
+        return None;
+    }
+    let head = items[0].as_symbol()?;
+    if !DEFINITION_HEADS.contains(&head.as_str()) {
+        return None;
+    }
+    // `(define name ...)` or `(define (name args...) ...)` shorthand.
+    let name = items[1].as_symbol().or_else(|| {
+        items[1]
+            .as_list()
+            .and_then(|sig| sig.first().and_then(|v| v.as_symbol()))
+    })?;
+    let form_span = expr_span(expr, span_map)?;
+    let form_range = span_to_range(form_span, lines);
+    let name_range = find_name_span(&name, form_span, symbol_spans, lines).unwrap_or(form_range);
+    Some((name, form_range, name_range))
+}
+
+/// Collect every call site of `target` (a list whose head symbol is `target`) within `exprs`,
+/// recording the head symbol's range. Recurses into nested forms.
+fn collect_call_sites(
+    exprs: &[sema_core::Value],
+    span_map: &SpanMap,
+    symbol_spans: &[(String, Span)],
+    lines: &[&str],
+    target: &str,
+    out: &mut Vec<Range>,
+) {
+    for expr in exprs {
+        if let Some(items) = expr.as_list() {
+            if items.first().and_then(|v| v.as_symbol()).as_deref() == Some(target) {
+                if let Some(span) = expr_span(expr, span_map) {
+                    let r = find_name_span(target, span, symbol_spans, lines)
+                        .unwrap_or_else(|| span_to_range(span, lines));
+                    out.push(r);
+                }
+            }
+            collect_call_sites(items, span_map, symbol_spans, lines, target, out);
+        }
+    }
+}
+
+/// Walk `exprs`, recording call sites whose head symbol names a known definition (key in `index`),
+/// grouped by callee name. Used for outgoing call hierarchy.
+fn collect_outgoing_calls(
+    exprs: &[sema_core::Value],
+    span_map: &SpanMap,
+    symbol_spans: &[(String, Span)],
+    lines: &[&str],
+    index: &std::collections::HashMap<String, (Url, Range, Range)>,
+    out: &mut std::collections::HashMap<String, Vec<Range>>,
+) {
+    for expr in exprs {
+        if let Some(items) = expr.as_list() {
+            if let Some(head) = items.first().and_then(|v| v.as_symbol()) {
+                if index.contains_key(&head) {
+                    if let Some(span) = expr_span(expr, span_map) {
+                        let r = find_name_span(&head, span, symbol_spans, lines)
+                            .unwrap_or_else(|| span_to_range(span, lines));
+                        out.entry(head).or_default().push(r);
+                    }
+                }
+            }
+            collect_outgoing_calls(items, span_map, symbol_spans, lines, index, out);
+        }
+    }
+}
+
+/// Range (UTF-16) of the quoted `path` literal on the form's start line, excluding the quotes.
+/// Returns `None` for multi-line forms or when the literal can't be located verbatim.
+fn quoted_string_range(lines: &[&str], form_range: &Range, path: &str) -> Option<Range> {
+    let line_idx = form_range.start.line as usize;
+    let line = lines.get(line_idx).copied()?;
+    let needle = format!("\"{path}\"");
+    let byte_pos = line.find(&needle)?;
+    let quote_char = line[..byte_pos].chars().count();
+    let inner_start = quote_char + 1; // first char inside the quotes
+    let prefix_utf16: u32 = line
+        .chars()
+        .take(inner_start)
+        .map(|c| c.len_utf16() as u32)
+        .sum();
+    let path_utf16: u32 = path.chars().map(|c| c.len_utf16() as u32).sum();
+    Some(Range {
+        start: Position {
+            line: line_idx as u32,
+            character: prefix_utf16,
+        },
+        end: Position {
+            line: line_idx as u32,
+            character: prefix_utf16 + path_utf16,
+        },
+    })
 }
 
 impl BackendState {
@@ -1370,10 +1983,10 @@ impl BackendState {
             builtin_names,
             documents: HashMap::new(),
             cached_user_defs: HashMap::new(),
-            builtin_docs: builtin_docs::build_builtin_docs(),
+            builtin_docs: builtin_docs::BuiltinDocs::load(),
             import_cache: HashMap::new(),
             cached_parses: HashMap::new(),
-            sema_binary: "sema".to_string(),
+            sema_binary: default_sema_binary(),
         }
     }
 
@@ -1383,7 +1996,7 @@ impl BackendState {
             builtin_names: HashSet::new(),
             documents,
             cached_user_defs: HashMap::new(),
-            builtin_docs: HashMap::new(),
+            builtin_docs: builtin_docs::BuiltinDocs::empty(),
             import_cache: HashMap::new(),
             cached_parses: HashMap::new(),
             sema_binary,
@@ -1460,13 +2073,15 @@ impl BackendState {
         // Special forms
         for &name in sema_eval::SPECIAL_FORM_NAMES {
             if prefix.is_empty() || name.starts_with(prefix) {
+                let entry = self.builtin_docs.get(name);
                 items.push(CompletionItem {
                     label: name.to_string(),
                     kind: Some(CompletionItemKind::KEYWORD),
-                    documentation: self.builtin_docs.get(name).map(|doc| {
+                    detail: entry.map(builtin_docs::signature),
+                    documentation: entry.map(|e| {
                         Documentation::MarkupContent(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: doc.clone(),
+                            value: builtin_docs::render_markdown(e),
                         })
                     }),
                     ..Default::default()
@@ -1479,13 +2094,15 @@ impl BackendState {
         sorted_builtins.sort();
         for name in sorted_builtins {
             if prefix.is_empty() || name.starts_with(prefix) {
+                let entry = self.builtin_docs.get(name.as_str());
                 items.push(CompletionItem {
                     label: name.clone(),
                     kind: Some(CompletionItemKind::FUNCTION),
-                    documentation: self.builtin_docs.get(name.as_str()).map(|doc| {
+                    detail: entry.map(builtin_docs::signature),
+                    documentation: entry.map(|e| {
                         Documentation::MarkupContent(MarkupContent {
                             kind: MarkupKind::Markdown,
-                            value: doc.clone(),
+                            value: builtin_docs::render_markdown(e),
                         })
                     }),
                     ..Default::default()
@@ -1493,13 +2110,19 @@ impl BackendState {
             }
         }
 
-        // User definitions: use cached defs (survives syntax errors while typing)
+        // User definitions: use cached defs (survives syntax errors while typing).
+        // Attach the function signature inline as `detail`, and carry the document uri in `data`
+        // so `completionItem/resolve` can lazily render full documentation.
         let user_defs = self.cached_user_defs.get(uri_str);
+        let user_ast = self.cached_parses.get(uri_str).map(|c| &c.ast);
         for name in user_defs.into_iter().flatten() {
             if prefix.is_empty() || name.starts_with(prefix) {
+                let detail = user_ast.and_then(|ast| extract_params_from_ast(ast, name));
                 items.push(CompletionItem {
                     label: name.clone(),
-                    kind: Some(CompletionItemKind::VARIABLE),
+                    kind: Some(CompletionItemKind::FUNCTION),
+                    detail,
+                    data: Some(serde_json::Value::String(uri_str.to_string())),
                     ..Default::default()
                 });
             }
@@ -1522,6 +2145,84 @@ impl BackendState {
         }
 
         items
+    }
+
+    /// Lazily enrich a completion item with documentation (`completionItem/resolve`). Builtins and
+    /// special forms already carry inline docs; this fills user-defined symbols with their signature.
+    fn handle_completion_resolve(&self, mut item: CompletionItem) -> CompletionItem {
+        if item.documentation.is_some() {
+            return item;
+        }
+        // Builtin/special-form docs (covers any not inlined at completion time).
+        if let Some(e) = self.builtin_docs.get(&item.label) {
+            item.documentation = Some(Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: builtin_docs::render_markdown(e),
+            }));
+            return item;
+        }
+        // User-defined symbol: render its signature, plus a leading-string docstring if present.
+        let uri_hint = item.data.as_ref().and_then(|v| v.as_str());
+        if let Some(sig) = self.user_definition_signature(&item.label, uri_hint) {
+            let mut value = format!("```sema\n{sig}\n```");
+            if let Some(doc) = self.user_definition_docstring(&item.label, uri_hint) {
+                value.push_str("\n\n");
+                value.push_str(&doc);
+            }
+            item.documentation = Some(Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value,
+            }));
+        }
+        item
+    }
+
+    /// The leading-string docstring of a user-defined function, if any (LSP-only convention).
+    fn user_definition_docstring(&self, name: &str, uri_hint: Option<&str>) -> Option<String> {
+        if let Some(uri) = uri_hint {
+            if let Some(cached) = self.cached_parses.get(uri) {
+                if let Some(doc) = extract_docstring_from_ast(&cached.ast, name) {
+                    return Some(doc);
+                }
+            }
+        }
+        for cached in self.cached_parses.values() {
+            if let Some(doc) = extract_docstring_from_ast(&cached.ast, name) {
+                return Some(doc);
+            }
+        }
+        None
+    }
+
+    /// Build a one-line signature `(name params...)` for a user-defined function, preferring the
+    /// hinted document and falling back to any open document.
+    fn user_definition_signature(&self, name: &str, uri_hint: Option<&str>) -> Option<String> {
+        let render = |params: String| {
+            let inner = params
+                .trim()
+                .trim_start_matches('(')
+                .trim_end_matches(')')
+                .trim()
+                .to_string();
+            if inner.is_empty() {
+                format!("({name})")
+            } else {
+                format!("({name} {inner})")
+            }
+        };
+        if let Some(uri) = uri_hint {
+            if let Some(cached) = self.cached_parses.get(uri) {
+                if let Some(params) = extract_params_from_ast(&cached.ast, name) {
+                    return Some(render(params));
+                }
+            }
+        }
+        for cached in self.cached_parses.values() {
+            if let Some(params) = extract_params_from_ast(&cached.ast, name) {
+                return Some(render(params));
+            }
+        }
+        None
     }
 
     fn handle_code_lens(&self, uri: &Url) -> Vec<CodeLens> {
@@ -1832,11 +2533,11 @@ impl BackendState {
         }
 
         // Check builtin docs first
-        if let Some(doc) = self.builtin_docs.get(symbol.as_str()) {
+        if let Some(e) = self.builtin_docs.get(symbol.as_str()) {
             return Some(Hover {
                 contents: HoverContents::Markup(MarkupContent {
                     kind: MarkupKind::Markdown,
-                    value: doc.clone(),
+                    value: builtin_docs::render_markdown(e),
                 }),
                 range: None,
             });
@@ -1858,7 +2559,12 @@ impl BackendState {
                         hover_text.push(' ');
                         hover_text.push_str(&params);
                     }
-                    hover_text.push_str(")\n```\n\n*User-defined*");
+                    hover_text.push_str(")\n```\n\n");
+                    if let Some(docstring) = extract_docstring_from_ast(&cached.ast, &symbol) {
+                        hover_text.push_str(&docstring);
+                        hover_text.push_str("\n\n");
+                    }
+                    hover_text.push_str("*User-defined*");
                     return Some(Hover {
                         contents: HoverContents::Markup(MarkupContent {
                             kind: MarkupKind::Markdown,
@@ -2274,20 +2980,39 @@ impl BackendState {
             }
         }
 
-        // Try builtin docs (no parameter highlighting, just doc)
-        if let Some(doc) = self.builtin_docs.get(&func_name) {
+        // Builtin docs — with parameter highlighting when the entry carries (or its example
+        // yields) parameter names. For special forms with an explicit `syntax` template, use that
+        // as the display label and skip parameter positions (syntax forms don't map to flat args).
+        if let Some(e) = self.builtin_docs.get(&func_name) {
+            let doc = builtin_docs::render_markdown(e);
+            let names = builtin_docs::param_names(e).unwrap_or_default();
+            let (parameters, active, label) = if let Some(syn) = &e.syntax {
+                (None, None, syn.clone())
+            } else if names.is_empty() {
+                (None, None, func_name.clone())
+            } else {
+                let params = names
+                    .iter()
+                    .map(|p| ParameterInformation {
+                        label: ParameterLabel::Simple(p.clone()),
+                        documentation: None,
+                    })
+                    .collect();
+                let label = format!("({} {})", func_name, names.join(" "));
+                (Some(params), Some(active_param as u32), label)
+            };
             return Some(SignatureHelp {
                 signatures: vec![SignatureInformation {
-                    label: func_name,
+                    label,
                     documentation: Some(Documentation::MarkupContent(MarkupContent {
                         kind: MarkupKind::Markdown,
-                        value: doc.clone(),
+                        value: doc,
                     })),
-                    parameters: None,
-                    active_parameter: None,
+                    parameters,
+                    active_parameter: active,
                 }],
                 active_signature: Some(0),
-                active_parameter: None,
+                active_parameter: active,
             });
         }
 
@@ -2421,6 +3146,299 @@ impl BackendState {
         ranges
     }
 
+    /// Format the whole document with `sema-fmt`. Returns a single full-document edit, an empty
+    /// edit list when already formatted, or `None` (no change) when the source can't be parsed.
+    fn handle_formatting(&self, uri: &Url, options: &FormattingOptions) -> Option<Vec<TextEdit>> {
+        let text = self.documents.get(uri.as_str())?;
+        // sema-fmt defaults (width 80, align off), except the editor's configured
+        // indent size maps onto the formatter's indent width.
+        let mut fmt_opts = sema_fmt::FormatOptions::default();
+        if options.tab_size > 0 {
+            fmt_opts.indent = options.tab_size as usize;
+        }
+        let formatted = match sema_fmt::format_source(text, &fmt_opts) {
+            Ok(f) => f,
+            // Don't disturb the buffer when the source has syntax errors.
+            Err(_) => return None,
+        };
+        if formatted == *text {
+            return Some(vec![]);
+        }
+        // Replace the entire document. Compute the exact end position (UTF-16) so the edit
+        // covers every existing character including a trailing newline.
+        let mut end_line = 0u32;
+        let mut end_char = 0u32;
+        for (i, line) in text.split('\n').enumerate() {
+            end_line = i as u32;
+            end_char = line.chars().map(|c| c.len_utf16() as u32).sum();
+        }
+        Some(vec![TextEdit {
+            range: Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: end_line,
+                    character: end_char,
+                },
+            },
+            new_text: formatted,
+        }])
+    }
+
+    /// Compute structural selection ranges: for each requested position, the chain of enclosing
+    /// s-expressions from the symbol under the cursor outward to the top-level form. Powers
+    /// Extend/Shrink Selection in editors.
+    fn handle_selection_range(
+        &self,
+        uri: &Url,
+        positions: &[Position],
+    ) -> Option<Vec<SelectionRange>> {
+        let cached = self.cached_parses.get(uri.as_str())?;
+        let lines: Vec<&str> = cached.source.lines().collect();
+        let result = positions
+            .iter()
+            .map(|pos| {
+                let mut ranges: Vec<Range> = Vec::new();
+                // Innermost candidates: the symbol token under the cursor.
+                for (_, span) in &cached.symbol_spans {
+                    let r = span_to_range(span, &lines);
+                    if position_in_range(pos, &r) {
+                        ranges.push(r);
+                    }
+                }
+                // Enclosing list forms (recursively).
+                Self::collect_selection_list_ranges(
+                    &cached.ast,
+                    &cached.span_map,
+                    &lines,
+                    pos,
+                    &mut ranges,
+                );
+                build_selection_range(ranges, pos)
+            })
+            .collect();
+        Some(result)
+    }
+
+    fn collect_selection_list_ranges(
+        exprs: &[sema_core::Value],
+        span_map: &SpanMap,
+        lines: &[&str],
+        pos: &Position,
+        out: &mut Vec<Range>,
+    ) {
+        for expr in exprs {
+            if let Some(items) = expr.as_list() {
+                if let Some(r) = expr_range(expr, span_map, lines) {
+                    if position_in_range(pos, &r) {
+                        out.push(r);
+                    }
+                }
+                Self::collect_selection_list_ranges(items, span_map, lines, pos, out);
+            }
+        }
+    }
+
+    /// Document links for `import`/`load` path strings → the resolved file.
+    fn handle_document_links(&self, uri: &Url) -> Option<Vec<DocumentLink>> {
+        let cached = self.cached_parses.get(uri.as_str())?;
+        let lines: Vec<&str> = cached.source.lines().collect();
+        let mut links = Vec::new();
+        for expr in &cached.ast {
+            let items = match expr.as_list() {
+                Some(i) if i.len() >= 2 => i,
+                _ => continue,
+            };
+            let head = match items[0].as_symbol() {
+                Some(h) if h == "import" || h == "load" => h,
+                _ => continue,
+            };
+            let _ = head;
+            let path = match items[1].as_str() {
+                Some(p) => p,
+                None => continue,
+            };
+            let span = match expr_span(expr, &cached.span_map) {
+                Some(s) => s,
+                None => continue,
+            };
+            let form_range = span_to_range(span, &lines);
+            let range = quoted_string_range(&lines, &form_range, path).unwrap_or(form_range);
+            if let Some(resolved) = resolve_import_path(uri, path) {
+                if let Ok(target) = Url::from_file_path(&resolved) {
+                    links.push(DocumentLink {
+                        range,
+                        target: Some(target),
+                        tooltip: Some(format!("Open {path}")),
+                        data: None,
+                    });
+                }
+            }
+        }
+        Some(links)
+    }
+
+    /// Index every top-level definition across open documents: name → (uri, form range, name range).
+    fn def_index(&self) -> std::collections::HashMap<String, (Url, Range, Range)> {
+        let mut index = std::collections::HashMap::new();
+        for (uri_str, cached) in &self.cached_parses {
+            let uri = match Url::parse(uri_str) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            let lines: Vec<&str> = cached.source.lines().collect();
+            for expr in &cached.ast {
+                if let Some((name, form_range, name_range)) =
+                    def_of_form(expr, &cached.span_map, &cached.symbol_spans, &lines)
+                {
+                    index
+                        .entry(name)
+                        .or_insert((uri.clone(), form_range, name_range));
+                }
+            }
+        }
+        index
+    }
+
+    fn call_hierarchy_item(
+        name: &str,
+        uri: &Url,
+        range: Range,
+        selection_range: Range,
+    ) -> CallHierarchyItem {
+        CallHierarchyItem {
+            name: name.to_string(),
+            kind: SymbolKind::FUNCTION,
+            tags: None,
+            detail: None,
+            uri: uri.clone(),
+            range,
+            selection_range,
+            data: None,
+        }
+    }
+
+    /// Resolve the definition under the cursor into a call-hierarchy root item.
+    fn handle_call_hierarchy_prepare(
+        &self,
+        uri: &Url,
+        position: &Position,
+    ) -> Option<Vec<CallHierarchyItem>> {
+        let cached = self.cached_parses.get(uri.as_str())?;
+        let lines: Vec<&str> = cached.source.lines().collect();
+        let line = lines.get(position.line as usize).copied()?;
+        let byte_offset = utf16_to_byte_offset(line, position.character);
+        let symbol = extract_symbol_at(line, byte_offset);
+        if symbol.is_empty() {
+            return None;
+        }
+        let index = self.def_index();
+        let (def_uri, form_range, name_range) = index.get(symbol)?;
+        Some(vec![Self::call_hierarchy_item(
+            symbol,
+            def_uri,
+            *form_range,
+            *name_range,
+        )])
+    }
+
+    /// Who calls this function: every definition whose body contains a call to `item.name`.
+    fn handle_call_hierarchy_incoming(
+        &self,
+        item: &CallHierarchyItem,
+    ) -> Option<Vec<CallHierarchyIncomingCall>> {
+        let target = &item.name;
+        let mut result = Vec::new();
+        for (uri_str, cached) in &self.cached_parses {
+            let uri = match Url::parse(uri_str) {
+                Ok(u) => u,
+                Err(_) => continue,
+            };
+            let lines: Vec<&str> = cached.source.lines().collect();
+            for expr in &cached.ast {
+                let items = match expr.as_list() {
+                    Some(i) => i,
+                    None => continue,
+                };
+                let (name, form_range, name_range) =
+                    match def_of_form(expr, &cached.span_map, &cached.symbol_spans, &lines) {
+                        Some(d) => d,
+                        None => continue,
+                    };
+                // Search only the body (skip the head + signature) to avoid matching `(name ...)`
+                // definition shorthands as calls.
+                let body: &[sema_core::Value] = items.get(2..).unwrap_or(&[]);
+                let mut sites = Vec::new();
+                collect_call_sites(
+                    body,
+                    &cached.span_map,
+                    &cached.symbol_spans,
+                    &lines,
+                    target,
+                    &mut sites,
+                );
+                if !sites.is_empty() {
+                    result.push(CallHierarchyIncomingCall {
+                        from: Self::call_hierarchy_item(&name, &uri, form_range, name_range),
+                        from_ranges: sites,
+                    });
+                }
+            }
+        }
+        Some(result)
+    }
+
+    /// Which functions this function calls: known definitions invoked from `item.name`'s body.
+    fn handle_call_hierarchy_outgoing(
+        &self,
+        item: &CallHierarchyItem,
+    ) -> Option<Vec<CallHierarchyOutgoingCall>> {
+        let name = &item.name;
+        let index = self.def_index();
+        for cached in self.cached_parses.values() {
+            let lines: Vec<&str> = cached.source.lines().collect();
+            for expr in &cached.ast {
+                let items = match expr.as_list() {
+                    Some(i) => i,
+                    None => continue,
+                };
+                let def = match def_of_form(expr, &cached.span_map, &cached.symbol_spans, &lines) {
+                    Some(d) => d,
+                    None => continue,
+                };
+                if &def.0 != name {
+                    continue;
+                }
+                let body: &[sema_core::Value] = items.get(2..).unwrap_or(&[]);
+                let mut calls: std::collections::HashMap<String, Vec<Range>> = Default::default();
+                collect_outgoing_calls(
+                    body,
+                    &cached.span_map,
+                    &cached.symbol_spans,
+                    &lines,
+                    &index,
+                    &mut calls,
+                );
+                let mut out = Vec::new();
+                for (callee, sites) in calls {
+                    if callee == *name {
+                        continue; // skip self-recursion in outgoing view
+                    }
+                    if let Some((curi, crange, cname_range)) = index.get(&callee) {
+                        out.push(CallHierarchyOutgoingCall {
+                            to: Self::call_hierarchy_item(&callee, curi, *crange, *cname_range),
+                            from_ranges: sites,
+                        });
+                    }
+                }
+                return Some(out);
+            }
+        }
+        Some(Vec::new())
+    }
+
     fn collect_folding_ranges(
         exprs: &[sema_core::Value],
         span_map: &SpanMap,
@@ -2497,7 +3515,7 @@ impl BackendState {
         range: &Range,
         cached_parses: &HashMap<String, CachedParse>,
         import_cache: &HashMap<PathBuf, ImportCache>,
-        builtin_docs: &HashMap<String, String>,
+        builtin_docs: &builtin_docs::BuiltinDocs,
         hints: &mut Vec<InlayHint>,
     ) {
         let lines: Vec<&str> = text.lines().collect();
@@ -2638,7 +3656,7 @@ impl BackendState {
         func_name: &str,
         cached_parses: &HashMap<String, CachedParse>,
         import_cache: &HashMap<PathBuf, ImportCache>,
-        builtin_docs: &HashMap<String, String>,
+        builtin_docs: &builtin_docs::BuiltinDocs,
     ) -> Option<Vec<String>> {
         let uri_str = uri.as_str();
 
@@ -2672,9 +3690,9 @@ impl BackendState {
             }
         }
 
-        // 3. Try builtin docs — parse param list from the first code block
-        if let Some(doc) = builtin_docs.get(func_name) {
-            if let Some(params) = extract_params_from_doc(doc, func_name) {
+        // 3. Try builtin docs — structured params, or parsed from the entry's example.
+        if let Some(e) = builtin_docs.get(func_name) {
+            if let Some(params) = builtin_docs::param_names(e) {
                 if !params.is_empty() {
                     return Some(params);
                 }
@@ -2911,6 +3929,7 @@ impl LanguageServer for Backend {
                 )),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec!["(".to_string(), " ".to_string()]),
+                    resolve_provider: Some(true),
                     ..Default::default()
                 }),
                 definition_provider: Some(OneOf::Left(true)),
@@ -2947,6 +3966,14 @@ impl LanguageServer for Backend {
                 document_highlight_provider: Some(OneOf::Left(true)),
                 inlay_hint_provider: Some(OneOf::Left(true)),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
+                selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
+                declaration_provider: Some(DeclarationCapability::Simple(true)),
+                document_link_provider: Some(DocumentLinkOptions {
+                    resolve_provider: Some(false),
+                    work_done_progress_options: Default::default(),
+                }),
+                call_hierarchy_provider: Some(CallHierarchyServerCapability::Simple(true)),
                 ..Default::default()
             },
             ..Default::default()
@@ -3240,13 +4267,156 @@ impl LanguageServer for Backend {
             Err(_) => Ok(None),
         }
     }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let uri = params.text_document.uri;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::Formatting {
+            uri,
+            options: params.options,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(edits) => Ok(edits),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn selection_range(
+        &self,
+        params: SelectionRangeParams,
+    ) -> Result<Option<Vec<SelectionRange>>> {
+        let uri = params.text_document.uri;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::SelectionRange {
+            uri,
+            positions: params.positions,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(ranges) => Ok(ranges),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn goto_declaration(
+        &self,
+        params: request::GotoDeclarationParams,
+    ) -> Result<Option<request::GotoDeclarationResponse>> {
+        // For Sema there is no separate forward declaration — declaration == definition.
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::GotoDefinition {
+            uri,
+            position,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(response) => Ok(response),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn document_link(&self, params: DocumentLinkParams) -> Result<Option<Vec<DocumentLink>>> {
+        let uri = params.text_document.uri;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::DocumentLinks {
+            uri,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(links) => Ok(links),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn prepare_call_hierarchy(
+        &self,
+        params: CallHierarchyPrepareParams,
+    ) -> Result<Option<Vec<CallHierarchyItem>>> {
+        let uri = params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::CallHierarchyPrepare {
+            uri,
+            position,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(items) => Ok(items),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn incoming_calls(
+        &self,
+        params: CallHierarchyIncomingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyIncomingCall>>> {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::CallHierarchyIncoming {
+            item: Box::new(params.item),
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(calls) => Ok(calls),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn outgoing_calls(
+        &self,
+        params: CallHierarchyOutgoingCallsParams,
+    ) -> Result<Option<Vec<CallHierarchyOutgoingCall>>> {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::CallHierarchyOutgoing {
+            item: Box::new(params.item),
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(calls) => Ok(calls),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn completion_resolve(&self, item: CompletionItem) -> Result<CompletionItem> {
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let fallback = item.clone();
+        let _ = self.tx.send(LspRequest::CompletionResolve {
+            item: Box::new(item),
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(resolved) => Ok(resolved),
+            // If the backend is unavailable, return the item unchanged rather than failing.
+            Err(_) => Ok(fallback),
+        }
+    }
 }
 
 // ── Server entry point ───────────────────────────────────────────
 
 pub async fn run_server() {
-    let stdin = tokio::io::stdin();
+    let raw_stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
+    let (stdin, mut stdin_writer) = tokio::io::duplex(64 * 1024);
+
+    tokio::spawn(async move {
+        let _ = normalize_lsp_input(raw_stdin, &mut stdin_writer).await;
+    });
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<LspRequest>();
 
@@ -3446,6 +4616,46 @@ pub async fn run_server() {
                     let result = state.handle_folding_ranges(&uri);
                     let _ = reply.send(result);
                 }
+                LspRequest::Formatting {
+                    uri,
+                    options,
+                    reply,
+                } => {
+                    let result = state.handle_formatting(&uri, &options);
+                    let _ = reply.send(result);
+                }
+                LspRequest::SelectionRange {
+                    uri,
+                    positions,
+                    reply,
+                } => {
+                    let result = state.handle_selection_range(&uri, &positions);
+                    let _ = reply.send(result);
+                }
+                LspRequest::DocumentLinks { uri, reply } => {
+                    let result = state.handle_document_links(&uri);
+                    let _ = reply.send(result);
+                }
+                LspRequest::CallHierarchyPrepare {
+                    uri,
+                    position,
+                    reply,
+                } => {
+                    let result = state.handle_call_hierarchy_prepare(&uri, &position);
+                    let _ = reply.send(result);
+                }
+                LspRequest::CallHierarchyIncoming { item, reply } => {
+                    let result = state.handle_call_hierarchy_incoming(&item);
+                    let _ = reply.send(result);
+                }
+                LspRequest::CallHierarchyOutgoing { item, reply } => {
+                    let result = state.handle_call_hierarchy_outgoing(&item);
+                    let _ = reply.send(result);
+                }
+                LspRequest::CompletionResolve { item, reply } => {
+                    let result = state.handle_completion_resolve(*item);
+                    let _ = reply.send(result);
+                }
                 LspRequest::DocumentHighlight {
                     uri,
                     position,
@@ -3525,4 +4735,91 @@ pub async fn run_server() {
 
     // Wait for backend thread to finish.
     let _ = backend_handle.join();
+}
+
+async fn normalize_lsp_input<R, W>(mut input: R, mut output: W) -> std::io::Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let mut pending = Vec::new();
+    let mut chunk = [0; 8192];
+
+    loop {
+        let read = input.read(&mut chunk).await?;
+        if read == 0 {
+            if !pending.is_empty() {
+                output.write_all(&pending).await?;
+            }
+            output.shutdown().await?;
+            return Ok(());
+        }
+
+        pending.extend_from_slice(&chunk[..read]);
+
+        while let Some(separator) = find_subslice(&pending, b"\r\n\r\n") {
+            let body_start = separator + 4;
+            let Some(content_length) = lsp_content_length(&pending[..separator]) else {
+                output.write_all(&pending).await?;
+                pending.clear();
+                break;
+            };
+            let frame_len = body_start + content_length;
+            if pending.len() < frame_len {
+                break;
+            }
+
+            let frame = pending[..frame_len].to_vec();
+            pending.drain(..frame_len);
+
+            let body = &frame[body_start..];
+            let normalized = normalize_lsp_message_body(body);
+            if normalized == body {
+                output.write_all(&frame).await?;
+            } else {
+                let header = format!("Content-Length: {}\r\n\r\n", normalized.len());
+                output.write_all(header.as_bytes()).await?;
+                output.write_all(&normalized).await?;
+            }
+        }
+    }
+}
+
+fn normalize_lsp_message_body(body: &[u8]) -> Vec<u8> {
+    let Ok(mut value) = serde_json::from_slice::<serde_json::Value>(body) else {
+        return body.to_vec();
+    };
+
+    let Some(object) = value.as_object_mut() else {
+        return body.to_vec();
+    };
+
+    let is_shutdown = object
+        .get("method")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|method| method == "shutdown");
+    let has_null_params = object.get("params").is_some_and(serde_json::Value::is_null);
+
+    if is_shutdown && has_null_params {
+        object.remove("params");
+        serde_json::to_vec(&value).unwrap_or_else(|_| body.to_vec())
+    } else {
+        body.to_vec()
+    }
+}
+
+fn lsp_content_length(header: &[u8]) -> Option<usize> {
+    std::str::from_utf8(header).ok()?.lines().find_map(|line| {
+        line.strip_prefix("Content-Length:")
+            .or_else(|| line.strip_prefix("content-length:"))
+            .and_then(|value| value.trim().parse().ok())
+    })
+}
+
+fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
 }

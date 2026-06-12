@@ -2779,7 +2779,7 @@ mod tests {
     fn streambox_available_when_closed() {
         let sb = StreamBox::new(TestStream::new(true, true));
         sb.close().unwrap();
-        assert_eq!(sb.available().unwrap(), false);
+        assert!(!sb.available().unwrap());
     }
 
     #[test]

@@ -1,0 +1,1068 @@
+//! Integration tests for the Sema formatter public API.
+use sema_fmt::{format_source, FormatOptions};
+
+fn opts(width: usize, indent: usize, align: bool) -> FormatOptions {
+    FormatOptions {
+        width,
+        indent,
+        align,
+    }
+}
+
+fn fmt(input: &str) -> String {
+    format_source(input, &FormatOptions::default()).unwrap()
+}
+
+fn fmt_narrow(input: &str) -> String {
+    format_source(input, &opts(40, 2, false)).unwrap()
+}
+
+fn fmt_aligned(input: &str) -> String {
+    format_source(input, &opts(80, 2, true)).unwrap()
+}
+
+// 1. Simple atom formatting
+#[test]
+fn test_simple_form() {
+    assert_eq!(fmt("(+ 1 2)"), "(+ 1 2)\n");
+}
+
+#[test]
+fn test_simple_form_extra_spaces() {
+    assert_eq!(fmt("(+   1    2)"), "(+ 1 2)\n");
+}
+
+#[test]
+fn test_atom() {
+    assert_eq!(fmt("42"), "42\n");
+}
+
+#[test]
+fn test_string() {
+    assert_eq!(fmt(r#""hello world""#), "\"hello world\"\n");
+}
+
+#[test]
+fn test_keyword() {
+    assert_eq!(fmt(":name"), ":name\n");
+}
+
+#[test]
+fn test_boolean() {
+    assert_eq!(fmt("#t"), "#t\n");
+    assert_eq!(fmt("#f"), "#f\n");
+}
+
+// 2. Line breaking
+#[test]
+fn test_line_break_long_call() {
+    let input = "(some-very-long-function-name arg1 arg2 arg3 arg4 arg5 arg6 arg7 arg8 arg9 arg10)";
+    let result = fmt(input);
+    // Should break since it exceeds 80 chars
+    assert!(result.contains('\n'));
+    // Should still have matching parens
+    assert_eq!(
+        result.chars().filter(|c| *c == '(').count(),
+        result.chars().filter(|c| *c == ')').count()
+    );
+}
+
+#[test]
+fn test_short_form_stays_one_line() {
+    assert_eq!(fmt("(+ 1 2 3)"), "(+ 1 2 3)\n");
+}
+
+// 3. Comment preservation
+#[test]
+fn test_trailing_comment() {
+    assert_eq!(fmt("(+ 1 2) ; add"), "(+ 1 2) ; add\n");
+}
+
+#[test]
+fn test_standalone_comment() {
+    assert_eq!(
+        fmt("; this is a comment\n(+ 1 2)"),
+        "; this is a comment\n(+ 1 2)\n"
+    );
+}
+
+// 4. Blank line preservation
+#[test]
+fn test_blank_line_between_forms() {
+    let input = "(define x 1)\n\n(define y 2)";
+    let result = fmt(input);
+    assert_eq!(result, "(define x 1)\n\n(define y 2)\n");
+}
+
+#[test]
+fn test_multiple_blank_lines_collapsed() {
+    let input = "(define x 1)\n\n\n\n(define y 2)";
+    let result = fmt(input);
+    assert_eq!(result, "(define x 1)\n\n(define y 2)\n");
+}
+
+// 5. Define with body indentation
+#[test]
+fn test_define_body() {
+    let input = "(define (factorial n) (if (<= n 1) 1 (* n (factorial (- n 1)))))";
+    let result = fmt_narrow(input);
+    assert!(result.starts_with("(define (factorial n)"));
+    // Body should be indented 2 spaces
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(
+        lines.len() > 1,
+        "narrow width should force multi-line output"
+    );
+    assert!(lines[1].starts_with("  "));
+}
+
+#[test]
+fn test_defn_body() {
+    let result = fmt_narrow("(defn greet [name] (string-append \"Hello, \" name))");
+    assert!(result.starts_with("(defn greet [name]"));
+}
+
+#[test]
+fn test_lambda() {
+    let result = fmt_narrow("(lambda (x y) (+ x y) (* x y))");
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(lines[0].contains("lambda"));
+    assert!(
+        lines.len() > 1,
+        "narrow width should force multi-line output"
+    );
+    assert!(lines[1].starts_with("  "));
+}
+
+// 6. Let with binding indentation
+#[test]
+fn test_let_binding() {
+    let result = fmt_narrow("(let ([x 1] [y 2]) (+ x y))");
+    assert!(result.starts_with("(let"));
+}
+
+// 7. Cond with clause formatting
+#[test]
+fn test_cond_clauses() {
+    let input = "(cond ((= x 1) \"one\") ((= x 2) \"two\") (else \"other\"))";
+    let result = fmt_narrow(input);
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(lines[0].starts_with("(cond"));
+    // Clauses indented 2 from opening paren
+    assert!(
+        lines.len() > 1,
+        "narrow width should force multi-line output"
+    );
+    assert!(lines[1].starts_with("  "));
+}
+
+// 8. Map formatting
+#[test]
+fn test_map_short() {
+    assert_eq!(fmt("{:a 1 :b 2}"), "{:a 1 :b 2}\n");
+}
+
+#[test]
+fn test_map_long() {
+    let input = "{:name \"Alice\" :age 30 :email \"alice@example.com\" :city \"Wonderland\"}";
+    let result = fmt_narrow(input);
+    // Should break into multiple lines
+    assert!(result.contains('\n'));
+}
+
+// 9. Vector formatting
+#[test]
+fn test_vector_short() {
+    assert_eq!(fmt("[1 2 3]"), "[1 2 3]\n");
+}
+
+#[test]
+fn test_vector_long() {
+    let input = "[very-long-element-1 very-long-element-2 very-long-element-3 very-long-element-4]";
+    let result = fmt_narrow(input);
+    assert!(result.contains('\n'));
+}
+
+// 10. Quote/quasiquote
+#[test]
+fn test_quote() {
+    assert_eq!(fmt("'(a b c)"), "'(a b c)\n");
+}
+
+#[test]
+fn test_quasiquote_unquote() {
+    assert_eq!(fmt("`(a ,b ,@c)"), "`(a ,b ,@c)\n");
+}
+
+// 11. F-string preservation
+#[test]
+fn test_fstring() {
+    assert_eq!(fmt("f\"Hello ${name}!\""), "f\"Hello ${name}!\"\n");
+}
+
+// 12. Regex preservation
+#[test]
+fn test_regex() {
+    let input = "#\"\\d+\"";
+    let result = fmt(input);
+    assert_eq!(result, "#\"\\d+\"\n");
+}
+
+#[test]
+fn test_regex_in_form() {
+    let input = "(regex/match? #\"[a-z]+\" \"hello\")";
+    let result = fmt(input);
+    assert_eq!(result, "(regex/match? #\"[a-z]+\" \"hello\")\n");
+}
+
+// 13. Idempotency
+#[test]
+fn test_idempotency_simple() {
+    let input = "(define (factorial n)\n  (if (<= n 1)\n    1\n    (* n (factorial (- n 1)))))\n";
+    let first = fmt(input);
+    let second = fmt(&first);
+    assert_eq!(first, second, "formatting should be idempotent");
+}
+
+#[test]
+fn test_idempotency_with_comments() {
+    let input = "; header comment\n\n(define x 42) ; the answer\n\n(define y 7)\n";
+    let first = fmt(input);
+    let second = fmt(&first);
+    assert_eq!(
+        first, second,
+        "formatting with comments should be idempotent"
+    );
+}
+
+#[test]
+fn test_idempotency_multiline() {
+    let input = "(some-very-long-function-name argument1 argument2 argument3 argument4 argument5)";
+    let first = fmt(input);
+    let second = fmt(&first);
+    assert_eq!(first, second, "multiline formatting should be idempotent");
+}
+
+// 14. Nested forms
+#[test]
+fn test_nested_forms() {
+    assert_eq!(fmt("(+ (* 2 3) (- 4 1))"), "(+ (* 2 3) (- 4 1))\n");
+}
+
+#[test]
+fn test_deeply_nested() {
+    let input = "(a (b (c (d (e 1)))))";
+    let result = fmt(input);
+    assert_eq!(result, "(a (b (c (d (e 1)))))\n");
+}
+
+// 15. Threading macros
+#[test]
+fn test_threading_short() {
+    assert_eq!(fmt("(-> x f g)"), "(-> x f g)\n");
+}
+
+#[test]
+fn test_threading_long() {
+    let input =
+        "(-> some-value (map some-function) (filter some-predicate?) (reduce some-reducer 0))";
+    let result = fmt_narrow(input);
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(lines[0].starts_with("(-> some-value"));
+    assert!(
+        lines.len() > 1,
+        "narrow width should force multi-line output"
+    );
+    assert!(lines[1].starts_with("  "));
+}
+
+// Edge cases
+#[test]
+fn test_empty_input() {
+    assert_eq!(format_source("", &FormatOptions::default()).unwrap(), "");
+}
+
+#[test]
+fn test_whitespace_only() {
+    assert_eq!(
+        format_source("   \n  \n  ", &FormatOptions::default()).unwrap(),
+        ""
+    );
+}
+
+#[test]
+fn test_empty_list() {
+    assert_eq!(fmt("()"), "()\n");
+}
+
+#[test]
+fn test_empty_vector() {
+    assert_eq!(fmt("[]"), "[]\n");
+}
+
+#[test]
+fn test_empty_map() {
+    assert_eq!(fmt("{}"), "{}\n");
+}
+
+#[test]
+fn test_shebang() {
+    let input = "#!/usr/bin/env sema\n(+ 1 2)";
+    let result = fmt(input);
+    assert_eq!(result, "#!/usr/bin/env sema\n(+ 1 2)\n");
+}
+
+#[test]
+fn test_char_literal() {
+    assert_eq!(fmt("#\\a"), "#\\a\n");
+    assert_eq!(fmt("#\\space"), "#\\space\n");
+    assert_eq!(fmt("#\\newline"), "#\\newline\n");
+}
+
+#[test]
+fn test_short_lambda() {
+    assert_eq!(fmt("#(+ %1 1)"), "#(+ %1 1)\n");
+}
+
+#[test]
+fn test_dot() {
+    assert_eq!(fmt("(a . b)"), "(a . b)\n");
+}
+
+#[test]
+fn test_no_trailing_whitespace() {
+    let input = "(define x 1)   ";
+    let result = fmt(input);
+    for line in result.lines() {
+        assert_eq!(
+            line,
+            line.trim_end(),
+            "line should have no trailing whitespace"
+        );
+    }
+}
+
+#[test]
+fn test_trailing_newline() {
+    let result = fmt("42");
+    assert!(result.ends_with('\n'));
+    assert!(!result.ends_with("\n\n"));
+}
+
+#[test]
+fn test_multiple_top_level_forms() {
+    let input = "(define x 1)\n(define y 2)\n(+ x y)";
+    let result = fmt(input);
+    assert_eq!(result, "(define x 1)\n(define y 2)\n(+ x y)\n");
+}
+
+#[test]
+fn test_bytevector() {
+    assert_eq!(fmt("#u8(1 2 3)"), "#u8(1 2 3)\n");
+}
+
+#[test]
+fn test_string_escaping_roundtrip() {
+    // \n escapes stay as \n escapes (original source preserved)
+    let input = "\"hello\\nworld\\t!\"";
+    let result = fmt(input);
+    assert_eq!(result, "\"hello\\nworld\\t!\"\n");
+}
+
+#[test]
+fn test_multiline_string_preserved() {
+    // Multi-line strings stay multi-line (original source preserved)
+    let input = "\"line one\nline two\nline three\"";
+    let result = fmt(input);
+    assert_eq!(result, "\"line one\nline two\nline three\"\n");
+    let result2 = fmt(&result);
+    assert_eq!(result, result2, "multi-line string should be idempotent");
+}
+
+#[test]
+fn test_short_escape_stays_escaped() {
+    // Short strings with \n stay escaped
+    let input = "(string/join items \"\\n\\n\")";
+    let result = fmt(input);
+    assert_eq!(result, "(string/join items \"\\n\\n\")\n");
+}
+
+#[test]
+fn test_match_form() {
+    let input = "(match x (1 \"one\") (2 \"two\") (_ \"other\"))";
+    let result = fmt_narrow(input);
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(lines[0].starts_with("(match"));
+}
+
+#[test]
+fn test_do_form() {
+    let result = fmt_narrow("(do (display \"hello\") (display \"world\") (newline))");
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(lines[0].starts_with("(do"));
+    if lines.len() > 1 {
+        assert!(lines[1].starts_with("  "));
+    }
+}
+
+#[test]
+fn test_when_form() {
+    let result = fmt_narrow("(when (> x 0) (display x) (newline))");
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(lines[0].starts_with("(when"));
+}
+
+#[test]
+fn test_if_form_short() {
+    assert_eq!(fmt("(if #t 1 0)"), "(if #t 1 0)\n");
+}
+
+#[test]
+fn test_if_form_long() {
+    let input =
+        "(if (some-very-long-predicate? x y z) (do-something-complex x) (do-other-thing y))";
+    let result = fmt(input);
+    let lines: Vec<&str> = result.lines().collect();
+    assert!(lines[0].starts_with("(if"));
+}
+
+#[test]
+fn test_nil() {
+    assert_eq!(fmt("nil"), "nil\n");
+}
+
+#[test]
+fn test_negative_number() {
+    assert_eq!(fmt("-42"), "-42\n");
+}
+
+#[test]
+fn test_float() {
+    assert_eq!(fmt("3.14"), "3.14\n");
+}
+
+#[test]
+fn test_closing_parens_not_on_own_line() {
+    let input = "(define (foo x)\n  (+ x 1))";
+    let result = fmt(input);
+    // No line should be just closing parens
+    for line in result.lines() {
+        let trimmed = line.trim();
+        assert!(
+            !trimmed.chars().all(|c| c == ')' || c == ']' || c == '}'),
+            "closing delimiters should not be on their own line: {:?}",
+            line
+        );
+    }
+}
+
+#[test]
+fn test_real_world_hello_sema() {
+    let input = r#";; hello.sema — Basic Sema demo
+
+;; Factorial
+(define (factorial n)
+  (if (<= n 1) 1 (* n (factorial (- n 1)))))
+
+(display "Factorial of 10: ")
+(println (factorial 10))
+
+;; Fibonacci
+(define (fib n)
+  (cond
+((= n 0) 0)
+((= n 1) 1)
+(else (+ (fib (- n 1)) (fib (- n 2))))))
+
+(display "Fibonacci of 10: ")
+(println (fib 10))
+
+;; Map, filter, fold
+(define numbers (range 1 11))
+(display "Numbers: ")
+(println numbers)
+
+(define squares (map (lambda (x) (* x x)) numbers))
+(display "Squares: ")
+(println squares)
+
+(define evens (filter even? numbers))
+(display "Evens: ")
+(println evens)
+
+(define sum (foldl + 0 numbers))
+(display "Sum 1-10: ")
+(println sum)"#;
+    let result = fmt(input);
+    // Should be idempotent
+    let result2 = fmt(&result);
+    assert_eq!(
+        result, result2,
+        "real-world formatting should be idempotent"
+    );
+    // Comments should be preserved
+    assert!(result.contains(";; hello.sema"));
+    assert!(result.contains(";; Factorial"));
+    assert!(result.contains(";; Fibonacci"));
+    // Blank lines between sections preserved
+    assert!(result.contains("\n\n"));
+}
+
+#[test]
+fn test_idempotency_cond_multiline() {
+    let input = "(cond\n  ((= x 0) 0)\n  ((= x 1) 1)\n  (else (+ (fib (- x 1)) (fib (- x 2)))))\n";
+    let first = fmt(input);
+    let second = fmt(&first);
+    assert_eq!(first, second, "cond formatting should be idempotent");
+}
+
+#[test]
+fn test_idempotency_let_multiline() {
+    let input = "(let ((x 10)\n      (y 20))\n  (+ x y))\n";
+    let first = fmt(input);
+    let second = fmt(&first);
+    assert_eq!(first, second, "let formatting should be idempotent");
+}
+
+#[test]
+fn test_idempotency_define_function() {
+    let input = "(define (factorial n)\n  (if (<= n 1) 1 (* n (factorial (- n 1)))))\n";
+    let first = fmt(input);
+    let second = fmt(&first);
+    assert_eq!(
+        first, second,
+        "define function formatting should be idempotent"
+    );
+}
+
+// Bug fix tests: inner comments preserved
+
+#[test]
+fn test_inner_comment_in_define() {
+    let input = "(define (foo x)\n  ;; compute result\n  (+ x 1))";
+    let result = format_source(input, &FormatOptions::default()).unwrap();
+    assert!(
+        result.contains(";; compute result"),
+        "inner comment should be preserved, got: {result}"
+    );
+    assert!(
+        result.contains("(+ x 1)"),
+        "body should be preserved, got: {result}"
+    );
+}
+
+#[test]
+fn test_inner_comment_in_let() {
+    let input = "(let ((x 1))\n  ;; use x\n  (+ x 2))";
+    let result = format_source(input, &FormatOptions::default()).unwrap();
+    assert!(
+        result.contains(";; use x"),
+        "inner comment in let should be preserved, got: {result}"
+    );
+}
+
+#[test]
+fn test_inner_comment_in_cond() {
+    let input =
+        "(cond\n  ;; first case\n  ((= x 1) \"one\")\n  ;; second case\n  ((= x 2) \"two\"))";
+    let result = format_source(input, &FormatOptions::default()).unwrap();
+    assert!(
+        result.contains(";; first case"),
+        "comment before first clause preserved, got: {result}"
+    );
+    assert!(
+        result.contains(";; second case"),
+        "comment before second clause preserved, got: {result}"
+    );
+}
+
+#[test]
+fn test_classify_form_non_symbol_head() {
+    // (42 define x) should NOT be classified as Body
+    let input = "(42 define x)";
+    let result = format_source(input, &FormatOptions::default()).unwrap();
+    // Should be formatted as a function call, not as a body form
+    assert_eq!(result.trim(), "(42 define x)");
+}
+
+#[test]
+fn test_inner_comment_idempotency() {
+    let input = "(define (foo x)\n  ;; compute result\n  (+ x 1))";
+    let first = format_source(input, &FormatOptions::default()).unwrap();
+    let second = format_source(&first, &FormatOptions::default()).unwrap();
+    assert_eq!(
+        first, second,
+        "formatting with inner comments should be idempotent"
+    );
+}
+
+// Numeric literal source preservation (integers and floats use raw source text)
+
+#[test]
+fn test_integer_preserved() {
+    assert_eq!(fmt("42"), "42\n");
+    assert_eq!(fmt("-7"), "-7\n");
+    assert_eq!(fmt("0"), "0\n");
+}
+
+#[test]
+fn test_float_preserved() {
+    assert_eq!(fmt("3.14"), "3.14\n");
+    assert_eq!(fmt("-0.5"), "-0.5\n");
+    assert_eq!(fmt("100.0"), "100.0\n");
+}
+
+#[test]
+fn test_numeric_in_form_preserved() {
+    assert_eq!(fmt("(define x 42)"), "(define x 42)\n");
+    assert_eq!(fmt("(+ 3.14 2.0)"), "(+ 3.14 2.0)\n");
+}
+
+#[test]
+fn test_numeric_literal_idempotency() {
+    for input in &["42", "-7", "3.14", "-0.5", "100.0"] {
+        let first = fmt(input);
+        let second = fmt(&first);
+        assert_eq!(
+            first, second,
+            "numeric literal {input} should be idempotent"
+        );
+    }
+}
+
+// Unicode preservation
+
+#[test]
+fn test_unicode_in_strings() {
+    assert_eq!(fmt("\"héllo wörld\""), "\"héllo wörld\"\n");
+    assert_eq!(fmt("\"日本語\""), "\"日本語\"\n");
+    assert_eq!(fmt("\"emoji: 🎉\""), "\"emoji: 🎉\"\n");
+}
+
+#[test]
+fn test_unicode_in_symbols() {
+    assert_eq!(fmt("(café 42)"), "(café 42)\n");
+}
+
+// Example corpus idempotency
+
+#[test]
+fn test_example_corpus_idempotency() {
+    let examples_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join("examples");
+
+    if !examples_dir.exists() {
+        return;
+    }
+
+    let mut files_checked = 0;
+    for entry in walkdir(examples_dir.to_str().unwrap()) {
+        let source = match std::fs::read_to_string(&entry) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let first = match format_source(&source, &FormatOptions::default()) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let second = format_source(&first, &FormatOptions::default())
+            .unwrap_or_else(|e| panic!("second format of {entry} failed: {e}"));
+        assert_eq!(first, second, "idempotency failed for {entry}");
+        files_checked += 1;
+    }
+    assert!(
+        files_checked > 0,
+        "should have checked at least one example file"
+    );
+}
+
+/// Recursively collect all .sema files under a directory.
+fn walkdir(dir: &str) -> Vec<String> {
+    let mut files = Vec::new();
+    walkdir_inner(std::path::Path::new(dir), &mut files);
+    files
+}
+
+fn walkdir_inner(dir: &std::path::Path, files: &mut Vec<String>) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walkdir_inner(&path, files);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("sema") {
+                files.push(path.to_string_lossy().to_string());
+            }
+        }
+    }
+}
+
+// === Alignment-specific tests ===
+
+#[test]
+fn test_aligned_define_group() {
+    let input = "(define (make-num n) (hash-map :type :number :value n))\n\
+                 (define (make-bool b) (hash-map :type :bool :value b))\n\
+                 (define (make-var name) (hash-map :type :var :name name))";
+    let result = fmt_aligned(input);
+    let lines: Vec<&str> = result.lines().collect();
+    assert_eq!(lines.len(), 3);
+    // All body expressions should start at the same column
+    let body_cols: Vec<usize> = lines.iter().map(|l| l.find("(hash-map").unwrap()).collect();
+    assert!(
+        body_cols.iter().all(|&c| c == body_cols[0]),
+        "bodies should be aligned at same column, got {:?}\n{}",
+        body_cols,
+        result
+    );
+}
+
+#[test]
+fn test_aligned_define_not_applied_without_flag() {
+    let input = "(define (make-num n) (hash-map :type :number :value n))\n\
+                 (define (make-bool b) (hash-map :type :bool :value b))\n\
+                 (define (make-var name) (hash-map :type :var :name name))";
+    let result = fmt(input);
+    // Without --align, each define has single-space separation
+    for line in result.lines() {
+        assert!(
+            !line.contains("  (hash-map"),
+            "without --align, defines should not be column-aligned: {line}"
+        );
+    }
+}
+
+#[test]
+fn test_aligned_define_group_idempotent() {
+    let input = "(define (make-num n) (hash-map :type :number :value n))\n\
+                 (define (make-bool b) (hash-map :type :bool :value b))\n\
+                 (define (make-var name) (hash-map :type :var :name name))";
+    let first = fmt_aligned(input);
+    let second = fmt_aligned(&first);
+    assert_eq!(first, second, "aligned defines should be idempotent");
+}
+
+#[test]
+fn test_aligned_cond_clauses() {
+    let input = "(cond\n  ((= x 1) \"one\")\n  ((= x 100) \"hundred\")\n  (else \"other\"))";
+    let result = fmt_aligned(input);
+    let lines: Vec<&str> = result.lines().collect();
+    // Find the result-expression columns
+    let clause_lines: Vec<&str> = lines[1..].to_vec();
+    let result_cols: Vec<Option<usize>> = clause_lines.iter().map(|l| l.find('"')).collect();
+    // All string results should start at the same column
+    let valid_cols: Vec<usize> = result_cols.iter().filter_map(|c| *c).collect();
+    if valid_cols.len() >= 2 {
+        assert!(
+            valid_cols.iter().all(|&c| c == valid_cols[0]),
+            "cond results should be aligned, got {:?}\n{}",
+            valid_cols,
+            result
+        );
+    }
+}
+
+#[test]
+fn test_aligned_cond_idempotent() {
+    let input = "(cond\n  ((= x 1) \"one\")\n  ((= x 100) \"hundred\")\n  (else \"other\"))";
+    let first = fmt_aligned(input);
+    let second = fmt_aligned(&first);
+    assert_eq!(first, second, "aligned cond should be idempotent");
+}
+
+#[test]
+fn test_aligned_let_bindings() {
+    let input = "(let ((x 1)\n      (longer-name 42)\n      (y 2))\n  (+ x y))";
+    let result = fmt_aligned(input);
+    let first = fmt_aligned(&result);
+    assert_eq!(result, first, "aligned let bindings should be idempotent");
+}
+
+#[test]
+fn test_define_group_broken_by_blank_line() {
+    let input = "(define x 1)\n\n(define y 2)";
+    let result = fmt_aligned(input);
+    // Blank line should prevent alignment grouping
+    assert_eq!(result, "(define x 1)\n\n(define y 2)\n");
+}
+
+#[test]
+fn test_single_define_not_aligned() {
+    // A single define should not try alignment
+    assert_eq!(fmt_aligned("(define x 1)"), "(define x 1)\n");
+}
+
+#[test]
+fn test_alignment_visual_output() {
+    let cases = vec![
+        (
+            "Aligned defines",
+            "(define (make-num n) (hash-map :type :number :value n))\n\
+             (define (make-bool b) (hash-map :type :bool :value b))\n\
+             (define (make-var name) (hash-map :type :var :name name))\n\
+             (define (make-binop op l r) (hash-map :type :binop :op op :left l :right r))\n\
+             (define (make-if c t f) (hash-map :type :if :cond c :then t :else f))",
+        ),
+        (
+            "Aligned cond",
+            "(cond\n  ((= x 1) \"one\")\n  ((= x 2) \"two\")\n  ((= x 100) \"hundred\")\n  (else \"other\"))",
+        ),
+        (
+            "FizzBuzz cond",
+            "(cond\n  ((= 0 (math/remainder i 15)) \"FizzBuzz\")\n  ((= 0 (math/remainder i 3)) \"Fizz\")\n  ((= 0 (math/remainder i 5)) \"Buzz\")\n  (else i))",
+        ),
+        (
+            "Let bindings",
+            "(let ((x 1)\n      (longer-name 42)\n      (y 2))\n  (+ x y))",
+        ),
+    ];
+
+    for (name, input) in &cases {
+        let result = fmt_aligned(input);
+        eprintln!("\n=== {} ===", name);
+        eprint!("{}", result);
+    }
+}
+
+fn fmt_indent(input: &str, indent: usize) -> String {
+    format_source(input, &opts(80, indent, false)).unwrap()
+}
+
+// ---------------------------------------------------------------
+// Custom indent size
+// ---------------------------------------------------------------
+
+#[test]
+fn test_indent_1_body_form() {
+    let input = "(define (foo x)\n (+ x 1))";
+    let result = fmt_indent(input, 1);
+    assert_eq!(result, "(define (foo x)\n (+ x 1))\n");
+}
+
+#[test]
+fn test_indent_4_body_form() {
+    let input = "(define (foo x) (+ x 1))";
+    let result = fmt_indent(input, 4);
+    // Should still fit on one line at width 80
+    assert_eq!(result, "(define (foo x) (+ x 1))\n");
+}
+
+#[test]
+fn test_indent_4_multiline_body() {
+    let input = "(define (a-long-function-name some-parameter)\n  (do-something some-parameter)\n  (do-another-thing some-parameter))";
+    let result = fmt_indent(input, 4);
+    assert_eq!(
+        result,
+        "(define (a-long-function-name some-parameter)\n    (do-something some-parameter)\n    (do-another-thing some-parameter))\n"
+    );
+}
+
+#[test]
+fn test_indent_4_nested() {
+    let input = "(define (f x)\n  (when (> x 0)\n    (println x)))";
+    let result = fmt_indent(input, 4);
+    assert_eq!(
+        result,
+        "(define (f x)\n    (when (> x 0)\n        (println x)))\n"
+    );
+}
+
+#[test]
+fn test_indent_1_nested() {
+    let input = "(define (f x)\n  (when (> x 0)\n    (println x)))";
+    let result = fmt_indent(input, 1);
+    assert_eq!(result, "(define (f x)\n (when (> x 0)\n  (println x)))\n");
+}
+
+#[test]
+fn test_indent_4_let_form() {
+    let input = "(let ((x 1)\n      (y 2))\n  (+ x y))";
+    let result = fmt_indent(input, 4);
+    assert_eq!(result, "(let ((x 1)\n      (y 2))\n    (+ x y))\n");
+}
+
+#[test]
+fn test_indent_4_cond_form() {
+    let input = "(cond\n  ((= x 1) \"one\")\n  ((= x 2) \"two\")\n  (else \"other\"))";
+    let result = fmt_indent(input, 4);
+    assert_eq!(
+        result,
+        "(cond\n    ((= x 1) \"one\")\n    ((= x 2) \"two\")\n    (else \"other\"))\n"
+    );
+}
+
+#[test]
+fn test_indent_4_threading() {
+    let input = "(-> x\n  (foo)\n  (bar)\n  (baz))";
+    let result = fmt_indent(input, 4);
+    assert_eq!(result, "(-> x\n    (foo)\n    (bar)\n    (baz))\n");
+}
+
+#[test]
+fn test_indent_4_if_form() {
+    // Narrow width to force multi-line
+    let result = format_source(
+        "(if (some-long-condition? x) (do-something x) (do-other x))",
+        &opts(40, 4, false),
+    )
+    .unwrap();
+    assert!(
+        result.contains("\n    "),
+        "indent 4 should produce 4-space body indent:\n{}",
+        result
+    );
+}
+
+#[test]
+fn test_indent_default_is_2() {
+    // Verify format_source uses indent=2 by default
+    let with_default =
+        format_source("(define (f x)\n  (+ x 1))", &FormatOptions::default()).unwrap();
+    let with_explicit = format_source("(define (f x)\n  (+ x 1))", &opts(80, 2, false)).unwrap();
+    assert_eq!(with_default, with_explicit);
+}
+
+#[test]
+fn test_indent_idempotent_4() {
+    let input =
+        "(define (f x)\n    (when (> x 0)\n        (println x)\n        (println (+ x 1))))";
+    let first = fmt_indent(input, 4);
+    let second = fmt_indent(&first, 4);
+    assert_eq!(first, second, "indent=4 should be idempotent");
+}
+
+#[test]
+fn test_indent_idempotent_1() {
+    let input = "(define (f x)\n (when (> x 0)\n  (println x)))";
+    let first = fmt_indent(input, 1);
+    let second = fmt_indent(&first, 1);
+    assert_eq!(first, second, "indent=1 should be idempotent");
+}
+
+#[test]
+fn test_indent_4_fn_lambda() {
+    let input = "(fn (x y)\n  (+ x y))";
+    let result = fmt_indent(input, 4);
+    assert_eq!(result, "(fn (x y)\n    (+ x y))\n");
+}
+
+#[test]
+fn test_indent_4_do_block() {
+    let input = "(do\n  (println \"a\")\n  (println \"b\")\n  (println \"c\"))";
+    let result = fmt_indent(input, 4);
+    assert_eq!(
+        result,
+        "(do\n    (println \"a\")\n    (println \"b\")\n    (println \"c\"))\n"
+    );
+}
+
+#[test]
+fn test_indent_4_defn() {
+    let input = "(defn add (a b)\n  (+ a b))";
+    let result = fmt_indent(input, 4);
+    assert_eq!(result, "(defn add (a b)\n    (+ a b))\n");
+}
+
+#[test]
+fn test_indent_4_import() {
+    // Import forms should also use custom indent
+    let input = "(import\n  \"math\"\n  \"strings\")";
+    let result = fmt_indent(input, 4);
+    assert_eq!(result, "(import\n    \"math\"\n    \"strings\")\n");
+}
+
+#[test]
+fn test_indent_4_call() {
+    // Regular call that overflows
+    let result = format_source(
+        "(some-function-with-long-name argument-one argument-two argument-three argument-four)",
+        &opts(50, 4, false),
+    )
+    .unwrap();
+    assert!(result.contains("\n"), "should break to multi-line");
+}
+
+#[test]
+fn test_indent_4_aligned() {
+    // Verify indent and align can be combined
+    let input = "(define x 1)\n(define longer-name 2)\n(define z 3)";
+    let result = format_source(input, &opts(80, 4, true)).unwrap();
+    // Alignment should still work with custom indent
+    assert!(result.contains("(define x"), "should contain defines");
+    let first = format_source(&result, &opts(80, 4, true)).unwrap();
+    assert_eq!(result, first, "indent=4 + align should be idempotent");
+}
+
+#[test]
+fn test_indent_various_sizes() {
+    // Test that different indent sizes produce different output for multiline forms
+    let input = "(define (f x)\n  (+ x 1))";
+    let i1 = fmt_indent(input, 1);
+    let i2 = fmt_indent(input, 2);
+    let i4 = fmt_indent(input, 4);
+
+    assert!(i1.contains("\n "), "indent 1 should have 1-space indent");
+    assert!(i2.contains("\n  "), "indent 2 should have 2-space indent");
+    assert!(i4.contains("\n    "), "indent 4 should have 4-space indent");
+}
+
+// ---------------------------------------------------------------
+// FormatOptions API coverage
+// ---------------------------------------------------------------
+
+#[test]
+fn test_opts_empty_input() {
+    assert_eq!(format_source("", &opts(80, 2, false)).unwrap(), "");
+}
+
+#[test]
+fn test_opts_whitespace_only() {
+    assert_eq!(
+        format_source("   \n  \n  ", &opts(80, 2, false)).unwrap(),
+        ""
+    );
+}
+
+#[test]
+fn test_opts_width_narrow() {
+    let result = format_source("(+ 1 2 3 4 5 6 7 8 9 10)", &opts(15, 2, false)).unwrap();
+    assert!(
+        result.contains("\n"),
+        "narrow width should force line break"
+    );
+}
+
+#[test]
+fn test_opts_width_very_wide() {
+    let long_form = "(define (my-function a b c d e f) (+ a b c d e f))";
+    let result = format_source(long_form, &opts(200, 2, false)).unwrap();
+    assert!(
+        !result.trim().contains('\n'),
+        "wide width should keep on one line"
+    );
+}
+
+#[test]
+fn test_opts_align_false_no_alignment() {
+    let input = "(define x 1)\n(define longer-name 2)";
+    let result = format_source(input, &opts(80, 2, false)).unwrap();
+    // Without align, defines should NOT have extra padding
+    assert!(result.contains("(define x 1)"), "no alignment padding");
+    assert!(
+        result.contains("(define longer-name 2)"),
+        "no alignment padding"
+    );
+}
+
+#[test]
+fn test_opts_shebang_preserved() {
+    let input = "#!/usr/bin/env sema\n(println \"hello\")";
+    let result = format_source(input, &opts(80, 4, false)).unwrap();
+    assert!(
+        result.starts_with("#!/usr/bin/env sema\n"),
+        "shebang should be preserved"
+    );
+}

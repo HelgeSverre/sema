@@ -35,6 +35,7 @@ pub async fn run() {
     let (backend_tx, backend_rx) = tokio_mpsc::channel::<BackendRequest>(32);
     let (event_bridge_tx, mut event_bridge_rx) = tokio_mpsc::channel::<DebugEvent>(32);
     let mut launched = false;
+    let mut vm_active = false;
     let mut dbg_cmd_tx: Option<std_mpsc::Sender<DebugCommand>> = None;
 
     // Spawn the backend thread
@@ -60,6 +61,7 @@ pub async fn run() {
                             &backend_tx,
                             &mut dbg_cmd_tx,
                             &mut launched,
+                            &mut vm_active,
                         ).await;
                         if !handled {
                             break;
@@ -89,6 +91,7 @@ pub async fn run() {
                         })))
                     }
                     DebugEvent::Terminated => {
+                        vm_active = false;
                         DapEvent::new(seq, "terminated", None)
                     }
                     DebugEvent::Output { category, output } => {
@@ -113,6 +116,7 @@ async fn handle_request(
     backend_tx: &tokio_mpsc::Sender<BackendRequest>,
     dbg_cmd_tx: &mut Option<std_mpsc::Sender<DebugCommand>>,
     launched: &mut bool,
+    vm_active: &mut bool,
 ) -> bool {
     let Some(ref command) = msg.command else {
         return true;
@@ -143,7 +147,7 @@ async fn handle_request(
                 .as_ref()
                 .and_then(|a| a.get("program"))
                 .and_then(|p| p.as_str())
-                .map(PathBuf::from);
+                .map(clean_path);
             let stop_on_entry = msg
                 .arguments
                 .as_ref()
@@ -174,7 +178,7 @@ async fn handle_request(
                 .and_then(|a| a.get("source"))
                 .and_then(|s| s.get("path"))
                 .and_then(|p| p.as_str())
-                .map(PathBuf::from)
+                .map(clean_path)
                 .unwrap_or_default();
             let lines: Vec<u32> = msg
                 .arguments
@@ -188,17 +192,21 @@ async fn handle_request(
                 })
                 .unwrap_or_default();
 
-            let verified_ids = if let Some(ref tx) = dbg_cmd_tx {
-                // VM is running or stopped — send via DebugCommand
-                let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
-                let _ = tx.send(DebugCommand::SetBreakpoints {
-                    file,
-                    lines: lines.clone(),
-                    reply: reply_tx,
-                });
-                tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
-                    .await
-                    .unwrap_or_default()
+            let verified_ids = if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    // VM is running or stopped — send via DebugCommand
+                    let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
+                    let _ = tx.send(DebugCommand::SetBreakpoints {
+                        file,
+                        lines: lines.clone(),
+                        reply: reply_tx,
+                    });
+                    tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
             } else {
                 // Pre-launch — send via backend
                 let (reply_tx, mut reply_rx) = tokio_mpsc::channel(1);
@@ -233,6 +241,7 @@ async fn handle_request(
         }
         "configurationDone" => {
             let _ = backend_tx.send(BackendRequest::ConfigurationDone).await;
+            *vm_active = true;
             send_response(stdout, seq, msg.seq, "configurationDone", None).await;
         }
         "threads" => {
@@ -248,12 +257,16 @@ async fn handle_request(
             .await;
         }
         "stackTrace" => {
-            let frames = if let Some(ref tx) = dbg_cmd_tx {
-                let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
-                let _ = tx.send(DebugCommand::GetStackTrace { reply: reply_tx });
-                tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
-                    .await
-                    .unwrap_or_default()
+            let frames = if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
+                    let _ = tx.send(DebugCommand::GetStackTrace { reply: reply_tx });
+                    tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
             } else {
                 Vec::new()
             };
@@ -297,15 +310,19 @@ async fn handle_request(
                 .and_then(|a| a.get("frameId"))
                 .and_then(|f| f.as_u64())
                 .unwrap_or(0) as usize;
-            let scopes = if let Some(ref tx) = dbg_cmd_tx {
-                let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
-                let _ = tx.send(DebugCommand::GetScopes {
-                    frame_id,
-                    reply: reply_tx,
-                });
-                tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
-                    .await
-                    .unwrap_or_default()
+            let scopes = if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
+                    let _ = tx.send(DebugCommand::GetScopes {
+                        frame_id,
+                        reply: reply_tx,
+                    });
+                    tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
             } else {
                 Vec::new()
             };
@@ -335,15 +352,19 @@ async fn handle_request(
                 .and_then(|a| a.get("variablesReference"))
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0);
-            let vars = if let Some(ref tx) = dbg_cmd_tx {
-                let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
-                let _ = tx.send(DebugCommand::GetVariables {
-                    reference,
-                    reply: reply_tx,
-                });
-                tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
-                    .await
-                    .unwrap_or_default()
+            let vars = if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
+                    let _ = tx.send(DebugCommand::GetVariables {
+                        reference,
+                        reply: reply_tx,
+                    });
+                    tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
+                        .await
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                }
             } else {
                 Vec::new()
             };
@@ -368,8 +389,10 @@ async fn handle_request(
             .await;
         }
         "continue" => {
-            if let Some(ref tx) = dbg_cmd_tx {
-                let _ = tx.send(DebugCommand::Continue);
+            if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let _ = tx.send(DebugCommand::Continue);
+                }
             }
             send_response(
                 stdout,
@@ -381,32 +404,42 @@ async fn handle_request(
             .await;
         }
         "next" => {
-            if let Some(ref tx) = dbg_cmd_tx {
-                let _ = tx.send(DebugCommand::StepOver);
+            if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let _ = tx.send(DebugCommand::StepOver);
+                }
             }
             send_response(stdout, seq, msg.seq, "next", None).await;
         }
         "stepIn" => {
-            if let Some(ref tx) = dbg_cmd_tx {
-                let _ = tx.send(DebugCommand::StepInto);
+            if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let _ = tx.send(DebugCommand::StepInto);
+                }
             }
             send_response(stdout, seq, msg.seq, "stepIn", None).await;
         }
         "stepOut" => {
-            if let Some(ref tx) = dbg_cmd_tx {
-                let _ = tx.send(DebugCommand::StepOut);
+            if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let _ = tx.send(DebugCommand::StepOut);
+                }
             }
             send_response(stdout, seq, msg.seq, "stepOut", None).await;
         }
         "pause" => {
-            if let Some(ref tx) = dbg_cmd_tx {
-                let _ = tx.send(DebugCommand::Pause);
+            if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let _ = tx.send(DebugCommand::Pause);
+                }
             }
             send_response(stdout, seq, msg.seq, "pause", None).await;
         }
         "disconnect" => {
-            if let Some(ref tx) = dbg_cmd_tx {
-                let _ = tx.send(DebugCommand::Disconnect);
+            if *vm_active {
+                if let Some(ref tx) = dbg_cmd_tx {
+                    let _ = tx.send(DebugCommand::Disconnect);
+                }
             }
             let _ = backend_tx.send(BackendRequest::Disconnect).await;
             send_response(stdout, seq, msg.seq, "disconnect", None).await;
@@ -589,7 +622,31 @@ fn backend_thread(
                     Some(ref interpreter),
                 ) = (&mut vm, &closure, &mut debug_state, &interp)
                 {
-                    match vm_inst.execute_debug(cl.clone(), &interpreter.ctx, ds) {
+                    // Redirect program stdout/stderr into DAP Output events so they
+                    // don't corrupt the JSON-RPC protocol stream on the server's stdout.
+                    let event_tx_stdout = event_tx.clone();
+                    sema_core::set_stdout_hook(Some(Box::new(move |s: &str| {
+                        let _ = event_tx_stdout.blocking_send(DebugEvent::Output {
+                            category: "stdout".to_string(),
+                            output: s.to_string(),
+                        });
+                    })));
+                    let event_tx_stderr = event_tx.clone();
+                    sema_core::set_stderr_hook(Some(Box::new(move |s: &str| {
+                        let _ = event_tx_stderr.blocking_send(DebugEvent::Output {
+                            category: "stderr".to_string(),
+                            output: s.to_string(),
+                        });
+                    })));
+
+                    let result = vm_inst.execute_debug(cl.clone(), &interpreter.ctx, ds);
+
+                    // Clear the hooks immediately after execution so any server-side
+                    // prints (e.g. error logging) go back to the real stdout/stderr.
+                    sema_core::set_stdout_hook(None);
+                    sema_core::set_stderr_hook(None);
+
+                    match result {
                         Ok(val) => {
                             if !val.is_nil() {
                                 let _ = event_tx.blocking_send(DebugEvent::Output {
@@ -614,4 +671,47 @@ fn backend_thread(
             }
         }
     }
+}
+
+fn clean_path(path_str: &str) -> PathBuf {
+    let decoded_str = if let Some(rest) = path_str.strip_prefix("file://") {
+        decode_percent(rest)
+    } else if let Some(rest) = path_str.strip_prefix("file:") {
+        decode_percent(rest)
+    } else {
+        path_str.to_string()
+    };
+
+    let clean =
+        if cfg!(windows) && decoded_str.starts_with('/') && decoded_str.chars().nth(2) == Some(':')
+        {
+            &decoded_str[1..]
+        } else {
+            &decoded_str
+        };
+
+    PathBuf::from(clean)
+}
+
+fn decode_percent(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '%' {
+            if let (Some(h1), Some(h2)) = (chars.next(), chars.next()) {
+                if let Some(digit) = hex_to_byte(h1, h2) {
+                    result.push(digit as char);
+                    continue;
+                }
+            }
+        }
+        result.push(c);
+    }
+    result
+}
+
+fn hex_to_byte(h1: char, h2: char) -> Option<u8> {
+    let b1 = h1.to_digit(16)? as u8;
+    let b2 = h2.to_digit(16)? as u8;
+    Some((b1 << 4) | b2)
 }

@@ -12,7 +12,6 @@ use pio::{
     Assembler, InSource, InstructionOperands, IrqIndexMode, JmpCondition, MovDestination,
     MovOperation, MovSource, OutDestination, SetDestination, SideSet, WaitSource,
 };
-use sema_core::Value;
 use sema_eval::Interpreter;
 
 /// Helper: encode a single PIO instruction via the pio crate and return LE bytes.

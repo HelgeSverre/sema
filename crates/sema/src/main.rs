@@ -36,10 +36,10 @@ impl Default for FmtConfig {
 }
 
 fn default_width() -> usize {
-    80
+    sema_fmt::FormatOptions::default().width
 }
 fn default_indent() -> usize {
-    2
+    sema_fmt::FormatOptions::default().indent
 }
 
 /// Walk up from cwd to find sema.toml
@@ -578,18 +578,12 @@ fn main() {
                 json,
             } => {
                 let config = find_config().unwrap_or_default();
-                let effective_width = width.unwrap_or(config.fmt.width);
-                let effective_indent = indent.unwrap_or(config.fmt.indent);
-                let effective_align = if align { true } else { config.fmt.align };
-                run_fmt(
-                    &files,
-                    check,
-                    diff,
-                    effective_width,
-                    effective_indent,
-                    effective_align,
-                    json,
-                );
+                let opts = sema_fmt::FormatOptions {
+                    width: width.unwrap_or(config.fmt.width),
+                    indent: indent.unwrap_or(config.fmt.indent),
+                    align: align || config.fmt.align,
+                };
+                run_fmt(&files, check, diff, &opts, json);
             }
             Commands::Lsp => {
                 eprintln!("Sema LSP server starting on stdio...");
@@ -2046,9 +2040,7 @@ fn run_fmt(
     patterns: &[String],
     check: bool,
     show_diff: bool,
-    width: usize,
-    indent: usize,
-    align: bool,
+    opts: &sema_fmt::FormatOptions,
     json: bool,
 ) {
     // Handle stdin ("-")
@@ -2068,7 +2060,7 @@ fn run_fmt(
             }
             std::process::exit(1);
         }
-        match sema_fmt::format_source_opts(&source, width, indent, align) {
+        match sema_fmt::format_source(&source, opts) {
             Ok(formatted) => {
                 if json {
                     println!(
@@ -2168,7 +2160,7 @@ fn run_fmt(
             }
         };
 
-        let formatted = match sema_fmt::format_source_opts(&source, width, indent, align) {
+        let formatted = match sema_fmt::format_source(&source, opts) {
             Ok(f) => f,
             Err(e) => {
                 if json {

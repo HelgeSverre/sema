@@ -23,7 +23,7 @@ fn eval(input: &str) -> Value {
     let interp = Interpreter::new();
     interp
         .eval_str(input)
-        .expect(&format!("failed to eval: {input}"))
+        .unwrap_or_else(|_| panic!("failed to eval: {input}"))
 }
 
 fn eval_to_string(input: &str) -> String {
@@ -2189,13 +2189,13 @@ fn test_math_exp_log() {
 fn test_math_random() {
     // math/random returns a float in [0, 1)
     if let Some(f) = eval("(math/random)").as_float() {
-        assert!(f >= 0.0 && f < 1.0);
+        assert!((0.0..1.0).contains(&f));
     } else {
         panic!("expected float");
     }
     // math/random-int returns int in range
     if let Some(n) = eval("(math/random-int 1 10)").as_int() {
-        assert!(n >= 1 && n <= 10);
+        assert!((1..=10).contains(&n));
     } else {
         panic!("expected int");
     }
@@ -8228,7 +8228,7 @@ fn test_prompt_render_adjacent_vars() {
 fn test_llm_token_count_basic() {
     let result = eval(r#"(llm/token-count "hello world")"#);
     let count = result.as_int().expect("should be integer");
-    assert!(count >= 2 && count <= 4, "unexpected count: {count}");
+    assert!((2..=4).contains(&count), "unexpected count: {count}");
 }
 
 #[test]
@@ -13238,7 +13238,7 @@ fn test_eval_error_json() {
     assert!(output.status.success(), "expected exit 0 for --json error");
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert!(json["error"]["message"].as_str().unwrap().len() > 0);
+    assert!(!json["error"]["message"].as_str().unwrap().is_empty());
 }
 
 #[test]
@@ -13337,7 +13337,7 @@ fn test_eval_parse_error_json() {
     assert!(output.status.success());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(json["ok"], false);
-    assert!(json["error"]["message"].as_str().unwrap().len() > 0);
+    assert!(!json["error"]["message"].as_str().unwrap().is_empty());
 }
 
 #[test]

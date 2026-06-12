@@ -4,7 +4,7 @@
 //!   1. Env bindings (user-defined + stdlib) via `Env::iter_bindings`
 //!      (walked recursively up the parent chain).
 //!   2. Special forms via `sema_eval::SPECIAL_FORM_NAMES`.
-//!   3. Builtin docs via `sema_lsp::builtin_docs::build_builtin_docs`.
+//!   3. Builtin docs via the canonical `sema_docs::builtin_index`.
 //!
 //! Match strategy is layered:
 //!   - **Exact prefix** (`split` matches `split-at` first)
@@ -30,7 +30,17 @@ pub fn run(env: &Env, pattern: &str) {
     }
 
     let needle = pattern.to_lowercase();
-    let docs = sema_lsp::builtin_docs::build_builtin_docs();
+    // name → one-line summary, from the canonical sema-docs index (aliases included).
+    let docs: std::collections::HashMap<String, String> = {
+        let mut m = std::collections::HashMap::new();
+        for e in sema_docs::builtin_index().entries {
+            for a in &e.aliases {
+                m.insert(a.clone(), e.summary.clone());
+            }
+            m.insert(e.name, e.summary);
+        }
+        m
+    };
 
     // Gather every candidate name we know about, with a one-line summary.
     let mut summaries: BTreeMap<String, String> = BTreeMap::new();

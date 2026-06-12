@@ -1,124 +1,125 @@
+//! Structured builtin/special-form documentation for the LSP.
+//!
+//! The doc content is the canonical structured source in the `sema-docs` crate, compiled into a
+//! committed JSON index that `sema_docs::builtin_index()` deserializes. This module wraps that
+//! index in a name→entry lookup (including aliases) and renders entries to LSP Markdown. The old
+//! `parse_stdlib_md` regex over website markdown is gone.
+
+use crate::helpers::extract_params_from_doc;
+use sema_docs::DocEntry;
 use std::collections::HashMap;
 
-/// Parse a stdlib markdown doc file and extract function name → documentation.
-/// Format: ### `name` \n\n description paragraph \n\n ```sema ... ```
-fn parse_stdlib_md(md: &str, out: &mut HashMap<String, String>) {
-    let lines: Vec<&str> = md.lines().collect();
-    let mut i = 0;
-    while i < lines.len() {
-        // Look for ### `name`
-        if let Some(rest) = lines[i].strip_prefix("### `") {
-            if let Some(name) = rest.strip_suffix('`') {
-                let name = name.to_string();
-                i += 1;
-                // Skip blank lines
-                while i < lines.len() && lines[i].trim().is_empty() {
-                    i += 1;
-                }
-                // Collect description + example until next heading or end
-                let mut doc = String::new();
-                while i < lines.len() {
-                    if lines[i].starts_with("### ") || lines[i].starts_with("## ") {
-                        break;
-                    }
-                    doc.push_str(lines[i]);
-                    doc.push('\n');
-                    i += 1;
-                }
-                let doc = doc.trim_end().to_string();
-                if !doc.is_empty() {
-                    out.insert(name, doc);
-                }
-                continue;
+/// Name → documentation lookup (canonical names and aliases both resolve to the same entry).
+pub struct BuiltinDocs {
+    by_name: HashMap<String, DocEntry>,
+}
+
+impl BuiltinDocs {
+    /// Load from the compiled doc index.
+    pub fn load() -> Self {
+        let index = sema_docs::builtin_index();
+        let mut by_name = HashMap::with_capacity(index.entries.len() * 2);
+        for e in index.entries {
+            for alias in &e.aliases {
+                by_name.entry(alias.clone()).or_insert_with(|| e.clone());
             }
+            by_name.insert(e.name.clone(), e);
         }
-        i += 1;
+        BuiltinDocs { by_name }
+    }
+
+    /// An empty store (used by lightweight subprocess-dispatch state).
+    pub fn empty() -> Self {
+        BuiltinDocs {
+            by_name: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, name: &str) -> Option<&DocEntry> {
+        self.by_name.get(name)
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.by_name.contains_key(name)
     }
 }
 
-/// Build the complete builtin documentation map from embedded stdlib docs.
-pub fn build_builtin_docs() -> HashMap<String, String> {
-    let mut docs = HashMap::new();
+/// One-line signature, e.g. `(string/split s sep)`.
+/// For special forms with a `syntax` template, returns that verbatim.
+pub fn signature(e: &DocEntry) -> String {
+    if let Some(syn) = &e.syntax {
+        return syn.clone();
+    }
+    if e.params.is_empty() {
+        format!("({})", e.name)
+    } else {
+        let params: Vec<&str> = e.params.iter().map(|p| p.name.as_str()).collect();
+        format!("({} {})", e.name, params.join(" "))
+    }
+}
 
-    let sources: &[&str] = &[
-        include_str!("../../../website/docs/stdlib/math.md"),
-        include_str!("../../../website/docs/stdlib/strings.md"),
-        include_str!("../../../website/docs/stdlib/lists.md"),
-        include_str!("../../../website/docs/stdlib/maps.md"),
-        include_str!("../../../website/docs/stdlib/vectors.md"),
-        include_str!("../../../website/docs/stdlib/predicates.md"),
-        include_str!("../../../website/docs/stdlib/text-processing.md"),
-        include_str!("../../../website/docs/stdlib/file-io.md"),
-        include_str!("../../../website/docs/stdlib/system.md"),
-        include_str!("../../../website/docs/stdlib/datetime.md"),
-        include_str!("../../../website/docs/stdlib/http-json.md"),
-        include_str!("../../../website/docs/stdlib/regex.md"),
-        include_str!("../../../website/docs/stdlib/csv.md"),
-        include_str!("../../../website/docs/stdlib/toml.md"),
-        include_str!("../../../website/docs/stdlib/records.md"),
-        include_str!("../../../website/docs/stdlib/terminal.md"),
-        include_str!("../../../website/docs/stdlib/kv-store.md"),
-        include_str!("../../../website/docs/stdlib/bytevectors.md"),
-        include_str!("../../../website/docs/stdlib/pdf.md"),
-        include_str!("../../../website/docs/stdlib/web-server.md"),
-        include_str!("../../../website/docs/stdlib/context.md"),
-        include_str!("../../../website/docs/stdlib/playground.md"),
-    ];
+/// Parameter names for a builtin: the structured params if present, else parsed from the first
+/// example in the body (preserves inlay-hint param names until params are authored everywhere).
+///
+/// Note: special forms are intentionally left without signature-help parameters. Their syntax
+/// examples (e.g. `(let ((x 1) (y 2)) (+ x y))`) don't map to a flat parameter list, so the
+/// fallback is the bare form name (e.g. `let`). This is an inherent limitation of syntax-based
+/// forms rather than function calls.
+pub fn param_names(e: &DocEntry) -> Option<Vec<String>> {
+    if !e.params.is_empty() {
+        return Some(e.params.iter().map(|p| p.name.clone()).collect());
+    }
+    extract_params_from_doc(&e.body, &e.name)
+}
 
-    for source in sources {
-        parse_stdlib_md(source, &mut docs);
+/// Render an entry to Markdown for hover / completion documentation.
+pub fn render_markdown(e: &DocEntry) -> String {
+    let mut md = String::new();
+
+    // Signature header — show when we have structured params, a return type, or an explicit
+    // syntax template (special forms). Otherwise `(name)` adds noise; the body usually shows a
+    // real example anyway.
+    if !e.params.is_empty() || e.returns.is_some() || e.syntax.is_some() {
+        md.push_str("```sema\n");
+        md.push_str(&signature(e));
+        if let Some(ret) = &e.returns {
+            md.push_str(" → ");
+            md.push_str(ret);
+        }
+        md.push_str("\n```\n\n");
     }
 
-    // Special forms documentation (not in stdlib docs)
-    let special_forms: &[(&str, &str)] = &[
-        ("define", "Define a variable or function.\n\n```sema\n(define x 42)\n(define (square x) (* x x))\n```"),
-        ("defun", "Define a named function.\n\nSyntax: `(defun name (params...) body...)`\n\n```sema\n(defun greet (name) (string-append \"Hello, \" name))\n```"),
-        ("defn", "Define a named function (alias for `defun`).\n\nSyntax: `(defn name (params...) body...)`\n\n```sema\n(defn add (a b) (+ a b))\n(defn greet (name) (string-append \"Hello, \" name))\n```"),
-        ("defmacro", "Define a macro.\n\n```sema\n(defmacro unless (test body) `(if (not ,test) ,body))\n```"),
-        ("lambda", "Create an anonymous function.\n\n```sema\n(lambda (x y) (+ x y))\n```"),
-        ("fn", "Alias for `lambda`. Create an anonymous function.\n\n```sema\n(fn (x) (* x x))\n```"),
-        ("if", "Conditional expression.\n\n```sema\n(if (> x 0) \"positive\" \"non-positive\")\n```"),
-        ("cond", "Multi-branch conditional.\n\n```sema\n(cond\n  ((< x 0) \"negative\")\n  ((= x 0) \"zero\")\n  (else \"positive\"))\n```"),
-        ("let", "Bind local variables.\n\n```sema\n(let ((x 1) (y 2)) (+ x y))\n```"),
-        ("let*", "Bind local variables sequentially (each can refer to previous).\n\n```sema\n(let* ((x 1) (y (+ x 1))) y)  ; => 2\n```"),
-        ("letrec", "Bind local variables with mutual recursion.\n\n```sema\n(letrec ((even? (fn (n) (if (= n 0) #t (odd? (- n 1)))))\n         (odd?  (fn (n) (if (= n 0) #f (even? (- n 1))))))\n  (even? 10))\n```"),
-        ("begin", "Sequence expressions, returning the last.\n\n```sema\n(begin (println \"hello\") (+ 1 2))  ; => 3\n```"),
-        ("set!", "Mutate a variable binding.\n\n```sema\n(define x 1)\n(set! x 2)\nx  ; => 2\n```"),
-        ("quote", "Return the expression unevaluated.\n\n```sema\n(quote (1 2 3))  ; => (1 2 3)\n'(1 2 3)         ; => (1 2 3)\n```"),
-        ("quasiquote", "Template with unquote splicing.\n\n```sema\n`(1 ,(+ 1 1) 3)  ; => (1 2 3)\n```"),
-        ("and", "Short-circuit logical AND.\n\n```sema\n(and #t #t)   ; => #t\n(and #t #f)   ; => #f\n```"),
-        ("or", "Short-circuit logical OR.\n\n```sema\n(or #f #t)   ; => #t\n(or #f #f)   ; => #f\n```"),
-        ("when", "Execute body when condition is true.\n\n```sema\n(when (> x 0) (println \"positive\"))\n```"),
-        ("unless", "Execute body when condition is false.\n\n```sema\n(unless (> x 0) (println \"non-positive\"))\n```"),
-        ("while", "Loop while condition is true.\n\n```sema\n(define i 0)\n(while (< i 5) (set! i (+ i 1)))\n```"),
-        ("do", "Iteration construct with step expressions.\n\n```sema\n(do ((i 0 (+ i 1)))\n    ((= i 5) i))\n```"),
-        ("match", "Pattern matching.\n\n```sema\n(match x\n  (0 \"zero\")\n  ((? number?) \"number\")\n  (_ \"other\"))\n```"),
-        ("case", "Value-based dispatch.\n\n```sema\n(case x\n  ((1) \"one\")\n  ((2 3) \"two or three\")\n  (else \"other\"))\n```"),
-        ("try", "Exception handling.\n\n```sema\n(try\n  (/ 1 0)\n  (catch e (println \"Error:\" e)))\n```"),
-        ("throw", "Raise an exception.\n\n```sema\n(throw \"something went wrong\")\n```"),
-        ("import", "Import a module.\n\n```sema\n(import \"utils.sema\")\n(import \"lib.sema\" (helper-fn other-fn))\n```"),
-        ("load", "Load and evaluate a file.\n\n```sema\n(load \"config.sema\")\n```"),
-        ("export", "Declare exported symbols from a module.\n\n```sema\n(export my-fn my-var)\n```"),
-        ("delay", "Create a lazy promise.\n\n```sema\n(define p (delay (expensive-computation)))\n```"),
-        ("force", "Force evaluation of a delayed promise.\n\n```sema\n(force p)  ; evaluates the delayed computation\n```"),
-        ("eval", "Evaluate an expression at runtime.\n\n```sema\n(eval '(+ 1 2))  ; => 3\n```"),
-        ("defagent", "Define an LLM agent.\n\n```sema\n(defagent my-agent\n  :model \"claude-sonnet\"\n  :system \"You are helpful.\")\n```"),
-        ("deftool", "Define a tool for an LLM agent.\n\n```sema\n(deftool get-weather (location)\n  \"Get weather for a location\"\n  (http/get (format \"https://api.weather.com/~a\" location)))\n```"),
-        ("prompt", "Send a prompt to an LLM.\n\n```sema\n(prompt \"Explain recursion in one sentence\")\n```"),
-        ("for", "Iterate with bindings.\n\n```sema\n(for ((x (range 5)))\n  (println x))\n```"),
-        ("for/list", "Collect iteration results into a list.\n\n```sema\n(for/list ((x (range 5)))\n  (* x x))  ; => (0 1 4 9 16)\n```"),
-        ("for/map", "Collect iteration results into a map.\n\n```sema\n(for/map ((x '(1 2 3)))\n  (values x (* x x)))  ; => {1 1, 2 4, 3 9}\n```"),
-        ("for/filter", "Filter iteration results into a list.\n\n```sema\n(for/filter ((x (range 10)))\n  (even? x))  ; => (0 2 4 6 8)\n```"),
-        ("for/fold", "Fold over iteration with an accumulator.\n\n```sema\n(for/fold ((sum 0))\n  ((x (range 5)))\n  (+ sum x))  ; => 10\n```"),
-        ("with-budget", "Limit LLM token budget for enclosed operations.\n\n```sema\n(with-budget 1000\n  (prompt \"Be brief.\"))\n```"),
-        ("def", "Alias for `define`. Define a variable.\n\n```sema\n(def x 42)\n```"),
-    ];
+    md.push_str(e.body.trim());
 
-    for (name, doc) in special_forms {
-        docs.insert(name.to_string(), doc.to_string());
+    // Parameter docs, if any carry descriptions.
+    if e.params.iter().any(|p| p.doc.is_some()) {
+        md.push_str("\n\n**Parameters:**\n");
+        for p in &e.params {
+            md.push_str(&format!(
+                "\n- `{}`{}{}",
+                p.name,
+                p.ty.as_deref()
+                    .map(|t| format!(" : {t}"))
+                    .unwrap_or_default(),
+                p.doc
+                    .as_deref()
+                    .map(|d| format!(" — {d}"))
+                    .unwrap_or_default(),
+            ));
+        }
     }
 
-    docs
+    if e.deprecated {
+        md.push_str("\n\n**Deprecated.**");
+    }
+    if !e.see_also.is_empty() {
+        let links: Vec<String> = e.see_also.iter().map(|s| format!("`{s}`")).collect();
+        md.push_str(&format!("\n\nSee also: {}", links.join(", ")));
+    }
+    if let Some(since) = &e.since {
+        md.push_str(&format!("\n\n_Since {since}_"));
+    }
+    md
 }
 
 #[cfg(test)]
@@ -126,47 +127,51 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_stdlib_md_basic() {
-        let md = r#"### `foo`
-
-Do something useful.
-
-```sema
-(foo 1 2)  ; => 3
-```
-
-### `bar`
-
-Another function.
-"#;
-        let mut docs = HashMap::new();
-        parse_stdlib_md(md, &mut docs);
-        assert!(docs.contains_key("foo"));
-        assert!(docs["foo"].contains("Do something useful"));
-        assert!(docs["foo"].contains("(foo 1 2)"));
-        assert!(docs.contains_key("bar"));
-        assert!(docs["bar"].contains("Another function"));
+    fn index_loads_and_resolves_known_names() {
+        let docs = BuiltinDocs::load();
+        // A stdlib builtin and a special form should both be present.
+        assert!(docs.contains("string/split"), "missing string/split");
+        assert!(docs.contains("define"), "missing special form `define`");
     }
 
     #[test]
-    fn build_docs_has_common_builtins() {
-        let docs = build_builtin_docs();
-        // Check some well-known builtins exist
-        assert!(docs.contains_key("+"), "missing +");
-        assert!(docs.contains_key("map"), "missing map");
-        assert!(docs.contains_key("string/trim"), "missing string/trim");
-        assert!(docs.contains_key("list"), "missing list");
-        assert!(docs.contains_key("car"), "missing car");
-        // Check special forms
-        assert!(docs.contains_key("define"), "missing define");
-        assert!(docs.contains_key("if"), "missing if");
-        assert!(docs.contains_key("lambda"), "missing lambda");
+    fn renders_markdown_with_body() {
+        let docs = BuiltinDocs::load();
+        let e = docs.get("string/split").expect("string/split");
+        let md = render_markdown(e);
+        assert!(md.contains("Split"), "rendered: {md}");
     }
 
     #[test]
-    fn build_docs_content_format() {
-        let docs = build_builtin_docs();
-        let plus_doc = &docs["+"];
-        assert!(plus_doc.contains("Add"), "'+' doc should mention adding");
+    fn signature_uses_params_when_present() {
+        let e = DocEntry {
+            name: "f".into(),
+            aliases: vec![],
+            module: "m".into(),
+            section: None,
+            summary: "s".into(),
+            params: vec![
+                sema_docs::Param {
+                    name: "a".into(),
+                    ty: None,
+                    doc: None,
+                },
+                sema_docs::Param {
+                    name: "b".into(),
+                    ty: None,
+                    doc: None,
+                },
+            ],
+            returns: Some("int".into()),
+            since: None,
+            deprecated: false,
+            see_also: vec![],
+            examples: vec![],
+            body: "Adds.".into(),
+            syntax: None,
+            special_form: false,
+        };
+        assert_eq!(signature(&e), "(f a b)");
+        assert!(render_markdown(&e).contains("(f a b) → int"));
     }
 }

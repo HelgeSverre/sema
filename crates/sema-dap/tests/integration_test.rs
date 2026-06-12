@@ -312,3 +312,89 @@ fn test_dap_breakpoint_and_continue() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn test_dap_breakpoint_after_launch() {
+    let binary = sema_binary();
+
+    let dir = unique_temp_dir("bp_after");
+    let program_path = dir.join("test_bp.sema");
+    std::fs::write(&program_path, "(define x 1)\n(define y 2)\n(+ x y)\n").unwrap();
+
+    let mut child = Command::new(&binary)
+        .arg("dap")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn {binary}: {e}"));
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+
+    // Initialize
+    send_dap(&mut stdin, 1, "initialize", Some(serde_json::json!({})));
+    let _resp = read_dap(&mut reader).unwrap();
+    let _event = read_dap(&mut reader).unwrap();
+
+    // Launch first
+    send_dap(
+        &mut stdin,
+        2,
+        "launch",
+        Some(serde_json::json!({
+            "program": program_path.to_string_lossy(),
+        })),
+    );
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "launch");
+    assert_eq!(resp["success"], true);
+
+    // Now set breakpoint (after launch, before configurationDone)
+    send_dap(
+        &mut stdin,
+        3,
+        "setBreakpoints",
+        Some(serde_json::json!({
+            "source": { "path": program_path.to_string_lossy() },
+            "breakpoints": [{ "line": 2 }],
+        })),
+    );
+    // If it deadlocks, this read will timeout (return None)
+    let resp = read_dap_timeout(&mut reader, Duration::from_secs(2))
+        .expect("Deadlock detected: setBreakpoints request blocked indefinitely!");
+    assert_eq!(resp["command"], "setBreakpoints");
+    assert_eq!(resp["success"], true);
+
+    // ConfigurationDone
+    send_dap(&mut stdin, 4, "configurationDone", None);
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "configurationDone");
+    assert_eq!(resp["success"], true);
+
+    // Should get a stopped event
+    assert!(
+        wait_for_event(&mut reader, "stopped", 50),
+        "should receive stopped event at breakpoint"
+    );
+
+    // Continue
+    send_dap(&mut stdin, 5, "continue", Some(serde_json::json!({})));
+    let _resp = read_dap(&mut reader).unwrap();
+
+    // Terminated
+    assert!(
+        wait_for_event(&mut reader, "terminated", 50),
+        "should receive terminated event"
+    );
+
+    // Disconnect
+    send_dap(&mut stdin, 6, "disconnect", None);
+    let _ = read_dap(&mut reader);
+
+    let status = child.wait().expect("failed to wait for child");
+    assert!(status.success());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

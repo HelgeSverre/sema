@@ -4548,6 +4548,23 @@ fn simple_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, Sema
     }
 }
 
+/// Detect media type from file magic bytes.
+fn detect_media_type(bytes: &[u8]) -> &'static str {
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+        "image/png"
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"GIF8") {
+        "image/gif"
+    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else if bytes.starts_with(b"%PDF") {
+        "application/pdf"
+    } else {
+        "application/octet-stream"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4687,7 +4704,7 @@ mod tests {
     fn make_param_map(keys: &[&str]) -> Value {
         let mut map = BTreeMap::new();
         for k in keys {
-            map.insert(Value::keyword(*k), Value::map(BTreeMap::new()));
+            map.insert(Value::keyword(k), Value::map(BTreeMap::new()));
         }
         Value::map(map)
     }
@@ -4920,22 +4937,5 @@ mod tests {
             assert_eq!(chain.borrow().as_ref().unwrap().len(), 2);
             *chain.borrow_mut() = None;
         });
-    }
-}
-
-/// Detect media type from file magic bytes.
-fn detect_media_type(bytes: &[u8]) -> &'static str {
-    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
-        "image/png"
-    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        "image/jpeg"
-    } else if bytes.starts_with(b"GIF8") {
-        "image/gif"
-    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        "image/webp"
-    } else if bytes.starts_with(b"%PDF") {
-        "application/pdf"
-    } else {
-        "application/octet-stream"
     }
 }

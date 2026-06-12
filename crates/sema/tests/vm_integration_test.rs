@@ -6,7 +6,7 @@ fn eval_vm(input: &str) -> Value {
     let interp = Interpreter::new();
     interp
         .eval_str_compiled(input)
-        .expect(&format!("VM failed: {input}"))
+        .unwrap_or_else(|_| panic!("VM failed: {input}"))
 }
 
 /// Assert tree-walker and VM produce the same result
@@ -15,13 +15,13 @@ fn assert_equiv(input: &str) {
         let interp = Interpreter::new();
         interp
             .eval_str(input)
-            .expect(&format!("tree-walker failed: {input}"))
+            .unwrap_or_else(|_| panic!("tree-walker failed: {input}"))
     };
     let vm = {
         let interp = Interpreter::new();
         interp
             .eval_str_compiled(input)
-            .expect(&format!("VM failed: {input}"))
+            .unwrap_or_else(|_| panic!("VM failed: {input}"))
     };
     assert_eq!(tw, vm, "tree-walker vs VM mismatch for: {input}");
 }
@@ -37,13 +37,13 @@ fn assert_equiv_eq(input: &str, expected: Value) {
         let interp = Interpreter::new();
         interp
             .eval_str(input)
-            .expect(&format!("tree-walker failed: {input}"))
+            .unwrap_or_else(|_| panic!("tree-walker failed: {input}"))
     };
     let vm = {
         let interp = Interpreter::new();
         interp
             .eval_str_compiled(input)
-            .expect(&format!("VM failed: {input}"))
+            .unwrap_or_else(|_| panic!("VM failed: {input}"))
     };
     assert_eq!(tw, vm, "tree-walker vs VM mismatch for: {input}");
     assert_eq!(

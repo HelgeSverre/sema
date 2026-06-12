@@ -335,7 +335,7 @@ pub fn extract_params_from_ast(ast: &[sema_core::Value], name: &str) -> Option<S
             if items.len() >= 3 {
                 if let Some(head) = items[0].as_symbol() {
                     match head.as_str() {
-                        "defun" | "defn" => {
+                        "defun" | "defn" | "defmacro" | "deftool" => {
                             if let Some(sym) = items[1].as_symbol() {
                                 if sym == name {
                                     return Some(sema_core::pretty_print(&items[2], 80));
@@ -362,6 +362,57 @@ pub fn extract_params_from_ast(ast: &[sema_core::Value], name: &str) -> Option<S
                 }
             }
         }
+    }
+    None
+}
+
+/// Extract the docstring of a user-defined function `name` from the AST.
+///
+/// Follows the Clojure convention: a leading string literal in a function body is the docstring
+/// **only when at least one more body form follows** (otherwise the string is the function's return
+/// value, not documentation). `(defun f (x) "doc" body)` → `Some("doc")`; `(defun f (x) "ret")` →
+/// `None`. No language change is needed — a leading string body form is already legal.
+pub fn extract_docstring_from_ast(ast: &[sema_core::Value], name: &str) -> Option<String> {
+    for expr in ast {
+        let items = match expr.as_list() {
+            Some(items) if items.len() >= 2 => items,
+            _ => continue,
+        };
+        let head = match items[0].as_symbol() {
+            Some(h) => h,
+            None => continue,
+        };
+        // Body starts at index 2 for (defun name (params) body...) and the (define (name ...) ...)
+        // shorthand. Match the function's name.
+        let matches_name = match head.as_str() {
+            "defun" | "defn" | "defmacro" => items[1].as_symbol().as_deref() == Some(name),
+            "define" => {
+                items[1]
+                    .as_list()
+                    .and_then(|sig| sig.first().and_then(|v| v.as_symbol()))
+                    .as_deref()
+                    == Some(name)
+            }
+            _ => false,
+        };
+        if !matches_name {
+            continue;
+        }
+        // Body start: `(defun name (params) body...)` → index 3; `(define (name ..) body...)` → 2.
+        let body_start = match head.as_str() {
+            "define" => 2,
+            _ => 3,
+        };
+        let body = items.get(body_start..).unwrap_or(&[]);
+        if body.len() >= 2 {
+            if let Some(s) = body[0].as_str() {
+                let s = s.trim();
+                if !s.is_empty() {
+                    return Some(s.to_string());
+                }
+            }
+        }
+        return None; // found the definition; no docstring
     }
     None
 }
@@ -598,6 +649,41 @@ pub(crate) fn find_arg_positions_in_form(
 
 /// Extract parameter names from a builtin doc string by parsing the first
 /// code example. Looks for `(func_name arg1 arg2 ...)` in a ```sema block.
+/// True if `token` looks like a parameter name rather than an argument expression.
+/// Rejects compound expressions (anything with parens/brackets/braces), string literals,
+/// quoted forms, numbers, and empty tokens.
+fn looks_like_param_name(token: &str) -> bool {
+    if token.is_empty() {
+        return false;
+    }
+    // Reject compound expressions
+    if token.contains(&['(', ')', '[', ']', '{', '}'][..]) {
+        return false;
+    }
+    // Reject string literals
+    if token.starts_with('"') {
+        return false;
+    }
+    // Reject quoted / quasiquoted / unquoted forms
+    if token.starts_with('\'') || token.starts_with('`') || token.starts_with(",") {
+        return false;
+    }
+    // Reject pure numbers (integers, floats, scientific notation)
+    if token.parse::<f64>().is_ok() {
+        return false;
+    }
+    true
+}
+
+/// Best-effort fallback: extract parameter names from the first ` ```sema ` code example
+/// in a doc body. This is only used when the entry has no structured `params` — it
+/// presumes the first example shows a function *signature* like `(foo a b)` rather than
+/// a function *call* with complex argument expressions like `(map (fn (x) x) lst)`.
+///
+/// Tokens that don't look like simple parameter names (compound expressions, literals,
+/// quoted forms, numbers) are discarded. If any token in the first matching call fails
+/// this check, the whole call is skipped so that higher-order functions don't produce
+/// nonsensical inlay hints like `(fn (x) (* x x)):`.
 pub(crate) fn extract_params_from_doc(doc: &str, func_name: &str) -> Option<Vec<String>> {
     // Find the first sema code block
     let code_start = doc.find("```sema\n")?;
@@ -641,7 +727,10 @@ pub(crate) fn extract_params_from_doc(doc: &str, func_name: &str) -> Option<Vec<
                     _ => current.push(ch),
                 }
             }
-            if !params.is_empty() {
+            // Only accept this call if EVERY token looks like a parameter name.
+            // This prevents `(map (fn (x) x) '(1 2 3))` from yielding nonsensical
+            // hints like `(fn (x) x):` — instead we skip it and return None.
+            if !params.is_empty() && params.iter().all(|p| looks_like_param_name(p)) {
                 return Some(params);
             }
         }

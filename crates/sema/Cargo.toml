@@ -28,6 +28,7 @@ sema-stdlib.workspace = true
 sema-fmt.workspace = true
 sema-lsp.workspace = true
 sema-dap.workspace = true
+sema-docs.workspace = true
 sema-notebook.workspace = true
 tokio.workspace = true
 reedline = "0.47"

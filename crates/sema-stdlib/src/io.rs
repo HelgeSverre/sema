@@ -272,53 +272,59 @@ fn path_extension_impl(args: &[Value]) -> Result<Value, SemaError> {
 
 pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     register_fn(env, "display", |args| {
+        let mut output = String::new();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
-                print!(" ");
+                output.push(' ');
             }
             match arg.as_str() {
-                Some(s) => print!("{s}"),
-                None => print!("{arg}"),
+                Some(s) => output.push_str(s),
+                None => output.push_str(&format!("{arg}")),
             }
         }
+        sema_core::write_stdout(&output);
         let _ = std::io::stdout().flush();
         Ok(Value::nil())
     });
 
     register_fn(env, "print", |args| {
+        let mut output = String::new();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
-                print!(" ");
+                output.push(' ');
             }
-            print!("{arg}");
+            output.push_str(&format!("{arg}"));
         }
+        sema_core::write_stdout(&output);
         let _ = std::io::stdout().flush();
         Ok(Value::nil())
     });
 
     register_fn(env, "println", |args| {
+        let mut output = String::new();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
-                print!(" ");
+                output.push(' ');
             }
             match arg.as_str() {
-                Some(s) => print!("{s}"),
-                None => print!("{arg}"),
+                Some(s) => output.push_str(s),
+                None => output.push_str(&format!("{arg}")),
             }
         }
-        println!();
+        output.push('\n');
+        sema_core::write_stdout(&output);
         Ok(Value::nil())
     });
 
     register_fn(env, "pprint", |args| {
         check_arity!(args, "pprint", 1);
-        println!("{}", sema_core::pretty_print(&args[0], 80));
+        sema_core::write_stdout(&format!("{}\n", sema_core::pretty_print(&args[0], 80)));
         Ok(Value::nil())
     });
 
     register_fn(env, "newline", |args| {
         check_arity!(args, "newline", 0);
-        println!();
+        sema_core::write_stdout("\n");
         Ok(Value::nil())
     });
 
@@ -823,30 +829,34 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "print-error", |args| {
+        let mut output = String::new();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
-                eprint!(" ");
+                output.push(' ');
             }
             match arg.as_str() {
-                Some(s) => eprint!("{s}"),
-                None => eprint!("{arg}"),
+                Some(s) => output.push_str(s),
+                None => output.push_str(&format!("{arg}")),
             }
         }
+        sema_core::write_stderr(&output);
         std::io::stderr().flush().ok();
         Ok(Value::nil())
     });
 
     register_fn(env, "println-error", |args| {
+        let mut output = String::new();
         for (i, arg) in args.iter().enumerate() {
             if i > 0 {
-                eprint!(" ");
+                output.push(' ');
             }
             match arg.as_str() {
-                Some(s) => eprint!("{s}"),
-                None => eprint!("{arg}"),
+                Some(s) => output.push_str(s),
+                None => output.push_str(&format!("{arg}")),
             }
         }
-        eprintln!();
+        output.push('\n');
+        sema_core::write_stderr(&output);
         Ok(Value::nil())
     });
 

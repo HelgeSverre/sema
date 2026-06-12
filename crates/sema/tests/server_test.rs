@@ -5,7 +5,7 @@ fn eval(input: &str) -> Value {
     let interp = Interpreter::new();
     interp
         .eval_str(input)
-        .expect(&format!("failed to eval: {input}"))
+        .unwrap_or_else(|_| panic!("failed to eval: {input}"))
 }
 
 fn eval_err(input: &str) -> SemaError {
@@ -1500,7 +1500,7 @@ fn test_server_concurrent_requests() {
             std::thread::spawn(move || {
                 let client = reqwest::blocking::Client::new();
                 let resp = client
-                    .get(&format!("http://127.0.0.1:19905/req/{i}"))
+                    .get(format!("http://127.0.0.1:19905/req/{i}"))
                     .timeout(Duration::from_secs(10))
                     .send();
                 if let Ok(r) = resp {

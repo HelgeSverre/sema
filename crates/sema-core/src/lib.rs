@@ -4,6 +4,7 @@ pub mod context;
 pub mod error;
 pub mod home;
 pub mod json;
+pub mod output_hook;
 pub mod resolve;
 pub mod sandbox;
 pub mod text_util;
@@ -25,6 +26,7 @@ pub use error::{CallFrame, SemaError, Span, SpanMap, StackTrace};
 pub use home::sema_home;
 pub use json::{json_to_value, key_to_string, value_to_json, value_to_json_lossy};
 pub use lasso::Spur;
+pub use output_hook::{set_stderr_hook, set_stdout_hook, write_stderr, write_stdout};
 pub use sandbox::{Caps, Sandbox};
 pub use text_util::truncate_chars;
 pub use value::{

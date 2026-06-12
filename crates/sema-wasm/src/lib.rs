@@ -2744,7 +2744,12 @@ fn sema_value_to_jsvalue(val: &Value) -> JsValue {
 /// or {"formatted": null, "error": "..."}
 #[wasm_bindgen(js_name = formatCode)]
 pub fn format_code(code: &str, width: usize, indent: usize, align: bool) -> JsValue {
-    match sema_fmt::format_source_opts(code, width, indent, align) {
+    let opts = sema_fmt::FormatOptions {
+        width,
+        indent,
+        align,
+    };
+    match sema_fmt::format_source(code, &opts) {
         Ok(formatted) => {
             let json_str = format!(
                 "{{\"formatted\":\"{}\",\"error\":null}}",

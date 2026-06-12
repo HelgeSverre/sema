@@ -140,7 +140,7 @@ fn record_source(expr: &str) {
 
 fn doc(env: &Env, name: &str) {
     let spur = sema_core::intern(name);
-    let builtin_docs = sema_lsp::builtin_docs::build_builtin_docs();
+    let builtin_docs = sema_lsp::builtin_docs::BuiltinDocs::load();
     match env.get(spur) {
         Some(val) => {
             // VM closures arrive wrapped as NativeFn — peel that first so we
@@ -160,8 +160,8 @@ fn doc(env: &Env, name: &str) {
                 match val.view() {
                     ValueView::NativeFn(_f) => {
                         println!("  {} {} native-fn", colors::cyan(name), colors::dim(":"),);
-                        if let Some(doc) = builtin_docs.get(name) {
-                            println!("{doc}");
+                        if let Some(e) = builtin_docs.get(name) {
+                            println!("{}", sema_lsp::builtin_docs::render_markdown(e));
                         }
                     }
                     ValueView::Lambda(l) => {
@@ -194,12 +194,12 @@ fn doc(env: &Env, name: &str) {
         None => {
             if SPECIAL_FORM_NAMES.contains(&name) {
                 println!("  {} {} special form", colors::cyan(name), colors::dim(":"));
-                if let Some(doc) = builtin_docs.get(name) {
-                    println!("{doc}");
+                if let Some(e) = builtin_docs.get(name) {
+                    println!("{}", sema_lsp::builtin_docs::render_markdown(e));
                 }
-            } else if let Some(doc) = builtin_docs.get(name) {
+            } else if let Some(e) = builtin_docs.get(name) {
                 println!("  {} {} builtin", colors::cyan(name), colors::dim(":"));
-                println!("{doc}");
+                println!("{}", sema_lsp::builtin_docs::render_markdown(e));
             } else {
                 eprintln!("  {} {name}", colors::red_bold("not found:"));
             }

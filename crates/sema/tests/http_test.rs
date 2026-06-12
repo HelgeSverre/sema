@@ -5,7 +5,7 @@ fn eval(input: &str) -> Value {
     let interp = Interpreter::new();
     interp
         .eval_str(input)
-        .expect(&format!("failed to eval: {input}"))
+        .unwrap_or_else(|_| panic!("failed to eval: {input}"))
 }
 
 fn eval_err(input: &str) -> sema_core::SemaError {

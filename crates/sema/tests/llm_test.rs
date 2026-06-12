@@ -5,7 +5,7 @@ fn eval_with_llm(input: &str) -> Value {
     let interp = Interpreter::new();
     interp
         .eval_str(&format!("(llm/auto-configure) {input}"))
-        .expect(&format!("failed to eval: {input}"))
+        .unwrap_or_else(|_| panic!("failed to eval: {input}"))
 }
 
 // === LLM completion ===

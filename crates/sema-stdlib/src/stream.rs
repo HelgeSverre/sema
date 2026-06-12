@@ -514,15 +514,14 @@ mod io_streams {
         }
 
         fn write(&self, data: &[u8]) -> Result<usize, SemaError> {
-            std::io::stdout()
-                .write(data)
-                .map_err(|e| SemaError::eval(format!("stream/write: stdout: {e}")))
+            let text = String::from_utf8_lossy(data);
+            sema_core::write_stdout(&text);
+            Ok(data.len())
         }
 
         fn flush(&self) -> Result<(), SemaError> {
-            std::io::stdout()
-                .flush()
-                .map_err(|e| SemaError::eval(format!("stream/flush: stdout: {e}")))
+            let _ = std::io::stdout().flush();
+            Ok(())
         }
 
         fn is_readable(&self) -> bool {
@@ -548,15 +547,14 @@ mod io_streams {
         }
 
         fn write(&self, data: &[u8]) -> Result<usize, SemaError> {
-            std::io::stderr()
-                .write(data)
-                .map_err(|e| SemaError::eval(format!("stream/write: stderr: {e}")))
+            let text = String::from_utf8_lossy(data);
+            sema_core::write_stderr(&text);
+            Ok(data.len())
         }
 
         fn flush(&self) -> Result<(), SemaError> {
-            std::io::stderr()
-                .flush()
-                .map_err(|e| SemaError::eval(format!("stream/flush: stderr: {e}")))
+            let _ = std::io::stderr().flush();
+            Ok(())
         }
 
         fn is_readable(&self) -> bool {

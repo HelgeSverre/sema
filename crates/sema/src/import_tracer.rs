@@ -401,7 +401,7 @@ mod tests {
     #[test]
     fn test_trace_binary_file_included() {
         let dir = tmpdir("binary");
-        fs::write(dir.join("data.bin"), &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+        fs::write(dir.join("data.bin"), [0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
         fs::write(dir.join("main.sema"), r#"(import "data.bin")"#).unwrap();
         let result = trace_imports(&dir.join("main.sema")).unwrap();
         assert!(

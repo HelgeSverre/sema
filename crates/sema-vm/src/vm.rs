@@ -3812,7 +3812,7 @@ mod tests {
         let ctx = EvalContext::new();
         let result = eval_str_with_call_native("(list 1 2 3)", &globals, &ctx).unwrap();
         assert!(result.is_list());
-        let items: Vec<Value> = result.as_list().unwrap().iter().cloned().collect();
+        let items: Vec<Value> = result.as_list().unwrap().to_vec();
         assert_eq!(items, vec![Value::int(1), Value::int(2), Value::int(3)]);
     }
 
