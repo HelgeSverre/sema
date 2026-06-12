@@ -2,10 +2,13 @@ package com.sema.intellij.lsp
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.project.Project
-import com.redhat.devtools.lsp4ij.client.LanguageClientImpl
+import com.redhat.devtools.lsp4ij.client.IndexAwareLanguageClient
 import org.eclipse.lsp4j.jsonrpc.services.JsonNotification
 
-class SemaLanguageClient(project: Project) : LanguageClientImpl(project) {
+// Extends IndexAwareLanguageClient (a subclass of LanguageClientImpl) per LSP4IJ guidance for
+// clients that handle custom LSP messages — keeps indexing from interfering with the custom
+// `sema/evalResult` notification below.
+class SemaLanguageClient(project: Project) : IndexAwareLanguageClient(project) {
 
     @JsonNotification("sema/evalResult")
     fun evalResult(params: EvalResultParams) {

@@ -45,6 +45,9 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace -- -D warnings
 
+      - name: Check builtin docs (committed index fresh + fully documented)
+        run: make docs-check
+
       - name: Run tests
         run: cargo test --workspace
 

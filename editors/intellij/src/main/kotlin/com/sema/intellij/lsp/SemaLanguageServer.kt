@@ -1,11 +1,11 @@
 package com.sema.intellij.lsp
 
-import com.intellij.execution.configurations.GeneralCommandLine
+import com.intellij.openapi.project.Project
 import com.redhat.devtools.lsp4ij.server.OSProcessStreamConnectionProvider
+import com.sema.intellij.config.SemaCommandLine
 
-class SemaLanguageServer : OSProcessStreamConnectionProvider() {
+class SemaLanguageServer(project: Project) : OSProcessStreamConnectionProvider() {
     init {
-        val semaPath = System.getenv("SEMA_PATH") ?: "sema"
-        commandLine = GeneralCommandLine(semaPath, "lsp")
+        commandLine = SemaCommandLine.lsp(workingDirectory = project.basePath)
     }
 }

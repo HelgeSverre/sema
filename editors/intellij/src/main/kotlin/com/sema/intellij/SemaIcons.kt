@@ -8,4 +8,6 @@ object SemaIcons {
     val FILE: Icon = IconLoader.getIcon("/icons/sema.svg", SemaIcons::class.java)
     @JvmField
     val COMPILED_FILE: Icon = IconLoader.getIcon("/icons/semac.svg", SemaIcons::class.java)
+    @JvmField
+    val NOTEBOOK_FILE: Icon = IconLoader.getIcon("/icons/sema-notebook.svg", SemaIcons::class.java)
 }

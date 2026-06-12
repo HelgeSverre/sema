@@ -32,6 +32,23 @@ cd editors/intellij
 # Settings → Plugins → ⚙️ → Install Plugin from Disk…
 ```
 
+## Development
+
+### Run unit tests (116 tests, < 1s)
+
+```bash
+cd editors/intellij
+./gradlew test
+```
+
+### Run full IDE integration tests
+
+Requires a plugin ZIP artifact. Starts a real IntelliJ IDE, installs the plugin, and verifies startup.
+
+```bash
+./gradlew buildPlugin integrationTest
+```
+
 ## Configuration
 
 Set the `SEMA_PATH` environment variable to the path of your `sema` binary if it's not on PATH.

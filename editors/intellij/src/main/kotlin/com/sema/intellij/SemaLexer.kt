@@ -118,6 +118,7 @@ class SemaLexer : LexerBase() {
             ch == '#' && peekNext() == '\\' -> lexCharacter()
             ch == '#' && (peekNext() == 't' || peekNext() == 'f') -> lexHashBoolean()
             ch == '#' && peekNext() == 'u' -> lexHashDispatch()
+            ch == '#' && peekNext() == '(' -> lexHashDispatch()
             ch == ':' && pos + 1 < endOffset && isSymbolChar(buffer[pos + 1]) -> lexKeyword()
             ch == '.' && (pos + 1 >= endOffset || !isSymbolChar(buffer[pos + 1])) -> {
                 pos++; SemaTokenTypes.DOT

@@ -1,25 +1,30 @@
 <idea-plugin>
-    <id>com.sema.intellij</id>
+    <id>com.sema.language</id>
     <name>Sema</name>
     <vendor url="https://sema-lang.com">Helge Sverre</vendor>
     <description><![CDATA[
-        Language support for <a href="https://sema-lang.com">Sema</a>, a Lisp dialect with first-class LLM primitives.
+        <p>Language support for <a href="https://sema-lang.com">Sema</a>, a Lisp dialect with first-class LLM primitives.</p>
         <ul>
-            <li>Syntax highlighting</li>
-            <li>Code completion (builtins, special forms, user definitions)</li>
-            <li>Hover documentation</li>
-            <li>Go to definition (including cross-module)</li>
-            <li>Diagnostics (parse errors and compile warnings)</li>
-            <li>Code lenses (Run top-level forms)</li>
-            <li>Brace matching and auto-pairing</li>
-            <li>Line and block commenting</li>
+            <li>Syntax highlighting for <code>.sema</code>, <code>.semac</code> and <code>.sema-nb</code> files</li>
+            <li>LSP-powered code completion, hover documentation, go-to-definition and diagnostics</li>
+            <li>Code lenses (evaluate top-level forms inline)</li>
+            <li>Brace matching, auto-pairing and smart commenting</li>
+            <li>Debug Adapter Protocol (DAP) support — step-through debugging with breakpoints, stack traces and variable inspection</li>
+            <li>Sema Notebook editor with live cell execution, browser preview and Markdown export</li>
         </ul>
         ]]></description>
+    <!-- change-notes are injected at build time from CHANGELOG.md via the gradle-changelog plugin. -->
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.redhat.devtools.lsp4ij</depends>
 
     <extensions defaultExtensionNs="com.intellij">
+        <applicationConfigurable
+                parentId="language"
+                id="com.sema.settings"
+                displayName="Sema"
+                instance="com.sema.intellij.config.SemaConfigurable"/>
+        <editorNotificationProvider implementation="com.sema.intellij.config.SemaBinaryNotificationProvider"/>
         <fileType
                 name="Sema"
                 language="Sema"
@@ -31,6 +36,12 @@
                 extensions="semac"
                 implementationClass="com.sema.intellij.SemacFileType"
                 fieldName="INSTANCE"/>
+        <fileType
+                name="Sema Notebook"
+                extensions="sema-nb"
+                implementationClass="com.sema.intellij.notebook.SemaNotebookFileType"
+                fieldName="INSTANCE"/>
+        <fileEditorProvider implementation="com.sema.intellij.notebook.SemaNotebookFileEditorProvider"/>
         <lang.syntaxHighlighterFactory
                 language="Sema"
                 implementationClass="com.sema.intellij.SemaSyntaxHighlighterFactory"/>
@@ -50,6 +61,7 @@
         <!-- LSP4IJ language-specific bindings (required for non-TEXT/textmate languages) -->
         <codeInsight.parameterInfo
                 language="Sema"
+                order="first"
                 implementationClass="com.redhat.devtools.lsp4ij.features.signatureHelp.LSPParameterInfoHandler"/>
         <lang.foldingBuilder
                 language="Sema"
@@ -57,7 +69,14 @@
                 order="first"/>
         <lang.psiStructureViewFactory
                 language="Sema"
+                order="first"
                 implementationClass="com.redhat.devtools.lsp4ij.features.documentSymbol.LSPDocumentSymbolStructureViewFactory"/>
+        <codeBlockProvider
+                language="Sema"
+                implementationClass="com.redhat.devtools.lsp4ij.features.codeBlockProvider.LSPCodeBlockProvider"/>
+        <callHierarchyProvider
+                language="Sema"
+                implementationClass="com.redhat.devtools.lsp4ij.features.callHierarchy.LSPCallHierarchyProvider"/>
     </extensions>
 
     <extensions defaultExtensionNs="com.redhat.devtools.lsp4ij">
@@ -72,6 +91,18 @@
         <languageMapping language="Sema"
                          serverId="sema-lsp"
                          languageId="sema"/>
+        <semanticTokensColorsProvider
+                serverId="sema-lsp"
+                class="com.sema.intellij.lsp.SemaSemanticTokensColorsProvider"/>
+        <debugAdapterServer
+                id="sema-dap"
+                name="Sema Debug Adapter"
+                factoryClass="com.sema.intellij.dap.SemaDebugAdapterDescriptorFactory"
+                icon="/icons/sema-notebook.svg">
+            <description><![CDATA[
+                <p>Debug Adapter Protocol server for Sema.</p>
+                ]]></description>
+        </debugAdapterServer>
     </extensions>
 
     <actions>
@@ -80,6 +111,33 @@
                 text="Clear Sema Results"
                 description="Clear all inline eval result decorations">
             <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+        </action>
+        <action id="sema.notebook.new"
+                class="com.sema.intellij.notebook.actions.NewSemaNotebookAction"
+                text="New Sema Notebook"
+                description="Create a Sema notebook">
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+        </action>
+        <action id="sema.notebook.openExternal"
+                class="com.sema.intellij.notebook.actions.OpenSemaNotebookAction"
+                text="Open Sema Notebook in Browser"
+                description="Start the Sema notebook server and open it in an external browser">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+        </action>
+        <action id="sema.notebook.runAll"
+                class="com.sema.intellij.notebook.actions.RunAllSemaNotebookCellsAction"
+                text="Run All Sema Notebook Cells"
+                description="Run all cells in the selected Sema notebook">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+        </action>
+        <action id="sema.notebook.exportMarkdown"
+                class="com.sema.intellij.notebook.actions.ExportSemaNotebookToMarkdownAction"
+                text="Export Sema Notebook to Markdown"
+                description="Export the selected Sema notebook to Markdown">
+            <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
         </action>
     </actions>
 </idea-plugin>
