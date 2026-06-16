@@ -1146,6 +1146,31 @@ fn verify_stack_balance(chunk: &Chunk, n_locals: usize, label: &str) -> Result<(
         }
     }
 
+    // Validate exception handlers against the COMPUTED operand depths, not just
+    // the file-supplied `stack_depth`. On a throw the runtime does a shrink-only
+    // `truncate(base + stack_depth)` then pushes the error, so the handler runs
+    // with exactly `stack_depth - n_locals + 1` operands ONLY IF the operand
+    // depth at the throw site was at least `stack_depth - n_locals`. A throw can
+    // fire at ANY op in the protected range (not just `Throw` — type errors,
+    // arity errors, etc. all raise). So every reachable pc in [try_start,try_end)
+    // must hold at least `stack_depth - n_locals` operands; otherwise a crafted
+    // inflated `stack_depth` would make the truncate a no-op and the handler
+    // underflow `pop_unchecked`. This is what makes the handler seeds above sound
+    // for untrusted bytecode.
+    for entry in &chunk.exception_table {
+        let needed = entry.stack_depth as i64 - n_locals_i;
+        let try_start = entry.try_start as usize;
+        let try_end = entry.try_end as usize;
+        for (&pc, &depth) in &entry_depth {
+            if pc >= try_start && pc < try_end && depth < needed {
+                return Err(SemaError::eval(format!(
+                    "in {label}: exception handler assumes {needed} operands (stack_depth {}, n_locals {n_locals}), but pc {pc} in protected range [{try_start},{try_end}) has operand depth {depth}",
+                    entry.stack_depth
+                )));
+            }
+        }
+    }
+
     Ok(())
 }
 

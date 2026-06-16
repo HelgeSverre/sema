@@ -820,7 +820,10 @@ async fn test_mcp_print_output_does_not_corrupt_protocol() {
                 text.contains("side-output-marker"),
                 "captured output should contain the printed text: {text}"
             );
-            assert!(text.contains("3"), "result value 3 should be present: {text}");
+            assert!(
+                text.contains("3"),
+                "result value 3 should be present: {text}"
+            );
 
             drop(server_write);
             server_task.await.unwrap().unwrap();

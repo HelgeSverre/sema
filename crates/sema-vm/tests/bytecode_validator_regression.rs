@@ -9,7 +9,9 @@
 //!   - `docs/adr.md` ADR #56
 //!   - the SAFETY comment above `pop_unchecked` in `crates/sema-vm/src/vm.rs`
 
-use sema_vm::{deserialize_from_bytes, serialize_to_bytes, Chunk, CompileResult, Emitter, Op};
+use sema_vm::{
+    deserialize_from_bytes, serialize_to_bytes, Chunk, CompileResult, Emitter, ExceptionEntry, Op,
+};
 
 /// Serialize a hand-built main chunk and attempt to deserialize it, returning
 /// the deserialization result.
@@ -120,4 +122,36 @@ fn semac_balanced_program_accepted() {
 
     let result = roundtrip_chunk(chunk).expect("balanced program must be accepted");
     assert_eq!(result.chunk.consts.len(), 2);
+}
+
+/// A crafted exception entry whose `stack_depth` is inflated above what the
+/// protected range can actually supply must be rejected. The handler is
+/// reachable only via the exception edge (`Throw` has no fallthrough), so the
+/// strict-equality join never cross-checks the seed; the dedicated protected-
+/// range depth check is what closes this hole. Without it, the runtime's
+/// shrink-only `truncate(base + stack_depth)` would leave the handler with
+/// fewer operands than verified and `pop_unchecked` would underflow → UB.
+#[test]
+fn semac_exception_handler_inflated_stack_depth_rejected() {
+    let mut e = Emitter::new();
+    e.emit_op(Op::Nil); // pc 0: operand depth 0 -> 1
+    e.emit_op(Op::Throw); // pc 1: pops 1, exits frame (no fallthrough)
+    e.emit_op(Op::Pop); // pc 2: handler entry
+    e.emit_op(Op::Pop); // pc 3
+    e.emit_op(Op::Nil); // pc 4
+    e.emit_op(Op::Return); // pc 5
+    let mut chunk = e.into_chunk();
+    chunk.exception_table.push(ExceptionEntry {
+        try_start: 0,
+        try_end: 2,
+        handler_pc: 2,
+        stack_depth: 2, // inflated: the protected range only reaches operand depth 0/1
+        catch_slot: 0,
+    });
+
+    let err = expect_rejected(chunk, "inflated exception handler stack_depth");
+    assert!(
+        err.contains("protected range") || err.contains("operand depth"),
+        "expected handler-depth rejection, got: {err}"
+    );
 }

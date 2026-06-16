@@ -228,7 +228,8 @@ fn handler_shape(params: &Value, handler: &Value) -> Option<HandlerShape> {
 /// - `:string` ← JSON string only.
 /// - `:int`/`:integer` ← JSON integer, or a float with no fractional part. A
 ///   JSON string is rejected (no implicit parse).
-/// - `:float`/`:number` ← JSON number (int or float).
+/// - `:number` ← JSON number, preserving kind (integer→int, fractional→float).
+/// - `:float`/`:double` ← JSON number, always a float.
 /// - `:bool`/`:boolean` ← JSON bool only.
 /// - `:keyword` ← JSON string (interned as a keyword).
 /// - `:list`/`:vector` ← JSON array.
@@ -259,7 +260,19 @@ fn coerce_typed(value: &serde_json::Value, declared_type: Option<&str>) -> Resul
                 Err("integer".to_string())
             }
         }
-        "float" | "number" | "double" => value
+        "number" => {
+            // Preserve the JSON numeric kind: an integer argument stays a Sema
+            // int (so `15` does not silently become `15.0`), a fractional value
+            // becomes a float. `:float`/`:double` below force a float.
+            if let Some(i) = value.as_i64() {
+                Ok(Value::int(i))
+            } else if let Some(f) = value.as_f64() {
+                Ok(Value::float(f))
+            } else {
+                Err("number".to_string())
+            }
+        }
+        "float" | "double" => value
             .as_f64()
             .map(Value::float)
             .ok_or_else(|| "number".to_string()),
