@@ -29,6 +29,8 @@ Almost all crate entry points (e.g. `lib.rs` in `sema-core`, `sema-eval`, `sema-
 
 The virtual machine (`sema-vm`) is a stack-based bytecode execution engine. It uses NaN-boxing for the representation of Lisp values (wrapping pointers and immediates into a single `u64`).
 
+> **Status (2026-06-16):** §2.1 and §2.2 remain **OPEN**. The 1.16.0 point-fixes for `DUP`-on-empty and the `CallNative` native-id bounds check did land and are correct, but the general `pop_unchecked` underflow and the missing stack-depth verifier are unchanged. This is now explicitly accounted for as a *trust-model constraint* (`.semac` is trusted-source-only) in `docs/limitations.md` #32 and `docs/adr.md` #56 (verifier PROPOSED, plan at `docs/plans/2026-05-15-adi-bytecode-verifier.md`). See §8.1 for the current stabilization call.
+
 ### 2.1 Stack Underflow Vulnerability (`pop_unchecked`)
 In the core dispatch loop of [crates/sema-vm/src/vm.rs:555](file:///Users/helge/code/sema-lisp/crates/sema-vm/src/vm.rs#L555), the helper function `pop_unchecked` is implemented as:
 ```rust
@@ -204,14 +206,67 @@ To resolve the deadlock, we decoupled VM command routing from channel presence b
    * **`setBreakpoints`**: If `vm_active` is `false`, breakpoints are routed to the backend thread via `BackendRequest::SetBreakpoints` to be stored as pending breakpoints. If `vm_active` is `true`, they are sent to the running VM via `DebugCommand::SetBreakpoints`.
    * **`stackTrace` / `scopes` / `variables`**: If `vm_active` is `false` (e.g. before execution starts or after it finishes), the server responds immediately with empty/default arrays instead of waiting on the unresponsive VM channel.
 
+> **Status (2026-06-16):** this `vm_active`-based routing is now known to be **fragile**. `vm_active` is a frontend-side guess about backend state across an async boundary; it can desync from the actual VM (set `true` at `configurationDone` before the VM loop is polling; left `Some`/stale on launch errors; not reset on early termination). A post-merge fix replaced the unbounded `reply_rx.recv()` with a 2-second `DEBUG_REPLY_TIMEOUT`, which prevents the hang but **silently returns empty data when the VM is alive but busy in a long blocking native call**. See DAP-1/DAP-2/DAP-3 in §8 for the deeper fix (gate inspection on `vm_suspended`; have the backend drain `command_rx` on exit).
+
 ### 7.3 Verification
 A new integration test `test_dap_breakpoint_after_launch` was added to [crates/sema-dap/tests/integration_test.rs](file:///Users/helge/code/sema-lisp/crates/sema-dap/tests/integration_test.rs#L317-L400). It explicitly sets a breakpoint between the `launch` and `configurationDone` commands using a strict 2-second timeout helper `read_dap_timeout` to guard against regressions.
 
-### 7.4 Unimplemented / Mocked Features and Breakpoint Matching Limitations
-The DAP implementation remains lightweight, and contains several unimplemented, mocked-out, or partially implemented behaviors:
-1. **IntelliJ `stopOnEntry` Hardcoding**: The IntelliJ plugin's DAP configuration (`SemaDebugAdapterDescriptorFactory.kt`) hardcodes `stopOnEntry` to `true`. This causes the DAP server to launch the VM with `StepMode::StepInto`, prompting it to stop at the very first expression, even if the user didn't request a halt there.
-2. **Path/URI Format Mismatch**: IDEs/DAP clients (like IntelliJ/LSP4IJ) often transmit breakpoint source paths as `file://` URIs (e.g., `file:///path/to/file.sema`), while the compiler maps local filesystem paths (e.g. `/path/to/file.sema`). This path mismatch caused breakpoints to never be matched at runtime, letting execution run straight through. *Note: We have resolved this by introducing path cleaning (`clean_path`) in `server.rs`.*
-3. **No Breakpoint Verification or Sliding**: The DAP server blindly responds with `"verified": true` to all breakpoints without checking whether executable instructions actually exist on the requested line. If a breakpoint is placed on a blank line, comment, or non-spanned code boundary (like a closing bracket), it is shown as verified in the IDE but will never be hit by the VM.
-4. **Tree-Walker Code Bypasses Debugger**: Code loaded or imported dynamically via `(load ...)` or `(import ...)` is executed using the tree-walking evaluator, completely bypassing the VM bytecode execution loop and debugger command channel. Breakpoints set in dynamically loaded files will never be hit.
-5. **Mocked Threads**: The `threads` request returns a single mocked main thread (`{ "id": 1, "name": "main" }`).
-6. **Unsupported Requests**: The `evaluate` command (watches, debug console evaluations, hovers to inspect values) is unsupported, returning an error. Mutation of variables from the debugger (`setVariable`) is also not supported.
+### 7.4 Feature Status (updated 2026-06-16 after PR #44)
+PR #44 closed most of the gaps originally listed here. Current status:
+
+**FIXED (verified in code):**
+1. **IntelliJ `stopOnEntry`**: now `false` by default (`SemaDebugAdapterDescriptorFactory.kt` sends `"stopOnEntry": false`; server default is `false`; asserted by `SemaDebugAdapterDescriptorFactoryTest.kt`).
+2. **Path/URI Format Mismatch**: resolved via `clean_path`/`decode_percent` in `server.rs` (strips `file://`, percent-decodes). *Residual latent gap: `decode_percent` pushes raw bytes as `char`, so multi-byte UTF-8 percent-encoding in non-ASCII paths decodes incorrectly — low severity, see §8.3.*
+3. **Breakpoint Verification & Sliding**: implemented — `set_breakpoints` snaps to the nearest executable line and returns `verified: false` with a message when no executable line exists (`debug.rs`); covered by `test_dap_breakpoint_on_blank_line_slides_to_executable_line`.
+6. **`evaluate` / `setVariable`**: both implemented (`server.rs`, `vm.rs`, `debug_evaluate_mut`/`debug_set_variable`), capabilities advertised, integration-tested. *But see DAP-4 in §8.2 for a shadowed-local correctness bug in the write path.*
+
+**STILL OPEN:**
+4. **Tree-Walker Code Bypasses Debugger**: code loaded/imported via `(load …)` / `(import …)` runs on the tree-walker, bypassing the VM debug loop — breakpoints in dynamically loaded files are never hit. No mitigation.
+5. **Mocked Threads**: `threads` still returns a single hardcoded `{ "id": 1, "name": "main" }`. Acceptable for synchronous code, but async tasks/channels are invisible to the debugger.
+
+---
+
+## 8. Stabilization Review — Post MCP/DAP Merge (2026-06-16)
+
+After merging **PR #43** (built-in MCP server) and **PR #44** (DAP ergonomics) into `main`, an adversarial post-merge review fixed 10 issues (commit `d2a5e6e`). A follow-up stabilization pass (this section) examined the two newly-shipped subsystems plus the VM safety items in §2 to identify what is still **fragile** before cutting the next release. Findings are grouped by priority. Each lists file pointers, the concrete trigger, and a hardening direction. Nothing in §8 is fixed yet — this is the triage list.
+
+### 8.1 Release blockers / High
+
+- **MCP-1 — No `catch_unwind` around tool dispatch.** `handle_request` → `call_mcp_tool` runs synchronously with no unwind guard (`crates/sema-mcp/src/server.rs`, `crates/sema-mcp/src/tools.rs`). A panic anywhere in eval / VM execution / `run_bytecode_bytes` (crafted `.semac`) / fmt unwinds out and **terminates the whole MCP session**. Logical errors are correctly returned as `isError` results — only panics are fatal. *Fix:* wrap each dispatch in `std::panic::catch_unwind` and convert a caught panic into an `isError` result. Highest-leverage single fix.
+- **MCP-2 — `gag` fd-redirect can corrupt the JSON-RPC stream.** `eval_with_capture` (`tools.rs`) redirects process-global fd 1 via `gag`, but the JSON-RPC responses are also written to fd 1. (a) If `BufferRedirect::stdout()` fails (second redirect already active, temp-file/fd exhaustion) the error is swallowed and user `(print …)` output goes straight into the protocol stream, breaking line-delimited JSON on the client. (b) Nested capture (a `deftool` that triggers a notebook eval) hits gag's single-redirect guard → inner output escapes. *Fix:* treat a failed redirect as fatal-to-the-call (don't run user code against the live protocol fd); serialize captures with a mutex; long-term route Sema `print` through a thread-local sink instead of OS stdout so fd 1 is never shared.
+- **MCP-3 — `Sandbox::allow_all()` is the MCP default.** The interpreter is built once with `allow_all()` (`crates/sema/src/main.rs` ~L631) and shared across all calls; with the no-op `sandbox` param removed, MCP `eval`/`run_file`/`build` execute arbitrary host code (FS/shell/network/subprocess) driven by an LLM client — a prompt-injection-to-RCE primitive. *Fix:* default-deny + explicit opt-in flag (`sema mcp --allow fs,net,shell` or `--allow-all`); the plumbing already exists (`Interpreter::new_with_sandbox`). Correct the `info` tool's misleading `"Environment Context: standard"` string, and consider shipping only read-only tools by default.
+- **DAP-1 — `DEBUG_REPLY_TIMEOUT` returns silently-wrong data for a live-but-busy VM.** The 2s timeout (`crates/sema-dap/src/server.rs`) collapses three states into one empty result: terminated (intended), alive-but-mid-blocking-native-call, and alive-but->2s-of-bytecode. The running-mode command poll only drains `command_rx` every 128 VM instructions (`vm.rs`), and a blocking native (`http/get`, LLM, sleep) is a single instruction — so a `stackTrace`/`scopes`/`variables` during it times out and the IDE shows an **empty stack/variables for a running program**. *Fix:* have the backend drain `command_rx` and reply with a definitive "session ended" error after `execute_debug` returns (removes the need for a guessed timeout), and gate the query handlers on `vm_suspended` (proven by a received `Stopped` event) rather than `vm_active`. Never fabricate empty data for a live VM.
+- **VM-1 — §2.1/§2.2 still open (`pop_unchecked` + missing stack verifier).** A crafted `.semac` with an unbalanced operand stack passes all current `validate_bytecode` checks and reaches `pop_unchecked` / the fused-comparison stack peeks (`vm.rs`), producing `set_len(usize::MAX)` + OOB `ptr::read` — arbitrary memory corruption in release. Currently mitigated only by the *trust-model* (`.semac` is trusted-source-only; ADR #56 verifier proposed). *Decision needed:* if the MCP `build`/`run_file` flow or any "run downloaded program" story is in scope for this release, land either the abstract-interpretation stack-depth verifier (ADR #56) or the cheap interim release-mode bounds check in `pop_unchecked`. If `.semac` stays strictly trusted-source-only, this can remain documented-and-deferred — but MCP now makes "run a file an agent produced" much more reachable, so revisit the trust assumption.
+
+### 8.2 Medium
+
+- **DAP-2 — `vm_active` activation race.** Set `true` at `configurationDone` before the backend has entered `execute_debug` (`server.rs`); a fast inspection request can route to a VM not yet polling → timeout/empty. Subsumed by the DAP-1 "gate on `vm_suspended`" fix.
+- **DAP-3 — `dbg_cmd_tx` desync on terminate/launch-error.** On `DebugEvent::Terminated` the frontend resets `vm_active`/`vm_suspended` but leaves `dbg_cmd_tx = Some(...)`; on a launch/compile/`VM::new` failure the backend emits `Terminated` without ever building a `DebugState`, so a later `configurationDone` re-flips `vm_active=true` and requests route to a dead receiver. *Fix:* reset `dbg_cmd_tx = None` on `Terminated`; have the backend reply to `ConfigurationDone` with a launched/failed status the frontend keys off.
+- **DAP-4 — `set!`/`setVariable` resolve a shadowed local to the *first* name-matching slot, not the pc-active one.** `debug_locals` correctly pc-filters which binding is *displayed*, but `frame_has_binding`/`debug_set_local`/`debug_env_for_frame` (`vm.rs`) use `.find()`/`.any()`/insert-all on the name, so for shadowing `let`s the displayed value and the written value can refer to different slots. This is a correctness bug in the just-shipped evaluate/setVariable path. *Fix:* thread the same `local_scopes` pc predicate through the write/eval paths so all three resolve to the innermost in-scope slot.
+- **DAP-5 — `Continue`/step dropped while running.** The frontend sends resume commands whenever `vm_active` is true regardless of stop state; the running-mode poll's catch-all silently drops them (`vm.rs`), so the frontend can believe it resumed when the VM never saw a state change. *Fix:* only send resume commands when `vm_suspended`; treat the flag as advisory.
+- **MCP-4 — `NotebookCache` is unbounded and never evicts.** Process-lifetime `BTreeMap` of `Rc<RefCell<Engine>>` (`notebook.rs`); pointing an agent at many notebooks grows memory monotonically, and a cached engine serves a stale in-memory copy if the `.sema-nb` is edited out-of-band (then clobbers it on save). The d2a5e6e canonicalization fix closed the symlinked-*parent* divergence but a **symlinked leaf filename** still produces two keys for one file. *Fix:* LRU/TTL cap; re-stat on access; resolve the leaf symlink for the key when the target exists.
+- **MCP-5 — `deftool` arg mapping is silent and lossy.** `json_args_to_sema` (`tools.rs`) passes missing args as `nil` (no arity error), never coerces/validates declared schema types, **ignores `has_rest`** (variadic handlers get one positional nil instead of a collected list), and silently drops extra args. Doesn't crash, but fails confusingly deep in Sema. *Fix:* validate against the schema before dispatch (reject missing `required`, coerce types, collect rest args, distinguish absent-vs-nil).
+
+### 8.3 Low / latent
+
+- **DAP-6 — `.semac`-loaded functions show all locals.** `local_scopes` is not serialized (hardcoded empty on deserialize), so the pc-filter falls back to "show everything" for precompiled programs, including not-yet-initialized/exited block locals. *Fix:* serialize `local_scopes` (cheap `Vec<(u16,u32,u32)>`; requires the usual format-spec + serializer update), or mark such locals "may be out of scope".
+- **DAP-7 — `as_local_set` matches `set!` by head symbol only**; if `set!` is rebound or the target is meant as a global, the write-back redirects to the frame local, diverging from a plain `eval`. Acceptable for the normal flow; document the precedence.
+- **DAP-8 — running-mode inspection is a best-effort snapshot** off a live, mutating stack with no consistent source location. Inherent to inspecting a non-stopped VM; most clients only inspect while stopped.
+- **DAP-9 — `decode_percent` decodes multi-byte UTF-8 percent-encoding incorrectly** (pushes raw bytes as `char`), affecting non-ASCII `file://` paths. ASCII paths are fine.
+- **MCP-6 — latent panics on the hot path:** `serde_json::to_string(&resp).unwrap()` in the loop, and the `sys/args` save/restore in `run_file` is not panic-safe (a panic mid-eval leaks the previous call's args into the shared global). Both are subsumed once MCP-1's `catch_unwind` lands, but the `sys/args` restore should use a `Drop` guard regardless.
+
+### 8.4 Confirmed safe (no action)
+
+- v3 `upvalue_names` / `local_names` deserialization: counts are `u16` (bounded ~64K, no OOM via `with_capacity`), every spur remap index is bounds-checked, and an `upvalue_names.len() == upvalue_descs.len()` consistency check exists. No new panic/OOM/UB surface.
+- `Function.local_scopes`: never serialized → not attacker-influenceable.
+- 1.16.0 point-fixes (`DUP`-on-empty clean error; `CallNative` native-id runtime bounds check) verified present and correct. `CallNative` `argc` underflow degrades to a clean slice-bounds **panic** (not UB) — subsumed by the VM-1 verifier.
+
+### 8.5 Recommended stabilization order
+
+1. **MCP-1** (`catch_unwind`) — small, removes the most likely crash; also de-risks MCP-6.
+2. **MCP-2** (gag protocol-corruption) — correctness of the stdio transport itself.
+3. **DAP-1 + DAP-2 + DAP-3** together — replace the timeout band-aid with backend-drains-on-exit + gate-on-`vm_suspended`; fixes the silently-wrong debugger output and the activation/desync races in one change.
+4. **MCP-3** (sandbox default) — security posture decision; needs a product call on the default.
+5. **DAP-4** (shadowed-local write path) — correctness bug in shipped evaluate/setVariable.
+6. **VM-1** decision — confirm whether `.semac` stays trusted-source-only given MCP, or land the verifier / interim bounds check.
+7. Remaining medium/low items (MCP-4, MCP-5, DAP-5..9) as capacity allows.
