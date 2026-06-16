@@ -617,6 +617,171 @@ async fn test_mcp_notebook_new_no_clobber_and_resets_env() {
         .await;
 }
 
+/// Read one JSON-RPC response line from the server and parse it.
+async fn read_resp(
+    reader: &mut tokio::io::BufReader<&mut tokio::io::DuplexStream>,
+    buf: &mut String,
+) -> serde_json::Value {
+    buf.clear();
+    reader.read_line(buf).await.unwrap();
+    serde_json::from_str(buf).unwrap()
+}
+
+fn is_error(resp: &serde_json::Value) -> bool {
+    resp["result"]["isError"].as_bool().unwrap_or(false)
+}
+
+fn result_text(resp: &serde_json::Value) -> String {
+    resp["result"]["content"][0]["text"]
+        .as_str()
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Regression (MCP-5): deftool argument mapping must validate required params,
+/// coerce/validate declared types, map named args to positional slots, and
+/// collect overflow into a rest parameter.
+#[tokio::test]
+async fn test_mcp_deftool_arg_validation() {
+    let (client_read, mut server_write) = tokio::io::duplex(8192);
+    let (mut server_read, client_write) = tokio::io::duplex(8192);
+    let interpreter = Interpreter::new();
+
+    let local = tokio::task::LocalSet::new();
+    local
+        .run_until(async move {
+            let server_task = tokio::task::spawn_local(async move {
+                run_mcp_server_on(client_read, client_write, interpreter, None, None).await
+            });
+            let mut reader = tokio::io::BufReader::new(&mut server_read);
+            let mut line = String::new();
+
+            // Define a tool with a required string, a typed int, an optional
+            // bool, and a rest parameter.
+            let def = r#"(deftool calc
+              "Run a calculation"
+              {:label  {:type :string :description "a label"}
+               :n      {:type :int :description "a number"}
+               :loud   {:type :bool :optional #t :description "shout"}
+               :extra  {:type :list :optional #t :description "rest items"}}
+              (fn (label n loud . extra)
+                (string/join
+                  (list (str label)
+                        (str n)
+                        (str loud)
+                        (str (length extra)))
+                  "|")))"#;
+            call_tool(&mut server_write, 1, "eval", json!({ "code": def })).await;
+            let r = read_resp(&mut reader, &mut line).await;
+            assert!(!is_error(&r), "deftool definition failed: {r}");
+
+            // (a) Missing required param -> isError naming the field.
+            call_tool(&mut server_write, 2, "calc", json!({ "n": 5 })).await;
+            let r = read_resp(&mut reader, &mut line).await;
+            assert!(is_error(&r), "missing required must error: {r}");
+            assert!(
+                result_text(&r).contains("label"),
+                "error must name missing field 'label': {}",
+                result_text(&r)
+            );
+
+            // (b) Wrong type (string for int) -> isError naming field + type.
+            call_tool(
+                &mut server_write,
+                3,
+                "calc",
+                json!({ "label": "x", "n": "not-a-number" }),
+            )
+            .await;
+            let r = read_resp(&mut reader, &mut line).await;
+            assert!(is_error(&r), "wrong type must error: {r}");
+            let txt = result_text(&r);
+            assert!(
+                txt.contains("n") && txt.to_lowercase().contains("integer"),
+                "error must name field and expected type: {txt}"
+            );
+
+            // (c) Correct types pass; optional omitted -> nil; no rest items.
+            call_tool(
+                &mut server_write,
+                4,
+                "calc",
+                json!({ "label": "sum", "n": 42 }),
+            )
+            .await;
+            let r = read_resp(&mut reader, &mut line).await;
+            assert!(!is_error(&r), "valid call must succeed: {r}");
+            let txt = result_text(&r);
+            assert!(
+                txt.contains("sum|42|nil|0"),
+                "expected sum|42|nil|0 (optional omitted -> nil), got: {txt}"
+            );
+
+            // (d) Rest param collects extras as a list.
+            call_tool(
+                &mut server_write,
+                5,
+                "calc",
+                json!({ "label": "r", "n": 1, "loud": true, "extra": [10, 20, 30] }),
+            )
+            .await;
+            let r = read_resp(&mut reader, &mut line).await;
+            assert!(!is_error(&r), "rest call must succeed: {r}");
+            let txt = result_text(&r);
+            assert!(
+                txt.contains("r|1|#t|3"),
+                "rest items must be collected (length 3): {txt}"
+            );
+
+            // (e) Float coerces to int when integral; bool stays bool.
+            call_tool(
+                &mut server_write,
+                6,
+                "calc",
+                json!({ "label": "f", "n": 7.0, "loud": false }),
+            )
+            .await;
+            let r = read_resp(&mut reader, &mut line).await;
+            assert!(!is_error(&r), "integral float should coerce to int: {r}");
+            assert!(
+                result_text(&r).contains("f|7|#f|0"),
+                "got: {}",
+                result_text(&r)
+            );
+
+            // (f) Non-integral float for int -> isError.
+            call_tool(
+                &mut server_write,
+                7,
+                "calc",
+                json!({ "label": "g", "n": 7.5 }),
+            )
+            .await;
+            let r = read_resp(&mut reader, &mut line).await;
+            assert!(is_error(&r), "non-integral float for int must error: {r}");
+
+            // (g) Explicit null for a required param -> isError mentioning null.
+            call_tool(
+                &mut server_write,
+                8,
+                "calc",
+                json!({ "label": null, "n": 1 }),
+            )
+            .await;
+            let r = read_resp(&mut reader, &mut line).await;
+            assert!(is_error(&r), "explicit null for required must error: {r}");
+            assert!(
+                result_text(&r).to_lowercase().contains("null"),
+                "error should distinguish explicit null: {}",
+                result_text(&r)
+            );
+
+            drop(server_write);
+            server_task.await.unwrap().unwrap();
+        })
+        .await;
+}
+
 /// Regression (MCP-2): program output from `print` must be captured and returned
 /// in the tool result, never interleaved into the JSON-RPC stdout stream. The
 /// response must remain a single well-formed JSON object and contain the output.
@@ -655,10 +820,7 @@ async fn test_mcp_print_output_does_not_corrupt_protocol() {
                 text.contains("side-output-marker"),
                 "captured output should contain the printed text: {text}"
             );
-            assert!(
-                text.contains("3"),
-                "result value 3 should be present: {text}"
-            );
+            assert!(text.contains("3"), "result value 3 should be present: {text}");
 
             drop(server_write);
             server_task.await.unwrap().unwrap();

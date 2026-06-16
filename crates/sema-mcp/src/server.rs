@@ -1,10 +1,7 @@
 use serde_json::json;
-use std::cell::RefCell;
-use std::collections::BTreeMap;
-use std::rc::Rc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use crate::notebook::NotebookCache;
+use crate::notebook::{new_cache, NotebookCache};
 use crate::protocol::{JsonRpcError, JsonRpcRequest, JsonRpcResponse};
 use crate::tools::{call_mcp_tool, list_mcp_tools};
 use sema_eval::Interpreter;
@@ -41,7 +38,7 @@ where
     // cannot use `read_line` which fails the whole read on invalid UTF-8.
     let mut buf: Vec<u8> = Vec::new();
 
-    let notebook_cache: NotebookCache = Rc::new(RefCell::new(BTreeMap::new()));
+    let notebook_cache: NotebookCache = new_cache();
 
     eprintln!("Sema MCP server starting stdio loop...");
 
@@ -86,7 +83,32 @@ where
         );
 
         if let Some(resp) = response {
-            let resp_str = format!("{}\n", serde_json::to_string(&resp).unwrap());
+            // Serialize on the hot path WITHOUT unwrapping: a serialization
+            // failure must not panic and tear down the whole server loop. Fall
+            // back to a generic -32603 internal-error response that still carries
+            // the original request id so the client can correlate it.
+            let resp_str = match serde_json::to_string(&resp) {
+                Ok(s) => format!("{s}\n"),
+                Err(e) => {
+                    eprintln!("Failed to serialize response: {e}");
+                    let fallback = JsonRpcResponse {
+                        jsonrpc: "2.0".to_string(),
+                        result: None,
+                        error: Some(JsonRpcError::new(
+                            -32603,
+                            format!("Internal error: failed to serialize response: {e}"),
+                        )),
+                        id: resp.id.clone(),
+                    };
+                    // The fallback is a tiny, statically-shaped struct that should
+                    // never fail to serialize; if it somehow does, emit a
+                    // hand-written minimal frame rather than panicking.
+                    match serde_json::to_string(&fallback) {
+                        Ok(s) => format!("{s}\n"),
+                        Err(_) => "{\"jsonrpc\":\"2.0\",\"error\":{\"code\":-32603,\"message\":\"Internal error\"},\"id\":null}\n".to_string(),
+                    }
+                }
+            };
             if let Err(e) = writer.write_all(resp_str.as_bytes()).await {
                 eprintln!("Error writing response to stdout: {e}");
                 break;

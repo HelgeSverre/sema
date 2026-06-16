@@ -95,64 +95,359 @@ pub fn sema_value_to_json_schema(val: &Value) -> serde_json::Value {
     }
 }
 
-/// Convert JSON arguments into a list of Sema values based on the parameter schema order.
+/// One declared parameter of a `deftool` handler, in positional order.
+struct ParamSpec {
+    /// The parameter's name (as it appears in the JSON arguments object).
+    name: String,
+    /// Declared type from the schema (`:type`), lower-cased; `None` if the param
+    /// was declared as a bare value (no map) or has no `:type` key.
+    declared_type: Option<String>,
+    /// Whether the param is required (not `:optional #t`).
+    required: bool,
+}
+
+/// Whether the declared parameter list ends in a rest/variadic parameter that
+/// should collect positional overflow.
+struct HandlerShape {
+    params: Vec<ParamSpec>,
+    /// Name of the rest parameter if the handler is variadic, else `None`.
+    rest: Option<String>,
+}
+
+/// Look up a parameter's schema (declared type + required-ness) from the
+/// `deftool` `:param` map by name. Returns `(declared_type, required)`.
+///
+/// A param may be declared as a map (`{:type :int :optional #t ...}`) or as a
+/// bare value (treated as a required string, mirroring `sema_value_to_json_schema`).
+fn lookup_param_schema(params: &Value, name: &str) -> (Option<String>, bool) {
+    let Some(map) = params.as_map_rc() else {
+        // No schema map at all: treat as an untyped, required positional arg.
+        return (None, true);
+    };
+    for (k, v) in map.iter() {
+        let key = k
+            .as_keyword()
+            .or_else(|| k.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| k.to_string());
+        if key != name {
+            continue;
+        }
+        if let Some(inner) = v.as_map_rc() {
+            let declared_type = inner
+                .get(&Value::keyword("type"))
+                .and_then(|t| t.as_keyword().or_else(|| t.as_str().map(|s| s.to_string())))
+                .map(|s| s.to_lowercase());
+            let optional = inner
+                .get(&Value::keyword("optional"))
+                .map(|o| o.is_truthy())
+                .unwrap_or(false);
+            return (declared_type, !optional);
+        }
+        // Bare-value param: required string (matches schema generation).
+        return (None, true);
+    }
+    // Param not described in the schema: untyped and (conservatively) required.
+    (None, true)
+}
+
+/// Derive the positional parameter shape (names, types, required-ness, rest) of
+/// a `deftool` handler from the closure itself, looking up per-param type and
+/// required-ness from the declared schema. Returns `None` if the handler is not
+/// a recognized callable (lambda or VM closure), in which case the caller falls
+/// back to schema-order mapping.
+fn handler_shape(params: &Value, handler: &Value) -> Option<HandlerShape> {
+    if let Some(lambda) = handler.as_lambda_rc() {
+        let specs = lambda
+            .params
+            .iter()
+            .map(|spur| {
+                let name = sema_core::resolve(*spur);
+                let (declared_type, required) = lookup_param_schema(params, &name);
+                ParamSpec {
+                    name,
+                    declared_type,
+                    required,
+                }
+            })
+            .collect();
+        let rest = lambda.rest_param.map(sema_core::resolve);
+        return Some(HandlerShape {
+            params: specs,
+            rest,
+        });
+    }
+
+    if let Some((closure, _)) = sema_vm::extract_vm_closure(handler) {
+        let arity = closure.func.arity as usize;
+        // Reconstruct positional names from (slot, name) pairs.
+        let mut names: Vec<Option<String>> = vec![None; arity];
+        let mut rest_name: Option<String> = None;
+        for &(slot, name_spur) in &closure.func.local_names {
+            let s = slot as usize;
+            if s < arity {
+                names[s] = Some(sema_core::resolve(name_spur));
+            } else if closure.func.has_rest && s == arity {
+                rest_name = Some(sema_core::resolve(name_spur));
+            }
+        }
+        let specs = names
+            .into_iter()
+            .map(|maybe_name| {
+                let name = maybe_name.unwrap_or_default();
+                let (declared_type, required) = if name.is_empty() {
+                    (None, false)
+                } else {
+                    lookup_param_schema(params, &name)
+                };
+                ParamSpec {
+                    name,
+                    declared_type,
+                    required,
+                }
+            })
+            .collect();
+        let rest = if closure.func.has_rest {
+            // Fall back to a synthetic name so overflow can still be collected
+            // even if the rest local's name wasn't recorded.
+            Some(rest_name.unwrap_or_else(|| "rest".to_string()))
+        } else {
+            None
+        };
+        return Some(HandlerShape {
+            params: specs,
+            rest,
+        });
+    }
+
+    None
+}
+
+/// Coerce a single JSON value to a Sema value for a declared parameter type.
+///
+/// Coercion rules (deliberately strict to surface client mistakes):
+/// - `:string` ← JSON string only.
+/// - `:int`/`:integer` ← JSON integer, or a float with no fractional part. A
+///   JSON string is rejected (no implicit parse).
+/// - `:float`/`:number` ← JSON number (int or float).
+/// - `:bool`/`:boolean` ← JSON bool only.
+/// - `:keyword` ← JSON string (interned as a keyword).
+/// - `:list`/`:vector` ← JSON array.
+/// - `:map`/`:object` ← JSON object.
+/// - any other / no type ← structural conversion via `json_to_value` (no checks).
+///
+/// On a mismatch that cannot be coerced, returns `Err(expected_description)`.
+fn coerce_typed(value: &serde_json::Value, declared_type: Option<&str>) -> Result<Value, String> {
+    let Some(ty) = declared_type else {
+        return Ok(sema_core::json_to_value(value));
+    };
+    match ty {
+        "string" | "str" => value
+            .as_str()
+            .map(Value::string)
+            .ok_or_else(|| "string".to_string()),
+        "int" | "integer" => {
+            if let Some(i) = value.as_i64() {
+                Ok(Value::int(i))
+            } else if let Some(f) = value.as_f64() {
+                if f.fract() == 0.0 && f.is_finite() && f >= i64::MIN as f64 && f <= i64::MAX as f64
+                {
+                    Ok(Value::int(f as i64))
+                } else {
+                    Err("integer".to_string())
+                }
+            } else {
+                Err("integer".to_string())
+            }
+        }
+        "float" | "number" | "double" => value
+            .as_f64()
+            .map(Value::float)
+            .ok_or_else(|| "number".to_string()),
+        "bool" | "boolean" => value
+            .as_bool()
+            .map(Value::bool)
+            .ok_or_else(|| "boolean".to_string()),
+        "keyword" => value
+            .as_str()
+            .map(Value::keyword)
+            .ok_or_else(|| "string (for keyword)".to_string()),
+        "list" | "vector" | "array" => {
+            if let Some(arr) = value.as_array() {
+                Ok(Value::list(
+                    arr.iter().map(sema_core::json_to_value).collect(),
+                ))
+            } else {
+                Err("array".to_string())
+            }
+        }
+        "map" | "object" | "dict" => {
+            if value.is_object() {
+                Ok(sema_core::json_to_value(value))
+            } else {
+                Err("object".to_string())
+            }
+        }
+        // Unknown declared type: accept structurally rather than rejecting valid
+        // input over an unrecognized type annotation.
+        _ => Ok(sema_core::json_to_value(value)),
+    }
+}
+
+/// Convert a JSON arguments object into the positional Sema argument list for a
+/// `deftool` handler, validating against the tool's declared schema.
+///
+/// Behaviour:
+/// 1. A missing **required** param yields a clear error naming the field.
+/// 2. Each declared type is coerced/validated; an uncoercible value yields a
+///    clear error naming the field and the expected type.
+/// 3. Named JSON args are placed into the handler's positional slots in declared
+///    order via the closure's parameter names.
+/// 4. A rest/variadic param collects any extra arguments: a JSON array under the
+///    rest param's name is spread flat; surplus is appended so the evaluator's
+///    own rest-collection produces a proper Sema list.
+/// 5. An absent param is distinguished from an explicit `null` in error text.
 pub fn json_args_to_sema(
     params: &Value,
     arguments: &serde_json::Value,
     handler: &Value,
-) -> Vec<Value> {
-    if let serde_json::Value::Object(json_obj) = arguments {
-        if let Some(lambda) = handler.as_lambda_rc() {
-            return lambda
-                .params
-                .iter()
-                .map(|name| {
-                    json_obj
-                        .get(&sema_core::resolve(*name))
-                        .map(sema_core::json_to_value)
-                        .unwrap_or(Value::nil())
-                })
-                .collect();
+) -> Result<Vec<Value>, String> {
+    // Non-object arguments can't be mapped to named params. The only sensible
+    // interpretation is a single positional argument for a 1-arg handler.
+    let serde_json::Value::Object(json_obj) = arguments else {
+        return Ok(vec![sema_core::json_to_value(arguments)]);
+    };
+
+    let Some(shape) = handler_shape(params, handler) else {
+        // Unknown handler kind: fall back to schema-order mapping with the same
+        // validation as the positional path.
+        return schema_order_args(params, json_obj);
+    };
+
+    let mut out: Vec<Value> = Vec::with_capacity(shape.params.len() + 1);
+
+    for spec in &shape.params {
+        if spec.name.is_empty() {
+            // Unnamed positional slot (e.g. compiler-introduced): pass nil.
+            out.push(Value::nil());
+            continue;
         }
-        if let Some((closure, _)) = sema_vm::extract_vm_closure(handler) {
-            let mut params_ordered = vec![sema_core::intern(""); closure.func.arity as usize];
-            for &(slot, name) in &closure.func.local_names {
-                if (slot as usize) < params_ordered.len() {
-                    params_ordered[slot as usize] = name;
+        match json_obj.get(&spec.name) {
+            None => {
+                if spec.required {
+                    return Err(format!("missing required parameter '{}'", spec.name));
                 }
+                out.push(Value::nil());
             }
-            return params_ordered
-                .iter()
-                .map(|name| {
-                    let name_str = sema_core::resolve(*name);
-                    if name_str.is_empty() {
-                        Value::nil()
-                    } else {
-                        json_obj
-                            .get(&name_str)
-                            .map(sema_core::json_to_value)
-                            .unwrap_or(Value::nil())
-                    }
-                })
-                .collect();
-        }
-        if let Some(param_map) = params.as_map_rc() {
-            return param_map
-                .keys()
-                .map(|k| {
-                    let key_str = k
-                        .as_keyword()
-                        .or_else(|| k.as_str().map(|s| s.to_string()))
-                        .unwrap_or_else(|| k.to_string());
-                    json_obj
-                        .get(&key_str)
-                        .map(sema_core::json_to_value)
-                        .unwrap_or(Value::nil())
-                })
-                .collect();
+            Some(serde_json::Value::Null) => {
+                // Explicit null: allowed for optional params, rejected for
+                // required ones (distinct message from an absent param).
+                if spec.required {
+                    return Err(format!(
+                        "parameter '{}' is required but was explicitly null",
+                        spec.name
+                    ));
+                }
+                out.push(Value::nil());
+            }
+            Some(v) => match coerce_typed(v, spec.declared_type.as_deref()) {
+                Ok(coerced) => out.push(coerced),
+                Err(expected) => {
+                    return Err(format!(
+                        "parameter '{}' expected {}, got JSON {}",
+                        spec.name,
+                        expected,
+                        json_type_name(v)
+                    ));
+                }
+            },
         }
     }
-    vec![sema_core::json_to_value(arguments)]
+
+    // Variadic handler: collect overflow into the rest parameter. The evaluator
+    // (both tree-walker and VM) collects trailing args beyond the fixed arity
+    // into a list, so we append the rest values flat here.
+    if let Some(rest_name) = &shape.rest {
+        if let Some(rest_val) = json_obj.get(rest_name) {
+            match rest_val {
+                serde_json::Value::Array(items) => {
+                    for item in items {
+                        out.push(sema_core::json_to_value(item));
+                    }
+                }
+                serde_json::Value::Null => {}
+                other => out.push(sema_core::json_to_value(other)),
+            }
+        }
+    }
+
+    Ok(out)
+}
+
+/// Fallback mapping when the handler isn't a recognized closure: drive the
+/// positional order from the schema map's keys and apply the same
+/// required/type validation.
+fn schema_order_args(
+    params: &Value,
+    json_obj: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Vec<Value>, String> {
+    let Some(param_map) = params.as_map_rc() else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for k in param_map.keys() {
+        let name = k
+            .as_keyword()
+            .or_else(|| k.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| k.to_string());
+        if name == "mcp/expose" || name == "private" || name.starts_with("mcp/") {
+            continue;
+        }
+        let (declared_type, required) = lookup_param_schema(params, &name);
+        match json_obj.get(&name) {
+            None => {
+                if required {
+                    return Err(format!("missing required parameter '{name}'"));
+                }
+                out.push(Value::nil());
+            }
+            Some(serde_json::Value::Null) => {
+                if required {
+                    return Err(format!(
+                        "parameter '{name}' is required but was explicitly null"
+                    ));
+                }
+                out.push(Value::nil());
+            }
+            Some(v) => match coerce_typed(v, declared_type.as_deref()) {
+                Ok(coerced) => out.push(coerced),
+                Err(expected) => {
+                    return Err(format!(
+                        "parameter '{name}' expected {expected}, got JSON {}",
+                        json_type_name(v)
+                    ));
+                }
+            },
+        }
+    }
+    Ok(out)
+}
+
+/// Human-readable JSON type name for error messages.
+fn json_type_name(v: &serde_json::Value) -> &'static str {
+    match v {
+        serde_json::Value::Null => "null",
+        serde_json::Value::Bool(_) => "boolean",
+        serde_json::Value::Number(n) => {
+            if n.is_i64() || n.is_u64() {
+                "integer"
+            } else {
+                "number"
+            }
+        }
+        serde_json::Value::String(_) => "string",
+        serde_json::Value::Array(_) => "array",
+        serde_json::Value::Object(_) => "object",
+    }
 }
 
 /// Evaluate a Lisp operation, capturing program stdout/stderr.
@@ -861,7 +1156,14 @@ fn call_mcp_tool_inner(
 
             match get_or_create_engine(notebook_cache, path_str) {
                 Ok((canonical, engine_rc)) => {
-                    match add_cell(&engine_rc, &canonical, cell_type, source, after_id) {
+                    match add_cell(
+                        notebook_cache,
+                        &engine_rc,
+                        &canonical,
+                        cell_type,
+                        source,
+                        after_id,
+                    ) {
                         Ok(cell_id) => success_result(json!({ "cell_id": cell_id }).to_string()),
                         Err(e) => error_result(format!("Failed to add cell: {e}")),
                     }
@@ -883,7 +1185,14 @@ fn call_mcp_tool_inner(
 
             match get_or_create_engine(notebook_cache, path_str) {
                 Ok((canonical, engine_rc)) => {
-                    match update_cell(&engine_rc, &canonical, cell_id, source, cell_type) {
+                    match update_cell(
+                        notebook_cache,
+                        &engine_rc,
+                        &canonical,
+                        cell_id,
+                        source,
+                        cell_type,
+                    ) {
                         Ok(_) => success_result("Cell updated successfully."),
                         Err(e) => error_result(format!("Failed to update cell: {e}")),
                     }
@@ -902,10 +1211,12 @@ fn call_mcp_tool_inner(
             };
 
             match get_or_create_engine(notebook_cache, path_str) {
-                Ok((canonical, engine_rc)) => match delete_cell(&engine_rc, &canonical, cell_id) {
-                    Ok(_) => success_result("Cell deleted successfully."),
-                    Err(e) => error_result(format!("Failed to delete cell: {e}")),
-                },
+                Ok((canonical, engine_rc)) => {
+                    match delete_cell(notebook_cache, &engine_rc, &canonical, cell_id) {
+                        Ok(_) => success_result("Cell deleted successfully."),
+                        Err(e) => error_result(format!("Failed to delete cell: {e}")),
+                    }
+                }
                 Err(e) => error_result(format!("Failed to load notebook: {e}")),
             }
         }
@@ -921,20 +1232,28 @@ fn call_mcp_tool_inner(
 
             match get_or_create_engine(notebook_cache, path_str) {
                 Ok((canonical, engine_rc)) => {
-                    let mut engine = engine_rc.borrow_mut();
-                    match engine.eval_cell(cell_id) {
-                        Ok(res) => {
-                            // Save notebook state
-                            let _ = engine.notebook.save(&canonical);
-                            let response_json = json!({
-                                "stdout": res.stdout,
-                                "display": res.output.display,
-                                "sema_value": res.output.sema_value,
-                                "requires_reeval": res.output.requires_reeval
-                            });
-                            success_result(response_json.to_string())
+                    let result = {
+                        let mut engine = engine_rc.borrow_mut();
+                        match engine.eval_cell(cell_id) {
+                            Ok(res) => {
+                                // Save notebook state
+                                let _ = engine.notebook.save(&canonical);
+                                let response_json = json!({
+                                    "stdout": res.stdout,
+                                    "display": res.output.display,
+                                    "sema_value": res.output.sema_value,
+                                    "requires_reeval": res.output.requires_reeval
+                                });
+                                Ok(success_result(response_json.to_string()))
+                            }
+                            Err(e) => Err(format!("Cell evaluation failed: {e}")),
                         }
-                        Err(e) => error_result(format!("Cell evaluation failed: {e}")),
+                    };
+                    // Keep the cache mtime coherent with our own save above.
+                    crate::notebook::note_external_save(notebook_cache, &canonical);
+                    match result {
+                        Ok(r) => r,
+                        Err(e) => error_result(e),
                     }
                 }
                 Err(e) => error_result(format!("Failed to load notebook: {e}")),
@@ -948,9 +1267,14 @@ fn call_mcp_tool_inner(
 
             match get_or_create_engine(notebook_cache, path_str) {
                 Ok((canonical, engine_rc)) => {
-                    let mut engine = engine_rc.borrow_mut();
-                    let results = engine.eval_all();
-                    let _ = engine.notebook.save(&canonical);
+                    let results = {
+                        let mut engine = engine_rc.borrow_mut();
+                        let results = engine.eval_all();
+                        let _ = engine.notebook.save(&canonical);
+                        results
+                    };
+                    // Keep the cache mtime coherent with our own save above.
+                    crate::notebook::note_external_save(notebook_cache, &canonical);
 
                     let formatted_results: Vec<serde_json::Value> = results
                         .into_iter()
@@ -1010,7 +1334,15 @@ fn call_mcp_tool_inner(
             let bindings = interpreter.global_env.get(sema_core::intern(name));
             if let Some(v) = bindings {
                 if let ValueView::ToolDef(td) = v.view() {
-                    let sema_args = json_args_to_sema(&td.parameters, arguments, &td.handler);
+                    let sema_args = match json_args_to_sema(&td.parameters, arguments, &td.handler)
+                    {
+                        Ok(a) => a,
+                        Err(e) => {
+                            return error_result(format!(
+                                "Invalid arguments for tool '{name}': {e}"
+                            ));
+                        }
+                    };
                     let (res, stdout) =
                         eval_with_capture(|| call_value(&interpreter.ctx, &td.handler, &sema_args));
 
