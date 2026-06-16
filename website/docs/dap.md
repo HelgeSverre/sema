@@ -37,9 +37,13 @@ The `sema dap` server implements the core features of the Debug Adapter Protocol
 - Renders the call hierarchy stack trace with frame IDs, function/closure names, active line numbers, columns, and absolute source file paths.
 
 ### Variable & Scope Inspection
-- **Locals & Globals**: Separates variables into local bindings (inside `let`, function parameters) and global variables.
+- **Locals, Closure & Globals**: Separates variables into local bindings (inside `let`, function parameters), captured **upvalues** (shown by name under a *Closure* scope), and global variables. Locals are scoped to the current instruction, so bindings that are not yet in scope or whose block has already exited are not shown.
 - **Type Inspection**: Displays the value alongside its data type (e.g., `list`, `vector`, `map`, `string`, `number`, `boolean`, `closure`).
-- **Complex Objects**: Fully supports expandable nested objects (e.g., hash maps and lists) using hierarchical variable references.
+- **Complex Objects**: Fully supports lazily expandable nested objects — lists, vectors, maps, hash maps, byte vectors, and named **record fields** — using hierarchical variable references.
+
+### Evaluate & Set Values (while paused)
+- **Evaluate Expressions**: Evaluate arbitrary Sema expressions in the context of the selected stack frame (editor watch expressions, hover, and the debug console REPL). A top-level `(set! …)` of an in-scope local, upvalue, or global is written back to the running program.
+- **Set Variable**: Edit a local or upvalue value in place from the editor's Variables pane; the new value is written through to the live frame.
 
 ### Console Output Redirection
 - Program output (`stdout`) and standard error (`stderr`) prints are intercepted and redirected into standard DAP `output` event frames. This prevents user outputs from corrupting the JSON-RPC protocol transport channel while ensuring they appear in the editor's debug console.

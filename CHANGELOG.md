@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- **Built-in MCP (Model Context Protocol) server** — `sema mcp` runs a stdio JSON-RPC 2.0 server that lets LLM clients (Claude Desktop, Cursor, Claude Code, …) inspect, compile, format, evaluate, disassemble, and build Sema code in the host environment. Ships core developer tools (`run_file`, `compile`, `eval`, `docs`, `fmt`, `disasm`, `build`, `info`), stateful notebook tools (`notebook/new`, `read`, `add_cell`, `update_cell`, `delete_cell`, `eval_cell`, `eval_all`, `export`) backed by a cached per-file evaluation engine, and user-defined tools via the `deftool` form (JSON-schema → positional args; visibility control via `:private`/`:mcp/expose` and `--include`/`--exclude`). Binaries produced by `sema build` accept `--mcp` to run as a standalone MCP server exposing their embedded tools. See PR #43 and the [MCP docs](https://sema-lang.com/docs/mcp.html).
+- **DAP debugger ergonomics** — the debugger is now usable by default (works with `stopOnEntry: false`). Adds line-aware **verified breakpoints** that slide over blank/comment lines, `evaluate` and `setVariable` while paused (including write-through of a top-level `(set! …)` to in-scope locals/upvalues/globals), named upvalues under a *Closure* scope, named record-field expansion, lazy expansion of compound values, and pc-scoped locals so out-of-scope bindings are hidden. See PR #44 and the [DAP docs](https://sema-lang.com/docs/dap.html).
+
 ### Changed
 
+- **Bytecode format bumped to version 3** — adds per-function upvalue names to the debug metadata (used by the DAP variable inspector). Older `.semac` files are rejected with a clear "recompile from source" error; recompile with `sema compile`. See `website/docs/internals/bytecode-format.md`.
 - **`sema-fmt` public API consolidated into a single entry point** (breaking for Rust consumers of the `sema-fmt` crate; `sema fmt` CLI flags, `sema.toml` config, LSP formatting, and the playground's `formatCode` JS API are all unchanged). `format_source(input, width)` and `format_source_opts(input, width, indent, align)` are replaced by `format_source(input: &str, opts: &FormatOptions)`. `FormatOptions { width, indent, align }` implements `Default` (width 80, indent 2, align off) and is now the single source of truth for formatter defaults — the CLI's `sema.toml` fallbacks and the LSP's formatting handler both derive from it instead of repeating the values.
 - **`sema-fmt` internals cleaned up**: the test suite moved from an in-file `#[cfg(test)]` module to `crates/sema-fmt/tests/formatter_test.rs` (public-API integration tests), `formatter.rs` gained module- and method-level documentation describing the formatting pipeline and per-form layouts, and duplicated flat-rendering helpers were consolidated.
 

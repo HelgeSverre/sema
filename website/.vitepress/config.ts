@@ -196,6 +196,7 @@ export default defineConfig({
             { text: 'Editor Integration', link: '/docs/editors' },
             { text: 'Language Server (LSP)', link: '/docs/lsp' },
             { text: 'Debugger (DAP)', link: '/docs/dap' },
+            { text: 'MCP Server', link: '/docs/mcp' },
             { text: 'Notebooks', link: '/docs/notebook' },
             { text: 'Packages & Modules', link: '/docs/packages' }
           ]

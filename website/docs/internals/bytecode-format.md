@@ -431,9 +431,9 @@ The compiled `.semac` would contain:
 
 ## Versioning Strategy
 
-- `format_version` started at `1` and increments on any breaking change to the binary format (current version: `2`, which added `n_global_cache_slots` and the inline-cache operands)
+- `format_version` started at `1` and increments on any breaking change to the binary format. Version `2` added `n_global_cache_slots` and the inline-cache operands; version `3` (current) added per-function upvalue names to the debug metadata.
 - `sema_major`/`sema_minor`/`sema_patch` record the compiler version for diagnostics
-- The loader requires an exact `format_version` match and refuses anything else with a clear error: `"unsupported bytecode format version 1 (expected 2). Recompile from source."`
+- The loader requires an exact `format_version` match and refuses anything else with a clear error: `"unsupported bytecode format version 1 (expected 3). Recompile from source."`
 - Within the same `format_version`, new section types can be added without breaking older loaders (unknown sections are skipped)
 
 ## Comparison with Other Languages

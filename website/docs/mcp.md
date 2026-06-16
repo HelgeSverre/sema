@@ -132,7 +132,7 @@ The MCP server exposes a set of stateful notebook management and evaluation tool
 
 | Tool Name | Description | Parameters |
 |---|---|---|
-| `notebook/new` | Create a new empty `.sema-nb` notebook | `path` (string), `title` (string, optional) |
+| `notebook/new` | Create a new empty `.sema-nb` notebook | `path` (string), `title` (string, optional), `overwrite` (boolean, optional — defaults to `false`; creation fails if a file already exists at `path`) |
 | `notebook/read` | Read the structure, source, and outputs of a notebook | `path` (string) |
 | `notebook/add_cell` | Append or insert a new cell (code or markdown) | `path` (string), `type` (string: "code"/"markdown"), `source` (string), `after_id` (string, optional) |
 | `notebook/update_cell` | Update the source/type of an existing cell | `path` (string), `id` (string), `source` (string, optional), `type` (string, optional) |
