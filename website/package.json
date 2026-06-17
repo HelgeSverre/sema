@@ -5,9 +5,11 @@
   "scripts": {
     "dev": "vitepress dev",
     "build": "vitepress build",
-    "preview": "vitepress preview"
+    "preview": "vitepress preview",
+    "og": "node scripts/generate-og.mjs"
   },
   "devDependencies": {
+    "playwright": "1.60.0",
     "vitepress": "2.0.0-alpha.17"
   }
 }

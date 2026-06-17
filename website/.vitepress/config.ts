@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 // Canonical source: editors/vscode/sema/syntaxes/sema.tmLanguage.json
 import semaLang from './sema.tmLanguage.json'
+import { SITE, OG_WIDTH, OG_HEIGHT, OG_EXT, ogSlug } from './og.shared.mjs'
 
 export default defineConfig({
   title: 'Sema',
@@ -18,13 +19,13 @@ export default defineConfig({
     ['meta', { property: 'og:title', content: 'Sema — A Lisp with LLM Primitives' }],
     ['meta', { property: 'og:description', content: 'A Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation. Implemented in Rust.' }],
     ['meta', { property: 'og:url', content: 'https://sema-lang.com' }],
-    ['meta', { property: 'og:image', content: 'https://sema-lang.com/og-website.png' }],
-    ['meta', { property: 'og:image:width', content: '1424' }],
-    ['meta', { property: 'og:image:height', content: '752' }],
+    ['meta', { property: 'og:image', content: `${SITE}/og/home.${OG_EXT}` }],
+    ['meta', { property: 'og:image:width', content: String(OG_WIDTH) }],
+    ['meta', { property: 'og:image:height', content: String(OG_HEIGHT) }],
     ['meta', { property: 'og:locale', content: 'en_US' }],
     ['meta', { property: 'og:site_name', content: 'Sema' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:image', content: 'https://sema-lang.com/og-website.png' }],
+    ['meta', { name: 'twitter:image', content: `${SITE}/og/home.${OG_EXT}` }],
     ['meta', { name: 'twitter:title', content: 'Sema — A Lisp with LLM Primitives' }],
     ['meta', { name: 'twitter:description', content: 'A Scheme-like Lisp where prompts are s-expressions, conversations are persistent data structures, and LLM calls are just another form of evaluation.' }],
     ['meta', { name: 'theme-color', content: '#c8a855' }],
@@ -240,6 +241,49 @@ export default defineConfig({
   },
 
   srcExclude: ['**/node_modules/**'],
+
+  // Per-page OpenGraph: point each page at its generated card
+  // (public/og/<slug>.<ext>) and its canonical URL, replacing the global
+  // defaults declared in `head`. Images are produced by scripts/generate-og.mjs.
+  transformHead({ pageData, head }) {
+    const rel = pageData.relativePath
+    const img = `${SITE}/og/${ogSlug(rel)}.${OG_EXT}`
+
+    let path = rel.replace(/\.md$/, '')
+    if (path === 'index') path = ''
+    else if (path.endsWith('/index')) path = path.slice(0, -'/index'.length) + '/'
+    else path = `${path}.html`
+    const url = `${SITE}/${path}`
+
+    const title = (pageData.frontmatter?.title as string) || pageData.title
+    const description = (pageData.frontmatter?.description as string) || pageData.description
+
+    const override: Record<string, string> = {
+      'og:image': img,
+      'og:image:width': String(OG_WIDTH),
+      'og:image:height': String(OG_HEIGHT),
+      'twitter:image': img,
+      'og:url': url,
+    }
+    if (title) {
+      override['og:title'] = title
+      override['twitter:title'] = title
+    }
+    if (description) {
+      override['og:description'] = description
+      override['twitter:description'] = description
+    }
+
+    const next = head.filter(([tag, attrs]) => {
+      const key = (attrs as any)?.property || (attrs as any)?.name
+      return !(tag === 'meta' && key in override)
+    })
+    for (const [key, content] of Object.entries(override)) {
+      const attr = key.startsWith('twitter:') ? 'name' : 'property'
+      next.push(['meta', { [attr]: key, content }])
+    }
+    return next
+  },
 
   markdown: {
     languages: [semaLang as any],

@@ -168,10 +168,16 @@ bench-100m: release
 all: lint test build
 
 # Website
-.PHONY: site-dev site-build site-preview site-deploy
+.PHONY: site-dev site-build site-preview site-deploy site-og
 
 site-dev:
 	cd website && npm run dev
+
+# Regenerate per-page OpenGraph cards (public/og/*.jpg) from og-template.html.
+# Run after editing the template, logo, page titles, or the version, then
+# commit the regenerated images before deploying.
+site-og:
+	cd website && npm run og
 
 site-build:
 	cd website && npm run build
