@@ -63,3 +63,6 @@ yarn-error.log
 mutants.out/
 mutants.out.old/
 .vercel
+
+# Agent workflow worktrees
+.claude/worktrees/
