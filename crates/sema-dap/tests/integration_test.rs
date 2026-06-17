@@ -1,3 +1,12 @@
+//! DAP integration tests.
+//!
+//! NOTE: these spawn the compiled `sema` binary (package `sema-lang`) and drive
+//! it over the DAP protocol. `cargo test -p sema-dap` in isolation does NOT
+//! rebuild that binary, so it can run against a stale `sema` and give false
+//! passes after a change to sema-vm/sema-eval/sema-dap. Run these via the full
+//! `cargo test` (which builds the workspace, incl. the binary) or do
+//! `cargo build -p sema-lang` first. (Found via mutation testing.)
+
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Command, Stdio};
 use std::time::Duration;

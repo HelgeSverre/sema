@@ -116,6 +116,7 @@ pub fn key_to_string(k: &Value) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
 

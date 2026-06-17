@@ -679,6 +679,7 @@ pub fn read_many_with_spans_recover(
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
 

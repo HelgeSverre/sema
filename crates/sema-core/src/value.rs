@@ -2375,6 +2375,7 @@ impl Default for Env {
 // ── Tests ─────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)]
 mod tests {
     use super::*;
 

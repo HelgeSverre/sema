@@ -155,3 +155,26 @@ fn semac_exception_handler_inflated_stack_depth_rejected() {
         "expected handler-depth rejection, got: {err}"
     );
 }
+
+/// A pure LINEAR stack-growth sequence (no back-edge) must be rejected by the
+/// `MAX_STACK_DEPTH` overflow bound specifically. The existing dup-overflow test
+/// uses a self-loop, which trips the join-depth-disagreement check instead, so it
+/// does not actually pin the overflow bound. This sequence has no join point, so
+/// only the overflow check can reject it. (Found via mutation testing: disabling
+/// the overflow bound left the loop-based test still green.)
+#[test]
+fn semac_linear_stack_overflow_rejected() {
+    let mut e = Emitter::new();
+    e.emit_const(sema_core::Value::int(1)); // depth 0 -> 1
+    for _ in 0..70_000 {
+        e.emit_op(Op::Dup); // each +1; well past MAX_STACK_DEPTH (65535)
+    }
+    e.emit_op(Op::Return);
+    let chunk = e.into_chunk();
+
+    let err = expect_rejected(chunk, "linear stack overflow");
+    assert!(
+        err.contains("maximum"),
+        "expected stack-overflow (maximum depth) rejection, got: {err}"
+    );
+}

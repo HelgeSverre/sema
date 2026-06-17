@@ -1,3 +1,4 @@
+#![allow(clippy::approx_constant)]
 mod common;
 
 use sema_core::Value;

@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use sema_core::Value;
 use sema_eval::Interpreter;
 

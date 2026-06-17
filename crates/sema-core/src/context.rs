@@ -452,7 +452,7 @@ mod tests {
         ctx.cache_module(path.clone(), second);
 
         let cached = ctx.get_cached_module(&path).unwrap();
-        assert!(cached.get("old").is_none());
+        assert!(!cached.contains_key("old"));
         assert_eq!(cached.get("new"), Some(&Value::int(2)));
     }
 

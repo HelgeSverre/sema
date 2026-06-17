@@ -1,3 +1,4 @@
+#![allow(clippy::approx_constant)]
 use sema_core::{SemaError, Value};
 use sema_eval::Interpreter;
 
