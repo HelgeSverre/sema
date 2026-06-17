@@ -66,6 +66,12 @@ dual_eval_tests! {
     list_map: "(map (fn (x) (* x 2)) '(1 2 3))" => common::eval_tw("'(2 4 6)"),
     list_filter: "(filter odd? '(1 2 3 4 5))" => common::eval_tw("'(1 3 5)"),
     list_foldl: "(foldl + 0 '(1 2 3))" => Value::int(6),
+    // Order-sensitive folds: a non-commutative function pins foldl's accumulator
+    // arg order ((acc, item), left-to-right). All prior foldl tests used `+`, so
+    // swapping the callback's args was invisible (coverage gap found by mutation
+    // testing 2026-06).
+    list_foldl_subtract: "(foldl (fn (acc x) (- acc x)) 0 '(1 2 3))" => Value::int(-6),
+    list_foldl_builds_reversed: "(foldl (fn (acc x) (cons x acc)) '() '(1 2 3))" => common::eval_tw("'(3 2 1)"),
     list_foldr: "(foldr cons '() '(1 2 3))" => common::eval_tw("'(1 2 3)"),
     list_sort: "(sort '(3 1 2))" => common::eval_tw("'(1 2 3)"),
     list_sort_by: "(sort-by (fn (x) (- 0 x)) '(3 1 2))" => common::eval_tw("'(3 2 1)"),
