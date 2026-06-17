@@ -12,19 +12,19 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-wasm-bindgen = "0.2"
-sema-core = { path = "../sema-core" }
-sema-reader = { path = "../sema-reader" }
-sema-eval = { path = "../sema-eval" }
-sema-stdlib = { path = "../sema-stdlib" }
-sema-fmt = { path = "../sema-fmt" }
-sema-vm = { path = "../sema-vm" }
-js-sys = "0.3"
-getrandom = { version = "0.4", features = ["wasm_js"] }
+wasm-bindgen.workspace = true
+sema-core.workspace = true
+sema-reader.workspace = true
+sema-eval.workspace = true
+sema-stdlib.workspace = true
+sema-fmt.workspace = true
+sema-vm.workspace = true
+js-sys.workspace = true
+getrandom = { workspace = true, features = ["wasm_js"] }
 serde_json = { workspace = true }
-uuid = { version = "1", features = ["v4", "js"] }
-wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = [
+uuid = { workspace = true, features = ["v4", "js"] }
+wasm-bindgen-futures.workspace = true
+web-sys = { workspace = true, features = [
     "Window",
     "Request",
     "RequestInit",
