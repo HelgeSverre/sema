@@ -2060,7 +2060,7 @@ fn eval_force(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline
 }
 
 /// (define-record-type <name> (<ctor> <field> ...) <pred> (<field> <accessor> [<mutator>]) ...)
-fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
+pub(crate) fn eval_define_record_type(args: &[Value], env: &Env) -> Result<Trampoline, SemaError> {
     if args.len() < 3 {
         return Err(SemaError::eval(
             "define-record-type: requires at least type name, constructor, and predicate",

@@ -1132,30 +1132,29 @@ fn register_vm_delegates(env: &Rc<Env>) {
     let drt_env = env.clone();
     env.set(
         intern("__vm-define-record-type"),
-        Value::native_fn(NativeFn::with_ctx(
-            "__vm-define-record-type",
-            move |ctx, args| {
-                if args.len() != 5 {
-                    return Err(SemaError::arity("define-record-type", "5", args.len()));
+        Value::native_fn(NativeFn::simple("__vm-define-record-type", move |args| {
+            if args.len() != 5 {
+                return Err(SemaError::arity("define-record-type", "5", args.len()));
+            }
+            // Build the `(define-record-type ...)` argument list (without the head
+            // symbol) and register the type directly via the pure destructure —
+            // no tree-walker round-trip. eval_define_record_type only sets native
+            // ctor/predicate/accessor fns in the env; it evaluates no user code.
+            let mut ctor_form = vec![args[1].clone()];
+            if let Some(fields) = args[3].as_list() {
+                ctor_form.extend(fields.iter().cloned());
+            }
+            let mut dr_args = vec![args[0].clone(), Value::list(ctor_form), args[2].clone()];
+            if let Some(specs) = args[4].as_list() {
+                for spec in specs.iter() {
+                    dr_args.push(spec.clone());
                 }
-                let mut ctor_form = vec![args[1].clone()];
-                if let Some(fields) = args[3].as_list() {
-                    ctor_form.extend(fields.iter().cloned());
-                }
-                let mut form = vec![
-                    Value::symbol("define-record-type"),
-                    args[0].clone(),
-                    Value::list(ctor_form),
-                    args[2].clone(),
-                ];
-                if let Some(specs) = args[4].as_list() {
-                    for spec in specs.iter() {
-                        form.push(spec.clone());
-                    }
-                }
-                sema_core::eval_callback(ctx, &Value::list(form), &drt_env)
-            },
-        )),
+            }
+            match special_forms::eval_define_record_type(&dr_args, &drt_env)? {
+                Trampoline::Value(v) => Ok(v),
+                Trampoline::Eval(..) => Ok(Value::nil()),
+            }
+        })),
     );
 
     // __vm-delay: create a thunk with unevaluated body
