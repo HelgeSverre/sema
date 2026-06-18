@@ -1,5 +1,21 @@
 # Plan: Retire the tree-walker (VM becomes the only evaluator)
 
+> ## ⏩ SESSION HANDOFF — start here next time
+> **Decision (locked 2026-06-18):** retire the tree-walker; do not maintain two evaluators.
+> Every TW-backed feature must become VM-native first.
+> **Status:** planning complete, **no implementation started.** The plan was Opus-reviewed
+> (the first fast-model draft was 1 unsound + 6 needs-revision — corrections are baked in).
+> **Next action: M1 — Closure home-globals** (the keystone enabler; see Roadmap below + the
+> per-phase detail in `2026-06-18-retire-tree-walker-impl.md`).
+> **Critical path:** M1 → (M2 macros, M3 eval-bridge, M4 import) → M5 gate → M6 API → M7 tests
+> → M8 delete → M9 docs. Each lands behind the dual-eval suite (parity) until M7 collapses it.
+> **Watch out:** (1) M1 is required before import-on-VM (M4) can be correct — VM closures
+> carry no home-globals pointer today. (2) M6 is an embedder-breaking API change. (3) **CORE-2
+> is NOT solved by this** — the recursive-closure Rc cycle persists on the VM; separate GC
+> effort, see `docs/deferred.md`. (4) ultracode is appropriate for M7 (tests) and M9 (docs)
+> only — Block 1 (M1–M5) is sequential foundational work.
+> **Spike already done:** VM macro expansion is feasible (details below) — M2 is de-risked.
+
 **Status:** scoping / not started. **Phase-1a feasibility gate: PASSED** (spike 2026-06-18). **Size:** large, multi-phase (not a single PR).
 
 ## Phase-1a spike result (2026-06-18) — macro expansion on the VM is feasible
