@@ -6,31 +6,21 @@ Verified 2026-06-09: U6 ("did you mean" hints — shipped via `suggest_similar` 
 
 ---
 
-## TW-1 — VM stack-trace parity (error UX)
+## VM-1 — Stack traces on runtime errors (error UX)
 
-**Today:** the tree-walker has been retired and the bytecode VM is the sole evaluator (2026-06-18). The VM reports runtime errors with a message + actionable hints, but does **not** yet build a TW-style stack trace (`at +` / `at foo`, source spans) or attach the `:stack-trace` field to caught errors. The VM was already the default backend, so this is not a new user-facing regression — but the nicer traces the tree-walker produced (only ever reachable via the now-no-op `--tw`) are gone until parity is built.
+**Today:** the VM reports runtime errors with a message + actionable hints, but does **not** yet build a stack trace (`at +` / `at foo`, source spans) or attach the `:stack-trace` field to caught errors.
 
-**Why hard:** matching the TW trace exactly is non-trivial because arithmetic compiles to *intrinsic opcodes* (e.g. `ADD`) and many calls are `CALL_NATIVE`/intrinsics that don't carry the function identity the TW got from its per-call `ctx` frame push. A faithful VM trace needs either a lazy walk of `self.frames` (gives user-function frames, not the innermost intrinsic name like `+`) or a cheap per-call frame record.
+**Why hard:** arithmetic compiles to *intrinsic opcodes* (e.g. `ADD`) and many calls are `CALL_NATIVE`/intrinsics that don't carry a function identity, so a faithful trace needs either a lazy walk of `self.frames` (gives user-function frames, not the innermost intrinsic name like `+`) or a cheap per-call frame record.
 
 **Acceptance suite:** 8 `#[ignore]`d tests in `crates/sema/tests/integration_test.rs` (`test_stack_trace_*`, `test_arity_error_shows_call_form`) encode the desired behavior — un-ignore them when implementing.
 
-**Decision (2026-06-18):** deferred deliberately ("proceed with the switchover, defer trace parity") so the tree-walker could be retired now.
-
 ---
 
-## TW-2 — `(type lambda)` reports `:native-fn`
+## VM-2 — `(type lambda)` reports `:native-fn`
 
 **Today:** `(type (lambda (x) x))` returns `:native-fn`, not `:lambda`, because VM closures are wrapped as native fns and `type` (in `sema-stdlib`, which cannot depend on `sema-vm`) can't distinguish them.
 
-**Proposed fix:** add a lightweight marker on `NativeFn` (set by the VM closure wrapper) that `type_name`/`type` can read to report `:lambda`. Small `sema-core` change.
-
-**Why deferred:** cosmetic; needs a `sema-core` `NativeFn` field. Not worth blocking the tree-walker retirement.
-
----
-
-## TW-3 — Remove the dead tree-walker source — ✅ DONE (2026-06-18)
-
-**Resolved.** The dead tree-walker source has been deleted (~2180 lines net): `eval_value`/`eval_value_inner`/`eval_step`/the trampoline/`apply_lambda`/the eval-based `apply_macro`/`eval`/`eval_string` from `eval.rs`, and `try_eval_special` + all the pure-eval special forms + the `SpecialFormSpurs` registry + quasiquote/error helpers from `special_forms.rs`. The module/definitional drivers stayed (`eval_load`/`eval_import`/`register_tool`/`register_agent`/`eval_define_record_type`/`collect_module_exports`/`copy_exports_to_env`/`parse_params`), with their residual `eval_value` calls removed (path args arrive pre-evaluated; the `_body` helpers always run on the VM). `call_value`'s raw-`Lambda` arm now errors (VM closures are native-fn-wrapped). The eval callbacks (sema-core + sema-llm) and the `force`/thunk fallback use `eval_value_vm`; `debug_evaluate` already routes through it. `SPECIAL_FORM_NAMES` did **not** need relocating — `special_forms.rs` survives as the driver module and still exports it. No special form was lost (every one compiles to a VM opcode or a `__vm-*` native). Full suite green + lint clean. Does **not** close CORE-2 (the recursive-closure Rc cycle persists on the VM — separate GC effort).
+**Proposed fix:** add a lightweight marker on `NativeFn` (set by the VM closure wrapper) that `type_name`/`type` can read to report `:lambda`. Small `sema-core` change. Cosmetic.
 
 ---
 

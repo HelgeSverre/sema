@@ -542,7 +542,7 @@
     </div>
     <div class="feat">
       <h3>Bytecode VM</h3>
-      <p>Optional bytecode compiler and stack-based VM via <code>--vm</code>. 1.7x faster than tree-walking.</p>
+      <p>Sema compiles to bytecode and runs on a stack-based VM.</p>
     </div>
     <div class="feat">
       <h3>Standalone Executables</h3>
@@ -666,7 +666,6 @@
 <span class="prompt">$</span> sema -e <span class="s">'(+ 1 2)'</span>                 <span class="comment"># Eval expression</span>
 <span class="prompt">$</span> sema -p <span class="s">'(filter even? (range 10))'</span> <span class="comment"># Eval &amp; print</span>
 <span class="prompt">$</span> sema -l prelude.sema script.sema  <span class="comment"># Load then run</span>
-<span class="prompt">$</span> sema --vm script.sema             <span class="comment"># Use the bytecode VM</span>
 <span class="prompt">$</span> sema compile script.sema          <span class="comment"># Compile to .semac bytecode</span>
 <span class="prompt">$</span> sema script.semac                 <span class="comment"># Run compiled bytecode</span>
 <span class="prompt">$</span> sema build app.sema -o myapp      <span class="comment"># Build standalone executable</span>

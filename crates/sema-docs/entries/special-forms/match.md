@@ -35,4 +35,4 @@ Patterns can be literals (numbers, strings, keywords, symbols), vectors (matchin
   (_                 "non-positive"))
 ```
 
-**Note:** `match` is implemented in both the tree-walker and the VM backend. In the VM, it lowers to nested `if`/`let*` chains with a runtime `__vm-try-match` helper.
+**Note:** `match` lowers to nested `if`/`let*` chains with a runtime `__vm-try-match` helper.

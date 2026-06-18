@@ -29,4 +29,4 @@ The body expressions, if any, are evaluated on every iteration before the step u
 ;; prints 10, 5, 2, 1
 ```
 
-**Note:** Both the tree-walker and the VM support `do`. The VM compiles it to a dedicated `DoLoop` IR node with parallel step assignment.
+**Note:** The VM compiles `do` to a dedicated `DoLoop` IR node with parallel step assignment.

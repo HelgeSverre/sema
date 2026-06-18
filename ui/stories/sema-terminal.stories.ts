@@ -25,7 +25,6 @@ export const MultiLineUsage: Story = {
       $ sema script.sema                  # Run a file
       $ sema -e '(+ 1 2)'                 # Eval expression
       $ sema -p '(filter even? (range 10))' # Eval & print
-      $ sema --vm script.sema             # Use the bytecode VM
     </sema-terminal>`,
 };
 

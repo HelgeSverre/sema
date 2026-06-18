@@ -4,7 +4,7 @@ module: "special-forms"
 syntax: "(async body ...)"
 ---
 
-Spawn the body expressions as an asynchronous task and return a promise for its result. The body is wrapped in a zero-argument thunk and handed to `async/spawn`; it runs cooperatively on the VM scheduler when driven by `await`, `async/run`, or `async/all`. This form is **VM-only** — using the tree-walker backend (`--tw`) raises an error because the tree-walker does not implement the cooperative scheduler required for async tasks.
+Spawn the body expressions as an asynchronous task and return a promise for its result. The body is wrapped in a zero-argument thunk and handed to `async/spawn`; it runs cooperatively on the VM scheduler when driven by `await`, `async/run`, or `async/all`.
 
 ```sema
 (define p (async (+ 1 2)))
@@ -27,5 +27,3 @@ The promise returned by `async` can be passed around, stored in data structures,
                "done"))
 (await slow)   ; => "done"
 ```
-
-**Note:** Async features require the VM backend. The tree-walker returns an error if `async` is encountered.

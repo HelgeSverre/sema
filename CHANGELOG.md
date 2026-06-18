@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Removed
+
+- **The tree-walking interpreter has been retired — the bytecode VM is now Sema's sole evaluator.** Every entry point (the CLI, the REPL, the embedding API, `eval`, `import`/`load`, macros, async/await) compiles to bytecode and runs on the VM. Macro expansion, `import`/`load` (with full module isolation), `(eval …)`, record types, and `deftool`/`defagent` are all VM-native. The `--tw` and `--vm` CLI flags are **removed** (the VM has been the default since v1.14; `--vm` was redundant and `--tw` selected the now-deleted backend). The dead evaluator source (~2,180 lines: `eval_value`/`eval_step`/trampoline/`apply_lambda` and all tree-walker special-form handlers) and the internal backend-selection flag are gone. Behavior change for embedders: all eval entry points now run in the global env (top-level `define`s persist across calls) — use a fresh `Interpreter` for isolation. Known follow-ups (see `docs/deferred.md`): the VM does not yet emit stack traces on runtime errors (VM-1), and `(type (lambda …))` reports `:native-fn` (VM-2).
+
 ### Changed
 
 - **Default chat models bumped to current flagships across all providers.** When you don't pass `:default-model` (or pin a `:model`), each provider now defaults to: Anthropic `claude-sonnet-4-6` (was `claude-sonnet-4-5-20250929`), OpenAI `gpt-5.5` (was `gpt-4o`, which is being deprecated), Gemini `gemini-3.5-flash` (was `gemini-2.0-flash`), xAI `grok-4.3` (was `grok-3-mini-fast`), Mistral `mistral-large-latest` (was `mistral-small-latest`), Moonshot `kimi-k2.6` (was `moonshot-v1-8k`), and Ollama `gemma4` (was `qwen3:8b` — Gemma is fast and pragmatic to run locally, even on a Mac). Groq stays on `llama-3.3-70b-versatile` (still current). Override any of these per provider with `:default-model`, globally via `SEMA_CHAT_MODEL`, or per call with `:model`. See the [default models table](https://sema-lang.com/docs/llm/providers.html#default-models).

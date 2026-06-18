@@ -34,4 +34,4 @@ Repeatedly evaluate the body expressions while the condition is truthy. The cond
   found)
 ```
 
-**Note:** `while` is supported by both the tree-walker and the VM. In the VM it compiles to a conditional jump loop.
+**Note:** The VM compiles `while` to a conditional jump loop.

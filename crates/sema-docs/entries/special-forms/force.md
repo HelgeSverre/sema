@@ -6,7 +6,7 @@ syntax: "(force promise)"
 
 Evaluate a delayed promise created by `delay` and return its value. If the promise has already been forced, `force` returns the cached (memoized) result without re-evaluating the body. This makes `force` safe to call multiple times on the same promise.
 
-`force` evaluates its argument first, then checks whether the result is a promise. If so, it evaluates the promise's body in the captured environment, stores the result, and returns it. If the argument is not a promise, both the tree-walker and VM backends raise a type error. This strict behavior prevents silently passing non-promise values through, which helps catch bugs early.
+`force` evaluates its argument first, then checks whether the result is a promise. If so, it evaluates the promise's body in the captured environment, stores the result, and returns it. If the argument is not a promise, a type error is raised. This strict behavior prevents silently passing non-promise values through, which helps catch bugs early.
 
 ```sema
 (define p (delay (+ 1 2)))

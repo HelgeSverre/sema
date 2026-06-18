@@ -1,12 +1,10 @@
 # Evaluator Internals
 
-::: info The tree-walker has been retired
-Sema once shipped two evaluators: a tree-walking interpreter and a bytecode VM. The bytecode VM is now the **sole evaluator** — every entry point (the CLI, the REPL, the embedding API, `eval`, `import`/`load`, macros, and async/await) compiles to bytecode and runs on the VM. The tree-walking interpreter has been retired and is no longer reachable; the `--tw` CLI flag is accepted for backward compatibility but is a no-op.
+Sema's evaluator is a bytecode VM. Every entry point — the CLI, the REPL, the embedding API, `eval`, `import`/`load`, macros, and async/await — compiles to bytecode and runs on the VM.
 
 For the architecture of the evaluator, see [Bytecode VM](./bytecode-vm.md).
-:::
 
-## The Single Evaluation Pipeline
+## The Evaluation Pipeline
 
 All Sema code follows one path from source text to a result:
 

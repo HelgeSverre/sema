@@ -161,11 +161,11 @@
     <div class="demo-section-title">Toggle Group</div>
 
     <div class="demo-row">
-      <span class="demo-label">engine</span>
+      <span class="demo-label">theme</span>
       <div class="demo-cell">
-        <sema-toggle-group value="tw" id="engine-group">
-          <sema-toggle value="tw">Tree-walker</sema-toggle>
-          <sema-toggle value="vm">Bytecode VM</sema-toggle>
+        <sema-toggle-group value="dark" id="engine-group">
+          <sema-toggle value="dark">Dark</sema-toggle>
+          <sema-toggle value="light">Light</sema-toggle>
         </sema-toggle-group>
       </div>
     </div>
@@ -508,7 +508,6 @@
           $ sema script.sema                  # Run a file
           $ sema -e '(+ 1 2)'                 # Eval expression
           $ sema -p '(filter even? (range 10))' # Eval &amp; print
-          $ sema --vm script.sema             # Use the bytecode VM
           $ sema compile script.sema          # Compile to .semac bytecode
         </sema-terminal>
       </div>
@@ -580,9 +579,9 @@
     <div class="demo-row">
       <span class="demo-label">select (custom)</span>
       <div class="demo-cell">
-        <sema-select value="vm" style="width:220px;">
-          <option value="tw">Tree-walker</option>
-          <option value="vm">Bytecode VM</option>
+        <sema-select value="local" style="width:220px;">
+          <option value="memory">Memory</option>
+          <option value="local">Local</option>
         </sema-select>
         <sema-select value="anthropic" style="width:220px;">
           <optgroup label="Hosted">
@@ -594,8 +593,8 @@
             <option value="ollama">Ollama</option>
           </optgroup>
         </sema-select>
-        <sema-select value="vm" disabled style="width:160px;">
-          <option value="vm">Disabled</option>
+        <sema-select value="disabled" disabled style="width:160px;">
+          <option value="disabled">Disabled</option>
         </sema-select>
       </div>
     </div>
@@ -603,9 +602,9 @@
     <div class="demo-row">
       <span class="demo-label">select (native)</span>
       <div class="demo-cell">
-        <sema-select native value="vm" style="width:220px;">
-          <option value="tw">Tree-walker</option>
-          <option value="vm">Bytecode VM</option>
+        <sema-select native value="local" style="width:220px;">
+          <option value="memory">Memory</option>
+          <option value="local">Local</option>
         </sema-select>
       </div>
     </div>
@@ -680,7 +679,7 @@
   // Wire up toggle group events
   const engineGroup = document.getElementById('engine-group');
   engineGroup.addEventListener('sema-change', (e) => {
-    console.log('[sema-ui] Engine:', e.detail.value);
+    console.log('[sema-ui] Theme:', e.detail.value);
   });
 
   const storageGroup = document.getElementById('storage-group');

@@ -47,7 +47,7 @@ sema-core  ←  sema-reader  ←  sema-vm  ←  sema-eval  ←  sema (binary)
 - **sema-core** — NaN-boxed `Value(u64)` struct, `Env` (Rc + RefCell + hashbrown::HashMap), `SemaError`, `EvalContext`, thread-local VFS
 - **sema-reader** — Lexer + parser producing `Value` AST. Handles regex literals (`#"..."`), f-strings (`f"...${expr}..."`), short lambdas (`#(...)`)
 - **sema-vm** — Bytecode compiler (lowering → optimization → resolution → compilation), stack-based VM with intrinsic opcodes, debug hooks for DAP
-- **sema-eval** — `Interpreter`, macro expansion (VM-native), module system (load/import drivers), prelude, eval/call callback wiring. (The legacy tree-walking evaluator has been retired — the VM is the sole evaluator; remaining `eval_value`/special-form code here is dead and slated for removal.)
+- **sema-eval** — `Interpreter`, macro expansion (VM-native), module system (load/import drivers), prelude, eval/call callback wiring. The bytecode VM (`sema-vm`) is the sole evaluator.
 - **sema-stdlib** — Native functions across many modules registered into `Env`
 - **sema-llm** — LLM provider trait + Anthropic/OpenAI/Gemini/Ollama clients (tokio `block_on` for sync)
 - **sema-notebook** — Jupyter-inspired notebook interface: `.sema-nb` JSON format, evaluation engine with shared cell environment, HTTP server with REST API, embedded browser UI, Markdown export

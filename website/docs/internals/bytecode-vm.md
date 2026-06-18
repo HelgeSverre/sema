@@ -1,12 +1,12 @@
 # Bytecode VM
 
-::: tip The Sole Evaluator
-The bytecode VM is the only evaluator. Every entry point — the CLI, the REPL, the embedding API, `eval`, `import`/`load`, macros, and async/await — compiles to bytecode and runs on the VM. Sema once also shipped a tree-walking interpreter (selectable via `--tw`); it has been retired, and the `--tw` flag is now a no-op accepted only for backward compatibility.
+::: tip The Evaluator
+Sema compiles to bytecode and runs on the VM. Every entry point — the CLI, the REPL, the embedding API, `eval`, `import`/`load`, macros, and async/await — compiles to bytecode and runs on the VM.
 :::
 
 ## Overview
 
-Sema's evaluator is a bytecode VM. The VM compiles Sema source code into stack-based bytecode for fast execution. On compute-heavy workloads it is dramatically faster than naive tree-walking interpretation — the TAK benchmark, for example, runs in ~1.25s (versus ~21.4s under the retired tree-walker).
+Sema's evaluator is a bytecode VM. The VM compiles Sema source code into stack-based bytecode for fast execution. On compute-heavy workloads it is fast — the TAK benchmark, for example, runs in ~1.25s.
 
 Macro expansion and dynamic `eval` are handled by `sema-eval`, which expands macros to a `Value` AST and then feeds them through the same compile-to-bytecode pipeline.
 
@@ -252,7 +252,7 @@ sema-core ← sema-reader ← sema-vm ← sema-eval
 
 ## Async Execution (VM-Only)
 
-Async/await and channels are implemented entirely in the VM, the runtime's sole evaluator.
+Async/await and channels are implemented entirely in the VM.
 
 The model is **VM-per-task with cooperative scheduling**:
 

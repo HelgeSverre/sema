@@ -349,7 +349,7 @@ The [`examples/`](https://github.com/helgesverre/sema/tree/main/examples) direct
 - No full numeric tower (rationals, bignums, complex numbers)
 - No continuations (`call/cc`) or fully hygienic macros (`syntax-rules`) — has auto-gensym (`foo#`) for preventing variable capture
 - Single-threaded — `Rc`-based, no cross-thread sharing of values
-- No JIT — tree-walking interpreter and bytecode VM, no native code generation
+- No JIT — bytecode compiler + stack-based VM, no native code generation
 - Package manager is git-based — central registry not yet live
 - Young language — solid but not battle-tested at scale
 
