@@ -1451,7 +1451,11 @@ fn eval_module(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
 }
 
 /// (import "path.sema") or (import "path.sema" sym1 sym2)
-fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+pub(crate) fn eval_import(
+    args: &[Value],
+    env: &Env,
+    ctx: &EvalContext,
+) -> Result<Trampoline, SemaError> {
     if args.is_empty() {
         return Err(SemaError::arity("import", "1+", 0));
     }
@@ -1680,7 +1684,11 @@ fn copy_exports_to_env(
 }
 
 /// (load "file.sema") — read and evaluate a file in the current environment
-fn eval_load(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampoline, SemaError> {
+pub(crate) fn eval_load(
+    args: &[Value],
+    env: &Env,
+    ctx: &EvalContext,
+) -> Result<Trampoline, SemaError> {
     if args.len() != 1 {
         return Err(SemaError::arity("load", "1", args.len()));
     }

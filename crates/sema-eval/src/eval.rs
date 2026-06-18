@@ -1046,10 +1046,10 @@ fn register_vm_delegates(env: &Rc<Env>) {
         })),
     );
 
-    // __vm-load: delegate to the tree-walker's eval_load via eval_callback,
-    // mirroring how __vm-import delegates to eval_import. This ensures VFS
-    // resolution, file path push/pop, and all other load semantics are
-    // handled by a single code path in special_forms.rs.
+    // __vm-load: call the load driver (special_forms::eval_load) directly, not
+    // through the tree-walker's eval_step dispatch. The driver handles VFS
+    // resolution, file path push/pop, caching, and runs the loaded body on the
+    // VM (M4). The path arrives already evaluated from the VM.
     let load_env = env.clone();
     env.set(
         intern("__vm-load"),
@@ -1057,15 +1057,17 @@ fn register_vm_delegates(env: &Rc<Env>) {
             if args.len() != 1 {
                 return Err(SemaError::arity("load", "1", args.len()));
             }
-            let load_expr = Value::list(vec![Value::symbol("load"), args[0].clone()]);
-            sema_core::eval_callback(ctx, &load_expr, &load_env)
+            match special_forms::eval_load(std::slice::from_ref(&args[0]), &load_env, ctx)? {
+                Trampoline::Value(v) => Ok(v),
+                Trampoline::Eval(..) => Ok(Value::nil()),
+            }
         })),
     );
 
-    // __vm-import: run the import driver (path resolution, caching, export copy)
-    // in `eval_import`, which under the VM backend compiles and runs the module
-    // body on the bytecode VM (M4). Only the driver is shared with the
-    // tree-walker; the module body itself is VM-native.
+    // __vm-import: call the import driver (special_forms::eval_import) directly,
+    // not through the tree-walker's eval_step dispatch. Under the VM backend the
+    // driver compiles and runs the module body on the VM (M4). The path and
+    // selective-import symbols arrive already evaluated from the VM.
     let import_env = env.clone();
     env.set(
         intern("__vm-import"),
@@ -1074,16 +1076,14 @@ fn register_vm_delegates(env: &Rc<Env>) {
                 return Err(SemaError::arity("import", "2", args.len()));
             }
             ctx.sandbox.check(sema_core::Caps::FS_READ, "import")?;
-            let mut form = vec![Value::symbol("import"), args[0].clone()];
+            let mut imp_args = vec![args[0].clone()];
             if let Some(items) = args[1].as_list() {
-                if !items.is_empty() {
-                    for item in items.iter() {
-                        form.push(item.clone());
-                    }
-                }
+                imp_args.extend(items.iter().cloned());
             }
-            let import_expr = Value::list(form);
-            sema_core::eval_callback(ctx, &import_expr, &import_env)
+            match special_forms::eval_import(&imp_args, &import_env, ctx)? {
+                Trampoline::Value(v) => Ok(v),
+                Trampoline::Eval(..) => Ok(Value::nil()),
+            }
         })),
     );
 
