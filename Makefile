@@ -75,6 +75,11 @@ lint-links:
 examples: release
 	@EXAMPLE_TIMEOUT=30 ./scripts/run-examples.sh
 
+# Stress test: compile every runnable example into a standalone binary with
+# `sema build` and execute it (exercises the whole release/portability path).
+examples-build: release
+	@EXAMPLE_TIMEOUT=30 ./scripts/build-examples.sh
+
 example-notebook: build
 	@echo "=== Running example notebook ==="
 	cargo run --quiet -- notebook run examples/notebook/demo.sema-nb || true

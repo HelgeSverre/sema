@@ -139,13 +139,24 @@ fn process_import(
 
     let resolved = base_dir.join(import_path);
 
-    let canonical = resolved.canonicalize().map_err(|e| {
-        format!(
-            "cannot resolve import \"{}\" (from {}): {e}",
-            import_path,
-            current_file.display()
-        )
-    })?;
+    // An import the tracer can't resolve at build time is NOT a build failure:
+    // the path may be generated/written at runtime (e.g. `(file/write p ...)`
+    // then `(import p)`), or simply live outside the project tree. The runtime
+    // `import`/`load` resolves the VFS first and then the real filesystem, so we
+    // warn that it won't be bundled and leave it to be resolved when the binary
+    // runs. This keeps `sema build` working for dynamic/runtime-module programs.
+    let canonical = match resolved.canonicalize() {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!(
+                "  warning: import \"{}\" (from {}) couldn't be resolved at build time; \
+                 not bundled — it will be resolved at runtime (filesystem/VFS)",
+                import_path,
+                current_file.display()
+            );
+            return Ok(());
+        }
+    };
 
     // Circular import protection.
     if visited.contains(&canonical) {
@@ -154,8 +165,17 @@ fn process_import(
     visited.insert(canonical.clone());
 
     // Read file contents.
-    let contents = std::fs::read(&canonical)
-        .map_err(|e| format!("cannot read {}: {e}", canonical.display()))?;
+    let contents = match std::fs::read(&canonical) {
+        Ok(c) => c,
+        Err(_) => {
+            eprintln!(
+                "  warning: import \"{}\" couldn't be read at build time; not bundled \
+                 (resolved at runtime)",
+                canonical.display()
+            );
+            return Ok(());
+        }
+    };
 
     // Compute relative path for the VFS key.
     // Check packages_dir FIRST — package files must get package-relative keys
@@ -170,18 +190,22 @@ fn process_import(
             } else if let Ok(rel) = canonical.strip_prefix(root_dir) {
                 rel.to_string_lossy().replace('\\', "/")
             } else {
-                return Err(format!(
-                    "imported file is outside project and packages directory: {}",
+                eprintln!(
+                    "  warning: imported file {} is outside the project and packages \
+                     directories; not bundled (resolved at runtime)",
                     canonical.display()
-                ));
+                );
+                return Ok(());
             }
         } else if let Ok(rel) = canonical.strip_prefix(root_dir) {
             rel.to_string_lossy().replace('\\', "/")
         } else {
-            return Err(format!(
-                "imported file is outside project directory: {}",
+            eprintln!(
+                "  warning: imported file {} is outside the project directory; not \
+                 bundled (resolved at runtime)",
                 canonical.display()
-            ));
+            );
+            return Ok(());
         }
     };
 
@@ -366,11 +390,16 @@ mod tests {
     }
 
     #[test]
-    fn test_trace_missing_import_errors() {
+    fn test_trace_missing_import_warns_not_errors() {
+        // A literal import the tracer can't resolve at build time is NOT a build
+        // failure — the path may be generated/written at runtime, and `import`
+        // resolves the filesystem/VFS when the binary runs. The tracer warns and
+        // leaves it unbundled rather than aborting the build.
         let dir = tmpdir("missing");
         fs::write(dir.join("main.sema"), r#"(import "nonexistent.sema")"#).unwrap();
-        let result = trace_imports(&dir.join("main.sema"));
-        assert!(result.is_err());
+        let result =
+            trace_imports(&dir.join("main.sema")).expect("missing import must not abort the build");
+        assert!(result.is_empty(), "unresolved import must not be bundled");
         let _ = fs::remove_dir_all(&dir);
     }
 
