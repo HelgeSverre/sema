@@ -71,6 +71,24 @@ Pattern can mirror the diagnostic-waiting in `test_diagnostics.py`.
 
 ---
 
+## WASM-4 — `register_wasm_io` is a single ~1093-line function
+
+**Today:** `crates/sema-wasm/src/lib.rs` registers all WASM I/O builtins in one ~1093-line function. Large WASM functions carry a known V8 Turboshaft miscompilation/crash risk on ARM64 (see the chromium-wasm-crash note in MEMORY).
+
+**Proposed fix:** split into smaller per-area registration functions (pure refactor, no behavior change).
+
+**Why deferred (decided 2026-06-18):** latent risk only; the crash has not been observed since. Revisit if it recurs in the playground. Large diff on a hot path, not worth the churn now.
+
+---
+
+## C1 follow-ups — closure-as-NativeFn wrapping artifacts
+
+**Today:** after the C1 fix (HOF callbacks routed into the running VM), two unrelated symptoms of wrapping a VM closure as a `NativeFn` remain: `(type (fn …))` reports `:native-fn` rather than a function type, and a VM error caught from inside a HOF callback lacks a `:stack-trace`.
+
+**Why deferred (decided 2026-06-18):** cosmetic / low-impact; they stem from the closure-as-NativeFn boundary, not from upvalue timing (which C1 fixed). Revisit if they bite real usage.
+
+---
+
 ## A note on the truly long-term language design items
 
 These are not deferred — they're design questions that need a deliberate decision before any code lands. They're tracked in `docs/wip.md` (the "Wave 6c" cluster), not here.
