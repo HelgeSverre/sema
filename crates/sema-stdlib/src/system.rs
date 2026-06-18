@@ -152,6 +152,12 @@ pub fn register(env: &sema_core::Env, sandbox: &sema_core::Sandbox) {
         let value = args[1]
             .as_str()
             .ok_or_else(|| SemaError::type_error("string", args[1].type_name()))?;
+        // set_var mutates process-global state and is UB under concurrent getenv
+        // (tokio workers, C libs) on glibc. Serialize all sets behind a lock
+        // (STD-12). NOTE: still unsafe if other code reads env concurrently —
+        // sys/set-env should not be called while a server is handling requests.
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         unsafe {
             std::env::set_var(name, value);
         }

@@ -604,6 +604,30 @@ fn register_router(env: &sema_core::Env) {
                                     continue;
                                 }
 
+                                // Security (STD-11): confirm the resolved file stays
+                                // inside dir_path. The ".." substring check above can't
+                                // catch symlink/junction escapes; canonicalize() resolves
+                                // links, then we verify the prefix.
+                                let escapes = match (
+                                    std::fs::canonicalize(dir_path),
+                                    std::fs::canonicalize(&file_path),
+                                ) {
+                                    (Ok(base), Ok(real)) => !real.starts_with(&base),
+                                    _ => true,
+                                };
+                                if escapes {
+                                    let mut headers = BTreeMap::new();
+                                    headers.insert(
+                                        Value::string("content-type"),
+                                        Value::string("text/plain"),
+                                    );
+                                    let mut result = BTreeMap::new();
+                                    result.insert(Value::keyword("status"), Value::int(403));
+                                    result.insert(Value::keyword("headers"), Value::map(headers));
+                                    result.insert(Value::keyword("body"), Value::string("Forbidden"));
+                                    return Ok(Value::map(result));
+                                }
+
                                 let content_type = mime_guess::from_path(&file_path)
                                     .first_or_octet_stream()
                                     .to_string();

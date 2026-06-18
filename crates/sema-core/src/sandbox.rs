@@ -141,6 +141,12 @@ impl Sandbox {
     }
 
     pub fn check(&self, required: Caps, fn_name: &str) -> Result<(), SemaError> {
+        // Requesting zero capabilities always succeeds. Without this guard,
+        // `denied.contains(Caps::NONE)` is vacuously true, so a restricted
+        // sandbox would wrongly deny a `Caps::NONE` request (CORE-3).
+        if required == Caps::NONE {
+            return Ok(());
+        }
         if self.denied.contains(required) {
             Err(SemaError::PermissionDenied {
                 function: fn_name.to_string(),
