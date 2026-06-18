@@ -1770,9 +1770,15 @@ pub fn format_source(input: &str, opts: &FormatOptions) -> Result<String, SemaEr
     }
     result.push_str(&fmt.output);
 
-    // 6. Remove trailing whitespace on each line
-    let cleaned: Vec<&str> = result.lines().map(|l| l.trim_end()).collect();
-    let mut final_result = cleaned.join("\n");
+    // 6. Remove trailing whitespace on each line.
+    //
+    // We must NOT use `str::lines()`/`trim_end()` here: those treat `\r` as a
+    // line separator (and `trim_end` strips a trailing `\r`), which would
+    // silently mangle a CR that lives inside a preserved string/f-string/regex
+    // literal — e.g. `"foo\r\nbar"` would lose its `\r`, changing the program's
+    // string contents. Instead, strip only spaces/tabs that directly precede a
+    // real `\n` (or the end of input), leaving `\r` untouched in every context.
+    let mut final_result = strip_trailing_blanks(&result);
 
     // 7. Ensure exactly one trailing newline
     while final_result.ends_with('\n') {
@@ -1783,4 +1789,37 @@ pub fn format_source(input: &str, opts: &FormatOptions) -> Result<String, SemaEr
     }
 
     Ok(final_result)
+}
+
+/// Strip trailing spaces/tabs that immediately precede a `\n` (or the end of
+/// input), without treating `\r` as a line separator.
+///
+/// Unlike `str::lines()` + `trim_end()`, this preserves any `\r` byte — in
+/// particular a `\r\n` (or bare `\r`) embedded inside a preserved string /
+/// f-string / regex literal — so the formatter never alters a program's string
+/// contents while cleaning up emitted layout whitespace.
+fn strip_trailing_blanks(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    // Index in `out` of the start of the current run of trailing spaces/tabs.
+    // Bytes from this index onward are stripped when we hit a `\n` or EOF.
+    let mut trailing_start = out.len();
+    for c in s.chars() {
+        match c {
+            ' ' | '\t' => out.push(c),
+            '\n' => {
+                out.truncate(trailing_start);
+                out.push('\n');
+                trailing_start = out.len();
+            }
+            _ => {
+                // Any other char (including `\r`) is significant: it ends the
+                // current trailing-whitespace run.
+                out.push(c);
+                trailing_start = out.len();
+            }
+        }
+    }
+    // Strip trailing spaces/tabs at end of input (no final newline).
+    out.truncate(trailing_start);
+    out
 }

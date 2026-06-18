@@ -87,7 +87,7 @@ impl BackendState {
         // Local bindings from scope tree
         if let Some(cached) = self.cached_parses.get(uri_str) {
             let sema_line = position.line as usize + 1;
-            let sema_col = position.character as usize + 1;
+            let sema_col = utf16_to_char_col(line, position.character as usize);
             for (name, _span) in cached.scope_tree.visible_bindings_at(sema_line, sema_col) {
                 if prefix.is_empty() || name.starts_with(prefix) {
                     items.push(CompletionItem {

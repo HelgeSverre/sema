@@ -72,7 +72,10 @@ pub async fn serve(notebook_path: Option<PathBuf>, host: &str, port: u16) {
         );
     }
 
-    let engine = EngineHandle::spawn(notebook, nb_path);
+    let engine = EngineHandle::spawn(notebook, nb_path).unwrap_or_else(|e| {
+        eprintln!("Failed to start notebook engine: {e}");
+        std::process::exit(1);
+    });
     let state = Arc::new(AppState { engine, vfs_root });
 
     let app = Router::new()

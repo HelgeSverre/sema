@@ -661,10 +661,16 @@ impl BackendState {
                         break;
                     }
                     if let Some(&(line, col)) = arg_positions.get(i) {
+                        // `col` is a byte offset into the source line; LSP
+                        // `character` must be a UTF-16 code-unit offset.
+                        let character = lines
+                            .get(line)
+                            .map(|l| byte_offset_to_utf16(l, col))
+                            .unwrap_or(col as u32);
                         hints.push(InlayHint {
                             position: Position {
                                 line: line as u32,
-                                character: col as u32,
+                                character,
                             },
                             label: InlayHintLabel::String(format!("{}:", param)),
                             kind: Some(InlayHintKind::PARAMETER),

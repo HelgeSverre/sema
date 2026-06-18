@@ -254,27 +254,35 @@ impl Compiler {
     }
 
     /// Allocate a cache slot and return its index.
-    fn alloc_cache_slot(&mut self) -> u16 {
+    ///
+    /// Cache slots are u16-indexed in the bytecode; errors on overflow rather
+    /// than wrapping, which would alias two globals onto the same inline-cache
+    /// slot and produce wrong cached dispatch (VM-7).
+    fn alloc_cache_slot(&mut self) -> Result<u16, SemaError> {
         let slot = self.next_cache_slot;
-        self.next_cache_slot = self.next_cache_slot.wrapping_add(1);
-        slot
+        self.next_cache_slot = self.next_cache_slot.checked_add(1).ok_or_else(|| {
+            SemaError::eval("inline-cache slot overflow: a single compilation unit cannot reference more than 65536 cached global sites")
+        })?;
+        Ok(slot)
     }
 
     /// Emit a LoadGlobal instruction with an inline cache slot.
-    fn emit_load_global(&mut self, spur: Spur) {
-        let cache_slot = self.alloc_cache_slot();
+    fn emit_load_global(&mut self, spur: Spur) -> Result<(), SemaError> {
+        let cache_slot = self.alloc_cache_slot()?;
         self.emit.emit_op(Op::LoadGlobal);
         self.emit.emit_u32(spur_to_u32(spur));
         self.emit.emit_u16(cache_slot);
+        Ok(())
     }
 
     /// Emit a CallGlobal instruction with an inline cache slot.
-    fn emit_call_global(&mut self, spur: Spur, argc: u16) {
-        let cache_slot = self.alloc_cache_slot();
+    fn emit_call_global(&mut self, spur: Spur, argc: u16) -> Result<(), SemaError> {
+        let cache_slot = self.alloc_cache_slot()?;
         self.emit.emit_op(Op::CallGlobal);
         self.emit.emit_u32(spur_to_u32(spur));
         self.emit.emit_u16(argc);
         self.emit.emit_u16(cache_slot);
+        Ok(())
     }
 
     /// Get or allocate a native_id for a given Spur.
@@ -386,7 +394,7 @@ impl Compiler {
         } else if val.as_bool() == Some(false) {
             self.emit.emit_op(Op::False);
         } else {
-            self.emit.emit_const(val.clone());
+            self.emit.emit_const(val.clone())?;
         }
         Ok(())
     }
@@ -410,7 +418,7 @@ impl Compiler {
                 self.emit.emit_u16(index);
             }
             VarResolution::Global { spur } => {
-                self.emit_load_global(spur);
+                self.emit_load_global(spur)?;
             }
         }
         Ok(())
@@ -699,7 +707,7 @@ impl Compiler {
                         self.emit.emit_u16(native_id);
                         self.emit.emit_u16(argc);
                     } else {
-                        self.emit_call_global(spur, argc);
+                        self.emit_call_global(spur, argc)?;
                     }
                     self.stack_height -= argc;
                     return Ok(());
@@ -1065,11 +1073,11 @@ impl Compiler {
         // Defmacro at compile time — emit as a call to __vm-defmacro
         // For now, compile the body as a lambda and register it
         let param_vals: Vec<Value> = params.iter().map(|s| Value::symbol_from_spur(*s)).collect();
-        self.emit_load_global(intern("__vm-defmacro"));
-        self.emit.emit_const(Value::symbol_from_spur(name));
-        self.emit.emit_const(Value::list(param_vals));
+        self.emit_load_global(intern("__vm-defmacro"))?;
+        self.emit.emit_const(Value::symbol_from_spur(name))?;
+        self.emit.emit_const(Value::list(param_vals))?;
         if let Some(r) = rest {
-            self.emit.emit_const(Value::symbol_from_spur(*r));
+            self.emit.emit_const(Value::symbol_from_spur(*r))?;
         } else {
             self.emit.emit_op(Op::Nil);
         }
@@ -1090,15 +1098,15 @@ impl Compiler {
     ) -> Result<(), SemaError> {
         // Emit as a call to __vm-define-record-type with all info as constants
         // Function must be pushed first (before args) to match VM calling convention
-        self.emit_load_global(intern("__vm-define-record-type"));
-        self.emit.emit_const(Value::symbol_from_spur(type_name));
-        self.emit.emit_const(Value::symbol_from_spur(ctor_name));
-        self.emit.emit_const(Value::symbol_from_spur(pred_name));
+        self.emit_load_global(intern("__vm-define-record-type"))?;
+        self.emit.emit_const(Value::symbol_from_spur(type_name))?;
+        self.emit.emit_const(Value::symbol_from_spur(ctor_name))?;
+        self.emit.emit_const(Value::symbol_from_spur(pred_name))?;
         let fields: Vec<Value> = field_names
             .iter()
             .map(|s| Value::symbol_from_spur(*s))
             .collect();
-        self.emit.emit_const(Value::list(fields));
+        self.emit.emit_const(Value::list(fields))?;
         let specs: Vec<Value> = field_specs
             .iter()
             .map(|(f, a)| {
@@ -1108,7 +1116,7 @@ impl Compiler {
                 ])
             })
             .collect();
-        self.emit.emit_const(Value::list(specs));
+        self.emit.emit_const(Value::list(specs))?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(5);
         Ok(())
@@ -1116,12 +1124,12 @@ impl Compiler {
 
     fn compile_prompt(&mut self, entries: &[PromptEntry<VarRef>]) -> Result<(), SemaError> {
         // Function must be pushed first (before args) to match VM calling convention
-        self.emit_load_global(intern("__vm-prompt"));
+        self.emit_load_global(intern("__vm-prompt"))?;
         // Compile each prompt entry and build a list
         for entry in entries {
             match entry {
                 PromptEntry::RoleContent { role, parts } => {
-                    self.emit.emit_const(Value::string(role));
+                    self.emit.emit_const(Value::string(role))?;
                     for part in parts {
                         self.compile_expr(part)?;
                     }
@@ -1148,7 +1156,7 @@ impl Compiler {
         role: &ResolvedExpr,
         parts: &[ResolvedExpr],
     ) -> Result<(), SemaError> {
-        self.emit_load_global(intern("__vm-message"));
+        self.emit_load_global(intern("__vm-message"))?;
         self.compile_expr(role)?;
         for part in parts {
             self.compile_expr(part)?;
@@ -1167,8 +1175,8 @@ impl Compiler {
         parameters: &ResolvedExpr,
         handler: &ResolvedExpr,
     ) -> Result<(), SemaError> {
-        self.emit_load_global(intern("__vm-deftool"));
-        self.emit.emit_const(Value::symbol_from_spur(name));
+        self.emit_load_global(intern("__vm-deftool"))?;
+        self.emit.emit_const(Value::symbol_from_spur(name))?;
         self.compile_expr(description)?;
         self.compile_expr(parameters)?;
         self.compile_expr(handler)?;
@@ -1178,8 +1186,8 @@ impl Compiler {
     }
 
     fn compile_defagent(&mut self, name: Spur, options: &ResolvedExpr) -> Result<(), SemaError> {
-        self.emit_load_global(intern("__vm-defagent"));
-        self.emit.emit_const(Value::symbol_from_spur(name));
+        self.emit_load_global(intern("__vm-defagent"))?;
+        self.emit.emit_const(Value::symbol_from_spur(name))?;
         self.compile_expr(options)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(2);
@@ -1190,7 +1198,7 @@ impl Compiler {
         // Delay wraps expr in a zero-arg lambda (thunk)
         // The resolver already handles this if lowered as a lambda,
         // but if it comes through as Delay, compile as a call to __vm-delay
-        self.emit_load_global(intern("__vm-delay"));
+        self.emit_load_global(intern("__vm-delay"))?;
         self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
@@ -1198,7 +1206,7 @@ impl Compiler {
     }
 
     fn compile_force(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
-        self.emit_load_global(intern("__vm-force"));
+        self.emit_load_global(intern("__vm-force"))?;
         self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
@@ -1206,7 +1214,7 @@ impl Compiler {
     }
 
     fn compile_macroexpand(&mut self, expr: &ResolvedExpr) -> Result<(), SemaError> {
-        self.emit_load_global(intern("__vm-macroexpand"));
+        self.emit_load_global(intern("__vm-macroexpand"))?;
         self.compile_expr(expr)?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(1);
@@ -1216,7 +1224,7 @@ impl Compiler {
     // --- Helper: emit a call to a well-known runtime function ---
 
     fn emit_runtime_call(&mut self, name: &str, args: &[&ResolvedExpr]) -> Result<(), SemaError> {
-        self.emit_load_global(intern(name));
+        self.emit_load_global(intern(name))?;
         for arg in args {
             self.compile_expr(arg)?;
         }
@@ -1231,9 +1239,9 @@ impl Compiler {
         arg1: &ResolvedExpr,
         arg2: &Value,
     ) -> Result<(), SemaError> {
-        self.emit_load_global(intern(name));
+        self.emit_load_global(intern(name))?;
         self.compile_expr(arg1)?;
-        self.emit.emit_const(arg2.clone());
+        self.emit.emit_const(arg2.clone())?;
         self.emit.emit_op(Op::Call);
         self.emit.emit_u16(2);
         Ok(())
@@ -1918,6 +1926,27 @@ mod tests {
         assert!(
             msg.contains("compilation depth"),
             "expected compilation depth error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_alloc_cache_slot_overflow_errors() {
+        // VM-7: cache slots are u16; the allocator must error on overflow
+        // instead of wrapping (which would alias two globals onto one slot).
+        // The slot *count* (n_global_cache_slots) is also a u16, so at most
+        // 65535 slots (indices 0..=65534) can be allocated; the 65536th must
+        // error rather than wrap next_cache_slot back to 0.
+        let mut c = Compiler::new();
+        for expected in 0..u16::MAX {
+            let slot = c.alloc_cache_slot().expect("first 65535 slots allocate");
+            assert_eq!(slot, expected);
+        }
+        let err = c
+            .alloc_cache_slot()
+            .expect_err("65536th cache slot must overflow");
+        assert!(
+            err.to_string().contains("inline-cache slot overflow"),
+            "unexpected error: {err}"
         );
     }
 }

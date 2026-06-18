@@ -98,18 +98,26 @@ pub struct EngineHandle {
 
 impl EngineHandle {
     /// Spawn the engine on a dedicated OS thread and return a handle.
-    pub fn spawn(notebook: Notebook, notebook_path: Option<PathBuf>) -> Self {
+    ///
+    /// Returns an error if the tokio runtime that drives the engine thread
+    /// cannot be built. Building the runtime here (rather than inside the
+    /// spawned thread) lets the failure surface to the caller instead of
+    /// panicking on a detached thread and leaving a silent, dead server.
+    pub fn spawn(notebook: Notebook, notebook_path: Option<PathBuf>) -> Result<Self, String> {
         let (tx, mut rx) = mpsc::channel::<EngineRequest>(64);
+
+        // Build the runtime up front so a build failure is reported
+        // synchronously to the caller rather than panicking on the detached
+        // engine thread (which would leave a silent, dead server).
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .map_err(|e| format!("Failed to build notebook engine runtime: {e}"))?;
 
         std::thread::spawn(move || {
             use crate::engine::Engine;
 
             let mut engine = Engine::new(notebook);
             let nb_path = notebook_path;
-
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .build()
-                .unwrap();
 
             while let Some(req) = rt.block_on(rx.recv()) {
                 match req {
@@ -233,7 +241,16 @@ impl EngineHandle {
                     }
                     EngineRequest::ReorderCells { cell_ids, reply } => {
                         let result = (|| {
-                            let mut reordered = Vec::with_capacity(cell_ids.len());
+                            // Reject duplicate IDs up front: a duplicate would clone
+                            // the same cell into the result twice while a real cell
+                            // gets dropped, permanently corrupting the notebook.
+                            let mut seen = std::collections::HashSet::with_capacity(cell_ids.len());
+                            for id in &cell_ids {
+                                if !seen.insert(id.as_str()) {
+                                    return Err(format!("Duplicate cell ID in reorder: {id}"));
+                                }
+                            }
+                            let mut reordered = Vec::with_capacity(engine.notebook.cells.len());
                             for id in &cell_ids {
                                 let idx = engine
                                     .notebook
@@ -242,7 +259,7 @@ impl EngineHandle {
                                 reordered.push(engine.notebook.cells[idx].clone());
                             }
                             for cell in &engine.notebook.cells {
-                                if !cell_ids.contains(&cell.id) {
+                                if !seen.contains(cell.id.as_str()) {
                                     reordered.push(cell.clone());
                                 }
                             }
@@ -314,7 +331,7 @@ impl EngineHandle {
             }
         });
 
-        Self { tx }
+        Ok(Self { tx })
     }
 
     // ── Private send helper ─────────────────────────────────────
@@ -420,5 +437,89 @@ impl EngineHandle {
         self.send(|reply| EngineRequest::UndoCell { reply })
             .await?
             .map_err(BridgeError::Request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a handle over a notebook seeded with three code cells.
+    /// Returns the handle plus the (a, b, c) cell IDs.
+    fn handle_with_three_cells() -> (EngineHandle, String, String, String) {
+        let mut nb = Notebook::new("Reorder Test");
+        let a = nb.add_code_cell("(+ 1 1)");
+        let b = nb.add_code_cell("(+ 2 2)");
+        let c = nb.add_code_cell("(+ 3 3)");
+        let handle = EngineHandle::spawn(nb, None).expect("engine runtime should build");
+        (handle, a, b, c)
+    }
+
+    async fn cell_ids(handle: &EngineHandle) -> Vec<String> {
+        handle
+            .get_notebook()
+            .await
+            .expect("get_notebook")
+            .cells
+            .into_iter()
+            .map(|c| c.id)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn reorder_valid_permutation_reorders_cells() {
+        let (handle, a, b, c) = handle_with_three_cells();
+        handle
+            .reorder_cells(vec![c.clone(), a.clone(), b.clone()])
+            .await
+            .expect("valid reorder should succeed");
+        assert_eq!(cell_ids(&handle).await, vec![c, a, b]);
+    }
+
+    #[tokio::test]
+    async fn reorder_partial_list_keeps_unlisted_cells() {
+        let (handle, a, b, c) = handle_with_three_cells();
+        // Only mention the last cell; the rest must be preserved in place.
+        handle
+            .reorder_cells(vec![c.clone()])
+            .await
+            .expect("partial reorder should succeed");
+        assert_eq!(cell_ids(&handle).await, vec![c, a, b]);
+    }
+
+    #[tokio::test]
+    async fn reorder_with_duplicate_ids_is_rejected_without_corruption() {
+        let (handle, a, b, c) = handle_with_three_cells();
+        let err = handle
+            .reorder_cells(vec![a.clone(), a.clone()])
+            .await
+            .expect_err("duplicate IDs must be rejected");
+        match err {
+            BridgeError::Request(msg) => assert!(
+                msg.contains("Duplicate cell ID"),
+                "unexpected error message: {msg}"
+            ),
+            other => panic!("expected Request error, got {other:?}"),
+        }
+        // The notebook must be untouched: same cells, same order, no drops/dupes.
+        assert_eq!(cell_ids(&handle).await, vec![a, b, c]);
+    }
+
+    #[tokio::test]
+    async fn reorder_with_unknown_id_is_rejected_without_corruption() {
+        let (handle, a, b, c) = handle_with_three_cells();
+        let err = handle
+            .reorder_cells(vec![a.clone(), "does-not-exist".to_string()])
+            .await
+            .expect_err("unknown IDs must be rejected");
+        match err {
+            BridgeError::Request(msg) => assert!(
+                msg.contains("Cell not found"),
+                "unexpected error message: {msg}"
+            ),
+            other => panic!("expected Request error, got {other:?}"),
+        }
+        // The notebook must remain intact in original order.
+        assert_eq!(cell_ids(&handle).await, vec![a, b, c]);
     }
 }

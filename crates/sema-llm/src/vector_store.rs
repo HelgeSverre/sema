@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use base64::{engine::general_purpose::STANDARD as B64, Engine};
-use sema_core::Value;
+use sema_core::{SemaError, Value};
 
 #[derive(Debug, Clone)]
 pub struct VectorDocument {
@@ -104,26 +104,45 @@ impl VectorStore {
         })
     }
 
-    pub fn search(&self, query: &[u8], k: usize) -> Vec<SearchResult> {
-        let mut scored: Vec<SearchResult> = self
-            .documents
-            .iter()
-            .filter_map(|doc| {
-                let score = cosine_similarity(query, &doc.embedding)?;
-                Some(SearchResult {
-                    id: doc.id.clone(),
-                    score,
-                    metadata: doc.metadata.clone(),
-                })
-            })
-            .collect();
+    pub fn search(&self, query: &[u8], k: usize) -> Result<Vec<SearchResult>, SemaError> {
+        let mut scored: Vec<SearchResult> = Vec::with_capacity(self.documents.len());
+        for doc in &self.documents {
+            // Surface dimension mismatches instead of silently dropping the
+            // document as if it were irrelevant (returning a 0 score / skipping
+            // it would hide a misconfigured / mixed-model store from the user).
+            if query.len() != doc.embedding.len() {
+                return Err(SemaError::eval(format!(
+                    "vector-store/search: embedding dimension mismatch for document '{}': \
+                     query has {} bytes ({} dims) but stored embedding has {} bytes ({} dims) \
+                     — the query and stored embeddings must come from the same model",
+                    doc.id,
+                    query.len(),
+                    query.len() / 8,
+                    doc.embedding.len(),
+                    doc.embedding.len() / 8,
+                )));
+            }
+            let score = cosine_similarity(query, &doc.embedding).ok_or_else(|| {
+                SemaError::eval(format!(
+                    "vector-store/search: invalid embedding for document '{}': \
+                     length {} is not a positive multiple of 8 bytes",
+                    doc.id,
+                    doc.embedding.len(),
+                ))
+            })?;
+            scored.push(SearchResult {
+                id: doc.id.clone(),
+                score,
+                metadata: doc.metadata.clone(),
+            });
+        }
         scored.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         scored.truncate(k);
-        scored
+        Ok(scored)
     }
 }
 
@@ -295,6 +314,43 @@ mod tests {
         assert_eq!(s2.documents()[1].id, "d2");
         assert_eq!(s2.documents()[0].embedding, emb(&[1.0, 0.0, 0.5]));
         assert_eq!(s2.documents()[1].embedding, emb(&[0.0, 1.0, 0.5]));
+    }
+
+    #[test]
+    fn test_search_matching_dims_ok() {
+        let mut s = VectorStore::new();
+        s.add(VectorDocument {
+            id: "a".into(),
+            embedding: emb(&[1.0, 0.0]),
+            metadata: Value::nil(),
+        });
+        s.add(VectorDocument {
+            id: "b".into(),
+            embedding: emb(&[0.0, 1.0]),
+            metadata: Value::nil(),
+        });
+        let results = s.search(&emb(&[1.0, 0.0]), 10).unwrap();
+        assert_eq!(results.len(), 2);
+        // Identical vector ("a") must rank first.
+        assert_eq!(results[0].id, "a");
+    }
+
+    #[test]
+    fn test_search_dimension_mismatch_errors() {
+        // Regression for LLM-7: a document whose embedding dimension does not
+        // match the query must surface an error, not be silently dropped.
+        let mut s = VectorStore::new();
+        s.add(VectorDocument {
+            id: "wrong-dims".into(),
+            embedding: emb(&[1.0, 0.0, 0.0]), // 3 dims
+            metadata: Value::nil(),
+        });
+        let err = s
+            .search(&emb(&[1.0, 0.0]), 10) // 2-dim query
+            .expect_err("dimension mismatch must error instead of silently dropping the doc");
+        let msg = err.to_string();
+        assert!(msg.contains("dimension mismatch"), "got: {msg}");
+        assert!(msg.contains("wrong-dims"), "got: {msg}");
     }
 
     #[test]

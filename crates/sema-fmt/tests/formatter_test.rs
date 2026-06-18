@@ -1066,3 +1066,38 @@ fn test_opts_shebang_preserved() {
         "shebang should be preserved"
     );
 }
+
+// FMT-1: the trailing-whitespace cleanup must not mangle a CRLF (or bare CR)
+// that lives inside a preserved string literal.
+#[test]
+fn test_crlf_inside_string_literal_preserved() {
+    // A literal CR+LF inside the string contents (not an escape sequence).
+    let input = "(define x \"foo\r\nbar\")";
+    let result = fmt(input);
+    assert!(
+        result.contains("foo\r\nbar"),
+        "CRLF inside string literal must be preserved, got {result:?}"
+    );
+}
+
+#[test]
+fn test_bare_cr_inside_string_literal_preserved() {
+    let input = "(define x \"foo\rbar\")";
+    let result = fmt(input);
+    assert!(
+        result.contains("foo\rbar"),
+        "bare CR inside string literal must be preserved, got {result:?}"
+    );
+}
+
+#[test]
+fn test_trailing_space_before_cr_in_string_preserved() {
+    // A space immediately before a CRLF inside a string is real string content
+    // and must not be stripped (the CR ends the trailing-whitespace run).
+    let input = "(define x \"foo \r\nbar\")";
+    let result = fmt(input);
+    assert!(
+        result.contains("foo \r\nbar"),
+        "space before CRLF inside string must be preserved, got {result:?}"
+    );
+}

@@ -20,11 +20,29 @@ fn pow_impl(args: &[Value]) -> Result<Value, SemaError> {
     }
 }
 
+/// Convert a (rounded) float to an i64, rejecting NaN/infinite values and
+/// magnitudes that fall outside the i64 range. A plain `as i64` cast saturates
+/// (NaN → 0, out-of-range → i64::MIN/MAX), silently producing garbage, so each
+/// rounding builtin guards through this helper instead.
+fn float_to_int(f: f64, op: &str) -> Result<Value, SemaError> {
+    // i64::MAX is not exactly representable as f64; the smallest f64 strictly
+    // greater than i64::MAX is 2^63, so reject anything >= that. i64::MIN
+    // (-2^63) is exactly representable, so the lower bound is inclusive.
+    const MIN: f64 = i64::MIN as f64;
+    const LIMIT: f64 = 9_223_372_036_854_775_808.0; // 2^63
+    if !f.is_finite() || !(MIN..LIMIT).contains(&f) {
+        return Err(SemaError::eval(format!(
+            "{op}: cannot convert {f} to an integer (not finite or out of i64 range)"
+        )));
+    }
+    Ok(Value::int(f as i64))
+}
+
 fn ceil_impl(args: &[Value]) -> Result<Value, SemaError> {
     check_arity!(args, "ceil", 1);
     match args[0].view() {
         ValueView::Int(n) => Ok(Value::int(n)),
-        ValueView::Float(f) => Ok(Value::int(f.ceil() as i64)),
+        ValueView::Float(f) => float_to_int(f.ceil(), "ceil"),
         _ => Err(SemaError::type_error("number", args[0].type_name())),
     }
 }
@@ -70,7 +88,7 @@ pub fn register(env: &sema_core::Env) {
         check_arity!(args, "floor", 1);
         match args[0].view() {
             ValueView::Int(n) => Ok(Value::int(n)),
-            ValueView::Float(f) => Ok(Value::int(f.floor() as i64)),
+            ValueView::Float(f) => float_to_int(f.floor(), "floor"),
             _ => Err(SemaError::type_error("number", args[0].type_name())),
         }
     });
@@ -82,7 +100,7 @@ pub fn register(env: &sema_core::Env) {
         check_arity!(args, "round", 1);
         match args[0].view() {
             ValueView::Int(n) => Ok(Value::int(n)),
-            ValueView::Float(f) => Ok(Value::int(f.round() as i64)),
+            ValueView::Float(f) => float_to_int(f.round(), "round"),
             _ => Err(SemaError::type_error("number", args[0].type_name())),
         }
     });
@@ -366,7 +384,7 @@ pub fn register(env: &sema_core::Env) {
         check_arity!(args, "truncate", 1);
         match args[0].view() {
             ValueView::Int(n) => Ok(Value::int(n)),
-            ValueView::Float(f) => Ok(Value::int(f.trunc() as i64)),
+            ValueView::Float(f) => float_to_int(f.trunc(), "truncate"),
             _ => Err(SemaError::type_error("number", args[0].type_name())),
         }
     });
@@ -474,5 +492,72 @@ fn num_lt(a: &Value, b: &Value) -> Result<bool, SemaError> {
         (ValueView::Int(a), ValueView::Float(b)) => Ok((a as f64) < b),
         (ValueView::Float(a), ValueView::Int(b)) => Ok(a < (b as f64)),
         _ => Err(SemaError::type_error("number", a.type_name())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn float_to_int_rejects_non_finite_and_out_of_range() {
+        // NaN and infinities must error, not silently become 0 / saturate.
+        assert!(float_to_int(f64::NAN, "round").is_err());
+        assert!(float_to_int(f64::INFINITY, "ceil").is_err());
+        assert!(float_to_int(f64::NEG_INFINITY, "floor").is_err());
+
+        // Magnitudes beyond i64 range must error rather than saturate.
+        assert!(float_to_int(1.0e19, "round").is_err());
+        assert!(float_to_int(-1.0e19, "round").is_err());
+        // Exactly 2^63 is out of range (i64::MAX is 2^63 - 1).
+        assert!(float_to_int(9_223_372_036_854_775_808.0, "round").is_err());
+    }
+
+    #[test]
+    fn float_to_int_accepts_in_range_values() {
+        assert_eq!(float_to_int(3.0, "ceil").unwrap(), Value::int(3));
+        assert_eq!(float_to_int(-3.0, "floor").unwrap(), Value::int(-3));
+        assert_eq!(float_to_int(0.0, "round").unwrap(), Value::int(0));
+        // i64::MIN is exactly representable as f64 and must be accepted.
+        assert_eq!(
+            float_to_int(i64::MIN as f64, "trunc").unwrap(),
+            Value::int(i64::MIN)
+        );
+    }
+
+    #[test]
+    fn ceil_impl_guards_nan_and_overflow() {
+        // ceil_impl is the only free-fn rounding builtin; exercise it directly.
+        assert!(ceil_impl(&[Value::float(f64::NAN)]).is_err());
+        assert!(ceil_impl(&[Value::float(1.0e19)]).is_err());
+        assert!(ceil_impl(&[Value::float(f64::INFINITY)]).is_err());
+        assert_eq!(
+            ceil_impl(&[Value::float(2.3)]).unwrap(),
+            Value::int(3),
+            "ceil(2.3) should still round up to 3"
+        );
+        // Integer inputs pass through untouched.
+        assert_eq!(ceil_impl(&[Value::int(42)]).unwrap(), Value::int(42));
+    }
+
+    #[test]
+    fn rounding_builtins_error_on_nan_through_env() {
+        // Drive the registered closures (floor/round/truncate) end to end so the
+        // guard is exercised on every rounding builtin, not just ceil_impl.
+        let env = sema_core::Env::new();
+        register(&env);
+        let ctx = sema_core::EvalContext::default();
+        for name in ["ceil", "ceiling", "floor", "round", "truncate"] {
+            let f = env.get_str(name).expect("builtin registered");
+            let nf = f.as_native_fn_ref().expect("native fn");
+            assert!(
+                (nf.func)(&ctx, &[Value::float(f64::NAN)]).is_err(),
+                "{name} should error on NaN"
+            );
+            assert!(
+                (nf.func)(&ctx, &[Value::float(1.0e19)]).is_err(),
+                "{name} should error on out-of-range input"
+            );
+        }
     }
 }

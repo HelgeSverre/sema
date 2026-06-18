@@ -1390,8 +1390,8 @@ mod tests {
         use crate::opcodes::Op;
 
         let mut e = Emitter::new();
-        e.emit_const(Value::int(42));
-        e.emit_const(Value::string("hello"));
+        e.emit_const(Value::int(42)).unwrap();
+        e.emit_const(Value::string("hello")).unwrap();
         e.emit_op(Op::Add);
         e.emit_op(Op::Return);
         let mut chunk = e.into_chunk();
@@ -1928,7 +1928,7 @@ mod tests {
         use crate::opcodes::Op;
 
         let mut e = Emitter::new();
-        e.emit_const(Value::int(42));
+        e.emit_const(Value::int(42)).unwrap();
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
         let result = CompileResult::new(chunk, vec![]);
@@ -2038,7 +2038,7 @@ mod tests {
         let spur_print = intern("println");
         let mut e = Emitter::new();
         // (define my-var 42)
-        e.emit_const(Value::int(42));
+        e.emit_const(Value::int(42)).unwrap();
         e.emit_op(Op::DefineGlobal);
         e.emit_u32(spur_to_u32(spur_x));
         // (println my-var) — load both globals
@@ -2049,8 +2049,8 @@ mod tests {
         e.emit_u32(spur_to_u32(spur_x));
         e.emit_u16(1); // cache_slot
                        // symbol and keyword in constant pool
-        e.emit_const(Value::symbol("test-sym"));
-        e.emit_const(Value::keyword("test-kw"));
+        e.emit_const(Value::symbol("test-sym")).unwrap();
+        e.emit_const(Value::keyword("test-kw")).unwrap();
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
 
@@ -2238,7 +2238,7 @@ mod tests {
         use crate::opcodes::Op;
 
         let mut e = Emitter::new();
-        e.emit_const(Value::int(1));
+        e.emit_const(Value::int(1)).unwrap();
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
         let result = CompileResult::new(chunk, vec![]);
@@ -2530,10 +2530,10 @@ mod tests {
         let mut e = Emitter::new();
         e.emit_op(Op::True); // cond
         let jf = e.emit_jump(Op::JumpIfFalse); // pop cond
-        e.emit_const(Value::int(1)); // then-branch value
+        e.emit_const(Value::int(1)).unwrap(); // then-branch value
         let j = e.emit_jump(Op::Jump);
         e.patch_jump(jf);
-        e.emit_const(Value::int(2)); // else-branch value
+        e.emit_const(Value::int(2)).unwrap(); // else-branch value
         e.patch_jump(j);
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
@@ -2555,7 +2555,7 @@ mod tests {
         //   pc 4: Jump -6     (5 bytes) target = next(9) + (-6) = 3 (the Dup)
         use crate::emit::Emitter;
         let mut e = Emitter::new();
-        e.emit_const(Value::int(1));
+        e.emit_const(Value::int(1)).unwrap();
         // pc 3: Dup
         e.emit_op(Op::Dup);
         // pc 4: Jump back to pc 3

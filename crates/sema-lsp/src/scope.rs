@@ -425,8 +425,12 @@ impl ScopeTree {
             None => return,
         };
 
-        // Check for named let: (let name ((var init) ...) body...)
-        if items[0].as_symbol().is_some() && items.len() >= 3 {
+        // Check for named let: (let name ((var init) ...) body...).
+        // The distinguishing feature is items[1] being a symbol (the loop name)
+        // AND items[2] being the bindings list. `items[0]` is always the `let`
+        // symbol, so guarding on it is meaningless and would misclassify a
+        // malformed `(let name non-list ...)` as a named let.
+        if items.len() >= 3 && items[2].as_list().is_some() {
             if let Some(loop_name) = items[1].as_symbol() {
                 let body_scope_idx = self.scopes.len();
                 self.scopes.push(Scope {

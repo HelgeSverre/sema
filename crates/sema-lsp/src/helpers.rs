@@ -45,6 +45,22 @@ pub fn utf16_to_byte_offset(line: &str, utf16_offset: u32) -> usize {
     line.len()
 }
 
+/// Convert a byte offset in a UTF-8 string to a 0-indexed LSP UTF-16 `character`
+/// offset. LSP `Position.character` counts UTF-16 code units, not bytes; this is
+/// the conversion used when source-scanning machinery yields byte offsets that
+/// must be reported back to the editor. A byte offset past the end (or not on a
+/// char boundary) counts whole chars up to it.
+pub fn byte_offset_to_utf16(line: &str, byte_offset: usize) -> u32 {
+    let mut units = 0u32;
+    for (byte_idx, ch) in line.char_indices() {
+        if byte_idx >= byte_offset {
+            return units;
+        }
+        units += ch.len_utf16() as u32;
+    }
+    units
+}
+
 /// Look up the LSP Range for an expression via its Rc pointer in the SpanMap.
 pub(crate) fn expr_range(
     expr: &sema_core::Value,

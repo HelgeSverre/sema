@@ -1451,6 +1451,7 @@ fn register_wasm_io(env: &Env) {
             let path = args[0]
                 .as_str()
                 .ok_or_else(|| SemaError::type_error("string", args[0].type_name()))?;
+            let path = &normalize_path(path)?;
             let is_file = VFS.with(|vfs| vfs.borrow().contains_key(path));
             let is_dir = VFS_DIRS.with(|dirs| dirs.borrow().contains(path));
             if !is_file && !is_dir {
@@ -2777,11 +2778,24 @@ pub fn format_code(code: &str, width: usize, indent: usize, align: bool) -> JsVa
 }
 
 fn escape_json(s: &str) -> String {
-    s.replace('\\', "\\\\")
-        .replace('"', "\\\"")
-        .replace('\n', "\\n")
-        .replace('\r', "\\r")
-        .replace('\t', "\\t")
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            // Other C0 control characters must be \uXXXX-escaped; emitting them
+            // raw produces invalid JSON that the browser parses as `null`.
+            c if (c as u32) < 0x20 => {
+                use std::fmt::Write;
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// Clamp a user-supplied timeout (milliseconds, u64) to a valid setTimeout
@@ -2802,5 +2816,26 @@ mod tests {
         assert_eq!(clamp_timeout_ms(u64::MAX), i32::MAX);
         assert_eq!(clamp_timeout_ms(5000), 5000);
         assert!(clamp_timeout_ms(3_000_000_000) > 0);
+    }
+
+    #[test]
+    fn escape_json_handles_basic_escapes() {
+        assert_eq!(escape_json("a\"b\\c\nd\re\tf"), "a\\\"b\\\\c\\nd\\re\\tf");
+        assert_eq!(escape_json("plain"), "plain");
+    }
+
+    #[test]
+    fn escape_json_escapes_c0_control_chars() {
+        // WASM-3: control chars < 0x20 (other than \n \r \t) must become
+        // \uXXXX escapes, otherwise the emitted JSON is invalid and parses as null.
+        assert_eq!(escape_json("\u{0}"), "\\u0000");
+        assert_eq!(escape_json("\u{1}\u{1f}"), "\\u0001\\u001f");
+        // A bell + backspace + escape char interleaved with text.
+        assert_eq!(
+            escape_json("x\u{7}y\u{8}z\u{1b}"),
+            "x\\u0007y\\u0008z\\u001b"
+        );
+        // The dedicated escapes are still preferred over the generic form.
+        assert_eq!(escape_json("\t"), "\\t");
     }
 }

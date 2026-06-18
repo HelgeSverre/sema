@@ -1328,6 +1328,17 @@ dual_eval_tests! {
 }
 
 dual_eval_error_tests! {
+    // EVAL-2: unquote-splicing has no meaning in a quasiquoted map, so it must
+    // error clearly rather than leaking literal `(unquote-splicing ...)` data.
+    quasiquote_map_value_splice_errors:
+        "(let ((items (list 1 2 3))) `{:a 1 :items ,@items})"
+        => "unquote-splicing is not allowed",
+    quasiquote_map_key_splice_errors:
+        "(let ((ks (list :a))) `{,@ks 1})"
+        => "unquote-splicing is not allowed",
+}
+
+dual_eval_error_tests! {
     // VM-4: a rest param named after a foldable builtin lexically shadows it,
     // so the optimizer must NOT constant-fold the body. Here the rest param `+`
     // is bound to the list (5), and calling it errors on both backends; the VM

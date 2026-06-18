@@ -986,10 +986,14 @@ fn expand_quasiquote(
         }
         ValueView::Map(map) => {
             // Honor unquotes inside map keys/values (EVAL-2). Splicing into a map
-            // isn't meaningful, so only `(unquote x)` is handled (via recursion).
+            // isn't meaningful, so only `(unquote x)` is handled (via recursion);
+            // a top-level `(unquote-splicing ...)` key/value errors clearly rather
+            // than leaking literal `(unquote-splicing ...)` data.
             let entries = map
                 .iter()
                 .map(|(k, v)| {
+                    reject_splice_in_map(k)?;
+                    reject_splice_in_map(v)?;
                     Ok((
                         expand_quasiquote(k, gensym_map)?,
                         expand_quasiquote(v, gensym_map)?,
@@ -1000,6 +1004,22 @@ fn expand_quasiquote(
         }
         _ => Ok(CoreExpr::Quote(val.clone())),
     }
+}
+
+/// Error if `val` is a top-level `(unquote-splicing ...)` form. Used to guard
+/// map keys/values inside quasiquote, where splicing has no meaning (EVAL-2).
+fn reject_splice_in_map(val: &Value) -> Result<(), SemaError> {
+    if let Some(items) = val.as_list() {
+        if let Some(sym) = items.first().and_then(|v| v.as_symbol()) {
+            if sym == "unquote-splicing" {
+                return Err(SemaError::eval(
+                    "unquote-splicing is not allowed in a quasiquoted map key or value",
+                )
+                .with_hint("splicing only makes sense inside a list or vector"));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Expand a quasiquote sequence (list or vector elements), handling

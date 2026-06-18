@@ -3824,8 +3824,8 @@ mod tests {
         let globals = Rc::new(Env::new());
         let ctx = EvalContext::new();
         let mut e = Emitter::new();
-        e.emit_const(Value::int(1));
-        e.emit_const(Value::float(1.0));
+        e.emit_const(Value::int(1)).unwrap();
+        e.emit_const(Value::float(1.0)).unwrap();
         e.emit_op(Op::Eq);
         e.emit_op(Op::Return);
         let func = Rc::new(crate::chunk::Function {
@@ -4467,8 +4467,8 @@ mod tests {
         let globals = Rc::new(Env::new());
         let ctx = EvalContext::new();
         let mut e = Emitter::new();
-        e.emit_const(Value::int(3));
-        e.emit_const(Value::int(2));
+        e.emit_const(Value::int(3)).unwrap();
+        e.emit_const(Value::int(2)).unwrap();
         e.emit_op(Op::Div);
         e.emit_op(Op::Return);
         let func = Rc::new(crate::chunk::Function {

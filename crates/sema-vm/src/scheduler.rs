@@ -441,6 +441,61 @@ impl<'a> RunGoal<'a> {
     }
 }
 
+/// Scope guard that re-installs the scheduler into the caller's `&mut Scheduler`
+/// after a task step, re-pushing the in-flight task if it is still active.
+///
+/// During a task step the real scheduler lives in the thread-local (so nested
+/// async calls can reach it) while `*sched` holds an empty dummy. If the step
+/// panics, this guard's `Drop` takes the scheduler back out of the thread-local
+/// and writes it into `*sched` (re-pushing the running task), preventing the
+/// empty dummy from being stranded there and the running task from being
+/// silently dropped (VM-5). On the normal path the loop calls `reinstall`
+/// explicitly so that a missing scheduler surfaces as an error.
+struct ReinstallGuard<'a> {
+    sched: &'a mut Scheduler,
+    task: Option<Task>,
+    /// True until `reinstall` runs; gates the Drop fallback so it only fires on
+    /// an unexpected unwind (not after the normal-path reinstall).
+    armed: bool,
+}
+
+impl ReinstallGuard<'_> {
+    /// Take the scheduler back out of the thread-local, re-push the in-flight
+    /// task (unless it reached a terminal state), drop terminal tasks left over
+    /// from cancellations, and write the result into `*self.sched`. Disarms the
+    /// guard so Drop does not reinstall a second time.
+    fn reinstall(&mut self) -> Result<(), SemaError> {
+        self.armed = false;
+        let mut s = take_scheduler()?;
+        if let Some(task) = self.task.take() {
+            if !matches!(task.state, TaskState::Done | TaskState::Failed) {
+                s.tasks.push(task);
+            }
+        }
+        // Also drop terminal tasks left by cancelled tasks pushed earlier.
+        s.tasks
+            .retain(|t| !matches!(t.state, TaskState::Done | TaskState::Failed));
+        *self.sched = s;
+        Ok(())
+    }
+}
+
+impl Drop for ReinstallGuard<'_> {
+    fn drop(&mut self) {
+        // If `reinstall` already ran on the normal path the guard is disarmed
+        // and the scheduler has been taken back; nothing to do. Otherwise (a
+        // panic unwound past the explicit reinstall) recover the scheduler from
+        // the thread-local so the empty dummy is never left in `*self.sched`
+        // and the in-flight task is not silently dropped (VM-5).
+        if !self.armed {
+            return;
+        }
+        // Best-effort during unwind: if the scheduler is somehow absent we
+        // cannot do anything useful, so leave `*self.sched` as-is.
+        let _ = self.reinstall();
+    }
+}
+
 /// Run the scheduler event loop with re-entrant safety.
 ///
 /// Before each task step, the scheduler is put back into the thread-local
@@ -548,8 +603,20 @@ fn run_until_reentrant(
             continue;
         }
 
+        // Move the real scheduler into the thread-local while the task runs so
+        // that nested async/spawn etc. reach it through `take_scheduler`. A
+        // scope guard owns the in-flight task and re-installs the scheduler
+        // into `*sched` on Drop — including during a panic unwind. Without it,
+        // a panic in task execution left the empty dummy in `*sched` and
+        // silently dropped the running task, deadlocking callers (VM-5).
         let taken = std::mem::replace(sched, Scheduler::new(Rc::new(Env::new()), Vec::new()));
         put_scheduler(taken);
+        let mut guard = ReinstallGuard {
+            sched,
+            task: Some(task),
+            armed: true,
+        };
+        let task = guard.task.as_mut().expect("in-flight task present");
 
         // Run the extracted task
         if let Some(val) = task.resume_value.take() {
@@ -580,15 +647,12 @@ fn run_until_reentrant(
             }
         }
 
-        // Take scheduler back; only keep active tasks
-        let mut s = take_scheduler()?;
-        if !matches!(task.state, TaskState::Done | TaskState::Failed) {
-            s.tasks.push(task);
-        }
-        // Also drop terminal tasks left by cancelled tasks pushed earlier
-        s.tasks
-            .retain(|t| !matches!(t.state, TaskState::Done | TaskState::Failed));
-        *sched = s;
+        // Reinstall the scheduler on the normal path. We do this explicitly
+        // (rather than relying solely on the guard's Drop) so that a failure
+        // to re-take the scheduler surfaces as an error instead of being
+        // swallowed during unwind. `reinstall` disarms the guard so its Drop
+        // does not run the reinstall a second time.
+        guard.reinstall()?;
     }
 
     Err(SemaError::eval(
@@ -627,4 +691,48 @@ pub fn init_scheduler(globals: Rc<Env>, native_spurs: Vec<Spur>) {
     set_spawn_callback(spawn_callback);
     set_run_scheduler_callback(run_scheduler_callback);
     set_cancel_callback(cancel_callback);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// VM-5: a panic during a task step must not strand the empty dummy
+    /// scheduler in `*sched`. The `ReinstallGuard` should recover the real
+    /// scheduler from the thread-local on unwind so callers don't lose tasks.
+    #[test]
+    fn test_reinstall_guard_restores_scheduler_on_panic() {
+        // A real scheduler with a distinguishing marker, held by the "caller".
+        let mut sched = Scheduler::new(Rc::new(Env::new()), Vec::new());
+        sched.next_id = 4242;
+
+        let recovered_marker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            // Mirror the loop body: swap the real scheduler into the
+            // thread-local while an (absent) task runs, guarded by ReinstallGuard.
+            let taken =
+                std::mem::replace(&mut sched, Scheduler::new(Rc::new(Env::new()), Vec::new()));
+            put_scheduler(taken);
+            let _guard = ReinstallGuard {
+                sched: &mut sched,
+                task: None,
+                armed: true,
+            };
+            // Simulate a panic mid-step (e.g. an `unreachable!()` in the VM).
+            panic!("simulated task panic");
+        }));
+
+        assert!(recovered_marker.is_err(), "panic should propagate");
+
+        // The thread-local must be empty now (the guard took the scheduler
+        // back out), and `sched` must hold the original real scheduler — not
+        // the empty dummy that was swapped in.
+        assert!(
+            SCHEDULER.with(|s| s.borrow().is_none()),
+            "scheduler should have been taken back out of the thread-local"
+        );
+        assert_eq!(
+            sched.next_id, 4242,
+            "the real scheduler (next_id=4242) must be restored into *sched, not the empty dummy"
+        );
+    }
 }

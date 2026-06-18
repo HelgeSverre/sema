@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use sema_core::{Span, Value};
+use sema_core::{SemaError, Span, Value};
 
 use crate::chunk::Chunk;
 use crate::opcodes::Op;
@@ -38,21 +38,28 @@ impl Emitter {
 
     /// Add a constant to the pool, deduplicating by value equality.
     /// Returns the u16 index into the constant pool.
-    pub fn add_const(&mut self, val: Value) -> u16 {
+    ///
+    /// Errors if the pool would exceed `u16::MAX` entries: the index is encoded
+    /// as a u16 in `Op::Const`, so a larger pool would wrap the index onto a
+    /// previously-used slot and silently load the wrong constant (VM-6).
+    pub fn add_const(&mut self, val: Value) -> Result<u16, SemaError> {
         if let Some(&idx) = self.const_dedup.get(&val) {
-            return idx;
+            return Ok(idx);
         }
-        let idx = self.chunk.consts.len() as u16;
+        let idx = u16::try_from(self.chunk.consts.len()).map_err(|_| {
+            SemaError::eval("constant pool overflow: a single compilation unit cannot hold more than 65536 unique constants")
+        })?;
         self.const_dedup.insert(val.clone(), idx);
         self.chunk.consts.push(val);
-        idx
+        Ok(idx)
     }
 
     /// Emit `Op::Const` followed by the u16 constant index.
-    pub fn emit_const(&mut self, val: Value) {
-        let idx = self.add_const(val);
+    pub fn emit_const(&mut self, val: Value) -> Result<(), SemaError> {
+        let idx = self.add_const(val)?;
         self.emit_op(Op::Const);
         self.emit_u16(idx);
+        Ok(())
     }
 
     /// Record a source span at the current PC position.
@@ -106,7 +113,7 @@ mod tests {
     #[test]
     fn test_emit_const() {
         let mut e = Emitter::new();
-        e.emit_const(Value::int(42));
+        e.emit_const(Value::int(42)).unwrap();
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
         assert_eq!(chunk.code[0], Op::Const as u8);
@@ -136,8 +143,8 @@ mod tests {
     #[test]
     fn test_const_dedup() {
         let mut e = Emitter::new();
-        let idx1 = e.add_const(Value::int(42));
-        let idx2 = e.add_const(Value::int(42));
+        let idx1 = e.add_const(Value::int(42)).unwrap();
+        let idx2 = e.add_const(Value::int(42)).unwrap();
         assert_eq!(idx1, idx2);
         assert_eq!(e.into_chunk().consts.len(), 1);
     }
@@ -145,9 +152,9 @@ mod tests {
     #[test]
     fn test_const_dedup_strings() {
         let mut e = Emitter::new();
-        let idx1 = e.add_const(Value::string("hello"));
-        let idx2 = e.add_const(Value::string("hello"));
-        let idx3 = e.add_const(Value::string("world"));
+        let idx1 = e.add_const(Value::string("hello")).unwrap();
+        let idx2 = e.add_const(Value::string("hello")).unwrap();
+        let idx3 = e.add_const(Value::string("world")).unwrap();
         assert_eq!(idx1, idx2, "same string should dedup");
         assert_ne!(idx1, idx3, "different strings should not dedup");
         assert_eq!(e.into_chunk().consts.len(), 2);
@@ -156,9 +163,9 @@ mod tests {
     #[test]
     fn test_const_dedup_floats() {
         let mut e = Emitter::new();
-        let idx1 = e.add_const(Value::float(1.25));
-        let idx2 = e.add_const(Value::float(1.25));
-        let idx3 = e.add_const(Value::float(2.5));
+        let idx1 = e.add_const(Value::float(1.25)).unwrap();
+        let idx2 = e.add_const(Value::float(1.25)).unwrap();
+        let idx3 = e.add_const(Value::float(2.5)).unwrap();
         assert_eq!(idx1, idx2, "same float should dedup");
         assert_ne!(idx1, idx3, "different floats should not dedup");
         assert_eq!(e.into_chunk().consts.len(), 2);
@@ -167,8 +174,8 @@ mod tests {
     #[test]
     fn test_const_dedup_neg_zero_vs_pos_zero() {
         let mut e = Emitter::new();
-        let idx1 = e.add_const(Value::float(0.0));
-        let idx2 = e.add_const(Value::float(-0.0));
+        let idx1 = e.add_const(Value::float(0.0)).unwrap();
+        let idx2 = e.add_const(Value::float(-0.0)).unwrap();
         // -0.0 and +0.0 are equal per IEEE 754, so they dedup to the same constant
         assert_eq!(
             idx1, idx2,
@@ -180,8 +187,8 @@ mod tests {
     #[test]
     fn test_const_dedup_nan() {
         let mut e = Emitter::new();
-        let idx1 = e.add_const(Value::float(f64::NAN));
-        let idx2 = e.add_const(Value::float(f64::NAN));
+        let idx1 = e.add_const(Value::float(f64::NAN)).unwrap();
+        let idx2 = e.add_const(Value::float(f64::NAN)).unwrap();
         // NaN != NaN per IEEE 754, so each NaN gets its own pool entry.
         // HashMap::get uses Eq, and NaN != NaN, so no dedup occurs.
         assert_ne!(idx1, idx2, "NaN should not dedup with itself");
@@ -191,9 +198,9 @@ mod tests {
     #[test]
     fn test_const_dedup_keywords() {
         let mut e = Emitter::new();
-        let idx1 = e.add_const(Value::keyword("name"));
-        let idx2 = e.add_const(Value::keyword("name"));
-        let idx3 = e.add_const(Value::keyword("age"));
+        let idx1 = e.add_const(Value::keyword("name")).unwrap();
+        let idx2 = e.add_const(Value::keyword("name")).unwrap();
+        let idx3 = e.add_const(Value::keyword("age")).unwrap();
         assert_eq!(idx1, idx2, "same keyword should dedup");
         assert_ne!(idx1, idx3, "different keywords should not dedup");
         assert_eq!(e.into_chunk().consts.len(), 2);
@@ -202,15 +209,34 @@ mod tests {
     #[test]
     fn test_const_dedup_mixed_types_no_collision() {
         let mut e = Emitter::new();
-        let idx_int = e.add_const(Value::int(1));
-        let idx_float = e.add_const(Value::float(1.0));
-        let idx_str = e.add_const(Value::string("1"));
-        let idx_bool = e.add_const(Value::bool(true));
+        let idx_int = e.add_const(Value::int(1)).unwrap();
+        let idx_float = e.add_const(Value::float(1.0)).unwrap();
+        let idx_str = e.add_const(Value::string("1")).unwrap();
+        let idx_bool = e.add_const(Value::bool(true)).unwrap();
         // All different types, should not dedup
         assert_ne!(idx_int, idx_float);
         assert_ne!(idx_int, idx_str);
         assert_ne!(idx_int, idx_bool);
         assert_eq!(e.into_chunk().consts.len(), 4);
+    }
+
+    #[test]
+    fn test_add_const_overflow_errors() {
+        // VM-6: the constant index is a u16, so exactly 65536 (0..=u16::MAX)
+        // unique constants fit. The 65537th must error rather than wrap the
+        // index back onto an already-used slot.
+        let mut e = Emitter::new();
+        for i in 0..=u16::MAX as i64 {
+            let idx = e.add_const(Value::int(i)).expect("first 65536 consts fit");
+            assert_eq!(idx as i64, i);
+        }
+        let err = e
+            .add_const(Value::int(u16::MAX as i64 + 1))
+            .expect_err("65537th unique constant must overflow");
+        assert!(
+            err.to_string().contains("constant pool overflow"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

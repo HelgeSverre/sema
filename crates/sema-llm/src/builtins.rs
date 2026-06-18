@@ -3433,7 +3433,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                 .ok_or_else(|| SemaError::eval(format!("vector store '{}' not found", name)))?;
             Ok(Value::list(
                 store
-                    .search(query, k)
+                    .search(query, k)?
                     .iter()
                     .map(|r| r.to_value())
                     .collect(),

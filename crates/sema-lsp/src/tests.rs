@@ -1491,3 +1491,116 @@ fn analyze_comments_only() {
     let diags = analyze_document("; just a comment\n; another one");
     assert!(diags.is_empty(), "got: {diags:?}");
 }
+
+// ── UTF-16 correctness regressions (LSP-1, LSP-2, LSP-4) ─────
+
+// LSP-4: inlay-hint argument positions must be UTF-16 code-unit columns, not
+// byte offsets. With a 🎉 (4 UTF-8 bytes, 2 UTF-16 units) before an argument,
+// the byte offset diverges from the UTF-16 column.
+#[test]
+fn inlay_hint_arg_position_uses_utf16_after_emoji() {
+    let src = "(defun f (a b) a)\n(f \"🎉\" x)";
+    let (mut state, uri) = parsed_state("file:///inlay.sema", src);
+    let full = Range {
+        start: Position {
+            line: 0,
+            character: 0,
+        },
+        end: Position {
+            line: 10,
+            character: 0,
+        },
+    };
+    let hints = state.handle_inlay_hints(&uri, &full).unwrap();
+    // Hint for the second arg `x` (param `b`) on line 1.
+    let b_hint = hints
+        .iter()
+        .find(|h| matches!(&h.label, InlayHintLabel::String(s) if s == "b:"))
+        .expect("expected a `b:` inlay hint");
+    assert_eq!(b_hint.position.line, 1);
+    // `(f "🎉" x)` — `x` is at byte 10 but UTF-16 column 8 (🎉 is 2 units).
+    assert_eq!(
+        b_hint.position.character, 8,
+        "arg position must be a UTF-16 column, not a byte offset"
+    );
+}
+
+// LSP-2: semantic-token length must be in UTF-16 code units. A user-defined
+// name containing an astral char is 1 char wider than its UTF-16 width per
+// such char.
+#[test]
+fn semantic_token_length_is_utf16() {
+    // `x𝐀` symbol (𝐀 = U+1D400, alphabetic so a legal symbol char): 2 chars,
+    // but 3 UTF-16 code units (𝐀 = 2).
+    let src = "(define x𝐀 1)\nx𝐀";
+    let (state, uri) = parsed_state("file:///semtok.sema", src);
+    let result = state.handle_semantic_tokens_full(&uri).unwrap();
+    let SemanticTokensResult::Tokens(tokens) = result else {
+        panic!("expected token data");
+    };
+    // At least one emitted token must report the UTF-16 length (3), never the
+    // char length (2).
+    assert!(
+        tokens.data.iter().any(|t| t.length == 3),
+        "expected a token of UTF-16 length 3, got {:?}",
+        tokens.data.iter().map(|t| t.length).collect::<Vec<_>>()
+    );
+}
+
+// LSP-1: completion scope queries must convert the incoming UTF-16
+// Position.character to a Sema (char) column. On a line containing an emoji
+// before the cursor, the raw `character + 1` would land in the wrong scope
+// column. We assert the local binding is still surfaced.
+#[test]
+fn completion_local_binding_visible_after_emoji_on_line() {
+    // `total` is a let binding; the cursor sits after an emoji string on its
+    // line, so the editor's UTF-16 character offset diverges from the char
+    // column the scope tree expects.
+    let src = "(let ((total 5))\n  (+ \"🎉\" to))";
+    let (state, uri) = parsed_state("file:///comp.sema", src);
+    // Line 1 (0-indexed): `  (+ "🎉" to)`. `to` spans UTF-16 chars 10..12
+    // (🎉 = 2 units). Cursor at end of `to`.
+    let pos = Position {
+        line: 1,
+        character: 12,
+    };
+    let items = state.handle_complete(&uri, &pos);
+    assert!(
+        items.iter().any(|i| i.label == "total"),
+        "expected `total` binding in completions, got {:?}",
+        items.iter().map(|i| &i.label).collect::<Vec<_>>()
+    );
+}
+
+// LSP-3: named-let detection must require items[2] to be the bindings list.
+// A malformed `(let x 5)` (symbol then non-list) must NOT be treated as a
+// named let that binds `x`.
+#[test]
+fn malformed_let_not_misclassified_as_named_let() {
+    let src = "(let x 5)";
+    let (ast, span_map, symbol_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+    let tree = scope::ScopeTree::build(&ast, &span_map, &symbol_spans);
+    // `x` must not be a visible binding anywhere in the (malformed) let body.
+    let visible = tree.visible_bindings_at(1, 8);
+    assert!(
+        !visible.iter().any(|(n, _)| n == "x"),
+        "`x` should not be bound: {visible:?}"
+    );
+}
+
+// LSP-3: a genuine named let still binds both the loop name and its vars.
+#[test]
+fn named_let_binds_loop_name_and_vars() {
+    let src = "(let loop ((i 0))\n  (loop i))";
+    let (ast, span_map, symbol_spans) = sema_reader::read_many_with_symbol_spans(src).unwrap();
+    let tree = scope::ScopeTree::build(&ast, &span_map, &symbol_spans);
+    let visible = tree.visible_bindings_at(2, 4);
+    assert!(
+        visible.iter().any(|(n, _)| n == "loop"),
+        "loop name should be bound: {visible:?}"
+    );
+    assert!(
+        visible.iter().any(|(n, _)| n == "i"),
+        "loop var should be bound: {visible:?}"
+    );
+}

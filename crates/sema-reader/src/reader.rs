@@ -485,7 +485,32 @@ impl Parser {
                             }
                         }
                         FStringPart::Expr(src) => {
-                            let val = read(src)?;
+                            // Parse the interpolation as a sub-expression. Thread
+                            // the current depth through so nested f-strings can't
+                            // bypass MAX_PARSE_DEPTH by starting a fresh parser at
+                            // depth 0 (READ-1).
+                            let sub_tokens = tokenize(src)?;
+                            let mut sub = Parser::new(sub_tokens);
+                            sub.depth = self.depth;
+                            if sub.peek().is_none() {
+                                return Err(SemaError::Reader {
+                                    message: "f-string interpolation is empty".to_string(),
+                                    span,
+                                }
+                                .with_hint("put an expression inside ${...}"));
+                            }
+                            let val = sub.parse_expr()?;
+                            // An interpolation must hold exactly one expression;
+                            // silently dropping extra forms hides bugs (READ-2).
+                            if sub.peek().is_some() {
+                                return Err(SemaError::Reader {
+                                    message:
+                                        "f-string interpolation must contain exactly one expression"
+                                            .to_string(),
+                                    span,
+                                }
+                                .with_hint("wrap multiple forms, e.g. ${(do a b)}"));
+                            }
                             items.push(val);
                         }
                     }
@@ -1558,6 +1583,40 @@ mod tests {
     #[test]
     fn test_read_fstring_unterminated_string_error() {
         assert!(read(r#"f"hello"#).is_err());
+    }
+
+    #[test]
+    fn test_read_fstring_multiple_forms_error() {
+        // READ-2: `${x y}` carries two forms — must error, not silently drop `y`.
+        let err = read(r#"f"${x y}""#).unwrap_err();
+        assert!(
+            err.to_string().contains("exactly one expression"),
+            "expected single-expression error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_read_fstring_respects_depth_limit() {
+        // READ-1: f-string interpolation must not reset the depth counter to 0.
+        // A deeply nested form inside `${...}` must still trip MAX_PARSE_DEPTH
+        // rather than recursing freely and risking a stack overflow. Run on a
+        // large stack so the result reflects the depth check, not the small
+        // default test-thread stack.
+        let result = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                let depth = 3000;
+                let inner = format!("{}{}", "[".repeat(depth), "]".repeat(depth));
+                let src = format!("f\"${{{inner}}}\"");
+                read(&src).is_err()
+            })
+            .unwrap()
+            .join()
+            .expect("parser must not overflow the stack on deeply nested f-string");
+        assert!(
+            result,
+            "expected a depth-limit error for deeply nested f-string interpolation"
+        );
     }
 
     #[test]

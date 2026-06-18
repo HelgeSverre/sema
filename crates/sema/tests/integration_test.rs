@@ -31,6 +31,23 @@ fn eval_to_string(input: &str) -> String {
     format!("{}", eval(input))
 }
 
+/// Assert that `input` evaluates to a float within `1e-10` of `expected`.
+///
+/// Preferred over `assert_eq!(eval(..), Value::float(..))` for genuine
+/// transcendental/irrational computations (sqrt, pow, trig, exp, hyperbolic,
+/// lerp), where bit-exact equality is fragile across libm implementations and
+/// rounding paths.
+fn assert_float_eq(input: &str, expected: f64) {
+    let v = eval(input);
+    let f = v
+        .as_float()
+        .unwrap_or_else(|| panic!("expected float from {input}, got {v}"));
+    assert!(
+        (f - expected).abs() < 1e-10,
+        "{input} = {f}, expected ≈ {expected}"
+    );
+}
+
 #[test]
 fn test_arithmetic() {
     assert_eq!(eval("(+ 1 2)"), Value::int(3));
@@ -1376,14 +1393,14 @@ fn test_round() {
 #[test]
 fn test_sqrt() {
     assert_eq!(eval("(sqrt 16)"), Value::float(4.0));
-    assert_eq!(eval("(sqrt 2.0)"), Value::float(2.0_f64.sqrt()));
+    assert_float_eq("(sqrt 2.0)", 2.0_f64.sqrt());
 }
 
 #[test]
 fn test_pow() {
     assert_eq!(eval("(pow 2 10)"), Value::int(1024));
     assert_eq!(eval("(pow 3 0)"), Value::int(1));
-    assert_eq!(eval("(pow 2.0 0.5)"), Value::float(2.0_f64.powf(0.5)));
+    assert_float_eq("(pow 2.0 0.5)", 2.0_f64.powf(0.5));
 }
 
 #[test]
@@ -1400,8 +1417,8 @@ fn test_log() {
 
 #[test]
 fn test_trig() {
-    assert_eq!(eval("(sin 0)"), Value::float(0.0));
-    assert_eq!(eval("(cos 0)"), Value::float(1.0));
+    assert_float_eq("(sin 0)", 0.0);
+    assert_float_eq("(cos 0)", 1.0);
     // sin(pi/2) ≈ 1.0
     let result = eval("(sin (/ pi 2))");
     if let Some(f) = result.as_float() {
@@ -2154,13 +2171,13 @@ fn test_math_gcd_lcm() {
 #[test]
 fn test_math_trig_extended() {
     // tan(0) = 0
-    assert_eq!(eval("(math/tan 0)"), Value::float(0.0));
+    assert_float_eq("(math/tan 0)", 0.0);
     // asin(0) = 0, acos(1) = 0, atan(0) = 0
-    assert_eq!(eval("(math/asin 0)"), Value::float(0.0));
-    assert_eq!(eval("(math/acos 1)"), Value::float(0.0));
-    assert_eq!(eval("(math/atan 0)"), Value::float(0.0));
+    assert_float_eq("(math/asin 0)", 0.0);
+    assert_float_eq("(math/acos 1)", 0.0);
+    assert_float_eq("(math/atan 0)", 0.0);
     // atan2(0, 1) = 0, atan2(1, 0) = pi/2
-    assert_eq!(eval("(math/atan2 0 1)"), Value::float(0.0));
+    assert_float_eq("(math/atan2 0 1)", 0.0);
     if let Some(f) = eval("(math/atan2 1 0)").as_float() {
         assert!((f - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
     } else {
@@ -2171,7 +2188,7 @@ fn test_math_trig_extended() {
 #[test]
 fn test_math_exp_log() {
     // exp(0) = 1
-    assert_eq!(eval("(math/exp 0)"), Value::float(1.0));
+    assert_float_eq("(math/exp 0)", 1.0);
     // exp(1) ≈ e
     if let Some(f) = eval("(math/exp 1)").as_float() {
         assert!((f - std::f64::consts::E).abs() < 1e-10);
@@ -3249,27 +3266,31 @@ fn test_string_number_predicate() {
 
 #[test]
 fn test_map_map_keys() {
-    // Note: output order relies on BTreeMap sorted iteration
-    // Transform keyword keys using keyword->string
+    // Assert via map/entries (deterministic BTreeMap iteration) rather than the
+    // raw `{...}` display string, so the test is resilient to map display tweaks.
     assert_eq!(
-        eval_to_string(r#"(map/map-keys keyword->string {:a 1 :b 2})"#),
-        r#"{"a" 1 "b" 2}"#
+        eval_to_string(r#"(map/entries (map/map-keys keyword->string {:a 1 :b 2}))"#),
+        r#"(("a" 1) ("b" 2))"#
     );
 }
 
 #[test]
 fn test_map_from_entries() {
-    // Note: output order relies on BTreeMap sorted iteration
+    // Assert via map/entries (deterministic BTreeMap iteration) rather than the
+    // raw `{...}` display string, so the test is resilient to map display tweaks.
     assert_eq!(
-        eval_to_string(r#"(map/from-entries (list (list :a 1) (list :b 2)))"#),
-        "{:a 1 :b 2}"
+        eval_to_string(r#"(map/entries (map/from-entries (list (list :a 1) (list :b 2))))"#),
+        "((:a 1) (:b 2))"
     );
     // Empty list -> empty map
-    assert_eq!(eval_to_string(r#"(map/from-entries (list))"#), "{}");
+    assert_eq!(
+        eval_to_string(r#"(map/entries (map/from-entries (list)))"#),
+        "()"
+    );
     // Roundtrip: entries -> from-entries
     assert_eq!(
-        eval_to_string(r#"(map/from-entries (map/entries {:x 10 :y 20}))"#),
-        "{:x 10 :y 20}"
+        eval_to_string(r#"(map/entries (map/from-entries (map/entries {:x 10 :y 20})))"#),
+        "((:x 10) (:y 20))"
     );
 }
 
@@ -3426,17 +3447,30 @@ fn test_interpose() {
 
 #[test]
 fn test_frequencies() {
-    // Note: output order relies on BTreeMap sorted iteration
-    // basic counting with keywords (BTreeMap = deterministic order)
-    assert_eq!(eval_to_string("(frequencies '(:a :b :a))"), "{:a 2 :b 1}");
+    // Assert counts via map/entries (deterministic BTreeMap iteration) rather
+    // than the raw `{...}` display string, so the test is resilient to map
+    // display tweaks while still verifying both keys and counts.
+    assert_eq!(
+        eval_to_string("(map/entries (frequencies '(:a :b :a)))"),
+        "((:a 2) (:b 1))"
+    );
     // all unique
-    assert_eq!(eval_to_string("(frequencies '(1 2 3))"), "{1 1 2 1 3 1}");
+    assert_eq!(
+        eval_to_string("(map/entries (frequencies '(1 2 3)))"),
+        "((1 1) (2 1) (3 1))"
+    );
     // all same
-    assert_eq!(eval_to_string("(frequencies '(1 1 1))"), "{1 3}");
+    assert_eq!(
+        eval_to_string("(map/entries (frequencies '(1 1 1)))"),
+        "((1 3))"
+    );
     // empty list
-    assert_eq!(eval_to_string("(frequencies '())"), "{}");
+    assert_eq!(eval_to_string("(map/entries (frequencies '()))"), "()");
     // works on vectors
-    assert_eq!(eval_to_string("(frequencies [1 2 1])"), "{1 2 2 1}");
+    assert_eq!(
+        eval_to_string("(map/entries (frequencies [1 2 1]))"),
+        "((1 2) (2 1))"
+    );
 }
 
 #[test]
@@ -5308,15 +5342,15 @@ fn test_scheme_aliases() {
 
 #[test]
 fn test_math_pow_namespaced() {
-    assert_eq!(eval("(math/pow 2.0 10.0)"), Value::float(1024.0));
+    assert_float_eq("(math/pow 2.0 10.0)", 1024.0);
     assert_eq!(eval("(math/pow 2 3)"), Value::int(8));
 }
 
 #[test]
 fn test_math_hyperbolic() {
-    assert_eq!(eval("(math/sinh 0)"), Value::float(0.0));
-    assert_eq!(eval("(math/cosh 0)"), Value::float(1.0));
-    assert_eq!(eval("(math/tanh 0)"), Value::float(0.0));
+    assert_float_eq("(math/sinh 0)", 0.0);
+    assert_float_eq("(math/cosh 0)", 1.0);
+    assert_float_eq("(math/tanh 0)", 0.0);
 }
 
 #[test]
@@ -5335,9 +5369,9 @@ fn test_math_angle_conversion() {
 
 #[test]
 fn test_math_lerp() {
-    assert_eq!(eval("(math/lerp 0.0 10.0 0.5)"), Value::float(5.0));
-    assert_eq!(eval("(math/lerp 0.0 10.0 0.0)"), Value::float(0.0));
-    assert_eq!(eval("(math/lerp 0.0 10.0 1.0)"), Value::float(10.0));
+    assert_float_eq("(math/lerp 0.0 10.0 0.5)", 5.0);
+    assert_float_eq("(math/lerp 0.0 10.0 0.0)", 0.0);
+    assert_float_eq("(math/lerp 0.0 10.0 1.0)", 10.0);
 }
 
 #[test]
@@ -6597,6 +6631,21 @@ fn test_sandbox_fs_read_denied() {
     let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_READ);
     let interp = Interpreter::new_with_sandbox(&sandbox);
     let result = interp.eval_str(r#"(file/exists? "/tmp")"#);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Permission denied"));
+}
+
+// EVAL-3: `import` must be gated behind FS_READ like other filesystem reads.
+// Without the sandbox check, a restricted interpreter could read arbitrary
+// source files off disk via (import ...) on the tree-walker backend.
+#[test]
+fn test_sandbox_import_denied() {
+    let sandbox = sema_core::Sandbox::deny(sema_core::Caps::FS_READ);
+    let interp = Interpreter::new_with_sandbox(&sandbox);
+    let result = interp.eval_str(r#"(import "/etc/hosts")"#);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()

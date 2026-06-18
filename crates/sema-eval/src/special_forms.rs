@@ -953,6 +953,22 @@ fn expand_quasiquote_items(
     Ok(result)
 }
 
+/// Error if `val` is a top-level `(unquote-splicing ...)` form. Used to guard
+/// map keys/values inside quasiquote, where splicing has no meaning (EVAL-2).
+fn reject_splice_in_map(val: &Value) -> Result<(), SemaError> {
+    if let Some(items) = val.as_list() {
+        if let Some(sym) = items.first().and_then(|v| v.as_symbol()) {
+            if sym == "unquote-splicing" {
+                return Err(SemaError::eval(
+                    "unquote-splicing is not allowed in a quasiquoted map key or value",
+                )
+                .with_hint("splicing only makes sense inside a list or vector"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn expand_quasiquote(
     val: &Value,
     env: &Env,
@@ -994,8 +1010,13 @@ fn expand_quasiquote(
     } else if let Some(map) = val.as_map_rc() {
         // Expand unquotes inside map keys and values (EVAL-2). Splicing into a
         // map isn't meaningful, so only `(unquote x)` is handled (via recursion).
+        // A top-level `(unquote-splicing ...)` in a key or value would otherwise
+        // silently leak as literal `(unquote-splicing ...)` list data, so reject
+        // it with a clear error instead.
         let mut out = std::collections::BTreeMap::new();
         for (k, v) in map.iter() {
+            reject_splice_in_map(k)?;
+            reject_splice_in_map(v)?;
             let ek = expand_quasiquote(k, env, ctx, gensym_map)?;
             let ev = expand_quasiquote(v, env, ctx, gensym_map)?;
             out.insert(ek, ev);
@@ -1407,6 +1428,10 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
     if args.is_empty() {
         return Err(SemaError::arity("import", "1+", 0));
     }
+    // Gate filesystem/VFS access behind the sandbox, mirroring eval_load and the
+    // __vm-import delegate (EVAL-3). Without this, a restricted sandbox could be
+    // bypassed by importing a module on the tree-walker backend.
+    ctx.sandbox.check(sema_core::Caps::FS_READ, "import")?;
     let path_val = eval::eval_value(ctx, &args[0], env)?;
     let path_str = path_val
         .as_str()

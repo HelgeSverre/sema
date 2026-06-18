@@ -987,6 +987,69 @@ fn extract_tarball(data: &[u8], dest: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Atomically install an extracted tarball at `dest`.
+///
+/// BIN-4: extracting straight into `dest` (after `remove_dir_all(dest)`) means a
+/// mid-extract failure leaves the destination neither old nor new — a corrupt
+/// half-install that later `install` calls may treat as complete. Instead we
+/// extract into a sibling temp dir, write metadata there, then atomically rename
+/// it into place (replacing any existing install). The temp dir is cleaned up on
+/// any failure so a broken tarball never corrupts the package store.
+fn install_tarball_atomic(
+    tarball: &[u8],
+    dest: &Path,
+    name: &str,
+    version: &str,
+    registry_url: &str,
+    checksum: &str,
+) -> Result<(), String> {
+    // Place the temp dir as a sibling of `dest` so the rename stays on the same
+    // filesystem (and is therefore atomic).
+    let parent = dest
+        .parent()
+        .ok_or_else(|| format!("Invalid install destination: {}", dest.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|e| format!("Failed to create packages directory: {e}"))?;
+    let leaf = dest
+        .file_name()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "pkg".to_string());
+    let temp_dir = parent.join(format!(".{leaf}.tmp-{}", std::process::id()));
+
+    // A stale temp dir from a previously killed install would block extraction.
+    if temp_dir.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    // Run the fallible work against the temp dir; clean it up on any failure so
+    // a broken tarball never leaves a corrupt tree behind.
+    let build = || -> Result<(), String> {
+        extract_tarball(tarball, &temp_dir)?;
+        write_pkg_meta(&temp_dir, name, version, registry_url, checksum)?;
+        Ok(())
+    };
+    if let Err(e) = build() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        return Err(e);
+    }
+
+    // Swap into place: remove the old install (if any), then rename. The window
+    // between remove and rename is tiny and, unlike extraction, cannot fail
+    // partway through leaving a corrupt tree.
+    if dest.exists() {
+        if let Err(e) = std::fs::remove_dir_all(dest) {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            return Err(format!("Failed to remove old package: {e}"));
+        }
+    }
+    std::fs::rename(&temp_dir, dest).map_err(|e| {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        format!("Failed to finalize package install: {e}")
+    })?;
+
+    Ok(())
+}
+
 /// Download and install a package from the registry. Returns the checksum.
 fn registry_install(name: &str, version: &str, registry_url: &str) -> Result<String, String> {
     // Registry-only names skip the git-spec validator, so guard here before the
@@ -995,16 +1058,10 @@ fn registry_install(name: &str, version: &str, registry_url: &str) -> Result<Str
     validate_package_spec(name).map_err(|e| e.to_string())?;
     let (tarball, checksum) = registry_download(name, version, registry_url)?;
 
-    // Extract to packages dir
+    // Extract to packages dir (atomically — see install_tarball_atomic / BIN-4).
     let pkg_dir = packages_dir();
     let dest = pkg_dir.join(name);
-    if dest.exists() {
-        std::fs::remove_dir_all(&dest).map_err(|e| format!("Failed to remove old package: {e}"))?;
-    }
-    extract_tarball(&tarball, &dest)?;
-
-    // Write metadata
-    write_pkg_meta(&dest, name, version, registry_url, &checksum)?;
+    install_tarball_atomic(&tarball, &dest, name, version, registry_url, &checksum)?;
 
     Ok(checksum)
 }
@@ -1081,11 +1138,7 @@ fn registry_install_locked(
 
     let pkg_dir = packages_dir();
     let dest = pkg_dir.join(name);
-    if dest.exists() {
-        std::fs::remove_dir_all(&dest).map_err(|e| format!("Failed to remove old package: {e}"))?;
-    }
-    extract_tarball(&tarball, &dest)?;
-    write_pkg_meta(&dest, name, version, registry_url, &checksum)?;
+    install_tarball_atomic(&tarball, &dest, name, version, registry_url, &checksum)?;
 
     println!("✓ Installed {name}@{version} (locked)");
     Ok(())
@@ -2407,6 +2460,74 @@ name = "myproject"
         extract_tarball(&tarball, &dest).unwrap();
         let content = fs::read_to_string(dest.join("src/lib/deep.sema")).unwrap();
         assert_eq!(content, "(define deep 1)");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Build a minimal valid gzipped tarball containing `package.sema`.
+    fn make_pkg_tarball(content: &str) -> Vec<u8> {
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        {
+            let mut ar = tar::Builder::new(&mut gz);
+            let data = content.as_bytes();
+            let mut header = tar::Header::new_gnu();
+            header.set_path("package.sema").unwrap();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            ar.append(&header, data).unwrap();
+            ar.finish().unwrap();
+        }
+        gz.finish().unwrap()
+    }
+
+    // BIN-4: a failed extraction must not corrupt an existing install, and a
+    // successful one must atomically replace it.
+    #[test]
+    fn install_tarball_atomic_preserves_install_on_failure() {
+        let dir = tmpdir("atomic-fail");
+        let dest = dir.join("mypkg");
+
+        // Seed an existing, valid install.
+        let good = make_pkg_tarball("(define x 1)");
+        install_tarball_atomic(&good, &dest, "mypkg", "1.0.0", "http://r", "abc").unwrap();
+        assert_eq!(
+            fs::read_to_string(dest.join("package.sema")).unwrap(),
+            "(define x 1)"
+        );
+
+        // A corrupt tarball must fail without disturbing the prior install.
+        let garbage = b"not a gzip tarball at all";
+        let err = install_tarball_atomic(garbage, &dest, "mypkg", "2.0.0", "http://r", "def")
+            .unwrap_err();
+        assert!(!err.is_empty());
+        assert!(dest.exists(), "old install must survive a failed update");
+        assert_eq!(
+            fs::read_to_string(dest.join("package.sema")).unwrap(),
+            "(define x 1)",
+            "old contents must be intact after a failed update"
+        );
+
+        // No leftover temp dir should remain.
+        let leftover: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with(".mypkg.tmp-"))
+            .collect();
+        assert!(
+            leftover.is_empty(),
+            "temp dir must be cleaned up on failure"
+        );
+
+        // A valid update must atomically replace the contents.
+        let good2 = make_pkg_tarball("(define x 2)");
+        install_tarball_atomic(&good2, &dest, "mypkg", "2.0.0", "http://r", "def").unwrap();
+        assert_eq!(
+            fs::read_to_string(dest.join("package.sema")).unwrap(),
+            "(define x 2)"
+        );
+
         let _ = fs::remove_dir_all(&dir);
     }
 

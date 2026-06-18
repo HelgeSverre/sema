@@ -77,10 +77,22 @@ impl BackendState {
             if span.line != span.end_line || span.line == 0 {
                 continue;
             }
-            let length = span.end_col.saturating_sub(span.col);
-            if length == 0 {
+            // Token length must be in UTF-16 code units (LSP spec), not chars.
+            // Span columns are 1-indexed char columns; sum the UTF-16 width of
+            // the chars in [col, end_col) on the token's line.
+            let char_count = span.end_col.saturating_sub(span.col);
+            if char_count == 0 {
                 continue;
             }
+            let length = match cached.source.lines().nth(span.line - 1) {
+                Some(line_text) => line_text
+                    .chars()
+                    .skip(span.col - 1)
+                    .take(char_count)
+                    .map(|c| c.len_utf16())
+                    .sum::<usize>(),
+                None => char_count,
+            };
             raw_tokens.push((span.line, span.col, length, token_type, modifiers));
         }
 
