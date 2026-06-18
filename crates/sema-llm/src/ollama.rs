@@ -48,7 +48,7 @@ pub struct OllamaProvider {
     host: String,
     default_model: String,
     client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: crate::http::BlockingRuntime,
 }
 
 impl OllamaProvider {

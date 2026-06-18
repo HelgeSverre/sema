@@ -9,7 +9,7 @@ pub struct OpenAiCompatEmbeddingProvider {
     base_url: String,
     default_model: String,
     client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: crate::http::BlockingRuntime,
 }
 
 impl OpenAiCompatEmbeddingProvider {
@@ -126,7 +126,7 @@ pub struct CohereEmbeddingProvider {
     api_key: String,
     default_model: String,
     client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: crate::http::BlockingRuntime,
 }
 
 impl CohereEmbeddingProvider {

@@ -7,7 +7,7 @@ pub struct AnthropicProvider {
     api_key: String,
     default_model: String,
     client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: crate::http::BlockingRuntime,
 }
 
 impl AnthropicProvider {

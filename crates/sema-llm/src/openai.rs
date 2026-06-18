@@ -13,7 +13,7 @@ pub struct OpenAiProvider {
     default_model: String,
     send_stream_options: bool,
     client: reqwest::Client,
-    runtime: tokio::runtime::Runtime,
+    runtime: crate::http::BlockingRuntime,
 }
 
 impl OpenAiProvider {

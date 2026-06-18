@@ -244,3 +244,110 @@ fn test_mcp_e2e_standalone_binary_mode() {
     let _ = child.wait();
     let _ = std::fs::remove_dir_all(&tmp_dir);
 }
+
+/// Regression: tools that build a throwaway `Interpreter` or notebook `Engine`
+/// inside the handler (`compile`, `disasm`, `notebook/new`) must not take the
+/// server down when that value is dropped. Each interpreter owns LLM-provider
+/// Tokio runtimes; dropping a plain runtime inside the server's own async
+/// context panics ("Cannot drop a runtime in a context where blocking is not
+/// allowed"). Under `panic = "abort"` (release) that aborts the whole process
+/// mid-session; in debug the panic is caught but surfaces as an `isError` tool
+/// result. `BlockingRuntime` makes the drop non-blocking.
+///
+/// This MUST run against the real `sema mcp` binary (not the in-process server):
+/// the panic only fires under the binary's current-thread `block_on` runtime
+/// context, which an in-process `#[tokio::test]` does not reproduce. We drive
+/// all three tools plus a follow-up `eval` over one server lifetime and require
+/// every call to succeed and the process to exit cleanly.
+#[test]
+fn test_mcp_e2e_interpreter_drop_does_not_crash_server() {
+    let sema_bin = env!("CARGO_BIN_EXE_sema");
+    let tmp_dir = unique_temp_dir("mcp-drop-e2e");
+    let src_path = tmp_dir.join("sq.sema");
+    let semac_path = tmp_dir.join("sq.semac");
+    let nb_path = tmp_dir.join("nb.sema-nb");
+    std::fs::write(&src_path, "(define (f x) (* x x))\n(f 7)\n").unwrap();
+
+    let mut child = Command::new(sema_bin)
+        .arg("mcp")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("Failed to spawn sema mcp");
+
+    let mut stdin = child.stdin.take().expect("Failed to open stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("Failed to open stdout"));
+
+    let mut send = |req: serde_json::Value| {
+        writeln!(stdin, "{}", req).unwrap();
+        stdin.flush().unwrap();
+    };
+    fn read(stdout: &mut BufReader<std::process::ChildStdout>) -> serde_json::Value {
+        let mut line = String::new();
+        // A torn-down server returns 0 bytes here; surface that as a clear failure.
+        let n = stdout.read_line(&mut line).unwrap();
+        assert!(n > 0, "server closed the connection (likely crashed)");
+        serde_json::from_str::<serde_json::Value>(&line).unwrap()
+    }
+
+    send(json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }));
+    let _ = read(&mut stdout);
+
+    // Each of these three builds-and-drops an interpreter/engine in the handler.
+    let calls = [
+        (
+            2,
+            "compile",
+            json!({ "source_path": src_path.to_str().unwrap(),
+                    "output_path": semac_path.to_str().unwrap() }),
+        ),
+        (
+            3,
+            "disasm",
+            json!({ "file_path": src_path.to_str().unwrap() }),
+        ),
+        (
+            4,
+            "notebook/new",
+            json!({ "path": nb_path.to_str().unwrap(), "overwrite": true }),
+        ),
+    ];
+    for (id, name, args) in calls {
+        send(json!({
+            "jsonrpc": "2.0", "id": id, "method": "tools/call",
+            "params": { "name": name, "arguments": args }
+        }));
+        let resp = read(&mut stdout);
+        assert_eq!(resp["id"], id);
+        assert!(
+            !resp["result"]["isError"].as_bool().unwrap_or(false),
+            "tool '{name}' must not error/crash (drop-in-async-context regression): {resp}"
+        );
+    }
+
+    // The server must still be alive and functional after all those drops.
+    send(json!({
+        "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+        "params": { "name": "eval", "arguments": { "code": "(* 6 7)" } }
+    }));
+    let resp = read(&mut stdout);
+    assert_eq!(resp["id"], 5);
+    assert!(
+        resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .contains("42"),
+        "server must still evaluate after interpreter drops: {resp}"
+    );
+
+    // Clean shutdown: EOF on stdin -> loop exits 0 (no SIGABRT).
+    drop(stdin);
+    let status = child.wait().unwrap();
+    assert!(
+        status.success() || status.code().is_none(),
+        "server exited abnormally (code {:?}) — runtime-drop abort regression",
+        status.code()
+    );
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+}

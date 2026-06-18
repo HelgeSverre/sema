@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.1
+
+MCP server stability fix.
+
+### Fixed
+
+- **MCP server no longer crashes on `compile`, `disasm`, or any `notebook/*` tool.** These handlers build a short-lived `Interpreter` (or notebook `Engine`) that owns LLM-provider Tokio runtimes. Dropping a plain runtime from inside the server's async stdio loop panics ("Cannot drop a runtime in a context where blocking is not allowed"), which under the release build's `panic = "abort"` aborted the whole server process — every subsequent tool call then failed with "connection closed". LLM-provider runtimes are now wrapped in a `BlockingRuntime` whose `Drop` calls `shutdown_background()`, so dropping an interpreter is safe in any context. Covered by an end-to-end regression test that drives the real `sema mcp` binary (`crates/sema/tests/mcp_e2e_test.rs`).
+
 ## 1.17.0
 
 Tooling + VM release. Adds a built-in **MCP server** (`sema mcp`) so LLM clients can drive Sema in the host environment, makes the **DAP debugger** usable by default with verified breakpoints, evaluate/setVariable, and richer variable inspection, and runs **`(load …)` on the bytecode VM** so async/channels work in loaded files. The bytecode format moves to **v4** (now stack-verified on load, closing a memory-safety hole for untrusted `.semac`). Hardening across the new MCP/DAP surfaces and the formatter API followed an adversarial review and two rounds of mutation testing.
