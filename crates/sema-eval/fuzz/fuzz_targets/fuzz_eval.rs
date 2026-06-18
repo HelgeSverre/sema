@@ -1,18 +1,18 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use std::rc::Rc;
 
 /// Max eval steps per fuzz input — prevents infinite loops from timing out the fuzzer.
 const FUZZ_STEP_LIMIT: usize = 100_000;
 
 thread_local! {
-    /// Reuse a single stdlib environment across fuzz iterations.
-    /// LLM builtins are intentionally excluded (no network in fuzzer).
-    static ENV: Rc<sema_core::Env> = {
-        let env = sema_core::Env::new();
-        sema_stdlib::register_stdlib(&env);
-        sema_eval::set_eval_step_limit(FUZZ_STEP_LIMIT);
-        Rc::new(env)
+    /// Reuse a single interpreter across fuzz iterations. The VM is the sole
+    /// evaluator, so we fuzz the real compile + execute pipeline via the public
+    /// entry point. Defines persist across iterations (acceptable — we only
+    /// assert "must not panic").
+    static INTERP: sema_eval::Interpreter = {
+        let interp = sema_eval::Interpreter::new();
+        interp.ctx.set_eval_step_limit(FUZZ_STEP_LIMIT);
+        interp
     };
 }
 
@@ -22,10 +22,8 @@ fuzz_target!(|data: &[u8]| {
         Err(_) => return,
     };
 
-    ENV.with(|global_env| {
-        // Eval in a child env so fuzz iterations don't leak defines into each other
-        let env = sema_core::Env::with_parent(global_env.clone());
-        // Must not panic — Ok or Err are both fine
-        let _ = sema_eval::eval_string(input, &env);
+    INTERP.with(|interp| {
+        // Must not panic — Ok or Err are both fine.
+        let _ = interp.eval_str_compiled(input);
     });
 });

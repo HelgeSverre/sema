@@ -87,7 +87,7 @@ impl InterpreterBuilder {
         let env = Env::new();
         let ctx = sema_eval::EvalContext::new();
 
-        sema_core::set_eval_callback(&ctx, sema_eval::eval_value);
+        sema_core::set_eval_callback(&ctx, sema_eval::eval_value_vm);
         sema_core::set_call_callback(&ctx, sema_eval::call_value);
 
         if self.stdlib {

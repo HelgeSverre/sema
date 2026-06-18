@@ -1586,8 +1586,7 @@ impl WasmInterpreter {
         OUTPUT.with(|o| o.borrow_mut().clear());
         LINE_BUF.with(|b| b.borrow_mut().clear());
 
-        let env = sema_core::Env::with_parent(self.inner.global_env.clone());
-        let json_str = match sema_eval::eval_string(&self.inner.ctx, code, &env) {
+        let json_str = match self.inner.eval_str_in_global(code) {
             Ok(val) => {
                 let output = take_output();
                 let val_str = if val.is_nil() {
@@ -1637,7 +1636,7 @@ impl WasmInterpreter {
         OUTPUT.with(|o| o.borrow_mut().clear());
         LINE_BUF.with(|b| b.borrow_mut().clear());
 
-        let json_str = match sema_eval::eval_string(&self.inner.ctx, code, &self.inner.global_env) {
+        let json_str = match self.inner.eval_str_in_global(code) {
             Ok(val) => {
                 let output = take_output();
                 let val_str = if val.is_nil() {
@@ -1740,7 +1739,7 @@ impl WasmInterpreter {
             OUTPUT.with(|o| o.borrow_mut().clear());
             LINE_BUF.with(|b| b.borrow_mut().clear());
 
-            match sema_eval::eval_string(&self.inner.ctx, code, &self.inner.global_env) {
+            match self.inner.eval_str_in_global(code) {
                 Ok(val) => {
                     let output = take_output();
                     let val_str = if val.is_nil() {
@@ -2235,7 +2234,7 @@ impl WasmInterpreter {
             use std::rc::Rc;
             let env = sema_core::Env::new();
             let ctx = sema_core::EvalContext::new();
-            sema_core::set_eval_callback(&ctx, sema_eval::eval_value);
+            sema_core::set_eval_callback(&ctx, sema_eval::eval_value_vm);
             sema_core::set_call_callback(&ctx, sema_eval::call_value);
             let global_env = Rc::new(env);
             sema_eval::Interpreter { global_env, ctx }

@@ -21,11 +21,6 @@ pub fn try_match(pattern: &Value, value: &Value) -> Result<Option<Bindings>, Sem
     }
 }
 
-/// Returns true if the pattern is a destructuring form (vector or map), not a plain symbol.
-pub fn is_destructuring_pattern(pattern: &Value) -> bool {
-    pattern.as_vector().is_some() || pattern.as_map_ref().is_some()
-}
-
 // ── Destructure (strict) ────────────────────────────────────────────
 
 fn destructure_into(out: &mut Bindings, pattern: &Value, value: &Value) -> Result<(), SemaError> {

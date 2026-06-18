@@ -7,8 +7,8 @@ mod special_forms;
 
 pub use debug_session::{is_debug_session_active, set_debug_session_active};
 pub use eval::{
-    call_value, create_module_env, eval, eval_module_body_vm, eval_string, eval_value,
-    eval_value_vm, load_prelude, register_vm_delegates, EvalResult, Interpreter, Trampoline,
+    call_value, create_module_env, eval_module_body_vm, eval_value_vm, load_prelude,
+    register_vm_delegates, EvalResult, Interpreter, Trampoline,
 };
 pub use sema_core::EvalContext;
 pub use special_forms::SPECIAL_FORM_NAMES;
