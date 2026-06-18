@@ -1046,6 +1046,36 @@ fn register_vm_delegates(env: &Rc<Env>) {
         })),
     );
 
+    // __vm-module-exports: register a `(module name (export ...) ...)` form's
+    // declared export list with the active module-load scope, so `import`
+    // restricts the copied bindings to exactly those names. Without this the VM
+    // exported every top-level binding (private helpers leaked). Mirrors the
+    // tree-walker's `set_module_exports` call in eval_module.
+    env.set(
+        intern("__vm-module-exports"),
+        Value::native_fn(NativeFn::with_ctx(
+            "__vm-module-exports",
+            move |ctx, args| {
+                if args.len() != 1 {
+                    return Err(SemaError::arity("module-exports", "1", args.len()));
+                }
+                let names: Vec<String> = match args[0].as_list() {
+                    Some(items) => items
+                        .iter()
+                        .map(|v| {
+                            v.as_symbol().map(|s| s.to_string()).ok_or_else(|| {
+                                SemaError::eval("module: export names must be symbols")
+                            })
+                        })
+                        .collect::<Result<_, _>>()?,
+                    None => return Err(SemaError::type_error("list", args[0].type_name())),
+                };
+                ctx.set_module_exports(names);
+                Ok(Value::nil())
+            },
+        )),
+    );
+
     // __vm-load: call the load driver (special_forms::eval_load) directly, not
     // through the tree-walker's eval_step dispatch. The driver handles VFS
     // resolution, file path push/pop, caching, and runs the loaded body on the

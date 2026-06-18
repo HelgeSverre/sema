@@ -1045,9 +1045,23 @@ impl Compiler {
     fn compile_module(
         &mut self,
         _name: Spur,
-        _exports: &[Spur],
+        exports: &[Spur],
         body: &[ResolvedExpr],
     ) -> Result<(), SemaError> {
+        // Register the declared export list with the runtime so `import`
+        // restricts the copied bindings to exactly these names (a bare define-
+        // only module — no `module` form — exports everything). Emitted even for
+        // an empty export list, which means "export nothing".
+        let export_vals: Vec<Value> = exports
+            .iter()
+            .map(|s| Value::symbol_from_spur(*s))
+            .collect();
+        self.emit_load_global(intern("__vm-module-exports"))?;
+        self.emit.emit_const(Value::list(export_vals))?;
+        self.emit.emit_op(Op::Call);
+        self.emit.emit_u16(1);
+        self.emit.emit_op(Op::Pop);
+
         // Compile module body sequentially
         for (i, expr) in body.iter().enumerate() {
             self.compile_expr(expr)?;
