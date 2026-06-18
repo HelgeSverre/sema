@@ -1515,18 +1515,14 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
             let load_result: Result<std::collections::BTreeMap<String, Value>, SemaError> =
                 (|| {
                     let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-                    ctx.merge_span_table(spans);
+                    ctx.merge_span_table(spans.clone());
 
                     let module_env = eval::create_module_env(env);
-                    ctx.push_file_path(file_path);
+                    ctx.push_file_path(file_path.clone());
                     ctx.clear_module_exports();
 
-                    let eval_result = (|| {
-                        for expr in &exprs {
-                            eval::eval_value(ctx, expr, &module_env)?;
-                        }
-                        Ok(())
-                    })();
+                    let eval_result =
+                        eval_import_body(ctx, &module_env, &exprs, &spans, Some(file_path));
 
                     ctx.pop_file_path();
                     let declared = ctx.take_module_exports();
@@ -1579,18 +1575,14 @@ fn eval_import(args: &[Value], env: &Env, ctx: &EvalContext) -> Result<Trampolin
         let content = std::fs::read_to_string(&canonical)
             .map_err(|e| SemaError::Io(format!("import {path_str}: {e}")))?;
         let (exprs, spans) = sema_reader::read_many_with_spans(&content)?;
-        ctx.merge_span_table(spans);
+        ctx.merge_span_table(spans.clone());
 
         let module_env = eval::create_module_env(env);
         ctx.push_file_path(canonical.clone());
         ctx.clear_module_exports();
 
-        let eval_result = (|| {
-            for expr in &exprs {
-                eval::eval_value(ctx, expr, &module_env)?;
-            }
-            Ok(())
-        })();
+        let eval_result =
+            eval_import_body(ctx, &module_env, &exprs, &spans, Some(canonical.clone()));
 
         ctx.pop_file_path();
 
@@ -1759,6 +1751,34 @@ fn eval_load_body(
             result = eval::eval_value(ctx, expr, env)?;
         }
         Ok(result)
+    }
+}
+
+/// Evaluate an imported module's top-level forms in its isolated `module_env`.
+///
+/// On the VM backend the body is compiled and run on the bytecode VM rooted at
+/// `module_env` (so the module's top-level `define`s are *that env's* globals).
+/// Combined with M1 closure home-globals, an exported closure that calls a
+/// private module helper resolves the helper against `module_env` even when the
+/// closure is copied into and called from the importer — giving the same module
+/// isolation the tree-walker provides, while letting modules use VM-only
+/// features (async/channels). On the tree-walker backend it evaluates each form
+/// directly. (Part of M4 / Phase 1b.)
+fn eval_import_body(
+    ctx: &EvalContext,
+    module_env: &Env,
+    exprs: &[Value],
+    spans: &sema_core::SpanMap,
+    source_file: Option<std::path::PathBuf>,
+) -> Result<(), SemaError> {
+    if ctx.vm_backend() {
+        eval::eval_module_body_vm(ctx, module_env, exprs, spans, source_file)?;
+        Ok(())
+    } else {
+        for expr in exprs {
+            eval::eval_value(ctx, expr, module_env)?;
+        }
+        Ok(())
     }
 }
 

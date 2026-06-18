@@ -1,11 +1,12 @@
-//! Tests for VM-backed `(load ...)`: when the VM is the active backend, a loaded
-//! file's body is compiled and run on the bytecode VM (not the tree-walker), so
-//! async/channels work in loaded files and the code runs at VM speed.
+//! Tests for VM-backed `(load ...)` and `(import ...)`: when the VM is the active
+//! backend, a module's body is compiled and run on the bytecode VM (not the
+//! tree-walker), so async/channels work in modules and the code runs at VM speed.
 //!
-//! `(import ...)` is intentionally STILL tree-walked even under the VM backend
-//! (its module isolation needs lexical env capture the VM does not yet provide —
-//! see docs/plans/2026-06-16-vm-module-loading.md). The import tests here assert
-//! that isolation stays correct under the VM backend.
+//! `(import ...)` also runs its module body on the VM (M4). Module isolation —
+//! an exported fn calling a private module helper — holds because M1 gives each
+//! closure a home-globals pointer to its defining (module) env, and each frame
+//! restores its own function table, so exported closures resolve their own
+//! globals/functions even when copied into and called from the importer.
 
 use sema_core::Value;
 use sema_eval::Interpreter;
@@ -170,9 +171,11 @@ fn vm_load_matches_tree_walker() {
 
 #[test]
 fn vm_backend_import_keeps_tree_walker_isolation() {
-    // import stays tree-walked even under the VM backend, so the ubiquitous
-    // "exported fn calls a private helper" pattern works (it would break if
-    // import ran on the VM — VM closures carry no per-module globals env).
+    // M4: import now runs the module body on the VM, and module isolation still
+    // holds — the ubiquitous "exported fn calls a private helper" pattern works
+    // because M1 gives the exported closure a home-globals pointer to the
+    // module env, so `private-helper` resolves there even when `public-api` is
+    // copied into and called from the importer.
     let dir = temp_dir("imp-iso");
     let m = write(
         &dir,
@@ -214,5 +217,88 @@ fn vm_backend_flag_resets_for_single_expr_eval() {
         "single-expr tree-walker eval must reset the backend flag so async in a \
          loaded file fails (the loaded body must not run on the VM), got {res:?}"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// === M4: VM-native import (module body runs on the VM) ===
+
+#[test]
+fn vm_import_runs_on_vm_async_in_module() {
+    // Decisive proof import runs on the VM: an imported fn uses async/await
+    // (a VM-only feature). On the tree-walker this errors; here it must succeed.
+    let dir = temp_dir("imp-async");
+    let m = write(
+        &dir,
+        "amod.sema",
+        "(define (compute) (await (async (+ 40 2))))",
+    );
+    let r = vm(&format!(r#"(begin (import "{m}" compute) (compute))"#)).unwrap();
+    assert_eq!(r, Value::int(42));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn vm_import_private_helper_name_collision_with_importer() {
+    // Adversarial: the importer defines its OWN `helper` with different behavior
+    // than the module's private `helper`. The exported `api` must call the
+    // MODULE's helper (home-globals), not the importer's — no cache aliasing or
+    // global-resolution bleed across the two isolated global envs.
+    let dir = temp_dir("imp-collide");
+    let m = write(
+        &dir,
+        "lib.sema",
+        "(define (helper x) (* x 100))\n(define (api x) (helper x))",
+    );
+    let r = vm(&format!(
+        r#"(begin (define (helper x) (+ x 1)) (import "{m}" api) (list (api 5) (helper 5)))"#
+    ))
+    .unwrap();
+    // api -> module helper -> 500 ; importer helper -> 6
+    assert_eq!(r, Value::list(vec![Value::int(500), Value::int(6)]));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn vm_import_interleaved_with_importer_functions() {
+    // Adversarial: interleave calls to an imported fn and importer-local fns so
+    // the VM's function-table swapping for cross-module closures must restore
+    // correctly (a wrong table would mis-resolve MakeClosure/Call func ids).
+    let dir = temp_dir("imp-interleave");
+    let m = write(
+        &dir,
+        "lib.sema",
+        "(define (mod-secret) 7)\n(define (mod-fn x) (* x (mod-secret)))",
+    );
+    let r = vm(&format!(
+        r#"(begin
+             (import "{m}" mod-fn)
+             (define (loc-fn x) (+ x 1000))
+             (list (loc-fn 1) (mod-fn 2) (loc-fn 3) (mod-fn 4) (map (fn (n) (mod-fn n)) (list 1 2 3))))"#
+    ))
+    .unwrap();
+    assert_eq!(
+        r,
+        Value::list(vec![
+            Value::int(1001),
+            Value::int(14),
+            Value::int(1003),
+            Value::int(28),
+            Value::list(vec![Value::int(7), Value::int(14), Value::int(21)]),
+        ])
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn vm_import_matches_tree_walker_isolation() {
+    // Equivalence: VM-backed import and tree-walker import agree on the result
+    // of the exported-calls-private pattern.
+    let dir = temp_dir("imp-equiv");
+    let m = write(
+        &dir,
+        "lib.sema",
+        "(define (priv x) (* x 3))\n(define (pub x) (+ (priv x) 1))",
+    );
+    assert_equiv(&format!(r#"(begin (import "{m}" pub) (pub 10))"#));
     let _ = std::fs::remove_dir_all(&dir);
 }

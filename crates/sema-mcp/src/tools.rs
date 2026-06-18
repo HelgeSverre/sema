@@ -533,8 +533,9 @@ pub fn run_bytecode_bytes(
             cache_offset: 0,
         }),
         upvalues: Vec::new(),
-        // Top-level main closure: runs on the VM that owns its globals.
+        // Top-level main closure: uses the VM's own globals and function table.
         globals: None,
+        functions: None,
     });
 
     let mut vm = sema_vm::VM::new(

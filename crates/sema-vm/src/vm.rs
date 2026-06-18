@@ -57,6 +57,15 @@ pub struct Closure {
     /// always carry a concrete `Some(home)` so they remain correct when
     /// exported across VMs (M1: closure home-globals).
     pub globals: Option<Rc<Env>>,
+    /// Home function table: the compilation unit (`Vec<Function>`) this closure's
+    /// `func`/upvalue indices and `MakeClosure`/`Call` func-ids point into. The
+    /// executing VM sets `self.functions` to this on every frame activation, so
+    /// an imported closure (whose table differs from the importer's) resolves
+    /// its own functions even when called from the importer's VM — and the
+    /// importer's frames restore *their* table on return. `None` for the
+    /// top-level main closure, which uses the VM's own (base) table (M4: import
+    /// on the VM).
+    pub functions: Option<Rc<Vec<Rc<Function>>>>,
 }
 
 /// Payload stored in NativeFn for VM closures.
@@ -838,6 +847,14 @@ impl VM {
             }};
         }
 
+        // Snapshot the VM's base function table — the table used by the
+        // top-level main closure (and any closure carrying no explicit table).
+        // `self.functions` is reset from each frame's closure on every frame
+        // activation; this immutable snapshot is the fallback for `None`
+        // closures so it never observes a cross-module callee's swapped table
+        // (M4: import on the VM).
+        let base_functions = self.functions.clone();
+
         // Two-level dispatch: outer loop caches frame locals, inner loop dispatches opcodes.
         // We only break to the outer loop when frames change (Call/TailCall/Return/exceptions).
         let mut debug_poll_counter: u32 = 0;
@@ -875,6 +892,16 @@ impl VM {
             let frame_globals: Rc<Env> = match &frame.closure.globals {
                 Some(g) => g.clone(),
                 None => self.globals.clone(),
+            };
+            // Home function table for this frame: the compilation unit the
+            // running closure's func-ids index into. An imported closure carries
+            // its module's table; the top-level main closure carries `None` and
+            // uses the VM's base table. Restoring it here (rather than only
+            // swapping at call sites) means an importer frame regains its own
+            // table when a cross-module callee returns (M4: import on the VM).
+            self.functions = match &frame.closure.functions {
+                Some(f) => f.clone(),
+                None => base_functions.clone(),
             };
 
             // Cache the next span boundary to avoid binary_search per instruction
@@ -2437,6 +2464,9 @@ impl VM {
             func,
             upvalues,
             globals: Some(home_globals.clone()),
+            // The new closure's func-ids index the table the defining frame is
+            // running against (set per frame activation in the dispatch loop).
+            functions: Some(self.functions.clone()),
         });
         let payload: Rc<dyn std::any::Any> = Rc::new(VmClosurePayload {
             closure: closure.clone(),
@@ -3333,8 +3363,9 @@ pub fn compile_program_with_spans(
             cache_offset: 0,
         }),
         upvalues: Vec::new(),
-        // Top-level main closure: runs on the VM that owns its globals.
+        // Top-level main closure: uses the VM's own globals and function table.
         globals: None,
+        functions: None,
     });
 
     Ok(CompiledProgram {
@@ -3469,8 +3500,9 @@ pub fn compile_program(
             cache_offset: 0,
         }),
         upvalues: Vec::new(),
-        // Top-level main closure: runs on the VM that owns its globals.
+        // Top-level main closure: uses the VM's own globals and function table.
         globals: None,
+        functions: None,
     });
 
     Ok(CompiledProgram {
@@ -3575,6 +3607,7 @@ mod tests {
             func: prog.closure.func.clone(),
             upvalues: vec![],
             globals: Some(g1.clone()),
+            functions: None,
         });
         let mut vm = VM::new(
             g2.clone(),
@@ -3596,6 +3629,7 @@ mod tests {
             func: prog.closure.func.clone(),
             upvalues: vec![],
             globals: None,
+            functions: None,
         });
         let mut vm2 = VM::new(g2, prog.functions, &[], prog.main_cache_slots).unwrap();
         let err = vm2
@@ -3632,6 +3666,7 @@ mod tests {
             func: func.clone(),
             upvalues: vec![],
             globals: None,
+            functions: None,
         });
         let globals = make_test_env();
         let ctx = EvalContext::new();
@@ -4156,6 +4191,7 @@ mod tests {
             func,
             upvalues: vec![],
             globals: None,
+            functions: None,
         });
         let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx).unwrap();
@@ -4197,6 +4233,7 @@ mod tests {
             func,
             upvalues: vec![],
             globals: None,
+            functions: None,
         });
         let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx);
@@ -4317,6 +4354,7 @@ mod tests {
             func,
             upvalues: vec![],
             globals: None,
+            functions: None,
         });
         let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx);
@@ -4726,6 +4764,7 @@ mod tests {
             func: func_a.clone(),
             upvalues: vec![],
             globals: None,
+            functions: None,
         });
         let lines = valid_breakpoint_lines_by_file(&main, &[func_a, func_b]);
 
@@ -4803,6 +4842,7 @@ mod tests {
             func,
             upvalues: vec![],
             globals: None,
+            functions: None,
         });
         let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx).unwrap();

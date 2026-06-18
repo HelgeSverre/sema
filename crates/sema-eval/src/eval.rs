@@ -1045,7 +1045,10 @@ fn register_vm_delegates(env: &Rc<Env>) {
         })),
     );
 
-    // __vm-import: import a module via the tree-walker
+    // __vm-import: run the import driver (path resolution, caching, export copy)
+    // in `eval_import`, which under the VM backend compiles and runs the module
+    // body on the bytecode VM (M4). Only the driver is shared with the
+    // tree-walker; the module body itself is VM-native.
     let import_env = env.clone();
     env.set(
         intern("__vm-import"),

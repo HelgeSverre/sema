@@ -44,6 +44,7 @@ fn eval_roundtrip(input: &str) -> Value {
         }),
         upvalues: Vec::new(),
         globals: None,
+        functions: None,
     });
     let mut vm = VM::new(interp.global_env.clone(), functions, &[], main_cache_slots).unwrap();
     vm.execute(closure, &interp.ctx).unwrap_or_else(|e| {
