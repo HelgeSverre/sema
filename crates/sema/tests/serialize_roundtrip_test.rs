@@ -43,6 +43,7 @@ fn eval_roundtrip(input: &str) -> Value {
             cache_offset: 0,
         }),
         upvalues: Vec::new(),
+        globals: None,
     });
     let mut vm = VM::new(interp.global_env.clone(), functions, &[], main_cache_slots).unwrap();
     vm.execute(closure, &interp.ctx).unwrap_or_else(|e| {

@@ -47,6 +47,16 @@ impl UpvalueCell {
 pub struct Closure {
     pub func: Rc<Function>,
     pub upvalues: Vec<Rc<UpvalueCell>>,
+    /// Home globals env: the global environment in which this closure was
+    /// *defined*. `GetGlobal`/`SetGlobal`/`DefineGlobal` resolve against this
+    /// env (not the executing VM's `self.globals`) so a closure exported from
+    /// one module and run inside another module's VM still sees its own
+    /// module-level defines. `None` for the top-level "main" closure, which is
+    /// always run by the VM that owns its globals — it falls back to
+    /// `self.globals` at execution time. Closures built via `MakeClosure`
+    /// always carry a concrete `Some(home)` so they remain correct when
+    /// exported across VMs (M1: closure home-globals).
+    pub globals: Option<Rc<Env>>,
 }
 
 /// Payload stored in NativeFn for VM closures.
@@ -857,6 +867,15 @@ impl VM {
             let base = frame.base;
             let mut pc = frame.pc;
             let code_len = frame.closure.func.chunk.code.len();
+            // Home globals for this frame: the env the running closure was
+            // defined in. The top-level main closure carries `None` and falls
+            // back to the VM's own globals. Captured once per frame activation
+            // (cheap Rc clone) so the hot global opcodes below pay no
+            // per-instruction cost (M1: closure home-globals).
+            let frame_globals: Rc<Env> = match &frame.closure.globals {
+                Some(g) => g.clone(),
+                None => self.globals.clone(),
+            };
 
             // Cache the next span boundary to avoid binary_search per instruction
             let (mut next_span_idx, mut next_span_pc) = if debug.is_some() {
@@ -1131,7 +1150,7 @@ impl VM {
                         let bits = read_u32!(code, pc);
                         let cache_slot = read_u16!(code, pc) as usize;
                         let cache_idx = self.frames[fi].cache_base + cache_slot;
-                        let version = self.globals.version.get();
+                        let version = frame_globals.version.get();
                         let entry = &self.inline_cache[cache_idx];
                         if entry.0 == bits && entry.1 == version {
                             self.stack.push(entry.2.clone());
@@ -1141,13 +1160,13 @@ impl VM {
                             // interned Spur for this global name; it is therefore guaranteed
                             // non-zero and layout-compatible with Spur.
                             let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
-                            match self.globals.get(spur) {
+                            match frame_globals.get(spur) {
                                 Some(val) => {
                                     self.inline_cache[cache_idx] = (bits, version, val.clone());
                                     self.stack.push(val);
                                 }
                                 None => {
-                                    let err = unbound_global_error(spur, &self.globals);
+                                    let err = unbound_global_error(spur, &frame_globals);
                                     handle_err!(self, fi, pc, err, pc - op::SIZE_LOAD_GLOBAL, 'dispatch);
                                 }
                             }
@@ -1160,8 +1179,8 @@ impl VM {
                         // therefore non-zero and layout-compatible with Spur.
                         let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        if !self.globals.set_existing(spur, val.clone()) {
-                            self.globals.set(spur, val);
+                        if !frame_globals.set_existing(spur, val.clone()) {
+                            frame_globals.set(spur, val);
                         }
                     }
                     op::DEFINE_GLOBAL => {
@@ -1171,7 +1190,7 @@ impl VM {
                         // therefore non-zero and layout-compatible with Spur.
                         let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
                         let val = unsafe { pop_unchecked(&mut self.stack) };
-                        self.globals.set(spur, val);
+                        frame_globals.set(spur, val);
                     }
 
                     // --- Control flow ---
@@ -1649,7 +1668,7 @@ impl VM {
 
                         // Look up the global (with inline cache)
                         let cache_idx = self.frames[fi].cache_base + cache_slot;
-                        let version = self.globals.version.get();
+                        let version = frame_globals.version.get();
                         let entry = &self.inline_cache[cache_idx];
                         let func_val = if entry.0 == bits && entry.1 == version {
                             entry.2.clone()
@@ -1658,13 +1677,13 @@ impl VM {
                             // emitted by the compiler from an interned Spur for the callee name
                             // and is therefore non-zero and layout-compatible with Spur.
                             let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
-                            match self.globals.get(spur) {
+                            match frame_globals.get(spur) {
                                 Some(val) => {
                                     self.inline_cache[cache_idx] = (bits, version, val.clone());
                                     val
                                 }
                                 None => {
-                                    let err = unbound_global_error(spur, &self.globals);
+                                    let err = unbound_global_error(spur, &frame_globals);
                                     handle_err!(self, fi, pc, err, saved_pc, 'dispatch);
                                 }
                             }
@@ -2403,14 +2422,29 @@ impl VM {
         // Update pc past the entire instruction
         self.frames.last_mut().unwrap().pc = uv_pc;
 
-        let closure = Rc::new(Closure { func, upvalues });
+        // Concretize the closure's home globals: the env the defining frame
+        // resolves globals against. The defining frame's closure carries
+        // `Some(home)` if it was itself a MakeClosure result, or `None` if it
+        // is the top-level main closure — in which case the home is the VM's
+        // own globals. Recording a concrete `Some(home)` here keeps the closure
+        // correct if it is later exported and run inside a different VM (M1).
+        let home_globals = match &self.frames.last().unwrap().closure.globals {
+            Some(g) => g.clone(),
+            None => self.globals.clone(),
+        };
+
+        let closure = Rc::new(Closure {
+            func,
+            upvalues,
+            globals: Some(home_globals.clone()),
+        });
         let payload: Rc<dyn std::any::Any> = Rc::new(VmClosurePayload {
             closure: closure.clone(),
             functions: self.functions.clone(),
         });
         let closure_for_fallback = closure.clone();
         let functions = self.functions.clone();
-        let globals = self.globals.clone();
+        let globals = home_globals;
 
         // The NativeFn wrapper is used as a fallback when called from outside the VM
         // (e.g., from stdlib HOFs like map/filter). Inside the VM, call_value detects
@@ -3299,6 +3333,8 @@ pub fn compile_program_with_spans(
             cache_offset: 0,
         }),
         upvalues: Vec::new(),
+        // Top-level main closure: runs on the VM that owns its globals.
+        globals: None,
     });
 
     Ok(CompiledProgram {
@@ -3433,6 +3469,8 @@ pub fn compile_program(
             cache_offset: 0,
         }),
         upvalues: Vec::new(),
+        // Top-level main closure: runs on the VM that owns its globals.
+        globals: None,
     });
 
     Ok(CompiledProgram {
@@ -3516,6 +3554,61 @@ mod tests {
     }
 
     #[test]
+    fn closure_home_globals_resolve_against_defining_env() {
+        // M1: a closure carries its home globals env. When run on a VM whose
+        // own globals differ, GetGlobal must resolve against the closure's home
+        // env (the env it was *defined* in), not the executing VM's globals.
+        // This is the keystone enabler for module-isolated `import` on the VM.
+        let ctx = EvalContext::new();
+
+        // A trivial program whose body just loads the global `x`.
+        let vals = sema_reader::read_many("x").unwrap();
+        let prog = compile_program(&vals, None).unwrap();
+
+        // Home env G1 defines x = 999; the executing VM's own env G2 does NOT.
+        let g1 = Rc::new(Env::new());
+        g1.set(intern("x"), Value::int(999));
+        let g2 = Rc::new(Env::new()); // no `x`
+
+        // Closure whose home globals = G1, executed by a VM whose globals = G2.
+        let closure = Rc::new(Closure {
+            func: prog.closure.func.clone(),
+            upvalues: vec![],
+            globals: Some(g1.clone()),
+        });
+        let mut vm = VM::new(
+            g2.clone(),
+            prog.functions.clone(),
+            &[],
+            prog.main_cache_slots,
+        )
+        .unwrap();
+        let result = vm.execute(closure, &ctx).unwrap();
+        assert_eq!(
+            result,
+            Value::int(999),
+            "GetGlobal must resolve `x` against the closure's home env G1, not the VM's G2"
+        );
+
+        // Negative control: with no home globals (`None`), the same func
+        // resolves against the executing VM's own env G2, where x is unbound.
+        let closure_no_home = Rc::new(Closure {
+            func: prog.closure.func.clone(),
+            upvalues: vec![],
+            globals: None,
+        });
+        let mut vm2 = VM::new(g2, prog.functions, &[], prog.main_cache_slots).unwrap();
+        let err = vm2
+            .execute(closure_no_home, &ctx)
+            .expect_err("x must be unbound against the VM's own globals (G2)");
+        let msg = err.to_string().to_lowercase();
+        assert!(
+            msg.contains("unbound") && msg.contains('x'),
+            "expected an unbound-`x` error against G2, got: {err}"
+        );
+    }
+
+    #[test]
     fn dup_on_empty_stack_errors_instead_of_ub() {
         // A crafted/corrupt .semac can declare a generous `max_stack` but lead
         // with a bare DUP. Before the guard this read `stack[usize::MAX]` (UB);
@@ -3538,6 +3631,7 @@ mod tests {
         let closure = Rc::new(Closure {
             func: func.clone(),
             upvalues: vec![],
+            globals: None,
         });
         let globals = make_test_env();
         let ctx = EvalContext::new();
@@ -4061,6 +4155,7 @@ mod tests {
         let closure = Rc::new(Closure {
             func,
             upvalues: vec![],
+            globals: None,
         });
         let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx).unwrap();
@@ -4101,6 +4196,7 @@ mod tests {
         let closure = Rc::new(Closure {
             func,
             upvalues: vec![],
+            globals: None,
         });
         let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx);
@@ -4220,6 +4316,7 @@ mod tests {
         let closure = Rc::new(Closure {
             func,
             upvalues: vec![],
+            globals: None,
         });
         let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx);
@@ -4628,6 +4725,7 @@ mod tests {
         let main = Rc::new(Closure {
             func: func_a.clone(),
             upvalues: vec![],
+            globals: None,
         });
         let lines = valid_breakpoint_lines_by_file(&main, &[func_a, func_b]);
 
@@ -4704,6 +4802,7 @@ mod tests {
         let closure = Rc::new(Closure {
             func,
             upvalues: vec![],
+            globals: None,
         });
         let mut vm = VM::new(globals, vec![], &[], 0).unwrap();
         let result = vm.execute(closure, &ctx).unwrap();
