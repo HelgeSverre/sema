@@ -43,6 +43,11 @@ SKIP_FILES=(
   "examples/pico-piano.sema"
   "examples/pico-show.sema"
   "examples/stdlib/io.sema"       # reads stdin
+  "examples/stdlib/http.sema"     # real network requests — non-deterministic
+                                  # (a flaky endpoint / 503 must not fail the
+                                  # smoke run). Same rationale as
+                                  # build-examples.sh. HTTP is covered by the
+                                  # ignored integration suite (make test-http).
 )
 
 is_skipped() {

@@ -69,7 +69,7 @@ test('direct JS eval to avoid page crash', async ({ page }) => {
     // Get the WASM module
     const mod = await import('/pkg/sema_wasm.js');
     await mod.default();
-    const interp = new mod.WasmInterpreter();
+    const interp = new mod.SemaInterpreter();
     
     try {
       const code = `
