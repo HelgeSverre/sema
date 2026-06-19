@@ -4,8 +4,8 @@ outline: [2, 3]
 
 # Bytecode File Format (`.semac`)
 
-::: tip Status: Implemented (Alpha)
-The `.semac` bytecode file format is implemented and available via `sema compile` and `sema disasm`. The format is not yet stable — breaking changes are expected before v1.0.
+::: tip Versioned build artifact
+The `.semac` format is stable and used in production — `sema compile`, `sema disasm`, and `sema build` all rely on it, and a verifier guarantees untrusted files can be loaded safely. It is **versioned** (currently `4`): the header records the format version, and the loader requires an exact match, so a `.semac` is a build artifact tied to the Sema version that produced it rather than a long-term portable interchange format. When a format change bumps the version, recompile from source. See [Versioning Strategy](#versioning-strategy).
 :::
 
 ## Overview
@@ -132,7 +132,7 @@ Each section begins with a section header:
 | `0x12` | Breakpoints | — | Reserved for breakpoint table |
 | `0x13` | Debug Scopes | — | Reserved for lexical scope ranges |
 
-Unknown section types are **skipped** (forward compatibility).
+The three required sections are always written, in the order above, so `n_sections` in the header is currently always `3`. The `0x10`–`0x13` debug sections are **reserved tags only** — the current serializer never emits them and defines no constants for them yet; they are documented here so a future writer and any third-party reader agree on the IDs. Unknown section types are **skipped** (forward compatibility), so a reader that ignores them stays compatible.
 
 ## String Table (Section `0x01`)
 
@@ -431,6 +431,8 @@ The verifier abstract-interprets each chunk:
 
 The verifier is **sound** — it never accepts an underflowing chunk. It is intentionally conservative: it may reject exotic-but-safe bytecode that a future optimizing compiler could emit, but accepts every program Sema's compiler produces. Once verification succeeds, `.semac` files from untrusted sources can be loaded without risking the unchecked-pop undefined behavior.
 
+The loader also enforces two hard limits while deserializing, both of which a re-implementation must respect to stay compatible: a chunk may declare a maximum stack depth of at most **65535** (`MAX_STACK_DEPTH`), and a constant-pool value may nest at most **128** levels deep (`MAX_VALUE_DEPTH`) — the latter bounds recursion in the value deserializer so a hostile file can't blow the native stack. Both are defined in `serialize.rs`.
+
 ## Example
 
 Given this source file:
@@ -456,6 +458,78 @@ The compiled `.semac` would contain:
 ```
 
 **Function Table**: (empty — no inner functions)
+
+## Reading a Real `.semac`, Byte by Byte
+
+The layout above is easier to trust when you can see every byte of an actual file. Here is the smallest interesting program, compiled and dumped in full — no diagrams, the real 85 bytes:
+
+```bash
+$ echo '(+ 1 2)' > tiny.sema
+$ sema compile tiny.sema -o tiny.semac
+$ sema disasm tiny.semac
+== <main> ==
+0000  CONST            0    ; 3
+0003  RETURN
+
+$ xxd tiny.semac
+00000000: 0053 454d 0400 0000 0100 1300 0100 0300  .SEM............
+00000010: d9b7 a83a 0000 0000 0100 0800 0000 0100  ...:............
+00000020: 0000 0000 0000 0200 0400 0000 0000 0000  ................
+00000030: 0300 1f00 0000 0400 0000 0000 0012 0100  ................
+00000040: 0203 0000 0000 0000 0000 0000 0000 0000  ................
+00000050: 0000 0000 00                             .....
+```
+
+Notice the compiler already **constant-folded** `(+ 1 2)` into the literal `3` — the [Optimize pass](./bytecode-vm.md) ran before serialization, so the only instruction is a `CONST` that pushes a pooled `3`, then `RETURN`. Now every byte:
+
+```
+offset  bytes                      meaning
+------  -----------------------    --------------------------------------------
+HEADER (24 bytes)
+ 0x00   00 53 45 4D                magic  "\x00SEM"
+ 0x04   04 00                      format_version = 4
+ 0x06   00 00                      flags = 0
+ 0x08   01 00                      sema major = 1   ┐
+ 0x0A   13 00                      sema minor = 19  ├ compiled by Sema 1.19.1
+ 0x0C   01 00                      sema patch = 1   ┘
+ 0x0E   03 00                      n_sections = 3
+ 0x10   D9 B7 A8 3A                source_hash = 0x3AA8B7D9  (CRC-32 of source)
+ 0x14   00 00 00 00                reserved
+
+SECTION 1 — String Table (type 0x01)
+ 0x18   01 00                      section type = 0x01
+ 0x1A   08 00 00 00                section length = 8 bytes
+ 0x1E   01 00 00 00                string count = 1
+ 0x22   00 00 00 00                string[0]: length 0  (the reserved empty string at index 0)
+
+SECTION 2 — Function Table (type 0x02)
+ 0x26   02 00                      section type = 0x02
+ 0x28   04 00 00 00                section length = 4 bytes
+ 0x2C   00 00 00 00                function count = 0   (no lambdas in this program)
+
+SECTION 3 — Main Chunk (type 0x03)
+ 0x30   03 00                      section type = 0x03
+ 0x32   1F 00 00 00                section length = 31 bytes
+        ── chunk body ──
+ 0x36   04 00 00 00                code length = 4 bytes
+ 0x3A   00                           CONST           (opcode 0)
+ 0x3B   00 00                        └ operand: constant index 0
+ 0x3D   12                           RETURN          (opcode 18 = 0x12)
+ 0x3E   01 00                      constant count = 1
+ 0x40   02                         const[0] tag = VAL_INT (0x02)
+ 0x41   03 00 00 00 00 00 00 00      └ i64 value = 3
+ 0x49   00 00 00 00                span count = 0
+ 0x4D   00 00                      max_stack = 0
+ 0x4F   00 00                      n_locals = 0
+ 0x51   00 00                      n_global_cache_slots = 0
+ 0x53   00 00                      exception count = 0
+```
+
+That is the whole format with nothing hidden: a 24-byte header, three length-prefixed sections, and a chunk whose four instruction-bytes (`00 00 00 12`) are literally `CONST 0` / `RETURN`. A program that referenced a global would add `"println"` to the string table and `LOAD_GLOBAL`/`CALL` opcodes to the chunk (as in the conceptual example above); a program with a `lambda` would add an entry to the function table. Everything else is more of the same.
+
+::: tip Want to build the instructions themselves first?
+[Build a Bytecode VM (in Sema)](./build-a-bytecode-vm.md) constructs a working compiler and stack machine from scratch in ~80 lines, so the `CONST`/`RETURN` stream above reads as the natural output of a process you've already seen end to end.
+:::
 
 ## Versioning Strategy
 

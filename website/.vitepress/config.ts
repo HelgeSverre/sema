@@ -157,6 +157,7 @@ export default defineConfig({
           collapsed: false,
           items: [
             { text: 'Architecture', link: '/docs/internals/architecture' },
+            { text: 'Build a Bytecode VM', link: '/docs/internals/build-a-bytecode-vm' },
             { text: 'Bytecode VM', link: '/docs/internals/bytecode-vm' },
             { text: 'Bytecode File Format', link: '/docs/internals/bytecode-format' },
             { text: 'Executable Format', link: '/docs/internals/executable-format' },

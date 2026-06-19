@@ -30,7 +30,7 @@ Integration tests are in `crates/sema/tests/integration_test.rs`. Dual-eval test
 
 ## Architecture
 
-Cargo workspace with 12 crates. Dependency flow (arrows = "depends on"):
+Cargo workspace with 14 crates. Dependency flow (arrows = "depends on"):
 
 ```
 sema-core  ←  sema-reader  ←  sema-vm  ←  sema-eval  ←  sema (binary)

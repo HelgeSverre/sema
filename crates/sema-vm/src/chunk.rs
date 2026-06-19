@@ -57,8 +57,8 @@ pub struct Function {
     /// Block scope of each block-introduced local, as `(slot, start_pc, end_pc)`
     /// half-open pc ranges. Used by the debugger to hide locals that are not yet
     /// bound or already out of scope at the current pc. Compile-time debug
-    /// metadata only — never read during execution and not serialized (empty on
-    /// functions loaded from bytecode, in which case all locals are shown).
+    /// metadata only — never read during execution. Serialized as format-version-4
+    /// metadata (see `serialize_function`), so it round-trips through `.semac`.
     pub local_scopes: Vec<(u16, u32, u32)>,
     pub source_file: Option<PathBuf>,
     /// Offset into the VM's inline_cache Vec where this function's cache slots begin.

@@ -50,7 +50,7 @@ sema build --list-targets                     # list targets and aliases
 | `--runtime <path>` | Sema binary to use as runtime base (default: current executable); conflicts with `--target` |
 | `--target <target>` | Target triple or alias (`linux`, `macos`, `windows`, …) for cross-compilation; `all` builds every supported target |
 | `--list-targets` | Show all supported target platforms and aliases |
-| `--no-cache` | Force re-download of cached runtime binaries |
+| `--no-cache` | Skip the cached runtime and re-download it (no effect for host-target builds, which never download) |
 
 ## Binary Layout
 
@@ -280,7 +280,7 @@ Write operations (`file/write`, `file/append`, `file/delete`, etc.) always targe
 
 `--target all` builds for every supported target, producing one `<name>-<triple>` executable each.
 
-Runtime binaries for non-host targets are downloaded from GitHub Releases, verified against the published SHA256 checksum, and cached at `~/.sema/cache/runtimes/v{version}/{target}/sema[.exe]`. Cached runtimes are validated by magic bytes against the expected format for the target; `--no-cache` forces a re-download. If the target matches the host, the local `sema` binary is used directly (no download). `SEMA_RUNTIME_BASE_URL` overrides the download location (for mirrors or air-gapped builds).
+Runtime binaries for non-host targets are downloaded from GitHub Releases (capped at 200 MB), verified against the published SHA256 checksum, and cached at `~/.sema/cache/runtimes/v{version}/{target}/sema[.exe]`. Cached runtimes are validated by magic bytes against the expected format for the target; `--no-cache` skips the cached copy and re-downloads. If the target matches the host, the local `sema` binary is used directly (no download, and `--no-cache` is a no-op). `SEMA_RUNTIME_BASE_URL` overrides the download location (for mirrors or air-gapped builds).
 
 Injection is format-aware rather than host-specific — `libsui` performs Mach-O ad-hoc signing in pure Rust, so e.g. macOS ARM64 binaries can be produced from Linux.
 

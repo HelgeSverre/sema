@@ -2,7 +2,7 @@
 
 Sema is a Lisp with first-class LLM primitives, implemented in Rust. All code runs on a single evaluator: a [bytecode VM](./bytecode-vm.md). The runtime is single-threaded (`Rc`, not `Arc`), with deterministic destruction via reference counting instead of a garbage collector.
 
-The entire implementation is ~125k lines of Rust spread across 12 crates, each with a clear responsibility and strict dependency ordering.
+The entire implementation is ~125k lines of Rust spread across 14 crates, each with a clear responsibility and strict dependency ordering.
 
 ## Crate Map
 
@@ -14,8 +14,8 @@ The entire implementation is ~125k lines of Rust spread across 12 crates, each w
                    │                 │
      ┌─────────────▼──┐         ┌────▼─────┐
      │ sema-notebook  │         │ sema-eval│
-     │ notebook UI +  ├────────►│trampoline│
-     │ server         │         │evaluator │
+     │ notebook UI +  ├────────►│ macros + │
+     │ server         │         │ modules  │
      └────────────────┘         └─┬───┬──┬─┘
                                   │   │  │
                  ┌────────────────▼┐  │ ┌▼──────────────┐
@@ -58,7 +58,7 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-core**   | Shared types                    | `Value` (NaN-boxed 8-byte), `Env`, `SemaError`, string interner, `NativeFn`, `Lambda`, `Macro`, `Record`, LLM types                       |
 | **sema-reader** | Parsing                         | `Lexer` (24 token types) + recursive descent `Parser` → `Value` AST + `SpanMap`                                                           |
 | **sema-vm**     | Bytecode VM (the evaluator)     | `CoreExpr`, `ResolvedExpr`, `Op`, `Chunk`, `Emitter` — lowering, resolution, compilation, VM dispatch                                     |
-| **sema-eval**   | Evaluation                      | Trampoline-based evaluator, special forms, module system, call stack + span table                                                         |
+| **sema-eval**   | Macro expansion + module loading | Macro expander (VM-native), module system (`import`/`load`), prelude, eval/call callback wiring; drives the VM. _Not_ a standalone evaluator — the VM is the sole evaluator |
 | **sema-stdlib** | Standard library                | Native functions across a comprehensive standard library                                                                                  |
 | **sema-llm**    | LLM integration                 | `LlmProvider` trait, native providers (Anthropic, OpenAI, Gemini, Ollama), OpenAI-compatible shim, embedding providers, cost tracking     |
 | **sema-lsp**    | Language Server              | LSP via tower-lsp: completions, hover, go-to-definition, references, rename, semantic tokens, diagnostics                                  |
@@ -66,6 +66,8 @@ This is discussed in detail in [The Circular Dependency Problem](#the-circular-d
 | **sema-fmt**    | Formatter                       | Code formatter for `.sema` files (`sema fmt`)                                                                                             |
 | **sema-notebook** | Notebook interface       | `.sema-nb` JSON format, evaluation engine, HTTP server with REST API, embedded browser UI, Markdown export                                 |
 | **sema-wasm**  | WASM bindings             | Browser playground bindings, JS interop via `wasm-bindgen`                                                                                |
+| **sema-mcp**    | MCP server                      | Model Context Protocol server exposing Sema eval/build/notebook tools (`sema mcp`)                                                         |
+| **sema-docs**   | Doc generation (internal)       | Builtin-docs index generator (`make docs`); not shipped as a binary                                                                       |
 | **sema**        | Binary                          | clap CLI, reedline REPL (highlighter / hinter / inspector live in `crates/sema/src/repl/`), `InterpreterBuilder` embedding API             |
 
 ## The Value Type
@@ -248,7 +250,7 @@ This keeps error construction concise across all native functions and special fo
 
 ### Lazy Stack Traces
 
-Stack traces are not captured at error creation time. Instead, the `WithTrace` wrapper is attached during error _propagation_ — when the trampoline loop unwinds through a function call, it wraps the error with the current call stack:
+Stack traces are not captured at error creation time. Instead, the `WithTrace` wrapper is attached during error _propagation_ — as an error unwinds out through a function call, it is wrapped with the current call stack:
 
 ```rust
 pub fn with_stack_trace(self, trace: StackTrace) -> Self {
