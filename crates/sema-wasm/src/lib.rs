@@ -1730,7 +1730,8 @@ impl WasmInterpreter {
         js_sys::JSON::parse(&json_str).unwrap_or(JsValue::NULL)
     }
 
-    /// Evaluate code with async HTTP support (tree-walker, global env)
+    /// Evaluate code with async HTTP support in the persistent global env
+    /// (top-level defines persist across calls). Runs on the bytecode VM.
     #[wasm_bindgen(js_name = evalAsync)]
     pub async fn eval_async(&self, code: &str) -> JsValue {
         clear_http_cache();

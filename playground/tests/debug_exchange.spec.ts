@@ -7,7 +7,6 @@ test('debug exchange-rates via UI with HTTP fetch', async ({ page }) => {
 
   await page.goto('/');
   await page.waitForSelector('[data-testid="status"].status-ready', { timeout: 15000 });
-  await page.getByTestId('engine-vm').click();
 
   // Load exchange-rates example code
   const code = await page.evaluate(async () => {

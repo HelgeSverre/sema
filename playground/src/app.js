@@ -375,16 +375,6 @@ backendToggle.addEventListener('change', async (e) => {
   refreshVfsStats();
 });
 
-// ── Engine toggle ──
-
-let useVM = true;
-document.getElementById('engine-toggle').addEventListener('change', (e) => {
-  useVM = e.target.value === 'vm';
-  document.querySelectorAll('#engine-toggle label').forEach(l => {
-    l.classList.toggle('active', l.querySelector('input').value === e.target.value);
-  });
-});
-
 // ── Init ──
 
 async function main() {
@@ -433,12 +423,11 @@ async function run() {
   const code = editorEl.value;
   if (!code.trim()) return;
 
-  const engine = useVM ? 'vm' : 'tree';
   const runBtn = document.getElementById('run-btn');
   runBtn.disabled = true;
 
   const t0 = performance.now();
-  const result = useVM ? await interp.evalVMAsync(code) : await interp.evalAsync(code);
+  const result = await interp.evalVMAsync(code);
   const elapsed = performance.now() - t0;
 
   runBtn.disabled = false;
@@ -468,7 +457,7 @@ async function run() {
 
   const timing = document.createElement('div');
   timing.className = 'output-timing';
-  timing.textContent = `Evaluated in ${elapsed.toFixed(1)}ms · ${engine === 'vm' ? 'bytecode VM' : 'tree-walker'}`;
+  timing.textContent = `Evaluated in ${elapsed.toFixed(1)}ms · bytecode VM`;
   outputEl.appendChild(timing);
 
   // Refresh VFS state

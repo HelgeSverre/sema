@@ -84,8 +84,6 @@ async function waitForIdle(page: Page, timeout = 10000) {
 test.describe('Debugger', () => {
   test.beforeEach(async ({ page }) => {
     await waitForReady(page);
-    // Select VM engine (debugger requires VM)
-    await page.getByTestId('engine-vm').click();
   });
 
   test('debug button starts and stops on first line', async ({ page }) => {

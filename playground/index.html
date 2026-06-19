@@ -56,10 +56,6 @@
     <div class="pane-header">
       <span class="pane-title">Source</span>
       <div style="display:flex;align-items:center;gap:0.75rem;">
-        <div class="engine-toggle" id="engine-toggle" data-testid="engine-toggle">
-          <label data-testid="engine-tree" data-tooltip="Tree-walking interpreter (legacy)"><input type="radio" name="engine" value="tree">Tree</label>
-          <label class="active" data-testid="engine-vm" data-tooltip="Bytecode VM (default)"><input type="radio" name="engine" value="vm" checked>VM</label>
-        </div>
         <button class="run-btn fmt-btn" id="fmt-btn" data-testid="fmt-btn" disabled data-tooltip="Format code (sema fmt)">Fmt</button>
         <button class="run-btn" id="run-btn" data-testid="run-btn" disabled data-tooltip="Run code (⌘+Enter)" data-tooltip-pos="right">
           Run<span class="shortcut">⌘↵</span>
