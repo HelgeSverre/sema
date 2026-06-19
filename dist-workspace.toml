@@ -7,6 +7,8 @@ members = ["cargo:."]
 cargo-dist-version = "0.30.4"
 # CI backends to support
 ci = "github"
+# TEMP (smoke-test branch only): run the full build matrix on PRs to validate PGO.
+pr-run-mode = "upload"
 # The installers to generate for each app
 installers = ["shell", "powershell", "homebrew"]
 # A GitHub repo to push Homebrew formulas to
