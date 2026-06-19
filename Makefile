@@ -180,6 +180,7 @@ playground-build:
 	cd playground && node build.mjs
 
 playground-dev: playground-build
+	cd playground && node scripts/gen-devtools-json.mjs
 	cd playground && npx serve -l 8787
 
 playground-deploy: playground-build

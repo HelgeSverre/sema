@@ -75,6 +75,7 @@ await build({
   bundle: true,
   format: 'esm',
   minify: false,
+  sourcemap: true, // source-level debugging in DevTools (maps dist -> src)
   target: 'es2020',
   external: ['../pkg/*'],
 });
