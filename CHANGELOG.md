@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.19.2
+
+Performance release. No language or behavior changes — purely faster, fully backward compatible. The headline is **profile-guided optimization** of the distributed binaries.
+
+### Performance
+
+- **PGO'd release binaries.** The cargo-dist GitHub-release binaries and Homebrew bottle are now built with profile-guided optimization (instrument → train on the benchmark suite + a 1BRC sample → rebuild). Measured **~25–29% faster on the 1BRC workload** and **−11% to −40% across the compute benchmarks** (higher-order-fold −40%, tak −32%, deriv/hashmap −22%). Wired into CI via dist's `github-build-setup` on native runners; it falls back to a plain build on cross-compiled targets and is fail-safe (a PGO failure never fails the release). Run it yourself with `make build-pgo`. Note: `cargo install` builds get fat LTO but not PGO (PGO needs the training step).
+- **Fat LTO** for release/dist profiles (`lto = "fat"`): measured 3–9% on its own, independent of PGO.
+- **Inline string opcodes.** `string-length`, `string-ref`, and `string-append` (2-arg) now compile to dedicated VM opcodes instead of routing through the generic `CallGlobal` → hash-lookup → native-fn path. Semantics are identical (char-indexed, same errors, redefinition still falls back); a win for code that uses them in hot loops.
+- **`#[inline(always)]`** added to the `type_name`/`as_str` value accessors used in the VM dispatch loop.
+
+Bytecode is unchanged at `format_version` 4 (the new opcodes are additive and single-byte); `.semac` files remain version-pinned as before.
+
 ## 1.19.1
 
 Dependency-hygiene patch release. No functional changes — this exists so the cargo-dist GitHub-release binaries and the Homebrew bottle (which build from the committed `Cargo.lock`, unlike `cargo install`, which re-resolves) embed the security-patched `tar` crate.
