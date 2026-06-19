@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 description = "Canonical structured documentation for Sema builtins/special forms; powers LSP hover/completion and REPL apropos"
 
+# `sema-docs` is an internal build/doc-generation tool (`make docs`), not a
+# user-facing program. Exclude its binary from `dist` so cargo-dist does not
+# ship it via the Homebrew tap / GitHub release alongside the `sema` binary.
+[package.metadata.dist]
+dist = false
+
 [dependencies]
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true }
