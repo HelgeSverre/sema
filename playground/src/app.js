@@ -450,7 +450,17 @@ async function run() {
   }
 
   const t0 = performance.now();
-  const result = workerActive ? await evalViaWorker(code) : await interp.evalVMAsync(code);
+  let result;
+  if (workerActive) {
+    // The worker owns eval; keep the main-thread interp as a synchronous VFS
+    // mirror so the existing file-tree/preview/persistence code is unchanged.
+    // Seed the worker with the mirror, then reflect any file changes back.
+    const { result: r, vfs } = await evalViaWorker(code, interp.dumpVfs());
+    result = r;
+    interp.loadVfs(vfs);
+  } else {
+    result = await interp.evalVMAsync(code);
+  }
   const elapsed = performance.now() - t0;
 
   if (workerActive) {

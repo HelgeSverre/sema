@@ -181,6 +181,25 @@ test('worker path: async/sleep paces in real wall-clock while the UI stays respo
   expect(lines).toEqual(['a', 'b', 'c', 'done']);
 });
 
+test('worker path: a file written during eval shows up in the file tree (VFS mirror)', async ({ page }) => {
+  // Eval runs on the worker (its own VFS); the main-thread interp is a mirror
+  // synced via dumpVfs/loadVfs after each run, so the file tree must reflect
+  // files the worker created.
+  await page.goto('/?worker');
+  await page.waitForSelector('[data-testid="status"].status-ready', { timeout: 20000 });
+
+  await setEditorCode(page, '(file/write "/from-worker.txt" "hi from the worker")\n(println "wrote it")');
+  await page.getByTestId('run-btn').click();
+  await page.waitForSelector('#output .output-timing', { timeout: 20000 });
+
+  // The file the worker created must appear in the (mirror-backed) file tree.
+  await page.waitForSelector('.vfs-tree-file:has-text("from-worker.txt")', { timeout: 5000 });
+  const files = await page.$$eval('.vfs-tree-file', (els) =>
+    els.map((e) => (e.textContent || '').trim())
+  );
+  expect(files.some((f) => f.includes('from-worker.txt'))).toBe(true);
+});
+
 test('evaluates a recursive fib correctly', async ({ page }) => {
   const code = `(define (fib n)
   (define (go a b i)

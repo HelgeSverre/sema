@@ -29,8 +29,12 @@ self.onmessage = async (e) => {
       return;
     }
     if (msg.type === 'eval') {
+      // Seed the worker's VFS from the main thread's mirror, run, then return
+      // the resulting VFS so the main thread can reflect any file changes.
+      if (msg.vfs !== undefined) interp.loadVfs(msg.vfs);
       const result = await interp.evalVMAsync(msg.code);
-      self.postMessage({ type: 'result', id: msg.id, result });
+      const vfs = interp.dumpVfs();
+      self.postMessage({ type: 'result', id: msg.id, result, vfs });
       return;
     }
   } catch (err) {

@@ -33,7 +33,7 @@ export function initWorker() {
       const resolve = pending.get(m.id);
       if (resolve) {
         pending.delete(m.id);
-        resolve(m.result);
+        resolve({ result: m.result, vfs: m.vfs });
       }
     }
   });
@@ -50,12 +50,13 @@ export function initWorker() {
   return ready;
 }
 
-/** Evaluate `code` on the worker; resolves to { value, output, error }. */
-export async function evalViaWorker(code) {
+/** Evaluate `code` on the worker, seeding it with `vfs` (a dumpVfs snapshot).
+ *  Resolves to { result: {value,output,error}, vfs: snapshot-after-run }. */
+export async function evalViaWorker(code, vfs) {
   await ready;
   const id = nextId++;
   return new Promise((resolve) => {
     pending.set(id, resolve);
-    worker.postMessage({ type: 'eval', id, code });
+    worker.postMessage({ type: 'eval', id, code, vfs });
   });
 }

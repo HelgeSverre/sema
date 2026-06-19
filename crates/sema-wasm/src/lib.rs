@@ -2612,6 +2612,70 @@ impl WasmInterpreter {
         VFS_TOTAL_BYTES.with(|t| t.set(0));
     }
 
+    /// Snapshot the entire VFS as a plain JS object `{ files: {path: content},
+    /// dirs: [path] }` — structured-clonable across `postMessage`. Used by the
+    /// playground to mirror the worker's VFS back to the main thread after each
+    /// eval (and to seed the worker before one). See `loadVfs`.
+    #[wasm_bindgen(js_name = dumpVfs)]
+    pub fn dump_vfs(&self) -> JsValue {
+        let obj = js_sys::Object::new();
+        let files = js_sys::Object::new();
+        VFS.with(|vfs| {
+            for (k, v) in vfs.borrow().iter() {
+                let _ = js_sys::Reflect::set(&files, &JsValue::from_str(k), &JsValue::from_str(v));
+            }
+        });
+        let dirs = js_sys::Array::new();
+        VFS_DIRS.with(|d| {
+            for p in d.borrow().iter() {
+                dirs.push(&JsValue::from_str(p));
+            }
+        });
+        let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("files"), &files);
+        let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("dirs"), &dirs);
+        obj.into()
+    }
+
+    /// Replace the entire VFS from a snapshot produced by `dumpVfs`. Resets
+    /// first, so the VFS exactly matches the snapshot.
+    #[wasm_bindgen(js_name = loadVfs)]
+    pub fn load_vfs(&self, snapshot: JsValue) {
+        self.reset_vfs();
+        if !snapshot.is_object() {
+            return;
+        }
+        if let Ok(files) = js_sys::Reflect::get(&snapshot, &JsValue::from_str("files")) {
+            if files.is_object() {
+                let files_obj: js_sys::Object = files.unchecked_into();
+                for key in js_sys::Object::keys(&files_obj).iter() {
+                    let (Some(path), Ok(val)) =
+                        (key.as_string(), js_sys::Reflect::get(&files_obj, &key))
+                    else {
+                        continue;
+                    };
+                    if let Some(content) = val.as_string() {
+                        VFS_TOTAL_BYTES.with(|t| t.set(t.get() + content.len()));
+                        VFS.with(|vfs| {
+                            vfs.borrow_mut().insert(path, content);
+                        });
+                    }
+                }
+            }
+        }
+        if let Ok(dirs) = js_sys::Reflect::get(&snapshot, &JsValue::from_str("dirs")) {
+            if let Ok(arr) = dirs.dyn_into::<js_sys::Array>() {
+                VFS_DIRS.with(|d| {
+                    let mut set = d.borrow_mut();
+                    for item in arr.iter() {
+                        if let Some(p) = item.as_string() {
+                            set.insert(p);
+                        }
+                    }
+                });
+            }
+        }
+    }
+
     /// Get the Sema version
     pub fn version(&self) -> String {
         env!("CARGO_PKG_VERSION").to_string()
