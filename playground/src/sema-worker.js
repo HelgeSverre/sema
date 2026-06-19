@@ -13,6 +13,7 @@
 import init, { SemaInterpreter } from '../pkg/sema_wasm.js';
 
 let interp = null;
+let control = null; // Int32Array over the shared control SAB (slot 0 = cancel flag)
 
 self.onmessage = async (e) => {
   const msg = e.data;
@@ -21,14 +22,17 @@ self.onmessage = async (e) => {
       await init();
       interp = new SemaInterpreter();
       if (msg.sab) {
-        // Build the Int32Array view here; the SAB is shared with the main
-        // thread (for future cancel/notify in M6).
-        interp.installAtomicsSleep(new Int32Array(msg.sab));
+        // Shared control buffer: slot 0 doubles as the Atomics.wait sleep cell
+        // and the cancel flag (set by the main thread's Stop via cancelWorker).
+        control = new Int32Array(msg.sab);
+        interp.installAtomicsSleep(control);
       }
       self.postMessage({ type: 'ready' });
       return;
     }
     if (msg.type === 'eval') {
+      // Clear any leftover cancel flag from a previous run before starting.
+      if (control) Atomics.store(control, 0, 0);
       // Seed the worker's VFS from the main thread's mirror, run, then return
       // the resulting VFS so the main thread can reflect any file changes.
       if (msg.vfs !== undefined) interp.loadVfs(msg.vfs);

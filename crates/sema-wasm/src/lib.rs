@@ -42,9 +42,22 @@ thread_local! {
 fn worker_atomics_sleep(ms: u64) {
     SLEEP_I32.with(|s| {
         if let Some(arr) = s.borrow().as_ref() {
+            // Slot 0 == 0 → block for `ms`; a cancel stores 1 + notifies, which
+            // wakes this wait immediately so a Stop interrupts a sleep promptly.
             let _ = js_sys::Atomics::wait_with_timeout(arr, 0, 0, ms as f64);
         }
     });
+}
+
+/// Interrupt callback installed in the Web Worker: the main thread requests a
+/// cancel by storing a non-zero value in control slot 0 (+ `Atomics.notify`).
+/// The VM loop guard polls this so a Stop button aborts a running program.
+fn worker_check_interrupt() -> bool {
+    SLEEP_I32.with(|s| {
+        s.borrow()
+            .as_ref()
+            .is_some_and(|arr| js_sys::Atomics::load(arr, 0).unwrap_or(0) != 0)
+    })
 }
 
 /// Active debug session state for cooperative VM execution.
@@ -2002,6 +2015,8 @@ impl WasmInterpreter {
 
         OUTPUT.with(|o| o.borrow_mut().clear());
         LINE_BUF.with(|b| b.borrow_mut().clear());
+        // Reset the loop-guard step counter so the limit is per debug session.
+        self.inner.ctx.eval_steps.set(0);
 
         let bp_lines: Vec<u32> = breakpoint_lines
             .iter()
@@ -2763,6 +2778,9 @@ impl WasmInterpreter {
     pub fn install_atomics_sleep(&self, view: js_sys::Int32Array) {
         SLEEP_I32.with(|s| *s.borrow_mut() = Some(view));
         sema_core::set_blocking_sleep_callback(worker_atomics_sleep);
+        // The same control buffer carries the cancel flag (slot 0): the VM loop
+        // guard polls this so a Stop aborts a running program (incl. mid-sleep).
+        sema_core::set_interrupt_callback(worker_check_interrupt);
     }
 }
 

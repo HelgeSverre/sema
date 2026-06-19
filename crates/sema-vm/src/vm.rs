@@ -892,14 +892,10 @@ impl VM {
                 }
             }
             dispatch_count += 1;
-            // Wall-clock deadline check on every frame transition. Catches
-            // infinite tail recursion like `(define (loop) (loop))` which
-            // re-enters this outer loop on every TailCall.
-            if ctx.deadline_exceeded() {
-                return Err(SemaError::eval(
-                    "evaluation exceeded time budget (looks like an infinite loop?)".to_string(),
-                ));
-            }
+            // Loop/recursion guard on every frame transition. Catches infinite
+            // tail recursion like `(define (loop) (loop))` (re-enters here on
+            // every TailCall) and honors step-limit / deadline / cancellation.
+            ctx.check_loop_interrupt()?;
             let fi = self.frames.len() - 1;
             let frame = &self.frames[fi];
             let code = frame.closure.func.chunk.code.as_ptr();
@@ -1257,14 +1253,11 @@ impl VM {
                     op::JUMP => {
                         let offset = read_i32!(code, pc);
                         pc = (pc as i64 + offset as i64) as usize;
-                        // Backward jump: this is a loop iteration boundary.
-                        // Check the wall-clock deadline so tight loops like
-                        // `(while #t)` can be interrupted.
-                        if offset < 0 && ctx.deadline_exceeded() {
-                            return Err(SemaError::eval(
-                                "evaluation exceeded time budget (looks like an infinite loop?)"
-                                    .to_string(),
-                            ));
+                        // Backward jump = loop iteration boundary: run the
+                        // step-limit / deadline / cancellation guard so tight
+                        // loops like `(while #t)` are bounded and interruptible.
+                        if offset < 0 {
+                            ctx.check_loop_interrupt()?;
                         }
                     }
                     op::JUMP_IF_FALSE => {
@@ -1272,11 +1265,8 @@ impl VM {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         if !val.is_truthy() {
                             pc = (pc as i64 + offset as i64) as usize;
-                            if offset < 0 && ctx.deadline_exceeded() {
-                                return Err(SemaError::eval(
-                                    "evaluation exceeded time budget (looks like an infinite loop?)"
-                                        .to_string(),
-                                ));
+                            if offset < 0 {
+                                ctx.check_loop_interrupt()?;
                             }
                         }
                     }
@@ -1285,11 +1275,8 @@ impl VM {
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         if val.is_truthy() {
                             pc = (pc as i64 + offset as i64) as usize;
-                            if offset < 0 && ctx.deadline_exceeded() {
-                                return Err(SemaError::eval(
-                                    "evaluation exceeded time budget (looks like an infinite loop?)"
-                                        .to_string(),
-                                ));
+                            if offset < 0 {
+                                ctx.check_loop_interrupt()?;
                             }
                         }
                     }

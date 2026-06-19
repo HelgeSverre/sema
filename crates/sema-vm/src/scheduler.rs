@@ -503,6 +503,16 @@ fn run_until_reentrant(
     let goal = RunGoal::new(target, sched.virtual_now);
 
     for _ in 0..MAX_TICKS {
+        // Honor cancellation between task steps too, so a Stop during an async
+        // wait (e.g. a real `Atomics.wait` sleep that was woken early) aborts
+        // promptly rather than only at the next VM loop back-edge. Drop all
+        // pending tasks so a cancelled run leaves no dangling/sleeping tasks to
+        // resurrect on a later eval.
+        if sema_core::check_interrupt() {
+            sched.tasks.clear();
+            return Err(SemaError::eval("evaluation cancelled".to_string()));
+        }
+
         if let Some(result) = goal.status() {
             return Ok(result);
         }

@@ -213,6 +213,39 @@ impl EvalContext {
         }
     }
 
+    /// Per-iteration loop/recursion guard, called by the VM at loop back-edges
+    /// and frame transitions. Counts a step and aborts when:
+    ///   - the step limit is exceeded (wasm-safe runaway-loop guard — the wall
+    ///     clock is unavailable in wasm, so the step counter is the guard there);
+    ///   - the wall-clock deadline is exceeded (native);
+    ///   - a cancellation has been requested (e.g. the playground Stop button).
+    ///
+    /// The step compare runs every call (cheap); the clock read and the
+    /// cancellation thread-local read run only periodically to keep tight loops
+    /// fast. `eval_steps` is reset per top-level eval by the evaluator.
+    #[inline]
+    pub fn check_loop_interrupt(&self) -> Result<(), SemaError> {
+        let steps = self.eval_steps.get().wrapping_add(1);
+        self.eval_steps.set(steps);
+        let limit = self.eval_step_limit.get();
+        if limit != 0 && steps > limit {
+            return Err(SemaError::eval(
+                "evaluation exceeded step limit (looks like an infinite loop?)".to_string(),
+            ));
+        }
+        if steps & 0x3FFF == 0 {
+            if self.deadline_exceeded() {
+                return Err(SemaError::eval(
+                    "evaluation exceeded time budget (looks like an infinite loop?)".to_string(),
+                ));
+            }
+            if crate::async_signal::check_interrupt() {
+                return Err(SemaError::eval("evaluation cancelled".to_string()));
+            }
+        }
+        Ok(())
+    }
+
     // --- User context methods ---
 
     pub fn context_get(&self, key: &Value) -> Option<Value> {

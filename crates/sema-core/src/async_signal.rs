@@ -198,6 +198,35 @@ pub fn clear_blocking_sleep_callback() {
     BLOCKING_SLEEP_CALLBACK.with(|cb| cb.set(None));
 }
 
+// ── Interrupt (cancellation) callback ───────────────────────────
+
+/// Callback that returns true when the running evaluation should be cancelled.
+/// The playground Web Worker installs one that reads a shared cancel flag
+/// (`Atomics.load` on the control SAB) so a Stop button can interrupt a running
+/// program — including one blocked in a real `Atomics.wait` sleep.
+pub type InterruptCallbackFn = fn() -> bool;
+
+thread_local! {
+    static INTERRUPT_CALLBACK: Cell<Option<InterruptCallbackFn>> = const { Cell::new(None) };
+}
+
+/// Install the interrupt/cancellation check. See [`check_interrupt`].
+pub fn set_interrupt_callback(f: InterruptCallbackFn) {
+    INTERRUPT_CALLBACK.with(|cb| cb.set(Some(f)));
+}
+
+/// Remove any installed interrupt callback.
+pub fn clear_interrupt_callback() {
+    INTERRUPT_CALLBACK.with(|cb| cb.set(None));
+}
+
+/// True if a cancellation has been requested via the installed interrupt
+/// callback. Cheap no-op (false) when none is installed.
+#[inline]
+pub fn check_interrupt() -> bool {
+    INTERRUPT_CALLBACK.with(|cb| cb.get()).is_some_and(|f| f())
+}
+
 /// Block for `ms` milliseconds of real wall-clock time as part of advancing the
 /// scheduler's virtual clock. If a host installed a callback (see
 /// [`set_blocking_sleep_callback`]) it is used. Otherwise the default is: sleep

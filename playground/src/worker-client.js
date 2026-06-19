@@ -9,6 +9,7 @@
 let worker = null;
 let ready = null;
 let nextId = 1;
+let controlView = null; // Int32Array over the shared control SAB (slot 0)
 const pending = new Map();
 
 /** True when the worker eval path is available and opted into. */
@@ -24,9 +25,11 @@ export function workerEvalEnabled() {
 export function initWorker() {
   if (ready) return ready;
   worker = new Worker(new URL('dist/sema-worker.js', document.baseURI), { type: 'module' });
-  // 4-byte control buffer the worker blocks on (Atomics.wait); shared so the
-  // main thread can later store a cancel flag + Atomics.notify (M6).
+  // 4-byte control buffer: the worker blocks on it (Atomics.wait for sleep) and
+  // the main thread stores a cancel flag + Atomics.notify into slot 0 to stop a
+  // running program (see cancelWorker).
   const sab = new SharedArrayBuffer(4);
+  controlView = new Int32Array(sab);
   worker.addEventListener('message', (e) => {
     const m = e.data;
     if (m && m.type === 'result') {
@@ -48,6 +51,15 @@ export function initWorker() {
     worker.postMessage({ type: 'init', sab });
   });
   return ready;
+}
+
+/** Request cancellation of the running eval: set the cancel flag (slot 0) and
+ *  wake any in-progress Atomics.wait sleep. The VM loop guard / scheduler abort
+ *  shortly after; the worker survives (defines + VFS preserved). */
+export function cancelWorker() {
+  if (!controlView) return;
+  Atomics.store(controlView, 0, 1);
+  Atomics.notify(controlView, 0);
 }
 
 /** Evaluate `code` on the worker, seeding it with `vfs` (a dumpVfs snapshot).

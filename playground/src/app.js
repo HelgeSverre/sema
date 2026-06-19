@@ -4,12 +4,14 @@ import { highlightSema } from './highlight.js';
 import { TextareaUndo } from './undo.js';
 import { makeVfsHost, BACKENDS } from './vfs-backends.js';
 import { initSplitters } from './splitters.js';
-import { workerEvalEnabled, initWorker, evalViaWorker } from './worker-client.js';
+import { workerEvalEnabled, initWorker, evalViaWorker, cancelWorker } from './worker-client.js';
 
 let interp = null;
 // When true, eval runs on a Web Worker (real wall-clock async/sleep, responsive
 // UI). Opt-in via ?worker + cross-origin isolation; see worker-client.js.
 let workerActive = false;
+// True while a worker eval is in flight (so the Run button acts as Stop).
+let workerRunning = false;
 let activeBtn = null;
 let vfsHost = null;
 let vfsBackend = null;
@@ -435,18 +437,25 @@ const outputEl = document.getElementById('output');
 
 async function run() {
   if (!interp) return;
+  if (workerRunning) return; // a worker eval is already in flight
   const code = editorEl.value;
   if (!code.trim()) return;
 
   const runBtn = document.getElementById('run-btn');
-  runBtn.disabled = true;
-
-  // On the worker path the main thread stays free, so a live "Running…" status
-  // can actually paint (and async/sleep paces in real wall-clock time).
   const statusEl = document.getElementById('status');
+
+  // On the worker path the main thread stays free, so the Run button becomes a
+  // live "Stop" (cancellation), and a "Running…" status can actually paint
+  // (async/sleep paces in real wall-clock time). On the main-thread path the
+  // button just disables (the UI is blocked during eval anyway).
   if (workerActive) {
+    workerRunning = true;
+    runBtn.textContent = 'Stop';
+    runBtn.classList.add('stop-btn');
     statusEl.textContent = 'Running…';
     statusEl.className = 'status-text status-loading';
+  } else {
+    runBtn.disabled = true;
   }
 
   const t0 = performance.now();
@@ -464,11 +473,17 @@ async function run() {
   const elapsed = performance.now() - t0;
 
   if (workerActive) {
-    statusEl.textContent = result.error ? 'Error' : 'Ready';
-    statusEl.className = result.error ? 'status-text status-error' : 'status-text status-ready';
+    workerRunning = false;
+    runBtn.innerHTML = 'Run<span class="shortcut">⌘↵</span>';
+    runBtn.classList.remove('stop-btn');
+    const cancelled = result.error && result.error.includes('cancelled');
+    statusEl.textContent = result.error ? (cancelled ? 'Stopped' : 'Error') : 'Ready';
+    statusEl.className = result.error
+      ? (cancelled ? 'status-text status-ready' : 'status-text status-error')
+      : 'status-text status-ready';
+  } else {
+    runBtn.disabled = false;
   }
-
-  runBtn.disabled = false;
 
   outputEl.innerHTML = '';
 
@@ -518,8 +533,11 @@ async function run() {
   }
 }
 
-// Run button
-document.getElementById('run-btn').addEventListener('click', run);
+// Run button (acts as Stop while a worker eval is in flight)
+document.getElementById('run-btn').addEventListener('click', () => {
+  if (workerActive && workerRunning) cancelWorker();
+  else run();
+});
 
 // Format button
 document.getElementById('fmt-btn').addEventListener('click', () => {

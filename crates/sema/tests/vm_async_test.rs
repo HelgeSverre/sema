@@ -305,6 +305,42 @@ fn record_sleep(ms: u64) {
 }
 
 #[test]
+fn step_limit_aborts_runaway_loop() {
+    // The loop guard (revived from the dead eval_step_limit) must abort an
+    // infinite loop instead of hanging. This is what protects the playground
+    // main thread from freezing.
+    let interp = sema_eval::Interpreter::new();
+    interp.ctx.set_eval_step_limit(200_000);
+    let err = interp
+        .eval_str_compiled("(let loop () (loop))")
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("step limit"),
+        "expected step-limit abort, got: {err}"
+    );
+}
+
+fn always_cancel() -> bool {
+    true
+}
+
+#[test]
+fn interrupt_callback_cancels_evaluation() {
+    // A registered interrupt callback (the playground Stop button installs one
+    // backed by a shared cancel flag) must abort a running loop.
+    sema_core::set_interrupt_callback(always_cancel);
+    let interp = sema_eval::Interpreter::new();
+    let result = interp.eval_str_compiled("(let loop () (loop))");
+    sema_core::clear_interrupt_callback();
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("cancelled"),
+        "expected cancellation, got: {err}"
+    );
+}
+
+#[test]
 fn blocking_sleep_hook_receives_clock_advances() {
     SLEEP_DELTAS.with(|d| d.borrow_mut().clear());
     sema_core::set_blocking_sleep_callback(record_sleep);

@@ -150,6 +150,9 @@ impl Interpreter {
             prog.main_cache_slots,
         )?;
         sema_vm::init_scheduler(self.global_env.clone(), prog.native_table.clone());
+        // Reset the loop-guard step counter so the limit (if any) is per top-level
+        // eval, not cumulative across calls on a reused interpreter.
+        self.ctx.eval_steps.set(0);
         vm.execute(prog.closure, &self.ctx)
     }
 

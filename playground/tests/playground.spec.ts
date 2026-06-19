@@ -218,6 +218,50 @@ test('worker path: http/get works via synchronous XHR (no replay)', async ({ pag
   expect(value).toContain('200');
 });
 
+test('worker path: Stop cancels a running program and the worker survives', async ({ page }) => {
+  await page.goto('/?worker');
+  await page.waitForSelector('[data-testid="status"].status-ready', { timeout: 20000 });
+
+  // A long real sleep (5s) via the scheduler (async/await), so on the worker it
+  // actually blocks ~5s on Atomics.wait — giving us a window to cancel it.
+  await setEditorCode(page, '(await (async (async/sleep 5000) (println "should not print")))');
+  await page.getByTestId('run-btn').click();
+
+  // The Run button becomes "Stop" while running.
+  await page.waitForFunction(
+    () => document.getElementById('run-btn')?.textContent?.includes('Stop'),
+    { timeout: 5000 }
+  );
+
+  // Click Stop; it must cancel well under the 5s sleep.
+  const t0 = Date.now();
+  await page.getByTestId('run-btn').click();
+  await page.waitForSelector('#output .output-timing', { timeout: 4000 });
+  const elapsed = Date.now() - t0;
+  expect(elapsed).toBeLessThan(3000); // cancelled, not waited out
+
+  await page.waitForFunction(
+    () => document.getElementById('status')?.textContent === 'Stopped',
+    { timeout: 4000 }
+  );
+  const lines = await page.$$eval('#output .output-line', (els) => els.map((e) => e.textContent || ''));
+  expect(lines).not.toContain('should not print');
+
+  // The worker survived: a subsequent run works. Wait on the status settling
+  // (the prior run's output/timing is only cleared once this run renders).
+  await setEditorCode(page, '(+ 20 22)');
+  await page.getByTestId('run-btn').click();
+  await page.waitForFunction(
+    () => {
+      const s = document.getElementById('status')?.textContent || '';
+      return s === 'Ready' || s === 'Error';
+    },
+    { timeout: 20000 }
+  );
+  const value = await page.$eval('#output .output-value', (el) => el.textContent || '');
+  expect(value).toContain('42');
+});
+
 test('evaluates a recursive fib correctly', async ({ page }) => {
   const code = `(define (fib n)
   (define (go a b i)
