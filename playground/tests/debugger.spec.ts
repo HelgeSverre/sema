@@ -137,6 +137,32 @@ test.describe('Debugger', () => {
     await waitForIdle(page);
   });
 
+  test('debugging an async program does not error (scheduler is registered)', async ({ page }) => {
+    // Regression: the wasm debug path didn't init the async scheduler, so
+    // debugging any async/await/channels program failed with "async/spawn: no
+    // async scheduler registered". Mirrors the worker-pool.sema example.
+    const code = '(define jobs (channel/new 4))\n'
+      + '(channel/send jobs 1)\n'
+      + '(channel/send jobs 2)\n'
+      + '(channel/close jobs)\n'
+      + '(define total (await (async (let loop ((s 0))\n'
+      + '  (let ((v (channel/recv jobs))) (if (nil? v) s (loop (+ s v))))))))\n'
+      + '(println total)';
+    await setEditorCode(page, code);
+
+    // Breakpoint on line 2, then continue to completion.
+    await toggleBreakpoint(page, 2);
+    await page.getByTestId('debug-btn').click();
+    await waitForPaused(page);
+    await page.click('#dbg-continue');
+    await waitForIdle(page);
+
+    const errors = await getErrors(page);
+    expect(errors.join('\n')).not.toContain('scheduler');
+    const lines = await getOutputLines(page);
+    expect(lines).toContain('3');
+  });
+
   test('no breakpoints: stops on entry', async ({ page }) => {
     const code = '(define x 10)\n(define y 20)\n(+ x y)';
     await setEditorCode(page, code);

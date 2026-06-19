@@ -2000,6 +2000,13 @@ impl WasmInterpreter {
             Ok(vm) => vm,
             Err(e) => return JsValue::from_str(&format!("VM init error: {e}")),
         };
+
+        // Register the async scheduler, exactly like the normal eval path
+        // (run_exprs_on_vm) and the native DAP server do. Without this, debugging
+        // a program that uses async/await/channels fails with "async/spawn: no
+        // async scheduler registered".
+        sema_vm::init_scheduler(self.inner.global_env.clone(), prog.native_table.clone());
+
         let mut debug = sema_vm::DebugState::new_headless();
 
         // Set snapped breakpoints
