@@ -104,6 +104,11 @@ pub enum Op {
 
     // Vector/list indexed access (fast path for nth)
     Nth, // pop collection, pop index → push element
+
+    // Inline string intrinsics (bypass CallGlobal overhead)
+    StringLength, // pop string, push char count as int (1-arg only)
+    StringRef,    // pop index, pop string → push char at index
+    StringAppend, // pop two values, push concatenated string (2-arg only)
 }
 
 impl Op {
@@ -180,6 +185,9 @@ impl Op {
             63 => Some(Op::ContainsQ),
             64 => Some(Op::Mod),
             65 => Some(Op::Nth),
+            66 => Some(Op::StringLength),
+            67 => Some(Op::StringRef),
+            68 => Some(Op::StringAppend),
             _ => None,
         }
     }
@@ -256,14 +264,16 @@ impl Op {
             },
             // binary ops — 2 pops, 1 push
             Add | Sub | Mul | Div | Eq | Lt | Gt | Le | Ge | AddInt | SubInt | MulInt | LtInt
-            | EqInt | Cons | Append | Get | ContainsQ | Mod | Nth => StackEffect {
-                pops: 2,
-                pushes: 1,
-                exits_frame: false,
-            },
+            | EqInt | Cons | Append | Get | ContainsQ | Mod | Nth | StringRef | StringAppend => {
+                StackEffect {
+                    pops: 2,
+                    pushes: 1,
+                    exits_frame: false,
+                }
+            }
             // unary ops — 1 pop, 1 push
             Negate | Not | Car | Cdr | Length | IsNull | IsPair | IsList | IsNumber | IsString
-            | IsSymbol => StackEffect {
+            | IsSymbol | StringLength => StackEffect {
                 pops: 1,
                 pushes: 1,
                 exits_frame: false,
@@ -358,6 +368,9 @@ const _: () = {
             Op::ContainsQ => {}
             Op::Mod => {}
             Op::Nth => {}
+            Op::StringLength => {}
+            Op::StringRef => {}
+            Op::StringAppend => {}
         }
     }
 };
@@ -431,6 +444,9 @@ pub mod op {
     pub const CONTAINS_Q: u8 = Op::ContainsQ as u8;
     pub const MOD: u8 = Op::Mod as u8;
     pub const NTH: u8 = Op::Nth as u8;
+    pub const STRING_LENGTH: u8 = Op::StringLength as u8;
+    pub const STRING_REF: u8 = Op::StringRef as u8;
+    pub const STRING_APPEND: u8 = Op::StringAppend as u8;
 
     // Instruction sizes (opcode byte + operand bytes)
     /// Size of a bare opcode with no operands: 1

@@ -1042,6 +1042,7 @@ impl Value {
 
     // -- Typed accessors (ergonomic, avoid full view match) --
 
+    #[inline(always)]
     pub fn type_name(&self) -> &'static str {
         if !is_boxed(self.0) {
             return "float";
@@ -1242,6 +1243,7 @@ impl Value {
         }
     }
 
+    #[inline(always)]
     pub fn as_str(&self) -> Option<&str> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_STRING {
             Some(unsafe { self.borrow_ref::<String>() })

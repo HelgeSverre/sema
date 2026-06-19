@@ -2035,6 +2035,61 @@ impl VM {
                         }
                     }
 
+                    // --- String intrinsics (semantics mirror sema-stdlib/src/string.rs) ---
+                    op::STRING_LENGTH => {
+                        let val = unsafe { pop_unchecked(&mut self.stack) };
+                        if let Some(s) = val.as_str() {
+                            self.stack.push(Value::int(s.chars().count() as i64));
+                        } else {
+                            let err = SemaError::type_error("string", val.type_name());
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        }
+                    }
+                    op::STRING_REF => {
+                        let idx_val = unsafe { pop_unchecked(&mut self.stack) };
+                        let str_val = unsafe { pop_unchecked(&mut self.stack) };
+                        let Some(s) = str_val.as_str() else {
+                            let err = SemaError::type_error("string", str_val.type_name());
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        };
+                        let Some(idx_signed) = idx_val.as_int() else {
+                            let err = SemaError::type_error("int", idx_val.type_name());
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        };
+                        if idx_signed < 0 {
+                            let err = SemaError::eval(format!(
+                                "string-ref: index {idx_signed} must be non-negative"
+                            ));
+                            handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                        }
+                        let idx = idx_signed as usize;
+                        match s.chars().nth(idx) {
+                            Some(c) => self.stack.push(Value::char(c)),
+                            None => {
+                                let len = s.chars().count();
+                                let err = SemaError::eval(format!(
+                                    "string-ref: index {idx} out of bounds (string length {len})"
+                                ))
+                                .with_hint("indices are 0-based");
+                                handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
+                            }
+                        }
+                    }
+                    op::STRING_APPEND => {
+                        use std::fmt::Write;
+                        let b = unsafe { pop_unchecked(&mut self.stack) };
+                        let a = unsafe { pop_unchecked(&mut self.stack) };
+                        let mut result = String::new();
+                        for arg in [&a, &b] {
+                            if let Some(s) = arg.as_str() {
+                                result.push_str(s);
+                            } else {
+                                write!(&mut result, "{}", arg).unwrap();
+                            }
+                        }
+                        self.stack.push(Value::string(&result));
+                    }
+
                     _ => {
                         return Err(SemaError::eval(format!("VM: invalid opcode {}", op)));
                     }

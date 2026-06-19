@@ -650,6 +650,12 @@ impl Compiler {
             ("mod", 2) | ("modulo", 2) => Op::Mod,
             // Indexed access
             ("nth", 2) => Op::Nth,
+            // String operations (legacy Scheme names, Decision #24).
+            // string-append is N-ary in stdlib; only the 2-arg case is
+            // intrinsified (mirrors the Append precedent) — N-ary stays generic.
+            ("string-length", 1) => Op::StringLength,
+            ("string-ref", 2) => Op::StringRef,
+            ("string-append", 2) => Op::StringAppend,
             _ => return Ok(false),
         };
 

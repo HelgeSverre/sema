@@ -95,7 +95,7 @@ debug = "line-tables-only"
 
 [profile.release]
 opt-level = 3
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 panic = "abort"
 strip = "debuginfo"
@@ -108,4 +108,4 @@ strip = "none"
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
-lto = "thin"
+lto = "fat"

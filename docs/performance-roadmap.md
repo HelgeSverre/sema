@@ -43,9 +43,11 @@ The biggest single win. Instead of `CallGlobal("car")` → hash lookup → Nativ
 
 **Done** (map/collection, Feb 2026): `append` (2-arg), `get` (2-arg), `contains?` (2-arg) — 3 more opcodes (`Append`, `Get`, `ContainsQ`).
 
-**Remaining** — extend to string/misc operations:
-- String: `string-length`, `string-ref`, `string-append`
-- Misc: `apply`, `display`
+**Done** (string ops, Jun 2026): `string-length`, `string-ref`, `string-append` (2-arg) — opcodes `StringLength`/`StringRef`/`StringAppend`. Char-indexed, semantics identical to the stdlib fns; redefinition guard respected; N-ary `string-append` stays generic. **No measurable suite impact** — none of the current benchmarks exercise these in a hot path (`string-pipeline`/1BRC use slash-namespaced `string/split` + `string->float`). They help user code that hammers the legacy names; the win is latent here.
+
+**Remaining** — extend to misc operations:
+- Misc: `apply`, `display` (control-flow/IO — trickier, deferred)
+- `substring` skipped: 2-or-3-arg optional arity doesn't map to a fixed-pop stack opcode
 
 This is what Lua's VM does — `OP_GETTABLE`, `OP_CONCAT`, `OP_LEN` etc. are inline opcodes, not function calls.
 
@@ -162,17 +164,17 @@ Combined, Sema would be **competitive with Janet** and **ahead of Guile/Gauche**
 
 ### 10. LTO "fat" for release builds
 
-**Impact:** Estimated 5–10% on cross-crate hot paths
+**Impact:** Measured 3–9% (1BRC −3%, tak −7%, several −8–10%; mandelbrot is noisy ±5%)
 **Effort:** Trivial (one-line change)
-**Status:** Not started — currently using `lto = "thin"`
+**Status:** ✅ Done (Jun 2026) — `lto = "fat"` on `[profile.release]` + `[profile.dist]`. Shippable; only cost is compile time (~71s thin → ~2.5min fat).
 
 The VM dispatcher in `sema-vm` calls into `sema-core` value operations (`view()`, `try_as_small_int()`, `as_int()`) millions of times per benchmark. With thin LTO, LLVM can't always inline across crate boundaries. Fat LTO (`lto = "fat"`) enables full cross-crate inlining at the cost of slower compile times. The `dist` profile should also be upgraded.
 
 ### 11. `target-cpu=native` for local benchmarking
 
-**Impact:** 0–5%, depends on instruction set extensions available
+**Impact:** Measured **no-op** on this workload — dispatch is branch-bound, not SIMD-bound, and generic aarch64 already uses NEON on Apple Silicon.
 **Effort:** Trivial (RUSTFLAGS)
-**Status:** Not started
+**Status:** ⚠️ Tested (Jun 2026), not pursued — zero measurable gain, and it breaks portable/distributable binaries. Keep it out of release builds.
 
 Building with `RUSTFLAGS="-C target-cpu=native"` lets LLVM use the full instruction set of the host CPU (e.g., Apple Silicon NEON, AVX2 on x86). Not suitable for distributed binaries, but should be standard practice for local benchmarking. Can be added to `.cargo/config.toml` under a `[target]` profile or a `Makefile` benchmark target.
 
@@ -186,9 +188,9 @@ Ensure the hottest `Value` methods are `#[inline(always)]`: `try_as_small_int()`
 
 ### 13. Profile-Guided Optimization (PGO)
 
-**Impact:** Estimated 10–20% on representative workloads
+**Impact:** Measured **−11% to −40%** (1BRC −25%/−27% best, higher-order-fold −40%, tak −32%, mandelbrot −29%, deriv/hashmap/bench-features ≈ −21–22%). The single biggest free win — it reorders the `match op` dispatch hot blocks by real opcode frequency.
 **Effort:** Medium (set up PGO pipeline)
-**Status:** Not started
+**Status:** ⏳ Measured locally (Jun 2026), NOT yet wired into release. Pipeline: `cargo build` with `-C profile-generate` → run the **full** bench suite + 1BRC as training → `llvm-profdata merge` (binary lives in the rustlib bin dir, not PATH) → rebuild with `-C profile-use`. **Train on a representative corpus**: a partial corpus regressed `bench-features` +29%; full-suite training fixed it (→ −21%, no regressions). Next step is integrating this into cargo-dist/CI release builds with a committed training corpus.
 
 Use Rust's PGO support (`-C profile-generate` / `-C profile-use`) with representative Sema benchmarks (tak, 1BRC, deriv) as the training workload. This lets LLVM:
 - Lay out the dispatch function's basic blocks optimally for actual opcode frequency

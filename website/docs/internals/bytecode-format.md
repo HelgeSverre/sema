@@ -433,6 +433,20 @@ The verifier is **sound** — it never accepts an underflowing chunk. It is inte
 
 The loader also enforces two hard limits while deserializing, both of which a re-implementation must respect to stay compatible: a chunk may declare a maximum stack depth of at most **65535** (`MAX_STACK_DEPTH`), and a constant-pool value may nest at most **128** levels deep (`MAX_VALUE_DEPTH`) — the latter bounds recursion in the value deserializer so a hostile file can't blow the native stack. Both are defined in `serialize.rs`.
 
+## Opcodes
+
+The complete, numbered opcode set lives in `crates/sema-vm/src/opcodes.rs` (the `Op` enum and its `Op::from_u8` mapping are the single source of truth). Most opcodes are single-byte; a handful carry inline operands (`u16`/`u32`/`i32`) as noted in the encoding descriptions above.
+
+To keep the common path off the `CallGlobal` → hash-lookup → `NativeFn` route, a set of **inline stdlib intrinsics** are compiled directly to dedicated single-byte opcodes when the call site references the canonical global with the matching arity (and that global has not been redefined in the program). These include list/collection ops (`Car`, `Cdr`, `Cons`, `Append`, `Length`, `Get`, `Nth`, …), type predicates (`IsNull`, `IsString`, …), and **string ops**:
+
+| Opcode | Source name(s) | Arity | Stack effect | Behavior |
+|--------|----------------|-------|--------------|----------|
+| `StringLength` (0x42) | `string-length` | 1 | pop 1, push 1 | push char count (`chars().count()`) of the string; type error if not a string |
+| `StringRef` (0x43) | `string-ref` | 2 | pop 2, push 1 | push the char at the 0-based char index; errors on negative index, non-int index, non-string, or out-of-bounds index (matching the stdlib messages) |
+| `StringAppend` (0x44) | `string-append` | 2 | pop 2, push 1 | push the concatenation of two values (non-strings coerced via `Display`); the N-ary `string-append` stays on the generic path |
+
+String indexing is by **Unicode scalar (char)**, not byte, matching the stdlib semantics. These opcodes are additive within the existing encoding (single-byte, no new operand shapes), so they do not change the `format_version`.
+
 ## Example
 
 Given this source file:

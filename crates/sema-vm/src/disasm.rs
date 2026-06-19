@@ -95,6 +95,9 @@ fn op_name(op: Op) -> &'static str {
         Op::ContainsQ => "CONTAINS_Q",
         Op::Mod => "MOD",
         Op::Nth => "NTH",
+        Op::StringLength => "STRING_LENGTH",
+        Op::StringRef => "STRING_REF",
+        Op::StringAppend => "STRING_APPEND",
     }
 }
 
@@ -241,7 +244,7 @@ pub fn disassemble(chunk: &Chunk, name: Option<&str>) -> String {
 }
 
 fn op_from_u8(byte: u8) -> Option<Op> {
-    const MAX_OP: u8 = Op::Nth as u8;
+    const MAX_OP: u8 = Op::StringAppend as u8;
     if byte > MAX_OP {
         return None;
     }
@@ -441,6 +444,9 @@ mod tests {
         e.emit_op(Op::Length);
         e.emit_op(Op::Get);
         e.emit_op(Op::ContainsQ);
+        e.emit_op(Op::StringLength);
+        e.emit_op(Op::StringRef);
+        e.emit_op(Op::StringAppend);
         e.emit_op(Op::Return);
         let chunk = e.into_chunk();
         let output = disassemble(&chunk, Some("zero_ops"));
@@ -458,6 +464,9 @@ mod tests {
         assert!(output.contains("LENGTH"));
         assert!(output.contains("GET"));
         assert!(output.contains("CONTAINS_Q"));
+        assert!(output.contains("STRING_LENGTH"));
+        assert!(output.contains("STRING_REF"));
+        assert!(output.contains("STRING_APPEND"));
     }
 
     #[test]

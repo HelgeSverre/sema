@@ -1406,3 +1406,39 @@ dual_eval_tests! {
         r#"(try (map (fn (x) (error "boom")) (list 1)) (catch e :caught))"#
         => Value::keyword("caught"),
 }
+
+// ============================================================
+// Inlined string intrinsics (StringLength / StringRef / StringAppend opcodes)
+// ============================================================
+
+dual_eval_tests! {
+    // string-length: char count, not byte count.
+    string_length_basic: r#"(string-length "hello")"# => Value::int(5),
+    string_length_empty: r#"(string-length "")"# => Value::int(0),
+    // Multi-byte chars count as one each (char-indexed, not byte-indexed).
+    string_length_unicode: r#"(string-length "héllo")"# => Value::int(5),
+
+    // string-ref: 0-based char indexing, returns a char.
+    string_ref_first: r#"(string-ref "abc" 0)"# => Value::char('a'),
+    string_ref_middle: r#"(string-ref "abc" 1)"# => Value::char('b'),
+    string_ref_last: r#"(string-ref "abc" 2)"# => Value::char('c'),
+    string_ref_unicode: r#"(string-ref "héllo" 1)"# => Value::char('é'),
+
+    // string-append: 2-arg case (intrinsic); concatenation.
+    string_append_basic: r#"(string-append "a" "bc")"# => Value::string("abc"),
+    string_append_empty: r#"(string-append "" "x")"# => Value::string("x"),
+    // Non-string arg is coerced via Display (matches stdlib semantics).
+    string_append_coerce_num: r#"(string-append "n=" 42)"# => Value::string("n=42"),
+    // N-ary string-append stays on the generic path and must still work.
+    string_append_nary: r#"(string-append "a" "b" "c" "d")"# => Value::string("abcd"),
+}
+
+dual_eval_error_tests! {
+    // string-length on a non-string errors like the stdlib version.
+    string_length_wrong_type: "(string-length 42)" => "expected string",
+    // string-ref bounds / type / sign checks.
+    string_ref_out_of_bounds: r#"(string-ref "abc" 5)"# => "out of bounds",
+    string_ref_negative: r#"(string-ref "abc" -1)"# => "must be non-negative",
+    string_ref_non_string: "(string-ref 42 0)" => "expected string",
+    string_ref_non_int: r#"(string-ref "abc" "x")"# => "expected int",
+}
