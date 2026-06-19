@@ -1,0 +1,50 @@
+;; Pipeline — three concurrent stages wired together by channels.
+;;
+;;   source ──▶[c1]──▶ transform ──▶[c2]──▶ sink
+;;
+;; Each stage is its own async task that reads from its input channel, does
+;; ONE step of work, and writes to the next. Closing a channel propagates
+;; "end of stream" downstream: a stage that reads nil closes its own output
+;; and finishes. This is how you build streaming dataflow out of channels.
+
+(define c1 (channel/new 4))    ; source -> transform
+(define c2 (channel/new 4))    ; transform -> sink
+
+;; Stage 1: emit 1..12 then close.
+(define source
+  (async
+    (for-each (fn (n) (channel/send c1 n)) (range 1 13))
+    (channel/close c1)))
+
+;; Stage 2: square each value, forward downstream, propagate close.
+(define transform
+  (async
+    (let loop ()
+      (let ((n (channel/recv c1)))
+        (if (nil? n)
+          (channel/close c2)
+          (begin (channel/send c2 (* n n)) (loop)))))))
+
+;; Stage 3: collect results and render each as a scaled bar.
+(define (bar n) (string/repeat "▮" n))
+(define sink
+  (async
+    (let loop ((rows '()))
+      (let ((v (channel/recv c2)))
+        (if (nil? v)
+          (reverse rows)
+          (loop (cons v rows)))))))
+
+;; Backpressure in action: c1/c2 hold only 4 items, so `source` and
+;; `transform` suspend on a full channel until `sink` drains it — the three
+;; stages run concurrently, lock-step, without ever buffering all 12 values.
+(await source)
+(await transform)
+(define out (await sink))
+
+(println "n   n² through the pipeline")
+(for-each
+  (fn (sq)
+    (println (str "    " (string/pad-left (str sq) 4) " │ " (bar (floor (/ sq 4))))))
+  out)
+(println "\nsum of squares 1..12 =" (foldl + 0 out))

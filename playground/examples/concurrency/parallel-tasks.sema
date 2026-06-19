@@ -1,5 +1,12 @@
 ;; Async tasks run cooperatively on the VM scheduler.
 ;; `(async expr)` spawns a task; `(await p)` waits for its result.
+;;
+;; The output is the SAME every run — that's intentional, not a bug. The
+;; scheduler is deterministic (ready tasks resume in spawn order), so there's
+;; no random reordering. Note also that in the browser playground `async/sleep`
+;; returns immediately (it can't block the UI thread), so equal-sleep tasks
+;; like these always finish in spawn order. See worker-pool.sema for visible
+;; round-robin interleaving.
 
 (define (slow-square n)
   (async/sleep 50)        ; pretend this is real work

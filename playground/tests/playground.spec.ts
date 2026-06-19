@@ -15,6 +15,14 @@ const EXAMPLES = [
   'perlin-noise.sema',
   'game-of-life.sema',
   'ascii-art.sema',
+  // Concurrency examples — exercise the async scheduler + channels in WASM
+  // (where async/sleep is a no-op yield), stressing fan-out/pipeline/fan-in.
+  'channels.sema',
+  'parallel-tasks.sema',
+  'timeout.sema',
+  'worker-pool.sema',
+  'pipeline.sema',
+  'fan-in.sema',
 ];
 
 /** Wait for the WASM module to be ready. */

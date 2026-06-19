@@ -1,0 +1,55 @@
+;; Fan-in — many producers, one channel, one collector.
+;;
+;;   sensor-A ─┐
+;;   sensor-B ─┼─▶ [readings] ─▶ collector ─▶ dashboard
+;;   sensor-C ─┘
+;;
+;; Several "sensors" run concurrently and push readings into ONE shared
+;; channel; a single collector drains them. This is the many-to-one merge —
+;; the inverse of fan-out. Each sensor yields (async/sleep 0) between readings
+;; so control passes around the pool. The merge order below is whatever the
+;; cooperative scheduler produced — fully deterministic (it's identical every
+;; run), and the collector safely receives all readings from every producer
+;; no matter how they interleave.
+
+(define readings (channel/new 32))
+(define n-each 5)
+
+;; A sensor emits `n-each` readings tagged with its name, yielding between
+;; each so peers get a turn.
+(define (sensor name base)
+  (async
+    (for-each
+      (fn (i)
+        (async/sleep 0)                         ; yield → interleave
+        (channel/send readings {:from name :v (+ base i)}))
+      (range 0 n-each))))
+
+(define sensors
+  (list (sensor "A" 10) (sensor "B" 20) (sensor "C" 30)))
+
+;; Collector: drain exactly (n-each * #sensors) readings, recording arrival
+;; order and a per-sensor running total.
+(define collector
+  (async
+    (let loop ((left (* n-each (length sensors))) (order '()) (tally {}))
+      (if (= left 0)
+        {:order (reverse order) :tally tally}
+        (let ((r (channel/recv readings)))
+          (loop (- left 1)
+                (cons (:from r) order)
+                (assoc tally (:from r) (+ (get tally (:from r) 0) (:v r)))))))))
+
+;; Kick off all sensors, then await the collected dashboard.
+(async/all sensors)
+(define dash (await collector))
+
+(println "merge order (how the 3 streams interleaved into the channel):")
+(println (str "  " (string/join (:order dash) " ")))
+(println "\nper-sensor totals:")
+(define (bar n) (string/repeat "█" (floor (/ n 8))))
+(for-each
+  (fn (name)
+    (let ((sum (get (:tally dash) name)))
+      (println (str "  sensor " name " │ " (bar sum) "  " sum))))
+  (list "A" "B" "C"))
