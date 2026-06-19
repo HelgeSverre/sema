@@ -1,9 +1,18 @@
-.PHONY: all build release install uninstall test test-lsp test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint lint-links docs docs-check update-pricing examples smoke-bytecode test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy deploy coverage coverage-html bench bench-vm bench-save bench-suite bench-closure bench-numeric bench-compare bench-baseline profile profile-vm ts-setup ts-generate ts-test ts-playground js-lib-build js-lib-dev
+.PHONY: all build release build-pgo pgo-profile install uninstall test test-lsp test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint lint-links docs docs-check update-pricing examples smoke-bytecode test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy deploy coverage coverage-html bench bench-vm bench-save bench-suite bench-closure bench-numeric bench-compare bench-baseline profile profile-vm ts-setup ts-generate ts-test ts-playground js-lib-build js-lib-dev
 build:
 	cargo build
 
 release:
 	cargo build --release
+
+# PGO build (instrument -> train -> rebuild). ~25% faster on 1BRC; see
+# docs/performance-roadmap.md. `make pgo-profile` emits only the .profdata
+# (target/pgo/merged.profdata) that CI consumes via -Cprofile-use.
+build-pgo:
+	./scripts/pgo-build.sh
+
+pgo-profile:
+	./scripts/pgo-build.sh --profile-only
 
 install:
 	cargo install --path crates/sema

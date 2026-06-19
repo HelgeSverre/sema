@@ -127,6 +127,27 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
+      - name: "PGO: generate profile (native targets only)"
+        run: |
+          set +e
+          HOST="$(rustc -vV | sed -n 's/^host: //p')"
+          # Local build jobs build exactly one target; global/installer jobs have none.
+          if [ "$PGO_TARGETS" != "$HOST" ]; then
+            echo "PGO: target '$PGO_TARGETS' != host '$HOST' — skipping (cross-compile or non-build job); plain LTO build."
+            exit 0
+          fi
+          rustup component add llvm-tools-preview
+          if [ $? -ne 0 ]; then echo "PGO: llvm-tools unavailable — skipping."; exit 0; fi
+          PROFILE=dist ./scripts/pgo-build.sh --profile-only
+          if [ $? -ne 0 ] || [ ! -f target/pgo/merged.profdata ]; then
+            echo "PGO: profile generation failed — skipping; plain LTO build."
+            exit 0
+          fi
+          echo "RUSTFLAGS=-Cprofile-use=$(pwd)/target/pgo/merged.profdata -Cllvm-args=-pgo-warn-missing-function" >> "$GITHUB_ENV"
+          echo "PGO: profile ready ($(du -h target/pgo/merged.profdata | cut -f1)); dist build will consume it."
+        shell: "bash"
+        env:
+          "PGO_TARGETS": "${{ join(matrix.targets, ' ') }}"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest

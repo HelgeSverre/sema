@@ -1,0 +1,35 @@
+# Profile-Guided Optimization setup for release builds.
+#
+# Injected into the `build-local-artifacts` job (right after checkout, before
+# `dist build`) via `github-build-setup` in dist-workspace.toml. After editing
+# THIS file you must run `dist generate` to re-bake it into
+# .github/workflows/release.yml, then commit both.
+#
+# Behavior: on a runner whose host matches the target being built, it
+# instruments, trains, and merges a PGO profile, then exports
+# RUSTFLAGS=-Cprofile-use so the subsequent `dist build` produces a PGO binary
+# (measured ~25% faster on 1BRC; see docs/performance-roadmap.md). On
+# cross-compiled targets (instrumented binary can't run) it skips and falls back
+# to a normal LTO build. PGO is FAIL-SAFE: any error skips PGO rather than
+# failing the release — worst case is a non-PGO build.
+- name: "PGO: generate profile (native targets only)"
+  shell: bash
+  env:
+    PGO_TARGETS: ${{ join(matrix.targets, ' ') }}
+  run: |
+    set +e
+    HOST="$(rustc -vV | sed -n 's/^host: //p')"
+    # Local build jobs build exactly one target; global/installer jobs have none.
+    if [ "$PGO_TARGETS" != "$HOST" ]; then
+      echo "PGO: target '$PGO_TARGETS' != host '$HOST' — skipping (cross-compile or non-build job); plain LTO build."
+      exit 0
+    fi
+    rustup component add llvm-tools-preview
+    if [ $? -ne 0 ]; then echo "PGO: llvm-tools unavailable — skipping."; exit 0; fi
+    PROFILE=dist ./scripts/pgo-build.sh --profile-only
+    if [ $? -ne 0 ] || [ ! -f target/pgo/merged.profdata ]; then
+      echo "PGO: profile generation failed — skipping; plain LTO build."
+      exit 0
+    fi
+    echo "RUSTFLAGS=-Cprofile-use=$(pwd)/target/pgo/merged.profdata -Cllvm-args=-pgo-warn-missing-function" >> "$GITHUB_ENV"
+    echo "PGO: profile ready ($(du -h target/pgo/merged.profdata | cut -f1)); dist build will consume it."
