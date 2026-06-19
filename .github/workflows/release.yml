@@ -136,6 +136,13 @@ jobs:
             echo "PGO: target '$PGO_TARGETS' != host '$HOST' — skipping (cross-compile or non-build job); plain LTO build."
             exit 0
           fi
+          # This step runs BEFORE dist's own "Install dependencies" step, so the build
+          # deps it declares (apt: libudev-dev) aren't present yet — install them here
+          # or the instrumented build fails on libudev-sys.
+          if [ "$(uname)" = "Linux" ]; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq libudev-dev pkg-config
+            if [ $? -ne 0 ]; then echo "PGO: apt build deps failed — skipping."; exit 0; fi
+          fi
           rustup component add llvm-tools-preview
           if [ $? -ne 0 ]; then echo "PGO: llvm-tools unavailable — skipping."; exit 0; fi
           PROFILE=dist ./scripts/pgo-build.sh --profile-only
