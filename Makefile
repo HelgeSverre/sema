@@ -164,7 +164,7 @@ site-deploy: site-build
 .PHONY: js-lib-build js-lib-dev
 
 js-lib-build:
-	wasm-pack build crates/sema-wasm --target web --release --scope sema-lang --out-dir ../../packages/sema-wasm/pkg
+	wasm-pack build crates/sema-wasm --target web --release --scope sema-lang --out-dir ../../packages/sema-wasm/pkg -- --config 'profile.release.package.sema-wasm.opt-level="s"'
 	cd packages/sema && npm install && npm run build
 
 js-lib-dev:
@@ -176,7 +176,7 @@ deploy: site-deploy playground-deploy
 .PHONY: playground-build playground-dev playground-deploy deploy
 
 playground-build:
-	cd crates/sema-wasm && wasm-pack build --target web --out-dir ../../playground/pkg
+	cd crates/sema-wasm && wasm-pack build --target web --out-dir ../../playground/pkg -- --config 'profile.release.package.sema-wasm.opt-level="s"'
 	cd playground && node build.mjs
 
 playground-dev: playground-build

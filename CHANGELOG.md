@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.19.0
+
+Real `async/sleep` in the browser playground, plus cancellation and a revived runaway-loop guard. The WASM playground now runs evaluation on a dedicated Web Worker that blocks on `Atomics.wait`, so `async/sleep` paces in real wall-clock time while the page stays responsive — and a Stop button can cancel a running program. Also fixes debugging async programs in the playground, and stops shipping the internal `sema-docs` binary via Homebrew.
+
+### Added
+
+- **Cancellation / interrupt API.** `sema_core::set_interrupt_callback(fn() -> bool)` / `check_interrupt()` let a host abort a running evaluation; the VM polls it at loop back-edges and the async scheduler checks it between task steps (clearing pending tasks on cancel). New `set_blocking_sleep_callback` / `blocking_sleep_ms` let a host supply real wall-clock pacing for `async/sleep` (the playground worker uses `Atomics.wait`; native uses `std::thread::sleep`; the default in WASM is an instant virtual-clock advance).
+- **Web Worker eval path in the playground** (real `async/sleep`, responsive UI, a working Stop button, synchronous-XHR HTTP). Active when the page is cross-origin isolated; opt out with `?no-worker`. Internal/playground-only (`sema-wasm` is not published to crates.io), but the supporting `sema-core`/`sema-vm` hooks above are part of the public API.
+
+### Fixed
+
+- **Runaway loops are bounded again.** `eval_step_limit`/`eval_steps` were dead leftovers from the retired tree-walker and were never checked by the VM, so an embedder that set a step limit got no protection (and the playground's 10M-step "guard" was inert — a tight infinite loop could hang). The VM now enforces the step limit at loop back-edges and tail-call transitions, via a single guard that also honors the wall-clock deadline and cancellation. A/B-benchmarked (tak): no measurable overhead.
+- **`async/timeout 0` no longer trips before synchronously-ready work runs** — it only fires once the virtual clock actually reaches the deadline with the task still pending.
+- **Debugging async programs in the playground no longer errors** with "async/spawn: no async scheduler registered." The WASM `debugStart` path now initializes the async scheduler, like the normal eval path and the native DAP server.
+- **`sema-docs` is no longer shipped as a binary** via cargo-dist / Homebrew (`[package.metadata.dist] dist = false`). It is an internal doc-generation tool (`make docs`); the auto-generated Homebrew formula now installs only the `sema` binary. (`dist plan` confirms a single `[bin] sema` per artifact.)
+- **CI: dropped stale tree-walker smoke steps** (`make examples-vm` was removed) and skipped the LLM-provider example in the deterministic example smoke run.
+- **No more `profile package spec 'sema-wasm' ... did not match any packages` warning** on `cargo install`/`cargo build -p sema`. The wasm size optimization (`opt-level = "s"`) moved out of the workspace `[profile.release.package.sema-wasm]` (which warned for any build graph not containing `sema-wasm`) and is now injected only during the wasm build via `wasm-pack ... -- --config` in the Makefile. The playground wasm size is unchanged (~3.18 MB).
+
+### Changed
+
+- **Playground developer experience:** the build emits sourcemaps, and `make playground-dev` generates a Chrome DevTools Automatic Workspace descriptor (`/.well-known/appspecific/com.chrome.devtools.json`) for edit-to-disk against the real source.
+
 ## 1.18.0
 
 Tree-walker retirement release. The legacy tree-walking interpreter is gone — the bytecode VM is now Sema's sole evaluator across every entry point (CLI, REPL, embedding API, `eval`, `import`/`load`, macros, async). Ships with refreshed default LLM models, an embedded models.dev pricing snapshot, a hardened standalone-binary build path, dependency bumps, an async example suite, and a runnable Rust embedding example. The VM/tree-walker switcher is removed from the playground.
