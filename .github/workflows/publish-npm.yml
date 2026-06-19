@@ -12,7 +12,7 @@ jobs:
       contents: read
       id-token: write  # Required for npm Trusted Publishing (OIDC)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -21,7 +21,7 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           # Node 24 bundles npm 11.x — supports `--provenance` and trusted
           # publishing. Earlier runner images (Node 22.22.2) shipped a
