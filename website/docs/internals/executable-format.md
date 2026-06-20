@@ -4,10 +4,6 @@ outline: [2, 3]
 
 # Bundled Executable Format
 
-::: tip Status: Implemented (Alpha)
-The bundled executable format is implemented and available via `sema build`. The archive format is not yet considered stable — breaking changes are still possible between releases.
-:::
-
 ## Overview
 
 `sema build` compiles a Sema program into a standalone executable by embedding a VFS (Virtual File System) archive into the Sema runtime binary. The resulting binary is self-contained and requires no Sema installation to run.
