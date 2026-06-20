@@ -129,85 +129,48 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     let args = &items[1..];
 
     if let Some(spur) = head.as_symbol_spur() {
-        let s = spur;
-        if s == sf("quote") {
-            return lower_quote(args);
-        } else if s == sf("if") {
-            return lower_if(args, tail);
-        } else if s == sf("cond") {
-            return lower_cond(args, tail);
-        } else if s == sf("define") || s == sf("def") {
-            return lower_define(args);
-        } else if s == sf("defun") || s == sf("defn") {
-            return lower_defun(args);
-        } else if s == sf("set!") {
-            return lower_set(args);
-        } else if s == sf("lambda") || s == sf("fn") {
-            return lower_lambda(args, None);
-        } else if s == sf("let") {
-            return lower_let(args, tail);
-        } else if s == sf("let*") {
-            return lower_let_star(args, tail);
-        } else if s == sf("letrec") {
-            return lower_letrec(args, tail);
-        } else if s == sf("begin") || s == sf("progn") {
-            return lower_begin(args, tail);
-        } else if s == sf("do") {
-            return lower_do(args, tail);
-        } else if s == sf("and") {
-            return lower_and(args, tail);
-        } else if s == sf("or") {
-            return lower_or(args, tail);
-        } else if s == sf("when") {
-            return lower_when(args, tail);
-        } else if s == sf("unless") {
-            return lower_unless(args, tail);
-        } else if s == sf("while") {
-            return lower_while(args);
-        } else if s == sf("defmacro") {
-            return lower_defmacro(args);
-        } else if s == sf("quasiquote") {
-            return lower_quasiquote(args);
-        } else if s == sf("throw") {
-            return lower_throw(args);
-        } else if s == sf("try") {
-            return lower_try(args, tail);
-        } else if s == sf("case") {
-            return lower_case(args, tail);
-        } else if s == sf("eval") {
-            return lower_eval(args);
-        } else if s == sf("macroexpand") {
-            return lower_macroexpand(args);
-        } else if s == sf("module") {
-            return lower_module(args, tail);
-        } else if s == sf("import") {
-            return lower_import(args);
-        } else if s == sf("load") {
-            return lower_load(args);
-        } else if s == sf("prompt") {
-            return lower_prompt(args);
-        } else if s == sf("message") {
-            return lower_message(args);
-        } else if s == sf("deftool") {
-            return lower_deftool(args);
-        } else if s == sf("defagent") {
-            return lower_defagent(args);
-        } else if s == sf("delay") {
-            return lower_delay(args);
-        } else if s == sf("force") {
-            return lower_force(args);
-        } else if s == sf("define-record-type") {
-            return lower_define_record_type(args);
-        } else if s == sf("match") {
-            return lower_match(args, tail);
-        } else if s == sf("defmulti") {
-            return lower_defmulti(args);
-        } else if s == sf("defmethod") {
-            return lower_defmethod(args);
-        } else if s == sf("async") {
-            return lower_async(args);
-        } else if s == sf("await") {
-            return lower_await(args);
+        if let Some(form) = special_form_for(spur) {
+            return match form {
+                SpecialForm::Quote => lower_quote(args),
+                SpecialForm::If => lower_if(args, tail),
+                SpecialForm::Cond => lower_cond(args, tail),
+                SpecialForm::Define => lower_define(args),
+                SpecialForm::Defun => lower_defun(args),
+                SpecialForm::Set => lower_set(args),
+                SpecialForm::Lambda => lower_lambda(args, None),
+                SpecialForm::Let => lower_let(args, tail),
+                SpecialForm::LetStar => lower_let_star(args, tail),
+                SpecialForm::Letrec => lower_letrec(args, tail),
+                SpecialForm::Begin => lower_begin(args, tail),
+                SpecialForm::Do => lower_do(args, tail),
+                SpecialForm::And => lower_and(args, tail),
+                SpecialForm::Or => lower_or(args, tail),
+                SpecialForm::When => lower_when(args, tail),
+                SpecialForm::Unless => lower_unless(args, tail),
+                SpecialForm::While => lower_while(args),
+                SpecialForm::Defmacro => lower_defmacro(args),
+                SpecialForm::Quasiquote => lower_quasiquote(args),
+                SpecialForm::Throw => lower_throw(args),
+                SpecialForm::Try => lower_try(args, tail),
+                SpecialForm::Case => lower_case(args, tail),
+                SpecialForm::Eval => lower_eval(args),
+                SpecialForm::Macroexpand => lower_macroexpand(args),
+                SpecialForm::Module => lower_module(args, tail),
+                SpecialForm::Import => lower_import(args),
+                SpecialForm::Load => lower_load(args),
+                SpecialForm::Prompt => lower_prompt(args),
+                SpecialForm::Message => lower_message(args),
+                SpecialForm::Deftool => lower_deftool(args),
+                SpecialForm::Defagent => lower_defagent(args),
+                SpecialForm::Delay => lower_delay(args),
+                SpecialForm::Force => lower_force(args),
+                SpecialForm::DefineRecordType => lower_define_record_type(args),
+                SpecialForm::Match => lower_match(args, tail),
+                SpecialForm::Defmulti => lower_defmulti(args),
+                SpecialForm::Defmethod => lower_defmethod(args),
+                SpecialForm::Async => lower_async(args),
+                SpecialForm::Await => lower_await(args),
+            };
         }
     }
 
@@ -224,9 +187,120 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     })
 }
 
-/// Intern a string and return its Spur. Used for special form name matching.
-fn sf(name: &str) -> Spur {
-    intern(name)
+/// The set of special forms recognized by the lowerer. Each variant maps to a
+/// dedicated `lower_*` handler in [`lower_list`].
+#[derive(Clone, Copy)]
+enum SpecialForm {
+    Quote,
+    If,
+    Cond,
+    Define,
+    Defun,
+    Set,
+    Lambda,
+    Let,
+    LetStar,
+    Letrec,
+    Begin,
+    Do,
+    And,
+    Or,
+    When,
+    Unless,
+    While,
+    Defmacro,
+    Quasiquote,
+    Throw,
+    Try,
+    Case,
+    Eval,
+    Macroexpand,
+    Module,
+    Import,
+    Load,
+    Prompt,
+    Message,
+    Deftool,
+    Defagent,
+    Delay,
+    Force,
+    DefineRecordType,
+    Match,
+    Defmulti,
+    Defmethod,
+    Async,
+    Await,
+}
+
+/// The canonical (name, form) table. Names that share a handler (e.g. `define`
+/// and `def`) appear as separate rows mapping to the same [`SpecialForm`].
+const SPECIAL_FORM_NAMES: &[(&str, SpecialForm)] = &[
+    ("quote", SpecialForm::Quote),
+    ("if", SpecialForm::If),
+    ("cond", SpecialForm::Cond),
+    ("define", SpecialForm::Define),
+    ("def", SpecialForm::Define),
+    ("defun", SpecialForm::Defun),
+    ("defn", SpecialForm::Defun),
+    ("set!", SpecialForm::Set),
+    ("lambda", SpecialForm::Lambda),
+    ("fn", SpecialForm::Lambda),
+    ("let", SpecialForm::Let),
+    ("let*", SpecialForm::LetStar),
+    ("letrec", SpecialForm::Letrec),
+    ("begin", SpecialForm::Begin),
+    ("progn", SpecialForm::Begin),
+    ("do", SpecialForm::Do),
+    ("and", SpecialForm::And),
+    ("or", SpecialForm::Or),
+    ("when", SpecialForm::When),
+    ("unless", SpecialForm::Unless),
+    ("while", SpecialForm::While),
+    ("defmacro", SpecialForm::Defmacro),
+    ("quasiquote", SpecialForm::Quasiquote),
+    ("throw", SpecialForm::Throw),
+    ("try", SpecialForm::Try),
+    ("case", SpecialForm::Case),
+    ("eval", SpecialForm::Eval),
+    ("macroexpand", SpecialForm::Macroexpand),
+    ("module", SpecialForm::Module),
+    ("import", SpecialForm::Import),
+    ("load", SpecialForm::Load),
+    ("prompt", SpecialForm::Prompt),
+    ("message", SpecialForm::Message),
+    ("deftool", SpecialForm::Deftool),
+    ("defagent", SpecialForm::Defagent),
+    ("delay", SpecialForm::Delay),
+    ("force", SpecialForm::Force),
+    ("define-record-type", SpecialForm::DefineRecordType),
+    ("match", SpecialForm::Match),
+    ("defmulti", SpecialForm::Defmulti),
+    ("defmethod", SpecialForm::Defmethod),
+    ("async", SpecialForm::Async),
+    ("await", SpecialForm::Await),
+];
+
+thread_local! {
+    /// Per-thread cache of special-form name `Spur`s.
+    ///
+    /// `Spur` ids are only meaningful within the `thread_local!` interner that
+    /// produced them (see `sema_core::INTERNER`), so this cache MUST be
+    /// thread-local too — a process-global cache would resolve to garbage on
+    /// any thread other than the one that populated it. It is built lazily on
+    /// first use of each thread and reused for every subsequent lowering call,
+    /// replacing ~40 interner round-trips per list form with one map lookup.
+    static SPECIAL_FORMS: HashMap<Spur, SpecialForm> = {
+        let mut map = HashMap::with_capacity(SPECIAL_FORM_NAMES.len());
+        for &(name, form) in SPECIAL_FORM_NAMES {
+            map.insert(intern(name), form);
+        }
+        map
+    };
+}
+
+/// Resolve a head-position symbol's `Spur` to its [`SpecialForm`], if any.
+fn special_form_for(spur: Spur) -> Option<SpecialForm> {
+    SPECIAL_FORMS.with(|m| m.get(&spur).copied())
 }
 
 fn require_symbol(val: &Value, context: &str) -> Result<Spur, SemaError> {
@@ -420,7 +494,7 @@ fn lower_if(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
 }
 
 fn lower_cond(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
-    let else_spur = sf("else");
+    let else_spur = intern("else");
     lower_cond_clauses(args, 0, tail, else_spur)
 }
 
@@ -838,7 +912,7 @@ fn lower_while(args: &[Value]) -> Result<CoreExpr, SemaError> {
     }
     // Desugar (while test body...) into (do () ((not test)) body...)
     let test = CoreExpr::Call {
-        func: Box::new(CoreExpr::Var(sf("not"))),
+        func: Box::new(CoreExpr::Var(intern("not"))),
         args: vec![lower_expr(&args[0], false)?],
         tail: false,
     };
@@ -1106,7 +1180,7 @@ fn lower_try(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     if args.is_empty() {
         return Err(SemaError::arity("try", "1+", 0));
     }
-    let catch_spur = sf("catch");
+    let catch_spur = intern("catch");
     let last = &args[args.len() - 1];
     let catch_form = require_list(last, "try")?;
     if catch_form.is_empty() {
@@ -1149,7 +1223,7 @@ fn lower_case(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
 }
 
 fn lower_case_clauses(clauses: &[Value], key_var: Spur, tail: bool) -> Result<CoreExpr, SemaError> {
-    let else_spur = sf("else");
+    let else_spur = intern("else");
     if clauses.is_empty() {
         return Ok(CoreExpr::Const(Value::nil()));
     }
@@ -1457,7 +1531,7 @@ fn lower_module(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
     }
     let name = require_symbol(&args[0], "module")?;
     let export_list = require_list(&args[1], "module")?;
-    let export_spur = sf("export");
+    let export_spur = intern("export");
     if export_list.is_empty()
         || export_list[0]
             .as_symbol_spur()
