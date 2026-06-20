@@ -54,7 +54,7 @@ fn semac_leading_pop_rejected_at_load() {
 #[test]
 fn semac_mid_chunk_underflow_rejected() {
     let mut e = Emitter::new();
-    e.emit_const(sema_core::Value::int(1)); // depth 1
+    e.emit_const(sema_core::Value::int(1)).unwrap(); // depth 1
     e.emit_op(Op::Pop); // depth 0
     e.emit_op(Op::Pop); // underflow
     e.emit_op(Op::Return);
@@ -72,7 +72,7 @@ fn semac_mid_chunk_underflow_rejected() {
 #[test]
 fn semac_binary_op_underflow_rejected() {
     let mut e = Emitter::new();
-    e.emit_const(sema_core::Value::int(1)); // depth 1
+    e.emit_const(sema_core::Value::int(1)).unwrap(); // depth 1
     e.emit_op(Op::Add); // pops 2, underflow
     e.emit_op(Op::Return);
     let chunk = e.into_chunk();
@@ -114,8 +114,8 @@ fn semac_inconsistent_join_rejected() {
 #[test]
 fn semac_balanced_program_accepted() {
     let mut e = Emitter::new();
-    e.emit_const(sema_core::Value::int(1));
-    e.emit_const(sema_core::Value::int(2));
+    e.emit_const(sema_core::Value::int(1)).unwrap();
+    e.emit_const(sema_core::Value::int(2)).unwrap();
     e.emit_op(Op::Add);
     e.emit_op(Op::Return);
     let chunk = e.into_chunk();
@@ -209,7 +209,7 @@ fn semac_call_native_zero_id_rejected_when_table_empty() {
 #[test]
 fn semac_linear_stack_overflow_rejected() {
     let mut e = Emitter::new();
-    e.emit_const(sema_core::Value::int(1)); // depth 0 -> 1
+    e.emit_const(sema_core::Value::int(1)).unwrap(); // depth 0 -> 1
     for _ in 0..70_000 {
         e.emit_op(Op::Dup); // each +1; well past MAX_STACK_DEPTH (65535)
     }

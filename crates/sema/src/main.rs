@@ -1987,9 +1987,9 @@ fn chunk_to_json(chunk: &sema_vm::Chunk, name: &str) -> serde_json::Value {
             ) => {
                 let spur_bits =
                     u32::from_le_bytes([code[pc + 1], code[pc + 2], code[pc + 3], code[pc + 4]]);
-                // Safety: the deserialized bytecode has already remapped indices to valid Spurs
+                // The deserialized bytecode has already remapped indices to valid Spurs.
                 let name_str = if spur_bits != 0 {
-                    let spur = unsafe { std::mem::transmute::<u32, sema_core::Spur>(spur_bits) };
+                    let spur = sema_core::bits_to_spur(spur_bits);
                     sema_core::resolve(spur)
                 } else {
                     format!("spur({spur_bits})")

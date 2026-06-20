@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 use sema_core::{
+    bits_to_spur,
     error::{suggest_similar, veteran_hint},
     resolve as resolve_spur, Env, EvalContext, NativeFn, SemaError, Spur, Value, ValueView,
     NAN_INT_SMALL_PATTERN, NAN_PAYLOAD_BITS, NAN_PAYLOAD_MASK, NAN_TAG_MASK, TAG_NATIVE_FN,
@@ -1211,11 +1212,7 @@ impl VM {
                         if entry.0 == bits && entry.1 == version {
                             self.stack.push(entry.2.clone());
                         } else {
-                            // SAFETY: Spur is #[repr(transparent)] over NonZeroU32 (from lasso crate).
-                            // `bits` was emitted by the compiler as the u32 representation of an
-                            // interned Spur for this global name; it is therefore guaranteed
-                            // non-zero and layout-compatible with Spur.
-                            let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
+                            let spur = bits_to_spur(bits);
                             match self.globals.get(spur) {
                                 Some(val) => {
                                     self.inline_cache[cache_idx] = (bits, version, val.clone());
@@ -1230,10 +1227,7 @@ impl VM {
                     }
                     op::STORE_GLOBAL => {
                         let bits = read_u32!(code, pc);
-                        // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. `bits` was emitted
-                        // by the compiler from an interned Spur for this global name and is
-                        // therefore non-zero and layout-compatible with Spur.
-                        let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
+                        let spur = bits_to_spur(bits);
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         if !self.globals.set_existing(spur, val.clone()) {
                             self.globals.set(spur, val);
@@ -1241,10 +1235,7 @@ impl VM {
                     }
                     op::DEFINE_GLOBAL => {
                         let bits = read_u32!(code, pc);
-                        // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. `bits` was emitted
-                        // by the compiler from an interned Spur for this global name and is
-                        // therefore non-zero and layout-compatible with Spur.
-                        let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
+                        let spur = bits_to_spur(bits);
                         let val = unsafe { pop_unchecked(&mut self.stack) };
                         self.globals.set(spur, val);
                     }
@@ -1720,10 +1711,7 @@ impl VM {
                         let func_val = if entry.0 == bits && entry.1 == version {
                             entry.2.clone()
                         } else {
-                            // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. `bits` was
-                            // emitted by the compiler from an interned Spur for the callee name
-                            // and is therefore non-zero and layout-compatible with Spur.
-                            let spur: Spur = unsafe { std::mem::transmute::<u32, Spur>(bits) };
+                            let spur = bits_to_spur(bits);
                             match self.globals.get(spur) {
                                 Some(val) => {
                                     self.inline_cache[cache_idx] = (bits, version, val.clone());

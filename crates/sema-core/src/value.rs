@@ -6,7 +6,7 @@ use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
 use hashbrown::HashMap as SpurMap;
-use lasso::{Rodeo, Spur};
+use lasso::{Key, Rodeo, Spur};
 
 use crate::error::SemaError;
 use crate::EvalContext;
@@ -31,6 +31,35 @@ pub fn intern(s: &str) -> Spur {
 /// Resolve a Spur key back to a String.
 pub fn resolve(spur: Spur) -> String {
     INTERNER.with(|r| r.borrow().resolve(&spur).to_string())
+}
+
+// A `Spur` must fit in the 32-bit NaN-box payload below for the packing to round-trip.
+const _: () = assert!(std::mem::size_of::<Spur>() == 4);
+
+/// Pack an interned [`Spur`] into the 32 raw bits stored in a NaN-boxed `Value`
+/// symbol/keyword payload (inverse of [`bits_to_spur`]).
+///
+/// The bits are the Spur's underlying `NonZeroU32` value, so two `Value`s holding
+/// the same symbol compare equal by raw bits. This and [`bits_to_spur`] are the
+/// single place that encodes the Spur↔bits mapping (via lasso's stable [`Key`]
+/// API) — both `sema-core` and `sema-vm` go through them instead of `transmute`.
+#[inline(always)]
+pub fn spur_to_bits(spur: Spur) -> u32 {
+    // `Key::into_usize` is offset-by-one (it returns `inner.get() - 1`); the bits
+    // we store are the raw `NonZeroU32` value, i.e. `into_usize() + 1`.
+    spur.into_usize() as u32 + 1
+}
+
+/// Reconstruct a [`Spur`] from the 32 raw bits stored in a NaN-boxed `Value`
+/// symbol/keyword payload (inverse of [`spur_to_bits`]).
+///
+/// `bits` is always a value produced by [`spur_to_bits`] from a real interned
+/// key, so it is non-zero and the conversion cannot fail; a zero/invalid `bits`
+/// would indicate memory corruption and panics.
+#[inline(always)]
+pub fn bits_to_spur(bits: u32) -> Spur {
+    Spur::try_from_usize((bits - 1) as usize)
+        .expect("NaN-boxed symbol/keyword payload is not a valid interned key")
 }
 
 /// Resolve a Spur and call f with the &str, avoiding allocation.
@@ -687,9 +716,7 @@ impl Value {
 
     #[inline(always)]
     pub fn symbol_from_spur(spur: Spur) -> Value {
-        // SAFETY: Spur (NonZeroU32) layout-compatible with u32; downcast is always safe.
-        let bits: u32 = unsafe { std::mem::transmute(spur) };
-        Value(make_boxed(TAG_SYMBOL, bits as u64))
+        Value(make_boxed(TAG_SYMBOL, spur_to_bits(spur) as u64))
     }
 
     pub fn symbol(s: &str) -> Value {
@@ -698,9 +725,7 @@ impl Value {
 
     #[inline(always)]
     pub fn keyword_from_spur(spur: Spur) -> Value {
-        // SAFETY: Spur (NonZeroU32) layout-compatible with u32; downcast is always safe.
-        let bits: u32 = unsafe { std::mem::transmute(spur) };
-        Value(make_boxed(TAG_KEYWORD, bits as u64))
+        Value(make_boxed(TAG_KEYWORD, spur_to_bits(spur) as u64))
     }
 
     pub fn keyword(s: &str) -> Value {
@@ -989,19 +1014,11 @@ impl Value {
             }
             TAG_SYMBOL => {
                 let payload = get_payload(self.0);
-                // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. The payload was
-                // stored via Value::symbol_from_spur from a valid (non-zero) Spur, so the
-                // truncated u32 bits remain non-zero and layout-compatible with Spur.
-                let spur: Spur = unsafe { std::mem::transmute(payload as u32) };
-                ValueView::Symbol(spur)
+                ValueView::Symbol(bits_to_spur(payload as u32))
             }
             TAG_KEYWORD => {
                 let payload = get_payload(self.0);
-                // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. The payload was
-                // stored via Value::keyword_from_spur from a valid (non-zero) Spur, so the
-                // truncated u32 bits remain non-zero and layout-compatible with Spur.
-                let spur: Spur = unsafe { std::mem::transmute(payload as u32) };
-                ValueView::Keyword(spur)
+                ValueView::Keyword(bits_to_spur(payload as u32))
             }
             TAG_INT_BIG => {
                 let val = unsafe { *self.borrow_ref::<i64>() };
@@ -1267,11 +1284,7 @@ impl Value {
     pub fn as_symbol_spur(&self) -> Option<Spur> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_SYMBOL {
             let payload = get_payload(self.0);
-            // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. TAG_SYMBOL check
-            // above guarantees the payload originated from Value::symbol_from_spur
-            // with a valid (non-zero) Spur, so the u32 bits are non-zero and
-            // layout-compatible with Spur.
-            Some(unsafe { std::mem::transmute::<u32, Spur>(payload as u32) })
+            Some(bits_to_spur(payload as u32))
         } else {
             None
         }
@@ -1284,11 +1297,7 @@ impl Value {
     pub fn as_keyword_spur(&self) -> Option<Spur> {
         if is_boxed(self.0) && get_tag(self.0) == TAG_KEYWORD {
             let payload = get_payload(self.0);
-            // SAFETY: Spur is #[repr(transparent)] over NonZeroU32. TAG_KEYWORD check
-            // above guarantees the payload originated from Value::keyword_from_spur
-            // with a valid (non-zero) Spur, so the u32 bits are non-zero and
-            // layout-compatible with Spur.
-            Some(unsafe { std::mem::transmute::<u32, Spur>(payload as u32) })
+            Some(bits_to_spur(payload as u32))
         } else {
             None
         }
@@ -2393,6 +2402,27 @@ mod tests {
     #[test]
     fn test_size_of_value() {
         assert_eq!(std::mem::size_of::<Value>(), 8);
+    }
+
+    #[test]
+    fn test_spur_bits_round_trip() {
+        // spur_to_bits / bits_to_spur must be exact inverses for freshly interned
+        // keys, and a NaN-boxed symbol/keyword must round-trip to the same Spur.
+        for s in ["x", "map", "string->symbol", "a-very-long-symbol-name", "λ"] {
+            let spur = intern(s);
+            assert_eq!(
+                bits_to_spur(spur_to_bits(spur)),
+                spur,
+                "raw round-trip for {s:?}"
+            );
+
+            let sym = Value::symbol_from_spur(spur);
+            assert_eq!(sym.as_symbol_spur(), Some(spur), "symbol Value for {s:?}");
+            assert_eq!(resolve(spur), s);
+
+            let kw = Value::keyword_from_spur(spur);
+            assert_eq!(kw.as_keyword_spur(), Some(spur), "keyword Value for {s:?}");
+        }
     }
 
     #[test]
