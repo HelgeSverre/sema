@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.20.0
+
+Tooling and ergonomics release. `match` is now exhaustive-by-default (raises on no-match, with a new lenient `match*`), the LSP gains range formatting, the debugger gains conditional and exception breakpoints, lowering is faster, and the numeric domain policy is now documented. One behavior change to be aware of — see **Changed**.
 
 ### Changed
 
