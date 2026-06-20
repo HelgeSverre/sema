@@ -1,0 +1,94 @@
+;; A tiny bytecode compiler + virtual machine, in ~80 lines of Sema.
+;;
+;; Compiles s-expressions like (+ 1 (* 2 3)) and (if ...) into a flat list of
+;; stack-machine instructions, then runs them in a dispatch loop — the same
+;; shape as Sema's own engine, just smaller. The "magic" of compilers turns out
+;; to be a recursive walk that emits operands before operators, a couple of
+;; jumps for control flow, and a loop with a `cond` in it.
+;;
+;; Full walkthrough: https://sema-lang.com/docs/internals/build-a-bytecode-vm.html
+
+;; --- tiny helpers ---
+(define (second xs) (nth xs 1))
+(define (third xs)  (nth xs 2))
+
+;; ============================================================
+;; The compiler — one recursive walk, tree -> instructions
+;; ============================================================
+
+;; (op a b) -> [ ...code for a... ][ ...code for b... ][ op ]
+(define (emit-binary opcode args)
+  (append (compile-expr (first args))
+          (compile-expr (second args))
+          (list (list opcode))))
+
+(define (compile-expr expr)
+  (cond
+    ((number? expr) (list (list :push expr)))
+    ((symbol? expr) (list (list :load expr)))
+    (else
+      (let ((op (first expr)) (args (rest expr)))
+        (cond
+          ((= op '+)  (emit-binary :add args))
+          ((= op '-)  (emit-binary :sub args))
+          ((= op '*)  (emit-binary :mul args))
+          ((= op '<)  (emit-binary :lt  args))
+          ((= op 'if) (compile-if args))
+          (else (error (str "unknown form: " op))))))))
+
+;; if -> test, jump-if-false over THEN, THEN, jump over ELSE, ELSE.
+;; The jump offsets are computed from the lengths of the branches we just
+;; compiled — relative "skip N instructions" jumps. There is no `if` at the
+;; machine level, only "maybe jump."
+(define (compile-if args)
+  (let* ((test (compile-expr (first args)))
+         (then (compile-expr (second args)))
+         (alt  (compile-expr (third args)))
+         (jf   (list (list :jfalse (+ (length then) 1))))  ; skip THEN + trailing jmp
+         (jp   (list (list :jmp (length alt)))))            ; skip ELSE
+    (append test jf then jp alt)))
+
+;; ============================================================
+;; The virtual machine — a loop with a program counter + stack
+;; ============================================================
+
+;; pop two, apply f, push result. (a was pushed first, so it's deeper.)
+(define (binop f stack)
+  (let ((b (first stack)) (a (second stack)) (more (rest (rest stack))))
+    (cons (f a b) more)))
+
+(define (run code env)
+  (let loop ((pc 0) (stack '()))
+    (if (>= pc (length code))
+      (first stack)                         ; result = top of stack
+      (let* ((ins (nth code pc)) (op (first ins)))
+        (cond
+          ((= op :push)   (loop (+ pc 1) (cons (second ins) stack)))
+          ((= op :load)   (loop (+ pc 1) (cons (get env (second ins)) stack)))
+          ((= op :add)    (loop (+ pc 1) (binop + stack)))
+          ((= op :sub)    (loop (+ pc 1) (binop - stack)))
+          ((= op :mul)    (loop (+ pc 1) (binop * stack)))
+          ((= op :lt)     (loop (+ pc 1) (binop < stack)))
+          ((= op :jmp)    (loop (+ pc 1 (second ins)) stack))
+          ((= op :jfalse)
+            (let ((top (first stack)) (more (rest stack)))
+              (if top (loop (+ pc 1) more)
+                      (loop (+ pc 1 (second ins)) more))))
+          (else (error (str "bad op: " op))))))))
+
+;; ============================================================
+;; Run it — watch source become bytecode, then a result
+;; ============================================================
+
+(define program '(+ 1 (* 2 3)))
+(define bc (compile-expr program))
+(println "source:   " program)
+(println "bytecode: " bc)
+(println "result:   " (run bc {}))
+
+(define p2 '(if (< x 5) (* x 10) (- x 5)))
+(println "")
+(println "source:   " p2)
+(println "bytecode: " (compile-expr p2))
+(println "x=3   ->  " (run (compile-expr p2) {'x 3}))   ; -> 30
+(println "x=9   ->  " (run (compile-expr p2) {'x 9}))   ; -> 4
