@@ -11,5 +11,6 @@ pub(crate) mod completion;
 pub(crate) mod formatting;
 pub(crate) mod hover;
 pub(crate) mod navigation;
+pub(crate) mod range_formatting;
 pub(crate) mod semantic_tokens;
 pub(crate) mod structure;

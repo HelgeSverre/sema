@@ -111,6 +111,120 @@ fn formatting_unknown_uri_returns_none() {
     assert!(state.handle_formatting(&missing, &opts).is_none());
 }
 
+// ── range formatting ─────────────────────────────────────────
+
+fn range(sl: u32, sc: u32, el: u32, ec: u32) -> Range {
+    Range {
+        start: Position {
+            line: sl,
+            character: sc,
+        },
+        end: Position {
+            line: el,
+            character: ec,
+        },
+    }
+}
+
+fn range_fmt_opts() -> FormattingOptions {
+    FormattingOptions {
+        tab_size: 2,
+        insert_spaces: true,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn range_formatting_expands_to_overlapped_whole_form() {
+    // Two top-level forms; selection touches only the first (a sub-slice of it).
+    let src = "(define   x    42)\n(define y 1)\n";
+    let (state, uri) = format_state("file:///rf.sema", src);
+    // Range covers part of the first form's interior (chars 1..10 on line 0).
+    let edits = state
+        .handle_range_formatting(&uri, &range(0, 1, 0, 10), &range_fmt_opts())
+        .expect("should produce edits");
+    assert_eq!(edits.len(), 1);
+    let edit = &edits[0];
+    // The edit is scoped to the whole first form only (line 0), not the second.
+    assert_eq!(
+        edit.range.start,
+        Position {
+            line: 0,
+            character: 0
+        }
+    );
+    assert_eq!(
+        edit.range.end,
+        Position {
+            line: 0,
+            character: 18
+        }
+    );
+    // The reformatted slice is the canonical form, with no trailing newline added
+    // (the original slice had none — it ended at the form's `)`).
+    assert_eq!(edit.new_text, "(define x 42)");
+}
+
+#[test]
+fn range_formatting_spans_multiple_overlapped_forms() {
+    let src = "(define   x 1)\n(define    y 2)\n(define z 3)\n";
+    let (state, uri) = format_state("file:///rf2.sema", src);
+    // Selection straddles the first two forms (ends on line 1).
+    let edits = state
+        .handle_range_formatting(&uri, &range(0, 3, 1, 5), &range_fmt_opts())
+        .expect("edits");
+    assert_eq!(edits.len(), 1);
+    let edit = &edits[0];
+    assert_eq!(
+        edit.range.start,
+        Position {
+            line: 0,
+            character: 0
+        }
+    );
+    // Covers through the end of the second form (line 1), not the third.
+    assert_eq!(edit.range.end.line, 1);
+    assert_eq!(edit.new_text, "(define x 1)\n(define y 2)");
+}
+
+#[test]
+fn range_formatting_already_formatted_returns_no_edits() {
+    let src = "(define x 1)\n(define y 2)\n";
+    let (state, uri) = format_state("file:///rf3.sema", src);
+    let edits = state
+        .handle_range_formatting(&uri, &range(0, 0, 0, 12), &range_fmt_opts())
+        .expect("Some(empty)");
+    assert!(edits.is_empty());
+}
+
+#[test]
+fn range_formatting_unparseable_returns_none() {
+    let (state, uri) = format_state("file:///rfbad.sema", "(define x");
+    assert!(state
+        .handle_range_formatting(&uri, &range(0, 0, 0, 5), &range_fmt_opts())
+        .is_none());
+}
+
+#[test]
+fn range_formatting_unknown_uri_returns_none() {
+    let (state, _) = format_state("file:///rfknown.sema", "(define x 1)");
+    let missing = Url::parse("file:///rfmissing.sema").unwrap();
+    assert!(state
+        .handle_range_formatting(&missing, &range(0, 0, 0, 5), &range_fmt_opts())
+        .is_none());
+}
+
+#[test]
+fn range_formatting_in_blank_gap_overlaps_nothing() {
+    // Selection sits entirely on the blank line between two forms → no whole form
+    // overlaps → None (don't touch the buffer).
+    let src = "(define x 1)\n\n(define y 2)\n";
+    let (state, uri) = format_state("file:///rfgap.sema", src);
+    assert!(state
+        .handle_range_formatting(&uri, &range(1, 0, 1, 0), &range_fmt_opts())
+        .is_none());
+}
+
 // ── selection range ──────────────────────────────────────────
 
 /// Build a state with a populated parse cache for `source`, mirroring the dispatch path.

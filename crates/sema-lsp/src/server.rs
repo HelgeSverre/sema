@@ -101,6 +101,13 @@ pub(crate) enum LspRequest {
         options: FormattingOptions,
         reply: tokio::sync::oneshot::Sender<Option<Vec<TextEdit>>>,
     },
+    /// Document range formatting request.
+    RangeFormatting {
+        uri: Url,
+        range: Range,
+        options: FormattingOptions,
+        reply: tokio::sync::oneshot::Sender<Option<Vec<TextEdit>>>,
+    },
     /// Selection range request (structural s-expression selection).
     SelectionRange {
         uri: Url,
@@ -248,6 +255,7 @@ impl LanguageServer for Backend {
                 inlay_hint_provider: Some(OneOf::Left(true)),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                document_range_formatting_provider: Some(OneOf::Left(true)),
                 selection_range_provider: Some(SelectionRangeProviderCapability::Simple(true)),
                 declaration_provider: Some(DeclarationCapability::Simple(true)),
                 document_link_provider: Some(DocumentLinkOptions {
@@ -555,6 +563,26 @@ impl LanguageServer for Backend {
         let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         let _ = self.tx.send(LspRequest::Formatting {
             uri,
+            options: params.options,
+            reply: reply_tx,
+        });
+
+        match reply_rx.await {
+            Ok(edits) => Ok(edits),
+            Err(_) => Ok(None),
+        }
+    }
+
+    async fn range_formatting(
+        &self,
+        params: DocumentRangeFormattingParams,
+    ) -> Result<Option<Vec<TextEdit>>> {
+        let uri = params.text_document.uri;
+
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let _ = self.tx.send(LspRequest::RangeFormatting {
+            uri,
+            range: params.range,
             options: params.options,
             reply: reply_tx,
         });
@@ -903,6 +931,15 @@ pub async fn run_server() {
                     reply,
                 } => {
                     let result = state.handle_formatting(&uri, &options);
+                    let _ = reply.send(result);
+                }
+                LspRequest::RangeFormatting {
+                    uri,
+                    range,
+                    options,
+                    reply,
+                } => {
+                    let result = state.handle_range_formatting(&uri, &range, &options);
                     let _ = reply.send(result);
                 }
                 LspRequest::SelectionRange {
