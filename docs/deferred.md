@@ -136,6 +136,20 @@ when a real long-running workload shows growth (a `Rc::strong_count` leak test w
 
 ---
 
+## P6 — `partition` / `frequencies` / `list/group-by` double-clone (perf, won't-do)
+
+`crates/sema-stdlib/src/list.rs`. These clone each element twice (once for the callback args, once when pushing into the output bucket). Could be cut to one clone by consuming `items.iter().cloned()`.
+
+**Why won't-do:** moved here from `docs/wip.md` on 2026-06-20. The earlier P1 work established that `Rc::clone` is too cheap to measure on these HOF-dispatch-bound paths; the same applies here. Revisit only if a profile actually fingers `partition`/`group-by` as a hotspot.
+
+## P7 — `CALL_NATIVE` clones `Rc<NativeFn>` per call (perf, spiked → discarded)
+
+`crates/sema-vm/src/vm.rs`, CALL_NATIVE handler: `let native = self.native_fns[native_id].clone();` — one `Rc` bump per native call, purely to release the borrow on `self.native_fns` so `self.stack` can also be borrowed.
+
+**Spiked and discarded 2026-06-20.** Implemented the raw-pointer alternative (`Rc::as_ptr` + a minimal `unsafe` deref; the safety invariant holds — `native_fns` is built once at VM construction and never mutated during dispatch). It compiled, passed all tests + clippy, and was correct. But benchmarking before/after on `higher-order-fold`, `hashmap-bench`, and `string-pipeline` showed the delta entirely within noise (means < 1σ apart; the "winner" sign even flipped across workloads). A single non-atomic `Rc` bump on a single-threaded VM is free in practice. Adding `unsafe` to the hottest dispatch path — plus the standing burden of re-auditing the "never mutate `native_fns`" invariant on every future edit — for zero measured gain makes the codebase strictly worse. Not doing it. The only lever here is the `unsafe` one (a safe borrow-restructure is blocked by the re-entrant-HOF `&mut self` path), so this stays closed unless the call shape changes materially.
+
+---
+
 ## A note on the truly long-term language design items
 
 These are not deferred — they're design questions that need a deliberate decision before any code lands. They're tracked in `docs/wip.md` (the "Wave 6c" cluster), not here.
