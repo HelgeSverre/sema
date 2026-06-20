@@ -50,6 +50,10 @@ dual_eval_tests! {
     match_vector_rest: "(match '(1 2 3 4) ([a & rest] rest))" => Value::list(vec![Value::int(2), Value::int(3), Value::int(4)]),
     match_map_keys: "(match {:x 10 :y 20} ({:keys [x y]} (+ x y)))" => Value::int(30),
     match_guard: r#"(match 5 (x when (> x 10) "big") (x when (> x 0) "small") (_ "zero"))"# => Value::string("small"),
+    // A wildcard present alongside guards still works under strict `match`.
+    match_guard_with_wildcard: r#"(match 5 (x when (> x 100) "big") (_ "other"))"# => Value::string("other"),
+    // `match*` with all guards failing and no wildcard → lenient nil.
+    match_star_guards_all_fail: r#"(match* 5 (x when (> x 100) "big") (x when (< x 0) "neg"))"# => Value::nil(),
     // Strict `match` raises on no-match (see error tests); `match*` is the lenient nil form.
     match_star_no_match_nil: r#"(match* 42 (1 "one") (2 "two"))"# => Value::nil(),
     match_nested: "(match '(1 (2 3)) ([a [b c]] (+ a b c)))" => Value::int(6),
@@ -265,6 +269,8 @@ dual_eval_error_tests! {
     // Strict `match` raises when no clause matches (D3); `match*` stays lenient.
     match_no_clause_raises: r#"(match 42 (1 "one") (2 "two"))"# => "no clause matched",
     match_all_clauses_fail_raises: r#"(match {:x [1]} ({:x [1 2]} :bad) ({:x [a b c]} :bad2))"# => "no clause matched",
+    // Strict `match` raises when every guard fails and there is no wildcard.
+    match_guards_all_fail_raises: r#"(match 5 (x when (> x 100) "big") (x when (< x 0) "neg"))"# => "no clause matched",
 }
 
 // ============================================================

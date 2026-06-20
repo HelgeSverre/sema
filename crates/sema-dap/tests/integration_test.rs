@@ -528,6 +528,70 @@ fn test_dap_exception_breakpoint_stops_on_uncaught_error() {
 }
 
 #[test]
+fn test_dap_exception_breakpoint_skips_caught_errors() {
+    // The `uncaught` filter must NOT stop on an error that is caught by `try`.
+    // The program catches its error and runs to completion, so the session
+    // should terminate normally — never emitting an exception stop.
+    let binary = sema_binary();
+
+    let dir = unique_temp_dir("exc_bp_caught");
+    let program_path = dir.join("caught.sema");
+    std::fs::write(
+        &program_path,
+        "(try (this-fn-does-not-exist) (catch e \"caught\"))\n(println \"done\")\n",
+    )
+    .unwrap();
+
+    let mut child = Command::new(&binary)
+        .arg("dap")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn {binary}: {e}"));
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+
+    send_dap(&mut stdin, 1, "initialize", Some(serde_json::json!({})));
+    let _init = read_dap(&mut reader).unwrap();
+    let _event = read_dap(&mut reader).unwrap();
+
+    send_dap(
+        &mut stdin,
+        2,
+        "setExceptionBreakpoints",
+        Some(serde_json::json!({ "filters": ["uncaught"] })),
+    );
+    let _resp = read_dap(&mut reader).unwrap();
+
+    send_dap(
+        &mut stdin,
+        3,
+        "launch",
+        Some(serde_json::json!({ "program": program_path.to_string_lossy() })),
+    );
+    let _resp = read_dap(&mut reader).unwrap();
+
+    send_dap(&mut stdin, 4, "configurationDone", None);
+    let _resp = read_dap(&mut reader).unwrap();
+
+    // The caught error must not park the program at an exception stop; it runs
+    // to completion. If the filter wrongly fired, `terminated` would never come.
+    assert!(
+        wait_for_event(&mut reader, "terminated", 50),
+        "caught error must not trigger the uncaught-exception breakpoint"
+    );
+
+    send_dap(&mut stdin, 5, "disconnect", None);
+    let _ = read_dap(&mut reader);
+    let _ = child.wait();
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_dap_breakpoint_after_launch() {
     let binary = sema_binary();
 

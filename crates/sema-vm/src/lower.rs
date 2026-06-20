@@ -190,7 +190,7 @@ fn lower_list(items: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
 
 /// The set of special forms recognized by the lowerer. Each variant maps to a
 /// dedicated `lower_*` handler in [`lower_list`].
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum SpecialForm {
     Quote,
     If,
@@ -1769,6 +1769,47 @@ mod tests {
         match lower_str("\"hello\"") {
             CoreExpr::Const(v) => assert_eq!(v, Value::string("hello")),
             other => panic!("expected Const, got {other:?}"),
+        }
+    }
+
+    /// Regression guard for the per-thread special-form cache: this list is
+    /// maintained INDEPENDENTLY of `SPECIAL_FORM_NAMES`, so if a form is ever
+    /// dropped from that table it would silently lower as a plain function call
+    /// — and this test fails instead. Keep both in sync when adding a form.
+    #[test]
+    fn test_all_special_forms_recognized() {
+        let names = [
+            "quote", "if", "cond", "define", "def", "defun", "defn", "set!", "lambda", "fn",
+            "let", "let*", "letrec", "begin", "progn", "do", "and", "or", "when", "unless",
+            "while", "defmacro", "quasiquote", "throw", "try", "case", "eval", "macroexpand",
+            "module", "import", "load", "prompt", "message", "deftool", "defagent", "delay",
+            "force", "define-record-type", "match", "match*", "defmulti", "defmethod", "async",
+            "await",
+        ];
+        for name in names {
+            assert!(
+                special_form_for(intern(name)).is_some(),
+                "special form `{name}` is not recognized — missing from SPECIAL_FORM_NAMES?"
+            );
+        }
+    }
+
+    #[test]
+    fn test_lower_match_and_match_star_distinct() {
+        // Both must lower as special forms (not function calls), and to the
+        // right variant. A `match`/`match*` that lowered to a Call would mean the
+        // cache table lost the entry.
+        assert_eq!(special_form_for(intern("match")), Some(SpecialForm::Match));
+        assert_eq!(
+            special_form_for(intern("match*")),
+            Some(SpecialForm::MatchStar)
+        );
+        // Sanity: neither lowers to a Call whose head is the literal symbol.
+        for src in ["(match 1 (1 :a))", "(match* 1 (1 :a))"] {
+            match lower_str(src) {
+                CoreExpr::Call { .. } => panic!("{src} wrongly lowered as a function call"),
+                _ => {}
+            }
         }
     }
 

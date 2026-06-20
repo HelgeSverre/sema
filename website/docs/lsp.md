@@ -106,6 +106,11 @@ Whole-document formatting (`textDocument/formatting`) powered by the same engine
 normalizes spacing, indentation, and line breaks. Returns no edits when the source has syntax errors, so an unparseable
 buffer is never disturbed.
 
+**Range formatting** (`textDocument/rangeFormatting`) formats a selection. Because formatting a partial
+s-expression is unsafe in a Lisp, the server expands the selection to the smallest set of *whole* top-level forms it
+overlaps, formats those, and returns edits scoped to that span. A selection that touches no complete form (e.g. blank
+space between forms) is a no-op, and an unparseable buffer is left untouched.
+
 ### Selection Range
 
 Structural selection (`textDocument/selectionRange`) for Extend/Shrink Selection. Expands the selection outward through

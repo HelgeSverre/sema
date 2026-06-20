@@ -11759,11 +11759,16 @@ fn test_match_guard_with_binding() {
 
 #[test]
 fn test_match_no_match_raises() {
-    // Strict `match` raises when no clause matches (D3).
+    // Strict `match` raises when no clause matches (D3), and the error carries
+    // the unmatched value (via __vm-match-failed).
     let err = eval_err("(match 42 (1 \"one\") (2 \"two\"))").to_string();
     assert!(
         err.contains("no clause matched"),
         "expected match-failed error, got: {err}"
+    );
+    assert!(
+        err.contains("42"),
+        "error should carry the unmatched value, got: {err}"
     );
 }
 

@@ -25,6 +25,8 @@ The `sema dap` server implements the core features of the Debug Adapter Protocol
 ### Breakpoints
 - **Dynamic Breakpoints**: Set, toggle, or clear line breakpoints before launching or in real-time while execution is paused.
 - **Breakpoint Verification**: The compiler maps source file line numbers to bytecode instructions and returns verified locations back to the editor.
+- **Conditional Breakpoints**: Attach a `condition` expression to a breakpoint; execution only stops there when the condition evaluates truthy in the paused frame (using the same evaluator as `evaluate`/hover). A condition that errors fails open — it stops — so the problem surfaces rather than being silently swallowed.
+- **Exception Breakpoints**: Enable the `uncaught` filter to stop on a runtime error that escapes to the top level (errors handled by `try`/`catch` do not trigger it). The `exceptionInfo` request reports the error message. Note: at an uncaught-exception stop the VM has already unwound its frames, so the stack/variables there are best-effort — the message is the load-bearing detail.
 
 ### Stepping Controls
 - **Step Over** (`next`): Execute the current form and pause at the next sibling expression in the same frame.
