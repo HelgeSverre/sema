@@ -189,6 +189,10 @@ A program compiled as one unit bakes calls to *known builtins* into `CallNative`
 
 This worked on the retired tree-walker (late name resolution). On the VM, avoid shadowing a builtin name from an imported/loaded module (rename it, e.g. `truncate-str`), or `define` the override at top level in the same program. A general fix (conservatively disabling `CallNative` for programs containing `import`/`load`) was rejected for the per-call perf cost.
 
+### 35. Eager bulk allocators can exhaust memory (resource DoS, found by fuzzing)
+
+`(range 0 5277777779992)` and similar eager bulk-allocating builtins try to materialize the entire result up front, so a single call with an absurd size exhausts memory and aborts the process — the per-eval step limit doesn't help because it's one native call, not a loop the VM counts. Surfaced by the `fuzz_eval` VM fuzzer (an out-of-memory artifact, not a panic/UB — the VM itself stayed memory-safe across the run). This is a denial-of-service concern for untrusted input / sandboxed embedding, not a soundness bug. Possible fixes (deferred): a configurable element/allocation cap that errors instead of OOMing, or lazy ranges. Until then, validate sizes before calling `range` on untrusted input.
+
 ---
 
 ## Gap Analysis — Remaining Items
