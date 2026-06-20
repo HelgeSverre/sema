@@ -6,9 +6,10 @@
 > (`doc`, `meta`, `doctest`, `read-source`, `ask`, `heal!`, `evolve`,
 > `observe!`, `become!`, `history`, `rollback!`, `freeze!`) is unbound at
 > runtime today. The LLM-driven layers (3–6) are **killed for good** — see
-> `docs/deferred.md`. The deterministic foundation (docstrings + doctests,
-> layers 0–1) may be revived under a separate, focused plan; this document is
-> kept only as historical design context, not a description of shipping behavior.
+> `docs/deferred.md`. Only the docstrings part (`doc`/`meta`, layer 0) is being
+> revived, under a separate focused plan; doctests (layer 1) were dropped as
+> YAGNI. This document is kept only as historical design context, not a
+> description of shipping behavior.
 
 > Design document for Sema's introspection, doctest, and LLM-driven metaprogramming features.
 
