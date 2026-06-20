@@ -19,3 +19,4 @@ Active (still-pending) plans live one level up in `docs/plans/`.
 | `2026-06-09-notebook-output-hook-migration.md` | Shipped — notebook uses `set_stdout_hook`, dropped `gag`. |
 | `2026-06-19-vm-web-worker-real-sleep.md` | Shipped 1.19.0 — real `async/sleep` in the playground worker. |
 | `2026-06-09-lsp-followups-and-docs-research.md` | Superseded — docs audit replaced by the `sema-docs` crate. Three live stragglers (hover precedence, range formatting, DAP conditional breakpoints) were moved to `docs/wip.md` ("LSP / DAP follow-ups"). |
+| `2026-06-09-spur-transmute-cleanup.md` | Shipped (commit `6f141e3`) — centralized `spur_to_bits`/`bits_to_spur` helpers replace all scattered `transmute::<u32, Spur>` sites; round-trip test + `size_of::<Spur>` const guard, no bench regression. |
