@@ -4,7 +4,7 @@ use std::sync::mpsc as std_mpsc;
 use tokio::io::BufReader;
 use tokio::sync::mpsc as tokio_mpsc;
 
-use sema_vm::debug::{DapBreakpoint, DebugCommand, DebugEvent, DebugState};
+use sema_vm::debug::{DapBreakpoint, DebugCommand, DebugEvent, DebugState, SourceBreakpoint};
 
 use crate::protocol::{DapEvent, DapMessage, DapResponse};
 use crate::transport;
@@ -19,8 +19,11 @@ enum BackendRequest {
     },
     SetBreakpoints {
         file: PathBuf,
-        lines: Vec<u32>,
+        breakpoints: Vec<SourceBreakpoint>,
         reply: tokio_mpsc::Sender<Vec<DapBreakpoint>>,
+    },
+    SetExceptionBreakpoints {
+        break_on_uncaught: bool,
     },
     ConfigurationDone,
     Disconnect,
@@ -30,6 +33,12 @@ struct FrontendState {
     vm_active: bool,
     vm_suspended: bool,
     dbg_cmd_tx: Option<std_mpsc::Sender<DebugCommand>>,
+    /// Whether the exception breakpoint filter is enabled. Forwarded to the
+    /// backend (pre-launch) or the running VM (via DebugCommand).
+    break_on_uncaught: bool,
+    /// Message of the most recent uncaught exception we stopped on, surfaced via
+    /// the exceptionInfo request.
+    last_exception: Option<String>,
 }
 
 pub async fn run() {
@@ -44,6 +53,8 @@ pub async fn run() {
         vm_active: false,
         vm_suspended: false,
         dbg_cmd_tx: None,
+        break_on_uncaught: false,
+        last_exception: None,
     };
 
     // Spawn the backend thread
@@ -89,6 +100,12 @@ pub async fn run() {
                             sema_vm::debug::StopReason::Step => "step",
                             sema_vm::debug::StopReason::Pause => "pause",
                             sema_vm::debug::StopReason::Entry => "entry",
+                            sema_vm::debug::StopReason::Exception => {
+                                // Remember the message so a follow-up exceptionInfo
+                                // request can report it.
+                                state.last_exception = description.clone();
+                                "exception"
+                            }
                         };
                         DapEvent::new(seq, "stopped", Some(serde_json::json!({
                             "reason": reason_str,
@@ -138,13 +155,18 @@ async fn handle_request(
             let body = serde_json::json!({
                 "supportsConfigurationDoneRequest": true,
                 "supportsFunctionBreakpoints": false,
-                "supportsConditionalBreakpoints": false,
+                "supportsConditionalBreakpoints": true,
                 "supportsStepBack": false,
                 "supportsSetVariable": true,
                 "supportsEvaluateForHovers": true,
                 "supportsRestartFrame": false,
                 "supportsModulesRequest": false,
-                "supportsExceptionInfoRequest": false,
+                "supportsExceptionInfoRequest": true,
+                "exceptionBreakpointFilters": [{
+                    "filter": "uncaught",
+                    "label": "Uncaught Exceptions",
+                    "default": false,
+                }],
             });
             send_response(stdout, seq, msg.seq, "initialize", Some(body)).await;
             // Send initialized event
@@ -191,14 +213,22 @@ async fn handle_request(
                 .and_then(|p| p.as_str())
                 .map(clean_path)
                 .unwrap_or_default();
-            let lines: Vec<u32> = msg
+            let breakpoints_req: Vec<SourceBreakpoint> = msg
                 .arguments
                 .as_ref()
                 .and_then(|a| a.get("breakpoints"))
                 .and_then(|b| b.as_array())
                 .map(|arr| {
                     arr.iter()
-                        .filter_map(|bp| bp.get("line").and_then(|l| l.as_u64()).map(|l| l as u32))
+                        .filter_map(|bp| {
+                            let line = bp.get("line").and_then(|l| l.as_u64())? as u32;
+                            let condition = bp
+                                .get("condition")
+                                .and_then(|c| c.as_str())
+                                .filter(|c| !c.trim().is_empty())
+                                .map(|c| c.to_string());
+                            Some(SourceBreakpoint { line, condition })
+                        })
                         .collect()
                 })
                 .unwrap_or_default();
@@ -209,7 +239,7 @@ async fn handle_request(
                     let (reply_tx, reply_rx) = std_mpsc::sync_channel(1);
                     let _ = tx.send(DebugCommand::SetBreakpoints {
                         file,
-                        lines: lines.clone(),
+                        breakpoints: breakpoints_req,
                         reply: reply_tx,
                     });
                     tokio::task::spawn_blocking(move || reply_rx.recv().unwrap_or_default())
@@ -224,7 +254,7 @@ async fn handle_request(
                 let _ = backend_tx
                     .send(BackendRequest::SetBreakpoints {
                         file,
-                        lines: lines.clone(),
+                        breakpoints: breakpoints_req,
                         reply: reply_tx,
                     })
                     .await;
@@ -242,6 +272,46 @@ async fn handle_request(
                 Some(serde_json::json!({ "breakpoints": breakpoints })),
             )
             .await;
+        }
+        "setExceptionBreakpoints" => {
+            // The "uncaught" filter is enabled when present in the filters list.
+            let break_on_uncaught = msg
+                .arguments
+                .as_ref()
+                .and_then(|a| a.get("filters"))
+                .and_then(|f| f.as_array())
+                .map(|arr| arr.iter().any(|v| v.as_str() == Some("uncaught")))
+                .unwrap_or(false);
+            state.break_on_uncaught = break_on_uncaught;
+
+            if state.vm_active {
+                if let Some(ref tx) = state.dbg_cmd_tx {
+                    let _ = tx.send(DebugCommand::SetExceptionBreakpoints { break_on_uncaught });
+                }
+            } else {
+                // Pre-launch: stash on the backend so the flag is applied to the
+                // DebugState created at launch time.
+                let _ = backend_tx
+                    .send(BackendRequest::SetExceptionBreakpoints { break_on_uncaught })
+                    .await;
+            }
+            send_response(stdout, seq, msg.seq, "setExceptionBreakpoints", None).await;
+        }
+        "exceptionInfo" => {
+            let body = match &state.last_exception {
+                Some(message) => serde_json::json!({
+                    "exceptionId": "uncaught",
+                    "description": message,
+                    "breakMode": "unhandled",
+                    "details": { "message": message },
+                }),
+                None => serde_json::json!({
+                    "exceptionId": "uncaught",
+                    "description": "No exception information available",
+                    "breakMode": "unhandled",
+                }),
+            };
+            send_response(stdout, seq, msg.seq, "exceptionInfo", Some(body)).await;
         }
         "configurationDone" => {
             let _ = backend_tx.send(BackendRequest::ConfigurationDone).await;
@@ -705,6 +775,7 @@ fn reply_session_ended(cmd: DebugCommand) {
         | DebugCommand::StepOver
         | DebugCommand::StepOut
         | DebugCommand::Pause
+        | DebugCommand::SetExceptionBreakpoints { .. }
         | DebugCommand::Disconnect => {}
     }
 }
@@ -717,7 +788,8 @@ fn backend_thread(
     let mut closure: Option<std::rc::Rc<sema_vm::Closure>> = None;
     let mut debug_state: Option<DebugState> = None;
     let mut interp: Option<sema_eval::Interpreter> = None;
-    let mut pending_breakpoints: Vec<(PathBuf, Vec<u32>)> = Vec::new();
+    let mut pending_breakpoints: Vec<(PathBuf, Vec<SourceBreakpoint>)> = Vec::new();
+    let mut pending_break_on_uncaught = false;
 
     loop {
         let req = rx.blocking_recv();
@@ -786,9 +858,11 @@ fn backend_thread(
                     ds.step_mode = sema_vm::StepMode::StepInto;
                 }
 
+                ds.break_on_uncaught = pending_break_on_uncaught;
+
                 // Apply pending breakpoints
-                for (file, lines) in pending_breakpoints.drain(..) {
-                    ds.set_breakpoints(&file, &lines);
+                for (file, breakpoints) in pending_breakpoints.drain(..) {
+                    ds.set_breakpoints_with_conditions(&file, &breakpoints);
                 }
 
                 closure = Some(prog.closure.clone());
@@ -825,30 +899,42 @@ fn backend_thread(
                 interp = Some(interpreter);
             }
 
-            BackendRequest::SetBreakpoints { file, lines, reply } => {
+            BackendRequest::SetBreakpoints {
+                file,
+                breakpoints,
+                reply,
+            } => {
                 if let Some(ref mut ds) = debug_state {
-                    let breakpoints = ds.set_breakpoints(&file, &lines);
-                    let _ = reply.blocking_send(breakpoints);
+                    let resolved = ds.set_breakpoints_with_conditions(&file, &breakpoints);
+                    let _ = reply.blocking_send(resolved);
                 } else {
                     // Store for application at launch time, reply immediately
                     // with pending breakpoints so the frontend doesn't block.
-                    let count = lines.len();
-                    let pending: Vec<DapBreakpoint> = lines
+                    let count = breakpoints.len();
+                    let pending: Vec<DapBreakpoint> = breakpoints
                         .iter()
                         .enumerate()
-                        .map(|(idx, &line)| DapBreakpoint {
+                        .map(|(idx, bp)| DapBreakpoint {
                             id: (idx + 1) as u32,
                             verified: false,
-                            requested_line: line,
-                            line,
+                            requested_line: bp.line,
+                            line: bp.line,
                             message: Some(
                                 "Breakpoint pending until program is compiled".to_string(),
                             ),
                         })
                         .collect();
-                    pending_breakpoints.push((file, lines));
+                    pending_breakpoints.push((file, breakpoints));
                     debug_assert_eq!(pending.len(), count);
                     let _ = reply.blocking_send(pending);
+                }
+            }
+
+            BackendRequest::SetExceptionBreakpoints { break_on_uncaught } => {
+                if let Some(ref mut ds) = debug_state {
+                    ds.break_on_uncaught = break_on_uncaught;
+                } else {
+                    pending_break_on_uncaught = break_on_uncaught;
                 }
             }
 

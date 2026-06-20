@@ -337,6 +337,197 @@ fn test_dap_breakpoint_and_continue() {
 }
 
 #[test]
+fn test_dap_conditional_breakpoint_only_stops_when_truthy() {
+    let binary = sema_binary();
+
+    let dir = unique_temp_dir("cond_bp");
+    let program_path = dir.join("cond.sema");
+    // `f` is called three times; the breakpoint inside its body (line 2) carries
+    // the condition `(= n 2)`, so it must fire only on the second call.
+    std::fs::write(
+        &program_path,
+        "(define (f n)\n  (+ n 100))\n(f 1)\n(f 2)\n(f 3)\n",
+    )
+    .unwrap();
+
+    let mut child = Command::new(&binary)
+        .arg("dap")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn {binary}: {e}"));
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+
+    send_dap(&mut stdin, 1, "initialize", Some(serde_json::json!({})));
+    let init = read_dap(&mut reader).unwrap();
+    assert_eq!(init["body"]["supportsConditionalBreakpoints"], true);
+    let _event = read_dap(&mut reader).unwrap();
+
+    // Conditional breakpoint on the function body line.
+    send_dap(
+        &mut stdin,
+        2,
+        "setBreakpoints",
+        Some(serde_json::json!({
+            "source": { "path": program_path.to_string_lossy() },
+            "breakpoints": [{ "line": 2, "condition": "(= n 2)" }],
+        })),
+    );
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "setBreakpoints");
+    assert_eq!(resp["success"], true);
+
+    send_dap(
+        &mut stdin,
+        3,
+        "launch",
+        Some(serde_json::json!({ "program": program_path.to_string_lossy() })),
+    );
+    let _resp = read_dap(&mut reader).unwrap();
+
+    send_dap(&mut stdin, 4, "configurationDone", None);
+    let _resp = read_dap(&mut reader).unwrap();
+
+    // First stop must be when n == 2 (the f(1) call is skipped by the condition).
+    wait_for_event_message(&mut reader, "stopped", 50)
+        .expect("conditional breakpoint should stop when condition holds");
+
+    send_dap(&mut stdin, 5, "stackTrace", Some(serde_json::json!({})));
+    let resp = read_dap(&mut reader).unwrap();
+    let frame_id = resp["body"]["stackFrames"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|frame| frame["name"] == "f")
+        .and_then(|frame| frame["id"].as_u64())
+        .expect("stack trace should include f frame");
+
+    // Confirm n is indeed 2 at this stop.
+    send_dap(
+        &mut stdin,
+        6,
+        "evaluate",
+        Some(serde_json::json!({
+            "expression": "n",
+            "frameId": frame_id,
+            "context": "watch",
+        })),
+    );
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["success"], true);
+    assert_eq!(
+        resp["body"]["result"], "2",
+        "conditional breakpoint stopped with n == 2"
+    );
+
+    // Continue: the f(3) call must NOT stop (condition false), so the program
+    // runs to termination.
+    send_dap(&mut stdin, 7, "continue", Some(serde_json::json!({})));
+    let _resp = read_dap(&mut reader).unwrap();
+    assert!(
+        wait_for_event(&mut reader, "terminated", 50),
+        "program should terminate without stopping again (f(3) condition is false)"
+    );
+
+    send_dap(&mut stdin, 8, "disconnect", None);
+    let _ = read_dap(&mut reader);
+    let status = child.wait().expect("failed to wait for child");
+    assert!(status.success());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn test_dap_exception_breakpoint_stops_on_uncaught_error() {
+    let binary = sema_binary();
+
+    let dir = unique_temp_dir("exc_bp");
+    let program_path = dir.join("boom.sema");
+    // Calls a non-existent function: a runtime error that is never caught.
+    std::fs::write(&program_path, "(define x 1)\n(this-fn-does-not-exist x)\n").unwrap();
+
+    let mut child = Command::new(&binary)
+        .arg("dap")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("failed to spawn {binary}: {e}"));
+
+    let mut stdin = child.stdin.take().unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let mut reader = BufReader::new(stdout);
+
+    send_dap(&mut stdin, 1, "initialize", Some(serde_json::json!({})));
+    let init = read_dap(&mut reader).unwrap();
+    assert_eq!(init["body"]["supportsExceptionInfoRequest"], true);
+    assert_eq!(
+        init["body"]["exceptionBreakpointFilters"][0]["filter"],
+        "uncaught"
+    );
+    let _event = read_dap(&mut reader).unwrap();
+
+    // Enable the uncaught-exception filter.
+    send_dap(
+        &mut stdin,
+        2,
+        "setExceptionBreakpoints",
+        Some(serde_json::json!({ "filters": ["uncaught"] })),
+    );
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "setExceptionBreakpoints");
+    assert_eq!(resp["success"], true);
+
+    send_dap(
+        &mut stdin,
+        3,
+        "launch",
+        Some(serde_json::json!({ "program": program_path.to_string_lossy() })),
+    );
+    let _resp = read_dap(&mut reader).unwrap();
+
+    send_dap(&mut stdin, 4, "configurationDone", None);
+    let _resp = read_dap(&mut reader).unwrap();
+
+    // Must stop on the uncaught error with reason "exception".
+    let stopped = wait_for_event_message(&mut reader, "stopped", 50)
+        .expect("should stop on uncaught exception");
+    assert_eq!(stopped["body"]["reason"], "exception");
+
+    // exceptionInfo must report the error.
+    send_dap(&mut stdin, 5, "exceptionInfo", Some(serde_json::json!({})));
+    let resp = read_dap(&mut reader).unwrap();
+    assert_eq!(resp["command"], "exceptionInfo");
+    assert_eq!(resp["success"], true);
+    assert_eq!(resp["body"]["breakMode"], "unhandled");
+    assert!(
+        resp["body"]["description"]
+            .as_str()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false),
+        "exceptionInfo should carry a non-empty description"
+    );
+
+    // Continue past the exception stop: the session terminates.
+    send_dap(&mut stdin, 6, "continue", Some(serde_json::json!({})));
+    let _resp = read_dap(&mut reader).unwrap();
+    assert!(
+        wait_for_event(&mut reader, "terminated", 50),
+        "session should terminate after the uncaught exception"
+    );
+
+    send_dap(&mut stdin, 7, "disconnect", None);
+    let _ = read_dap(&mut reader);
+    let _ = child.wait();
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn test_dap_breakpoint_after_launch() {
     let binary = sema_binary();
 

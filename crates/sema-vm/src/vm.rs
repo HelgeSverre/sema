@@ -458,7 +458,32 @@ impl VM {
         });
 
         loop {
-            match self.run_inner(ctx, Some(debug))? {
+            let step = match self.run_inner(ctx, Some(debug)) {
+                Ok(step) => step,
+                Err(e) => {
+                    // Uncaught runtime error. If the exception breakpoint filter
+                    // is enabled, stop and let the user inspect before the
+                    // session ends; the program cannot resume past an uncaught
+                    // error, so any resume/disconnect command just propagates it.
+                    // Note: by the time the error reaches here the VM has already
+                    // unwound its frames, so stack/variable inspection at the
+                    // exception stop is best-effort (typically empty). The error
+                    // message itself is delivered via the Stopped description and
+                    // the exceptionInfo request.
+                    if debug.break_on_uncaught {
+                        debug.last_exception = Some(e.to_string());
+                        self.debug_values.clear();
+                        self.next_debug_value_ref = DEBUG_VALUE_REF_BASE;
+                        let _ = debug.event_tx.send(crate::debug::DebugEvent::Stopped {
+                            reason: crate::debug::StopReason::Exception,
+                            description: Some(e.to_string()),
+                        });
+                        self.debug_exception_park(ctx, debug);
+                    }
+                    return Err(e);
+                }
+            };
+            match step {
                 crate::debug::VmExecResult::Finished(v) => return Ok(v),
                 crate::debug::VmExecResult::Yielded => continue,
                 crate::debug::VmExecResult::AsyncYield(_) => {
@@ -504,11 +529,17 @@ impl VM {
                             Ok(crate::debug::DebugCommand::Pause) => {}
                             Ok(crate::debug::DebugCommand::SetBreakpoints {
                                 file,
-                                lines,
+                                breakpoints,
                                 reply,
                             }) => {
-                                let ids = debug.set_breakpoints(&file, &lines);
+                                let ids =
+                                    debug.set_breakpoints_with_conditions(&file, &breakpoints);
                                 let _ = reply.send(ids);
+                            }
+                            Ok(crate::debug::DebugCommand::SetExceptionBreakpoints {
+                                break_on_uncaught,
+                            }) => {
+                                debug.break_on_uncaught = break_on_uncaught;
                             }
                             Ok(crate::debug::DebugCommand::GetStackTrace { reply }) => {
                                 let _ = reply.send(self.debug_stack_trace());
@@ -577,6 +608,66 @@ impl VM {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Park after an uncaught exception, serving inspection requests until the
+    /// user resumes or disconnects (or the command channel closes). Unlike the
+    /// normal stop loop, the program cannot continue past an uncaught error, so
+    /// any resume command simply releases the park and the caller propagates the
+    /// error to terminate the session.
+    fn debug_exception_park(&mut self, ctx: &EvalContext, debug: &mut crate::debug::DebugState) {
+        loop {
+            match debug.command_rx.recv() {
+                Ok(crate::debug::DebugCommand::SetBreakpoints {
+                    file,
+                    breakpoints,
+                    reply,
+                }) => {
+                    let ids = debug.set_breakpoints_with_conditions(&file, &breakpoints);
+                    let _ = reply.send(ids);
+                }
+                Ok(crate::debug::DebugCommand::SetExceptionBreakpoints { break_on_uncaught }) => {
+                    debug.break_on_uncaught = break_on_uncaught;
+                }
+                Ok(crate::debug::DebugCommand::GetStackTrace { reply }) => {
+                    let _ = reply.send(self.debug_stack_trace());
+                }
+                Ok(crate::debug::DebugCommand::GetScopes { frame_id, reply }) => {
+                    let _ = reply.send(self.debug_scopes(frame_id));
+                }
+                Ok(crate::debug::DebugCommand::GetVariables { reference, reply }) => {
+                    let _ = reply.send(self.debug_variables(reference));
+                }
+                Ok(crate::debug::DebugCommand::Evaluate {
+                    frame_id,
+                    expression,
+                    reply,
+                }) => {
+                    let result = sema_reader::read(&expression)
+                        .map_err(|e| e.to_string())
+                        .and_then(|expr| {
+                            self.debug_evaluate_mut(frame_id, &expr, ctx, debug)
+                                .map(|value| self.debug_value_to_variable("result", value))
+                                .map_err(|e| e.to_string())
+                        });
+                    let _ = reply.send(result);
+                }
+                Ok(crate::debug::DebugCommand::SetVariable { reply, .. }) => {
+                    let _ = reply.send(Err(
+                        "setVariable is unavailable after an uncaught exception".to_string(),
+                    ));
+                }
+                // Any resume command, a disconnect, or a closed channel ends the
+                // park; the caller then propagates the uncaught error.
+                Ok(crate::debug::DebugCommand::Continue)
+                | Ok(crate::debug::DebugCommand::StepInto)
+                | Ok(crate::debug::DebugCommand::StepOver)
+                | Ok(crate::debug::DebugCommand::StepOut)
+                | Ok(crate::debug::DebugCommand::Pause)
+                | Ok(crate::debug::DebugCommand::Disconnect)
+                | Err(_) => break,
             }
         }
     }
@@ -974,11 +1065,17 @@ impl VM {
                                 }
                                 crate::debug::DebugCommand::SetBreakpoints {
                                     file,
-                                    lines,
+                                    breakpoints,
                                     reply,
                                 } => {
-                                    let ids = dbg.set_breakpoints(&file, &lines);
+                                    let ids =
+                                        dbg.set_breakpoints_with_conditions(&file, &breakpoints);
                                     let _ = reply.send(ids);
+                                }
+                                crate::debug::DebugCommand::SetExceptionBreakpoints {
+                                    break_on_uncaught,
+                                } => {
+                                    dbg.break_on_uncaught = break_on_uncaught;
                                 }
                                 // State queries are valid while the program is
                                 // running. Reply with the current state instead
@@ -1093,7 +1190,9 @@ impl VM {
                         }
                         if !dbg.resume_skip {
                             let frame_depth = self.frames.len();
-                            if dbg.should_stop(file.as_ref(), line, frame_depth) {
+                            if dbg.should_stop(file.as_ref(), line, frame_depth)
+                                && self.debug_condition_allows_stop(file.as_ref(), line, dbg, ctx)
+                            {
                                 self.frames[fi].pc = pc - 1;
                                 let reason = if dbg.pause_requested {
                                     crate::debug::StopReason::Pause
@@ -2917,6 +3016,42 @@ impl VM {
             self.debug_set_local_slot(frame_id, slot, name, value)
         } else {
             self.debug_set_upvalue(frame_id, name, value)
+        }
+    }
+
+    /// Decide whether a debug stop should actually fire, applying any
+    /// conditional-breakpoint expression. Returns `true` to stop.
+    ///
+    /// Only *pure* breakpoint stops (no pending pause, no step that would land
+    /// here on its own) are gated: a stop that is also a step/pause stop always
+    /// fires. The condition is evaluated against the topmost (innermost) frame.
+    /// If the condition fails to parse or evaluate we fail open and stop, so a
+    /// bad condition surfaces to the user rather than silently swallowing the
+    /// breakpoint.
+    fn debug_condition_allows_stop(
+        &self,
+        file: Option<&std::path::PathBuf>,
+        line: u32,
+        debug: &crate::debug::DebugState,
+        ctx: &EvalContext,
+    ) -> bool {
+        let frame_depth = self.frames.len();
+        if !debug.is_pure_breakpoint_stop(file, line, frame_depth) {
+            return true;
+        }
+        let Some(condition) = debug.condition_at(file, line) else {
+            return true;
+        };
+        if self.frames.is_empty() {
+            return true;
+        }
+        let frame_id = self.frames.len() - 1;
+        match sema_reader::read(condition) {
+            Ok(expr) => match self.debug_evaluate(frame_id, &expr, ctx, debug) {
+                Ok(value) => value.is_truthy(),
+                Err(_) => true,
+            },
+            Err(_) => true,
         }
     }
 

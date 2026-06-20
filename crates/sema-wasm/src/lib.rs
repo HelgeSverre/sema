@@ -2850,6 +2850,7 @@ impl WasmInterpreter {
             sema_vm::StopReason::Step => "step",
             sema_vm::StopReason::Pause => "pause",
             sema_vm::StopReason::Entry => "entry",
+            sema_vm::StopReason::Exception => "exception",
         };
         let json_str = format!(
             "{{\"status\":\"stopped\",\"line\":{},\"reason\":\"{}\",\"output\":[{}]}}",

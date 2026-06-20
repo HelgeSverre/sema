@@ -37,6 +37,14 @@ pub struct DapBreakpoint {
     pub message: Option<String>,
 }
 
+/// A source breakpoint as requested by the frontend: a line plus an optional
+/// condition expression that must evaluate truthy for the breakpoint to fire.
+#[derive(Debug, Clone)]
+pub struct SourceBreakpoint {
+    pub line: u32,
+    pub condition: Option<String>,
+}
+
 pub const DEBUG_VALUE_REF_BASE: u64 = 1_000_000;
 
 /// Current stepping mode for the debugger.
@@ -61,8 +69,12 @@ pub enum DebugCommand {
     Pause,
     SetBreakpoints {
         file: PathBuf,
-        lines: Vec<u32>,
+        breakpoints: Vec<SourceBreakpoint>,
         reply: mpsc::SyncSender<Vec<DapBreakpoint>>,
+    },
+    /// Toggle stopping on uncaught runtime errors.
+    SetExceptionBreakpoints {
+        break_on_uncaught: bool,
     },
     GetStackTrace {
         reply: mpsc::SyncSender<Vec<DapStackFrame>>,
@@ -137,12 +149,21 @@ pub enum StopReason {
     Step,
     Pause,
     Entry,
+    Exception,
 }
 
 /// Mutable debugger state carried alongside the VM.
 pub struct DebugState {
     /// Active breakpoints: (file_path, line) → breakpoint ID
     pub breakpoints: HashMap<(PathBuf, u32), u32>,
+    /// Conditional breakpoints: (file_path, line) → condition expression. A
+    /// breakpoint with a condition only fires when the expression evaluates
+    /// truthy in the stopped frame. Keys are a subset of `breakpoints`.
+    pub conditions: HashMap<(PathBuf, u32), String>,
+    /// Whether to stop on uncaught runtime errors (set via setExceptionBreakpoints).
+    pub break_on_uncaught: bool,
+    /// Message of the last uncaught error we stopped on, for the exceptionInfo request.
+    pub last_exception: Option<String>,
     /// Valid executable source lines for the currently debugged program, keyed by source file.
     pub valid_breakpoint_lines: BTreeMap<PathBuf, Vec<u32>>,
     /// Current step mode
@@ -174,6 +195,9 @@ impl DebugState {
     ) -> Self {
         DebugState {
             breakpoints: HashMap::new(),
+            conditions: HashMap::new(),
+            break_on_uncaught: false,
+            last_exception: None,
             valid_breakpoint_lines: BTreeMap::new(),
             step_mode: StepMode::Continue,
             step_frame_depth: 0,
@@ -195,6 +219,9 @@ impl DebugState {
         let (_, command_rx) = mpsc::channel();
         DebugState {
             breakpoints: HashMap::new(),
+            conditions: HashMap::new(),
+            break_on_uncaught: false,
+            last_exception: None,
             valid_breakpoint_lines: BTreeMap::new(),
             step_mode: StepMode::Continue,
             step_frame_depth: 0,
@@ -237,55 +264,114 @@ impl DebugState {
         }
     }
 
+    /// Whether a stop at `(file, line)` with the given frame depth is caused
+    /// *solely* by a breakpoint hit — i.e. there is no pending pause and the
+    /// step mode would not stop here on its own. Conditional breakpoints are
+    /// only gated by their condition in this case; a stop that would also be a
+    /// step/pause stop always fires regardless of any condition.
+    pub fn is_pure_breakpoint_stop(
+        &self,
+        file: Option<&PathBuf>,
+        line: u32,
+        frame_depth: usize,
+    ) -> bool {
+        if self.pause_requested {
+            return false;
+        }
+        let on_breakpoint = file.is_some_and(|f| self.breakpoints.contains_key(&(f.clone(), line)));
+        if !on_breakpoint {
+            return false;
+        }
+        let step_would_stop = match self.step_mode {
+            StepMode::Continue => false,
+            StepMode::StepInto => match &self.last_stop_line {
+                Some((_, last_line)) => line != *last_line,
+                None => true,
+            },
+            StepMode::StepOver => {
+                frame_depth <= self.step_frame_depth
+                    && match &self.last_stop_line {
+                        Some((_, last_line)) => line != *last_line,
+                        None => true,
+                    }
+            }
+            StepMode::StepOut => frame_depth < self.step_frame_depth,
+        };
+        !step_would_stop
+    }
+
+    /// The condition expression for the breakpoint at `(file, line)`, if any.
+    pub fn condition_at(&self, file: Option<&PathBuf>, line: u32) -> Option<&str> {
+        let f = file?;
+        self.conditions.get(&(f.clone(), line)).map(|s| s.as_str())
+    }
+
     /// Set breakpoints for a file, replacing any existing ones for that file.
+    ///
+    /// Convenience wrapper for unconditional breakpoints (used by the WASM
+    /// cooperative debugger). Conditional breakpoints go through
+    /// [`set_breakpoints_with_conditions`].
     pub fn set_breakpoints(&mut self, file: &PathBuf, lines: &[u32]) -> Vec<DapBreakpoint> {
+        let requested: Vec<SourceBreakpoint> = lines
+            .iter()
+            .map(|&line| SourceBreakpoint {
+                line,
+                condition: None,
+            })
+            .collect();
+        self.set_breakpoints_with_conditions(file, &requested)
+    }
+
+    /// Set breakpoints (optionally conditional) for a file, replacing any
+    /// existing ones for that file. A breakpoint whose `condition` is set only
+    /// fires when the expression evaluates truthy in the stopped frame; the
+    /// expression text is stored against the resolved (snapped) line.
+    pub fn set_breakpoints_with_conditions(
+        &mut self,
+        file: &PathBuf,
+        requested: &[SourceBreakpoint],
+    ) -> Vec<DapBreakpoint> {
         let file = std::fs::canonicalize(file).unwrap_or_else(|_| file.clone());
         self.breakpoints.retain(|(f, _), _| f != &file);
+        self.conditions.retain(|(f, _), _| f != &file);
 
         let valid_lines = self.valid_breakpoint_lines.get(&file);
-        let resolved: Vec<(u32, Option<u32>)> = lines
+        requested
             .iter()
-            .map(|&line| {
+            .map(|bp| {
+                let requested_line = bp.line;
                 let resolved = match valid_lines {
-                    Some(valid) => crate::vm::snap_breakpoint_line(line, valid),
-                    None => Some(line),
+                    Some(valid) => crate::vm::snap_breakpoint_line(requested_line, valid),
+                    None => Some(requested_line),
                 };
-                (line, resolved)
-            })
-            .collect();
-        let resolved_lines: Vec<u32> = resolved
-            .iter()
-            .filter_map(|(_, resolved_line)| *resolved_line)
-            .collect();
-        let ids: Vec<u32> = resolved_lines
-            .iter()
-            .map(|&line| {
-                let id = self.next_bp_id;
-                self.next_bp_id += 1;
-                self.breakpoints.insert((file.clone(), line), id);
-                id
-            })
-            .collect();
-        let mut ids = ids.into_iter();
-
-        resolved
-            .into_iter()
-            .map(|(requested_line, resolved_line)| match resolved_line {
-                Some(line) => DapBreakpoint {
-                    id: ids.next().unwrap_or(0),
-                    verified: true,
-                    requested_line,
-                    line,
-                    message: (line != requested_line)
-                        .then(|| format!("Breakpoint moved to nearest executable line {line}")),
-                },
-                None => DapBreakpoint {
-                    id: 0,
-                    verified: false,
-                    requested_line,
-                    line: requested_line,
-                    message: Some("No executable line exists in this source".to_string()),
-                },
+                match resolved {
+                    Some(line) => {
+                        let id = self.next_bp_id;
+                        self.next_bp_id += 1;
+                        self.breakpoints.insert((file.clone(), line), id);
+                        if let Some(cond) = &bp.condition {
+                            if !cond.trim().is_empty() {
+                                self.conditions.insert((file.clone(), line), cond.clone());
+                            }
+                        }
+                        DapBreakpoint {
+                            id,
+                            verified: true,
+                            requested_line,
+                            line,
+                            message: (line != requested_line).then(|| {
+                                format!("Breakpoint moved to nearest executable line {line}")
+                            }),
+                        }
+                    }
+                    None => DapBreakpoint {
+                        id: 0,
+                        verified: false,
+                        requested_line,
+                        line: requested_line,
+                        message: Some("No executable line exists in this source".to_string()),
+                    },
+                }
             })
             .collect()
     }
