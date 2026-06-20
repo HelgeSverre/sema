@@ -1,75 +1,35 @@
 use std::collections::HashMap;
 
-/// Parse a stdlib markdown doc file and extract function name → documentation.
-/// Format: ### `name` \n\n description paragraph \n\n ```sema ... ```
-fn parse_stdlib_md(md: &str, out: &mut HashMap<String, String>) {
-    let lines: Vec<&str> = md.lines().collect();
-    let mut i = 0;
-    while i < lines.len() {
-        // Look for ### `name`
-        if let Some(rest) = lines[i].strip_prefix("### `") {
-            if let Some(name) = rest.strip_suffix('`') {
-                let name = name.to_string();
-                i += 1;
-                // Skip blank lines
-                while i < lines.len() && lines[i].trim().is_empty() {
-                    i += 1;
-                }
-                // Collect description + example until next heading or end
-                let mut doc = String::new();
-                while i < lines.len() {
-                    if lines[i].starts_with("### ") || lines[i].starts_with("## ") {
-                        break;
-                    }
-                    doc.push_str(lines[i]);
-                    doc.push('\n');
-                    i += 1;
-                }
-                let doc = doc.trim_end().to_string();
-                if !doc.is_empty() {
-                    out.insert(name, doc);
-                }
-                continue;
-            }
-        }
-        i += 1;
-    }
-}
-
-/// Build the complete builtin documentation map from embedded stdlib docs.
+/// Build the builtin documentation map served by the `docs` MCP tool.
+///
+/// Stdlib docs come from the canonical `sema-docs` index — the same committed
+/// JSON source the LSP and REPL use (`sema_docs::builtin_index()`) — rather than
+/// re-parsing the website markdown via `include_str!`. That keeps this crate
+/// self-contained (publishable to crates.io; the old `../../../website/...`
+/// paths escaped the crate and broke `cargo publish`) and avoids drift between
+/// the MCP docs and the rest of the toolchain.
 pub fn build_builtin_docs() -> HashMap<String, String> {
     let mut docs = HashMap::new();
 
-    let sources: &[&str] = &[
-        include_str!("../../../website/docs/stdlib/math.md"),
-        include_str!("../../../website/docs/stdlib/strings.md"),
-        include_str!("../../../website/docs/stdlib/lists.md"),
-        include_str!("../../../website/docs/stdlib/maps.md"),
-        include_str!("../../../website/docs/stdlib/vectors.md"),
-        include_str!("../../../website/docs/stdlib/predicates.md"),
-        include_str!("../../../website/docs/stdlib/text-processing.md"),
-        include_str!("../../../website/docs/stdlib/file-io.md"),
-        include_str!("../../../website/docs/stdlib/system.md"),
-        include_str!("../../../website/docs/stdlib/datetime.md"),
-        include_str!("../../../website/docs/stdlib/http-json.md"),
-        include_str!("../../../website/docs/stdlib/regex.md"),
-        include_str!("../../../website/docs/stdlib/csv.md"),
-        include_str!("../../../website/docs/stdlib/toml.md"),
-        include_str!("../../../website/docs/stdlib/records.md"),
-        include_str!("../../../website/docs/stdlib/terminal.md"),
-        include_str!("../../../website/docs/stdlib/kv-store.md"),
-        include_str!("../../../website/docs/stdlib/bytevectors.md"),
-        include_str!("../../../website/docs/stdlib/pdf.md"),
-        include_str!("../../../website/docs/stdlib/web-server.md"),
-        include_str!("../../../website/docs/stdlib/context.md"),
-        include_str!("../../../website/docs/stdlib/playground.md"),
-    ];
-
-    for source in sources {
-        parse_stdlib_md(source, &mut docs);
+    // Stdlib + special-form entries from the canonical sema-docs index.
+    // Use the full markdown body (what LSP hover renders); fall back to summary.
+    for e in sema_docs::builtin_index().entries {
+        let text = if e.body.trim().is_empty() {
+            e.summary.clone()
+        } else {
+            e.body.clone()
+        };
+        if text.trim().is_empty() {
+            continue;
+        }
+        for key in std::iter::once(e.name.clone()).chain(e.aliases.iter().cloned()) {
+            docs.entry(key).or_insert_with(|| text.clone());
+        }
     }
 
-    // Special forms documentation (not in stdlib docs)
+    // Curated, example-first special-form blurbs. These intentionally override
+    // the index entries so the `docs` tool returns the concise form it has always
+    // returned for special forms.
     let special_forms: &[(&str, &str)] = &[
         ("define", "Define a variable or function.\n\n```sema\n(define x 42)\n(define (square x) (* x x))\n```"),
         ("defun", "Define a named function.\n\nSyntax: `(defun name (params...) body...)`\n\n```sema\n(defun greet (name) (string-append \"Hello, \" name))\n```"),
