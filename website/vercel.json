@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "npm --prefix ../ui ci && npm --prefix ../ui run build && npm run build",
   "outputDirectory": ".vitepress/dist",
   "installCommand": "npm install",
   "framework": null,
