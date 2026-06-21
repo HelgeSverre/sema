@@ -4158,14 +4158,20 @@ fn do_complete(request: ChatRequest) -> Result<ChatResponse, SemaError> {
     if let Some(cached) = load_cached(&cache_key) {
         if is_cache_valid(&cached) {
             CACHE_HITS.with(|c| c.set(c.get() + 1));
+            // A cache hit makes no provider call: no tokens are consumed and no
+            // money is spent. Report ZERO usage so the caller's `track_usage` does
+            // not re-charge session cost or burn the budget for a cached response
+            // (the provider never saw this request). The cached token counts live
+            // in the on-disk/in-memory entry if ever needed; the live accounting
+            // must reflect actual spend.
             return Ok(ChatResponse {
                 content: cached.content,
                 role: "assistant".to_string(),
                 model: cached.model,
                 tool_calls: vec![],
                 usage: Usage {
-                    prompt_tokens: cached.prompt_tokens,
-                    completion_tokens: cached.completion_tokens,
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
                     model: key_request.model.clone(),
                 },
                 stop_reason: Some("cache_hit".to_string()),

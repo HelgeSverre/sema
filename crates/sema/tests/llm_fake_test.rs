@@ -247,6 +247,37 @@ fn rate_limit_is_retried() {
     assert_eq!(recorder.call_count(), 2);
 }
 
+// ── Cache: a hit must not re-charge usage/cost or call the provider ─────────
+
+#[test]
+fn cache_hit_does_not_recharge_usage() {
+    // One scripted reply only: if the cache served the 2nd call from the provider
+    // it would error ("no scripted reply left"). The hit must serve from cache.
+    let fake = FakeProvider::builder("fake")
+        .reply_with_usage("cached!", 100, 50)
+        .build();
+    let recorder = fake.recorder();
+    let interp = Interpreter::new();
+    reset_runtime_state();
+    register_test_provider(Box::new(fake));
+    let src = r#"
+        (llm/cache-clear)
+        (llm/with-cache {:ttl 3600}
+          (fn () (llm/complete "q") (llm/complete "q")))
+        (:total-tokens (llm/session-usage))
+    "#;
+    let val = interp
+        .eval_str_compiled(src)
+        .expect("cached run should succeed");
+    // One real call = 150 tokens; the cache hit must add 0 (not double to 300).
+    assert_eq!(val.as_int(), Some(150), "cache hit must not re-count usage");
+    assert_eq!(
+        recorder.call_count(),
+        1,
+        "cache hit must be served without calling the provider"
+    );
+}
+
 /// A non-retryable 4xx (e.g. 400) is NOT retried — it fails immediately.
 #[test]
 fn client_4xx_is_not_retried() {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.21.1
+
+Bugfix. Found by a live stress test of the resilience features (Ollama-down →
+Mistral fallback, caching, and budgets).
+
+### Fixed
+
+- **Cache hits double-charged cost and burned budget.** A cached response (`llm/with-cache`) makes no provider call — no tokens are consumed and no money is spent — but its stored token usage was still run through `track_usage`, so `llm/session-usage` cost and `llm/with-budget` spend incremented on every cache hit (e.g. a repeated call reported 2× the cost, and cache hits could trip a budget). Cache hits now report zero usage, so cost/budget reflect actual spend. Verified live (cost unchanged across identical calls; a budget that allows one real call is not tripped by subsequent cache hits) and with a deterministic regression test. Provider fallback and budget enforcement were verified correct and unchanged.
+
 ## 1.21.0
 
 LLM/agentic bulletproofing. A multi-agent audit (see `docs/llm-agentic-audit.md`)
