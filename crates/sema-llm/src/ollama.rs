@@ -212,6 +212,7 @@ impl OllamaProvider {
                 prompt_tokens,
                 completion_tokens,
                 model,
+                ..Default::default()
             },
             stop_reason: Some(stop_reason.to_string()),
         })
@@ -314,6 +315,7 @@ impl OllamaProvider {
                 prompt_tokens,
                 completion_tokens,
                 model,
+                ..Default::default()
             },
             stop_reason: Some(stop_reason.to_string()),
         })

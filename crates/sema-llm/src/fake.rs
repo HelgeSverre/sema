@@ -121,6 +121,23 @@ impl FakeProviderBuilder {
         self
     }
 
+    /// Script a text reply that also reports prompt-cache token counts — mirrors
+    /// providers that surface `cache_read_input_tokens` / `cache_creation_input_tokens`.
+    pub fn reply_with_cache_usage(
+        mut self,
+        text: &str,
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        cache_read_input_tokens: u32,
+        cache_creation_input_tokens: u32,
+    ) -> Self {
+        let mut resp = self.chat_text(text, Some((prompt_tokens, completion_tokens)));
+        resp.usage.cache_read_input_tokens = cache_read_input_tokens;
+        resp.usage.cache_creation_input_tokens = cache_creation_input_tokens;
+        self.script.push_back(FakeReply::Chat(resp));
+        self
+    }
+
     /// Script an assistant turn that emits a single tool call (empty text content,
     /// `tool_use` stop reason) — mirrors how OpenAI/Anthropic return tool calls.
     pub fn tool_call(mut self, id: &str, name: &str, arguments: serde_json::Value) -> Self {
@@ -137,6 +154,7 @@ impl FakeProviderBuilder {
                 prompt_tokens: 10,
                 completion_tokens: 5,
                 model: self.default_model.clone(),
+                ..Default::default()
             },
             stop_reason: Some("tool_use".to_string()),
         };
@@ -166,6 +184,7 @@ impl FakeProviderBuilder {
                 prompt_tokens: 1,
                 completion_tokens: 0,
                 model,
+                ..Default::default()
             },
         }));
         self
@@ -198,6 +217,7 @@ impl FakeProviderBuilder {
                 prompt_tokens: p,
                 completion_tokens: c,
                 model: self.default_model.clone(),
+                ..Default::default()
             },
             stop_reason: Some("end_turn".to_string()),
         }

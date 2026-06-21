@@ -229,6 +229,8 @@ fn track_usage(usage: &Usage) -> Result<(), SemaError> {
         let mut session = u.borrow_mut();
         session.prompt_tokens += usage.prompt_tokens;
         session.completion_tokens += usage.completion_tokens;
+        session.cache_read_input_tokens += usage.cache_read_input_tokens;
+        session.cache_creation_input_tokens += usage.cache_creation_input_tokens;
     });
 
     // Check token budget
@@ -612,10 +614,20 @@ fn parse_lisp_provider_response(val: &Value, model: &str) -> Result<ChatResponse
                         .get(&Value::keyword("completion-tokens"))
                         .and_then(|v| v.as_int())
                         .unwrap_or(0) as u32;
+                    let cache_read_input_tokens = usage_map
+                        .get(&Value::keyword("cache-read-tokens"))
+                        .and_then(|v| v.as_int())
+                        .unwrap_or(0) as u32;
+                    let cache_creation_input_tokens = usage_map
+                        .get(&Value::keyword("cache-creation-tokens"))
+                        .and_then(|v| v.as_int())
+                        .unwrap_or(0) as u32;
                     Usage {
                         prompt_tokens,
                         completion_tokens,
                         model: resp_model.clone(),
+                        cache_read_input_tokens,
+                        cache_creation_input_tokens,
                     }
                 } else {
                     Usage {
@@ -2086,6 +2098,14 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
                         Value::keyword("total-tokens"),
                         Value::int(usage.total_tokens() as i64),
                     );
+                    map.insert(
+                        Value::keyword("cache-read-tokens"),
+                        Value::int(usage.cache_read_input_tokens as i64),
+                    );
+                    map.insert(
+                        Value::keyword("cache-creation-tokens"),
+                        Value::int(usage.cache_creation_input_tokens as i64),
+                    );
                     map.insert(Value::keyword("model"), Value::string(&usage.model));
                     if let Some(cost) = pricing::calculate_cost(usage) {
                         map.insert(Value::keyword("cost-usd"), Value::float(cost));
@@ -2113,6 +2133,14 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             map.insert(
                 Value::keyword("total-tokens"),
                 Value::int(usage.total_tokens() as i64),
+            );
+            map.insert(
+                Value::keyword("cache-read-tokens"),
+                Value::int(usage.cache_read_input_tokens as i64),
+            );
+            map.insert(
+                Value::keyword("cache-creation-tokens"),
+                Value::int(usage.cache_creation_input_tokens as i64),
             );
             let session_cost = SESSION_COST.with(|sc| *sc.borrow());
             map.insert(Value::keyword("cost-usd"), Value::float(session_cost));
@@ -2666,11 +2694,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
     });
 
     register_fn(env, "llm/reset-usage", |_args| {
-        SESSION_USAGE.with(|u| {
-            let mut usage = u.borrow_mut();
-            usage.prompt_tokens = 0;
-            usage.completion_tokens = 0;
-        });
+        SESSION_USAGE.with(|u| *u.borrow_mut() = Usage::default());
         LAST_USAGE.with(|u| *u.borrow_mut() = None);
         SESSION_COST.with(|sc| *sc.borrow_mut() = 0.0);
         Ok(Value::nil())
@@ -3098,6 +3122,7 @@ pub fn register_llm_builtins(env: &Env, sandbox: &sema_core::Sandbox) {
             prompt_tokens: estimated_tokens,
             completion_tokens: 0,
             model: conv.model.clone(),
+            ..Default::default()
         };
         match pricing::calculate_cost(&usage) {
             Some(cost) => Ok(Value::float(cost)),
@@ -4173,6 +4198,7 @@ fn do_complete(request: ChatRequest) -> Result<ChatResponse, SemaError> {
                     prompt_tokens: 0,
                     completion_tokens: 0,
                     model: key_request.model.clone(),
+                    ..Default::default()
                 },
                 stop_reason: Some("cache_hit".to_string()),
             });

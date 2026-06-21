@@ -261,10 +261,16 @@ impl OpenAiProvider {
 
         let usage = api_resp
             .usage
-            .map(|u| Usage {
-                prompt_tokens: u.prompt_tokens,
-                completion_tokens: u.completion_tokens,
-                model: api_resp.model.clone(),
+            .map(|u| {
+                let cached = u.prompt_tokens_details.as_ref();
+                Usage {
+                    prompt_tokens: u.prompt_tokens,
+                    completion_tokens: u.completion_tokens,
+                    model: api_resp.model.clone(),
+                    // cached_tokens is a SUBSET of prompt_tokens (read hits).
+                    cache_read_input_tokens: cached.map(|d| d.cached_tokens).unwrap_or(0),
+                    cache_creation_input_tokens: cached.map(|d| d.cache_write_tokens).unwrap_or(0),
+                }
             })
             .unwrap_or_default();
 
@@ -319,6 +325,8 @@ impl OpenAiProvider {
         let mut full_content = String::new();
         let mut prompt_tokens = 0u32;
         let mut completion_tokens = 0u32;
+        let mut cache_read_input_tokens = 0u32;
+        let mut cache_creation_input_tokens = 0u32;
         let mut finish_reason = None;
 
         crate::sse::parse_sse_stream(resp, |data| {
@@ -334,6 +342,19 @@ impl OpenAiProvider {
                             .get("completion_tokens")
                             .and_then(|v| v.as_u64())
                             .unwrap_or(0) as u32;
+                        // cached_tokens is a SUBSET of prompt_tokens (read hits).
+                        if let Some(details) = usage.get("prompt_tokens_details") {
+                            cache_read_input_tokens = details
+                                .get("cached_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0)
+                                as u32;
+                            cache_creation_input_tokens = details
+                                .get("cache_write_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0)
+                                as u32;
+                        }
                     }
                 }
                 // Extract content delta
@@ -366,6 +387,8 @@ impl OpenAiProvider {
                 prompt_tokens,
                 completion_tokens,
                 model: model_name,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
             },
             stop_reason: finish_reason,
         })
@@ -429,6 +452,7 @@ impl OpenAiProvider {
                 prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
                 completion_tokens: 0,
                 model: resp_model.clone(),
+                ..Default::default()
             })
             .unwrap_or_default();
 
@@ -536,6 +560,20 @@ struct OpenAiChoice {
 struct OpenAiUsage {
     prompt_tokens: u32,
     completion_tokens: u32,
+    /// Cached prompt tokens (a SUBSET of prompt_tokens). Present on OpenAI and most
+    /// OpenAI-compatible providers (Groq/Together/Fireworks/vLLM/OpenRouter).
+    #[serde(default)]
+    prompt_tokens_details: Option<OpenAiPromptTokensDetails>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiPromptTokensDetails {
+    #[serde(default)]
+    cached_tokens: u32,
+    /// OpenRouter surfaces cache-write tokens for models that price them (e.g.
+    /// Anthropic via OpenRouter). Absent on native OpenAI.
+    #[serde(default)]
+    cache_write_tokens: u32,
 }
 
 impl LlmProvider for OpenAiProvider {

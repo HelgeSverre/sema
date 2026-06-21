@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Prompt-cache token reporting across providers.** `llm/last-usage` and `llm/session-usage` now expose `:cache-read-tokens` and `:cache-creation-tokens`, surfacing how many input tokens were served from (or written to) the provider's prompt cache. Wired through every first-party provider for both non-streaming and streaming responses: OpenAI/OpenAI-compatible (`prompt_tokens_details.cached_tokens` — implicit cache), Gemini (`cachedContentTokenCount` — implicit cache on 2.5+), and Anthropic (`cache_read_input_tokens` / `cache_creation_input_tokens`, reported separately from input tokens). Session counters accumulate cache tokens; custom Sema-defined providers can report them via `:cache-read-tokens` / `:cache-creation-tokens` in their usage map. Verified live (OpenAI and Gemini implicit cache reads observed on repeated long prefixes) and with a deterministic FakeProvider regression test. Cached reads are reported for visibility but not yet discounted in `:cost-usd`.
+
 ## 1.21.2
 
 Bugfix + release-process hardening.

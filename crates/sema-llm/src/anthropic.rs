@@ -196,6 +196,8 @@ impl AnthropicProvider {
                 prompt_tokens: api_resp.usage.input_tokens,
                 completion_tokens: api_resp.usage.output_tokens,
                 model: api_resp.model,
+                cache_read_input_tokens: api_resp.usage.cache_read_input_tokens,
+                cache_creation_input_tokens: api_resp.usage.cache_creation_input_tokens,
             },
             stop_reason: api_resp.stop_reason,
         })
@@ -244,6 +246,8 @@ impl AnthropicProvider {
         let mut full_content = String::new();
         let mut input_tokens = 0u32;
         let mut output_tokens = 0u32;
+        let mut cache_read_input_tokens = 0u32;
+        let mut cache_creation_input_tokens = 0u32;
         let mut stop_reason = None;
 
         crate::sse::parse_sse_stream(resp, |data| {
@@ -255,6 +259,17 @@ impl AnthropicProvider {
                                 .get("input_tokens")
                                 .and_then(|v| v.as_u64())
                                 .unwrap_or(0) as u32;
+                            // Anthropic reports cache tokens SEPARATELY from input_tokens.
+                            cache_read_input_tokens = usage
+                                .get("cache_read_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0)
+                                as u32;
+                            cache_creation_input_tokens = usage
+                                .get("cache_creation_input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .unwrap_or(0)
+                                as u32;
                         }
                     }
                     Some("content_block_delta") => {
@@ -292,6 +307,8 @@ impl AnthropicProvider {
                 prompt_tokens: input_tokens,
                 completion_tokens: output_tokens,
                 model: model_name,
+                cache_read_input_tokens,
+                cache_creation_input_tokens,
             },
             stop_reason,
         })
@@ -379,6 +396,11 @@ enum ContentBlock {
 struct AnthropicUsage {
     input_tokens: u32,
     output_tokens: u32,
+    // Prompt-cache accounting (Anthropic reports these SEPARATELY from input_tokens).
+    #[serde(default)]
+    cache_creation_input_tokens: u32,
+    #[serde(default)]
+    cache_read_input_tokens: u32,
 }
 
 #[derive(Deserialize)]

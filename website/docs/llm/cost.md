@@ -11,7 +11,10 @@ outline: [2, 3]
 Get token usage from the most recent LLM call.
 
 ```sema
-(llm/last-usage)   ; => {:prompt-tokens 42 :completion-tokens 15 ...}
+(llm/last-usage)
+; => {:prompt-tokens 42 :completion-tokens 15 :total-tokens 57
+;     :cache-read-tokens 0 :cache-creation-tokens 0
+;     :model "..." :cost-usd 0.0003}
 ```
 
 ### `llm/session-usage`
@@ -20,7 +23,25 @@ Get cumulative usage across all LLM calls in the current session.
 
 ```sema
 (llm/session-usage)
+; => {:prompt-tokens 1280 :completion-tokens 410 :total-tokens 1690
+;     :cache-read-tokens 1024 :cache-creation-tokens 0 :cost-usd 0.012}
 ```
+
+#### Prompt-cache tokens
+
+`:cache-read-tokens` and `:cache-creation-tokens` report how many input tokens
+were served from (or written to) the provider's **prompt cache** — large savings
+when you repeat a stable prefix across calls.
+
+- **OpenAI** and **Gemini** (2.5+) cache *implicitly*: send the same long prefix
+  twice and the second call reports `:cache-read-tokens` automatically. Reads are
+  a subset of `:prompt-tokens`.
+- **Anthropic** reports `:cache-read-tokens` and `:cache-creation-tokens`
+  *separately* from `:prompt-tokens` (caching there is opt-in via `cache_control`).
+- Providers that don't report cache counts leave these at `0`.
+
+> Cost is currently priced at the standard input rate; cached reads are reported
+> for visibility but not yet discounted in `:cost-usd`.
 
 ### `llm/reset-usage`
 

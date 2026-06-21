@@ -192,6 +192,14 @@ pub struct Usage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub model: String,
+    /// Prompt tokens served from the provider's prompt cache (read hits).
+    /// Double-counting note: for OpenAI/Gemini/most OpenAI-compatible providers this
+    /// is a SUBSET of `prompt_tokens`; for Anthropic it is SEPARATE from
+    /// `input_tokens` (which already excludes cached). 0 when unsupported/absent.
+    pub cache_read_input_tokens: u32,
+    /// Tokens written to the prompt cache this request. Only Anthropic reports a
+    /// distinct creation counter; 0 for everyone else.
+    pub cache_creation_input_tokens: u32,
 }
 
 impl Usage {
@@ -359,6 +367,7 @@ mod tests {
             prompt_tokens: 100,
             completion_tokens: 50,
             model: "m".into(),
+            ..Default::default()
         };
         assert_eq!(usage.total_tokens(), 150);
     }

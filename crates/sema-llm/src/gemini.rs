@@ -135,6 +135,7 @@ impl GeminiProvider {
         let mut full_content = String::new();
         let mut prompt_tokens = 0u32;
         let mut completion_tokens = 0u32;
+        let mut cached_tokens = 0u32;
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let mut tool_call_idx = 0usize;
 
@@ -180,6 +181,13 @@ impl GeminiProvider {
                     if let Some(ct) = usage.get("candidatesTokenCount").and_then(|v| v.as_u64()) {
                         completion_tokens = ct as u32;
                     }
+                    // cachedContentTokenCount is a SUBSET of promptTokenCount (read hits).
+                    if let Some(cc) = usage
+                        .get("cachedContentTokenCount")
+                        .and_then(|v| v.as_u64())
+                    {
+                        cached_tokens = cc as u32;
+                    }
                 }
             }
             Ok(())
@@ -201,6 +209,8 @@ impl GeminiProvider {
                 prompt_tokens,
                 completion_tokens,
                 model,
+                cache_read_input_tokens: cached_tokens,
+                cache_creation_input_tokens: 0,
             },
             stop_reason,
         })
@@ -366,6 +376,7 @@ impl GeminiProvider {
 
         let mut prompt_tokens = 0u32;
         let mut completion_tokens = 0u32;
+        let mut cached_tokens = 0u32;
         if let Some(usage) = resp.get("usageMetadata") {
             prompt_tokens = usage
                 .get("promptTokenCount")
@@ -373,6 +384,11 @@ impl GeminiProvider {
                 .unwrap_or(0) as u32;
             completion_tokens = usage
                 .get("candidatesTokenCount")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as u32;
+            // cachedContentTokenCount is a SUBSET of promptTokenCount (read hits).
+            cached_tokens = usage
+                .get("cachedContentTokenCount")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(0) as u32;
         }
@@ -392,6 +408,8 @@ impl GeminiProvider {
                 prompt_tokens,
                 completion_tokens,
                 model: model.to_string(),
+                cache_read_input_tokens: cached_tokens,
+                cache_creation_input_tokens: 0,
             },
             stop_reason,
         })

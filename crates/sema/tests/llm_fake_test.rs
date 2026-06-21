@@ -278,6 +278,37 @@ fn cache_hit_does_not_recharge_usage() {
     );
 }
 
+/// Prompt-cache token counts flow through to session/last usage. Providers that
+/// surface `cache_read_input_tokens` / `cache_creation_input_tokens` (Anthropic
+/// distinctly, OpenAI/Gemini as a subset of prompt tokens) must be visible to
+/// Sema code via `:cache-read-tokens` / `:cache-creation-tokens`.
+#[test]
+fn cache_tokens_flow_to_usage() {
+    let fake = FakeProvider::builder("fake")
+        .reply_with_cache_usage("first", 100, 20, 0, 80)
+        .reply_with_cache_usage("second", 100, 20, 80, 0)
+        .build();
+    let interp = Interpreter::new();
+    reset_runtime_state();
+    register_test_provider(Box::new(fake));
+    let src = r#"
+        (llm/complete "q1")
+        (llm/complete "q2")
+        [(:cache-read-tokens (llm/session-usage))
+         (:cache-creation-tokens (llm/session-usage))
+         (:cache-read-tokens (llm/last-usage))
+         (:cache-creation-tokens (llm/last-usage))]
+    "#;
+    let val = interp.eval_str_compiled(src).expect("run should succeed");
+    let items = val.as_seq().expect("vector result");
+    // Session totals accumulate both calls: read = 0+80, creation = 80+0.
+    assert_eq!(items[0].as_int(), Some(80), "session cache-read-tokens");
+    assert_eq!(items[1].as_int(), Some(80), "session cache-creation-tokens");
+    // Last-usage reflects only the 2nd call (80 read, 0 creation).
+    assert_eq!(items[2].as_int(), Some(80), "last cache-read-tokens");
+    assert_eq!(items[3].as_int(), Some(0), "last cache-creation-tokens");
+}
+
 /// A non-retryable 4xx (e.g. 400) is NOT retried — it fails immediately.
 #[test]
 fn client_4xx_is_not_retried() {

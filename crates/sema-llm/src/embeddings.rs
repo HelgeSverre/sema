@@ -89,6 +89,7 @@ impl OpenAiCompatEmbeddingProvider {
                     .unwrap_or(0) as u32,
                 completion_tokens: 0,
                 model: resp_model.clone(),
+                ..Default::default()
             })
             .unwrap_or_default();
 
@@ -194,6 +195,7 @@ impl CohereEmbeddingProvider {
                 prompt_tokens: 0,
                 completion_tokens: 0,
                 model,
+                ..Default::default()
             },
         })
     }

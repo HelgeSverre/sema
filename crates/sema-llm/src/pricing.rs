@@ -278,6 +278,7 @@ mod tests {
             prompt_tokens: 1_000_000,
             completion_tokens: 0,
             model: "gpt-5.5".to_string(),
+            ..Default::default()
         };
         assert_eq!(calculate_cost_for("openai", &usage), Some(5.0));
     }
@@ -310,6 +311,7 @@ mod tests {
             prompt_tokens: 1_000_000,
             completion_tokens: 1_000_000,
             model: "gpt-5.5".to_string(),
+            ..Default::default()
         };
         // 1M input @ $5 + 1M output @ $30 = $35.
         let cost = calculate_cost(&usage).unwrap();
