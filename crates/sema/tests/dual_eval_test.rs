@@ -8,6 +8,16 @@ use sema_core::Value;
 // ============================================================
 
 dual_eval_tests! {
+    // Regression: the inline ADD_INT/SUB_INT opcodes masked the result to the
+    // 45-bit small-int payload with no overflow check, so a runtime add/sub whose
+    // result crossed ±2^44 (~17.5 trillion) was silently truncated. Variables
+    // (not literals) are required — literal operands are constant-folded and never
+    // hit the runtime opcode. Found by the grammar fuzzer's distributivity law.
+    big_int_add_overflows_small: "(let ((a 9000000000000)) (+ a a))" => Value::int(18000000000000),
+    big_int_add_two_products: "(let ((x 10500918018048) (y 11566093991936)) (+ x y))" => Value::int(22067012009984),
+    big_int_sub_overflows_small: "(let ((x 9000000000000) (y -9000000000000)) (- x y))" => Value::int(18000000000000),
+    big_int_distributivity: "(let ((a 32768) (b 320462586) (c 352969177)) (- (* a (+ b c)) (+ (* a b) (* a c))))" => Value::int(0),
+
     destructure_let_vector: "(let (([a b] '(1 2))) (+ a b))" => Value::int(3),
     destructure_let_vector_from_vec: "(let (([a b] [10 20])) (+ a b))" => Value::int(30),
     // Hand-constructed Value to avoid eval_tw oracle circularity (see docs/bugs/eval-tw-oracle-circularity.md)

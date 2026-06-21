@@ -1651,12 +1651,19 @@ impl VM {
                         if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                             && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                         {
-                            let sum = (a_bits.wrapping_add(b_bits)) & NAN_PAYLOAD_MASK;
-                            let result = NAN_INT_SMALL_PATTERN | sum;
+                            // Sign-extend to i64 and add through Value::int, which boxes
+                            // the result when it overflows the 45-bit small-int range.
+                            // (The old raw-bit `& NAN_PAYLOAD_MASK` trick silently
+                            // truncated sums past ±2^44 — see the dual-eval
+                            // big_int_add_* regression tests.)
+                            let ax =
+                                (((a_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
+                            let bx =
+                                (((b_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
                             unsafe {
                                 std::ptr::write(
                                     self.stack.as_mut_ptr().add(len - 2),
-                                    Value::from_raw_bits(result),
+                                    Value::int(ax.wrapping_add(bx)),
                                 );
                                 self.stack.set_len(len - 1);
                             }
@@ -1678,12 +1685,17 @@ impl VM {
                         if (a_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                             && (b_bits & NAN_TAG_MASK) == NAN_INT_SMALL_PATTERN
                         {
-                            let diff = (a_bits.wrapping_sub(b_bits)) & NAN_PAYLOAD_MASK;
-                            let result = NAN_INT_SMALL_PATTERN | diff;
+                            // Sign-extend to i64 and subtract through Value::int, which
+                            // boxes the result when it overflows the 45-bit small-int
+                            // range (the old raw-bit trick truncated past ±2^44).
+                            let ax =
+                                (((a_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
+                            let bx =
+                                (((b_bits & NAN_PAYLOAD_MASK) << SIGN_SHIFT) as i64) >> SIGN_SHIFT;
                             unsafe {
                                 std::ptr::write(
                                     self.stack.as_mut_ptr().add(len - 2),
-                                    Value::from_raw_bits(result),
+                                    Value::int(ax.wrapping_sub(bx)),
                                 );
                                 self.stack.set_len(len - 1);
                             }
