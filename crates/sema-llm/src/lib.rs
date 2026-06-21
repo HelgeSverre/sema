@@ -2,6 +2,7 @@
 pub mod anthropic;
 pub mod builtins;
 pub mod embeddings;
+pub mod fake;
 pub mod gemini;
 pub mod http;
 pub mod ndjson;

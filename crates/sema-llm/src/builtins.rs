@@ -138,6 +138,19 @@ pub fn reset_runtime_state() {
     pricing::clear_custom_pricing();
 }
 
+/// Test-only: register `provider` as the default LLM provider, bypassing
+/// `llm/configure`. Lets integration tests drive the completion/agent paths with
+/// a scripted [`crate::fake::FakeProvider`] — no API keys, fully deterministic.
+/// Call [`reset_runtime_state`] first to clear any prior provider.
+pub fn register_test_provider(provider: Box<dyn LlmProvider>) {
+    let name = provider.name().to_string();
+    PROVIDER_REGISTRY.with(|reg| {
+        let mut reg = reg.borrow_mut();
+        reg.register(provider);
+        reg.set_default(&name);
+    });
+}
+
 /// Evaluate an expression using the registered full evaluator.
 fn full_eval(ctx: &EvalContext, expr: &Value, env: &Env) -> Result<Value, SemaError> {
     EVAL_FN.with(|eval_fn| {
