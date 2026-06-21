@@ -230,3 +230,47 @@ export async function highlightToHtml(code: string, lang: string): Promise<strin
     )
     .join('\n');
 }
+
+/** A highlighted segment: raw text + its `tok-*` class (empty for unscoped text). */
+export interface CodeToken {
+  text: string;
+  cls: string;
+}
+
+/**
+ * Tokenize `code` into a flat list of `{ text, cls }` segments (newlines preserved as
+ * their own `{ text: "\n", cls: "" }` tokens). Same scope→class mapping as
+ * `highlightToHtml`, but returns data instead of HTML — for consumers that reveal code
+ * progressively (e.g. `<sema-code-typer>`). Falls back to a single unscoped token on an
+ * unsupported lang or tokenize failure. The concatenated `text` equals `code` exactly.
+ */
+export async function tokenize(code: string, lang: string): Promise<CodeToken[]> {
+  const fallback = (): CodeToken[] => (code ? [{ text: code, cls: '' }] : []);
+  const id = resolveLang(lang);
+  if (!canHighlight(id)) return fallback();
+
+  await ensureLanguage(id);
+  if (!loaded.has(id)) return fallback();
+
+  const hl = await getHighlighter();
+  let lines;
+  try {
+    lines = hl.codeToTokensBase(code, { lang: id, theme: 'sema-noop', includeExplanation: true });
+  } catch {
+    return fallback();
+  }
+
+  const out: CodeToken[] = [];
+  lines.forEach((line, i) => {
+    if (i > 0) out.push({ text: '\n', cls: '' });
+    for (const token of line) {
+      const parts = token.explanation ?? [{ content: token.content, scopes: [] }];
+      for (const part of parts) {
+        if (!part.content) continue;
+        const scope = part.scopes[part.scopes.length - 1]?.scopeName ?? '';
+        out.push({ text: part.content, cls: classForScope(scope) ?? '' });
+      }
+    }
+  });
+  return out;
+}

@@ -26,6 +26,8 @@ export { SemaElement } from '../internal/sema-element.js';
 export { SemaCode } from './sema-code.js';
 export type { CodeFormatter } from './sema-code.js';
 
+export { SemaCodeTyper } from './sema-code-typer.js';
+
 export { SemaTerminal } from './sema-terminal.js';
 
 export { registerLanguage } from '../internal/syntax-highlight.js';

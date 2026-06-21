@@ -58,9 +58,12 @@ Attributes / properties:
 - timing: `cps` (default ~45), `start-delay` (ms), `loop` (bool), `loop-delay` (ms),
   `autoplay` (default true), `cycle-delay` (ms, between snippets).
 - chrome (all optional): `frame` (bool), `line-numbers` (bool), `status` (bool),
-  `filename` (string); a `legend` slot for the frame title (brand page passes `( sema )`).
-- imperative methods: `play()`, `pause()`, `restart()`, `seek(charIndex)`.
+  `filename` (string); `logo` (bool) renders the Sema wordmark SVG as the legend; a
+  `legend` slot overrides the legend and a `status` slot overrides the status content.
+- imperative methods: `play()`, `pause()`, `restart()`, `seek(charIndex)`; `total` getter.
 - events: `sema-typer-done` (fires when a snippet finishes; on loop, each cycle).
+- When framed, the host reserves top padding so the border-straddling legend is never
+  clipped (incl. in element screenshots / GIF export).
 
 Internals are split for clarity:
 - a typing controller (Lit `ReactiveController`) owns the rAF loop + reveal state;
@@ -72,6 +75,15 @@ an optional `status` line (`EDIT`-style mode + `filename` + `Ln:Col` derived fro
 caret) and an optional `line-numbers` gutter. With all chrome off, it's a bare inline
 typer. The fedit "look" is achieved purely via tokens/CSS variables; the component itself
 is generic.
+
+### Export tool (GIF / WebP)
+`ui/scripts/export-typer.mjs` (npm `export:typer`) drives the *real* component headlessly
+via Playwright + its `seek()`/`total` API — pixel-identical to the browser. It steps a
+fixed number of frames (`--frames`, decoupled from playback `--fps` so output size stays
+bounded regardless of file length), screenshots the element each step, and encodes a GIF
+(`gifenc`) or animated WebP (GIF buffer → `sharp`). Flags mirror the component
+(`--frame --status --line-numbers --logo --rows --filename --width`). Same component =
+one look across live UI, brand page, and exported marketing assets.
 
 ### Brand page integration
 Add a "Code Typer" entry to `BrandGuide.vue` as a toolkit asset:
@@ -102,6 +114,6 @@ Vitest + Playwright browser mode (existing harness):
 
 ## Out of scope
 - Procedural/endless code generator.
-- Rewiring the GitHub-profile README GIF onto this component (the `seek()` API leaves it
-  trivial to do later).
+- Rewiring the GitHub-profile README GIF onto this component (the export tool + `seek()`
+  make it straightforward later).
 - DRY-ing the palette duplicated between `tokens.css` and `BrandGuide.vue`.
