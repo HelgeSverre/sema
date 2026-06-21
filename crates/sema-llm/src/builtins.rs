@@ -4469,10 +4469,14 @@ fn run_tool_loop(
             return Ok((last_content, messages));
         }
 
-        // Add assistant message (with content if any)
-        if !response.content.is_empty() {
-            messages.push(ChatMessage::new("assistant", response.content.clone()));
-        }
+        // Echo the assistant turn that invoked the tools, carrying the tool_calls
+        // so the provider can correlate the tool results that follow. This MUST be
+        // present (even with empty content) — OpenAI-family providers reject a
+        // tool result that isn't preceded by the assistant tool_calls it answers.
+        messages.push(ChatMessage::assistant_with_tool_calls(
+            response.content.clone(),
+            response.tool_calls.clone(),
+        ));
 
         // Execute each tool call and add results
         for tc in &response.tool_calls {
@@ -4511,9 +4515,12 @@ fn run_tool_loop(
                 let _ = call_value_fn(ctx, callback, &[Value::map(event_map)]);
             }
 
-            messages.push(ChatMessage::new(
-                "user",
-                format!("[Tool result for {}]: {}", tc.name, result),
+            // Correlated tool result — keyed by the call id and tool name — rather
+            // than free-form user text, so every provider can match it to the call.
+            messages.push(ChatMessage::tool_result(
+                tc.id.clone(),
+                tc.name.clone(),
+                result,
             ));
         }
     }

@@ -35,9 +35,43 @@ impl AnthropicProvider {
             .messages
             .iter()
             .filter(|m| m.role != "system")
-            .map(|m| AnthropicMessage {
-                role: m.role.clone(),
-                content: serialize_anthropic_content(&m.content),
+            .map(|m| {
+                if !m.tool_calls.is_empty() {
+                    // Assistant turn → tool_use content blocks (with optional leading text).
+                    let mut blocks: Vec<serde_json::Value> = Vec::new();
+                    let text = m.content.to_text();
+                    if !text.is_empty() {
+                        blocks.push(serde_json::json!({ "type": "text", "text": text }));
+                    }
+                    for tc in &m.tool_calls {
+                        blocks.push(serde_json::json!({
+                            "type": "tool_use",
+                            "id": tc.id,
+                            "name": tc.name,
+                            "input": tc.arguments,
+                        }));
+                    }
+                    AnthropicMessage {
+                        role: "assistant".to_string(),
+                        content: serde_json::Value::Array(blocks),
+                    }
+                } else if m.role == "tool" {
+                    // Tool result → a USER message carrying a tool_result block keyed
+                    // by tool_use_id (Anthropic's correlation mechanism).
+                    AnthropicMessage {
+                        role: "user".to_string(),
+                        content: serde_json::json!([{
+                            "type": "tool_result",
+                            "tool_use_id": m.tool_call_id.clone().unwrap_or_default(),
+                            "content": m.content.to_text(),
+                        }]),
+                    }
+                } else {
+                    AnthropicMessage {
+                        role: m.role.clone(),
+                        content: serialize_anthropic_content(&m.content),
+                    }
+                }
             })
             .collect();
 

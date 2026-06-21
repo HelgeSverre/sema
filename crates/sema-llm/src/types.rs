@@ -70,6 +70,18 @@ impl MessageContent {
 pub struct ChatMessage {
     pub role: String,
     pub content: MessageContent,
+    /// Tool calls emitted by an assistant turn. When non-empty, this message must
+    /// be echoed back to the provider so it can correlate the following tool
+    /// results (OpenAI requires the assistant `tool_calls`; Anthropic the
+    /// `tool_use` blocks). Empty for ordinary messages.
+    pub tool_calls: Vec<ToolCall>,
+    /// For a tool-result message (`role == "tool"`): the id of the tool call this
+    /// result answers. `None` for ordinary messages. Providers use this to match
+    /// the result to the call (`tool_call_id` / `tool_use_id` / `functionResponse`).
+    pub tool_call_id: Option<String>,
+    /// For a tool-result message: the name of the tool that produced it (Gemini's
+    /// `functionResponse` keys results by name).
+    pub tool_name: Option<String>,
 }
 
 impl ChatMessage {
@@ -77,6 +89,9 @@ impl ChatMessage {
         ChatMessage {
             role: role.into(),
             content: MessageContent::Text(content.into()),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            tool_name: None,
         }
     }
 
@@ -84,6 +99,39 @@ impl ChatMessage {
         ChatMessage {
             role: role.into(),
             content: MessageContent::Blocks(blocks),
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            tool_name: None,
+        }
+    }
+
+    /// An assistant turn that invoked one or more tools. `content` may be empty
+    /// (most providers return empty text alongside tool calls).
+    pub fn assistant_with_tool_calls(
+        content: impl Into<String>,
+        tool_calls: Vec<ToolCall>,
+    ) -> Self {
+        ChatMessage {
+            role: "assistant".to_string(),
+            content: MessageContent::Text(content.into()),
+            tool_calls,
+            tool_call_id: None,
+            tool_name: None,
+        }
+    }
+
+    /// A tool-result message correlated to the call it answers (`role == "tool"`).
+    pub fn tool_result(
+        tool_call_id: impl Into<String>,
+        name: impl Into<String>,
+        content: impl Into<String>,
+    ) -> Self {
+        ChatMessage {
+            role: "tool".to_string(),
+            content: MessageContent::Text(content.into()),
+            tool_calls: Vec::new(),
+            tool_call_id: Some(tool_call_id.into()),
+            tool_name: Some(name.into()),
         }
     }
 }

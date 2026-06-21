@@ -85,9 +85,49 @@ fn agent_loop_completes_with_tool_call() {
         reqs[1].messages.len() > reqs[0].messages.len(),
         "round 2 should include the fed-back tool result"
     );
+}
 
-    // NOTE: the strict correlation oracle (`agent_loop_round2_is_correlated`) —
-    // asserting round 2 echoes the assistant tool_calls and sends a `role:tool`
-    // result keyed by tool_call_id — is added in Phase 2, since it references
-    // ChatMessage fields that don't exist yet.
+/// Strict oracle for the Phase 2 tool-result protocol fix: round 2 must echo the
+/// assistant's tool_calls and send the result as a correlated tool message
+/// (`tool_call_id` matching the call). This is what OpenAI-family providers
+/// require; before the fix the loop stuffed the result into plain user text with
+/// no correlation, so the same agent looped to max-turns and returned empty.
+#[test]
+fn agent_loop_round2_is_correlated() {
+    let fake = FakeProvider::builder("fake")
+        .model("fake-model")
+        .tool_call("call_1", "get-weather", serde_json::json!({"city": "Oslo"}))
+        .reply("It is sunny in Oslo.")
+        .build();
+
+    let src = r#"
+        (deftool get-weather "Get weather"
+          {:city {:type :string}}
+          (lambda (city) "sunny"))
+        (defagent weather-bot
+          {:model "fake-model" :tools [get-weather] :max-turns 5})
+        (agent/run weather-bot "weather in Oslo?")
+    "#;
+
+    let (result, recorder) = eval_with_fake(src, fake);
+    result.expect("agent/run should complete");
+
+    let reqs = recorder.requests();
+    let round2 = &reqs[1];
+    // An assistant message echoing the tool_calls...
+    assert!(
+        round2
+            .messages
+            .iter()
+            .any(|m| m.role == "assistant" && !m.tool_calls.is_empty()),
+        "round 2 must echo the assistant's tool_calls"
+    );
+    // ...followed by a correlated tool-result message keyed by the call id.
+    assert!(
+        round2
+            .messages
+            .iter()
+            .any(|m| m.tool_call_id.as_deref() == Some("call_1")),
+        "round 2 must include a tool result correlated by tool_call_id"
+    );
 }

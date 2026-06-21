@@ -68,14 +68,54 @@ impl OpenAiProvider {
                 role: "system".to_string(),
                 content: Some(serde_json::Value::String(system.clone())),
                 tool_calls: None,
+                tool_call_id: None,
             });
         }
 
-        messages.extend(request.messages.iter().map(|m| OpenAiMessage {
-            role: m.role.clone(),
-            content: Some(serialize_openai_content(&m.content)),
-            tool_calls: None,
-        }));
+        for m in &request.messages {
+            if !m.tool_calls.is_empty() {
+                // Assistant turn that invoked tools — echo the tool_calls so the
+                // following tool results can be correlated.
+                let text = m.content.to_text();
+                messages.push(OpenAiMessage {
+                    role: "assistant".to_string(),
+                    content: if text.is_empty() {
+                        None
+                    } else {
+                        Some(serde_json::Value::String(text))
+                    },
+                    tool_calls: Some(
+                        m.tool_calls
+                            .iter()
+                            .map(|tc| OpenAiToolCall {
+                                id: tc.id.clone(),
+                                call_type: "function".to_string(),
+                                function: OpenAiFunctionCall {
+                                    name: tc.name.clone(),
+                                    arguments: tc.arguments.to_string(),
+                                },
+                            })
+                            .collect(),
+                    ),
+                    tool_call_id: None,
+                });
+            } else if m.role == "tool" {
+                // Tool result — must be role:"tool" with the matching tool_call_id.
+                messages.push(OpenAiMessage {
+                    role: "tool".to_string(),
+                    content: Some(serialize_openai_content(&m.content)),
+                    tool_calls: None,
+                    tool_call_id: m.tool_call_id.clone(),
+                });
+            } else {
+                messages.push(OpenAiMessage {
+                    role: m.role.clone(),
+                    content: Some(serialize_openai_content(&m.content)),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
+            }
+        }
 
         let tools: Vec<OpenAiTool> = request
             .tools
@@ -389,6 +429,9 @@ struct OpenAiMessage {
     content: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tool_calls: Option<Vec<OpenAiToolCall>>,
+    /// Set on `role: "tool"` messages to correlate the result with the call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_call_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]

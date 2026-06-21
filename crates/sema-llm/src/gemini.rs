@@ -201,6 +201,36 @@ impl GeminiProvider {
             if msg.role == "system" {
                 continue; // handled separately
             }
+            if !msg.tool_calls.is_empty() {
+                // Assistant turn → a "model" content with functionCall parts.
+                let mut parts: Vec<serde_json::Value> = Vec::new();
+                let text = msg.content.to_text();
+                if !text.is_empty() {
+                    parts.push(serde_json::json!({ "text": text }));
+                }
+                for tc in &msg.tool_calls {
+                    parts.push(serde_json::json!({
+                        "functionCall": { "name": tc.name, "args": tc.arguments }
+                    }));
+                }
+                contents.push(serde_json::json!({ "role": "model", "parts": parts }));
+                continue;
+            }
+            if msg.role == "tool" {
+                // Tool result → a "user" content with a functionResponse part keyed
+                // by the tool name (Gemini correlates results by name).
+                let name = msg.tool_name.clone().unwrap_or_default();
+                contents.push(serde_json::json!({
+                    "role": "user",
+                    "parts": [{
+                        "functionResponse": {
+                            "name": name,
+                            "response": { "result": msg.content.to_text() }
+                        }
+                    }]
+                }));
+                continue;
+            }
             let role = match msg.role.as_str() {
                 "assistant" => "model",
                 other => other,
