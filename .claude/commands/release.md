@@ -69,6 +69,17 @@ Publish to npm). Confirm they started:
 sleep 12 && gh run list --limit 4
 ```
 
+**If "Publish to crates.io" fails**, check whether it's a transient network error
+(e.g. `curl failed` / `HTTP2 framing layer` / `download of config.json failed`)
+vs. a real problem. The publish script is **idempotent** (skips crates already on
+crates.io), so for a transient flake just re-run the failed job — it resumes from
+the crate that failed:
+
+```bash
+gh run view <run-id> --log-failed | grep -iE 'error|Caused by'   # diagnose
+gh run rerun <run-id> --failed                                    # retry transient flakes
+```
+
 ## Step 7 — Deploy website (only if website content changed)
 
 If this release changed anything under `website/` (docs, homepage, OG), deploy:
