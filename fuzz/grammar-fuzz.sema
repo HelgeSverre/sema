@@ -212,7 +212,15 @@
           ((= choice 13) (gen-int-app env depth))
           ((= choice 14) (gen-int-fromlist env depth))
           ((= choice 15) (gen-int-recur env depth))
-          ((= choice 16) (gen-int-setbang env depth))
+          ;; NOTE: set! is deliberately NOT generated. The value oracle computes
+          ;; `expected` bottom-up assuming every sub-expression is referentially
+          ;; transparent (same value however many times / whenever evaluated).
+          ;; set! is the only impurity in the grammar; combined with async tasks
+          ;; or law-style duplication its evaluation count diverges from the
+          ;; model, yielding false positives (a depth-7 program reported a 2x
+          ;; mismatch that was an oracle artifact, not a VM bug). set! correctness
+          ;; is covered by the dual-eval set! tests instead. Slot 16 -> a leaf.
+          ((= choice 16) (gen-int-leaf env))
           ((= choice 17) (gen-int-try env depth))
           ((= choice 18) (gen-int-match env depth))
           ((= choice 19) (gen-int-case env depth))
@@ -475,13 +483,8 @@
 
 ;; ── int productions over the richer types + control forms ──────────────────
 
-;; (let ((v A)) (set! v B) v)  — mutation through set!.
-(define (gen-int-setbang env depth)
-  (let* ((v (gensym "v"))
-         (a (gen-int env (- depth 1)))
-         (b (gen-int (cons (list v (gv a) 'int) env) (- depth 1))))
-    (mk (list 'let (list (list v (gf a))) (list 'set! v (gf b)) v)
-        (gv b))))
+;; (set! removed — see the dispatch note in gen-int: it breaks the value
+;; oracle's referential-transparency assumption.)
 
 ;; (try BODY (catch e HANDLER)) — either BODY always throws (=> HANDLER) or never
 ;; throws (=> BODY). HANDLER does not reference e, so its value is deterministic.
