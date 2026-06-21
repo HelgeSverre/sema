@@ -1,4 +1,4 @@
-.PHONY: all build release build-pgo pgo-profile install install-pgo uninstall test test-lsp test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint lint-links docs docs-check update-pricing examples smoke-bytecode test-providers fuzz fuzz-reader fuzz-eval setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy deploy coverage coverage-html bench bench-vm bench-save bench-suite bench-closure bench-numeric bench-compare bench-baseline profile profile-vm ts-setup ts-generate ts-test ts-playground js-lib-build js-lib-dev
+.PHONY: all build release build-pgo pgo-profile install install-pgo uninstall test test-lsp test-embedding-bench test-http test-llm check clippy fmt fmt-check clean run lint lint-links docs docs-check update-pricing examples smoke-bytecode test-providers fuzz fuzz-reader fuzz-eval fuzz-grammar fuzz-grammar-emit setup bench-1m bench-10m bench-100m site-dev site-build site-preview site-deploy deploy coverage coverage-html bench bench-vm bench-save bench-suite bench-closure bench-numeric bench-compare bench-baseline profile profile-vm ts-setup ts-generate ts-test ts-playground js-lib-build js-lib-dev
 build:
 	cargo build
 
@@ -143,6 +143,21 @@ fuzz-reader:
 
 fuzz-eval:
 	cd crates/sema-eval && rustup run nightly cargo fuzz run fuzz_eval -- -max_total_time=120 -timeout=10
+
+# Grammar-based fuzzer written in Sema itself (fuzz/grammar-fuzz.sema). Generates
+# random *valid* Sema programs and checks two correctness oracles: printer/reader
+# round-trip and a compiler/VM value oracle. No nightly / cargo-fuzz needed — runs
+# on the release binary. Every finding is reproducible from one integer seed.
+#   make fuzz-grammar                  # default sweep (random seed)
+#   make fuzz-grammar SEED=123 N=20000 DEPTH=5
+#   make fuzz-grammar-emit             # print a few sample generated programs
+fuzz-grammar: release
+	@./scripts/grammar-fuzz.sh check \
+		$(if $(N),-n $(N)) $(if $(DEPTH),-d $(DEPTH)) $(if $(SEED),-s $(SEED)) $(if $(V),-v)
+
+fuzz-grammar-emit: release
+	@./scripts/grammar-fuzz.sh emit \
+		$(if $(N),-n $(N)) $(if $(DEPTH),-d $(DEPTH)) $(if $(SEED),-s $(SEED)) $(if $(OUT),-o $(OUT))
 
 bench-1m: release
 	time ./target/release/sema examples/benchmarks/1brc.sema -- bench-1m.txt

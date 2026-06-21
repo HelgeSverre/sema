@@ -1,0 +1,348 @@
+;; grammar-fuzz.sema — a grammar-based fuzzer for Sema, written in Sema.
+;;
+;; Because Sema is homoiconic, a generated program *is* an ordinary Sema value
+;; (a list/vector/atom). That makes two sharp correctness oracles almost free:
+;;
+;;   1. Round-trip (reader <-> printer):   (= form (read (str form)))
+;;      Generates arbitrary valid s-expression *data* and asserts that printing
+;;      it and reading it back yields a structurally equal value. Any asymmetry
+;;      between the printer and the reader falls straight out.
+;;
+;;   2. Differential value oracle (compiler/VM):  (= expected (eval form))
+;;      Generates *well-typed, closed* integer/boolean programs and, crucially,
+;;      computes their expected value bottom-up *while generating* them (using
+;;      the same primitive ops, applied incrementally). It then `eval`s the whole
+;;      nested form — which drives the full macro-expand -> lower -> optimize ->
+;;      compile -> bytecode-VM pipeline — and compares. A mismatch means the
+;;      compiler/optimizer/VM disagrees with straight-line evaluation: constant
+;;      folding, `if`/`let` lowering, closure capture, TCO, short-circuit logic.
+;;
+;; A third failure mode — a hard VM crash (Rust panic; release builds are
+;; panic=abort) — is detected by the driver (scripts/grammar-fuzz.sh): before
+;; each iteration we write the iteration's seed to SEMA_FUZZ_CRASH_FILE, so if
+;; the process dies the driver knows exactly which seed reproduces it.
+;;
+;; Everything is driven by a small self-contained PRNG so every finding is
+;; reproducible from a single integer seed.
+;;
+;; Configuration (environment variables):
+;;   SEMA_FUZZ_SEED        base seed (int, default 0)
+;;   SEMA_FUZZ_COUNT       number of iterations / programs (default 200)
+;;   SEMA_FUZZ_DEPTH       max generation depth (default 4)
+;;   SEMA_FUZZ_MODE        "check" (run oracles, default) or "emit" (print programs)
+;;   SEMA_FUZZ_OUT         emit mode: file to write to (default: stdout)
+;;   SEMA_FUZZ_CRASH_FILE  check mode: file to record the in-flight seed (crash breadcrumb)
+;;   SEMA_FUZZ_VERBOSE     "1" to print every passing form too
+;;
+;; Iteration i uses seed (base + i), and each iteration re-seeds the PRNG, so a
+;; failure reported at a given seed reproduces exactly with
+;;   SEMA_FUZZ_SEED=<seed> SEMA_FUZZ_COUNT=1
+
+;; ─────────────────────────────────────────────────────────────────────────
+;; PRNG — PCG-style LCG over wrapping 64-bit integers (deterministic, seedable)
+;; ─────────────────────────────────────────────────────────────────────────
+
+(define *rng* 1)
+
+(define (rng-seed! s)
+  ;; Force a nonzero odd-ish state; magnitude kept under 2^63.
+  (set! *rng* (bit/or 1 (mod (abs s) 9223372036854775806))))
+
+(define (rng-next!)
+  (set! *rng* (+ (* *rng* 6364136223846793005) 1442695040888963407))
+  *rng*)
+
+(define (rng-int! n)
+  ;; uniform-ish in [0, n); uses the high bits of the LCG state
+  (if (<= n 1) 0 (mod (abs (bit/shift-right (rng-next!) 17)) n)))
+
+(define (rng-range! lo hi)            ; inclusive [lo, hi]
+  (+ lo (rng-int! (+ 1 (- hi lo)))))
+
+(define (rng-pick! xs) (nth xs (rng-int! (length xs))))
+(define (rng-bool!) (= 0 (rng-int! 2)))
+
+;; ─────────────────────────────────────────────────────────────────────────
+;; Datum generator — arbitrary valid s-expression data (for the round-trip test)
+;; ─────────────────────────────────────────────────────────────────────────
+
+;; Pools of literal symbols/keywords/chars. Symbols are deliberately "safe"
+;; identifiers (no reader-special tokens) so the only thing under test is the
+;; printer/reader, not our choice of names.
+(define *sym-pool* (list 'a 'b 'c 'foo 'bar 'x 'y 'list 'quote 'do-thing))
+(define *kw-pool*  (list :a :b :c :foo :bar :k1 :k2 :k3))
+(define *char-pool* (list #\a #\Z #\0 #\space #\newline #\tab #\return))
+;; Safe string alphabet — excludes " and \ which the current printer does not
+;; escape (a separate, known printer gap; keep it out so structural bugs aren't
+;; masked by it).
+(define *str-alpha* "abcdefghijkRSTUVWXYZ0123456789 -_./:?!()[]{}*+=<>")
+
+(define (gen-char-from alpha)
+  (let ((k (rng-int! (string-length alpha))))
+    (substring alpha k (+ k 1))))
+
+(define (gen-string)
+  (let ((len (rng-int! 8)))
+    (let loop ((i 0) (acc ""))
+      (if (>= i len)
+          acc
+          (loop (+ i 1) (string-append acc (gen-char-from *str-alpha*)))))))
+
+(define (gen-float)
+  ;; k/1000 style values exercise float printing + shortest-round-trip parsing
+  (/ (rng-range! -1000000 1000000) 1000.0))
+
+(define (gen-atom)
+  (let ((c (rng-int! 8)))
+    (cond
+      ((= c 0) (rng-range! -100000 100000))
+      ((= c 1) (gen-float))
+      ((= c 2) (rng-bool!))
+      ((= c 3) nil)
+      ((= c 4) (gen-string))
+      ((= c 5) (rng-pick! *sym-pool*))
+      ((= c 6) (rng-pick! *kw-pool*))
+      (else    (rng-pick! *char-pool*)))))
+
+(define (gen-list depth)
+  (let ((k (rng-int! 5)))
+    (let loop ((i 0) (acc (list)))
+      (if (>= i k)
+          (reverse acc)
+          (loop (+ i 1) (cons (gen-datum (- depth 1)) acc))))))
+
+(define (gen-vector depth)
+  (list->vector (gen-list depth)))
+
+(define (gen-map depth)
+  ;; Unique keyword keys (indexed into the pool) so the literal never collapses.
+  (let ((k (rng-int! 4)))
+    (let loop ((i 0) (m {}))
+      (if (>= i k)
+          m
+          (loop (+ i 1) (assoc m (nth *kw-pool* i) (gen-datum (- depth 1))))))))
+
+(define (gen-datum depth)
+  (if (<= depth 0)
+      (gen-atom)
+      (let ((choice (rng-int! 10)))
+        (cond
+          ((< choice 5) (gen-atom))
+          ((< choice 7) (gen-list depth))
+          ((< choice 9) (gen-vector depth))
+          (else         (gen-map depth))))))
+
+;; ─────────────────────────────────────────────────────────────────────────
+;; Typed program generator — well-typed, closed int/bool programs (eval oracle)
+;;
+;; Each generator returns a 2-element list (form expected-value): `form` is the
+;; Sema code, `expected-value` is what evaluating it must produce, computed
+;; bottom-up during generation.
+;;
+;; `env` is a list of (symbol value) pairs giving the variables in scope and
+;; their known values, so every generated reference is bound and its value known.
+;; ─────────────────────────────────────────────────────────────────────────
+
+(define (mk form val) (list form val))
+(define (gf p) (nth p 0))            ; the generated form
+(define (gv p) (nth p 1))            ; its expected value
+
+(define (gen-int env depth)
+  (if (or (<= depth 0) (and (pair? env) (= 0 (rng-int! 4))))
+      ;; leaf: a bound variable reference or an integer literal
+      (if (and (pair? env) (rng-bool!))
+          (let ((b (rng-pick! env))) (mk (nth b 0) (nth b 1)))
+          (let ((n (rng-range! -12 12))) (mk n n)))
+      ;; compound
+      (let ((choice (rng-int! 8)))
+        (cond
+          ((= choice 0) (gen-int-bin '+   env depth +))
+          ((= choice 1) (gen-int-bin '-   env depth -))
+          ((= choice 2) (gen-int-bin '*   env depth *))
+          ((= choice 3) (gen-int-bin 'min env depth min))
+          ((= choice 4) (gen-int-bin 'max env depth max))
+          ((= choice 5) (gen-int-if  env depth))
+          ((= choice 6) (gen-int-let env depth))
+          (else         (gen-int-app env depth))))))
+
+(define (gen-int-bin op env depth f)
+  (let* ((a (gen-int env (- depth 1)))
+         (b (gen-int env (- depth 1))))
+    (mk (list op (gf a) (gf b)) (f (gv a) (gv b)))))
+
+(define (gen-int-if env depth)
+  (let* ((c (gen-bool env (- depth 1)))
+         (t (gen-int  env (- depth 1)))
+         (e (gen-int  env (- depth 1))))
+    (mk (list 'if (gf c) (gf t) (gf e))
+        (if (gv c) (gv t) (gv e)))))
+
+(define (gen-int-let env depth)
+  (let* ((v    (gensym "v"))
+         (init (gen-int env (- depth 1)))
+         (env2 (cons (list v (gv init)) env))
+         (body (gen-int env2 (- depth 1))))
+    (mk (list 'let (list (list v (gf init))) (gf body))
+        (gv body))))
+
+(define (gen-int-app env depth)
+  ;; ((lambda (p) body) arg) — exercises closures + application
+  (let* ((p    (gensym "p"))
+         (arg  (gen-int env (- depth 1)))
+         (env2 (cons (list p (gv arg)) env))
+         (body (gen-int env2 (- depth 1))))
+    (mk (list (list 'lambda (list p) (gf body)) (gf arg))
+        (gv body))))
+
+(define (gen-bool env depth)
+  (if (<= depth 0)
+      (let ((b (rng-bool!))) (mk b b))
+      (let ((choice (rng-int! 8)))
+        (cond
+          ((= choice 0) (let ((b (rng-bool!))) (mk b b)))
+          ((= choice 1) (gen-bool-cmp '=  env depth =))
+          ((= choice 2) (gen-bool-cmp '<  env depth <))
+          ((= choice 3) (gen-bool-cmp '>  env depth >))
+          ((= choice 4) (gen-bool-cmp '<= env depth <=))
+          ((= choice 5) (gen-bool-cmp '>= env depth >=))
+          ((= choice 6) (gen-bool-logic 'and env depth))
+          (else         (gen-bool-not env depth))))))
+
+(define (gen-bool-cmp op env depth f)
+  (let* ((a (gen-int env (- depth 1)))
+         (b (gen-int env (- depth 1))))
+    (mk (list op (gf a) (gf b)) (f (gv a) (gv b)))))
+
+(define (gen-bool-logic op env depth)
+  (let* ((x (gen-bool env (- depth 1)))
+         (y (gen-bool env (- depth 1))))
+    (if (= 0 (rng-int! 2))
+        (mk (list 'and (gf x) (gf y)) (and (gv x) (gv y)))
+        (mk (list 'or  (gf x) (gf y)) (or  (gv x) (gv y))))))
+
+(define (gen-bool-not env depth)
+  (let ((x (gen-bool env (- depth 1))))
+    (mk (list 'not (gf x)) (not (gv x)))))
+
+(define (gen-typed depth) (gen-int (list) depth))
+
+;; ─────────────────────────────────────────────────────────────────────────
+;; Oracles + reporting
+;; ─────────────────────────────────────────────────────────────────────────
+
+(define *failures* 0)
+(define *cur-seed* 0)
+(define *verbose* #f)
+
+(define (report-fail kind form a b)
+  (set! *failures* (+ *failures* 1))
+  (display "FAIL [") (display kind) (display "] seed=") (display (number->string *cur-seed*))
+  (newline)
+  (display "  form:     ") (display (str form)) (newline)
+  (display "  expected: ") (display (str a)) (newline)
+  (display "  actual:   ") (display (str b)) (newline)
+  (display "  reproduce: SEMA_FUZZ_SEED=") (display (number->string *cur-seed*))
+  (display " SEMA_FUZZ_COUNT=1") (newline)
+  #f)
+
+(define (check-roundtrip d)
+  ;; Wrap in a list so the *readable* printer path is exercised (Sema's `str`
+  ;; renders a bare top-level string as its raw contents — display semantics —
+  ;; but quotes strings nested inside a container, which is the readable form
+  ;; programs are actually printed with). This tests Sema's printer against
+  ;; Sema's reader, not our harness against either.
+  (let* ((wrapped (list d))
+         (s (str wrapped)))
+    (try
+      (let ((d2 (read s)))
+        (if (= wrapped d2)
+            #t
+            (report-fail "roundtrip" wrapped s d2)))
+      (catch e (report-fail "roundtrip-read-error" wrapped s e)))))
+
+(define (check-oracle pair)
+  (let ((form     (gf pair))
+        (expected (gv pair)))
+    (try
+      (let ((got (eval form)))
+        (if (= expected got)
+            #t
+            (report-fail "oracle" form expected got)))
+      (catch e (report-fail "oracle-eval-error" form expected e)))))
+
+;; ─────────────────────────────────────────────────────────────────────────
+;; Config
+;; ─────────────────────────────────────────────────────────────────────────
+
+(define (cfg name default)
+  (let ((v (env name)))
+    (if (null? v) default v)))
+
+(define (cfg-int name default)
+  (let ((v (env name)))
+    (if (null? v) default (string->number v))))
+
+(define base-seed  (cfg-int "SEMA_FUZZ_SEED" 0))
+(define iterations (cfg-int "SEMA_FUZZ_COUNT" 200))
+(define max-depth  (cfg-int "SEMA_FUZZ_DEPTH" 4))
+(define mode       (cfg "SEMA_FUZZ_MODE" "check"))
+(define out-file   (env "SEMA_FUZZ_OUT"))
+(define crash-file (env "SEMA_FUZZ_CRASH_FILE"))
+(set! *verbose* (= "1" (cfg "SEMA_FUZZ_VERBOSE" "0")))
+
+;; ─────────────────────────────────────────────────────────────────────────
+;; Modes
+;; ─────────────────────────────────────────────────────────────────────────
+
+(define (run-check)
+  (display "grammar-fuzz: check  seed=") (display (number->string base-seed))
+  (display " count=") (display (number->string iterations))
+  (display " depth=") (display (number->string max-depth)) (newline)
+  (let loop ((i 0))
+    (if (>= i iterations)
+        (finish)
+        (let ((seed (+ base-seed i)))
+          (set! *cur-seed* seed)
+          (when (not (null? crash-file)) (file/write crash-file (number->string seed)))
+          (rng-seed! seed)
+          ;; round-trip property on a random datum
+          (let ((d (gen-datum max-depth)))
+            (let ((ok (check-roundtrip d)))
+              (when (and *verbose* ok)
+                (display "ok roundtrip: ") (display (str d)) (newline))))
+          ;; value oracle on a typed program (same RNG stream continues)
+          (let ((p (gen-typed max-depth)))
+            (let ((ok (check-oracle p)))
+              (when (and *verbose* ok)
+                (display "ok oracle: ") (display (str (gf p)))
+                (display " = ") (display (str (gv p))) (newline))))
+          (loop (+ i 1))))))
+
+(define (finish)
+  ;; success: clear the crash breadcrumb so the driver knows we exited cleanly
+  (when (not (null? crash-file)) (file/write crash-file "ok"))
+  (newline)
+  (if (= *failures* 0)
+      (begin (display "PASS: ") (display (number->string iterations))
+             (display " iterations, 0 failures") (newline) (exit 0))
+      (begin (display "FAILURES: ") (display (number->string *failures*)) (newline)
+             (exit 1))))
+
+(define (run-emit)
+  (let loop ((i 0) (acc (list)))
+    (if (>= i iterations)
+        (let ((text (string/join (reverse acc) "\n")))
+          (if (null? out-file)
+              (begin (display text) (newline))
+              (begin (file/write out-file (string-append text "\n"))
+                     (display "wrote ") (display (number->string iterations))
+                     (display " programs to ") (display out-file) (newline))))
+        (begin
+          (rng-seed! (+ base-seed i))
+          (let ((p (gen-typed max-depth)))
+            (loop (+ i 1)
+                  (cons (string-append "; seed=" (number->string (+ base-seed i))
+                                       " => " (str (gv p)) "\n" (str (gf p)))
+                        acc)))))))
+
+(if (= mode "emit") (run-emit) (run-check))

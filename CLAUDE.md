@@ -117,6 +117,11 @@ that there's no second backend to differentially compare against.
 - Notebook E2E tests: `crates/sema-notebook/tests/e2e/` (Playwright, run via `make test-notebook-e2e`)
 - A few `#[ignore]`d tests in `integration_test.rs` are a ready acceptance suite for the deferred VM stack-trace parity work (see `docs/deferred.md`).
 
+### Fuzzing
+
+- **Byte-level (cargo-fuzz)**: `make fuzz` (nightly + cargo-fuzz). Mutates raw bytes to find reader/eval panics — targets in `crates/sema-reader/fuzz` and `crates/sema-eval/fuzz`.
+- **Grammar-based (in Sema)**: `make fuzz-grammar` (just the release binary). Generates random *valid* Sema programs and checks a printer/reader round-trip oracle and a compiler/VM value oracle; detects VM panics. Written in Sema itself at `fuzz/grammar-fuzz.sema`, driven by `scripts/grammar-fuzz.sh`. Every finding reproduces from one integer seed; `make fuzz-grammar-emit` prints sample programs. See `fuzz/README.md`.
+
 ## Adding New Functionality
 
 - **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in that module's `register()` fn, add dual-eval test.
