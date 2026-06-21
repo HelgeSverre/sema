@@ -21,13 +21,13 @@ make test-notebook-e2e                                   # Playwright E2E tests 
 
 cargo test -p sema-reader                                # test single crate
 cargo test -p sema --test integration_test -- test_name  # single integration test
-cargo test -p sema --test dual_eval_test -- test_name    # single dual-eval test
+cargo test -p sema --test eval_test -- test_name    # single eval test
 cargo test -p sema -- --ignored                          # run any ignored tests
 cargo run -- examples/hello.sema                         # run file (bytecode VM — the sole evaluator)
 cargo run -- -e "(+ 1 2)"                                # eval expression
 ```
 
-Integration tests are in `crates/sema/tests/integration_test.rs`. Dual-eval tests in `crates/sema/tests/dual_eval_test.rs`. Reader unit tests in `crates/sema-reader/src/reader.rs`.
+Integration tests are in `crates/sema/tests/integration_test.rs`. Eval tests in `crates/sema/tests/eval_test.rs`. Reader unit tests in `crates/sema-reader/src/reader.rs`.
 
 ## Architecture
 
@@ -104,13 +104,13 @@ Stdlib higher-order functions (map, filter, foldl, sort-by) call through `sema_c
 ## Testing
 
 The bytecode VM is the **sole evaluator** (the tree-walker has been retired). All
-tests run on the VM. The `dual_eval_tests!` / `dual_eval_error_tests!` macros
+tests run on the VM. The `eval_tests!` / `eval_error_tests!` macros
 still exist (they currently emit `_tw` and `_vm` variants, both of which now run
 on the VM via the same entry points) and stay useful for pinning a literal
 expected value as the correctness oracle — the literal anchor matters more now
 that there's no second backend to differentially compare against.
 
-- **Dual-eval test file**: `crates/sema/tests/dual_eval_test.rs` — use `dual_eval_tests!` and `dual_eval_error_tests!` macros (literal `=> expected` value is the oracle)
+- **Eval test file**: `crates/sema/tests/eval_test.rs` — use `eval_tests!` and `eval_error_tests!` macros (literal `=> expected` value is the oracle)
 - **Async tests**: `crates/sema/tests/vm_async_test.rs` — async/channel tests
 - **VM equivalence / integration**: `vm_integration_test.rs`, `integration_test.rs`
 - I/O, LLM, sandbox, CLI, module/import, server tests → `integration_test.rs`
@@ -125,8 +125,8 @@ that there's no second backend to differentially compare against.
 
 ## Adding New Functionality
 
-- **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in that module's `register()` fn, add dual-eval test.
-- **Special form**: add it to the VM lowering in `lower_list()` in `crates/sema-vm/src/lower.rs` (+ compiler if needed), add dual-eval test.
+- **Builtin fn**: add to `crates/sema-stdlib/src/*.rs`, register in that module's `register()` fn, add eval test.
+- **Special form**: add it to the VM lowering in `lower_list()` in `crates/sema-vm/src/lower.rs` (+ compiler if needed), add eval test.
 - **Prelude macro**: add to `crates/sema-eval/src/prelude.rs` (Sema code evaluated at startup, expanded VM-natively).
 - **Async feature**: implement in stdlib (`async_ops.rs`) using the yield signal mechanism, add an async test in `vm_async_test.rs`.
 

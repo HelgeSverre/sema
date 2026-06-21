@@ -6,7 +6,7 @@ use sema_core::Value;
 // Path operations (pure string manipulation) — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     path_join: r#"(path/join "usr" "local" "bin")"# => Value::string("usr/local/bin"),
     path_dirname: r#"(path/dirname "/a/b/c")"# => Value::string("/a/b"),
     path_basename: r#"(path/basename "/a/b/c.txt")"# => Value::string("c.txt"),
@@ -32,7 +32,7 @@ dual_eval_tests! {
 // System operations — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     sys_os: r#"(string? (sys/os))"# => Value::bool(true),
     sys_arch: r#"(string? (sys/arch))"# => Value::bool(true),
     sys_platform: r#"(string? (sys/platform))"# => Value::bool(true),
@@ -52,7 +52,7 @@ dual_eval_tests! {
 
 // Unix-only: sys/which assumes `sh` exists on PATH
 #[cfg(unix)]
-dual_eval_tests! {
+eval_tests! {
     sys_which_test: r#"(string? (sys/which "sh"))"# => Value::bool(true),
 }
 
@@ -60,7 +60,7 @@ dual_eval_tests! {
 // Time operations (deterministic subset) — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     time_format_epoch: r#"(time/format 0.0 "%Y-%m-%d")"# => Value::string("1970-01-01"),
     time_format_hms: r#"(time/format 0.0 "%H:%M:%S")"# => Value::string("00:00:00"),
     time_now_positive: "(> (time/now) 1700000000.0)" => Value::bool(true),
@@ -74,7 +74,7 @@ dual_eval_tests! {
 // Env operations — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     env_path_exists: r#"(string? (env "PATH"))"# => Value::bool(true),
     env_missing: r#"(env "SEMA_NONEXISTENT_VAR_XYZ_12345")"# => Value::nil(),
 }
@@ -83,7 +83,7 @@ dual_eval_tests! {
 // File operations (self-contained with cleanup) — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     file_write_read: r#"(begin (define p (string-append (sys/temp-dir) "/sema-de-wr-" (uuid/v4))) (file/write p "hello") (let ((r (file/read p))) (file/delete p) r))"# => Value::string("hello"),
     file_append: r#"(begin (define p (string-append (sys/temp-dir) "/sema-de-ap-" (uuid/v4))) (file/write p "hello") (file/append p " world") (let ((r (file/read p))) (file/delete p) r))"# => Value::string("hello world"),
     file_exists_true: r#"(begin (define p (string-append (sys/temp-dir) "/sema-de-ex-" (uuid/v4))) (file/write p "x") (let ((r (file/exists? p))) (file/delete p) r))"# => Value::bool(true),
@@ -96,7 +96,7 @@ dual_eval_tests! {
 
 // Unix-only: file_mkdir cleanup uses `rm -rf` via shell
 #[cfg(unix)]
-dual_eval_tests! {
+eval_tests! {
     file_mkdir: r#"(begin (define p (string-append (sys/temp-dir) "/sema-de-md-" (uuid/v4))) (file/mkdir p) (let ((r (file/is-directory? p))) (shell (string-append "rm -rf " p)) r))"# => Value::bool(true),
 }
 
@@ -105,7 +105,7 @@ dual_eval_tests! {
 // ============================================================
 
 #[cfg(unix)]
-dual_eval_tests! {
+eval_tests! {
     shell_echo: r#"(map? (shell "echo hello"))"# => Value::bool(true),
 }
 
@@ -113,7 +113,7 @@ dual_eval_tests! {
 // Math extended — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     math_exp: "(> (math/exp 1.0) 2.7)" => Value::bool(true),
     math_pow_ns: "(math/pow 2.0 10.0)" => Value::float(1024.0),
     math_lerp: "(math/lerp 0.0 10.0 0.5)" => Value::float(5.0),
@@ -125,7 +125,7 @@ dual_eval_tests! {
 // Misc stdlib — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     tap_returns_value: "(tap 42 (lambda (x) nil))" => Value::int(42),
     str_number_pred: r#"(string/number? "42")"# => Value::bool(true),
     str_number_pred_false: r#"(string/number? "abc")"# => Value::bool(false),
@@ -136,7 +136,7 @@ dual_eval_tests! {
 // String case & manipulation functions — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     str_camel: r#"(string/camel-case "hello-world")"# => Value::string("helloWorld"),
     str_snake: r#"(string/snake-case "helloWorld")"# => Value::string("hello_world"),
     str_kebab: r#"(string/kebab-case "helloWorld")"# => Value::string("hello-world"),
@@ -163,7 +163,7 @@ dual_eval_tests! {
 // New interactive-CLI functions — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // io/flush: should return nil and not error
     io_flush_returns_nil: "(nil? (io/flush))" => Value::bool(true),
     // io/eof? starts false in a normal eval context

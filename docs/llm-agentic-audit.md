@@ -220,7 +220,7 @@
 - Vector store: cosine, CRUD, JSON roundtrip, dim-mismatch (`vector_store.rs:265-357`, 24 tests)
 - Gemini build_url (`gemini.rs:406-440`)
 - Request/response (de)serialization (`types.rs:183-312`)
-- Prompt/message/conversation/tool/agent **constructors** via dual-eval (`dual_eval_stdlib_test.rs:98-167`)
+- Prompt/message/conversation/tool/agent **constructors** via eval (`eval_stdlib_test.rs:98-167`)
 
 **What has NO real automated coverage:**
 

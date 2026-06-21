@@ -6,7 +6,7 @@ use sema_core::Value;
 // F-strings — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     fstring_basic: r#"(let ((name "world")) f"hello ${name}")"# => Value::string("hello world"),
     fstring_multiple: r#"(let ((a "foo") (b "bar")) f"${a} and ${b}")"# => Value::string("foo and bar"),
     fstring_expression: r#"f"result: ${(+ 1 2)}""# => Value::string("result: 3"),
@@ -21,7 +21,7 @@ dual_eval_tests! {
 // Short lambdas — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     short_lambda_basic: "(map #(+ % 1) '(1 2 3))" => Value::list(vec![Value::int(2), Value::int(3), Value::int(4)]),
     short_lambda_square: "(map #(* % %) '(1 2 3 4))" => Value::list(vec![Value::int(1), Value::int(4), Value::int(9), Value::int(16)]),
     short_lambda_filter: "(filter #(> % 3) '(1 2 3 4 5))" => Value::list(vec![Value::int(4), Value::int(5)]),
@@ -34,7 +34,7 @@ dual_eval_tests! {
 // Threading macros — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     thread_first: "(-> 5 (+ 3) (* 2))" => Value::int(16),
     thread_first_bare_fn: r#"(-> "hello" string-length)"# => Value::int(5),
     thread_last: "(->> (range 1 6) (filter odd?))" => Value::list(vec![Value::int(1), Value::int(3), Value::int(5)]),
@@ -48,7 +48,7 @@ dual_eval_tests! {
 // when-let / if-let — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     when_let_truthy: "(when-let (x 42) (+ x 1))" => Value::int(43),
     when_let_nil: "(when-let (x nil) (+ x 1))" => Value::nil(),
     if_let_truthy: "(if-let (x 42) (+ x 1) 0)" => Value::int(43),

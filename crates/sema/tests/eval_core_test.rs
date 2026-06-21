@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 // Arithmetic & Math
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     arith_add: "(+ 1 2)" => Value::int(3),
     arith_sub: "(- 10 3)" => Value::int(7),
     arith_mul: "(* 4 5)" => Value::int(20),
@@ -40,7 +40,7 @@ dual_eval_tests! {
 // Comparison & Logic
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     cmp_lt: "(< 1 2)" => Value::bool(true),
     cmp_gt: "(> 3 2)" => Value::bool(true),
     cmp_lte: "(<= 2 2)" => Value::bool(true),
@@ -58,7 +58,7 @@ dual_eval_tests! {
 // Core Forms (define, let, begin, set!, lambda, closures)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     define_var: "(begin (define x 42) x)" => Value::int(42),
     define_fn: "(begin (define (square x) (* x x)) (square 5))" => Value::int(25),
     defun_alias: "(begin (defun square (x) (* x x)) (square 5))" => Value::int(25),
@@ -151,7 +151,7 @@ dual_eval_tests! {
 // Control Flow (if, cond, case, when, unless, and, or, do)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     if_true: "(if #t 1 2)" => Value::int(1),
     if_false: "(if #f 1 2)" => Value::int(2),
     if_two_branch: "(if (> 3 2) :yes :no)" => Value::keyword("yes"),
@@ -179,7 +179,7 @@ dual_eval_tests! {
 // Quote, Quasiquote, Eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // Foundational ops: hand-constructed expected values so the oracle does not
     // depend on the tree-walker (see docs/bugs/eval-tw-oracle-circularity.md).
     quote_list: "(car '(a b c))" => Value::symbol("a"),
@@ -196,7 +196,7 @@ dual_eval_tests! {
 // Error Handling (try/catch/throw)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     try_no_error: "(try 42 (catch e 0))" => Value::int(42),
     try_catch_error: r#"(try (error "boom") (catch e 99))"# => Value::int(99),
     try_catch_division: "(try (/ 1 0) (catch e :caught))" => Value::keyword("caught"),
@@ -208,7 +208,7 @@ dual_eval_tests! {
 // TCO
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     tco_deep: "(begin (define (count-down n) (if (= n 0) :done (count-down (- n 1)))) (count-down 100000))" => Value::keyword("done"),
     tco_mutual: "(begin (define (even? n) (if (= n 0) #t (odd? (- n 1)))) (define (odd? n) (if (= n 0) #f (even? (- n 1)))) (even? 1000))" => Value::bool(true),
     factorial_10: "(begin (define (factorial n) (if (<= n 1) 1 (* n (factorial (- n 1))))) (factorial 10))" => Value::int(3628800),
@@ -218,7 +218,7 @@ dual_eval_tests! {
 // Scheme Aliases & Misc
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     cons_basic: "(cons 1 '(2 3))" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
     car_cdr: "(car (cdr '(1 2 3)))" => Value::int(2),
     cadr: "(cadr '(1 2 3))" => Value::int(2),
@@ -232,7 +232,7 @@ dual_eval_tests! {
 // Error tests
 // ============================================================
 
-dual_eval_error_tests! {
+eval_error_tests! {
     err_division_by_zero: "(/ 1 0)",
     err_unbound_var: "undefined-variable",
 }
@@ -241,7 +241,7 @@ dual_eval_error_tests! {
 // Case Edge Cases
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     case_multiple_datums: "(case 2 ((1 2 3) :found) (else :miss))" => Value::keyword("found"),
     case_no_match_no_else: "(case 99 ((1 2) :x))" => Value::nil(),
     case_multiple_body: "(begin (define x 0) (case 1 ((1) (set! x 7) x) (else 0)))" => Value::int(7),
@@ -252,7 +252,7 @@ dual_eval_tests! {
 // Try/Catch/Throw Edge Cases
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     try_throw_map_catch_value: "(try (throw {:a 1}) (catch e (get e :value)))" => Value::map(BTreeMap::from([(Value::keyword("a"), Value::int(1))])),
     try_side_effect_before_throw: "(begin (define x 0) (try (set! x 1) (throw \"boom\") (catch e x)))" => Value::int(1),
     try_nested_rethrow: "(try (try (throw 42) (catch e (throw (+ 1 (get e :value))))) (catch e2 (get e2 :value)))" => Value::int(43),
@@ -264,7 +264,7 @@ dual_eval_tests! {
 // Do Loop Edge Cases
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     do_immediate_term_with_result: "(do ((i 0 (+ i 1))) ((= i 0) i))" => Value::int(0),
     do_immediate_term_no_result: "(do ((i 0 (+ i 1))) ((= i 0)))" => Value::nil(),
     do_parallel_step: "(do ((a 1 b) (b 2 a) (n 0 (+ n 1))) ((= n 1) (list a b)))" => Value::list(vec![Value::int(2), Value::int(1)]),
@@ -276,7 +276,7 @@ dual_eval_tests! {
 // Cond Edge Cases
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     cond_multi_body: "(cond ((= 1 1) 10 20 30))" => Value::int(30),
     cond_else_multi_body: "(cond (#f 1) (else 10 20))" => Value::int(20),
 }
@@ -285,7 +285,7 @@ dual_eval_tests! {
 // When/Unless Multi-Body
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     when_multi_body: "(when #t 1 2 3)" => Value::int(3),
     unless_multi_body: "(unless #f 1 2 3)" => Value::int(3),
 }
@@ -294,7 +294,7 @@ dual_eval_tests! {
 // And/Or Edge Cases
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     and_single_false: "(and #f)" => Value::bool(false),
     and_single_true: "(and 42)" => Value::int(42),
     and_returns_nil: "(and 1 nil 3)" => Value::nil(),
@@ -309,7 +309,7 @@ dual_eval_tests! {
 // While
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     while_basic: "(begin (define i 0) (while (< i 5) (set! i (+ i 1))) i)" => Value::int(5),
     while_returns_nil: "(begin (define i 0) (while (< i 3) (set! i (+ i 1))))" => Value::nil(),
     while_no_iterations: "(begin (define i 10) (while (< i 0) (set! i (+ i 1))) i)" => Value::int(10),
@@ -317,7 +317,7 @@ dual_eval_tests! {
     while_nested: "(begin (define total 0) (define i 0) (while (< i 3) (define j 0) (while (< j 3) (set! total (+ total 1)) (set! j (+ j 1))) (set! i (+ i 1))) total)" => Value::int(9),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     while_bad_arity: "(while #t)",
 }
 
@@ -325,7 +325,7 @@ dual_eval_error_tests! {
 // Open Upvalue Close Semantics
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     upvalue_close_on_return: "(begin
     (define (make-getter)
       (define n 42)

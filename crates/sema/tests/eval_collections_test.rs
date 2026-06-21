@@ -6,7 +6,7 @@ use sema_core::Value;
 // String operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     str_upper: r#"(string/upper "hello")"# => Value::string("HELLO"),
     str_lower: r#"(string/lower "HELLO")"# => Value::string("hello"),
     str_trim: r#"(string/trim "  hi  ")"# => Value::string("hi"),
@@ -43,7 +43,7 @@ dual_eval_tests! {
 // String conversion functions — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     str_to_number: r#"(string->number "42")"# => Value::int(42),
     str_to_symbol: r#"(symbol? (string->symbol "foo"))"# => Value::bool(true),
     number_to_str: "(number->string 42)" => Value::string("42"),
@@ -56,7 +56,7 @@ dual_eval_tests! {
 // List operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // Foundational ops: hand-constructed expected values so the oracle does not
     // depend on the tree-walker (see docs/bugs/eval-tw-oracle-circularity.md).
     list_car: "(car '(1 2 3))" => Value::int(1),
@@ -104,7 +104,7 @@ dual_eval_tests! {
 // Vector operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     vec_nth: "(nth [10 20 30] 1)" => Value::int(20),
     vec_length: "(length [1 2 3])" => Value::int(3),
     vec_to_list: "(vector->list [1 2 3])" => Value::list(vec![Value::int(1), Value::int(2), Value::int(3)]),
@@ -115,7 +115,7 @@ dual_eval_tests! {
 // Apply — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     apply_basic: "(apply + '(1 2 3))" => Value::int(6),
     apply_prefix: "(apply + 1 2 '(3 4))" => Value::int(10),
 }
@@ -124,7 +124,7 @@ dual_eval_tests! {
 // any / every — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     any_found: "(any odd? '(2 4 5 6))" => Value::bool(true),
     any_none: "(any odd? '(2 4 6))" => Value::bool(false),
     any_empty: "(any odd? '())" => Value::bool(false),
@@ -137,7 +137,7 @@ dual_eval_tests! {
 // list/index-of — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     index_of_found: "(list/index-of '(10 20 30) 20)" => Value::int(1),
     index_of_first: "(list/index-of '(10 20 30) 10)" => Value::int(0),
     index_of_last: "(list/index-of '(10 20 30) 30)" => Value::int(2),
@@ -150,7 +150,7 @@ dual_eval_tests! {
 // list/group-by — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     group_by_even_odd: "(length (keys (list/group-by even? '(1 2 3 4 5))))" => Value::int(2),
     group_by_empty: "(length (keys (list/group-by even? '())))" => Value::int(0),
     group_by_values: "(length (hashmap/get (list/group-by even? '(1 2 3 4 5)) #f))" => Value::int(3),
@@ -160,7 +160,7 @@ dual_eval_tests! {
 // list/interleave — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     interleave_basic: "(list/interleave '(1 3 5) '(2 4 6))" => common::eval_tw("'(1 2 3 4 5 6)"),
     interleave_truncate: "(list/interleave '(1 3 5) '(2 4))" => common::eval_tw("'(1 2 3 4)"),
     interleave_three: "(list/interleave '(1 4) '(2 5) '(3 6))" => common::eval_tw("'(1 2 3 4 5 6)"),
@@ -172,7 +172,7 @@ dual_eval_tests! {
 // list/chunk — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     chunk_even: "(list/chunk 2 '(1 2 3 4))" => common::eval_tw("'((1 2) (3 4))"),
     chunk_uneven: "(list/chunk 2 '(1 2 3 4 5))" => common::eval_tw("'((1 2) (3 4) (5))"),
     chunk_larger: "(list/chunk 10 '(1 2 3))" => common::eval_tw("'((1 2 3))"),
@@ -180,7 +180,7 @@ dual_eval_tests! {
     chunk_empty: "(list/chunk 2 '())" => common::eval_tw("'()"),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     chunk_zero: "(list/chunk 0 '(1 2 3))",
 }
 
@@ -188,7 +188,7 @@ dual_eval_error_tests! {
 // take-while / drop-while — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     take_while_basic: "(take-while even? '(2 4 5 6))" => common::eval_tw("'(2 4)"),
     take_while_none: "(take-while even? '(1 2 4))" => common::eval_tw("'()"),
     take_while_all: "(take-while even? '(2 4 6))" => common::eval_tw("'(2 4 6)"),
@@ -203,7 +203,7 @@ dual_eval_tests! {
 // list/take-while / list/drop-while — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     list_take_while_basic: "(list/take-while even? '(2 4 5 6))" => common::eval_tw("'(2 4)"),
     list_take_while_empty: "(list/take-while even? '())" => common::eval_tw("'()"),
     list_drop_while_basic: "(list/drop-while even? '(2 4 5 6))" => common::eval_tw("'(5 6)"),
@@ -214,7 +214,7 @@ dual_eval_tests! {
 // list/dedupe — CONSECUTIVE duplicates only
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     dedupe_consecutive: "(list/dedupe '(1 1 2 1 1))" => common::eval_tw("'(1 2 1)"),
     dedupe_no_dupes: "(list/dedupe '(1 2 3))" => common::eval_tw("'(1 2 3)"),
     dedupe_all_same: "(list/dedupe '(5 5 5))" => common::eval_tw("'(5)"),
@@ -227,7 +227,7 @@ dual_eval_tests! {
 // list/split-at — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     split_at_middle: "(list/split-at '(1 2 3 4 5) 3)" => common::eval_tw("'((1 2 3) (4 5))"),
     split_at_zero: "(list/split-at '(1 2 3) 0)" => common::eval_tw("'(() (1 2 3))"),
     split_at_end: "(list/split-at '(1 2 3) 3)" => common::eval_tw("'((1 2 3) ())"),
@@ -239,7 +239,7 @@ dual_eval_tests! {
 // list/sum — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     sum_ints: "(list/sum '(1 2 3))" => Value::int(6),
     sum_mixed: "(list/sum '(1 2.0 3))" => Value::float(6.0),
     sum_floats: "(list/sum '(1.5 2.5))" => Value::float(4.0),
@@ -252,7 +252,7 @@ dual_eval_tests! {
 // list/min / list/max — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     min_basic: "(list/min '(3 1 2))" => Value::int(1),
     min_single: "(list/min '(5))" => Value::int(5),
     min_negative: "(list/min '(-3 -1 -2))" => Value::int(-3),
@@ -263,7 +263,7 @@ dual_eval_tests! {
     max_mixed: "(list/max '(3 1.5 2))" => Value::int(3),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     min_empty: "(list/min '())",
     max_empty: "(list/max '())",
 }
@@ -272,7 +272,7 @@ dual_eval_error_tests! {
 // list/repeat / make-list — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     repeat_basic: "(list/repeat 3 0)" => common::eval_tw("'(0 0 0)"),
     repeat_string: r#"(list/repeat 2 "hi")"# => common::eval_tw(r#"'("hi" "hi")"#),
     repeat_zero: "(list/repeat 0 1)" => common::eval_tw("'()"),
@@ -283,7 +283,7 @@ dual_eval_tests! {
 // list/reject — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     reject_basic: "(list/reject even? '(1 2 3 4 5))" => common::eval_tw("'(1 3 5)"),
     reject_none: "(list/reject even? '(1 3 5))" => common::eval_tw("'(1 3 5)"),
     reject_all: "(list/reject even? '(2 4 6))" => common::eval_tw("'()"),
@@ -294,7 +294,7 @@ dual_eval_tests! {
 // list/pluck — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     pluck_basic: r#"(list/pluck :name (list {:name "a"} {:name "b"}))"# => common::eval_tw(r#"'("a" "b")"#),
     pluck_missing_key: r#"(list/pluck :age (list {:name "a"}))"# => common::eval_tw("'(nil)"),
     pluck_empty: "(list/pluck :x '())" => common::eval_tw("'()"),
@@ -304,13 +304,13 @@ dual_eval_tests! {
 // list/avg — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     avg_ints: "(list/avg '(2 4 6))" => Value::float(4.0),
     avg_mixed: "(list/avg '(1 2.0 3))" => Value::float(2.0),
     avg_single: "(list/avg '(10))" => Value::float(10.0),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     avg_empty: "(list/avg '())",
 }
 
@@ -318,14 +318,14 @@ dual_eval_error_tests! {
 // list/median — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     median_odd: "(list/median '(3 1 2))" => Value::float(2.0),
     median_even: "(list/median '(3 1 2 4))" => Value::float(2.5),
     median_single: "(list/median '(7))" => Value::float(7.0),
     median_sorted: "(list/median '(1 2 3 4 5))" => Value::float(3.0),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     median_empty: "(list/median '())",
 }
 
@@ -333,7 +333,7 @@ dual_eval_error_tests! {
 // list/mode — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     mode_single_mode: "(list/mode '(1 2 2 3))" => Value::int(2),
     // NOTE: Depends on BTreeMap iteration order for tie-breaking — tied modes are returned
     // sorted by key because the implementation iterates a BTreeMap (or sorted frequency map).
@@ -345,7 +345,7 @@ dual_eval_tests! {
     mode_single_element: "(list/mode '(42))" => Value::int(42),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     mode_empty: "(list/mode '())",
 }
 
@@ -353,7 +353,7 @@ dual_eval_error_tests! {
 // list/diff — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     diff_basic: "(list/diff '(1 2 3 4) '(2 4))" => common::eval_tw("'(1 3)"),
     diff_removes_all: "(list/diff '(1 2 2 3) '(2))" => common::eval_tw("'(1 3)"),
     diff_no_overlap: "(list/diff '(1 2 3) '(4 5))" => common::eval_tw("'(1 2 3)"),
@@ -366,7 +366,7 @@ dual_eval_tests! {
 // list/intersect — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     intersect_basic: "(list/intersect '(1 2 3) '(2 3 4))" => common::eval_tw("'(2 3)"),
     intersect_preserves_dupes: "(list/intersect '(1 2 2 3) '(2 4))" => common::eval_tw("'(2 2)"),
     intersect_no_overlap: "(list/intersect '(1 2) '(3 4))" => common::eval_tw("'()"),
@@ -378,7 +378,7 @@ dual_eval_tests! {
 // list/sliding — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     sliding_basic: "(list/sliding '(1 2 3 4 5) 3)" => common::eval_tw("'((1 2 3) (2 3 4) (3 4 5))"),
     sliding_full: "(list/sliding '(1 2 3) 3)" => common::eval_tw("'((1 2 3))"),
     sliding_one: "(list/sliding '(1 2 3) 1)" => common::eval_tw("'((1) (2) (3))"),
@@ -388,7 +388,7 @@ dual_eval_tests! {
     sliding_empty: "(list/sliding '() 2)" => common::eval_tw("'()"),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     sliding_zero_size: "(list/sliding '(1 2 3) 0)",
     sliding_zero_step: "(list/sliding '(1 2 3) 2 0)",
 }
@@ -397,7 +397,7 @@ dual_eval_error_tests! {
 // list/key-by — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     key_by_basic: r#"(hashmap/get (list/key-by (fn (m) (:id m)) (list {:id 1 :name "a"} {:id 2 :name "b"})) 1)"# => common::eval_tw(r#"{:id 1 :name "a"}"#),
     key_by_last_wins: r#"(:v (hashmap/get (list/key-by (fn (m) (:id m)) (list {:id 1 :v "x"} {:id 1 :v "y"})) 1))"# => Value::string("y"),
     key_by_empty: "(length (keys (list/key-by car '())))" => Value::int(0),
@@ -407,7 +407,7 @@ dual_eval_tests! {
 // list/times — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     times_basic: "(list/times 5 (fn (i) (* i i)))" => common::eval_tw("'(0 1 4 9 16)"),
     times_zero: "(list/times 0 (fn (i) i))" => common::eval_tw("'()"),
     times_identity: "(list/times 3 (fn (i) i))" => common::eval_tw("'(0 1 2)"),
@@ -417,7 +417,7 @@ dual_eval_tests! {
 // list/duplicates — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // NOTE: Depends on internal iteration order (likely insertion-order via seen set).
     // Wrapping in (sort ...) to make order-independence explicit.
     duplicates_basic: "(sort (list/duplicates '(1 2 2 3 3 3)))" => Value::list(vec![Value::int(2), Value::int(3)]),
@@ -430,7 +430,7 @@ dual_eval_tests! {
 // list/cross-join — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     cross_join_basic: "(list/cross-join '(1 2) '(3 4))" => common::eval_tw("'((1 3) (1 4) (2 3) (2 4))"),
     cross_join_empty_first: "(list/cross-join '() '(1 2))" => common::eval_tw("'()"),
     cross_join_empty_second: "(list/cross-join '(1 2) '())" => common::eval_tw("'()"),
@@ -441,7 +441,7 @@ dual_eval_tests! {
 // list/page — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     page_first: "(list/page '(1 2 3 4 5) 1 2)" => common::eval_tw("'(1 2)"),
     page_second: "(list/page '(1 2 3 4 5) 2 2)" => common::eval_tw("'(3 4)"),
     page_last_partial: "(list/page '(1 2 3 4 5) 3 2)" => common::eval_tw("'(5)"),
@@ -449,7 +449,7 @@ dual_eval_tests! {
     page_empty: "(list/page '() 1 10)" => common::eval_tw("'()"),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     page_zero: "(list/page '(1 2 3) 0 2)",
 }
 
@@ -457,7 +457,7 @@ dual_eval_error_tests! {
 // list/pad — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     pad_basic: "(list/pad '(1 2) 5 0)" => common::eval_tw("'(1 2 0 0 0)"),
     pad_already_long: "(list/pad '(1 2 3) 2 0)" => common::eval_tw("'(1 2 3)"),
     pad_exact: "(list/pad '(1 2 3) 3 0)" => common::eval_tw("'(1 2 3)"),
@@ -469,12 +469,12 @@ dual_eval_tests! {
 // list/sole — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     sole_found: "(list/sole even? '(1 2 3))" => Value::int(2),
     sole_at_end: "(list/sole (fn (x) (> x 10)) '(1 5 20))" => Value::int(20),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     sole_none: "(list/sole even? '(1 3 5))",
     sole_multiple: "(list/sole even? '(2 4 6))",
 }
@@ -483,7 +483,7 @@ dual_eval_error_tests! {
 // list/join — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     join_basic: r#"(list/join '(1 2 3) ", ")"# => Value::string("1, 2, 3"),
     join_final_sep: r#"(list/join '(1 2 3) ", " " and ")"# => Value::string("1, 2 and 3"),
     join_single: r#"(list/join '(1) ", ")"# => Value::string("1"),
@@ -496,7 +496,7 @@ dual_eval_tests! {
 // rest / cdr — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     rest_list: "(rest '(1 2 3))" => Value::list(vec![Value::int(2), Value::int(3)]),
     rest_single: "(rest '(1))" => Value::list(vec![]),
     rest_vector: "(vector? (rest [1 2 3]))" => Value::bool(true),
@@ -508,7 +508,7 @@ dual_eval_tests! {
 // vector — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     vector_create: "(vector? (vector 1 2 3))" => Value::bool(true),
     vector_length: "(length (vector 1 2 3))" => Value::int(3),
     vector_empty: "(vector? (vector))" => Value::bool(true),
@@ -519,7 +519,7 @@ dual_eval_tests! {
 // car/cdr compositions (2-deep) — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     caar_basic: "(caar '((1 2) (3 4)))" => Value::int(1),
     cadr_basic: "(cadr '(1 2 3))" => Value::int(2),
     cdar_basic: "(cdar '((1 2 3) (4 5)))" => Value::list(vec![Value::int(2), Value::int(3)]),
@@ -530,7 +530,7 @@ dual_eval_tests! {
 // car/cdr compositions (3-deep) — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     caaar_basic: "(caaar '(((1 2) 3) 4))" => Value::int(1),
     caadr_basic: "(caadr '(1 (2 3) 4))" => Value::int(2),
     cadar_basic: "(cadar '((1 2 3) 4))" => Value::int(2),
@@ -545,7 +545,7 @@ dual_eval_tests! {
 // assq / assv — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     assq_found: "(assq 2 '((1 10) (2 20) (3 30)))" => Value::list(vec![Value::int(2), Value::int(20)]),
     assq_missing: "(assq 5 '((1 10) (2 20)))" => Value::bool(false),
     assq_empty: "(assq 1 '())" => Value::bool(false),
@@ -558,7 +558,7 @@ dual_eval_tests! {
 // frequencies — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     freq_basic: "(hashmap/get (frequencies '(1 1 2 3 3 3)) 3)" => Value::int(3),
     freq_single: "(hashmap/get (frequencies '(1 1 2 3 3 3)) 2)" => Value::int(1),
     freq_empty: "(length (keys (frequencies '())))" => Value::int(0),
@@ -570,7 +570,7 @@ dual_eval_tests! {
 // list/shuffle, list/pick — random, test type/length only
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     shuffle_length: "(length (list/shuffle '(1 2 3)))" => Value::int(3),
     shuffle_empty: "(length (list/shuffle '()))" => Value::int(0),
     pick_is_number: "(number? (list/pick '(1 2 3)))" => Value::bool(true),
@@ -580,7 +580,7 @@ dual_eval_tests! {
 // String error cases — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_error_tests! {
+eval_error_tests! {
     str_ref_negative: r#"(string-ref "hello" -1)"#,
     str_ref_oob: r#"(string-ref "hello" 10)"#,
     substring_negative_start: r#"(substring "hello" -1 3)"#,

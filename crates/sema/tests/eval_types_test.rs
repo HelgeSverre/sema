@@ -7,7 +7,7 @@ use sema_core::Value;
 // Char operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     char_literal: r#"#\a"# => Value::char('a'),
     char_pred: r#"(char? #\a)"# => Value::bool(true),
     char_alpha: r#"(char-alphabetic? #\a)"# => Value::bool(true),
@@ -24,7 +24,7 @@ dual_eval_tests! {
 // Bytevector operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     bv_make: "(bytevector-length (make-bytevector 5 0))" => Value::int(5),
     bv_pred: "(bytevector? (make-bytevector 3 0))" => Value::bool(true),
     bv_ref: "(bytevector-u8-ref (bytevector 10 20 30) 1)" => Value::int(20),
@@ -40,7 +40,7 @@ dual_eval_tests! {
 // Base64 — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     base64_encode: r#"(base64/encode "hello")"# => Value::string("aGVsbG8="),
     base64_decode: r#"(base64/decode "aGVsbG8=")"# => Value::string("hello"),
     base64_empty: r#"(base64/encode "")"# => Value::string(""),
@@ -53,7 +53,7 @@ dual_eval_tests! {
 // Bitwise operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     bit_and: "(bit/and 12 10)" => Value::int(8),
     bit_or: "(bit/or 12 10)" => Value::int(14),
     bit_xor: "(bit/xor 12 10)" => Value::int(6),
@@ -67,11 +67,11 @@ dual_eval_tests! {
 // Delay/Force (promises) — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     delay_basic: "(force (delay 42))" => Value::int(42),
     delay_is_promise: "(promise? (delay 42))" => Value::bool(true),
     delay_memoize: "(begin (define p (delay (+ 1 2))) (force p) (force p))" => Value::int(3),
-    // (force 42) — non-promise — now errors (Wave 6a/D4); see dual_eval_test::force_non_promise_errors
+    // (force 42) — non-promise — now errors (Wave 6a/D4); see eval_test::force_non_promise_errors
     promise_forced: "(begin (define p (delay 99)) (force p) (promise-forced? p))" => Value::bool(true),
 }
 
@@ -79,7 +79,7 @@ dual_eval_tests! {
 // Define-record-type — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     record_basic: "(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point-x (make-point 3 4)))" => Value::int(3),
     record_pred: "(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point? (make-point 1 2)))" => Value::bool(true),
     record_pred_false: "(begin (define-record-type point (make-point x y) point? (x point-x) (y point-y)) (point? 42))" => Value::bool(false),
@@ -90,7 +90,7 @@ dual_eval_tests! {
 // Embedding operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     emb_length: "(embedding/length (embedding/list->embedding '(1.0 2.0 3.0)))" => Value::int(3),
     emb_ref: "(embedding/ref (embedding/list->embedding '(10.5 20.5 30.5)) 1)" => Value::float(20.5),
     emb_roundtrip: "(length (embedding/->list (embedding/list->embedding '(1.0 2.0 3.0))))" => Value::int(3),
@@ -104,7 +104,7 @@ dual_eval_tests! {
 // Type conversions — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     int_to_float: "(float 42)" => Value::float(42.0),
     float_to_int: "(int 3.7)" => Value::int(3),
     string_to_num: r#"(string->number "42")"# => Value::int(42),
@@ -120,7 +120,7 @@ dual_eval_tests! {
 // UUID — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     uuid_is_string: "(string? (uuid/v4))" => Value::bool(true),
     uuid_length: "(string-length (uuid/v4))" => Value::int(36),
 }
@@ -129,7 +129,7 @@ dual_eval_tests! {
 // Frequencies — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     freq_basic: "(get (frequencies '(:a :b :a)) :a)" => Value::int(2),
     freq_empty: "(count (frequencies '()))" => Value::int(0),
 }
@@ -138,7 +138,7 @@ dual_eval_tests! {
 // Error tests — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_error_tests! {
+eval_error_tests! {
     err_emb_oob: "(embedding/ref (embedding/list->embedding '(1.0 2.0)) 5)",
 }
 
@@ -146,7 +146,7 @@ dual_eval_error_tests! {
 // Float edge cases — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // -0.0 vs +0.0 equality (IEEE 754: they are equal)
     neg_zero_equals_pos_zero: "(= -0.0 0.0)" => Value::bool(true),
     neg_zero_equal_fn: "(equal? -0.0 0.0)" => Value::bool(true),

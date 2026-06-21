@@ -6,7 +6,7 @@ use sema_core::Value;
 // JSON encode/decode — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     json_encode_map: r#"(json/encode {:a 1})"# => Value::string(r#"{"a":1}"#),
     json_encode_vector: r#"(json/encode [1 2 3])"# => Value::string("[1,2,3]"),
     json_encode_nested: r#"(json/encode {:a [1 2]})"# => Value::string(r#"{"a":[1,2]}"#),
@@ -31,7 +31,7 @@ dual_eval_tests! {
 // Regex operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     regex_match_found: r#"(get (regex/match "\\d+" "abc123def") :match)"# => Value::string("123"),
     regex_match_no_match: r#"(regex/match "\\d+" "abc")"# => Value::nil(),
     regex_find_all: r#"(length (regex/find-all "\\d+" "a1b2c3"))"# => Value::int(3),
@@ -46,7 +46,7 @@ dual_eval_tests! {
 // CSV operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     csv_parse: r#"(length (csv/parse "a,b\n1,2\n3,4"))"# => Value::int(3),
     csv_parse_maps: r#"(get (car (csv/parse-maps "a,b\n1,2")) :a)"# => Value::string("1"),
 }
@@ -55,7 +55,7 @@ dual_eval_tests! {
 // Format — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     format_basic: r#"(format "~a" 42)"# => Value::string("42"),
     format_multiple: r#"(format "~a+~a=~a" 1 2 3)"# => Value::string("1+2=3"),
 }
@@ -64,7 +64,7 @@ dual_eval_tests! {
 // Hash functions — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     hash_sha256: r#"(string? (hash/sha256 "test"))"# => Value::bool(true),
     hash_md5: r#"(string? (hash/md5 "test"))"# => Value::bool(true),
     hash_md5_length: r#"(string-length (hash/md5 "test"))"# => Value::int(32),
@@ -75,7 +75,7 @@ dual_eval_tests! {
 // Type operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     type_int: "(type 42)" => Value::keyword("int"),
     type_float: "(type 3.14)" => Value::keyword("float"),
     type_string: r#"(type "hi")"# => Value::keyword("string"),
@@ -94,7 +94,7 @@ dual_eval_tests! {
 // Predicates — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     pred_number: "(number? 42)" => Value::bool(true),
     pred_number_str: r#"(number? "hi")"# => Value::bool(false),
     pred_string: r#"(string? "hi")"# => Value::bool(true),

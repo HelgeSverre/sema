@@ -55,11 +55,11 @@
 ## Testing
 
 The bytecode VM (`sema-vm`) is the **sole evaluator**. All tests run on the VM.
-The `dual_eval_tests!` / `dual_eval_error_tests!` macros pin each case to a
+The `eval_tests!` / `eval_error_tests!` macros pin each case to a
 literal expected value (`$input => $expected`) — that literal is the correctness
 oracle (there's no second backend to differentially compare against).
 
-- **Eval test file**: `crates/sema/tests/dual_eval_test.rs` — use `dual_eval_tests!` and `dual_eval_error_tests!` (literal `=> expected` value is the oracle)
+- **Eval test file**: `crates/sema/tests/eval_test.rs` — use `eval_tests!` and `eval_error_tests!` (literal `=> expected` value is the oracle)
 - **Async tests**: `crates/sema/tests/vm_async_test.rs` — async/channel tests
 - **Integration / equivalence**: `integration_test.rs`, `vm_integration_test.rs`
 - I/O, LLM, sandbox, CLI, module/import, server tests → `integration_test.rs`
@@ -68,7 +68,7 @@ oracle (there's no second backend to differentially compare against).
 1. Add lowering in `lower_list()` dispatch in `crates/sema-vm/src/lower.rs`
 2. If the form desugars into existing CoreExpr nodes (If/Let/LetStar/Call), do that in lower.rs
 3. If it needs runtime helpers, add `__vm-<name>` native functions in `register_vm_delegates()` in `eval.rs`
-4. Add `dual_eval_tests!` in `dual_eval_test.rs`
+4. Add `eval_tests!` in `eval_test.rs`
 
 ## Adding Functionality
 

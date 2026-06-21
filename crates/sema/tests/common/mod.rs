@@ -22,7 +22,7 @@ pub fn eval_vm(input: &str) -> Value {
 ///
 /// Usage:
 /// ```ignore
-/// dual_eval_tests! {
+/// eval_tests! {
 ///     test_name: "sema expression" => expected_value,
 ///     test_name2: "sema expression" => expected_value2,
 /// }
@@ -30,7 +30,7 @@ pub fn eval_vm(input: &str) -> Value {
 ///
 /// This generates `test_name_tw` and `test_name_vm` test functions.
 #[macro_export]
-macro_rules! dual_eval_tests {
+macro_rules! eval_tests {
     ($($name:ident : $input:expr => $expected:expr),* $(,)?) => {
         $(
             paste::paste! {
@@ -55,7 +55,7 @@ macro_rules! dual_eval_tests {
 /// Supports two per-entry forms (mix freely within one invocation):
 ///
 /// ```ignore
-/// dual_eval_error_tests! {
+/// eval_error_tests! {
 ///     // Strong form: assert the error message contains an expected substring
 ///     // (matched case-insensitively against the full Display'd error).
 ///     name1: "(bad-expr)" => "expected substring",
@@ -67,45 +67,45 @@ macro_rules! dual_eval_tests {
 /// }
 /// ```
 #[macro_export]
-macro_rules! dual_eval_error_tests {
+macro_rules! eval_error_tests {
     // Entry point: parse a comma-separated list of mixed entries.
     ($($body:tt)*) => {
-        $crate::__dual_eval_error_tests_parse!($($body)*);
+        $crate::__eval_error_tests_parse!($($body)*);
     };
 }
 
 /// Internal: recursive muncher over `name: input` and `name: input => substr` entries.
 #[macro_export]
 #[doc(hidden)]
-macro_rules! __dual_eval_error_tests_parse {
+macro_rules! __eval_error_tests_parse {
     // Empty
     () => {};
 
     // Strong form, trailing comma
     ($name:ident : $input:expr => $expected:expr , $($rest:tt)*) => {
-        $crate::__dual_eval_error_test_strong!($name, $input, $expected);
-        $crate::__dual_eval_error_tests_parse!($($rest)*);
+        $crate::__eval_error_test_strong!($name, $input, $expected);
+        $crate::__eval_error_tests_parse!($($rest)*);
     };
     // Strong form, no trailing comma
     ($name:ident : $input:expr => $expected:expr) => {
-        $crate::__dual_eval_error_test_strong!($name, $input, $expected);
+        $crate::__eval_error_test_strong!($name, $input, $expected);
     };
 
     // Legacy form, trailing comma
     ($name:ident : $input:expr , $($rest:tt)*) => {
-        $crate::__dual_eval_error_test_legacy!($name, $input);
-        $crate::__dual_eval_error_tests_parse!($($rest)*);
+        $crate::__eval_error_test_legacy!($name, $input);
+        $crate::__eval_error_tests_parse!($($rest)*);
     };
     // Legacy form, no trailing comma
     ($name:ident : $input:expr) => {
-        $crate::__dual_eval_error_test_legacy!($name, $input);
+        $crate::__eval_error_test_legacy!($name, $input);
     };
 }
 
 /// Internal: emit a strong (substring-checked) error test pair.
 #[macro_export]
 #[doc(hidden)]
-macro_rules! __dual_eval_error_test_strong {
+macro_rules! __eval_error_test_strong {
     ($name:ident, $input:expr, $expected:expr) => {
         paste::paste! {
             #[test]
@@ -146,7 +146,7 @@ macro_rules! __dual_eval_error_test_strong {
 /// Internal: emit a legacy (existence-only) error test pair.
 #[macro_export]
 #[doc(hidden)]
-macro_rules! __dual_eval_error_test_legacy {
+macro_rules! __eval_error_test_legacy {
     ($name:ident, $input:expr) => {
         paste::paste! {
             #[test]

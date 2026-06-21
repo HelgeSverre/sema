@@ -551,7 +551,7 @@ enabled flag (no-op when off). `sema-stdlib` depends on `sema-otel`, never on
   the metrics pipeline (file/console or OTLP); with the content flag set the span
   carries `gen_ai.input.messages`/`output.messages` and **without it those are
   absent** (privacy test). `(otel/span "x" (fn () 42))` returns `42` and emits one
-  INTERNAL span. Dual-eval test pinning the flag-off no-op returning `42`.
+  INTERNAL span. Eval test pinning the flag-off no-op returning `42`.
 
 ### Milestone 4 (vision) — notebook trace + streaming + embeddings (1–2 days)
 - **Files:** `crates/sema-notebook/src/*` — one root trace per "Run All" with a

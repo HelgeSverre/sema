@@ -7,7 +7,7 @@ use sema_core::Value;
 // Destructuring — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // Regression: the inline ADD_INT/SUB_INT opcodes masked the result to the
     // 45-bit small-int payload with no overflow check, so a runtime add/sub whose
     // result crossed ±2^44 (~17.5 trillion) was silently truncated. Variables
@@ -50,7 +50,7 @@ dual_eval_tests! {
     destructure_nested_map_in_vec: "(let (([a {:keys [b]}] (list 1 {:b 2}))) (+ a b))" => Value::int(3),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     destructure_err_too_few: "(let (([a b c] '(1 2))) a)" => "destructure: expected 3",
     destructure_err_too_many: "(let (([a b] '(1 2 3))) a)" => "destructure: expected 2",
     destructure_err_non_list: "(let (([a b] 42)) a)" => "expected list or vector",
@@ -61,7 +61,7 @@ dual_eval_error_tests! {
 // Pattern Matching — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     match_literal_int: r#"(match 42 (42 "found") (_ "nope"))"# => Value::string("found"),
     match_literal_string: r#"(match "hello" ("hello" 1) ("world" 2) (_ 0))"# => Value::int(1),
     match_literal_keyword: r#"(match :ok (:ok "success") (:err "failure"))"# => Value::string("success"),
@@ -137,7 +137,7 @@ dual_eval_tests! {
 // Pattern Matching Edge Cases — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // Guard references variables bound by nested pattern
     match_guard_nested_binding: r#"
         (match {:a [1 2]}
@@ -263,7 +263,7 @@ dual_eval_tests! {
 // Regex Literals — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     regex_literal_basic: r#"(regex/match? #"\d+" "abc123")"# => Value::bool(true),
     regex_literal_class: r#"(regex/match? #"[a-z]+" "hello")"# => Value::bool(true),
     regex_literal_anchored: r#"(regex/match? #"^hello$" "hello")"# => Value::bool(true),
@@ -273,7 +273,7 @@ dual_eval_tests! {
 // Debug helpers — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     spy_returns_value: r#"(spy "test" 42)"# => Value::int(42),
     spy_returns_string: r#"(spy "tag" "hello")"# => Value::string("hello"),
     assert_true: "(assert #t)" => Value::bool(true),
@@ -284,7 +284,7 @@ dual_eval_tests! {
     time_returns_result: "(time (fn () (+ 1 2)))" => Value::int(3),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     assert_false: "(assert #f)" => "assertion failed",
     assert_nil: "(assert nil)" => "assertion failed",
     assert_with_message: r#"(assert #f "custom error")"# => "custom error",
@@ -300,7 +300,7 @@ dual_eval_error_tests! {
 // Multimethods — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // Basic dispatch on keyword
     multi_basic_dispatch: r#"
         (begin
@@ -386,7 +386,7 @@ dual_eval_tests! {
 // String interning — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     string_intern_returns_string: r#"(string/intern "hello")"# => Value::string("hello"),
     string_intern_eq: r#"(equal? (string/intern "hello") (string/intern "hello"))"# => Value::bool(true),
     string_intern_same_pointer: r#"(eq? (string/intern "abc") (string/intern "abc"))"# => Value::bool(true),
@@ -397,7 +397,7 @@ dual_eval_tests! {
     "# => Value::int(42),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     string_intern_wrong_type: "(string/intern 42)" => "expected string",
     string_intern_no_args: "(string/intern)" => "string/intern expects 1",
 }
@@ -406,7 +406,7 @@ dual_eval_error_tests! {
 // TOML — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     toml_decode_basic: r#"
         (let ((t (toml/decode "[package]\nname = \"test\"\nversion = \"1.0\"")))
           (:name (:package t)))
@@ -460,7 +460,7 @@ dual_eval_tests! {
     "# => Value::list(vec![Value::string("sema"), Value::string("1.0")]),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     toml_decode_invalid_input: r#"(toml/decode "[invalid")"# => "toml/decode",
 
     toml_encode_non_map: r#"(toml/encode "not a map")"# => "top-level value must be a map",
@@ -470,7 +470,7 @@ dual_eval_error_tests! {
     toml_encode_nil_value: r#"(toml/encode {:key nil})"# => "cannot encode nil",
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     // No matching method and no default
     multi_no_method: r#"
         (begin
@@ -495,7 +495,7 @@ dual_eval_error_tests! {
 // correctly in VALUE position; in OPERATOR/head position the special form still
 // wins (a documented footgun — docs/limitations.md #36; the proper fix is full
 // lexical shadowing, future work).
-dual_eval_tests! {
+eval_tests! {
     shadow_if_value_position: "(let ((if 5)) (+ if 1))" => Value::int(6),
     shadow_message_value_position: r#"(let ((message "hi")) message)"# => Value::string("hi"),
     shadow_fn_as_param: "((fn (fn) (+ fn 1)) 10)" => Value::int(11),
@@ -504,7 +504,7 @@ dual_eval_tests! {
 }
 
 // Regular (non-special-form) names also shadow freely.
-dual_eval_tests! {
+eval_tests! {
     shadow_builtin_list_fn: "(let ((list (fn (x) (* x 2)))) (list 5))" => Value::int(10),
     shadow_builtin_map_var: "(let ((map 7)) (+ map 1))" => Value::int(8),
 }
@@ -549,7 +549,7 @@ mod redirect_hints {
 // Dialect Aliases — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     alias_mapcar: "(mapcar (fn (x) (* x 2)) '(1 2 3))" => Value::list(vec![Value::int(2), Value::int(4), Value::int(6)]),
     alias_fold: "(fold + 0 '(1 2 3))" => Value::int(6),
     alias_every_q: "(every? odd? '(1 3 5))" => Value::bool(true),
@@ -571,7 +571,7 @@ dual_eval_tests! {
 // Auto-gensym — macro hygiene tests (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // Core hygiene: macro's x# does NOT capture user's x
     auto_gensym_basic: r#"
         (begin
@@ -640,7 +640,7 @@ dual_eval_tests! {
 // Prelude hygiene — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // some-> should not capture user's __v variable
     some_arrow_no_capture: r#"
         (begin
@@ -653,7 +653,7 @@ dual_eval_tests! {
 // Auto-gensym edge cases — dual eval
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // Auto-gensym with splicing
     auto_gensym_with_splicing: r#"
         (begin
@@ -771,7 +771,7 @@ dual_eval_tests! {
 // Destructuring Edge Cases — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // Deep nesting: map with nested vector value
     destructure_map_nested_vec_val: "(let (({:a [x y]} {:a [10 20]})) (+ x y))" => Value::int(30),
 
@@ -824,7 +824,7 @@ dual_eval_tests! {
 // Module/function aliases — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // string aliases
     string_length_alias: r#"(string/length "hello")"# => Value::int(5),
     string_append_alias: r#"(string/append "a" "b")"# => Value::string("ab"),
@@ -1045,7 +1045,7 @@ dual_eval_tests! {
         Value::bytevector(vec![0xA0, 0x80, 0x01, 0x60, 0x00, 0x00]),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     // & without rest pattern name
     destructure_err_amp_no_rest: "(let (([a &] '(1 2))) a)" => "`&` must be followed by a rest pattern",
 
@@ -1101,7 +1101,7 @@ dual_eval_error_tests! {
 // Typed Arrays — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // f64-array: make + ref
     f64_array_make_and_ref: "(f64-array/ref (f64-array/make 3 1.5) 0)" => Value::float(1.5),
     f64_array_make_default_fill: "(f64-array/ref (f64-array/make 3) 1)" => Value::float(0.0),
@@ -1187,7 +1187,7 @@ dual_eval_tests! {
     i64_array_not_f64: "(f64-array? (i64-array/make 1))" => Value::bool(false),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     // i64-array/map: callback must return integer
     i64_array_map_callback_non_int: r#"(i64-array/map (fn (x) "oops") (i64-array 1 2 3))"#,
     // i64-array/fold: wrong arity (no array argument)
@@ -1212,7 +1212,7 @@ dual_eval_error_tests! {
 // procedure? / fn? — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     procedure_pred_native_fn: "(procedure? +)" => Value::bool(true),
     procedure_pred_lambda: "(procedure? (fn (x) x))" => Value::bool(true),
     procedure_pred_int: "(procedure? 1)" => Value::bool(false),
@@ -1229,7 +1229,7 @@ dual_eval_tests! {
 // reverse and filter — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // reverse
     reverse_basic: "(reverse '(1 2 3))" => Value::list(vec![Value::int(3), Value::int(2), Value::int(1)]),
     reverse_empty: "(reverse '())" => Value::list(vec![]),
@@ -1244,7 +1244,7 @@ dual_eval_tests! {
 // Input validation — negative counts/indices (C7, C8, C9)
 // ============================================================
 
-dual_eval_error_tests! {
+eval_error_tests! {
     string_repeat_negative_errors: r#"(string/repeat "ab" -1)"# => "non-negative",
     abs_i64_min_errors: "(abs -9223372036854775808)" => "overflows i64",
     // TODO(test-strength): VM `nth` uses generic "out of bounds" while tree-walker
@@ -1257,7 +1257,7 @@ dual_eval_error_tests! {
 
 // Integer arithmetic is intentionally wrapping; pin current semantics so a
 // future regression away from wrap is loud.
-dual_eval_tests! {
+eval_tests! {
     add_overflow_wraps: "(+ 9223372036854775807 1)" => Value::int(i64::MIN),
     sub_underflow_wraps: "(- -9223372036854775808 1)" => Value::int(i64::MAX),
 }
@@ -1269,7 +1269,7 @@ dual_eval_tests! {
 // existing legacy stdlib function. They spot-check that the alias is bound
 // and dispatches to the same implementation as the legacy name.
 
-dual_eval_tests! {
+eval_tests! {
     alias_any_question_true: "(any? odd? (list 1 2 3))" => Value::bool(true),
     alias_any_question_false: "(any? odd? (list 2 4 6))" => Value::bool(false),
     alias_every_question_true: "(every? odd? (list 1 3 5))" => Value::bool(true),
@@ -1285,7 +1285,7 @@ dual_eval_tests! {
     alias_bytevector_length: "(bytevector/length (bytevector 1 2 3 4))" => Value::int(4),
 }
 
-/// `time/now-ms` is non-deterministic, so we can't use the dual_eval_tests! macro.
+/// `time/now-ms` is non-deterministic, so we can't use the eval_tests! macro.
 /// Just confirm both backends bind the alias and it returns an int.
 #[test]
 fn alias_time_now_ms_tw() {
@@ -1371,7 +1371,7 @@ fn vm_type_of_lambda_is_lambda() {
 // (OOM allocation), or returned a silently-wrong result. They must now error
 // cleanly on both backends.
 // ---------------------------------------------------------------------------
-dual_eval_error_tests! {
+eval_error_tests! {
     // STD-1
     bit_shift_left_overflow: "(bit/shift-left 1 64)" => "shift",
     bit_shift_left_negative: "(bit/shift-left 1 -1)" => "shift",
@@ -1397,13 +1397,13 @@ dual_eval_error_tests! {
 // 2026-05-29 audit — Pattern B: UTF-8 byte slicing must not split a char.
 // STD-3: text/chunk overlap on multibyte text previously panicked
 // ("byte index N is not a char boundary"). It must return a list of strings.
-dual_eval_tests! {
+eval_tests! {
     text_chunk_multibyte_overlap_no_panic:
         r#"(list? (text/chunk "λλλ λλλ λλλ λλλ λλλ λλλ" {:size 12 :overlap 3}))"# => Value::bool(true),
 }
 
 // 2026-05-29 audit — Wave 4 quasiquote/optimizer correctness.
-dual_eval_tests! {
+eval_tests! {
     // EVAL-1: unquote-splicing must work inside vector templates.
     quasiquote_vector_splice:
         "(let ((xs (list 1 2))) `[0 ,@xs 3])"
@@ -1413,7 +1413,7 @@ dual_eval_tests! {
         r#"(let ((name "bob")) (:name `{:name ,name}))"# => Value::string("bob"),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     // EVAL-2: unquote-splicing has no meaning in a quasiquoted map, so it must
     // error clearly rather than leaking literal `(unquote-splicing ...)` data.
     quasiquote_map_value_splice_errors:
@@ -1424,7 +1424,7 @@ dual_eval_error_tests! {
         => "unquote-splicing is not allowed",
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     // VM-4: a rest param named after a foldable builtin lexically shadows it,
     // so the optimizer must NOT constant-fold the body. Here the rest param `+`
     // is bound to the list (5), and calling it errors on both backends; the VM
@@ -1437,7 +1437,7 @@ dual_eval_error_tests! {
 // exercises the vm_add/vm_sub/vm_mul fallback helpers at runtime (the small-int
 // fast path and constant folding otherwise hide them). Regression for a coverage
 // gap found by mutation testing (2026-06).
-dual_eval_tests! {
+eval_tests! {
     wide_int_sub_runtime: "((fn (a b) (- a b)) 100000000000000 1)" => Value::int(99999999999999),
     wide_int_add_runtime: "((fn (a b) (+ a b)) 100000000000000 1)" => Value::int(100000000000001),
     wide_int_mul_runtime: "((fn (a b) (* a b)) 100000000000000 2)" => Value::int(200000000000000),
@@ -1452,7 +1452,7 @@ dual_eval_tests! {
 // See docs/bugs/vm-set-lost-through-hof-callbacks.md and
 // docs/plans/2026-06-18-c1-vm-hof-in-vm.md.
 // ============================================================
-dual_eval_tests! {
+eval_tests! {
     // The canonical repro from the bug report.
     hof_set_through_map: "(let ((c 0)) (map (fn (x) (set! c (+ c x))) (list 1 2 3)) c)" => Value::int(6),
     // filter callback mutating a captured accumulator.
@@ -1482,14 +1482,14 @@ dual_eval_tests! {
         => Value::list(vec![Value::int(1), Value::int(4), Value::int(9)]),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     // An error raised inside a HOF callback must propagate cleanly out of the
     // running VM (regression: the in-VM routing must unwind only the nested
     // frames, not corrupt the parent frame stack).
     hof_callback_error_propagates: r#"(map (fn (x) (error "boom")) (list 1 2 3))"#,
 }
 
-dual_eval_tests! {
+eval_tests! {
     // try/catch wrapping a HOF whose callback throws: both backends catch it.
     hof_callback_error_caught:
         r#"(try (map (fn (x) (error "boom")) (list 1)) (catch e :caught))"#
@@ -1514,7 +1514,7 @@ dual_eval_tests! {
 // Inlined string intrinsics (StringLength / StringRef / StringAppend opcodes)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // string-length: char count, not byte count.
     string_length_basic: r#"(string-length "hello")"# => Value::int(5),
     string_length_empty: r#"(string-length "")"# => Value::int(0),
@@ -1536,7 +1536,7 @@ dual_eval_tests! {
     string_append_nary: r#"(string-append "a" "b" "c" "d")"# => Value::string("abcd"),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     // string-length on a non-string errors like the stdlib version.
     string_length_wrong_type: "(string-length 42)" => "expected string",
     // string-ref bounds / type / sign checks.

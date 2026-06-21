@@ -7,7 +7,7 @@ use sema_core::Value;
 // Text processing — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     text_word_count: r#"(text/word-count "hello world foo bar")"# => Value::int(4),
     text_word_count_empty: r#"(text/word-count "")"# => Value::int(0),
     text_clean_whitespace: r#"(text/clean-whitespace "  hello   world  ")"# => Value::string("hello world"),
@@ -29,7 +29,7 @@ dual_eval_tests! {
 // Terminal / ANSI — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     term_bold: r#"(term/bold "hello")"# => Value::string("\x1b[1mhello\x1b[0m"),
     term_dim: r#"(term/dim "text")"# => Value::string("\x1b[2mtext\x1b[0m"),
     term_red: r#"(term/red "error")"# => Value::string("\x1b[31merror\x1b[0m"),
@@ -51,7 +51,7 @@ dual_eval_tests! {
 // Pretty print — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     pprint_returns_nil: r#"(pprint '(1 2 3))"# => Value::nil(),
 }
 
@@ -59,7 +59,7 @@ dual_eval_tests! {
 // Context operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     ctx_set_get: r#"(begin (context/set :name "alice") (context/get :name))"# => Value::string("alice"),
     ctx_get_missing: "(context/get :missing)" => Value::nil(),
     ctx_has: "(begin (context/set :x 1) (context/has? :x))" => Value::bool(true),
@@ -80,7 +80,7 @@ dual_eval_tests! {
 // Prompt/Message primitives — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     prompt_pred_false: "(prompt? 42)" => Value::bool(false),
     prompt_render: r#"(prompt/render "Hello {{name}}" {:name "Alice"})"# => Value::string("Hello Alice"),
     prompt_render_missing: r#"(prompt/render "Hello {{name}}, {{x}}." {:name "Bob"})"# => Value::string("Hello Bob, {{x}}."),
@@ -112,7 +112,7 @@ dual_eval_tests! {
 // Conversation — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     conv_pred: r#"(conversation? (conversation/new))"# => Value::bool(true),
     conv_pred_false: "(conversation? 42)" => Value::bool(false),
     conv_empty_msgs: r#"(length (conversation/messages (conversation/new)))"# => Value::int(0),
@@ -137,7 +137,7 @@ dual_eval_tests! {
 // Document operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     doc_text: r#"(document/text (document/create "hello" {:source "x"}))"# => Value::string("hello"),
     doc_metadata_source: r#"(get (document/metadata (document/create "hello" {:source "x"})) :source)"# => Value::string("x"),
 }
@@ -146,7 +146,7 @@ dual_eval_tests! {
 // Tool/Agent definitions — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     tool_pred: r#"(begin (deftool add-numbers "Add" {:a {:type :number}} (lambda (a) a)) (tool? add-numbers))"# => Value::bool(true),
     tool_name: r#"(begin (deftool add-numbers "Add" {:a {:type :number}} (lambda (a) a)) (tool/name add-numbers))"# => Value::string("add-numbers"),
     tool_desc: r#"(begin (deftool add-numbers "Add two" {:a {:type :number}} (lambda (a) a)) (tool/description add-numbers))"# => Value::string("Add two"),
@@ -159,7 +159,7 @@ dual_eval_tests! {
 // LLM utility functions (no API calls) — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     llm_token_count_empty: r#"(llm/token-count "")"# => Value::int(0),
     llm_similarity_identical: "(llm/similarity '(1.0 0.0 0.0) '(1.0 0.0 0.0))" => Value::float(1.0),
     llm_similarity_orthogonal: "(llm/similarity '(1.0 0.0) '(0.0 1.0))" => Value::float(0.0),
@@ -171,7 +171,7 @@ dual_eval_tests! {
 // Retry — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     retry_basic: r#"(retry (lambda () 42))"# => Value::int(42),
     retry_with_opts: r#"(retry (lambda () 42) {:max-attempts 3})"# => Value::int(42),
 }
@@ -180,7 +180,7 @@ dual_eval_tests! {
 // Log (side-effect, returns nil) — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     log_info: r#"(log/info "hello")"# => Value::nil(),
     log_warn: r#"(log/warn "caution")"# => Value::nil(),
 }
@@ -192,7 +192,7 @@ dual_eval_tests! {
 // All tests use fixed timestamps via time/parse to avoid flakiness.
 // Unix timestamp 1704067200 = 2024-01-01 00:00:00 UTC
 
-dual_eval_tests! {
+eval_tests! {
     // time/parse — basic parsing
     time_parse_basic: r#"(time/parse "2024-01-01 00:00:00" "%Y-%m-%d %H:%M:%S")"# => Value::float(1704067200.0),
     time_parse_epoch: r#"(time/parse "1970-01-01 00:00:00" "%Y-%m-%d %H:%M:%S")"# => Value::float(0.0),
@@ -260,7 +260,7 @@ dual_eval_tests! {
 }
 
 // time/now — can only check it returns a reasonable positive float
-dual_eval_tests! {
+eval_tests! {
     time_now_positive: "(> (time/now) 0)" => Value::bool(true),
     time_now_is_float: "(float? (time/now))" => Value::bool(true),
     // time/now should be after 2024-01-01 (1704067200)
@@ -268,7 +268,7 @@ dual_eval_tests! {
 }
 
 // time/parse error cases
-dual_eval_error_tests! {
+eval_error_tests! {
     time_parse_invalid_format: r#"(time/parse "not-a-date" "%Y-%m-%d")"#,
     time_parse_wrong_type: r#"(time/parse 42 "%Y-%m-%d")"#,
     time_format_wrong_type: r#"(time/format "not-a-number" "%Y-%m-%d")"#,
@@ -280,7 +280,7 @@ dual_eval_error_tests! {
 // HTTP response helpers — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     // http/ok
     http_ok_string_status: r#"(get (http/ok "hi") :status)"# => Value::int(200),
     http_ok_map_status: r#"(get (http/ok {:a 1}) :status)"# => Value::int(200),
@@ -326,7 +326,7 @@ dual_eval_tests! {
 // String operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     string_length_basic: r#"(string-length "hello")"# => Value::int(5),
     string_length_empty: r#"(string-length "")"# => Value::int(0),
     substring_basic: r#"(substring "hello" 1 3)"# => Value::string("el"),
@@ -344,7 +344,7 @@ dual_eval_tests! {
 // Math operations — dual eval (tree-walker + VM)
 // ============================================================
 
-dual_eval_tests! {
+eval_tests! {
     math_abs_negative: "(abs -5)" => Value::int(5),
     math_abs_positive: "(abs 5)" => Value::int(5),
     math_floor_basic: "(floor 3.7)" => Value::int(3),
@@ -355,7 +355,7 @@ dual_eval_tests! {
     math_round_down: "(round 3.2)" => Value::int(3),
 }
 
-dual_eval_error_tests! {
+eval_error_tests! {
     http_ok_no_args: "(http/ok)",
     http_ok_too_many: r#"(http/ok "a" "b")"#,
     http_created_no_args: "(http/created)",
