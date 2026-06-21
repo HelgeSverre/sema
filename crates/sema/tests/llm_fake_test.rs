@@ -131,3 +131,73 @@ fn agent_loop_round2_is_correlated() {
         "round 2 must include a tool result correlated by tool_call_id"
     );
 }
+
+// ── Phase 3: recoverable tool errors + argument validation ──────────────────
+
+/// A handler that throws on round 1 must NOT abort the run; the error is fed back
+/// and the model recovers on round 2.
+#[test]
+fn tool_handler_error_is_recoverable() {
+    let fake = FakeProvider::builder("fake")
+        .model("fake-model")
+        .tool_call("c1", "flaky", serde_json::json!({"x": "bad"}))
+        .reply("recovered")
+        .build();
+    let src = r#"
+        (deftool flaky "A flaky tool" {:x {:type :string}}
+          (lambda (x) (if (= x "bad") (throw "boom") "ok")))
+        (defagent bot {:model "fake-model" :tools [flaky] :max-turns 5})
+        (agent/run bot "use the tool")
+    "#;
+    let (result, recorder) = eval_with_fake(src, fake);
+    let val = result.expect("agent/run must not abort on a tool error");
+    assert_eq!(val.as_str(), Some("recovered"));
+    assert_eq!(
+        recorder.call_count(),
+        2,
+        "loop should continue after the tool error"
+    );
+}
+
+/// A wrong-typed argument is rejected by schema validation (before the handler
+/// runs), fed back, and the model retries successfully.
+#[test]
+fn tool_arg_validation_is_recoverable() {
+    let fake = FakeProvider::builder("fake")
+        .model("fake-model")
+        .tool_call("c1", "calc", serde_json::json!({"n": "not-a-number"}))
+        .reply("validated-ok")
+        .build();
+    let src = r#"
+        (deftool calc "Needs a number" {:n {:type :number}}
+          (lambda (n) (str n)))
+        (defagent bot {:model "fake-model" :tools [calc] :max-turns 5})
+        (agent/run bot "call calc")
+    "#;
+    let (result, recorder) = eval_with_fake(src, fake);
+    let val = result.expect("agent/run must not abort on an arg validation error");
+    assert_eq!(val.as_str(), Some("validated-ok"));
+    assert_eq!(recorder.call_count(), 2);
+}
+
+/// Runaway error loops are bounded: 5 consecutive failing tool calls abort.
+#[test]
+fn consecutive_tool_errors_abort() {
+    let mut b = FakeProvider::builder("fake").model("fake-model");
+    for i in 0..6 {
+        b = b.tool_call(&format!("c{i}"), "flaky", serde_json::json!({"x": "bad"}));
+    }
+    let fake = b.build();
+    let src = r#"
+        (deftool flaky "Always fails" {:x {:type :string}}
+          (lambda (x) (throw "boom")))
+        (defagent bot {:model "fake-model" :tools [flaky] :max-turns 10})
+        (agent/run bot "go")
+    "#;
+    let (result, _recorder) = eval_with_fake(src, fake);
+    let err = result.expect_err("runaway tool errors must abort");
+    assert!(
+        err.to_string().contains("consecutive tool errors"),
+        "expected a consecutive-tool-errors abort, got: {err}"
+    );
+}

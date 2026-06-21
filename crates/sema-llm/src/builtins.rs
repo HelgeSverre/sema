@@ -4449,6 +4449,11 @@ fn run_tool_loop(
 ) -> Result<(String, Vec<ChatMessage>), SemaError> {
     let mut messages = initial_messages;
     let mut last_content = String::new();
+    // Bound runaway error loops: if the model keeps issuing failing tool calls
+    // and never recovers, abort rather than burning every round. Reset on any
+    // successful tool call.
+    const MAX_CONSECUTIVE_TOOL_ERRORS: usize = 5;
+    let mut consecutive_errors: usize = 0;
 
     for _round in 0..max_rounds {
         let mut request = ChatRequest::new(model.clone(), messages.clone());
@@ -4493,7 +4498,19 @@ fn run_tool_loop(
             }
 
             let start_time = std::time::Instant::now();
-            let result = execute_tool_call(ctx, tools, &tc.name, &tc.arguments)?;
+            // A failing or invalid tool call must NOT abort the whole agent run.
+            // Capture the error as the tool result and feed it back so the model
+            // can self-correct (bounded by MAX_CONSECUTIVE_TOOL_ERRORS / max_rounds).
+            let (result, is_error) = match execute_tool_call(ctx, tools, &tc.name, &tc.arguments) {
+                Ok(r) => {
+                    consecutive_errors = 0;
+                    (r, false)
+                }
+                Err(e) => {
+                    consecutive_errors += 1;
+                    (format!("Error: {e}"), true)
+                }
+            };
             let duration_ms = start_time.elapsed().as_millis() as i64;
 
             // Fire "end" event
@@ -4511,6 +4528,7 @@ fn run_tool_loop(
                     result.clone()
                 };
                 event_map.insert(Value::keyword("result"), Value::string(&result_preview));
+                event_map.insert(Value::keyword("error"), Value::bool(is_error));
                 event_map.insert(Value::keyword("duration-ms"), Value::int(duration_ms));
                 let _ = call_value_fn(ctx, callback, &[Value::map(event_map)]);
             }
@@ -4522,6 +4540,12 @@ fn run_tool_loop(
                 tc.name.clone(),
                 result,
             ));
+
+            if consecutive_errors >= MAX_CONSECUTIVE_TOOL_ERRORS {
+                return Err(SemaError::Llm(format!(
+                    "aborting agent run after {consecutive_errors} consecutive tool errors"
+                )));
+            }
         }
     }
 
@@ -4551,6 +4575,18 @@ fn execute_tool_call(
             }
         })
         .ok_or_else(|| SemaError::Llm(format!("tool not found: {name}")))?;
+
+    // Validate the model-supplied arguments against the tool's parameter schema
+    // before invoking the handler, so a missing/wrong-typed argument is reported
+    // back to the model (via the loop's error-recovery path) and it can retry with
+    // corrected args — rather than silently calling the handler with bad input.
+    // (Reuses the extraction validator; both schema and args use keyword keys.)
+    let args_map = sema_core::json_to_value(arguments);
+    if let Err(msg) = validate_extraction(&args_map, &tool_def.parameters) {
+        return Err(SemaError::Llm(format!(
+            "invalid arguments for tool '{name}': {msg}"
+        )));
+    }
 
     // Convert JSON arguments to Sema values and call the handler
     let sema_args = json_args_to_sema(&tool_def.parameters, arguments, &tool_def.handler);
