@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.20.4
+
+Diagnostics release. Closes a special-form shadowing footgun and adds actionable hints for the most common cross-dialect mistakes.
+
+### Fixed
+
+- **Binding a special-form name silently mis-shadowed in operator position.** Because the bytecode lowerer is scope-free, a local binding whose name collides with a special form (`if`, `fn`, `let`, `and`, `cond`, `define`, `match`, …) could not override that form when used as the head of a call — the special form silently won, so `(let ((and (fn (a b) (* a b)))) (and 3 4))` returned `4` (the `and` special form), not `12`. Special-form names are now **reserved identifiers**: binding one in a `let`/`let*`/`letrec` binding, a `fn`/`lambda`/`defun`/`define` parameter, or a `define`/`defun`/named-`let` name is rejected at the bind site with a clear error (`cannot bind reserved special-form name '...'`). Regular names — including builtin *functions* like `list`/`map`/`filter` — still shadow freely. Matches the Common Lisp / Clojure model; see ADR #65 and `docs/limitations.md` #36.
+
+### Improved
+
+- **Actionable hints for common cross-dialect mistakes.** Type errors now redirect rather than just restating the expected type: `(+ 1 "x")` (mixing strings with other types) suggests `(str a b ...)`; `(get [1 2 3] 1)` / `(contains? [1 2 3] 1)` (Clojure-style vector indexing) suggest `(nth coll i)`; `(nth 1 coll)` (swapped arguments) explains that the order is `(nth collection index)`. Hints are added to both the VM intrinsic paths and the first-class stdlib functions.
+
 ## 1.20.3
 
 Bugfix release. Three correctness fixes surfaced by a multi-agent bug-hunt across subsystems the grammar fuzzer can't structurally reach.

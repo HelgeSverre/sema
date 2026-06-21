@@ -94,8 +94,14 @@ pub fn register(env: &sema_core::Env) {
     register_fn(env, "nth", |args| {
         check_arity!(args, "nth", 2);
         let idx_i = args[1].as_int().ok_or_else(|| {
-            SemaError::type_error("int", args[1].type_name())
-                .with_hint("nth: argument 2 must be an integer index")
+            // A collection in the index slot almost always means swapped args.
+            let swapped = args[1].as_list().is_some() || args[1].as_vector().is_some();
+            let hint = if swapped {
+                "nth: argument order is (nth collection index) — looks like the arguments are swapped"
+            } else {
+                "nth: argument order is (nth collection index); the index must be an integer"
+            };
+            SemaError::type_error("int", args[1].type_name()).with_hint(hint)
         })?;
         if idx_i < 0 {
             return Err(

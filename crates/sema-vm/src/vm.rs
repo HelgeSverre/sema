@@ -2044,7 +2044,8 @@ impl VM {
                             self.stack
                                 .push(map.get(&key).cloned().unwrap_or(Value::nil()));
                         } else {
-                            let err = SemaError::type_error("map or hashmap", coll.type_name());
+                            let err = SemaError::type_error("map or hashmap", coll.type_name())
+                                .with_hint(map_access_hint("get", &coll));
                             handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
                         }
                     }
@@ -2056,7 +2057,8 @@ impl VM {
                         } else if let Some(map) = coll.as_map_ref() {
                             self.stack.push(Value::bool(map.contains_key(&key)));
                         } else {
-                            let err = SemaError::type_error("map or hashmap", coll.type_name());
+                            let err = SemaError::type_error("map or hashmap", coll.type_name())
+                                .with_hint(map_access_hint("contains?", &coll));
                             handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
                         }
                     }
@@ -2100,7 +2102,17 @@ impl VM {
                                 handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
                             }
                             None => {
-                                let err = SemaError::type_error("int", idx_val.type_name());
+                                // A collection in the index slot almost always
+                                // means the args are swapped — nth is (nth coll idx).
+                                let swapped =
+                                    idx_val.as_list().is_some() || idx_val.as_vector().is_some();
+                                let hint = if swapped {
+                                    "nth: argument order is (nth collection index) — looks like the arguments are swapped"
+                                } else {
+                                    "nth: argument order is (nth collection index); the index must be an integer"
+                                };
+                                let err = SemaError::type_error("int", idx_val.type_name())
+                                    .with_hint(hint);
                                 handle_err!(self, fi, pc, err, pc - op::SIZE_OP, 'dispatch);
                             }
                         };
@@ -3439,6 +3451,17 @@ fn error_to_value(err: &SemaError) -> Value {
 // --- Arithmetic helpers ---
 
 #[inline(always)]
+/// Hint for `get`/`contains?` called on the wrong collection type. These work
+/// on maps only; users from Clojure expect them to index vectors too, so when
+/// the collection is a list/vector we redirect them to `nth`.
+fn map_access_hint(func: &str, coll: &Value) -> String {
+    if coll.as_list().is_some() || coll.as_vector().is_some() {
+        format!("{func} works on maps; use (nth coll i) to index a list or vector")
+    } else {
+        format!("{func}: expected a map as the first argument")
+    }
+}
+
 fn vm_add(a: &Value, b: &Value) -> Result<Value, SemaError> {
     use sema_core::ValueView;
     match (a.view(), b.view()) {
@@ -3451,10 +3474,23 @@ fn vm_add(a: &Value, b: &Value) -> Result<Value, SemaError> {
             s.push_str(&y);
             Ok(Value::string(&s))
         }
-        _ => Err(SemaError::type_error(
-            "number or string",
-            format!("{} and {}", a.type_name(), b.type_name()),
-        )),
+        _ => {
+            let err = SemaError::type_error(
+                "number or string",
+                format!("{} and {}", a.type_name(), b.type_name()),
+            );
+            // Most common mistake: one string + one non-string. `+` won't
+            // coerce — point them at `str`, which stringifies everything.
+            let mixing_string = matches!(a.view(), ValueView::String(_))
+                || matches!(b.view(), ValueView::String(_));
+            Err(if mixing_string {
+                err.with_hint(
+                    "+: cannot mix strings with other types; use (str a b ...) to build a string",
+                )
+            } else {
+                err
+            })
+        }
     }
 }
 

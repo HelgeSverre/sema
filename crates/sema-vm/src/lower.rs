@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use sema_core::{intern, SemaError, Span, SpanMap, Spur, Value, ValueView};
+use sema_core::{intern, resolve, SemaError, Span, SpanMap, Spur, Value, ValueView};
 
 use crate::core_expr::{CoreExpr, DoLoop, DoVar, LambdaDef, PromptEntry};
 
@@ -311,6 +311,33 @@ fn require_symbol(val: &Value, context: &str) -> Result<Spur, SemaError> {
         .ok_or_else(|| SemaError::eval(format!("{context}: expected a symbol")))
 }
 
+/// Reject binding a special-form name. Lowering is scope-free and resolves a
+/// special form before it ever knows about local bindings, so a binding whose
+/// name collides with a special form (`if`, `fn`, `let`, `and`, ...) cannot
+/// override that form in operator/head position — the special form silently
+/// wins. Rather than let that produce a confusing arity error or a silently
+/// wrong result, we reject such a binding at the bind site with a clear,
+/// actionable error. Special-form names are therefore reserved identifiers.
+/// See docs/limitations.md.
+fn reject_reserved_binding(spur: Spur, context: &str) -> Result<(), SemaError> {
+    if special_form_for(spur).is_some() {
+        let name = resolve(spur);
+        return Err(SemaError::eval(format!(
+            "{context}: cannot bind reserved special-form name '{name}'"
+        ))
+        .with_hint("special-form names (if, fn, let, and, ...) are reserved in operator position; rename the binding"));
+    }
+    Ok(())
+}
+
+/// Like [`require_symbol`], but also rejects special-form names — for use
+/// wherever the symbol becomes a *binding* (let/param/define name).
+fn require_binding_name(val: &Value, context: &str) -> Result<Spur, SemaError> {
+    let spur = require_symbol(val, context)?;
+    reject_reserved_binding(spur, context)?;
+    Ok(spur)
+}
+
 fn require_list<'a>(val: &'a Value, context: &str) -> Result<&'a [Value], SemaError> {
     val.as_list()
         .ok_or_else(|| SemaError::eval(format!("{context}: expected a list")))
@@ -333,9 +360,17 @@ fn parse_params(names: &[Spur]) -> (Vec<Spur>, Option<Spur>) {
 }
 
 fn extract_param_spurs(param_list: &[Value], context: &str) -> Result<Vec<Spur>, SemaError> {
+    let dot = intern(".");
     param_list
         .iter()
-        .map(|v| require_symbol(v, context))
+        .map(|v| {
+            let spur = require_symbol(v, context)?;
+            // The `.` rest-marker is not a binding name; everything else is.
+            if spur != dot {
+                reject_reserved_binding(spur, context)?;
+            }
+            Ok(spur)
+        })
         .collect()
 }
 
@@ -457,6 +492,7 @@ fn parse_bindings(bindings_val: &Value, context: &str) -> Result<Vec<(Spur, Core
         }
         let init = lower_expr(&pair[1], false)?;
         if let Some(name) = pair[0].as_symbol_spur() {
+            reject_reserved_binding(name, context)?;
             bindings.push((name, init));
         } else if is_destructuring_pattern(&pair[0]) {
             bindings.extend(lower_destructuring_bindings(&pair[0], init)?);
@@ -557,6 +593,7 @@ fn lower_define(args: &[Value]) -> Result<CoreExpr, SemaError> {
             if args.len() != 2 {
                 return Err(SemaError::arity("define", "2", args.len()));
             }
+            reject_reserved_binding(spur, "define")?;
             let val = lower_expr(&args[1], false)?;
             Ok(CoreExpr::Define(spur, Box::new(val)))
         }
@@ -564,7 +601,7 @@ fn lower_define(args: &[Value]) -> Result<CoreExpr, SemaError> {
             if sig.is_empty() {
                 return Err(SemaError::eval("define: empty function signature"));
             }
-            let name_spur = require_symbol(&sig[0], "define")?;
+            let name_spur = require_binding_name(&sig[0], "define")?;
             let param_spurs = extract_param_spurs(&sig[1..], "define")?;
             let (params, rest) = parse_params(&param_spurs);
             let body = lower_body(&args[1..], true)?;
@@ -608,7 +645,7 @@ fn lower_defun(args: &[Value]) -> Result<CoreExpr, SemaError> {
     if args.len() < 3 {
         return Err(SemaError::arity("defun", "3+", args.len()));
     }
-    let name_spur = require_symbol(&args[0], "defun")?;
+    let name_spur = require_binding_name(&args[0], "defun")?;
     let param_list = require_list(&args[1], "defun")?;
     let param_spurs = extract_param_spurs(param_list, "defun")?;
     let (params, rest) = parse_params(&param_spurs);
@@ -664,6 +701,7 @@ fn lower_lambda(args: &[Value], name: Option<Spur>) -> Result<CoreExpr, SemaErro
                     hit_dot = true;
                     continue;
                 }
+                reject_reserved_binding(s, "lambda")?;
                 if hit_dot {
                     rest_spur = Some(s);
                     continue;
@@ -723,6 +761,7 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
         if args.len() < 3 {
             return Err(SemaError::arity("named let", "3+", args.len()));
         }
+        reject_reserved_binding(loop_name, "named let")?;
         let bindings_list = require_list(&args[1], "named let")?;
         let mut bindings = Vec::new();
         for binding in bindings_list {
@@ -732,7 +771,7 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
                     "named let: each binding must have 2 elements",
                 ));
             }
-            let name = require_symbol(&pair[0], "named let")?;
+            let name = require_binding_name(&pair[0], "named let")?;
             let init = lower_expr(&pair[1], false)?;
             bindings.push((name, init));
         }
@@ -784,6 +823,7 @@ fn lower_let(args: &[Value], tail: bool) -> Result<CoreExpr, SemaError> {
             }
             let init = lower_expr(&pair[1], false)?;
             if let Some(name) = pair[0].as_symbol_spur() {
+                reject_reserved_binding(name, "let")?;
                 // Simple binding: goes into both phases (parallel eval, then visible)
                 let tmp = gensym("let");
                 parallel_bindings.push((tmp, init));

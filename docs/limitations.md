@@ -195,6 +195,23 @@ This worked on the retired tree-walker (late name resolution). On the VM, avoid 
 
 ---
 
+### 36. Special-form names are reserved identifiers (cannot be bound)
+
+The bytecode lowerer (`crates/sema-vm/src/lower.rs`) is **scope-free**: it resolves a special form (`if`, `fn`/`lambda`, `let`, `and`, `or`, `cond`, `define`, `quote`, `match`, …) from the head symbol of a call *before* it knows anything about local bindings. A local binding whose name collides with a special form therefore cannot override that form when used in operator/head position — the special form silently wins. Historically `(let ((and (fn (a b) (* a b)))) (and 3 4))` returned `4` (the `and` special form), not `12` (the lambda).
+
+Rather than allow that silently-wrong result (or a confusing arity error), Sema now **rejects binding a special-form name at the bind site** — in `let`/`let*`/`letrec` bindings, `fn`/`lambda`/`defun`/`define` parameters, and `define`/`defun`/named-`let` names:
+
+```sema
+(let ((and (fn (a b) (* a b)))) (and 3 4))
+; Error: let: cannot bind reserved special-form name 'and'
+;   hint: special-form names (if, fn, let, and, ...) are reserved in
+;         operator position; rename the binding
+```
+
+This matches the Common Lisp / Clojure tradition (special operators are reserved and cannot be shadowed in operator position), rather than Scheme's hygienic full-shadowing model (which would require threading lexical scope through lowering — see the rejected "full scope-aware fix" in the design discussion). Regular (non-special-form) names — including builtin *functions* like `list`, `map`, `filter` — shadow freely: `(let ((list (fn (x) (* x 2)))) (list 5))` → `10`. Enforced by `reject_reserved_binding`; regression tests `reserved_*` / `shadow_builtin_*` in `dual_eval_test.rs`.
+
+---
+
 ## Gap Analysis — Remaining Items
 
 | #   | Gap                                      | Priority | Effort    | Notes                                                                        |

@@ -490,6 +490,63 @@ dual_eval_error_tests! {
     multi_defmethod_no_args: "(defmethod)" => "defmethod expects 3",
 }
 
+// Special-form names are reserved: binding one (let/param/define/defun) is
+// rejected at the bind site rather than silently shadow-failing in operator
+// position. See docs/limitations.md and lower.rs::reject_reserved_binding.
+dual_eval_error_tests! {
+    reserved_let_fn: "(let ((fn (fn (x) (+ x 10)))) (fn 5))" => "reserved special-form name",
+    reserved_let_and: "(let ((and (fn (a b) (* a b)))) (and 3 4))" => "reserved special-form name",
+    reserved_let_if_value: "(let ((if 5)) (+ if 1))" => "reserved special-form name",
+    reserved_define: "(define if 5)" => "reserved special-form name",
+    reserved_defun_name: "(defun let (x) x)" => "reserved special-form name",
+    reserved_lambda_param: "(fn (if) if)" => "reserved special-form name",
+    reserved_letstar: "(let* ((or 1)) or)" => "reserved special-form name",
+    reserved_named_let: "(let when ((x 0)) x)" => "reserved special-form name",
+}
+
+// Regular (non-special-form) names still shadow freely — only special forms
+// are reserved.
+dual_eval_tests! {
+    shadow_builtin_list_fn: "(let ((list (fn (x) (* x 2)))) (list 5))" => Value::int(10),
+    shadow_builtin_map_var: "(let ((map 7)) (+ map 1))" => Value::int(8),
+}
+
+// Actionable redirect hints on common cross-dialect mistakes. The hint lives in
+// SemaError::hint() (not the Display message), so these assert on it directly.
+mod redirect_hints {
+    use sema_eval::Interpreter;
+
+    fn hint_of(input: &str) -> String {
+        let interp = Interpreter::new();
+        let err = interp
+            .eval_str_compiled(input)
+            .expect_err("expected an error");
+        err.hint()
+            .unwrap_or_else(|| panic!("no hint on error for `{input}`: {err}"))
+            .to_string()
+    }
+
+    #[test]
+    fn add_mixing_string_suggests_str() {
+        assert!(hint_of(r#"(+ 1 "x")"#).contains("use (str a b ...)"));
+    }
+
+    #[test]
+    fn get_on_vector_suggests_nth() {
+        assert!(hint_of("(get [1 2 3] 1)").contains("use (nth coll i)"));
+    }
+
+    #[test]
+    fn contains_on_vector_suggests_nth() {
+        assert!(hint_of("(contains? [1 2 3] 1)").contains("use (nth coll i)"));
+    }
+
+    #[test]
+    fn nth_swapped_args_flagged() {
+        assert!(hint_of("(nth 1 (list 10 20 30))").contains("arguments are swapped"));
+    }
+}
+
 // ============================================================
 // Dialect Aliases — dual eval (tree-walker + VM)
 // ============================================================

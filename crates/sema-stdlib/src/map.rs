@@ -35,8 +35,14 @@ pub fn register(env: &sema_core::Env) {
         if let Some(map) = args[0].as_map_ref() {
             return Ok(map.get(&args[1]).cloned().unwrap_or(default));
         }
-        Err(SemaError::type_error("map or hashmap", args[0].type_name())
-            .with_hint("get: expected a map as the first argument"))
+        // `get` is maps-only; users coming from Clojure expect it to index
+        // vectors too — redirect them to `nth`.
+        let hint = if args[0].as_list_rc().is_some() || args[0].as_vector().is_some() {
+            "get works on maps; use (nth coll i) to index a list or vector"
+        } else {
+            "get: expected a map as the first argument"
+        };
+        Err(SemaError::type_error("map or hashmap", args[0].type_name()).with_hint(hint))
     });
 
     register_fn(env, "assoc", |args| {
