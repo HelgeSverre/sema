@@ -22,15 +22,22 @@ latency, or crash your script.
 
 ```bash
 docker run --rm -d --name jaeger -p 4318:4318 -p 16686:16686 \
-  jaegertracing/all-in-one
+  -e COLLECTOR_OTLP_ENABLED=true jaegertracing/all-in-one
 
+# Uses your default provider + its default model — set an API key
+# (ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / …) and you're done.
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
-  sema -e '(llm/complete "say hi" {:model "gpt-5-mini" :max-tokens 16})'
+  sema -e '(llm/complete "say hi" {:max-tokens 16})'
 ```
 
 Open <http://localhost:16686>, pick the **sema** service, and you'll see a `chat
-gpt-5-mini` span with `gen_ai.provider.name`, request/response model, input/output
-tokens, `gen_ai.usage.cost_usd`, and the finish reason.
+<model>` span with `gen_ai.provider.name`, request/response model, input/output
+tokens, `gen_ai.usage.cost`, and the finish reason.
+
+> Pin a specific provider/model by selecting it first — e.g.
+> `(llm/set-default :openai)` then `{:model "gpt-5-mini"}`, or
+> `(llm/set-default :anthropic)` then `{:model "claude-haiku-4-5-20251001"}`. A model
+> id must match the active provider, or that provider returns a 404.
 
 ## Configuration
 
@@ -58,7 +65,7 @@ No collector? Write spans straight to disk as one JSON object per line:
 
 ```bash
 SEMA_OTEL_FILE=/tmp/sema-trace.jsonl \
-  sema -e '(llm/complete "ping" {:model "gpt-5-mini" :max-tokens 16})'
+  sema -e '(llm/complete "ping" {:max-tokens 16})'
 
 cat /tmp/sema-trace.jsonl | jq .
 ```
