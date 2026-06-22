@@ -1,11 +1,14 @@
 # LLM Cassettes — record/replay for deterministic LLM testing & demos
 
-**Status:** M1 + Sema surface SHIPPED (2026-06-22). `complete`/`chat`/`extract` and
-**agent loops** record/replay deterministically and keylessly; folds with otel + cache
-+ cost accounting (see `crates/sema-llm/src/cassette.rs`, tests `llm_cassette_test` /
-`otel_cassette_test`, docs `website/docs/llm/cassettes.md`). **Remaining:** M2
-(streaming chunk-array + embeddings + batch), M4 (record tapes for the playground
-`llm-tools` examples + wire `SEMA_LLM_CASSETTE_MODE=replay` into `make test`).
+**Status:** M1–M3 SHIPPED (2026-06-22, in release 1.23.0). `complete`/`chat`/`extract`,
+**agent loops**, **streaming** (`llm/stream`, chunk-array) and **embeddings**
+(`llm/embed`) all record/replay deterministically and keylessly; the Sema surface
+(`llm/with-cassette`, `llm/cassette-load`/`-save`/`-eject`, `SEMA_LLM_CASSETTE[_MODE]`)
+is live; folds with otel + cache + cost accounting (see `crates/sema-llm/src/cassette.rs`,
+tests `llm_cassette_test` / `otel_cassette_test`, docs `website/docs/llm/cassettes.md`).
+**Remaining — M4 only:** record real tapes for the playground `llm-tools` examples and
+the agentic test suite, and wire `SEMA_LLM_CASSETTE_MODE=replay` into `make test` so the
+LLM/agentic suite runs keyless in CI. (Not archived — M4 is unstarted.)
 
 Implementation note vs. the sketch below: rather than a registry-swapped decorator
 provider (which fights Rust's "can't move out of `Box<dyn Trait>`" on scope exit), the

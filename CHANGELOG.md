@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.23.0
 
 ### Added
 
@@ -21,16 +21,6 @@
   its scope. The tape stores only the response keyed by a request hash — no prompt
   text, key, or header touches disk (redaction by construction). Docs:
   `website/docs/llm/cassettes.md`.
-
-### Changed
-
-- **`sema-llm` no longer carries a redundant second evaluator callback.** Tool
-  handlers, Lisp-provider `:complete` functions, and streaming/agent callbacks now run
-  through `sema_core::call_callback` → the canonical `sema_eval::call_value` (the VM's
-  nested-closure path), like `sema-stdlib`. Removes the bespoke `EVAL_FN` /
-  `call_value_fn` / `simple_eval`, so `set!`, captured upvalues, and async/yield inside
-  a tool handler now share the same VM semantics as standard-library HOFs. No
-  user-facing API change.
 
 ### CI
 
