@@ -20,7 +20,16 @@ serde_json = { workspace = true }
 # compiles to no-op spans and links none of the export machinery (Decision #11).
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 opentelemetry = "0.32"
-opentelemetry_sdk = { version = "0.32", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.32", features = [
+    "trace",
+    "metrics",
+    # Async-runtime span processor + metric reader, used ONLY for the gRPC (tonic)
+    # OTLP path (tonic needs a live tokio reactor; the thread-based processors used
+    # for HTTP do not). rt-tokio pulls in the runtime::Tokio glue.
+    "rt-tokio",
+    "experimental_trace_batch_span_processor_with_async_runtime",
+    "experimental_metrics_periodicreader_with_async_runtime",
+] }
 opentelemetry-otlp = { version = "0.32", default-features = false, features = [
     "trace",
     "metrics",

@@ -2,7 +2,7 @@
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Once;
+use std::sync::{Once, OnceLock};
 use std::time::Duration;
 
 use opentelemetry::global;
@@ -81,14 +81,42 @@ thread_local! {
     static STACK: RefCell<Vec<Context>> = const { RefCell::new(Vec::new()) };
 }
 
+/// OTel schema version our `gen_ai.*` attributes conform to (GenAI semconv baseline).
+const OTEL_SCHEMA_URL: &str = "https://opentelemetry.io/schemas/1.37.0";
+
 fn scope() -> InstrumentationScope {
+    // The instrumentation scope identifies *this* library and the semconv schema it
+    // emits, plus a couple of descriptive attributes so the scope isn't bare.
     InstrumentationScope::builder("sema")
         .with_version(VERSION)
+        .with_schema_url(OTEL_SCHEMA_URL)
+        .with_attributes([
+            KeyValue::new("sema.otel.instrumentation", "gen_ai"),
+            KeyValue::new("telemetry.distro.name", "sema-otel"),
+            KeyValue::new("telemetry.distro.version", VERSION),
+        ])
         .build()
 }
 
 fn service_name() -> String {
     std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "sema".to_string())
+}
+
+/// Build the OTel `Resource` describing the producing service. Enriched beyond the
+/// bare service name so backends can filter/group on version + language + runtime.
+fn build_resource() -> Resource {
+    Resource::builder()
+        .with_service_name(service_name())
+        .with_schema_url(
+            [
+                KeyValue::new("service.version", VERSION),
+                KeyValue::new("telemetry.sdk.language", "rust"),
+                KeyValue::new("process.runtime.name", "sema"),
+                KeyValue::new("process.runtime.version", VERSION),
+            ],
+            OTEL_SCHEMA_URL,
+        )
+        .build()
 }
 
 // ---------------------------------------------------------------------------
@@ -105,14 +133,33 @@ pub struct OtelGuard {
 
 impl Drop for OtelGuard {
     fn drop(&mut self) {
-        if let Some(p) = &self.provider {
-            let _ = p.force_flush();
-            let _ = p.shutdown_with_timeout(Duration::from_secs(3));
+        // The async-runtime (gRPC) processors' force_flush/shutdown block until the
+        // export completes and IGNORE their timeout arg — against a dead collector that
+        // could hang process exit. Run the whole flush+shutdown on a side thread and
+        // join it with a hard wall-clock budget; if it overruns, abandon it and let
+        // process teardown reclaim the static runtime. (The JSONL simple exporter is
+        // synchronous and flushed inside this same call — unaffected.)
+        let provider = self.provider.take();
+        let meter = self.meter.take();
+        let handle = std::thread::spawn(move || {
+            if let Some(p) = provider {
+                let _ = p.force_flush();
+                let _ = p.shutdown_with_timeout(Duration::from_secs(3));
+            }
+            if let Some(m) = meter {
+                let _ = m.force_flush();
+                let _ = m.shutdown();
+            }
+        });
+        // Poll for completion up to ~4s without blocking forever.
+        let deadline = std::time::Instant::now() + Duration::from_secs(4);
+        while !handle.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(25));
         }
-        if let Some(m) = &self.meter {
-            let _ = m.force_flush();
-            let _ = m.shutdown();
+        if handle.is_finished() {
+            let _ = handle.join();
         }
+        // else: abandon the thread; process exit tears down the runtime.
     }
 }
 
@@ -149,6 +196,30 @@ pub fn use_host_global() {
     ENABLED.store(true, Ordering::Relaxed);
 }
 
+/// Process-lived multi-thread tokio runtime, created lazily ONLY when the gRPC
+/// (tonic) OTLP path is used. tonic's channel + the async-runtime span/metric
+/// processors need a live reactor on the export thread; HTTP (reqwest-blocking) and
+/// the JSONL sink need none, so they never touch this. Never dropped (process-static)
+/// so flush/shutdown at exit can't deadlock. `None` if the runtime fails to build
+/// (degrade silently — never panic on the OTel path).
+static OTEL_RT: OnceLock<Option<tokio::runtime::Runtime>> = OnceLock::new();
+fn otel_runtime() -> Option<&'static tokio::runtime::Runtime> {
+    OTEL_RT
+        .get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .thread_name("sema-otel")
+                .enable_all()
+                .build()
+                .ok()
+        })
+        .as_ref()
+}
+
+fn otlp_protocol() -> String {
+    std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "http/protobuf".into())
+}
+
 /// Build a provider from the §4.1 env table, or `None` when nothing is configured.
 fn build_provider() -> Option<SdkTracerProvider> {
     let file = std::env::var("SEMA_OTEL_FILE")
@@ -163,10 +234,7 @@ fn build_provider() -> Option<SdkTracerProvider> {
         return None; // install nothing — zero-cost no-op
     }
 
-    let resource = Resource::builder()
-        .with_service_name(service_name())
-        .build();
-    let mut builder = SdkTracerProvider::builder().with_resource(resource);
+    let mut builder = SdkTracerProvider::builder().with_resource(build_resource());
 
     if let Some(path) = file {
         if let Ok(exp) = JsonlFileExporter::new(&path) {
@@ -175,42 +243,51 @@ fn build_provider() -> Option<SdkTracerProvider> {
         }
     }
     if otlp.is_some() {
-        if let Some(exp) = build_otlp_exporter() {
-            // Batch exporter → thread-based BatchSpanProcessor (no tokio on HTTP path);
-            // hot path does a non-blocking enqueue, a dead collector drops on full.
-            builder = builder.with_batch_exporter(exp);
-        }
+        builder = attach_otlp_span_exporter(builder);
     }
     Some(builder.build())
 }
 
-/// Dispatch on `OTEL_EXPORTER_OTLP_PROTOCOL` (Decision #3). HTTP (default) needs no
-/// tokio runtime; gRPC construction needs a live reactor (best-effort).
-fn build_otlp_exporter() -> Option<opentelemetry_otlp::SpanExporter> {
+/// Attach the OTLP span exporter per `OTEL_EXPORTER_OTLP_PROTOCOL` (Decision #3).
+/// HTTP/JSON stay on the lightweight thread-based `BatchSpanProcessor` (no reactor).
+/// gRPC uses the async-runtime processor on the static tokio runtime so tonic exports
+/// actually run; the `rt.enter()` guard is held across BOTH builds (channel + worker).
+fn attach_otlp_span_exporter(
+    builder: opentelemetry_sdk::trace::TracerProviderBuilder,
+) -> opentelemetry_sdk::trace::TracerProviderBuilder {
     use opentelemetry_otlp::{Protocol, SpanExporter, WithExportConfig};
-    let proto =
-        std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "http/protobuf".into());
-    let result = match proto.as_str() {
+    match otlp_protocol().as_str() {
         "grpc" => {
-            // tonic must be constructed inside a tokio context.
-            match tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            {
-                Ok(rt) => rt.block_on(async { SpanExporter::builder().with_tonic().build() }),
-                Err(_) => return None,
+            if let Some(rt) = otel_runtime() {
+                let _g = rt.enter();
+                if let Ok(exp) = SpanExporter::builder().with_tonic().build() {
+                    let proc = opentelemetry_sdk::trace::span_processor_with_async_runtime::BatchSpanProcessor::builder(
+                        exp,
+                        opentelemetry_sdk::runtime::Tokio,
+                    )
+                    .build();
+                    return builder.with_span_processor(proc);
+                }
             }
+            builder
         }
-        "http/json" => SpanExporter::builder()
+        "http/json" => match SpanExporter::builder()
             .with_http()
             .with_protocol(Protocol::HttpJson)
-            .build(),
-        _ => SpanExporter::builder()
+            .build()
+        {
+            Ok(exp) => builder.with_batch_exporter(exp),
+            Err(_) => builder,
+        },
+        _ => match SpanExporter::builder()
             .with_http()
             .with_protocol(Protocol::HttpBinary)
-            .build(),
-    };
-    result.ok()
+            .build()
+        {
+            Ok(exp) => builder.with_batch_exporter(exp),
+            Err(_) => builder,
+        },
+    }
 }
 
 /// Build a meter provider (OTLP only — the JSONL sink is trace-only). `None` when no
@@ -221,41 +298,44 @@ fn build_meter_provider() -> Option<SdkMeterProvider> {
         .or_else(|| std::env::var("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT").ok())
         .filter(|s| !s.is_empty());
     otlp.as_ref()?;
-    let exporter = build_otlp_metric_exporter()?;
-    let reader = PeriodicReader::builder(exporter).build();
-    let resource = Resource::builder()
-        .with_service_name(service_name())
-        .build();
-    Some(
-        SdkMeterProvider::builder()
-            .with_reader(reader)
-            .with_resource(resource)
-            .build(),
-    )
-}
 
-fn build_otlp_metric_exporter() -> Option<opentelemetry_otlp::MetricExporter> {
     use opentelemetry_otlp::{MetricExporter, Protocol, WithExportConfig};
-    let proto =
-        std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL").unwrap_or_else(|_| "http/protobuf".into());
-    let result = match proto.as_str() {
-        "grpc" => match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(rt) => rt.block_on(async { MetricExporter::builder().with_tonic().build() }),
-            Err(_) => return None,
-        },
-        "http/json" => MetricExporter::builder()
-            .with_http()
-            .with_protocol(Protocol::HttpJson)
-            .build(),
-        _ => MetricExporter::builder()
-            .with_http()
-            .with_protocol(Protocol::HttpBinary)
-            .build(),
-    };
-    result.ok()
+    match otlp_protocol().as_str() {
+        "grpc" => {
+            let rt = otel_runtime()?;
+            let _g = rt.enter();
+            let exp = MetricExporter::builder().with_tonic().build().ok()?;
+            // Async-runtime periodic reader on the static tokio runtime so tonic exports run.
+            let reader = opentelemetry_sdk::metrics::periodic_reader_with_async_runtime::PeriodicReader::builder(
+                exp,
+                opentelemetry_sdk::runtime::Tokio,
+            )
+            .build();
+            Some(
+                SdkMeterProvider::builder()
+                    .with_reader(reader)
+                    .with_resource(build_resource())
+                    .build(),
+            )
+        }
+        proto => {
+            let exp = MetricExporter::builder()
+                .with_http()
+                .with_protocol(if proto == "http/json" {
+                    Protocol::HttpJson
+                } else {
+                    Protocol::HttpBinary
+                })
+                .build()
+                .ok()?;
+            Some(
+                SdkMeterProvider::builder()
+                    .with_reader(PeriodicReader::builder(exp).build())
+                    .with_resource(build_resource())
+                    .build(),
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
